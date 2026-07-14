@@ -11,14 +11,22 @@ concepts, and resource/provider hooks feel familiar, while the implementation
 fits pipy's native runtime boundaries, metadata-first archive, and
 standard-library-first posture.
 
-Implementation status: **partially implemented.** Slices 1–20 plus the first
-package-source/update follow-ons have landed (see "Suggested Implementation
-Slices"), including **package runtime composition** — installed local-path and
-managed git package resources (extensions/skills/prompts/themes) now flow
-through discovery at lowest precedence with Pi-shaped enablement filters.
+Implementation status: **partially implemented.** Slices 1–25 plus later
+focused editor, chrome, message-delivery, entry-rendering, and OAuth follow-ons
+have landed (see "Suggested Implementation Slices"), including **package
+runtime composition** — installed local-path and managed git package resources
+(extensions/skills/prompts/themes) now flow through discovery at lowest
+precedence with Pi-shaped enablement filters.
 The pre-existing pipy runtime resources (bounded Markdown skills, prompt
 templates, custom slash commands, and chrome themes) remain supported alongside
 the Python extension API.
+
+The 2026-07-14 Pi `0.80.6` refresh identifies additional current gaps beyond
+the older rich-UI list: `project_trust`/`ctx.isProjectTrusted()`,
+`before_provider_headers`, `agent_settled`, durable TUI-only entry renderers,
+and cache-friendly dynamic tool loading with provider-native message anchoring.
+Treat each as a separate slice; do not fold them into the broad custom-component
+track.
 
 Comparability to Pi: Pipy is now **Pi-shaped for core local extension workflows,
 but not Pi-equivalent as an extension platform**. The landed API is enough for

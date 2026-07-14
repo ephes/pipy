@@ -402,10 +402,10 @@ CLI:
   ssh, or local path; `-l` for project-local).
 - `pi remove <source> [-l]` (alias `pi uninstall`) — remove a package.
 - `pi list` — list installed packages from user and project settings.
-- `pi update [source|self|pi] [--self] [--extensions] [--extension <source>]
-  [--force]` — by default **bare `pi update` updates BOTH installed extensions
-  AND pi itself**. `pi update self` / `pi update pi` updates pi only,
-  `pi update --extensions` updates packages only, `pi update <source>` /
+- `pi update [source|self|pi] [--self] [--extensions] [--all]
+  [--extension <source>] [--force]` — since Pi `0.79.7`, bare `pi update`
+  updates pi only. `--all` composes pi plus installed packages,
+  `--extensions` updates packages only, `pi update <source>` /
   `--extension <source>` updates one package, and `--force` reinstalls pi even
   when current.
 - `pi config` — package/provider config flows.
@@ -422,9 +422,10 @@ The pipy extension/package install/remove/list/config flows (the Python-only,
 Pi-shaped equivalents of `pi install`/`remove`/`list`/`config` plus extension
 updates) are owned by [extension-api.md](/extension-api/) and specified there,
 not here. **This spec covers only pipy's self-update and version-check
-surfaces.** The bare-`pipy update` "update both extensions and self" behavior is
-a cross-cutting concern: this spec defines the self half, and the extension half
-is defined in `docs/extension-api.md`.
+surfaces.** Pipy's current bare-`update` composition predates Pi's self-only
+change and is now an explicit parity gap: realign bare update to self-only and
+add `--all` under the no-deprecation policy. This spec defines the self half,
+and the extension half is defined in `docs/extension-api.md`.
 
 ### Version check
 
@@ -479,10 +480,11 @@ Provide a Pi-shaped update CLI, mapped to Python tooling:
   name. Print a fail-safe manual message instead. This prevents accidentally
   installing an unrelated package that happens to use the development project
   name.
-- A bare `pipy update` now composes both halves: it updates installed extension
-  packages through [extension-api.md](/extension-api/)'s managed package update
-  path, then runs this self-update half. `--extensions` / `--extension <source>`
-  select package updates only; `self` / `pipy` selects self-update only.
+- Current shipped behavior: bare `pipy update` composes both halves by updating
+  installed packages through [extension-api.md](/extension-api/) and then
+  running this self-update half. Selected follow-on: match current Pi by making
+  bare update self-only and adding `--all`; keep `--extensions` /
+  `--extension <source>` package-only and `self` / `pipy` self-only.
 
 `pipy update self` / `pipy update pipy` is the in-scope self-update parity
 surface. The broader

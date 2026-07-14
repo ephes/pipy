@@ -84,7 +84,7 @@ references for repeatable local setup.
 
 ### OpenAI-Codex timeout and failure behavior
 
-OpenAI-Codex SSE requests use a five-minute (300000 ms) header/body idle
+OpenAI-Codex SSE requests and WebSocket receives use a five-minute (300000 ms) idle
 timeout by default, rather than a 60-second total-turn deadline. Configure
 `httpIdleTimeoutMs` in settings, or use `retry.provider.timeoutMs` as the
 provider override. Values are integer milliseconds; `0` disables the deadline.
@@ -101,8 +101,12 @@ the turn fails without replay so visible output and tool work cannot be
 duplicated. Backoff is cancellation-aware and honors bounded `retry-after-ms`
 and `Retry-After` delays. `retry.provider.maxRetries` overrides the global
 retry count; `retry.enabled=false` makes exactly one outer attempt. There is no
-higher-level automatic turn replay. Live WebSocket selection remains the next
-reviewed implementation slice, so `transport` is still SSE-only here.
+higher-level automatic turn replay. OpenAI-Codex now honors `transport: auto`,
+`sse`, and `websocket`: `auto` and explicit `websocket` try the Responses
+WebSocket path first, fall back to SSE only on recognized pre-event transport
+failures, remember SSE fallback for later `auto` calls, and never fall back
+after provider progress. Long-lived WebSocket reuse/continuation caching remains
+out of scope.
 
 ### Azure OpenAI configuration
 

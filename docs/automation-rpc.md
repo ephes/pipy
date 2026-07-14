@@ -1,13 +1,16 @@
 # Pi-Style Automation Modes: JSON Event Stream and RPC Protocol
 
-Status: **shipped** (current). The Pi-compatible headless automation surfaces
-described here — `--mode json`, `--print`/`-p`, and `--mode rpc` — are
-implemented and gated by
+Status: **shipped baseline; current Pi delta tracked**. The Pi-compatible
+headless automation surfaces described here — `--mode json`, `--print`/`-p`,
+and `--mode rpc` — are implemented and gated by
 `scripts/parity_checks/automation_rpc_conformance.py --json` plus the focused
 tests in `tests/test_native_automation_*.py`. This document is both the design
 reference and the behavior contract; it is a pipy-owned Python design that reuses
 the real native tool loop and session tree, not a TypeScript port. The original
-specification was researched from the local Pi reference on 2026-06-02.
+specification was researched from the local Pi reference on 2026-06-02. Pi
+`0.80.3` later added `get_entries` and `get_tree`, taking the current command
+union to 31; those two commands and the later `agent_settled` event are explicit
+follow-ons rather than part of pipy's green 29-command baseline.
 
 Implementation map: `src/pipy_harness/native/automation/` (`jsonl.py` framing,
 `events.py`/`serialize.py` the Pi-shaped event vocabulary, `run_modes.py` the
@@ -260,9 +263,8 @@ in `packages/coding-agent/src/modes/rpc/rpc-mode.ts`.
 
 ### Command vocabulary (stdin)
 
-Every command is `{ "type": "<name>", "id"?: string, ...args }`. The complete
-set pipy must accept (Pi `RpcCommand`, `rpc-types.ts`), with the response each
-produces (Pi `RpcResponse`):
+Every command is `{ "type": "<name>", "id"?: string, ...args }`. The shipped
+baseline set pipy accepts, with the response each produces, is:
 
 Prompting / run control:
 
@@ -328,7 +330,7 @@ Session ops (native session tree, `docs/session-tree.md`):
 | `set_session_name` | `name: string` | none (error if name is empty after trim) |
 | `export_html` | `outputPath?: string` | `{ path: string }` — deferred Pi-feature; may return an error response until implemented |
 
-That is the full Pi vocabulary: **29 command types** — `prompt`, `steer`,
+That is pipy's gated **29-command baseline** — `prompt`, `steer`,
 `follow_up`, `abort`, `new_session`, `get_state`, `set_model`, `cycle_model`,
 `get_available_models`, `set_thinking_level`, `cycle_thinking_level`,
 `set_steering_mode`, `set_follow_up_mode`, `compact`, `set_auto_compaction`,
@@ -339,10 +341,25 @@ Both `get_messages` and `get_commands` are distinct command types and are
 counted. (Plus `extension_ui_response`, which is an input control line, not a
 command.)
 
-Pipy command names match Pi exactly so an existing Pi RPC client drives pipy
-unchanged. Commands targeting features pipy has not yet implemented (e.g.
-`export_html`, or model/thinking ops on a single-provider build) must return a
-well-formed **error response**, never a crash or an unknown-command response.
+Current Pi main has two additional read-only commands that pipy does not yet
+accept:
+
+| Command | Args | Pi response `data` | Pipy status |
+| --- | --- | --- | --- |
+| `get_entries` | `since?: string` | `{ entries: SessionEntry[], leafId: string \| null }`; an unknown `since` id errors | selected RPC follow-on |
+| `get_tree` | (none) | `{ tree: SessionTreeNode[], leafId: string \| null }` | selected RPC follow-on |
+
+Pi also emits `agent_settled` after the full run is idle, including automatic
+retries, auto-compaction retries, and queued continuations. Pipy currently ends
+its observable lifecycle at `agent_end`; settled semantics are a separate
+follow-on shared with the extension surface.
+
+Within the 29-command baseline, pipy command names match Pi so baseline clients
+drive pipy unchanged. A current Pi client that sends `get_entries` or `get_tree`
+receives an unknown-command response until the follow-on lands. Commands in the
+accepted baseline that target unavailable features (e.g. `export_html`, or
+model/thinking ops on a single-provider build) must return a well-formed **error
+response**, never a crash or an unknown-command response.
 
 ### Response envelope
 

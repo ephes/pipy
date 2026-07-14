@@ -1,37 +1,64 @@
 # Pi-Mono Gap Audit
 
 Status: comparison snapshot and implementation specification, originally
-written 2026-06-02 and groomed 2026-06-17 after session CLI/pickers,
-settings/keybindings, TUI workflow, provider-catalog construction, JSON/RPC
-automation, and extension/package slice-12 runtime composition shipped. The
-extension follow-on section was refreshed 2026-06-20 after extension
-live-session hooks, dynamic tool-loop flags, simple `ctx.ui` primitives, the
-first custom session-entry/message-rendering slice, and bounded extension OAuth
-`/login` auth-store wiring shipped.
+written 2026-06-02 and comprehensively refreshed 2026-07-14 after the
+OpenAI-Codex transport closeout. The current delta pass compares pipy with local
+Pi main `b084d2fb` (`0.80.6` plus 2026-07-13 unreleased changes) and adds the
+project-trust, `max` thinking, RPC, extension, package, provider, settings, and
+TUI changes that landed after the earlier June snapshot.
 
 This audit compares pipy's current docs/specs and command help with the local Pi
-reference in `/Users/jochen/src/pi-mono` plus the installed `pi 0.78.0` help.
+reference in `/Users/jochen/src/pi-mono` at `b084d2fb`.
 It is a slice-selection aid: the detailed behavioral specs remain the source of
 truth for each topic, but this page records the biggest remaining gaps in one
 place and states what pipy should implement next.
 
-## Active operator-selected gap (2026-07-13)
+## Active next gap (groomed 2026-07-14)
 
-OpenAI-Codex transport reliability is in flight ahead of the older ranked
-queue. Research and design are complete. The shipped first two runtime slices
-replace the hard-coded 60-second SSE socket timeout with a configurable
-300-second idle-timeout policy, normalize recognized transport/read failures,
-and retry bounded transient request-plus-stream attempts only before the first
-provider event. Cancellation remains non-retryable and the no-post-event-replay
-boundary prevents duplicate text, reasoning, tool calls, or effects.
+**GPT-5.6 Sol plus model-aware `max` thinking** is the next bounded slice. Pi
+`0.80.6` exposes `openai-codex/gpt-5.6-sol`, a 372K subscription context
+window, and a seventh thinking level whose mapped value reaches the Codex
+request as `reasoning.effort`. Pipy stops at GPT-5.5/`xhigh`. The pinned scope,
+request field list, tests, and deferrals are already written in
+[gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md).
 
-The real `auto|sse|websocket` behavior with Pi-shaped pre-event fallback now
-ships. Parity-runner recognition of the exact historical raw timeout tail also
-ships as defense in depth, with structured attempt lifecycle logging and retry
-still guarded by the no-progress branch/HEAD/ref/worktree invariant. The
-remaining slice is final documentation/integration closure. See the reviewed
-research, design, and plan under `docs/superpowers/` and the current target in
-`docs/backlog.md`.
+This slice wins over the larger extension/platform follow-on because it is
+small, researched, user-visible, and independently reviewable. It does not
+include Terra/Luna, API pricing tiers, generalized thinking clamping, or every
+provider carrying GPT-5.6.
+
+## Fresh Pi 0.80.6 delta classification
+
+| Priority | Pi delta | Pipy classification |
+| --- | --- | --- |
+| 1 | GPT-5.6 Sol + `max` thinking | Selected next slice; bounded design exists. |
+| 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | Real multi-slice product/security gap; design loading order before implementation. |
+| 3 | RPC `get_entries`/`get_tree` and `agent_settled` | Real gap beyond pipy's green 29-command baseline; two read-only commands first. |
+| 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | Real extension gaps; keep header injection, settled lifecycle, and durable entry rendering as focused slices. |
+| 5 | Message-anchored dynamic tool loading | Real provider/extension gap; pipy changes active tools but lacks Anthropic `tool_reference` and OpenAI tool-search placement. |
+| 6 | Bare self-only `update`, `--all`, project-local `config -l` | Real CLI/package semantic drift; realign outright under the no-deprecation policy. |
+| 7 | Forced tool choice, OpenRouter session affinity, Copilot MAI routing, Bedrock/Cloudflare auth, pricing/catalog refreshes | Real provider candidates, but audit and split by adapter/request ownership rather than bundling. |
+| 8 | Ctrl+X transcript copy, cache-miss notices, automatic theme mode, output padding, editor/shell refinements | Real but lower-priority product polish; `/copy` already covers the main copy workflow. |
+| Out of scope | `pi-agent` storage exports, TypeScript source compatibility, reusable `pi-tui` API parity, experimental orchestrator | Not pipy-native product parity targets. |
+
+## Recently shipped operator-selected gap (2026-07-13)
+
+OpenAI-Codex transport reliability has shipped ahead of the older ranked queue.
+The delivered slices replace the hard-coded 60-second SSE socket timeout with a
+configurable 300-second idle-timeout policy, normalize recognized
+transport/read failures, retry bounded transient request-plus-stream attempts
+only before the first provider event, and make `transport: auto|sse|websocket`
+real with Pi-shaped pre-event SSE fallback. Cancellation remains non-retryable
+and the no-post-event-replay boundary prevents duplicate text, reasoning, tool
+calls, or effects.
+
+Parity-runner recognition of the exact historical raw timeout tail also ships
+as defense in depth, with structured attempt lifecycle logging and retry still
+guarded by the no-progress branch/HEAD/ref/worktree invariant. The documented
+residual non-goals are long-lived WebSocket reuse/continuation caching and any
+post-event turn replay. See the reviewed research, design, and plan under
+`docs/superpowers/`. With this gap closed, slice selection follows the fresh
+queue above and in `docs/backlog.md`.
 
 ## Sources checked
 
@@ -61,14 +88,18 @@ Pi reference:
   `modes/rpc/rpc-types.ts`, `modes/rpc/rpc-mode.ts`
 - `packages/coding-agent/src/core/export-html/*`
 - `packages/coding-agent/src/core/extensions/*`
+- `packages/coding-agent/src/core/project-trust.ts`, `trust-manager.ts`, and
+  `docs/security.md`
 - `packages/ai/src/models*.ts`, `oauth.ts`, `env-api-keys.ts`, and provider
   implementations
-- installed `pi --help`
+- `packages/coding-agent/CHANGELOG.md` through `0.80.6` plus its current
+  unreleased section
 
 ## Fresh command-surface deltas from this grooming pass
 
-The direct help comparison remains the fastest sanity check for parity drift.
-After the 2026-06-17 grooming pass, the important command-surface deltas are:
+The direct help/source comparison remains the fastest sanity check for parity
+drift. After the 2026-07-14 grooming pass, the important command-surface deltas
+are:
 
 - `pi --help` is a single top-level product command with interactive, print,
   JSON, RPC, session, provider/model, settings/resource, package-management,
@@ -84,6 +115,14 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
   extensions/skills/prompts/themes through discovery. Package `update` refreshes
   managed git caches. PyPI/`npm:` sources remain deferred to a broader
   supply-chain policy.
+- Pi now gates project-local settings, packages, and executable resources behind
+  a saved or temporary trust decision. Its top-level and package/config surfaces
+  accept `--approve`/`--no-approve`, `/trust` persists a decision, and global or
+  CLI extensions may handle `project_trust`. Pipy has no comparable trust store
+  or loading-order gate yet.
+- Pi's bare `update` is now self-only; `update --all` composes self plus
+  packages, while `--extensions` remains packages-only. Pipy's bare update still
+  composes both halves and must be realigned rather than documented as parity.
 - Pi automation modes (`--mode json`, `--mode rpc`, `--print`/`-p`) ship in
   pipy under the REPL product path and are backed by the native session tree.
   RPC thinking-level commands now update catalog-backed provider request
@@ -91,6 +130,10 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
   remains a documented follow-on. The old metadata-only `--native-output json`
   has been **removed** (2026-06-20); callers use `--mode json`, and the removed
   flag emits guidance naming it.
+- Pi's RPC union has grown from 29 to 31 commands with read-only `get_entries`
+  (optional `since`) and `get_tree`, and it emits `agent_settled` once retries,
+  compaction retries, and queued continuations are fully idle. Pipy's existing
+  29-command protocol remains green but is no longer the complete Pi vocabulary.
 - Pi session flags and picker workflows now ship: `--session-id`,
   `--session-dir`, `--name/-n`, `-c`, `-r`, `--session`, `--fork`, and
   `--no-session`, with Pi-style mutual exclusion and the cross-project fork
@@ -105,7 +148,15 @@ After the 2026-06-17 grooming pass, the important command-surface deltas are:
   `/<name>`); `/clear`, `/status`, `/help`, and `/theme` were removed outright
   (no aliases); `/skill` is kept and pipy now advertises discovered skills in the
   system prompt (loaded via the `read` tool); theme selection moved into
-  `/settings`. `--verbose` and `--offline` now ship: verbose overrides `quietStartup` for startup chrome without changing settings, and offline sets pipy's startup network guards. Tool allow/deny flags (`--tools`/`-t`, `--exclude-tools`/`-xt`, `--no-tools`/`-nt`, and `--no-builtin-tools`/`-nbt`) now ship through the native tool-loop boundary.
+  `/settings`. `--verbose` and `--offline` now ship: verbose overrides
+  `quietStartup` for startup chrome without changing settings, and offline sets
+  pipy's startup network guards. Tool allow/deny flags (`--tools`/`-t`,
+  `--exclude-tools`/`-xt`, `--no-tools`/`-nt`, and
+  `--no-builtin-tools`/`-nbt`) now ship through the native tool-loop boundary.
+  Current Pi also accepts `max` thinking and has newer settings such as
+  `defaultProjectTrust`, prompt-cache miss notices, automatic theme mode, and
+  output padding; these are follow-ons rather than part of pipy's green June
+  settings baseline.
 
 The extension/package closeout changed the next-topic ordering, the
 export/import/share/distribution baseline has since landed, and the
@@ -534,22 +585,26 @@ adding another bespoke slash command.
 
 ## Recommended implementation order
 
-1. Extension/package platform follow-ons: richer multi-widget UI/rendering,
-   broader extension state/session-manager helpers, live tool-render invalidation beyond
-   the landed render-once snapshot, broader dynamic-flag integration,
-   OAuth-provider extension `/login` wiring, and future PyPI/npm package source
-   policy.
-2. User documentation parity in parallel with implementation.
-3. Focused provider/model catalog follow-ons.
-4. Top-level CLI compatibility and pipy-only surface cleanup — shipped
-   (2026-06-20), including the system-prompt skill advertisement (`/skill` kept),
-   theme selection in `/settings`, and the outright removal of `/clear`,
-   `/status`, `/help`, and `/theme` (no deprecation shims).
-5. Verification/project policy through extension gates, not a revived `/verify`
-   command.
+1. GPT-5.6 Sol plus model-aware `max` thinking — execute the existing bounded
+   plan without broadening into every GPT-5.6/provider surface.
+2. Project-trust design — pin trust-store ancestry, protected-resource loading
+   order, non-interactive defaults, CLI overrides, and extension decision
+   ownership before implementation.
+3. RPC `get_entries`/`get_tree` — one read-only protocol slice; follow with
+   `agent_settled` only if it stays independently reviewable.
+4. Extension deltas — `before_provider_headers`, durable entry renderers, and
+   settled lifecycle as separate slices, then resume the broader
+   component/overlay/invalidation track.
+5. Cache-friendly dynamic tool loading — plan from the provider-local
+   Anthropic/OpenAI implementations, not from the extension wrapper alone.
+6. Package/update/config realignment — bare self-only update, `--all`, and
+   project-local config after trust semantics are pinned.
+7. Provider and TUI polish — split the July request-shape/auth/catalog deltas
+   and Ctrl+X copy into narrow adapter/UI slices.
 
-The extension/package platform remains the largest follow-on by surface area,
-but its local runtime plus managed git package/update slices have landed.
-Future extension/package work should start from that shipped package-runtime
-baseline and keep PyPI/npm source execution behind a broader supply-chain
-policy.
+User documentation and top-level CLI consolidation are shipped foundations;
+keep them synchronized rather than treating them as standalone tracks.
+Verification remains the model-visible `bash` tool plus extension gates, not a
+revived `/verify` command. The extension/package platform remains the largest
+follow-on by surface area, and remote PyPI/npm execution stays behind a broader
+supply-chain policy.

@@ -426,10 +426,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
   sanitized provider failures, while deliberate cancellation remains immediate
   and non-retryable.
 - OpenAI-Codex now retries bounded transient HTTP and transport failures across
-  the complete request-plus-SSE-stream attempt, with cancellation-aware
-  exponential backoff and capped `Retry-After` support. Retries stop before
-  replay once any provider event is parsed, preventing duplicate visible text,
-  reasoning, tool calls, or tool effects.
+  the complete request-plus-stream attempt, with cancellation-aware exponential
+  backoff and capped `Retry-After` support. Retries stop before replay once any
+  provider event is parsed, preventing duplicate visible text, reasoning, tool
+  calls, or tool effects.
+- OpenAI-Codex now honors `transport: auto|sse|websocket` with a real Responses
+  WebSocket path, Pi-shaped pre-event SSE fallback, WebSocket connect timeout
+  settings, auto-mode fallback memory, and no post-event fallback or replay.
 - The parity runner now records child-attempt start/finish events, distinguishes
   runner timeouts from signal exits, and narrowly retries a legacy raw
   `pipy: The read operation timed out` child tail only when no branch, HEAD,

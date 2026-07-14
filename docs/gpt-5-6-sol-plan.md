@@ -1,6 +1,7 @@
 # GPT-5.6 Sol Codex parity plan
 
-Status: proposed design for different-family review.
+Status: selected next parity slice; proposed design awaiting different-family
+review before implementation.
 
 ## Gap
 

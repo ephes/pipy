@@ -1,8 +1,13 @@
 # Custom editor app-action delegation plan
 
+Status: shipped bounded slice; broader component-library parity remains a
+strategic follow-on, not the selected next slice.
+
 ## Gap
 
-Broader custom editor/component-library parity remains selected in `docs/backlog.md`. This slice narrows it to Pi's `CustomEditor` app-keybinding delegation for live `ctx.ui.setEditorComponent(...)` custom editors.
+Broader custom editor/component-library parity was selected when this plan was
+written. This shipped slice narrowed it to Pi's `CustomEditor` app-keybinding
+delegation for live `ctx.ui.setEditorComponent(...)` custom editors.
 
 ## Pi reference
 
@@ -19,7 +24,10 @@ Pipy already passes a Pi-shaped keybindings adapter and wires handlers for a sma
 2. Wire dispatchable app actions into custom editor `action_handlers` / `actionHandlers` maps and into `_handle_custom_editor_key` using the same sentinels or direct effects as the built-in editor path. For non-submitting app hotkeys that dispatch back to the session, preserve draft text in `_pending_initial_text` like the built-in path. Preserve Pi's special callback shape: existing `on_escape`/`onEscape` callbacks win over the default interrupt callback, Ctrl-D exits only when `_custom_editor_text()` is empty, and paste image routes through `on_paste_image`/`onPasteImage` rather than the generic handler map.
 3. Keep unsupported or non-editor-context keybindings out of this slice; do not add broader Pi component-library APIs.
 4. Add focused unit coverage for a custom editor that delegates unhandled keys through `keybindings.matches(...)` and `action_handlers`, proving at least a session-dispatching app action (for example Ctrl-L/model select or Shift-Tab/thinking cycle) and Alt-Enter/follow-up route out with draft preservation, plus `onEscape` precedence, Ctrl-D empty/non-empty behavior, and Ctrl-C remaining outside the delegated action map where practical.
-5. Update the selected `docs/backlog.md` `Broader custom editor/component-library parity — SELECTED` paragraph and `docs/pi-mono-gap-audit.md` extension follow-ons to mark this app-action delegation increment shipped while leaving broader component-library work open.
+5. Update the then-selected `docs/backlog.md` broader custom
+   editor/component-library paragraph and `docs/pi-mono-gap-audit.md`
+   extension follow-ons to mark this app-action delegation increment shipped
+   while leaving broader component-library work open.
 
 ## Done when
 

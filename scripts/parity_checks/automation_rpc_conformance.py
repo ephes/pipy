@@ -35,8 +35,10 @@ It proves, end to end, through the product CLI:
     event sequence, exits 0, and never emits the ``pipy.native_output`` schema.
 
 Also asserts strict LF-only framing (no ``\r``, one JSON object per line, no
-interleaved records) and that all 29 Pi RPC command types are accepted (a
-``response`` for each, never a crash or ``Unknown command``).
+interleaved records) and that all 29 commands in pipy's shipped baseline are
+accepted (a ``response`` for each, never a crash or ``Unknown command``).
+Current Pi additionally has ``get_entries`` and ``get_tree``; those remain
+explicit follow-ons in ``docs/automation-rpc.md``.
 
 Exits 0 when every check passes, 1 otherwise. No real network/AI calls.
 """
@@ -59,7 +61,7 @@ _BOOT = "import sys; from pipy_harness.cli import main; sys.exit(main(sys.argv[1
 
 _SECRET_TOKEN = "sk-CONFORMANCE-SECRET-TOKEN-do-not-leak"
 
-# The full Pi RPC command vocabulary (29 types) the product must accept.
+# The shipped pipy RPC baseline (29 types) the product must accept.
 _ALL_COMMANDS = [
     {"type": "prompt", "message": "hi"},
     {"type": "steer", "message": "hi"},

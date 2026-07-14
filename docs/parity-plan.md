@@ -1,7 +1,8 @@
 # Pipy → Pi Real Parity Plan
 
-Status: parity plan written 2026-06-02 against the local Pi reference at
-`/Users/jochen/src/pi-mono` (installed binary `pi 0.78.0`).
+Status: parity plan written 2026-06-02 and refreshed 2026-07-14 against local Pi
+main `b084d2fb` (`0.80.6` plus 2026-07-13 unreleased changes) at
+`/Users/jochen/src/pi-mono`.
 
 This document is the single clear plan for reaching **real feature parity** with
 Pi. It is the index that ties together the per-topic specs and the cleanup work.
@@ -55,7 +56,8 @@ parity target:
 ## 1. Slash-command parity matrix
 
 Pi's built-in slash commands (source:
-`packages/coding-agent/src/core/slash-commands.ts`, 21 commands) versus pipy.
+`packages/coding-agent/src/core/slash-commands.ts`, current Pi `0.80.6`) versus
+pipy.
 
 | Pi command | Purpose | Pipy status | Target spec |
 | --- | --- | --- | --- |
@@ -79,6 +81,7 @@ Pi's built-in slash commands (source:
 | `/compact` | Manually compact session context | ✅ durable replay shipped | [session-tree.md](session-tree.md) |
 | `/resume` | Resume a different session | ✅ interactive picker overlay (search/scope/sort/named/rename/delete) + non-TTY subcommands | [session-tree.md](session-tree.md) |
 | `/reload` | Reload keybindings/extensions/skills/prompts/themes | ✅ re-reads settings/keybindings/resources/theme | [settings-config.md](settings-config.md) |
+| `/trust` | Persist project trust for the current project or its immediate parent | ❌ project-trust workflow not yet implemented | [settings-config.md](settings-config.md), [extension-api.md](extension-api.md) |
 | `/quit` | Quit | ✅ shipped (`/quit`, `/exit`) | — (no spec needed) |
 
 **Pipy-only slash commands — realigned in the 2026-06-20 top-level CLI
@@ -112,17 +115,13 @@ polish tracked in [session-tree.md](session-tree.md).
 
 ## 2. CLI flag / mode parity matrix
 
-Reference note: this matrix is validated against `pi --help` on the installed
-`pi 0.78.0` binary, which is newer than the designated source checkout at
-`/Users/jochen/src/pi-mono` (commit `7c2775f6`, 2026-05-26, monorepo
-`0.0.3`). Three flags below (`--session-id`, `--name/-n`,
-`--exclude-tools/-xt`) exist in the 0.78.0 binary but not yet in that source
-checkout's `packages/coding-agent/src/cli/args.ts`; they are real Pi flags and
-stay parity targets. Everything else is present in both. Source for the rest:
-`packages/coding-agent/src/cli/args.ts`. The full session-startup flag set below
-now ships (`--session-id`/`--session-dir`/`--name`/`-n` included), with the Pi
-mutual-exclusion errors and the cross-project `--session` fork prompt; the old
-metadata-only `--resume RECORD`/`--branch LABEL` repl flags are retired.
+Reference note: this matrix is validated against local Pi main `b084d2fb`
+(`0.80.6` plus current unreleased changes), especially
+`packages/coding-agent/src/cli/args.ts` and `package-manager-cli.ts`. The full
+session-startup flag set below ships, with Pi mutual-exclusion errors and the
+cross-project `--session` fork prompt; the old metadata-only
+`--resume RECORD`/`--branch LABEL` repl flags are retired. Current Pi's
+`--approve`/`--no-approve` project-trust flags remain a gap.
 
 | Pi flag / mode | Pipy status | Target spec |
 | --- | --- | --- |
@@ -132,15 +131,15 @@ metadata-only `--resume RECORD`/`--branch LABEL` repl flags are retired.
 | `--continue, -c` | ✅ continues the most recent native session | [session-tree.md](session-tree.md) |
 | `--resume, -r` (picker) | ✅ `-r`/`--resume-session` opens the interactive startup picker on a TTY; continues most-recent on a non-TTY | [session-tree.md](session-tree.md) |
 | `--session <path\|id>` | ✅ opens a native file/partial id; cross-project match prompts to fork | [session-tree.md](session-tree.md) |
-| `--session-id <id>` (0.78.0; not in source checkout) | ✅ open-exact-or-create | [session-tree.md](session-tree.md) |
+| `--session-id <id>` | ✅ open-exact-or-create | [session-tree.md](session-tree.md) |
 | `--fork <path\|id>` | ✅ forks a native file/partial id (the old metadata-only `--branch` is retired) | [session-tree.md](session-tree.md) |
 | `--session-dir <dir>` | ✅ native store root override (never reuses `$PIPY_SESSION_DIR`) | [session-tree.md](session-tree.md) |
 | `--no-session` | ✅ ephemeral — no native tree + no `pipy-session` record | [session-tree.md](session-tree.md) |
-| `--name, -n <name>` (0.78.0; not in source checkout) | ✅ names the native session at startup | [session-tree.md](session-tree.md) |
+| `--name, -n <name>` | ✅ names the native session at startup | [session-tree.md](session-tree.md) |
 | `--models <patterns>` (Ctrl+P cycling) | ✅ `--models` overrides `enabledModels` for the session; `/scoped-models` + live Ctrl+P cycling ship (per-pattern `:level` initial preference deferred) | [settings-config.md](settings-config.md), [tui-workflow.md](tui-workflow.md) |
 | `--provider` / `--model` / `--api-key` | ✅ pipy-native provider/model equivalents route through the shared catalog resolver; `--api-key` reaches catalog-backed REPL, one-shot, and implemented non-completions product calls | [provider-catalog.md](provider-catalog.md) |
 | `--list-models [search]` | ✅ shipped | [provider-catalog.md](provider-catalog.md) |
-| `--thinking <level>` | 🟡 mapped into catalog-backed product requests where the adapter supports a thinking shape; the Anthropic-messages adaptive-thinking shape, the bedrock adaptive/budget `display: "summarized"` field (omitted on GovCloud), and the explicit `anthropic-messages` `thinking: {type: "disabled"}` shape (reasoning-capable model run with thinking off; bedrock omits by design) now ship, while Google/Vertex per-model `thinkingConfig` remains an adapter follow-on | [provider-catalog.md](provider-catalog.md) |
+| `--thinking <level>` | 🟡 mapped into catalog-backed product requests where the adapter supports a thinking shape; Anthropic/Bedrock, Google/Vertex, and the tracked completions variants ship through `xhigh`. Pi 0.80.6 adds model-aware `max`; GPT-5.6 Sol + `max` is the selected next slice. | [gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md), [provider-catalog.md](provider-catalog.md) |
 | `--tools, -t` / `--no-tools, -nt` / `--no-builtin-tools, -nbt` / `--exclude-tools, -xt` | ✅ shipped | Pi-style provider-visible tool filtering for builtin, extension, and custom tools. |
 | `--system-prompt` / `--append-system-prompt` | ✅ replace + repeatable append (text or file) + SYSTEM.md/APPEND_SYSTEM.md | [settings-config.md](settings-config.md) |
 | `--extension, -e` / `--no-extensions, -ne` | ✅ explicit file/dir loading + default-discovery disable; installed local-path and managed git package resources contribute at runtime | [extension-api.md](extension-api.md) |
@@ -150,8 +149,9 @@ metadata-only `--resume RECORD`/`--branch LABEL` repl flags are retired.
 | `--no-context-files, -nc` | ✅ disables AGENTS.md / pipy.md context discovery | [settings-config.md](settings-config.md) |
 | `--export <file>` | ✅ top-level `pipy --export <session.jsonl> [output.html]` exports native sessions to HTML and exits | [export-distribution.md](export-distribution.md) |
 | `--verbose` / `--offline` | ✅ `--verbose` forces startup chrome despite `quietStartup`; `--offline` sets `PIPY_OFFLINE=1` and `PIPY_SKIP_VERSION_CHECK=1` before startup work | [settings-config.md](settings-config.md) |
+| `--approve, -a` / `--no-approve, -na` | ❌ project-trust run override not yet implemented | [settings-config.md](settings-config.md), [extension-api.md](extension-api.md) |
 | `--help, -h` / `--version, -v` | ✅ `--help` and `--version`/`-v` (prints package version) | [settings-config.md](settings-config.md) |
-| `pi install/remove/uninstall [-l]`, `update [source\|self\|pi]`, `list`, `config` (+ per-subcommand `--help`) | 🟡 `pipy install/remove/uninstall [-l]`, `list`, and `config <enable\|disable> <skill\|prompt\|theme\|extension> <name>` ship for local-path and managed git sources, installed packages contribute extensions/skills/prompts/themes, package `update` refreshes managed git caches, and `pipy update self\|pipy [--force] [--dry-run]` ships for install-method-aware self-update planning. Remote PyPI/`npm:` package sources remain deferred to a broader supply-chain policy. | [extension-api.md](extension-api.md), [export-distribution.md](export-distribution.md) |
+| `pi install/remove/uninstall [-l]`, `update [source\|self\|pi]`, `list`, `config` (+ per-subcommand `--help`) | 🟡 `pipy install/remove/uninstall [-l]`, `list`, package updates, managed-git caches, and resource-filter config ship. Current Pi makes bare `update` self-only, adds `--all`, supports project-local `config -l`, and gates project resources with trust/approval; pipy's bare update still composes both halves and has no project-trust workflow. Remote PyPI/`npm:` sources remain behind a broader supply-chain policy. | [extension-api.md](extension-api.md), [export-distribution.md](export-distribution.md) |
 | Extension-registered dynamic flags (e.g. `--plan`) via `unknownFlags` | 🟡 landed for `pipy repl` tool-loop boolean/string flags; broader top-level/automation integration remains | [extension-api.md](extension-api.md) |
 
 **Top-level shape (realigned in the 2026-06-20 cleanup):** `pipy` is now
@@ -214,13 +214,13 @@ the product state, not the spec state.
 | --- | --- | --- | --- |
 | Native runtime, providers baseline, model-selected tools, streaming, workspace context | [harness-spec.md](harness-spec.md), [pi-parity.md](pi-parity.md) | ✅ baseline | `just parity-score` (legacy 50-row) |
 | Full session-tree workflow (full-transcript product store, `/tree` `/fork` `/clone` `/session` `/name` `/new` `/resume` interactive picker, durable compaction, full startup session flag set incl. `--session-id`/`--session-dir`/`--name`, mutual exclusion, cross-project fork prompt) | [session-tree.md](session-tree.md) | ✅ shipped — `pipy_harness.native.session_tree` + `session_tree_commands` + `tui.run_session_picker` pass the conformance gate and the Pi comparison (full-transcript store, branch/fork/clone, interactive picker rows/actions, startup flags, archive-privacy split) | `scripts/parity_checks/session_tree_conformance.py --json` + `scripts/parity_checks/session_tree_pi_comparison.py --json` (passing) |
-| Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 core Pi-shaped runtime shipped, but not Pi-equivalent platform parity — discovery/inventory + activation + dispatch + core hooks + tool registration + `tool_result` transforms + `ctx.ui.notify` + simple `ctx.ui` select/input/confirm/editor/status/working primitives + shortcuts + golden conformance ext + provider registration through the native catalog (`api.register_provider`/`ProviderPort` composition, `--list-models`, startup resolution, `/model`, `/reload`), local-path and managed-git package CLI/runtime composition for extensions/skills/prompts/themes, per-run source-loading flags, package `update`, live-session hooks/controls (`user_bash`, `before_provider_request`, session-operation gates, active tool/model/thinking controls), dynamic extension flags (`ExtensionFlag`, tool-loop `ctx.flags`), custom session-entry/message-rendering (`api.register_message_renderer`, `ctx.append_entry`), custom tool renderers, persistent chrome widgets, rich message renderers, the extension-editor Ctrl+G `$VISUAL`/`$EDITOR` handoff, editor text helpers, command/shortcut theme controls, session-manager read views plus name/label actions, autocomplete provider wrappers, live custom editor component integration with app-action delegation, tool-output expansion controls, footer-data snapshots and `onBranchChange` callbacks, live chrome `requestRender` re-rendering, idle custom-message delivery, `CustomMessageEntry` renderer dispatch, and bounded OAuth-provider extension `/login` wiring all ship. Deferred: broader custom editor component-library parity beyond the live custom editor integration, richer multi-widget UI/message components, message-entry follow-ons beyond append/startup replay, streaming `steer`/`followUp`, in-session full-history redraw on `/resume` switches, live tool-render invalidation beyond the render-once snapshot, threading the live `ui_driver` into non-lifecycle event hooks, broader dynamic-flag integration, remote PyPI/npm sources, and the RPC extension-UI channel | the `extension_*_conformance.py` gates incl. `extension_dispatch_conformance.py --json` + `extension_providers_conformance.py --json` + `extension_package_conformance.py --json` + `extension_live_session_conformance.py --json` + `extension_chrome_widgets_conformance.py --json`; golden conformance extension `extension_conformance_gate.py --json` |
-| Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 catalog construction closeout shipped for implemented catalog-constructed provider families, one-shot, startup resolution, and extension-registered provider rows. The deliberate `openai-codex-responses` legacy factory now carries the shipped 300-second idle timeout, sanitized transport-failure normalization, and bounded pre-event request/stream retries; real WebSocket selection/fallback remains the active follow-on. Other remaining work is live Anthropic/Copilot login UX and narrow adapter parity follow-ons. | `scripts/parity_checks/provider_catalog_conformance.py --json` (passes items 1-25, including product construction for Chat Completions, non-completions families, one-shot, startup resolution, and extension-provider catalog wiring) |
-| Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | ✅ shipped: layered `settings.json`, `keybindings.json` + `/hotkeys`, scoped models + Ctrl+P, system-prompt files + `--no-context-files`, `pipy config` resource toggles, `/reload`, `/changelog` + `--version`, plus live OpenAI-Codex idle-timeout and retry settings; the 17-check gate passes. WebSocket selection/connect timeout remains accepted/reported pending the transport slice; a few unrelated display keys remain accept+round-trip+report by design. | `scripts/parity_checks/settings_config_conformance.py --json` |
-| JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | ✅ `--mode json`, `--print`, and `--mode rpc` ship (async prompt, steer/follow-up queued and delivered as the next run after the active turn settles (abort discards that run's queued steering), queue updates, bash, state/messages/stats introspection, all 29 commands accepted); true in-turn steering injection, native/socket daemon, RPC extension-UI channel, and full fork/clone/switch over RPC remain follow-ons | `scripts/parity_checks/automation_rpc_conformance.py --json` |
-| TUI / editor workflow depth (`@` file picker — Pi uses exact/prefix/substring scoring, not fuzzy — path completion, image paste, `!`/`!!`, thinking hotkeys, folding, queued steering, mouse selection; scoped-model Ctrl+P cycling already ships via settings) | [tui-workflow.md](tui-workflow.md) | ✅ shipped — the product TUI now covers the full tracked workflow depth: file picker/path completion, image paste/drop, shell shortcuts, thinking/model hotkeys, folding, queued steering/follow-up, mouse-selection invariant, soft-wrapped long editable prompts, and true active-turn provider-request cancellation | `scripts/parity_checks/tui_workflow_conformance.py --json` + real-PTY tests |
-| Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | ✅ baseline shipped: product HTML/JSONL export, import, share, top-level `--export`, self-update planning, install docs, and bare `pipy update` composition with the extension-package update half | `scripts/parity_checks/export_distribution_conformance.py --json` |
-| User documentation parity (quickstart, usage, providers, settings, keybindings, sessions, customization, automation, platform setup) | [user-documentation.md](user-documentation.md) | 🟡 user-facing quickstart, usage, providers, settings, keybindings, sessions, compaction, terminal setup, and tmux pages ship; customization, automation, SDK/RPC, and install/update deep dives remain | docs parity review checklist in spec |
+| Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 substantial Pi-shaped Python runtime ships: discovery/activation, commands/shortcuts/flags, tools and hooks, provider registration, local/managed-git packages, rich message/tool/chrome rendering, editor/theme/session helpers, custom editor integration, footer data, live UI invalidation, custom-message delivery, and OAuth-provider login. Current Pi deltas still missing include `before_provider_headers`, `agent_settled`, durable entry renderers, cache-friendly dynamic tool loading, project-trust extension APIs, full component/overlay parity, live tool-render invalidation, richer multi-widget UI, RPC extension UI, and remote package ecosystems. | the `extension_*_conformance.py` gates plus `extension_conformance_gate.py --json` |
+| Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 catalog construction and the implemented adapter families ship; OpenAI-Codex now has the 300-second idle timeout, sanitized failures, bounded pre-event retry, and real WebSocket/SSE selection. Selected next: GPT-5.6 Sol + `max`. Remaining July deltas include forced tool choice, OpenRouter session affinity, Copilot MAI routing, auth refinements, pricing/catalog refreshes, and live Anthropic/Copilot login UX. | `scripts/parity_checks/provider_catalog_conformance.py --json` (items 1-25) |
+| Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | 🟡 June baseline shipped and the 17-check gate passes. Current Pi adds project trust/defaults/CLI overrides, project-local config management, `max` thinking, cache-miss notices, automatic theme mode, and more live display/editor settings; these are now explicit follow-ons rather than silently covered by the green baseline. | `scripts/parity_checks/settings_config_conformance.py --json` |
+| JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | 🟡 the gated 29-command baseline ships, including async prompts, queueing, abort, bash, session ops, and state/messages/stats. Current Pi has 31 commands: pipy still lacks read-only `get_entries`/`get_tree` and the fully-settled `agent_settled` event; true in-turn injection, socket daemon, and RPC extension UI remain follow-ons. | `scripts/parity_checks/automation_rpc_conformance.py --json` |
+| TUI / editor workflow depth (`@` file picker, path completion, image paste, `!`/`!!`, thinking/model hotkeys, folding, queueing, mouse selection) | [tui-workflow.md](tui-workflow.md) | ✅ tracked workflow depth ships, including soft wrapping and provider-request cancellation. Minor current drift: Pi's Ctrl+X transcript/tree copy binding is not yet present, though `/copy` ships. | `scripts/parity_checks/tui_workflow_conformance.py --json` + real-PTY tests |
+| Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | 🟡 export/import/share and self-update planning ship. Package-update semantics drifted: Pi's bare update is now self-only with `--all` for composition, while pipy still composes both halves by default. | `scripts/parity_checks/export_distribution_conformance.py --json` |
+| User documentation parity (quickstart, usage, providers, settings, keybindings, sessions, customization, automation, platform setup) | [user-documentation.md](user-documentation.md) | ✅ baseline pages ship across quickstart/usage, providers, settings, keybindings, sessions/compaction, customization/packages, JSON/RPC/SDK, terminal setup, and tmux; keep them synchronized as new slices land. | docs parity review checklist in spec |
 
 **Verification / project policy** is intentionally not a separate topic: Pi has
 no `/verify` command. Verification is the model-visible `bash` tool plus
@@ -233,64 +233,38 @@ core Pi single-agent feature. It needs its own target spec before any work.
 
 ## 5. Recommended sequencing
 
-Ordering reflects dependencies and leverage, not a hard schedule. This sequence
-was groomed on 2026-06-15 after the native session tree, session CLI/pickers,
-settings/keybindings, TUI workflow, provider-catalog construction, and
-JSON/RPC automation tracks had all shipped. Those shipped foundations stay in
-§4 as conformance gates, but they are no longer the next large implementation
-topics.
+Ordering reflects dependencies and reviewability, not a hard schedule. This
+sequence was groomed on 2026-07-14 against local Pi main `b084d2fb` after the
+OpenAI-Codex transport closeout.
 
-1. **Extension / package platform follow-ons**
-   ([extension-api.md](extension-api.md)) — core local automation plus
-   local-path and managed git package runtime composition and package `update`
-   have landed, but pipy is still not a Pi-equivalent package platform.
-   Remaining work includes the remaining rich extension UI/rendering pieces
-   (broader custom editor component-library parity beyond the landed live
-   integration and app-action delegation, multi-widget message components plus
-   deferred message-entry
-   follow-ons beyond append/startup replay and shipped idle `send_message`
-   `triggerTurn` / `deliverAs: "nextTurn"` delivery (streaming `steer`/
-   `followUp`, in-session full-history redraw on `/resume` switches);
-   persistent chrome widgets, rich message renderers, active-branch custom entry
-   replay, reactive footer branch-change callbacks, and bounded OAuth-provider
-   extension `/login` wiring now ship), broader dynamic-flag integration, future
-   PyPI/npm package sources behind a broader supply-chain policy, and the RPC
-   extension-UI channel. Live-session hooks for user bash,
-   provider-request transforms, session-operation gates, and dynamic active
-   tool/model/thinking controls have landed.
-2. **User documentation parity** ([user-documentation.md](user-documentation.md))
-   — run in parallel with implementation. Pipy needs outside-in product docs,
-   not only internal specs, and those docs should track shipped behavior rather
-   than planned parity. Quickstart, usage, provider/model, settings,
-   keybindings, sessions, compaction, terminal setup, and tmux/platform caveats
-   now have shipped user pages; customization, automation, SDK/RPC, and
-   install/update deep dives remain.
-3. **Provider / model catalog follow-ons** ([provider-catalog.md](provider-catalog.md))
-   — continue as focused adapter slices: live Anthropic/Copilot login UX,
-   the deliberate `openai-codex-responses` legacy-factory exception (whose
-   settings-derived timeout and bounded pre-event retry policy now ship; real
-   WebSocket selection/fallback remains in flight), and broader local-provider
-   maturity. Vertex
-   API-key auth, Azure URL/api-version parity, Anthropic-messages adaptive
-   thinking, the bedrock adaptive/budget `display: "summarized"` field, and the
-   explicit `anthropic-messages` disabled-thinking request shape have shipped.
-4. **Top-level CLI compatibility and parity cleanup** — **largely shipped
-   (2026-06-20).** The top-level shape is now Pi-like (bare `pipy` /
-   `pipy "<prompt>"` launch the interactive session; subcommands stay reachable
-   with a reserved-word exception). Removed: the no-tool REPL + `--repl-mode` +
-   proposal/apply commands, `--native-output json`, `--archive-transcript`, the
-   `/template` wrapper, and the pipy-only `/clear`, `/status`, `/help`, and
-   `/theme` commands (removed outright, no deprecation shims; Pi equivalents are
-   `/new`, `/session`, `/hotkeys`, and theme selection in `/settings`); templates
-   register as `/<name>`. The two earlier follow-ups are now **done**
-   (2026-06-20): pipy's own system-prompt skill advertisement is wired (`/skill`
-   kept) and theme selection moved into `/settings`.
-   `--read-root(s)`/`--tool-budget`/`--input-runtime`/prompt-history are kept as
-   internal mechanisms.
-7. **Verification / project policy through extensions** — do not revive the
-   removed pipy-only `/verify` command. Richer verification and permission gates
-   should be expressed as extension tools/hooks after the extension platform
-   exists.
+1. **GPT-5.6 Sol + model-aware `max` thinking**
+   ([gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md)) — selected next because the
+   field list, request ownership, tests, and exclusions are already pinned.
+2. **Project trust** — first write a design that pins trust-store ancestry,
+   protected-resource load order, non-interactive defaults, CLI/package
+   overrides, `/trust`, and extension decision ownership. Implement it as
+   multiple slices rather than mixing security policy with package UI.
+3. **RPC current delta** ([automation-rpc.md](automation-rpc.md)) — add Pi's
+   read-only `get_entries`/`get_tree` commands, then the fully-settled lifecycle
+   event if it remains independent.
+4. **Extension current deltas** ([extension-api.md](extension-api.md)) —
+   `before_provider_headers`, `agent_settled`, and durable entry renderers as
+   focused slices. Then resume broader custom component/overlay parity, live
+   tool-render invalidation, richer UI, and the RPC extension-UI channel.
+5. **Cache-friendly dynamic tool loading** — plan from Pi's provider-local
+   Anthropic `tool_reference` and OpenAI tool-search implementations before
+   changing pipy's extension or tool-result contracts.
+6. **Package/update/config realignment** — make bare update self-only, add
+   `--all`, and add project-local config semantics after the trust boundary is
+   defined. Remote PyPI/npm execution remains behind a supply-chain policy.
+7. **Provider and TUI polish** — audit and split forced tool choice, OpenRouter
+   affinity, Copilot routing, auth/catalog changes, and Ctrl+X copy into narrow
+   owner-specific slices.
+
+User documentation and top-level CLI consolidation are shipped foundations;
+keep them synchronized rather than reopening them as broad tracks.
+Verification remains the model-visible `bash` tool plus extension gates, not a
+revived `/verify` command.
 
 Cleanup (§3) happened in the 2026-06-20 top-level CLI cleanup: the no-tool REPL
 and its proposal/apply commands retired with single product-session

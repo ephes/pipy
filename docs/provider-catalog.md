@@ -19,6 +19,12 @@ fully wired for current provider sources (only the deliberate
 `openai-codex` legacy-factory exception and documented adapter follow-ons remain
 — see below).
 
+The 2026-07-14 refresh against Pi `0.80.6` selects GPT-5.6 Sol plus model-aware
+`max` thinking as the next bounded catalog slice. Later July candidates must be
+audited and split by ownership: forced tool choice, OpenRouter session affinity,
+Copilot MAI routing, Bedrock/Cloudflare auth refinements, input-pricing tiers,
+and generated catalog refreshes are not one request path and must not be bundled.
+
 ## Implemented (foundation + product construction)
 
 The catalog is implemented through pipy-owned Python modules and gated by
@@ -154,9 +160,8 @@ Tier 3 catalog construction (shipped 2026-06-03):
 - `openai-codex-responses` is deliberately NOT catalog-constructed: the legacy
   factory builds it with settings-derived idle-timeout, retry, and transport
   configuration (`cli.py`) that catalog construction would drop, and its
-  OAuth/SSE auth is fully self-contained. The timeout and bounded pre-event
-  request/stream retry policy are live; WebSocket selection remains the next
-  transport slice.
+  OAuth/SSE auth is fully self-contained. The timeout, bounded pre-event request/stream retry policy, and
+  `auto|sse|websocket` transport selection/fallback are live.
   `build_provider` returns `None` for it so it keeps the legacy factory.
 
 Remaining adapter/product follow-ons:

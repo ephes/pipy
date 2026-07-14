@@ -1,8 +1,9 @@
 # Pi-Style Settings, Config, and Keybindings Parity
 
 Status: target specification researched from the local Pi reference on
-2026-06-02; **implemented and shipped 2026-06-03** (see the per-section
-"Shipped" notes and the conformance gate below).
+2026-06-02; **June baseline implemented and shipped 2026-06-03**, with current
+Pi `0.80.6` follow-ons identified by the 2026-07-14 grooming pass (see the
+per-section "Shipped" notes and the conformance gate below).
 
 This document defines the pipy target for real feature parity with Pi's
 settings/config/keybindings system through pipy-owned Python boundaries. It is
@@ -14,9 +15,13 @@ where a runtime surface exists, otherwise accepted + round-tripped + reported),
 system-prompt replace/append inputs, resource-enablement config (`pipy config`),
 context-file discovery toggles (`--no-context-files`), `/reload`, `/changelog`,
 and a `--version` surface with a default-off update check. The objective for this
-track was full Pi-equivalent settings capability, not a metadata-only subset; it
-is verified by `scripts/parity_checks/settings_config_conformance.py`. The
-sections below keep the full target spec and add a "Shipped" note where the
+track was full Pi-equivalent settings capability, not a metadata-only subset; its
+June baseline is verified by `scripts/parity_checks/settings_config_conformance.py`.
+Current Pi adds a project-trust/default/CLI-override workflow, project-local
+`config -l`, model-aware `max` thinking, prompt-cache miss notices, automatic
+theme mode, output padding, and additional editor/shell settings. Those are
+explicit follow-ons; the green June gate must not be read as coverage of them.
+The sections below keep the full target spec and add a "Shipped" note where the
 delivered behavior or a deliberate divergence needs calling out.
 
 ## Sources
@@ -484,6 +489,11 @@ runtime has no matching surface yet) is:
     `Retry-After` can raise (never bypass) the configured delay cap.
   - `compaction.enabled` — gates pipy's automatic tool-loop compaction
     threshold (and `/compact` remains available regardless).
+  - `transport` and `websocketConnectTimeoutMs` — honored by OpenAI-Codex for
+    `auto|sse|websocket`, including the 15000 ms default WebSocket open timeout,
+    `0` disabled semantics, WS-first `auto`/`websocket`, and Pi-shaped pre-event
+    SSE fallback. Providers without a multi-transport surface still preserve and
+    report these settings without using them.
 - **Accepted + round-tripped + reported, currently inert** (no matching pipy
   surface; preserved so Pi-written/forward config survives):
   - `compaction.reserveTokens` / `keepRecentTokens` — pipy's compaction is
@@ -491,9 +501,6 @@ runtime has no matching surface yet) is:
     are not yet consumed.
   - `branchSummary.reserveTokens` / `skipPrompt` — the `/tree` branch-summary
     attaches parent summaries by a different mechanism than a token reserve.
-  - `transport` and `websocketConnectTimeoutMs` — honored by OpenAI-Codex for
-    `auto|sse|websocket`; accepted/reported but inert for providers without a
-    multi-transport surface.
   - `steeringMode` / `followUpMode` (no in-turn steering/follow-up queue yet —
     see backlog).
   These are surfaced by `/settings` so the user can see the effective value.
