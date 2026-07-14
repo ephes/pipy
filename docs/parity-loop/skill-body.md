@@ -204,6 +204,37 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    `ant-ling` is also the only emitting completions variant with a fully SILENT
    off-state: its branch is gated on `options.reasoningEffort`, so an off/unset
    reasoning state emits neither `reasoning` nor `reasoning_effort`.
+   When a slice introduces a NEW stored thinking level (e.g. `max`) that can
+   persist across a model switch, port request-time CLAMPING at the touched
+   provider's request path — mirror exactly where Pi clamps (`clampThinkingLevel`
+   inside `openai-codex-responses.ts:468`), a provider-SCOPED clamp-then-map. Do
+   NOT port the clamp globally (over-scopes, breaks other providers' omit tests)
+   and do NOT defer clamping entirely: deferring is itself a NEW divergence the
+   different-family PLAN reviewer flags (Pi emits the clamped effort; pipy would
+   emit nothing), which cost 3 plan-review rounds when learned. The Shift+Tab
+   cycle only offers supported levels, so the divergence is reachable only via
+   cross-model persistence (switch, CLI/settings/extension store) — still add a
+   regression test: a stored `max` on a Codex model lacking `max` clamps to
+   `xhigh`; on a model mapping neither, to `high`. Keep generalized cross-provider
+   clamp+label unification as a named follow-on, not part of the slice. Also fix
+   the doc-contract line for the clamping provider: effort is omitted ONLY for
+   unset/off, NOT for an unsupported level (the level is clamped and still
+   emitted).
+   Do NOT reuse `thinking.supported_thinking_levels` to build a Pi-faithful
+   Shift+Tab cycle or a clamp: pipy derives it from `thinkingLevelMap` KEYS, but
+   Pi `getSupportedThinkingLevels` (`models.ts:410-419`) treats an unmapped,
+   non-null ordinary level (minimal/low/medium/high) as IDENTITY-supported and
+   only requires `xhigh`/`max` to be explicitly mapped. A partial catalog map like
+   `claude-opus {xhigh:xhigh}` makes pipy see `xhigh`-only, so reusing
+   `supported_thinking_levels` would regress such a model's cycle to `off`+`xhigh`.
+   Add an `available_thinking_levels` helper with Pi semantics — `off` + the
+   ordinary tier always + `xhigh`/`max` only when mapped, explicit `None` removes a
+   level — instead of reusing `supported_thinking_levels`. Corollary: any
+   hand-authored catalog row whose Pi map is PARTIAL must spell out the identity
+   ordinary levels, because pipy reads map keys — Pi's Sol map is
+   `{xhigh:xhigh, max:max, minimal:low}`, so the pipy row must add
+   `low`/`medium`/`high` explicitly (and note `minimal->low` is a non-identity Pi
+   mapping worth its own test).
    First locate where Pi computes each request-shape field: catalog/model-registry
    metadata, construction-time mapping, provider-local model-id logic, or a
    delegated SDK/runtime helper. Match that ownership boundary in pipy; do not
