@@ -136,6 +136,13 @@ def test_run_json_mode_emits_single_agent_settled_at_true_idle(tmp_path: Path) -
         for line in stdout.getvalue().decode("utf-8").splitlines()
     ]
     types = [r["type"] for r in records]
+    # CANONICAL json-mode terminator: the stream ends `agent_end -> agent_settled`.
+    # This same terminal sequence is asserted in tests/test_native_automation_cli.py
+    # (the CLI end-to-end path) and, for the RPC path, in
+    # scripts/parity_checks/automation_rpc_conformance.py. Before changing the
+    # terminator, grep ALL of tests/ and scripts/parity_checks/ (e.g. `agent_settled`,
+    # `types[-1]`, `agent_end"`) so every duplicated assertion is updated in one
+    # pass instead of surfacing later on a full `just check`.
     # Exactly one settle, and it is the final line.
     assert types.count("agent_settled") == 1
     assert types[-1] == "agent_settled"

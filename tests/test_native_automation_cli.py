@@ -60,6 +60,12 @@ def test_cli_mode_json_emits_header_and_events(
     assert types[0] == "agent_start"
     # The one-shot run settles into idle, so the stream ends with a single
     # payload-free `agent_settled` immediately after the run's `agent_end`.
+    # CANONICAL json-mode terminator, duplicated in
+    # tests/test_native_automation_json_mode.py and (for the RPC path)
+    # scripts/parity_checks/automation_rpc_conformance.py. Before changing the
+    # terminator, grep ALL of tests/ and scripts/parity_checks/ (e.g.
+    # `agent_settled`, `types[-2:]`, `agent_end"`) so every duplicated assertion is
+    # updated in one pass instead of surfacing later on a full `just check`.
     assert types[-2:] == ["agent_end", "agent_settled"]
     assert types.count("agent_settled") == 1
     assert records[-1] == {"type": "agent_settled"}

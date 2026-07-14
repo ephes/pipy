@@ -261,6 +261,22 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    exact implementation scope. If one named path is already Pi-correct, correct
    the gap-source docs and keep the slice limited to the path that actually
    diverges.
+   For an automation/session-event slice where Pi emits ONE event to every
+   subscriber (Pi `_emit` → all modes carry it, e.g. `agent_settled`), do NOT add
+   the event to the shared tool-loop `AutomationEmitter`. Some modes already
+   SYNTHESIZE that event at their own idle boundary — the RPC path synthesizes
+   `agent_settled` in `RpcServer.emit` with queue-aware suppression — so emitting
+   from the shared emitter double-emits on those paths. The faithful seam is
+   per-mode synthesis at each mode's own idle boundary: `--mode json` synthesizes
+   its own `agent_settled` in `run_json_mode` after the one-shot run returns, in a
+   `finally` (mirroring Pi's `_runAgentPrompt` finally so it fires on error too),
+   symmetric with how RPC owns its idle boundary. Do NOT trust a prior spec's
+   `Deferred` note that names the seam — the shipped RPC plan mis-suggested the
+   `AutomationEmitter` as the json seam, which would have regressed RPC. And run
+   the objective comparison gate (`scripts/parity_checks/automation_pi_comparison.py`,
+   real Pi via `pi_faux_event_driver.mts`) FIRST to capture the exact expected Pi
+   sequence before writing code — for this gap it was already RED (Pi ended
+   `agent_settled`, pipy at `agent_end`), giving proof of the terminator to match.
 3. **Review the plan (different family).** Use one explicit path:
    - **Diff-based:** the plan must be a **tracked or staged** file (e.g. a spec
      under `docs/superpowers/specs/`). `git add` it, then run the different-family
