@@ -23,12 +23,14 @@ accidental pipy-only surfaces being removed or realigned.
 
 **Current delta note (2026-07-14):** local Pi main `b084d2fb` (`0.80.6` plus
 current unreleased changes) has moved beyond several green June baselines.
-GPT-5.6 Sol/`max` is the selected next slice; project trust, RPC
-`get_entries`/`get_tree` plus `agent_settled`, extension
-`before_provider_headers`/entry renderers, cache-friendly dynamic tool loading,
-and bare-update/config semantics are real follow-ons. The detailed ranked queue
-in [backlog.md](backlog.md) and [pi-mono-gap-audit.md](pi-mono-gap-audit.md)
-supersedes older broad status wording in this map.
+GPT-5.6 Sol/`max`, RPC `get_entries`/`get_tree`, and the true-idle RPC
+`agent_settled` event shipped 2026-07-14. Project trust is the selected next
+slice; the remaining `agent_settled` follow-ons (`--mode json` and the
+extension-surface hook), extension `before_provider_headers`/entry renderers,
+cache-friendly dynamic tool loading, and bare-update/config semantics remain
+real gaps. The detailed ranked queue in [backlog.md](backlog.md) and
+[pi-mono-gap-audit.md](pi-mono-gap-audit.md) supersedes older broad status
+wording in this map.
 
 **Top-level CLI cleanup (2026-06-20):** the command surface is now Pi-shaped.
 Bare `pipy` and `pipy "<prompt>"` launch the interactive product session (a bare

@@ -36,7 +36,7 @@ not omit, uniformly across every provider and effort-label surface).
 | --- | --- | --- |
 | 1 | GPT-5.6 Sol + `max` thinking | **Shipped** 2026-07-14; generalized cross-provider clamping remains a named follow-on. |
 | 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | Next selected slice; real multi-slice product/security gap — design loading order before implementation. |
-| 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` remains the one real RPC follow-on. |
+| 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` **shipped on `--mode rpc`** 2026-07-14 (emitted at the true-idle boundary); the remaining follow-ons are `--mode json` `agent_settled` and the extension-surface `agent_settled` hook. |
 | 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | Real extension gaps; keep header injection, settled lifecycle, and durable entry rendering as focused slices. |
 | 5 | Message-anchored dynamic tool loading | Real provider/extension gap; pipy changes active tools but lacks Anthropic `tool_reference` and OpenAI tool-search placement. |
 | 6 | Bare self-only `update`, `--all`, project-local `config -l` | Real CLI/package semantic drift; realign outright under the no-deprecation policy. |
@@ -135,9 +135,10 @@ are:
   flag emits guidance naming it.
 - Pi's RPC union has grown from 29 to 31 commands with read-only `get_entries`
   (optional `since`) and `get_tree`; pipy **shipped** both 2026-07-14, so its
-  protocol is green at the full 31-command Pi vocabulary. Pi additionally emits
-  `agent_settled` once retries, compaction retries, and queued continuations are
-  fully idle — that event is the one remaining RPC follow-on.
+  protocol is green at the full 31-command Pi vocabulary. Pipy also **shipped**
+  the payload-free RPC `agent_settled` event on 2026-07-14, emitted once retries,
+  compaction retries, and queued continuations are fully idle. JSON-mode and
+  extension-surface `agent_settled` emission remain separate follow-ons.
 - Pi session flags and picker workflows now ship: `--session-id`,
   `--session-dir`, `--name/-n`, `-c`, `-r`, `--session`, `--fork`, and
   `--no-session`, with Pi-style mutual exclusion and the cross-project fork
@@ -589,14 +590,14 @@ adding another bespoke slash command.
 
 ## Recommended implementation order
 
-1. GPT-5.6 Sol plus model-aware `max` thinking — execute the existing bounded
-   plan without broadening into every GPT-5.6/provider surface.
+1. GPT-5.6 Sol plus model-aware `max` thinking — **shipped** 2026-07-14 without
+   broadening into every GPT-5.6/provider surface.
 2. Project-trust design — pin trust-store ancestry, protected-resource loading
    order, non-interactive defaults, CLI overrides, and extension decision
    ownership before implementation.
-3. RPC `get_entries`/`get_tree` — **shipped** 2026-07-14 as one read-only
-   protocol slice; `agent_settled` is the remaining follow-on if it stays
-   independently reviewable.
+3. RPC `get_entries`/`get_tree` and true-idle `agent_settled` — **shipped**
+   2026-07-14 as independent protocol slices. JSON-mode and extension-surface
+   `agent_settled` emission remain independently reviewable follow-ons.
 4. Extension deltas — `before_provider_headers`, durable entry renderers, and
    settled lifecycle as separate slices, then resume the broader
    component/overlay/invalidation track.

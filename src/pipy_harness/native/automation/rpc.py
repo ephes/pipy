@@ -271,6 +271,10 @@ class NativeRpcServer:
                 )
                 if text:
                     self._last_assistant_text = text
+        if event_type != "agent_end":
+            # Async session events are fire-and-forget through the single writer.
+            self._writer.write_line(event)
+            return
         # On the run boundary, settle state and reserve the next queued message
         # BEFORE the agent_end line hits the wire, so a client that observes
         # agent_end and immediately calls get_state sees the settled boundary
@@ -278,12 +282,30 @@ class NativeRpcServer:
         # already reserved) — never a stale in-flight state. The actual delivery
         # (queue_update + channel push) happens AFTER agent_end so agent_end stays
         # the clean boundary that precedes the next run's events.
-        reserved: str | None = None
-        if event_type == "agent_end":
-            self._abort.clear()
-            reserved = self._reserve_next_message(settled=True)
-        # Async session events are fire-and-forget through the single writer.
-        self._writer.write_line(event)
+        #
+        # Pi emits a single `agent_settled` in `_runAgentPrompt`'s finally, after
+        # the run's final `agent_end`, once the agent is idle (all queued
+        # steer/follow-up drained in-turn). pipy delivers one queued message per
+        # run boundary as a *separate* run, so the faithful boundary is: emit
+        # `agent_settled` after `agent_end` only when this boundary settled to
+        # true idle — `reserved is None`, i.e. nothing was promoted to run next.
+        # When a queued message is reserved a new run continues, so — like Pi —
+        # no `agent_settled` is emitted between the two runs.
+        #
+        # The settle transition, the `agent_end` write, and the `agent_settled`
+        # write all happen under `self._lock` so a concurrent `prompt`/`steer`/
+        # `follow_up` — which take the same lock to accept a run and write their
+        # response — cannot slip a new run's acceptance between `agent_end` and
+        # `agent_settled`. That would strand a stale `agent_settled` after the new
+        # run's events and mislead `waitForIdle` clients. Pi emits the pair
+        # atomically for the same reason. Delivery of any reserved message
+        # (`_deliver`, which re-takes the lock) stays outside the hold.
+        self._abort.clear()
+        with self._lock:
+            reserved = self._reserve_next_message_locked(settled=True)
+            self._writer.write_line(event)
+            if reserved is None:
+                self._writer.write_line({"type": "agent_settled"})
         if reserved is not None:
             self._deliver(reserved)
 
@@ -311,20 +333,30 @@ class NativeRpcServer:
         """
 
         with self._lock:
-            if settled:
-                self._turn_active = False
-            if self._turn_active:
-                return None
-            if self._steering:
-                message = self._steering.pop(0)
-            elif self._follow_up:
-                message = self._follow_up.pop(0)
-            else:
-                return None
-            # The reserved run is active from this moment (accept time), not only
-            # once the worker later emits agent_start.
-            self._turn_active = True
-            return message
+            return self._reserve_next_message_locked(settled=settled)
+
+    def _reserve_next_message_locked(self, *, settled: bool) -> str | None:
+        """``_reserve_next_message`` core; caller must hold ``self._lock``.
+
+        Split out so the ``agent_end`` boundary can settle/reserve and write the
+        ``agent_end``/``agent_settled`` lifecycle pair under a single lock hold
+        (see ``emit``), keeping the whole idle transition atomic.
+        """
+
+        if settled:
+            self._turn_active = False
+        if self._turn_active:
+            return None
+        if self._steering:
+            message = self._steering.pop(0)
+        elif self._follow_up:
+            message = self._follow_up.pop(0)
+        else:
+            return None
+        # The reserved run is active from this moment (accept time), not only
+        # once the worker later emits agent_start.
+        self._turn_active = True
+        return message
 
     def _deliver(self, message: str) -> None:
         self._emit_queue_update()
@@ -491,29 +523,38 @@ class NativeRpcServer:
             return
         behavior = command.get("streamingBehavior")
         with self._lock:
-            active = self._turn_active
-        if active:
+            if self._turn_active:
+                # Classify and enqueue under the same lock hold as the active
+                # check. Otherwise agent_end could settle between the read and
+                # append, leaving this prompt stranded behind a false
+                # agent_settled with no run left to drain it.
+                if behavior == "steer":
+                    self._steering.append(message)
+                else:
+                    self._follow_up.append(message)
+                queued = True
+            else:
+                # Idle: mark the run active synchronously (accept time) so an
+                # immediately following abort/steer/follow_up/get_state sees the
+                # in-flight run rather than racing the worker's later
+                # agent_start.
+                self._turn_active = True
+                queued = False
+
+        # Responses, queue snapshots, and channel delivery stay outside the
+        # state lock. The classification and mutation above are authoritative;
+        # agent_end can now either reserve the queued prompt or finish settling
+        # before a newly active prompt is delivered, but it cannot strand one.
+        self._respond(cid, "prompt")
+        if queued:
             # A prompt sent during an active run is routed through the observable
             # queue (Pi's streamingBehavior: steer -> steering, otherwise
             # follow-up) rather than silently deferred: it shows up in
             # queue_update / pendingMessageCount and drains after the current run
             # settles. Without this, a mid-run prompt would be an invisible
             # queued turn.
-            with self._lock:
-                if behavior == "steer":
-                    self._steering.append(message)
-                else:
-                    self._follow_up.append(message)
-            self._respond(cid, "prompt")
             self._emit_queue_update()
             return
-        # Idle: preflight succeeded; emit the authoritative success, then events.
-        # Mark the run active synchronously (accept time) so an immediately
-        # following abort/steer/follow_up/get_state sees the in-flight run rather
-        # than racing the worker's later agent_start.
-        with self._lock:
-            self._turn_active = True
-        self._respond(cid, "prompt")
         self._channel.push(message)
 
     def _cmd_steer(self, cid: str | None, command: dict[str, Any]) -> None:

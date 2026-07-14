@@ -10,8 +10,9 @@ the real native tool loop and session tree, not a TypeScript port. The original
 specification was researched from the local Pi reference on 2026-06-02. Pi
 `0.80.3` later added `get_entries` and `get_tree`, taking the command union to
 31; both are now shipped in pipy's green 31-command baseline. Pi's later
-`agent_settled` event remains an explicit follow-on rather than part of the
-baseline.
+`agent_settled` session event is now emitted on the `--mode rpc` stream at the
+idle boundary (see below); emitting it on the `--mode json` stream remains the
+one explicit follow-on.
 
 Implementation map: `src/pipy_harness/native/automation/` (`jsonl.py` framing,
 `events.py`/`serialize.py` the Pi-shaped event vocabulary, `run_modes.py` the
@@ -166,6 +167,7 @@ Session-extension events (Pi `AgentSessionEvent`,
 | `thinking_level_changed` | `level: ThinkingLevel` | Thinking/reasoning level changed (where the provider supports it). |
 | `auto_retry_start` | `attempt: number`, `maxAttempts: number`, `delayMs: number`, `errorMessage: string` | Auto-retry attempt scheduled. |
 | `auto_retry_end` | `success: boolean`, `attempt: number`, `finalError?: string` | Auto-retry attempt settled. |
+| `agent_settled` | (none) | The agent run has settled into idle. **`--mode rpc` only** (see below); `--mode json` emission is a follow-on. |
 
 `assistantMessageEvent` sub-union (Pi `AssistantMessageEvent`,
 `packages/ai/src/types.ts`) carried inside `message_update`. Pipy must emit the
@@ -360,10 +362,20 @@ yields an empty list, and branching can place the leaf before the slice).
 `get_tree`'s deep, linear-history payload is serialized with a depth-safe
 iterative encoder so an arbitrarily long session cannot fail encoding.
 
-Pi also emits `agent_settled` after the full run is idle, including automatic
-retries, auto-compaction retries, and queued continuations. Pipy currently ends
-its observable lifecycle at `agent_end`; settled semantics are a separate
-follow-on shared with the extension surface.
+Pi emits `agent_settled` once after the full run is idle, including automatic
+retries, auto-compaction retries, and queued continuations (its `_runAgentPrompt`
+drains all queued steer/follow-up in-turn, then emits a single `agent_settled` in
+its `finally` after the final `agent_end`). pipy now emits `agent_settled` on the
+`--mode rpc` stream at the matching boundary: after an `agent_end` whose settle
+reserved no queued message — the true-idle boundary (`_turn_active` is `False`
+and both queues are empty, the same idle definition `get_state`'s `isStreaming`
+and the EOF drain use). Because pipy delivers one queued steer/follow-up per run
+boundary as a separate run, a boundary that reserves the next message emits **no**
+`agent_settled` (a new run continues, exactly as Pi does not settle mid-turn);
+`agent_settled` fires only when the session reaches idle. It carries no payload
+fields. Emitting `agent_settled` on the `--mode json` one-shot stream (whose
+documented canonical sequence ends at `agent_end`) is the one remaining follow-on;
+the extension-surface `agent_settled` hook is tracked separately.
 
 Within the 31-command baseline, pipy command names match Pi so baseline clients
 drive pipy unchanged. Commands in the

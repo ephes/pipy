@@ -30,6 +30,34 @@ from pipy_harness.native.fake import AutomationFakeProvider
 from pipy_harness.native.session_tree import NativeSessionTree
 
 
+class _PromptExitBarrierLock:
+    """Pause a prompt after its first state-lock hold is released.
+
+    With the old split-lock prompt path, that first hold only read
+    ``_turn_active``; pausing here let ``agent_end`` settle before the prompt
+    reacquired the lock to enqueue, deterministically stranding it. The fixed
+    path classifies and mutates state during that first hold, so settlement must
+    reserve the prompt instead.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.prompt_first_hold_released = threading.Event()
+        self.allow_prompt_to_continue = threading.Event()
+        self._prompt_paused = False
+
+    def __enter__(self) -> None:
+        self._lock.acquire()
+
+    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+        self._lock.release()
+        if threading.current_thread().name == "racing-prompt" and not self._prompt_paused:
+            self._prompt_paused = True
+            self.prompt_first_hold_released.set()
+            if not self.allow_prompt_to_continue.wait(timeout=5.0):
+                raise AssertionError("prompt barrier was not released")
+
+
 class _RpcClient:
     def __init__(self, tmp_path: Path) -> None:
         self._cwd = tmp_path
@@ -195,6 +223,97 @@ def test_batch_eof_drains_queued_followup(tmp_path: Path) -> None:
     ]
     assert "ROOT" in user_texts
     assert "SECOND" in user_texts
+
+    # Pi emits exactly one `agent_settled` when the agent becomes idle, after the
+    # final `agent_end`. pipy runs each queued follow-up as a separate run, so run
+    # A's `agent_end` reserves SECOND (no settle) and only run B's `agent_end`
+    # settles to idle. There must be exactly one `agent_settled`, it must follow
+    # the second `agent_end`, and none may appear between the two runs.
+    types = [r.get("type") for r in records]
+    assert types.count("agent_settled") == 1
+    agent_end_indices = [i for i, t in enumerate(types) if t == "agent_end"]
+    assert len(agent_end_indices) == 2
+    settled_index = types.index("agent_settled")
+    assert settled_index > agent_end_indices[1]
+    assert not any(
+        t == "agent_settled" for t in types[: agent_end_indices[1]]
+    )
+
+
+def test_agent_settled_emitted_after_idle(client) -> None:
+    client.send({"id": "r1", "type": "prompt", "message": "ROOT"})
+    records = client.collect_until(lambda r: r.get("type") == "agent_settled")
+
+    types = [r["type"] for r in records]
+    # `agent_settled` is the idle boundary: it is the final line and comes
+    # strictly after the run's `agent_end`, with nothing between them.
+    assert types[-1] == "agent_settled"
+    assert types[-2] == "agent_end"
+    # Pi's `agent_settled` carries no payload fields.
+    assert records[-1] == {"type": "agent_settled"}
+
+
+def test_prompt_racing_agent_end_is_reserved_not_stranded(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    stdout = io.BytesIO()
+    adapter = PipyNativeToolReplAdapter(provider=AutomationFakeProvider())
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    server = NativeRpcServer(
+        adapter=adapter,
+        cwd=tmp_path,
+        native_session=tree,
+        stdin=io.StringIO(),
+        stdout_buffer=stdout,
+        error_stream=io.StringIO(),
+    )
+    server._turn_active = True
+    barrier = _PromptExitBarrierLock()
+    monkeypatch.setattr(server, "_lock", barrier)
+
+    failures: "queue.Queue[BaseException]" = queue.Queue()
+
+    def submit_prompt() -> None:
+        try:
+            server._cmd_prompt("p", {"type": "prompt", "message": "NEXT"})
+        except BaseException as exc:  # pragma: no cover - surfaced below
+            failures.put(exc)
+
+    prompt_thread = threading.Thread(
+        target=submit_prompt,
+        name="racing-prompt",
+        daemon=True,
+    )
+    prompt_thread.start()
+    assert barrier.prompt_first_hold_released.wait(timeout=5.0)
+
+    # The prompt has completed its first state-lock hold. Settlement now runs
+    # before that prompt thread can continue. A split read/append would settle
+    # idle and then strand NEXT; the atomic path has already queued NEXT, so this
+    # boundary reserves it and suppresses agent_settled.
+    settle_thread = threading.Thread(
+        target=lambda: server.emit({"type": "agent_end", "willRetry": False}),
+        daemon=True,
+    )
+    settle_thread.start()
+    settle_thread.join(timeout=5.0)
+    assert not settle_thread.is_alive(), "agent_end settlement deadlocked"
+
+    barrier.allow_prompt_to_continue.set()
+    prompt_thread.join(timeout=5.0)
+    assert not prompt_thread.is_alive(), "prompt remained blocked after settlement"
+    if not failures.empty():
+        raise failures.get()
+
+    records = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert [record["type"] for record in records].count("agent_settled") == 0
+    assert records[0]["type"] == "agent_end"
+    with server._lock:
+        assert server._turn_active is True
+        assert server._steering == []
+        assert server._follow_up == []
+    assert server._channel._q.get_nowait() == "NEXT\n"
 
 
 def test_prompt_emits_correlated_success_then_event_sequence(client) -> None:

@@ -13,6 +13,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
   green RPC baseline to all 31 Pi command types. Both return a coherent session
   entries/tree and leaf snapshot; deep linear trees use depth-safe iterative
   serialization.
+- RPC mode now emits Pi's payload-free `agent_settled` event after the final
+  `agent_end` when the session reaches true idle. Queued steer/follow-up runs do
+  not emit a premature settled event between runs. JSON-mode and extension-hook
+  `agent_settled` support remain separate follow-ons.
 - `openai-codex/gpt-5.6-sol` is now a built-in Codex model (372K context, image
   input) with a seventh thinking level, `max`. The thinking vocabulary is now
   `off|minimal|low|medium|high|xhigh|max` across the CLI `--thinking`/`:level`
