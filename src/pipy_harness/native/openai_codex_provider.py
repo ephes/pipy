@@ -733,6 +733,10 @@ class OpenAICodexResponsesProvider:
     transport_state: CodexTransportState = field(default_factory=CodexTransportState)
     request_id_factory: Callable[[], str] = field(default_factory=lambda: lambda: uuid.uuid4().hex)
     supports_tool_calls: bool = True
+    # Mapped reasoning effort for the request's ``reasoning.effort`` field. Set by
+    # the REPL provider boundary from the current model + thinking level (clamped
+    # and mapped); ``None`` omits ``effort`` and keeps the Pi-forced summary only.
+    reasoning_effort: str | None = None
     retry_policy: "RetryPolicy" = field(
         default_factory=lambda: RetryPolicy(
             max_attempts=4,
@@ -799,7 +803,11 @@ class OpenAICodexResponsesProvider:
             "stream": True,
             "text": {"verbosity": "low"},
             "include": ["reasoning.encrypted_content"],
-            "reasoning": {"summary": "auto"},
+            "reasoning": (
+                {"summary": "auto", "effort": self.reasoning_effort}
+                if self.reasoning_effort is not None
+                else {"summary": "auto"}
+            ),
             "tool_choice": "auto",
             "parallel_tool_calls": True,
         }

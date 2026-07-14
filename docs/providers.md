@@ -174,9 +174,12 @@ example. The convenience environment shim `PIPY_DS4_BASE_URL` and
 ## Thinking, images, and current limits
 
 The model table's `thinking` and `images` columns are capability metadata from
-the catalog. `--thinking off|minimal|low|medium|high|xhigh` stores the selected
-thinking level in local provider-selection state and the catalog construction
-layer maps shipped adapter families where supported. Some provider-specific
+the catalog. `--thinking off|minimal|low|medium|high|xhigh|max` stores the
+selected thinking level in local provider-selection state and the catalog
+construction layer maps shipped adapter families where supported. The two
+extended levels `xhigh` and `max` are honoured only by models that map them
+(e.g. `openai-codex/gpt-5.6-sol` maps both); Shift+Tab cycling and the Codex
+request-path clamp both follow that per-model support. Some provider-specific
 request shapes remain follow-up work; when a row or adapter cannot apply a
 level, pipy falls back safely rather than inventing unsupported parameters.
 

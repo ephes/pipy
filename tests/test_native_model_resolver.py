@@ -41,8 +41,8 @@ ROWS = [
 # ---- thinking-level helpers ------------------------------------------------
 
 
-def test_is_valid_thinking_level_accepts_six_value_set():
-    for level in ("off", "minimal", "low", "medium", "high", "xhigh"):
+def test_is_valid_thinking_level_accepts_seven_value_set():
+    for level in ("off", "minimal", "low", "medium", "high", "xhigh", "max"):
         assert is_valid_thinking_level(level)
     assert not is_valid_thinking_level("turbo")
     assert not is_valid_thinking_level("")

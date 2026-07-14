@@ -235,6 +235,66 @@ def test_openai_codex_provider_posts_responses_request_and_parses_output(tmp_pat
     }
 
 
+def _completed_sse() -> SseResponse:
+    return SseResponse(
+        status_code=200,
+        body=sse_payload(
+            [
+                {"type": "response.output_text.delta", "delta": "ok"},
+                {"type": "response.completed", "response": {"status": "completed"}},
+            ]
+        ),
+    )
+
+
+def test_openai_codex_provider_emits_reasoning_effort_when_set(tmp_path):
+    client = FakeSseHTTPClient(_completed_sse())
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-5.6-sol",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+        transport="sse",
+        reasoning_effort="max",
+    )
+
+    provider.complete(provider_request(tmp_path))
+
+    posted = client.requests[0]
+    assert posted["url"] == "https://chatgpt.com/backend-api/codex/responses"
+    assert posted["body"]["reasoning"] == {"summary": "auto", "effort": "max"}
+
+
+def test_openai_codex_provider_emits_mapped_low_effort(tmp_path):
+    # The REPL boundary maps Sol's `minimal` to `low`; the provider carries and
+    # emits the pre-resolved value.
+    client = FakeSseHTTPClient(_completed_sse())
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-5.6-sol",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+        transport="sse",
+        reasoning_effort="low",
+    )
+
+    provider.complete(provider_request(tmp_path))
+
+    assert client.requests[0]["body"]["reasoning"] == {"summary": "auto", "effort": "low"}
+
+
+def test_openai_codex_provider_omits_effort_when_unset(tmp_path):
+    client = FakeSseHTTPClient(_completed_sse())
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-5.6-sol",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+        transport="sse",
+    )
+
+    provider.complete(provider_request(tmp_path))
+
+    assert client.requests[0]["body"]["reasoning"] == {"summary": "auto"}
+
+
 def test_openai_codex_provider_sends_no_tool_repl_context_as_prior_messages(tmp_path):
     client = FakeSseHTTPClient(
         SseResponse(

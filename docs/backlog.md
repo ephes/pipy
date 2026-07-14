@@ -311,13 +311,13 @@ Shipped foundations that should no longer be selected as large topics:
 The immediate queue is ordered by reviewable value, while the strategic ranking
 still recognizes that extension/package parity is the largest surface by area:
 
-1. **GPT-5.6 Sol plus the `max` thinking level — selected next slice.** Pi
-   `0.80.6` exposes `openai-codex/gpt-5.6-sol`, a 372K subscription context
-   window, and model-aware `max` thinking that reaches the Codex request as
-   `reasoning.effort`. Pipy stops at GPT-5.5/`xhigh`. The bounded design already
-   exists in [gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md); keep Terra/Luna, API
-   pricing tiers, generalized clamping, and other provider rows out of this
-   slice.
+1. **GPT-5.6 Sol plus the `max` thinking level — shipped (2026-07-14).**
+   `openai-codex/gpt-5.6-sol` (372K context, image input) is a built-in row, the
+   thinking vocabulary now runs through `max`, and a Codex-scoped clamp carries
+   the selected effort into the legacy Codex provider
+   ([gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md)). Terra/Luna, API pricing tiers,
+   other provider rows, and generalized cross-provider clamping stayed out of the
+   slice; the last is a named follow-on.
 2. **Project trust and project-local configuration safety.** Pi gates
    project-local settings/resources/packages behind saved or temporary trust,
    exposes `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, and the
@@ -1445,21 +1445,21 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### GPT-5.6 Sol plus model-aware `max` thinking — SELECTED
+### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 
-Review, then implement, the bounded design in
-[gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md): add only the
-`openai-codex/gpt-5.6-sol` catalog row, extend the canonical thinking vocabulary
-through `max`, carry a selected mapped effort into the legacy Codex provider,
-and render Sol against its 372K context budget. GPT-5.5 remains the default.
+Delivered per [gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md): the
+`openai-codex/gpt-5.6-sol` catalog row (372K context, image input); the canonical
+thinking vocabulary extended to `off|minimal|low|medium|high|xhigh|max`; a
+Codex-scoped clamp-then-map (`clamp_thinking_level`/`resolve_codex_effort`)
+mirroring Pi's per-request `clampThinkingLevel` that carries the selected effort
+into the legacy Codex provider (stored `max` → `effort: "max"` on Sol, clamps to
+`xhigh` on GPT-5.5); model-aware Shift+Tab cycling; and Sol's 372K status budget.
+GPT-5.5 remains the Codex default. Generalized cross-provider clamping is the one
+named follow-on. A direct different-family (Pi) review was CLEAN.
 
-Done when Sol is listed, selectable, and constructible; an explicit `max`
-selection reaches the next Codex request as
-`reasoning: {summary: "auto", effort: "max"}`; unrelated models do not gain
-unsupported levels; focused/catalog/full gates pass; docs and release notes
-match; and a direct different-family review is CLEAN.
+### Next: project trust
 
-Queued after this slice, in order: project-trust design, RPC
+Queued after the shipped Sol slice, in order: project-trust design, RPC
 `get_entries`/`get_tree`, the `before_provider_headers` extension hook, durable
 entry renderers plus `agent_settled`, cache-friendly dynamic tool loading, and
 package-update/config realignment. Each remains its own parity-loop gap.

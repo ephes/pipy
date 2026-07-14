@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import json
 import os
@@ -241,7 +242,71 @@ class NativeReplProviderState:
             catalog_provider = self._catalog_provider(selection)
             if catalog_provider is not None:
                 return catalog_provider
-        return self.provider_factory(selection)
+        provider = self.provider_factory(selection)
+        return self._apply_codex_reasoning_effort(selection, provider)
+
+    def _apply_codex_reasoning_effort(
+        self, selection: NativeModelSelection, provider: ProviderPort
+    ) -> ProviderPort:
+        """Inject the clamped+mapped thinking effort into a legacy Codex provider.
+
+        The Codex adapter is built through the legacy factory (not the catalog
+        construction boundary), so the current thinking level does not reach it
+        automatically. Resolve it here, each build, so Shift+Tab / extension /
+        model-switch changes take effect on the next turn. Mirrors Pi's per-
+        request ``clampThinkingLevel`` inside ``openai-codex-responses.ts``. The
+        Codex provider is a frozen dataclass, so a new instance is returned with
+        the effort applied (every other field, e.g. the injected retry policy,
+        is preserved).
+        """
+
+        if selection.provider_name != "openai-codex" or not self.thinking_level:
+            return provider
+        if not hasattr(provider, "reasoning_effort"):
+            return provider
+        spec = self._spec_for(selection)
+        if spec is None:
+            return provider
+        from pipy_harness.native.thinking import resolve_codex_effort
+
+        effort = resolve_codex_effort(spec, self.thinking_level)
+        if effort is None:
+            return provider
+        if dataclasses.is_dataclass(provider) and not isinstance(provider, type):
+            return dataclasses.replace(provider, reasoning_effort=effort)  # type: ignore[type-var]
+        provider.reasoning_effort = effort  # type: ignore[attr-defined]
+        return provider
+
+    def _spec_for(self, selection: NativeModelSelection):
+        """Resolve the catalog spec (with thinking map) for a selection, or None."""
+
+        state = self.catalog_state
+        if state is None:
+            return None
+        from pipy_harness.native.model_resolver import build_fallback_model
+
+        spec = state.find(selection.provider_name, selection.model_id)  # type: ignore[attr-defined]
+        if spec is None:
+            spec = build_fallback_model(
+                selection.provider_name, selection.model_id, state.get_all()  # type: ignore[attr-defined]
+            )
+        return spec
+
+    def current_thinking_levels(self) -> list[str]:
+        """Ordered Shift+Tab cycle levels for the current model (Pi-aware).
+
+        Returns the model's ``available_thinking_levels`` (``off`` plus the
+        ordinary tier, with ``xhigh``/``max`` appended only when the row maps
+        them). Falls back to the ordinary tier when the spec is unavailable so a
+        custom or not-yet-cataloged reasoning model still cycles.
+        """
+
+        spec = self._spec_for(self.selection)
+        if spec is None:
+            return ["off", "minimal", "low", "medium", "high"]
+        from pipy_harness.native.thinking import available_thinking_levels
+
+        return available_thinking_levels(spec)
 
     def _catalog_provider(self, selection: NativeModelSelection) -> ProviderPort | None:
         """Construct a provider from the catalog (spec item 18).

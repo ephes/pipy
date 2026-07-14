@@ -8,6 +8,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- `openai-codex/gpt-5.6-sol` is now a built-in Codex model (372K context, image
+  input) with a seventh thinking level, `max`. The thinking vocabulary is now
+  `off|minimal|low|medium|high|xhigh|max` across the CLI `--thinking`/`:level`
+  suffix, settings, extension controls, RPC, and `models.json`. Shift+Tab
+  cycling is model-aware: every reasoning model cycles the ordinary tier and
+  appends `xhigh`/`max` only when the active model maps them, so Sol cycles all
+  seven levels. The Codex request now clamps an unsupported stored level to the
+  nearest supported one and emits it as `reasoning.effort` (matching Pi's
+  per-request `clampThinkingLevel`); e.g. a stored `max` sends `effort: "max"`
+  on Sol and clamps to `xhigh` on GPT-5.5. Sol renders a `372k` status budget.
+  GPT-5.5 remains the Codex default; no bare `gpt-5.6` alias is added.
 - Extension UI editor text helpers now expose Pi-canonical camelCase aliases:
   `ctx.ui.getEditorText()`, `ctx.ui.setEditorText(text)`, and
   `ctx.ui.pasteToEditor(text)`. The existing snake_case helpers remain

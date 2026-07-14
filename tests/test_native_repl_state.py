@@ -564,3 +564,63 @@ def test_fallback_selection_constructs_from_catalog_base(tmp_path):
     assert provider.endpoint == "https://acme.example/v1/chat/completions"
     assert provider.api_key == "acme-key"
     assert provider.model_id == "rocket-NEW"
+
+
+def _codex_repl_state(tmp_path, model_id, thinking_level):
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.openai_codex_provider import (
+        OpenAICodexResponsesProvider,
+    )
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+    from pipy_harness.native.retry import RetryPolicy
+
+    policy = RetryPolicy(max_attempts=7, initial_delay_seconds=1.5, max_delay_seconds=9.0)
+    state = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+    repl_state = NativeReplProviderState(
+        selection=NativeModelSelection("openai-codex", model_id),
+        provider_factory=lambda sel: OpenAICodexResponsesProvider(
+            model_id=sel.model_id, retry_policy=policy
+        ),
+        catalog_state=state,
+        thinking_level=thinking_level,
+        persist_defaults=False,
+    )
+    return repl_state, policy
+
+
+def test_codex_provider_receives_mapped_effort_and_keeps_retry_policy(tmp_path):
+    repl_state, policy = _codex_repl_state(tmp_path, "gpt-5.6-sol", "max")
+    provider = repl_state.current_provider()
+    assert provider.reasoning_effort == "max"
+    # the legacy-factory-injected retry policy must survive effort injection
+    assert provider.retry_policy is policy
+
+
+def test_codex_provider_maps_minimal_to_low(tmp_path):
+    repl_state, _ = _codex_repl_state(tmp_path, "gpt-5.6-sol", "minimal")
+    assert repl_state.current_provider().reasoning_effort == "low"
+
+
+def test_codex_provider_clamps_unsupported_max_to_xhigh(tmp_path):
+    # gpt-5.5 (Codex) maps xhigh but not max -> clamp down to xhigh (Pi parity).
+    repl_state, _ = _codex_repl_state(tmp_path, "gpt-5.5", "max")
+    assert repl_state.current_provider().reasoning_effort == "xhigh"
+
+
+def test_codex_provider_omits_effort_when_off(tmp_path):
+    repl_state, _ = _codex_repl_state(tmp_path, "gpt-5.6-sol", "off")
+    assert repl_state.current_provider().reasoning_effort is None
+
+
+def test_codex_provider_omits_effort_when_no_level(tmp_path):
+    repl_state, _ = _codex_repl_state(tmp_path, "gpt-5.6-sol", None)
+    assert repl_state.current_provider().reasoning_effort is None

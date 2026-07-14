@@ -19,9 +19,14 @@ fully wired for current provider sources (only the deliberate
 `openai-codex` legacy-factory exception and documented adapter follow-ons remain
 — see below).
 
-The 2026-07-14 refresh against Pi `0.80.6` selects GPT-5.6 Sol plus model-aware
-`max` thinking as the next bounded catalog slice. Later July candidates must be
-audited and split by ownership: forced tool choice, OpenRouter session affinity,
+The 2026-07-14 refresh against Pi `0.80.6` shipped GPT-5.6 Sol
+(`openai-codex/gpt-5.6-sol`, 372K context, image input) plus model-aware `max`
+thinking: the vocabulary is now `off|minimal|low|medium|high|xhigh|max`, the
+Codex request clamps an unsupported stored level to the nearest supported one and
+emits it as `reasoning.effort` (Pi's per-request `clampThinkingLevel`), and
+Shift+Tab cycles the extended levels only for models that map them. Later July
+candidates must be audited and split by ownership: forced tool choice, OpenRouter
+session affinity,
 Copilot MAI routing, Bedrock/Cloudflare auth refinements, input-pricing tiers,
 and generated catalog refreshes are not one request path and must not be bundled.
 
@@ -56,7 +61,10 @@ openai-completions) construct from the catalog via `native/provider_construction
 - **Routing** (`native/routing.py`): OpenRouter `provider` param + Vercel
   `providerOptions.gateway` (gated on `only`/`order`) reach the request body for
   the completions family via `extra_body`.
-- **Thinking** (`native/thinking.py`): six-level validation + per-model mapping;
+- **Thinking** (`native/thinking.py`): seven-level validation + per-model mapping
+  (`off|minimal|low|medium|high|xhigh|max`), with a Codex-scoped clamp
+  (`clamp_thinking_level`/`resolve_codex_effort`) mirroring Pi's request-path
+  `clampThinkingLevel`;
   the mapped value reaches the request as `reasoning_effort` (OpenAI-style) or
   nested `reasoning.effort` (OpenRouter) for the completions family.
 - **Auth** (`native/auth_store.py`): owner-only auth store, `resolve_config_value`

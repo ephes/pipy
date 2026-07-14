@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .catalog import THINKING_LEVELS
 from .workspace_context import resolve_global_instruction_root
 
 if TYPE_CHECKING:
@@ -457,7 +458,7 @@ class SettingsManager:
 
     def get_default_thinking_level(self) -> str | None:
         value = self._get_str("defaultThinkingLevel")
-        if value in {"off", "minimal", "low", "medium", "high", "xhigh"}:
+        if value in THINKING_LEVELS:
             return value
         return None
 

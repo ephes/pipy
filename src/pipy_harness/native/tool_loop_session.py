@@ -95,6 +95,7 @@ from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.version_check import pipy_version
 from pipy_harness.native.export_distribution import (
     NativeExportError,
@@ -550,6 +551,7 @@ class _ContextBudget:
 
 
 _CODEX_GPT_5_5_BUDGET = _ContextBudget(token_budget=272_000, budget_label="272k")
+_CODEX_GPT_5_6_SOL_BUDGET = _ContextBudget(token_budget=372_000, budget_label="372k")
 _DEFAULT_CONTEXT_BUDGET = _ContextBudget(token_budget=128_000, budget_label="128k")
 
 
@@ -563,6 +565,8 @@ def _context_budget_for(provider_name: str, model_id: str) -> _ContextBudget:
     """
 
     if provider_name == "openai-codex":
+        if model_id == "gpt-5.6-sol":
+            return _CODEX_GPT_5_6_SOL_BUDGET
         if model_id.startswith("gpt-5"):
             return _CODEX_GPT_5_5_BUDGET
     if provider_name in {"anthropic"} and "sonnet" in model_id.lower():
@@ -1948,7 +1952,7 @@ class NativeToolReplSession:
             if not isinstance(state, NativeReplProviderState):
                 return False
             normalized = str(level).strip().lower()
-            if normalized not in {"off", "minimal", "low", "medium", "high", "xhigh"}:
+            if normalized not in THINKING_LEVELS:
                 return False
             current = state.current_selection()
             supports_thinking = any(
@@ -4757,9 +4761,10 @@ class NativeToolReplSession:
             f"$ {command}\n{status_line}\n\n{output_text}"
         )
 
-    # Pi's reasoning-level cycle order (THINKING_LEVELS in agent-session.ts).
-    # Pipy's catalog adds an "xhigh" tier that is not part of the Shift+Tab
-    # cycle; the cycle clamps to these five, matching Pi.
+    # Ordinary-tier fallback cycle (Pi's base reasoning levels). The live cycle
+    # is model-aware via ``state.current_thinking_levels()`` — it appends
+    # ``xhigh``/``max`` when the active row maps them (Sol cycles all seven).
+    # This constant is used only when no per-model level list is available.
     _THINKING_CYCLE_LEVELS: ClassVar[tuple[str, ...]] = (
         "off",
         "minimal",
@@ -4853,7 +4858,10 @@ class NativeToolReplSession:
                 "pipy: current model does not support thinking.",
             )
             return
-        levels = self._THINKING_CYCLE_LEVELS
+        # Model-aware cycle (Pi's Shift+Tab over getSupportedThinkingLevels):
+        # the ordinary tier for every reasoning model, plus xhigh/max only when
+        # the active row maps them.
+        levels = tuple(state.current_thinking_levels()) or self._THINKING_CYCLE_LEVELS
         current_level = state.thinking_level if state.thinking_level in levels else "off"
         next_level = levels[(levels.index(current_level) + 1) % len(levels)]
         state.thinking_level = next_level

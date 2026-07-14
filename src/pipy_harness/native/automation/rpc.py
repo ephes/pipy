@@ -35,6 +35,7 @@ from pipy_harness.native.automation.jsonl import (
     loads_strict,
 )
 from pipy_harness.native.automation.serialize import serialize_message
+from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.command_sandbox import (
     CommandPolicy,
     CommandStatus,
@@ -179,7 +180,7 @@ class NativeRpcServer:
         self._bash_threads: list[threading.Thread] = []
         self._worker: threading.Thread | None = None
 
-    _THINKING_LEVELS = ("off", "minimal", "low", "medium", "high", "xhigh")
+    _THINKING_LEVELS = THINKING_LEVELS
 
     # -- event tap (called from the worker thread) -----------------------
     def emit(self, event: dict[str, Any]) -> None:

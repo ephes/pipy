@@ -45,6 +45,7 @@ from pipy_harness.native.provider_registry import (
     native_provider_spec,
 )
 from pipy_harness.native.auth_store import AuthStore
+from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
@@ -648,7 +649,7 @@ def _add_catalog_flags(parser: argparse.ArgumentParser) -> None:
         default=None,
         metavar="LEVEL",
         help=(
-            "Accepted thinking level: off|minimal|low|medium|high|xhigh. "
+            "Accepted thinking level: off|minimal|low|medium|high|xhigh|max. "
             "Stored in local provider-selection state and mapped into provider "
             "requests for catalog-backed adapters that advertise a thinking "
             "shape. Invalid values warn and fall back to the default."
@@ -1669,9 +1670,7 @@ def _cmd_config(args: Any) -> int:
     return 0
 
 
-_MODELS_THINKING_LEVELS = frozenset(
-    {"off", "minimal", "low", "medium", "high", "xhigh"}
-)
+_MODELS_THINKING_LEVELS = frozenset(THINKING_LEVELS)
 
 
 def _parse_models_flag(value: str | None) -> list[str] | None:

@@ -84,6 +84,19 @@ _REASONING_LEVELS = {
     "high": "high",
 }
 _REASONING_LEVELS_XHIGH = {**_REASONING_LEVELS, "xhigh": "xhigh"}
+# GPT-5.6 Sol (Codex) row. Pi ships `{"xhigh":"xhigh","max":"max","minimal":"low"}`
+# and relies on identity support for the ordinary tier; pipy derives support from
+# map keys, so the ordinary levels are spelled out explicitly. `minimal → "low"`
+# is a non-identity mapping straight from Pi's Sol row.
+_SOL_THINKING = {
+    "off": None,
+    "minimal": "low",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "xhigh",
+    "max": "max",
+}
 
 
 BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
@@ -160,6 +173,16 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
         "openai-codex", "gpt-5.1-codex", "GPT-5.1 Codex (Codex/ChatGPT)",
         "openai-codex-responses", reasoning=True, thinking=_REASONING_LEVELS,
         image=True, context_window=400_000, max_tokens=128_000,
+    ),
+    # Codex thinking maps differ per row: gpt-5.5 above maps xhigh
+    # (_REASONING_LEVELS_XHIGH), gpt-5.4 / gpt-5.1-codex map only the ordinary
+    # tier (_REASONING_LEVELS), and Sol below is the only Codex row mapping max.
+    # So `max` clamps to xhigh on gpt-5.5 but to high on gpt-5.4/gpt-5.1-codex.
+    _m(
+        "openai-codex", "gpt-5.6-sol", "GPT-5.6 Sol (Codex/ChatGPT)",
+        "openai-codex-responses", reasoning=True, thinking=_SOL_THINKING,
+        image=True, cost=(0.0, 0.0, 0.0, 0.0),
+        context_window=372_000, max_tokens=128_000,
     ),
 
     # ---- openai-completions (openai-completions) ----------------------------

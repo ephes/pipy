@@ -85,7 +85,7 @@ def _glob_match(name: str, pattern: str) -> bool:
 
 
 def is_valid_thinking_level(value: str) -> bool:
-    """True for the six-value CLI thinking vocabulary (incl. ``off``)."""
+    """True for the seven-value CLI thinking vocabulary (incl. ``off``)."""
 
     return value in THINKING_LEVELS
 

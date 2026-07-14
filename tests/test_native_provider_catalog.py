@@ -54,6 +54,24 @@ def test_catalog_rows_carry_real_capability_metadata():
     assert opus.thinking_level_map.get("xhigh") is not None
 
 
+def test_gpt_5_6_sol_row_pinned():
+    catalog = build_builtin_catalog()
+    sol = catalog.find("openai-codex", "gpt-5.6-sol")
+    assert sol is not None
+    assert sol.api == "openai-codex-responses"
+    assert sol.display_name == "GPT-5.6 Sol (Codex/ChatGPT)"
+    assert sol.reasoning is True
+    assert "image" in sol.input
+    assert sol.context_window == 372_000
+    assert sol.max_tokens == 128_000
+    # `max` is available and `minimal` maps to `low` (Pi's Sol row).
+    assert sol.thinking_level_map.get("max") == "max"
+    assert sol.thinking_level_map.get("minimal") == "low"
+    # GPT-5.5 stays the Codex default; no bare gpt-5.6 alias is added.
+    assert default_model_per_provider["openai-codex"] == "gpt-5.5"
+    assert catalog.find("openai-codex", "gpt-5.6") is None
+
+
 def test_default_model_per_provider_covers_every_implemented_provider():
     for provider in IMPLEMENTED_PROVIDERS:
         assert provider in default_model_per_provider

@@ -15,24 +15,27 @@ place and states what pipy should implement next.
 
 ## Active next gap (groomed 2026-07-14)
 
-**GPT-5.6 Sol plus model-aware `max` thinking** is the next bounded slice. Pi
-`0.80.6` exposes `openai-codex/gpt-5.6-sol`, a 372K subscription context
-window, and a seventh thinking level whose mapped value reaches the Codex
-request as `reasoning.effort`. Pipy stops at GPT-5.5/`xhigh`. The pinned scope,
-request field list, tests, and deferrals are already written in
-[gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md).
+**Project trust** is the next bounded slice (priority 2 below), now that GPT-5.6
+Sol has shipped.
 
-This slice wins over the larger extension/platform follow-on because it is
-small, researched, user-visible, and independently reviewable. It does not
-include Terra/Luna, API pricing tiers, generalized thinking clamping, or every
-provider carrying GPT-5.6.
+GPT-5.6 Sol plus model-aware `max` thinking **shipped** (see
+[gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md) and the changelog):
+`openai-codex/gpt-5.6-sol` is a built-in Codex row (372K context, image input);
+the thinking vocabulary is now `off|minimal|low|medium|high|xhigh|max`; the Codex
+request clamps an unsupported stored level to the nearest supported one and emits
+it as `reasoning.effort` (Pi's per-request `clampThinkingLevel`); Shift+Tab
+cycling is model-aware; and Sol renders a `372k` status budget. As designed, the
+slice did **not** include Terra/Luna, other GPT-5.6 distributions, API pricing
+tiers, or generalized (cross-provider) thinking clamping — the last remains a
+named follow-on (port `clampThinkingLevel` so unsupported stored levels clamp,
+not omit, uniformly across every provider and effort-label surface).
 
 ## Fresh Pi 0.80.6 delta classification
 
 | Priority | Pi delta | Pipy classification |
 | --- | --- | --- |
-| 1 | GPT-5.6 Sol + `max` thinking | Selected next slice; bounded design exists. |
-| 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | Real multi-slice product/security gap; design loading order before implementation. |
+| 1 | GPT-5.6 Sol + `max` thinking | **Shipped** 2026-07-14; generalized cross-provider clamping remains a named follow-on. |
+| 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | Next selected slice; real multi-slice product/security gap — design loading order before implementation. |
 | 3 | RPC `get_entries`/`get_tree` and `agent_settled` | Real gap beyond pipy's green 29-command baseline; two read-only commands first. |
 | 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | Real extension gaps; keep header injection, settled lifecycle, and durable entry rendering as focused slices. |
 | 5 | Message-anchored dynamic tool loading | Real provider/extension gap; pipy changes active tools but lacks Anthropic `tool_reference` and OpenAI tool-search placement. |

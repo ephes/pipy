@@ -49,20 +49,56 @@ def _tree(tmp_path: Path) -> NativeSessionTree:
     return NativeSessionTree.create(tmp_path, persist=False)
 
 
+def _codex_state(tmp_path: Path, model_id: str) -> NativeReplProviderState:
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={"OPENAI_API_KEY": "sk"},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+    return NativeReplProviderState(
+        selection=NativeModelSelection("openai-codex", model_id),
+        provider_factory=lambda sel: FakeNativeProvider(supports_tool_calls=True),
+        catalog_state=catalog,
+        persist_defaults=False,
+    )
+
+
+def _cycle(session, state, tree, count) -> list[str]:
+    seen = []
+    for _ in range(count):
+        session._cycle_thinking_level(
+            terminal_ui=None,
+            error_stream=cast(TextIO, io.StringIO()),
+            session_tree=tree,
+        )
+        seen.append(state.thinking_level)
+    return seen
+
+
 class TestThinkingCycle:
     def test_cycles_through_pi_levels(self, tmp_path: Path) -> None:
+        # gpt-5.5 maps xhigh, so the model-aware cycle now includes it (Pi's
+        # getSupportedThinkingLevels), then wraps back to off.
         state = _state(tmp_path, "gpt-5.5")
         session = _session(state)
         tree = _tree(tmp_path)
-        err = io.StringIO()
-        seen = []
-        for _ in range(6):
-            session._cycle_thinking_level(
-                terminal_ui=None,
-                error_stream=cast(TextIO, err),
-                session_tree=tree,
-            )
-            seen.append(state.thinking_level)
+        seen = _cycle(session, state, tree, 6)
+        assert seen == ["minimal", "low", "medium", "high", "xhigh", "off"]
+
+    def test_sol_cycle_reaches_xhigh_then_max(self, tmp_path: Path) -> None:
+        state = _codex_state(tmp_path, "gpt-5.6-sol")
+        session = _session(state)
+        tree = _tree(tmp_path)
+        seen = _cycle(session, state, tree, 7)
+        assert seen == ["minimal", "low", "medium", "high", "xhigh", "max", "off"]
+
+    def test_model_without_extended_levels_stops_at_high(self, tmp_path: Path) -> None:
+        # gpt-5.1-codex maps only the ordinary tier — no xhigh/max appended.
+        state = _codex_state(tmp_path, "gpt-5.1-codex")
+        session = _session(state)
+        tree = _tree(tmp_path)
+        seen = _cycle(session, state, tree, 6)
         assert seen == ["minimal", "low", "medium", "high", "off", "minimal"]
 
     def test_appends_thinking_level_change_entry(self, tmp_path: Path) -> None:
@@ -106,3 +142,13 @@ class TestThinkingCycle:
         assert session._effort_label("openai", "gpt-5.5") in {"high", "default"}
         state.thinking_level = "low"
         assert session._effort_label("openai", "gpt-5.5") == "low"
+
+
+def test_sol_uses_372k_status_budget():
+    from pipy_harness.native.tool_loop_session import _context_budget_for
+
+    sol = _context_budget_for("openai-codex", "gpt-5.6-sol")
+    assert sol.budget_label == "372k"
+    assert sol.token_budget == 372_000
+    # other GPT-5 Codex models keep the 272k subscription denominator
+    assert _context_budget_for("openai-codex", "gpt-5.5").budget_label == "272k"
