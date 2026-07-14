@@ -10,9 +10,9 @@ the real native tool loop and session tree, not a TypeScript port. The original
 specification was researched from the local Pi reference on 2026-06-02. Pi
 `0.80.3` later added `get_entries` and `get_tree`, taking the command union to
 31; both are now shipped in pipy's green 31-command baseline. Pi's later
-`agent_settled` session event is now emitted on the `--mode rpc` stream at the
-idle boundary (see below); emitting it on the `--mode json` stream remains the
-one explicit follow-on.
+`agent_settled` session event is now emitted on both the `--mode rpc` and
+`--mode json` streams at the idle boundary (see below); only the
+extension-surface `agent_settled` hook remains an explicit follow-on.
 
 Implementation map: `src/pipy_harness/native/automation/` (`jsonl.py` framing,
 `events.py`/`serialize.py` the Pi-shaped event vocabulary, `run_modes.py` the
@@ -167,7 +167,7 @@ Session-extension events (Pi `AgentSessionEvent`,
 | `thinking_level_changed` | `level: ThinkingLevel` | Thinking/reasoning level changed (where the provider supports it). |
 | `auto_retry_start` | `attempt: number`, `maxAttempts: number`, `delayMs: number`, `errorMessage: string` | Auto-retry attempt scheduled. |
 | `auto_retry_end` | `success: boolean`, `attempt: number`, `finalError?: string` | Auto-retry attempt settled. |
-| `agent_settled` | (none) | The agent run has settled into idle. **`--mode rpc` only** (see below); `--mode json` emission is a follow-on. |
+| `agent_settled` | (none) | The agent run has settled into idle. Emitted on **both `--mode rpc` and `--mode json`** after the run's final `agent_end` (see below); only the extension-surface `agent_settled` hook remains a follow-on. |
 
 `assistantMessageEvent` sub-union (Pi `AssistantMessageEvent`,
 `packages/ai/src/types.ts`) carried inside `message_update`. Pipy must emit the
@@ -203,7 +203,18 @@ above), not Pi's session version (Pi is currently at 3):
 {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"SEEN:ROOT"}]}}
 {"type":"turn_end","message":{...},"toolResults":[]}
 {"type":"agent_end","messages":[...],"willRetry":false}
+{"type":"agent_settled"}
 ```
+
+The one-shot run settles into idle exactly when it returns, so a single
+payload-free `agent_settled` is emitted as the final line after `agent_end`,
+matching Pi's `_runAgentPrompt` `finally`
+(`agent-session.ts:534-541,1022-1034`) which `--mode json` forwards
+(`print-mode.ts:104-106`). Because json mode is one-shot with no
+steering/follow-up queue, the driver synthesizes the settle line directly (see
+`run_json_mode`), just as the RPC server synthesizes its own queue-aware
+`agent_settled`; the shared `AutomationEmitter` never emits one, so there is no
+double emit in either mode.
 
 ## (b) `--mode rpc`: Headless Stdin/Stdout JSONL Protocol
 
@@ -373,9 +384,14 @@ and the EOF drain use). Because pipy delivers one queued steer/follow-up per run
 boundary as a separate run, a boundary that reserves the next message emits **no**
 `agent_settled` (a new run continues, exactly as Pi does not settle mid-turn);
 `agent_settled` fires only when the session reaches idle. It carries no payload
-fields. Emitting `agent_settled` on the `--mode json` one-shot stream (whose
-documented canonical sequence ends at `agent_end`) is the one remaining follow-on;
-the extension-surface `agent_settled` hook is tracked separately.
+fields. pipy also emits `agent_settled` on the `--mode json` one-shot stream: that
+driver is single-prompt with no steering/follow-up queue, so the whole run drains
+to idle exactly when it returns and the driver writes the settle line as the final
+line after `agent_end` (in a `finally`, mirroring Pi so it fires even on error).
+Each mode synthesizes its own settle line at its own idle boundary — the shared
+`AutomationEmitter` never emits one — so neither stream double-emits. The
+extension-surface `agent_settled` hook (Pi's `_emitAgentSettled` also emits to
+extensions) is tracked separately as the remaining follow-on.
 
 Within the 31-command baseline, pipy command names match Pi so baseline clients
 drive pipy unchanged. Commands in the

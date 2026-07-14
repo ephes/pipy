@@ -32,13 +32,16 @@ It proves, end to end, through the product CLI:
 10. No API key / token material appears anywhere on stdout.
 11. stdin EOF triggers a clean shutdown with exit code 0 and pure-JSONL stdout.
 12. ``--mode json "<prompt>"`` emits the native session header first, then the
-    event sequence, exits 0, and never emits the ``pipy.native_output`` schema.
+    event sequence ending with ``agent_end`` immediately followed by a single
+    payload-free ``agent_settled`` (the true-idle boundary), exits 0, and never
+    emits the ``pipy.native_output`` schema.
 
 Also asserts strict LF-only framing (no ``\r``, one JSON object per line, no
 interleaved records) and that all 31 commands in pipy's shipped baseline are
 accepted (a ``response`` for each, never a crash or ``Unknown command``),
-including the read-only ``get_entries`` and ``get_tree``. Pi's later
-``agent_settled`` event remains an explicit follow-on in
+including the read-only ``get_entries`` and ``get_tree``. Pi's ``agent_settled``
+event is now emitted on both the ``--mode rpc`` and ``--mode json`` streams; only
+the extension-surface ``agent_settled`` hook remains an explicit follow-on in
 ``docs/automation-rpc.md``.
 
 Exits 0 when every check passes, 1 otherwise. No real network/AI calls.
@@ -480,7 +483,8 @@ def _check_json_mode_oneshot(base: Path) -> Check:
     seq_ok = (
         types[:1] == ["agent_start"]
         and "message_update" in types
-        and types[-1:] == ["agent_end"]
+        and types.count("agent_settled") == 1
+        and types[-2:] == ["agent_end", "agent_settled"]
     )
     no_metadata = all(r.get("schema") != "pipy.native_output" for r in records)
     secret_ok = _SECRET_TOKEN.encode("utf-8") not in raw

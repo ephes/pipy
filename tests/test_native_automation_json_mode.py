@@ -96,6 +96,7 @@ def test_run_json_mode_emits_header_then_event_stream(tmp_path: Path) -> None:
         "message_end",
         "turn_end",
         "agent_end",
+        "agent_settled",
     ]
 
     # Full-content surface: the assistant text appears in its message_end.
@@ -107,6 +108,41 @@ def test_run_json_mode_emits_header_then_event_stream(tmp_path: Path) -> None:
     assert message_end["message"]["content"] == [{"type": "text", "text": "SEEN:ROOT"}]
     # Pi metadata-only schema is NOT emitted.
     assert all(r.get("schema") != "pipy.native_output" for r in records)
+
+
+def test_run_json_mode_emits_single_agent_settled_at_true_idle(tmp_path: Path) -> None:
+    """Pi emits one payload-free `agent_settled` after the run settles to idle.
+
+    pipy's one-shot json driver mirrors Pi's `_runAgentPrompt` `finally`
+    (`agent-session.ts:534-541,1022-1034`): a single settle line, no payload
+    fields, strictly after the run's `agent_end`, as the final stdout line.
+    """
+
+    adapter = _tool_adapter()
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    stdout = io.BytesIO()
+
+    run_json_mode(
+        adapter=adapter,
+        prompt="ROOT",
+        cwd=tmp_path,
+        native_session=tree,
+        stdout_buffer=stdout,
+        error_stream=io.StringIO(),
+    )
+
+    records = [
+        json.loads(line)
+        for line in stdout.getvalue().decode("utf-8").splitlines()
+    ]
+    types = [r["type"] for r in records]
+    # Exactly one settle, and it is the final line.
+    assert types.count("agent_settled") == 1
+    assert types[-1] == "agent_settled"
+    # It comes strictly after the run's `agent_end`.
+    assert types.index("agent_settled") == types.index("agent_end") + 1
+    # Pi's `agent_settled` carries no payload fields.
+    assert records[-1] == {"type": "agent_settled"}
 
 
 def test_run_json_mode_does_not_emit_raw_final_text_on_stdout(tmp_path: Path) -> None:
@@ -147,6 +183,8 @@ def test_json_mode_multiline_prompt_is_a_single_turn(tmp_path: Path) -> None:
     # A multiline prompt is one non-interactive turn, not three.
     assert types.count("agent_start") == 1
     assert types.count("agent_end") == 1
+    # One turn settles to idle exactly once.
+    assert types.count("agent_settled") == 1
     user_start = next(
         r
         for r in records

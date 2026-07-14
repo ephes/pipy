@@ -327,9 +327,10 @@ still recognizes that extension/package parity is the largest surface by area:
    semantics, then CLI/TUI/package integration, then extension exposure.
 3. **Current RPC delta.** Pipy's gated RPC baseline is green at Pi's full
    31-command vocabulary: the read-only `get_entries` (including `since`) and
-   `get_tree` **shipped** 2026-07-14. The asynchronous RPC `agent_settled` event
-   also shipped that day at the true-idle boundary. JSON-mode emission, true
-   in-turn injection, and the extension-surface hook remain separate follow-ons.
+   `get_tree` **shipped** 2026-07-14. The asynchronous `agent_settled` event also
+   shipped that day at the true-idle boundary on both the `--mode rpc` and
+   `--mode json` streams. True in-turn injection and the extension-surface hook
+   remain separate follow-ons.
 4. **Extension lifecycle and rendering deltas.** Add focused slices for
    `before_provider_headers`, `agent_settled`, and durable TUI-only entry
    renderers (`registerEntryRenderer` over `appendEntry`). These are distinct
@@ -1465,10 +1466,10 @@ Queued after the shipped Sol slice, in order: project-trust design, the
 extension-surface `agent_settled` hook, cache-friendly dynamic tool loading, and
 package-update/config realignment. Each remains its own parity-loop gap. The
 read-only RPC `get_entries`/`get_tree` slice **shipped** 2026-07-14 (pipy's RPC
-baseline is now green at Pi's full 31 commands). The RPC `agent_settled` session
-event **shipped** 2026-07-14 too (emitted at the true-idle boundary); the
-remaining `agent_settled` follow-ons are the `--mode json` stream and the
-extension-surface hook.
+baseline is now green at Pi's full 31 commands). The `agent_settled` session
+event **shipped** 2026-07-14 too (emitted at the true-idle boundary) on both the
+`--mode rpc` and `--mode json` streams; the only remaining `agent_settled`
+follow-on is the extension-surface hook.
 
 ### Recently shipped: OpenAI-Codex transport reliability
 

@@ -167,7 +167,20 @@ def run_json_mode(
     # final-answer print so stdout stays pure JSONL.
     adapter.output_stream = io.StringIO()
     adapter.error_stream = error_stream
-    result = _run_oneshot(adapter, cwd)
+    try:
+        result = _run_oneshot(adapter, cwd)
+    finally:
+        # Pi emits a single payload-free `agent_settled` from
+        # `AgentSession._runAgentPrompt`'s `finally` once the run settles into
+        # idle, after the final `agent_end` (agent-session.ts:534-541,1022-1034),
+        # and `--mode json` (print-mode.ts:104-106) forwards it as the last line.
+        # pipy's json mode is a one-shot single-prompt driver with no
+        # steering/queue, so the whole run (including internal retries and
+        # compaction) drains to idle exactly when `_run_oneshot` returns; write
+        # the settle line here — in a `finally`, mirroring Pi, so it still fires
+        # if the run raised. RPC synthesizes its own queue-aware `agent_settled`
+        # in `RpcServer.emit`, so the shared `AutomationEmitter` never emits one.
+        writer.write_line({"type": "agent_settled"})
     return result.exit_code
 
 

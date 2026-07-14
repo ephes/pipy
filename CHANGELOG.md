@@ -15,8 +15,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
   serialization.
 - RPC mode now emits Pi's payload-free `agent_settled` event after the final
   `agent_end` when the session reaches true idle. Queued steer/follow-up runs do
-  not emit a premature settled event between runs. JSON-mode and extension-hook
-  `agent_settled` support remain separate follow-ons.
+  not emit a premature settled event between runs.
+- `--mode json` now also emits Pi's payload-free `agent_settled` as the final
+  event after the run's `agent_end`. The one-shot json driver settles into idle
+  when the run returns, matching Pi's `_runAgentPrompt` `finally` that `--mode
+  json` forwards. Only the extension-surface `agent_settled` hook remains a
+  separate follow-on.
 - `openai-codex/gpt-5.6-sol` is now a built-in Codex model (372K context, image
   input) with a seventh thinking level, `max`. The thinking vocabulary is now
   `off|minimal|low|medium|high|xhigh|max` across the CLI `--thinking`/`:level`

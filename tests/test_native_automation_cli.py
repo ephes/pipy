@@ -58,7 +58,11 @@ def test_cli_mode_json_emits_header_and_events(
     assert records[0]["type"] == "session"
     types = [r["type"] for r in records[1:]]
     assert types[0] == "agent_start"
-    assert types[-1] == "agent_end"
+    # The one-shot run settles into idle, so the stream ends with a single
+    # payload-free `agent_settled` immediately after the run's `agent_end`.
+    assert types[-2:] == ["agent_end", "agent_settled"]
+    assert types.count("agent_settled") == 1
+    assert records[-1] == {"type": "agent_settled"}
     assert "message_update" in types
     message_end = next(r for r in records if r["type"] == "message_end")
     text = "".join(
