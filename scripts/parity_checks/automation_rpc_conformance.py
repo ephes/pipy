@@ -35,10 +35,11 @@ It proves, end to end, through the product CLI:
     event sequence, exits 0, and never emits the ``pipy.native_output`` schema.
 
 Also asserts strict LF-only framing (no ``\r``, one JSON object per line, no
-interleaved records) and that all 29 commands in pipy's shipped baseline are
-accepted (a ``response`` for each, never a crash or ``Unknown command``).
-Current Pi additionally has ``get_entries`` and ``get_tree``; those remain
-explicit follow-ons in ``docs/automation-rpc.md``.
+interleaved records) and that all 31 commands in pipy's shipped baseline are
+accepted (a ``response`` for each, never a crash or ``Unknown command``),
+including the read-only ``get_entries`` and ``get_tree``. Pi's later
+``agent_settled`` event remains an explicit follow-on in
+``docs/automation-rpc.md``.
 
 Exits 0 when every check passes, 1 otherwise. No real network/AI calls.
 """
@@ -61,7 +62,7 @@ _BOOT = "import sys; from pipy_harness.cli import main; sys.exit(main(sys.argv[1
 
 _SECRET_TOKEN = "sk-CONFORMANCE-SECRET-TOKEN-do-not-leak"
 
-# The shipped pipy RPC baseline (29 types) the product must accept.
+# The shipped pipy RPC baseline (31 types) the product must accept.
 _ALL_COMMANDS = [
     {"type": "prompt", "message": "hi"},
     {"type": "steer", "message": "hi"},
@@ -92,6 +93,8 @@ _ALL_COMMANDS = [
     {"type": "set_session_name", "name": "x"},
     {"type": "get_messages"},
     {"type": "get_commands"},
+    {"type": "get_entries"},
+    {"type": "get_tree"},
 ]
 
 
@@ -431,10 +434,11 @@ def _check_accepts_all_commands(base: Path) -> Check:
             proc.wait_for(lambda r: r.get("type") == "agent_end", timeout=8.0)
     proc.close()
     ok = not missing and len(accepted) == len(_ALL_COMMANDS)
+    total = len(_ALL_COMMANDS)
     return Check(
-        "rpc_accepts_all_29_commands",
+        "rpc_accepts_all_31_commands",
         ok,
-        f"accepted={len(accepted)}/29 missing={missing}",
+        f"accepted={len(accepted)}/{total} missing={missing}",
     )
 
 

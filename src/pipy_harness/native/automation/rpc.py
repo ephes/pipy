@@ -21,6 +21,7 @@ output are emitted like Pi. Only auth secrets/tokens are never emitted.
 
 from __future__ import annotations
 
+import json
 import queue
 import threading
 import time
@@ -46,7 +47,77 @@ from pipy_harness.native.command_sandbox import (
 # ``data: null`` (Pi's `... | null` data contract, e.g. cycle_model).
 _OMIT: Any = object()
 
-# The full Pi RPC command vocabulary (29 types). Every type is accepted; the
+
+def _dumps(value: Any) -> str:
+    """Compact JSON encode with the exact ``serialize_json_line`` byte options."""
+    return json.dumps(
+        value, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+    )
+
+
+def _js_since(value: Any) -> str:
+    """Render a get_entries ``since`` value the way JS template coercion would.
+
+    Pi builds the not-found message as ``Entry not found: ${command.since}``.
+    ``since`` is typed ``string``; the in-contract inputs render as themselves,
+    and the one realistic out-of-type value a JSON client can send — explicit
+    ``null`` — must render as ``null`` (not Python's ``None``). Non-string,
+    non-null values are malformed requests rendered best-effort via ``str``.
+    """
+    if value is None:
+        return "null"
+    return str(value)
+
+
+def _encode_session_tree(roots: list[Any]) -> str:
+    """Iteratively encode session-tree roots to the ``tree`` JSON array string.
+
+    A linear conversation nests one level per entry, so the tree can be ~1000+
+    deep; both a recursive builder and CPython's recursive ``json.dumps`` C
+    encoder would ``RecursionError`` on it. Here the deep child spine is walked
+    with an explicit stack and only the shallow per-node entry dict / scalars go
+    through ``json.dumps`` (identical byte options to ``serialize_json_line``),
+    so encoding is ``RecursionError``-free at any depth. Fields are emitted in
+    Pi's ``SessionTreeNode`` object order: ``entry``, ``children``, then optional
+    ``label`` / ``labelTimestamp`` (omitted when unset, matching ``JSON.stringify``).
+    """
+    from pipy_harness.native.session_tree import _entry_to_json
+
+    def suffix(node: Any) -> str:
+        parts = ["]"]
+        if node.label is not None:
+            parts.append(',"label":' + _dumps(node.label))
+        if node.label_timestamp is not None:
+            parts.append(',"labelTimestamp":' + _dumps(node.label_timestamp))
+        parts.append("}")
+        return "".join(parts)
+
+    out: list[str] = []
+    # Stack items: ("lit", text) emits verbatim; ("node", node) expands a node.
+    # Processed LIFO, so children/commas are pushed in reverse.
+    stack: list[tuple[str, Any]] = [("lit", "]")]
+    for i in range(len(roots) - 1, -1, -1):
+        stack.append(("node", roots[i]))
+        if i > 0:
+            stack.append(("lit", ","))
+    stack.append(("lit", "["))
+
+    while stack:
+        kind, payload = stack.pop()
+        if kind == "lit":
+            out.append(payload)
+            continue
+        node = payload
+        out.append('{"entry":' + _dumps(_entry_to_json(node.entry)) + ',"children":[')
+        stack.append(("lit", suffix(node)))
+        children = node.children
+        for i in range(len(children) - 1, -1, -1):
+            stack.append(("node", children[i]))
+            if i > 0:
+                stack.append(("lit", ","))
+    return "".join(out)
+
+# The full Pi RPC command vocabulary (31 types). Every type is accepted; the
 # ones pipy has not fully implemented return a well-formed error response (never
 # a crash or an unknown-command response).
 _KNOWN_COMMANDS = frozenset(
@@ -80,6 +151,8 @@ _KNOWN_COMMANDS = frozenset(
         "set_session_name",
         "get_messages",
         "get_commands",
+        "get_entries",
+        "get_tree",
     }
 )
 
@@ -705,6 +778,53 @@ class NativeRpcServer:
         except Exception:
             entries = []
         self._respond(cid, "get_fork_messages", {"messages": entries})
+
+    def _cmd_get_entries(self, cid: str | None, command: dict[str, Any]) -> None:
+        from pipy_harness.native.session_tree import _entry_to_json
+
+        # Coherent (entries, leaf) pair under the tree write lock: leaf is always
+        # present in entries and entries are never ahead of it (Pi atomic read).
+        entries, leaf = self._tree.snapshot_entries_and_leaf()
+        # Gate on key presence to mirror Pi's `command.since !== undefined`: an
+        # explicit `null` is present (errors as not-found), an absent key is not.
+        if "since" in command:
+            since = command.get("since")
+            index = next(
+                (i for i, entry in enumerate(entries) if entry.id == since), -1
+            )
+            if index == -1:
+                self._respond_error(
+                    cid, "get_entries", f"Entry not found: {_js_since(since)}"
+                )
+                return
+            entries = entries[index + 1 :]
+        self._respond(
+            cid,
+            "get_entries",
+            {"entries": [_entry_to_json(entry) for entry in entries], "leafId": leaf},
+        )
+
+    def _cmd_get_tree(self, cid: str | None, command: dict[str, Any]) -> None:
+        from pipy_harness.native.session_tree import build_tree_nodes
+
+        entries, leaf = self._tree.snapshot_entries_and_leaf()
+        roots = build_tree_nodes(entries)
+        # get_tree is the only deeply-nested RPC payload (a linear history nests
+        # one level per entry). Encode the tree iteratively and emit the line
+        # raw so a deep session cannot RecursionError in json.dumps.
+        tree_json = _encode_session_tree(roots)
+        data_str = '{"tree":' + tree_json + ',"leafId":' + _dumps(leaf) + "}"
+        head: dict[str, Any] = {
+            "type": "response",
+            "command": "get_tree",
+            "success": True,
+        }
+        if cid is not None:
+            head = {"id": cid, **head}
+        # Splice the pre-encoded (possibly very deep) data into the shallow
+        # envelope without re-encoding it recursively.
+        line = _dumps(head)[:-1] + ',"data":' + data_str + "}"
+        self._writer.write_raw_line(line)
 
     def _cmd_get_commands(self, cid: str | None, command: dict[str, Any]) -> None:
         self._respond(cid, "get_commands", {"commands": []})

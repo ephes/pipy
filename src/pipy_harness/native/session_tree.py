@@ -30,6 +30,7 @@ import json
 import os
 import re
 import stat
+import threading
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -661,6 +662,13 @@ class NativeSessionTree:
     label_timestamps_by_id: dict[str, str] = field(default_factory=dict)
     leaf_id: str | None = None
     _name: str | None = None
+    # Serializes the two-step entry/leaf mutation (append entry, then advance
+    # leaf) against snapshot reads, so a concurrent worker-thread append can
+    # never expose a partial state (entries ahead of leaf, or a leaf absent from
+    # the entries snapshot). Read paths capture a coherent pair under this lock.
+    _write_lock: Any = field(
+        default_factory=threading.Lock, repr=False, compare=False
+    )
 
     MAX_NAME_LENGTH: ClassVar[int] = 200
 
@@ -821,9 +829,10 @@ class NativeSessionTree:
     # -- append -------------------------------------------------------------
 
     def _append_entry(self, entry: SessionEntry) -> SessionEntry:
-        self.entries.append(entry)
-        self.by_id[entry.id] = entry
-        self.leaf_id = entry.id
+        with self._write_lock:
+            self.entries.append(entry)
+            self.by_id[entry.id] = entry
+            self.leaf_id = entry.id
         self._write_entry(entry)
         return entry
 
@@ -998,7 +1007,8 @@ class NativeSessionTree:
     def branch(self, branch_from_id: str) -> None:
         if branch_from_id not in self.by_id:
             raise KeyError(f"entry {branch_from_id} not found")
-        self.leaf_id = branch_from_id
+        with self._write_lock:
+            self.leaf_id = branch_from_id
 
     def reset_leaf(self) -> None:
         self.leaf_id = None
@@ -1072,27 +1082,72 @@ class NativeSessionTree:
         return build_context(self.entries, self.leaf_id, self.by_id)
 
     def get_tree(self) -> list[SessionTreeNode]:
-        node_map: dict[str, SessionTreeNode] = {}
-        roots: list[SessionTreeNode] = []
-        for entry in self.entries:
-            node_map[entry.id] = SessionTreeNode(
-                entry=entry,
-                label=self.labels_by_id.get(entry.id),
-                label_timestamp=self.label_timestamps_by_id.get(entry.id),
-            )
-        for entry in self.entries:
-            node = node_map[entry.id]
-            if entry.parent_id is None or entry.parent_id == entry.id:
-                roots.append(node)
+        return build_tree_nodes(self.entries)
+
+    def snapshot_entries_and_leaf(self) -> tuple[list[SessionEntry], str | None]:
+        """Capture a coherent (entries, leaf) pair under the write lock.
+
+        The returned entries copy always contains ``leaf`` and is never ahead of
+        it, matching Pi's atomic synchronous ``getEntries()``/``getLeafId()``
+        read. Callers build/serialize the tree from this copy outside the lock.
+        """
+        with self._write_lock:
+            return list(self.entries), self.leaf_id
+
+
+def build_tree_nodes(entries: Iterable[SessionEntry]) -> list[SessionTreeNode]:
+    """Build the session tree (roots) from an entries sequence.
+
+    Pure and snapshot-safe: it copies ``entries`` once up front (its two passes
+    would otherwise ``KeyError`` on a concurrent append), derives each entry's
+    resolved label from the ``LabelEntry`` stream itself — mirroring
+    ``_load_entries``/``append_label_change`` — so labels are exactly consistent
+    with the given entries without reading the live label maps, and sorts each
+    node's children by timestamp ascending (Pi ``getTree``, session-manager.ts).
+    """
+    entries = list(entries)
+
+    # Resolve labels from the entries themselves (running fold, last write wins,
+    # empty label clears), identical to the incrementally-maintained live maps.
+    labels_by_id: dict[str, str] = {}
+    label_timestamps_by_id: dict[str, str] = {}
+    for entry in entries:
+        if isinstance(entry, LabelEntry):
+            if entry.label:
+                labels_by_id[entry.target_id] = entry.label
+                label_timestamps_by_id[entry.target_id] = entry.timestamp
             else:
-                parent = node_map.get(entry.parent_id)
-                if parent is not None:
-                    parent.children.append(node)
-                else:
-                    roots.append(node)
-        # Children are already in append (timestamp) order because entries are
-        # appended in order; no re-sort needed.
-        return roots
+                labels_by_id.pop(entry.target_id, None)
+                label_timestamps_by_id.pop(entry.target_id, None)
+
+    node_map: dict[str, SessionTreeNode] = {}
+    roots: list[SessionTreeNode] = []
+    for entry in entries:
+        node_map[entry.id] = SessionTreeNode(
+            entry=entry,
+            label=labels_by_id.get(entry.id),
+            label_timestamp=label_timestamps_by_id.get(entry.id),
+        )
+    for entry in entries:
+        node = node_map[entry.id]
+        if entry.parent_id is None or entry.parent_id == entry.id:
+            roots.append(node)
+        else:
+            parent = node_map.get(entry.parent_id)
+            if parent is not None:
+                parent.children.append(node)
+            else:
+                roots.append(node)
+    # Sort each node's children by timestamp ascending (oldest first). pipy's
+    # canonical ISO-8601 UTC timestamps order lexicographically == chronologically,
+    # and list.sort is stable so equal timestamps keep append order. Iterative to
+    # avoid stack overflow on deep (linear) histories.
+    stack: list[SessionTreeNode] = list(roots)
+    while stack:
+        node = stack.pop()
+        node.children.sort(key=lambda child: child.entry.timestamp)
+        stack.extend(node.children)
+    return roots
 
 
 def most_recent_session_file(session_dir: Path) -> Path | None:

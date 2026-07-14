@@ -434,3 +434,171 @@ def test_aborted_turn_emits_balanced_lifecycle(client) -> None:
     assert types.count("message_start") == types.count("message_end")
     assert types.count("turn_start") == types.count("turn_end")
     assert types[-1] == "agent_end"
+
+
+# --------------------------------------------------------------------------
+# get_entries / get_tree (read-only session inspection)
+# --------------------------------------------------------------------------
+
+
+def _direct_server(tmp_path: Path, tree: NativeSessionTree):
+    adapter = PipyNativeToolReplAdapter(provider=AutomationFakeProvider())
+    buf = io.BytesIO()
+    server = NativeRpcServer(
+        adapter=adapter,
+        cwd=tmp_path,
+        native_session=tree,
+        stdin=io.StringIO(),
+        stdout_buffer=buf,
+        error_stream=io.StringIO(),
+    )
+    return server, buf
+
+
+def _last_line(buf: io.BytesIO) -> str:
+    return buf.getvalue().decode("utf-8").splitlines()[-1]
+
+
+def _last_record(buf: io.BytesIO) -> dict:
+    return json.loads(_last_line(buf))
+
+
+def _seed_two(tmp_path: Path):
+    from pipy_harness.native.tools.messages import AssistantMessage, UserMessage
+
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    root = tree.append_message(UserMessage(content="ROOT"))
+    reply = tree.append_message(AssistantMessage(content="REPLY"))
+    return tree, root, reply
+
+
+def test_get_entries_returns_all_entries_and_leaf(tmp_path: Path) -> None:
+    tree, root, reply = _seed_two(tmp_path)
+    server, buf = _direct_server(tmp_path, tree)
+    server._cmd_get_entries("g", {})
+    rec = _last_record(buf)
+    assert rec["id"] == "g"
+    assert rec["command"] == "get_entries"
+    assert rec["success"] is True
+    data = rec["data"]
+    assert [e["id"] for e in data["entries"]] == [root.id, reply.id]
+    assert data["leafId"] == reply.id
+    first = data["entries"][0]
+    assert first["type"] == "message"
+    assert first["parentId"] is None and "timestamp" in first
+
+
+def test_get_entries_since_slices_after_the_match(tmp_path: Path) -> None:
+    tree, root, reply = _seed_two(tmp_path)
+    server, buf = _direct_server(tmp_path, tree)
+    server._cmd_get_entries("g", {"since": root.id})
+    assert [e["id"] for e in _last_record(buf)["data"]["entries"]] == [reply.id]
+    # since == last entry -> empty tail.
+    server._cmd_get_entries("g", {"since": reply.id})
+    assert _last_record(buf)["data"]["entries"] == []
+
+
+def test_get_entries_unknown_since_errors(tmp_path: Path) -> None:
+    tree, _root, _reply = _seed_two(tmp_path)
+    server, buf = _direct_server(tmp_path, tree)
+    server._cmd_get_entries("g", {"since": "nope"})
+    rec = _last_record(buf)
+    assert rec["success"] is False
+    assert rec["command"] == "get_entries"
+    assert rec["error"] == "Entry not found: nope"
+
+
+def test_get_entries_explicit_null_since_errors_as_null(tmp_path: Path) -> None:
+    # Pi gates on `since !== undefined`, so an explicit null is present and
+    # errors (never returns the full list), and renders as the JS `null`.
+    tree, _root, _reply = _seed_two(tmp_path)
+    server, buf = _direct_server(tmp_path, tree)
+    server._cmd_get_entries("g", {"since": None})
+    rec = _last_record(buf)
+    assert rec["success"] is False
+    assert rec["error"] == "Entry not found: null"
+
+
+def test_get_tree_returns_nested_nodes_and_leaf(tmp_path: Path) -> None:
+    tree, root, reply = _seed_two(tmp_path)
+    server, buf = _direct_server(tmp_path, tree)
+    server._cmd_get_tree("t", {})
+    rec = _last_record(buf)
+    assert rec["command"] == "get_tree" and rec["success"] is True
+    assert rec["data"]["leafId"] == reply.id
+    roots = rec["data"]["tree"]
+    assert len(roots) == 1
+    node = roots[0]
+    assert node["entry"]["id"] == root.id
+    assert [c["entry"]["id"] for c in node["children"]] == [reply.id]
+    # Unlabelled nodes omit label keys entirely (Pi JSON.stringify undefined).
+    assert "label" not in node and "labelTimestamp" not in node
+
+
+def test_get_tree_includes_resolved_label(tmp_path: Path) -> None:
+    tree, root, _reply = _seed_two(tmp_path)
+    tree.append_label_change(root.id, "pinned")
+    server, buf = _direct_server(tmp_path, tree)
+    server._cmd_get_tree("t", {})
+    node = _last_record(buf)["data"]["tree"][0]
+    assert node["label"] == "pinned"
+    assert isinstance(node["labelTimestamp"], str)
+
+
+def test_get_tree_deep_history_encodes_without_recursionerror(
+    tmp_path: Path,
+) -> None:
+    from pipy_harness.native.tools.messages import UserMessage
+
+    depth = 2000
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    for i in range(depth):
+        tree.append_message(UserMessage(content=str(i)))
+    server, buf = _direct_server(tmp_path, tree)
+    # Must not raise RecursionError despite a ~2000-deep nested tree.
+    server._cmd_get_tree("d", {})
+    raw = _last_line(buf)
+    # Depth-safe string assertions (json.loads would itself recurse and fail).
+    assert raw.startswith(
+        '{"id":"d","type":"response","command":"get_tree","success":true'
+    )
+    assert raw.count('"children":[') == depth
+    assert f'"leafId":"{tree.leaf_id}"' in raw
+    assert tree.entries[-1].id in raw
+
+
+def test_encode_session_tree_is_byte_identical_to_json_dumps(tmp_path: Path) -> None:
+    # The iterative encoder must produce byte-for-byte the same output as a
+    # canonical (recursive) json.dumps of the equivalent nested structure, in
+    # Pi's SessionTreeNode field order (entry, children, label?, labelTimestamp?),
+    # with the same compact/ensure_ascii options as serialize_json_line. Proven
+    # on a shallow labelled+branched tree where json.dumps is safe.
+    from pipy_harness.native.session_tree import _entry_to_json, build_tree_nodes
+    from pipy_harness.native.automation.rpc import _encode_session_tree
+    from pipy_harness.native.tools.messages import AssistantMessage, UserMessage
+
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    root = tree.append_message(UserMessage(content="ROOT"))
+    tree.append_message(AssistantMessage(content="REPLY"))
+    tree.append_label_change(root.id, "pinned")
+    tree.branch(root.id)
+    tree.append_message(UserMessage(content="ALT"))
+
+    roots = build_tree_nodes(tree.entries)
+
+    def to_dict(node) -> dict:  # noqa: ANN001 - SessionTreeNode
+        out: dict = {"entry": _entry_to_json(node.entry)}
+        out["children"] = [to_dict(child) for child in node.children]
+        if node.label is not None:
+            out["label"] = node.label
+        if node.label_timestamp is not None:
+            out["labelTimestamp"] = node.label_timestamp
+        return out
+
+    reference = json.dumps(
+        [to_dict(r) for r in roots],
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    assert _encode_session_tree(roots) == reference

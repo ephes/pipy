@@ -300,3 +300,103 @@ def test_compaction_keeps_summary_then_kept_messages(tmp_path: Path) -> None:
     assert "OLD-1" not in texts
     assert "KEEP" in texts
     assert "REPLY-KEEP" in texts
+
+
+# --------------------------------------------------------------------------
+# Tree builder: child ordering, label derivation, deep-history safety
+# --------------------------------------------------------------------------
+
+
+def test_build_tree_nodes_sorts_children_by_timestamp(tmp_path: Path) -> None:
+    from pipy_harness.native.session_tree import build_tree_nodes
+
+    # Three siblings appended (in the entries list) out of timestamp order; Pi
+    # sorts each node's children by timestamp ascending regardless of file order.
+    root = MessageEntry(
+        id="r", parent_id=None, timestamp="2026-07-14T00:00:00Z",
+        message=UserMessage(content="ROOT"),
+    )
+    late = MessageEntry(
+        id="c_late", parent_id="r", timestamp="2026-07-14T00:00:03Z",
+        message=AssistantMessage(content="LATE"),
+    )
+    early = MessageEntry(
+        id="c_early", parent_id="r", timestamp="2026-07-14T00:00:01Z",
+        message=AssistantMessage(content="EARLY"),
+    )
+    mid = MessageEntry(
+        id="c_mid", parent_id="r", timestamp="2026-07-14T00:00:02Z",
+        message=AssistantMessage(content="MID"),
+    )
+    roots = build_tree_nodes([root, late, early, mid])
+    assert len(roots) == 1
+    assert [c.entry.id for c in roots[0].children] == ["c_early", "c_mid", "c_late"]
+
+
+def test_build_tree_nodes_derives_labels_from_entries(tmp_path: Path) -> None:
+    from pipy_harness.native.session_tree import build_tree_nodes
+
+    tree = _new_tree(tmp_path)
+    root = tree.append_message(UserMessage(content="ROOT"))
+    reply = tree.append_message(AssistantMessage(content="REPLY"))
+    tree.append_label_change(root.id, "pinned")
+
+    roots = build_tree_nodes(tree.entries)
+    by_id = {}
+
+    def walk(node) -> None:  # noqa: ANN001 - SessionTreeNode
+        by_id[node.entry.id] = node
+        for child in node.children:
+            walk(child)
+
+    for r in roots:
+        walk(r)
+
+    assert by_id[root.id].label == "pinned"
+    assert by_id[root.id].label_timestamp is not None
+    # Unlabelled node carries no label/timestamp (RPC/JSON omits the keys).
+    assert by_id[reply.id].label is None
+    assert by_id[reply.id].label_timestamp is None
+    # A cleared label (empty) removes the resolved label.
+    tree.append_label_change(root.id, "")
+    roots2 = build_tree_nodes(tree.entries)
+    assert roots2[0].label is None
+
+
+def test_snapshot_entries_and_leaf_coherent_under_concurrent_appends(
+    tmp_path: Path,
+) -> None:
+    import threading
+
+    from pipy_harness.native.session_tree import build_tree_nodes
+
+    tree = _new_tree(tmp_path)
+    tree.append_message(UserMessage(content="ROOT"))
+
+    stop = threading.Event()
+
+    def hammer() -> None:
+        i = 0
+        while not stop.is_set():
+            tree.append_message(AssistantMessage(content=f"M{i}"))
+            if i % 5 == 0:
+                leaf = tree.leaf_id
+                if leaf is not None:
+                    tree.append_label_change(leaf, f"L{i}")
+            i += 1
+
+    worker = threading.Thread(target=hammer, daemon=True)
+    worker.start()
+    try:
+        for _ in range(400):
+            entries, leaf = tree.snapshot_entries_and_leaf()
+            ids = {e.id for e in entries}
+            # leaf is always present in its own entries snapshot (never ahead).
+            assert leaf is None or leaf in ids
+            # Building the tree from the snapshot never KeyErrors and labels
+            # resolve consistently with the captured entries.
+            roots = build_tree_nodes(entries)
+            assert roots
+    finally:
+        stop.set()
+        worker.join(timeout=5.0)

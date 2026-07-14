@@ -106,3 +106,15 @@ class JsonlWriter:
         with self._lock:
             self._stream.write(data)
             self._stream.flush()
+
+    def write_raw_line(self, line: str) -> None:
+        """Write an already-encoded JSON line (no trailing LF) atomically.
+
+        For payloads a caller must encode itself to avoid CPython's recursive
+        ``json.dumps`` (e.g. a very deep session tree), preserving the same
+        single-LF framing and serialized stdout as ``write_line``.
+        """
+        data = (line + "\n").encode("utf-8")
+        with self._lock:
+            self._stream.write(data)
+            self._stream.flush()

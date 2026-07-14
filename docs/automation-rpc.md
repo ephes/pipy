@@ -8,9 +8,10 @@ tests in `tests/test_native_automation_*.py`. This document is both the design
 reference and the behavior contract; it is a pipy-owned Python design that reuses
 the real native tool loop and session tree, not a TypeScript port. The original
 specification was researched from the local Pi reference on 2026-06-02. Pi
-`0.80.3` later added `get_entries` and `get_tree`, taking the current command
-union to 31; those two commands and the later `agent_settled` event are explicit
-follow-ons rather than part of pipy's green 29-command baseline.
+`0.80.3` later added `get_entries` and `get_tree`, taking the command union to
+31; both are now shipped in pipy's green 31-command baseline. Pi's later
+`agent_settled` event remains an explicit follow-on rather than part of the
+baseline.
 
 Implementation map: `src/pipy_harness/native/automation/` (`jsonl.py` framing,
 `events.py`/`serialize.py` the Pi-shaped event vocabulary, `run_modes.py` the
@@ -330,33 +331,42 @@ Session ops (native session tree, `docs/session-tree.md`):
 | `set_session_name` | `name: string` | none (error if name is empty after trim) |
 | `export_html` | `outputPath?: string` | `{ path: string }` — deferred Pi-feature; may return an error response until implemented |
 
-That is pipy's gated **29-command baseline** — `prompt`, `steer`,
+That is pipy's gated **31-command baseline** — `prompt`, `steer`,
 `follow_up`, `abort`, `new_session`, `get_state`, `set_model`, `cycle_model`,
 `get_available_models`, `set_thinking_level`, `cycle_thinking_level`,
 `set_steering_mode`, `set_follow_up_mode`, `compact`, `set_auto_compaction`,
 `set_auto_retry`, `abort_retry`, `bash`, `abort_bash`, `get_session_stats`,
 `export_html`, `switch_session`, `fork`, `clone`, `get_fork_messages`,
-`get_last_assistant_text`, `set_session_name`, `get_messages`, `get_commands`.
-Both `get_messages` and `get_commands` are distinct command types and are
-counted. (Plus `extension_ui_response`, which is an input control line, not a
-command.)
+`get_last_assistant_text`, `set_session_name`, `get_messages`, `get_commands`,
+`get_entries`, `get_tree`. Each is a distinct command type and is counted.
+(Plus `extension_ui_response`, which is an input control line, not a command.)
 
-Current Pi main has two additional read-only commands that pipy does not yet
-accept:
+The two read-only session-inspection commands are now shipped and match Pi's
+request/response shapes:
 
-| Command | Args | Pi response `data` | Pipy status |
-| --- | --- | --- | --- |
-| `get_entries` | `since?: string` | `{ entries: SessionEntry[], leafId: string \| null }`; an unknown `since` id errors | selected RPC follow-on |
-| `get_tree` | (none) | `{ tree: SessionTreeNode[], leafId: string \| null }` | selected RPC follow-on |
+| Command | Args | Response `data` |
+| --- | --- | --- |
+| `get_entries` | `since?: string` | `{ entries: SessionEntry[], leafId: string \| null }`. With `since` present (Pi gates on `!== undefined`, so an explicit `null` is present too), only the entries **after** the matched id are returned; an id absent from the session errors with `Entry not found: <since>` (a `null` renders as `null`). |
+| `get_tree` | (none) | `{ tree: SessionTreeNode[], leafId: string \| null }`. Each node is `{ entry, children[], label?, labelTimestamp? }` (label keys omitted when unset); children are timestamp-ordered. |
+
+`get_entries` and `get_tree` capture a coherent `(entries, leaf)` snapshot under
+the session-tree write lock: `leafId` always names an entry present in the
+captured **full** entries snapshot, and that snapshot is never ahead of the leaf
+(matching Pi's atomic synchronous read even while a turn appends). Note this
+coherence is over the full snapshot, not the `since`-filtered response — as in
+Pi, `get_entries` with `since` returns only the entries after the match, so
+`leafId` need not appear in that slice (e.g. `since` equal to the current leaf
+yields an empty list, and branching can place the leaf before the slice).
+`get_tree`'s deep, linear-history payload is serialized with a depth-safe
+iterative encoder so an arbitrarily long session cannot fail encoding.
 
 Pi also emits `agent_settled` after the full run is idle, including automatic
 retries, auto-compaction retries, and queued continuations. Pipy currently ends
 its observable lifecycle at `agent_end`; settled semantics are a separate
 follow-on shared with the extension surface.
 
-Within the 29-command baseline, pipy command names match Pi so baseline clients
-drive pipy unchanged. A current Pi client that sends `get_entries` or `get_tree`
-receives an unknown-command response until the follow-on lands. Commands in the
+Within the 31-command baseline, pipy command names match Pi so baseline clients
+drive pipy unchanged. Commands in the
 accepted baseline that target unavailable features (e.g. `export_html`, or
 model/thinking ops on a single-provider build) must return a well-formed **error
 response**, never a crash or an unknown-command response.
@@ -641,8 +651,9 @@ These hold throughout the track, not as later deferrals:
   or tool payloads. The full-content behavior is confined to the live transport.
 - **Strict LF-only JSONL framing** on both directions, one JSON object per line,
   single serialized writer, stdout backpressure honored.
-- **Exact command/response vocabulary.** All 29 Pi RPC command types (including
-  both `get_messages` and `get_commands`) plus the `extension_ui_response`
+- **Exact command/response vocabulary.** All 31 Pi RPC command types (including
+  both `get_messages`/`get_commands` and the read-only `get_entries`/`get_tree`)
+  plus the `extension_ui_response`
   control line (which is not itself a command) are accepted; unknown commands and parse failures
   produce well-formed error responses, never crashes. Unimplemented features
   return errors, not silent success.

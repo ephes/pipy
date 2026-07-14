@@ -325,10 +325,10 @@ still recognizes that extension/package parity is the largest surface by area:
    loads project configuration without this Pi workflow. Treat this as a
    multi-slice security/product track: first pin trust-store and loading-order
    semantics, then CLI/TUI/package integration, then extension exposure.
-3. **Current RPC delta.** Pipy's gated 29-command baseline remains green, but Pi
-   now has 31 commands: `get_entries` (including `since`) and `get_tree`, plus
-   the asynchronous `agent_settled` event. Add the two read-only commands as one
-   bounded slice; keep settled-event semantics separate if needed.
+3. **Current RPC delta.** Pipy's gated RPC baseline is green at Pi's full
+   31-command vocabulary: the read-only `get_entries` (including `since`) and
+   `get_tree` **shipped** 2026-07-14. The asynchronous `agent_settled` event is
+   the one remaining RPC follow-on, kept separate.
 4. **Extension lifecycle and rendering deltas.** Add focused slices for
    `before_provider_headers`, `agent_settled`, and durable TUI-only entry
    renderers (`registerEntryRenderer` over `appendEntry`). These are distinct
@@ -1459,10 +1459,13 @@ named follow-on. A direct different-family (Pi) review was CLEAN.
 
 ### Next: project trust
 
-Queued after the shipped Sol slice, in order: project-trust design, RPC
-`get_entries`/`get_tree`, the `before_provider_headers` extension hook, durable
-entry renderers plus `agent_settled`, cache-friendly dynamic tool loading, and
-package-update/config realignment. Each remains its own parity-loop gap.
+Queued after the shipped Sol slice, in order: project-trust design, the
+`before_provider_headers` extension hook, durable entry renderers plus
+`agent_settled`, cache-friendly dynamic tool loading, and
+package-update/config realignment. Each remains its own parity-loop gap. The
+read-only RPC `get_entries`/`get_tree` slice **shipped** 2026-07-14 (pipy's RPC
+baseline is now green at Pi's full 31 commands; `agent_settled` remains a
+follow-on).
 
 ### Recently shipped: OpenAI-Codex transport reliability
 

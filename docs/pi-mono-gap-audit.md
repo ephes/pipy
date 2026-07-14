@@ -36,7 +36,7 @@ not omit, uniformly across every provider and effort-label surface).
 | --- | --- | --- |
 | 1 | GPT-5.6 Sol + `max` thinking | **Shipped** 2026-07-14; generalized cross-provider clamping remains a named follow-on. |
 | 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | Next selected slice; real multi-slice product/security gap — design loading order before implementation. |
-| 3 | RPC `get_entries`/`get_tree` and `agent_settled` | Real gap beyond pipy's green 29-command baseline; two read-only commands first. |
+| 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` remains the one real RPC follow-on. |
 | 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | Real extension gaps; keep header injection, settled lifecycle, and durable entry rendering as focused slices. |
 | 5 | Message-anchored dynamic tool loading | Real provider/extension gap; pipy changes active tools but lacks Anthropic `tool_reference` and OpenAI tool-search placement. |
 | 6 | Bare self-only `update`, `--all`, project-local `config -l` | Real CLI/package semantic drift; realign outright under the no-deprecation policy. |
@@ -134,9 +134,10 @@ are:
   has been **removed** (2026-06-20); callers use `--mode json`, and the removed
   flag emits guidance naming it.
 - Pi's RPC union has grown from 29 to 31 commands with read-only `get_entries`
-  (optional `since`) and `get_tree`, and it emits `agent_settled` once retries,
-  compaction retries, and queued continuations are fully idle. Pipy's existing
-  29-command protocol remains green but is no longer the complete Pi vocabulary.
+  (optional `since`) and `get_tree`; pipy **shipped** both 2026-07-14, so its
+  protocol is green at the full 31-command Pi vocabulary. Pi additionally emits
+  `agent_settled` once retries, compaction retries, and queued continuations are
+  fully idle — that event is the one remaining RPC follow-on.
 - Pi session flags and picker workflows now ship: `--session-id`,
   `--session-dir`, `--name/-n`, `-c`, `-r`, `--session`, `--fork`, and
   `--no-session`, with Pi-style mutual exclusion and the cross-project fork
@@ -593,8 +594,9 @@ adding another bespoke slash command.
 2. Project-trust design — pin trust-store ancestry, protected-resource loading
    order, non-interactive defaults, CLI overrides, and extension decision
    ownership before implementation.
-3. RPC `get_entries`/`get_tree` — one read-only protocol slice; follow with
-   `agent_settled` only if it stays independently reviewable.
+3. RPC `get_entries`/`get_tree` — **shipped** 2026-07-14 as one read-only
+   protocol slice; `agent_settled` is the remaining follow-on if it stays
+   independently reviewable.
 4. Extension deltas — `before_provider_headers`, durable entry renderers, and
    settled lifecycle as separate slices, then resume the broader
    component/overlay/invalidation track.

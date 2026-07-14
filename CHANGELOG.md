@@ -8,6 +8,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- RPC mode now implements Pi's read-only `get_entries` (including optional
+  `since` slicing) and `get_tree` session-inspection commands, bringing pipy's
+  green RPC baseline to all 31 Pi command types. Both return a coherent session
+  entries/tree and leaf snapshot; deep linear trees use depth-safe iterative
+  serialization.
 - `openai-codex/gpt-5.6-sol` is now a built-in Codex model (372K context, image
   input) with a seventh thinking level, `max`. The thinking vocabulary is now
   `off|minimal|low|medium|high|xhigh|max` across the CLI `--thinking`/`:level`
