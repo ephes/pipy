@@ -959,7 +959,9 @@ def _activate_workspace_extensions(
     the per-event lifecycle hooks, the ``input`` and ``before_agent_start``
     hooks, and the shared ``send_user_message`` outbox. Activation runs
     extension code; any failing extension is disabled by
-    ``activate_extensions`` without affecting the session.
+    ``activate_extensions`` without affecting the session. Workspace extension
+    discovery is fail-closed unless the caller supplies a resolved trusted
+    project state.
     """
 
     reserved = extension_reserved_command_names(

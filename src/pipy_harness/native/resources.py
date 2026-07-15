@@ -160,6 +160,13 @@ class WorkspaceResources:
         include_global_defaults: bool = True,
         include_package_defaults: bool = True,
     ) -> "WorkspaceResources":
+        """Discover resources while keeping workspace defaults fail-closed.
+
+        Global, package, and explicit resources retain their independent
+        controls. Product callers opt into workspace defaults only after
+        resolving project trust.
+        """
+
         skill_pkg_roots = package_roots.skills if package_roots is not None else ()
         prompt_pkg_roots = package_roots.prompts if package_roots is not None else ()
         skills, skills_cap = discover_workspace_skills(

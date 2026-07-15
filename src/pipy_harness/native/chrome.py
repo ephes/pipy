@@ -413,6 +413,10 @@ def print_startup_chrome(
     and ``~/.pipy/AGENTS.md``. The section is omitted when no
     candidates are found.
 
+    Workspace resource sections are fail-closed by default. Product startup
+    passes ``include_workspace_defaults=True`` only after resolving project
+    trust; global resources and trust-exempt context remain visible otherwise.
+
     When ``quiet`` is set (the ``quietStartup`` setting), the verbose startup
     banner is suppressed entirely, matching Pi's quiet-startup behavior.
     """
@@ -554,10 +558,12 @@ def discover_loaded_resource_names(
     For ``"context"`` (workspace + ancestor + global AGENTS.md files),
     this mirrors `workspace_context.discover_workspace_instructions`
     order: global root first, then ancestor directories root-most
-    first, then the workspace itself last. For ``"skills"``, the
-    function lists the immediate subdirectory names under each known
-    `.pipy/skills` (workspace) and `~/.pipy/skills` (global) store,
-    matching pi's compact `[Skills]` rendering.
+    first, then the workspace itself last. For ``"skills"``, the function uses
+    the real skill loader and enablement filters, so it returns only names the
+    current session can load. Other resource categories list immediate entries
+    from their known stores. Workspace resource stores are excluded unless
+    ``include_workspace_defaults`` is true; trust-exempt context discovery is
+    unaffected.
     """
 
     names: list[str] = []

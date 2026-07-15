@@ -96,6 +96,8 @@ def discover_workspace_prompt_templates(
 ) -> tuple[list[PromptTemplate], bool]:
     """Discover prompt-template files in the workspace and global root.
 
+    Workspace-local discovery is fail-closed by default. Product callers must
+    pass ``include_workspace_defaults=True`` only after resolving project trust.
     The workspace dir is `<workspace>/.pipy/templates/`. The global
     dir is resolved through `PIPY_CONFIG_HOME` then
     `${XDG_CONFIG_HOME}/pipy` then `~/.config/pipy`, and the
@@ -104,9 +106,9 @@ def discover_workspace_prompt_templates(
     directories must not be symlinks, and resource-file symlinks must
     stay inside the concrete `templates` directory they were found in.
 
-    Returns `(templates, total_byte_cap_reached)`. Templates are
-    listed workspace-first, then global, in sorted-name order within
-    each source.
+    Returns `(templates, total_byte_cap_reached)`. When workspace discovery is
+    enabled, templates are listed workspace-first, then global, in sorted-name
+    order within each source.
     """
 
     raw_files, cap_reached = discover_resource_files(

@@ -82,6 +82,8 @@ def load_extension_provider_contributions(
     This helper intentionally returns safe runtime metadata only: registered
     provider objects and unregister names. It does not persist package/catalog
     state, and callers must not archive extension source paths or factories.
+    Workspace extension discovery is fail-closed by default; product callers
+    opt in only after resolving project trust.
     """
 
     descriptors = discover_extensions(
