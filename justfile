@@ -77,7 +77,7 @@ parity-report label:
 
 # Count repository lines with language, area, and directory summaries.
 loc:
-    uv run --prerelease allow --with "{{SLOPSCOPE_SPEC}}" --with rich slopscope .
+    uv run --frozen --prerelease allow --with "{{SLOPSCOPE_SPEC}}" --with rich slopscope .
 
 # Serve the local documentation site. Example: just docs-serve localhost:8001
 docs-serve dev_addr="localhost:8000":

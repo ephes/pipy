@@ -100,9 +100,9 @@ just check      # lint, typecheck, then test
 just loc        # slopscope line-count summary
 ```
 
-During the `slopscope` pre-release phase, `just loc` runs a sibling checkout
-with `uv run --with-editable`. Set `SLOPSCOPE_PATH` when that checkout lives
-somewhere else.
+During the `slopscope` pre-release phase, `just loc` allows pre-release
+resolution in a frozen `uv run` overlay, so it does not rewrite this project's
+lockfile. Set `SLOPSCOPE_SPEC` to choose a package spec or local checkout.
 
 ## Documentation Site
 
