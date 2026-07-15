@@ -318,13 +318,19 @@ still recognizes that extension/package parity is the largest surface by area:
    ([gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md)). Terra/Luna, API pricing tiers,
    other provider rows, and generalized cross-provider clamping stayed out of the
    slice; the last is a named follow-on.
-2. **Project trust and project-local configuration safety.** Pi gates
+2. **Project trust and project-local configuration safety.** The design slice
+   shipped 2026-07-15 and pins Pi's ancestry, loading order, protected/exempt
+   sources, mode/default/override behavior, `/trust`/reload semantics, and
+   extension ownership
+   ([design](superpowers/specs/2026-07-15-project-trust-design.md),
+   [implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)). Pi gates
    project-local settings/resources/packages behind saved or temporary trust,
    exposes `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, and the
    extension `project_trust`/`ctx.isProjectTrusted()` surface. Pipy currently
    loads project configuration without this Pi workflow. Treat this as a
-   multi-slice security/product track: first pin trust-store and loading-order
-   semantics, then CLI/TUI/package integration, then extension exposure.
+   multi-slice security/product track: trust core plus the settings/resource
+   gate is selected next, then CLI/TUI/package integration, then extension
+   exposure.
 3. **Current RPC delta.** Pipy's gated RPC baseline is green at Pi's full
    31-command vocabulary: the read-only `get_entries` (including `since`) and
    `get_tree` **shipped** 2026-07-14. The asynchronous `agent_settled` event also
@@ -1459,9 +1465,23 @@ into the legacy Codex provider (stored `max` → `effort: "max"` on Sol, clamps 
 GPT-5.5 remains the Codex default. Generalized cross-provider clamping is the one
 named follow-on. A direct different-family (Pi) review was CLEAN.
 
-### Next: project trust
+### Project-trust design — SHIPPED (2026-07-15)
 
-Queued after the shipped Sol slice, in order: project-trust design, the
+The Pi-sourced design and ordered implementation plan now pin the canonical
+trust-store schema/ancestry, protected versus exempt inputs, final-runtime-cwd
+loading order, interactive/headless mode matrix, global-only
+`defaultProjectTrust`, CLI/package overrides, `/trust` and reload behavior, and
+extension decision/read ownership. A direct fresh-context Claude Opus review was
+CLEAN. No runtime trust behavior is claimed by this design-only slice.
+
+### Next: trust core and settings/resource gate
+
+Implement slice 1 from the reviewed
+[implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md):
+the store/detector, trust-aware settings manager, source-provenance resource and
+package gating, final-cwd resolver, run overrides, mode matrix, and conformance
+gate. Keep interactive/package management and extension-owned trust decisions as
+their own later project-trust slices. Then continue with the
 `before_provider_headers` extension hook, durable entry renderers plus the
 extension-surface `agent_settled` hook, cache-friendly dynamic tool loading, and
 package-update/config realignment. Each remains its own parity-loop gap. The

@@ -18,9 +18,11 @@ and a `--version` surface with a default-off update check. The objective for thi
 track was full Pi-equivalent settings capability, not a metadata-only subset; its
 June baseline is verified by `scripts/parity_checks/settings_config_conformance.py`.
 Current Pi adds a project-trust/default/CLI-override workflow, project-local
-`config -l`, model-aware `max` thinking, prompt-cache miss notices, automatic
-theme mode, output padding, and additional editor/shell settings. Those are
-explicit follow-ons; the green June gate must not be read as coverage of them.
+`config -l`, prompt-cache miss notices, automatic theme mode, output padding,
+and additional editor/shell settings. The project-trust design shipped
+2026-07-15, but its runtime gate and `config -l` integration remain explicit
+follow-ons; the green June gate must not be read as coverage of them. Model-aware
+`max` thinking shipped separately on 2026-07-14.
 The sections below keep the full target spec and add a "Shipped" note where the
 delivered behavior or a deliberate divergence needs calling out.
 
@@ -290,6 +292,25 @@ not-yet-honored keys without dropping them, so forward/Pi-written config is
 preserved. The getter/setter surface should mirror Pi's typed accessors
 (`get_compaction_enabled`, `set_theme`, etc.) so callers do not reach into raw
 dicts.
+
+## Project trust (reviewed design; runtime pending)
+
+Project-local settings are currently still loaded eagerly. The reviewed
+[project-trust design](superpowers/specs/2026-07-15-project-trust-design.md)
+pins the replacement boundary: resolve trust for the final runtime cwd before
+reading `.pipy/settings.json`; use a closest-ancestor boolean decision in the
+global `trust.json`; accept global-only `defaultProjectTrust:
+"ask"|"always"|"never"` (default `"ask"`); and let per-run
+`--approve`/`--no-approve` override without persistence. An untrusted settings
+manager exposes an empty project scope and refuses project writes while global,
+base-default, and CLI/env layers remain usable.
+
+The ordered
+[implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)
+selects trust core plus settings/resource gating as the next runtime slice.
+Interactive `/trust`, project-local package/config management, and extension
+decision APIs remain later slices. Until those slices land, this section is a
+reviewed contract, not a shipped security claim.
 
 ## Keybindings.json — Schema, Bindings, Defaults, `/hotkeys`
 

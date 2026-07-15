@@ -397,6 +397,7 @@ target vocabulary includes:
 
 | Event | Purpose | Allowed return |
 | --- | --- | --- |
+| `project_trust` | Let pre-trust global/CLI extensions decide whether protected project inputs may load. Planned by the reviewed project-trust design; not implemented yet. | `{trusted: "yes"|"no"|"undecided", remember?: bool}` |
 | `session_start` | Restore per-session extension state after startup, new, resume, fork, or reload. (Pi `SessionStartEvent.reason` is `"startup" \| "reload" \| "new" \| "resume" \| "fork"`.) | None |
 | `session_shutdown` | Cleanup local extension state before exit, reload, or session switch. | None |
 | `resources_discover` | Contribute additional skills, templates, commands, themes, or extension resource paths. | `ResourceContribution` |
@@ -429,6 +430,20 @@ target vocabulary includes:
 The first implementation should still start small. `tool_call` should be the
 first policy hook because it enables high-value workflows such as protected
 paths and command gating without requiring package loading or rich UI hooks.
+
+Project trust is now specified separately in the reviewed
+[project-trust design](superpowers/specs/2026-07-15-project-trust-design.md).
+Before trust resolves, only global, explicit CLI, and inline extension sources
+may activate. Their `project_trust` handlers run serially; `undecided` continues,
+the first yes/no owns the decision, and only exact `remember: true` persists it.
+The pinned startup context has `cwd`, `mode`, `has_ui`, and a bounded UI surface;
+headless select/confirm/input calls return immediately without touching protocol
+streams, while notify is stderr-only. The later extension slice also adds the
+zero-argument read callbacks `ctx.is_project_trusted()` and
+`ctx.isProjectTrusted()`. The ordered
+[implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)
+keeps this extension-owned phase separate from trust core and interactive/
+package integration. None of these trust APIs are shipped yet.
 
 ```python
 @dataclass(frozen=True)
@@ -1484,10 +1499,6 @@ and the live `scripts/tmux_answer_verify.sh`.
 
 ## Open Questions
 
-- Should extensions be enabled by default when discovered in the workspace, or
-  require an explicit allowlist?
-- Should project-local extensions be considered trusted when the workspace is a
-  cloned repository?
 - What is the right packaging format for shareable Python extensions:
   local-path manifests, Python entry points, git refs, PyPI packages, or a
   pipy-specific package index?

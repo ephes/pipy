@@ -13,10 +13,17 @@ It is a slice-selection aid: the detailed behavioral specs remain the source of
 truth for each topic, but this page records the biggest remaining gaps in one
 place and states what pipy should implement next.
 
-## Active next gap (groomed 2026-07-14)
+## Active next gap (groomed 2026-07-15)
 
-**Project trust** is the next bounded slice (priority 2 below), now that GPT-5.6
-Sol has shipped.
+The **project-trust design slice has shipped**: the reviewed design pins the
+trust-store ancestry, protected/exempt inputs, final-cwd loading order,
+interactive/headless defaults, CLI/package overrides, `/trust` and reload
+semantics, and extension decision/read ownership. See
+[`docs/superpowers/specs/2026-07-15-project-trust-design.md`](superpowers/specs/2026-07-15-project-trust-design.md)
+and its ordered
+[`implementation plan`](superpowers/specs/2026-07-15-project-trust-implementation-plan.md).
+The next bounded runtime slice is **trust core plus the settings/resource gate**;
+interactive/package management and extension decision APIs remain later slices.
 
 GPT-5.6 Sol plus model-aware `max` thinking **shipped** (see
 [gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md) and the changelog):
@@ -35,7 +42,7 @@ not omit, uniformly across every provider and effort-label surface).
 | Priority | Pi delta | Pipy classification |
 | --- | --- | --- |
 | 1 | GPT-5.6 Sol + `max` thinking | **Shipped** 2026-07-14; generalized cross-provider clamping remains a named follow-on. |
-| 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | Next selected slice; real multi-slice product/security gap — design loading order before implementation. |
+| 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | Design shipped 2026-07-15; trust core + settings/resource gate selected next, followed by interactive/package integration and extension APIs. |
 | 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` **shipped on `--mode rpc` and `--mode json`** 2026-07-14 (emitted at the true-idle boundary); the only remaining follow-on is the extension-surface `agent_settled` hook. |
 | 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | Real extension gaps; keep header injection, settled lifecycle, and durable entry rendering as focused slices. |
 | 5 | Message-anchored dynamic tool loading | Real provider/extension gap; pipy changes active tools but lacks Anthropic `tool_reference` and OpenAI tool-search placement. |
@@ -121,8 +128,9 @@ are:
 - Pi now gates project-local settings, packages, and executable resources behind
   a saved or temporary trust decision. Its top-level and package/config surfaces
   accept `--approve`/`--no-approve`, `/trust` persists a decision, and global or
-  CLI extensions may handle `project_trust`. Pipy has no comparable trust store
-  or loading-order gate yet.
+  CLI extensions may handle `project_trust`. Pipy has now reviewed and committed
+  the Pi-sourced design/loading order, but the trust store and runtime gate are
+  not implemented yet.
 - Pi's bare `update` is now self-only; `update --all` composes self plus
   packages, while `--extensions` remains packages-only. Pipy's bare update still
   composes both halves and must be realigned rather than documented as parity.
