@@ -103,6 +103,16 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    e.g. `FooterData.onBranchChange` callbacks are zero-argument functions kept in
    a `Set` until disposed, so factory re-renders must not accidentally accumulate
    stale registrations or invoke callbacks with branch data Pi never supplies.
+   When an extension callback surface is available in headless JSON, RPC, or
+   print modes, pin the no-UI behavior for every UI method, not only field
+   presence or `has_ui`: selection/input calls must return immediately without
+   reading stdin or writing protocol stdout, and any diagnostic notification
+   path must be explicitly stderr-only.
+   For any ordered resolver with a mode-specific final fallback, scope the mode
+   matrix explicitly to that final branch. Pin the earlier precedence steps
+   separately (such as explicit overrides, no-resource cases, extension
+   decisions, saved decisions, and global defaults), so a broad row such as
+   `headless = untrusted` cannot bypass a valid earlier result.
    For any request-shape field gated by a Pi compat flag, also pin — per field —
    which compat flag(s) gate it and how each of those flags is independently
    resolved. Pi's `getCompat` resolves every compat field independently (explicit
