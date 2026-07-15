@@ -103,6 +103,13 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    e.g. `FooterData.onBranchChange` callbacks are zero-argument functions kept in
    a `Set` until disposed, so factory re-renders must not accidentally accumulate
    stale registrations or invoke callbacks with branch data Pi never supplies.
+   For trust/provenance slices, inventory the concrete loader entry points and
+   source shapes before specifying protected-resource detection or prompts.
+   Protect only inputs the runtime can actually discover: a resource contributed
+   through an installed package does not imply that a same-named standalone
+   workspace directory is loadable. Pin each claimed source shape to its loader
+   and add a test that exercises that exact path, so dead detectors cannot create
+   trust prompts for inputs pipy would never consume.
    When an extension callback surface is available in headless JSON, RPC, or
    print modes, pin the no-UI behavior for every UI method, not only field
    presence or `has_ui`: selection/input calls must return immediately without

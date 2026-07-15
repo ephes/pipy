@@ -9,6 +9,7 @@ registry while keeping its archive metadata metadata-only.
 from __future__ import annotations
 
 import io
+import json
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -282,6 +283,16 @@ def test_adapter_without_settings_fails_closed_for_project_resources(
     (tmp_path / ".pipy" / "SYSTEM.md").write_text(
         "PROJECT SYSTEM BODY", encoding="utf-8"
     )
+    project_package = tmp_path / "project-package"
+    _write_skill(
+        project_package / "skills",
+        name="package-only",
+        description="must also be trusted",
+        body="PROJECT PACKAGE SKILL BODY",
+    )
+    (tmp_path / ".pipy" / "settings.json").write_text(
+        json.dumps({"packages": [str(project_package)]}), encoding="utf-8"
+    )
     adapter = PipyNativeToolReplAdapter(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={"read": ReadTool()},
@@ -289,6 +300,14 @@ def test_adapter_without_settings_fails_closed_for_project_resources(
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
     )
+    eager_settings: list[SettingsManager] = []
+    discover_skills = adapter._discover_skill_files
+
+    def _record_settings(cwd: Path, settings: SettingsManager):
+        eager_settings.append(settings)
+        return discover_skills(cwd, settings)
+
+    monkeypatch.setattr(adapter, "_discover_skill_files", _record_settings)
     prepared = _prepared_for(adapter, tmp_path)
     init_kwargs, run_kwargs = _run_adapter_with_spy(adapter, prepared, monkeypatch)
 
@@ -297,6 +316,10 @@ def test_adapter_without_settings_fails_closed_for_project_resources(
     settings = init_kwargs["settings_manager"]
     assert isinstance(settings, SettingsManager)
     assert settings.project_trusted is False
+    assert eager_settings == [settings]
+    assert init_kwargs["settings_manager"] is eager_settings[0]
+    assert settings.get_package_entries() == []
+    assert "package-only" not in run_kwargs["system_prompt"]
 
 
 def test_model_can_read_global_skill_body_via_reference_roots(
