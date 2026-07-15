@@ -259,6 +259,14 @@ class PipyNativeToolReplAdapter:
                 "tool-capable provider"
             )
         discovery = self.instruction_loader(prepared.cwd)
+        # A library caller that omits SettingsManager supplies no trust
+        # decision. Fail closed for every project-derived settings/resource
+        # path; callers that intentionally want the legacy trusted behavior can
+        # pass SettingsManager.for_workspace(cwd), whose direct-caller default
+        # remains project_trusted=True.
+        runtime_settings = self.settings_manager or SettingsManager.for_workspace(
+            prepared.cwd, project_trusted=False
+        )
         # Apply system-prompt replace/append (flags or SYSTEM.md/APPEND_SYSTEM.md
         # auto-discovery) to the base prompt before workspace context is added.
         resolved_prompt = resolve_system_prompt(
@@ -267,6 +275,7 @@ class PipyNativeToolReplAdapter:
             config_home=resolve_config_home(),
             system_prompt_source=self.system_prompt_source,
             append_sources=self.append_system_prompt_sources,
+            include_project_defaults=runtime_settings.project_trusted,
         )
         base_prompt = resolved_prompt.base_prompt
         if self.reference_roots:
@@ -278,7 +287,7 @@ class PipyNativeToolReplAdapter:
         # The same loader the /skill command uses; obtained here (before the
         # session runs) so the advertisement can enter the system prompt and the
         # skill directories can widen the read-only reference roots.
-        skills = self._discover_skill_files(prepared.cwd)
+        skills = self._discover_skill_files(prepared.cwd, runtime_settings)
         # Add each discovered skill's PARENT DIRECTORY to the read-only reference
         # roots so the model can `read` skill bodies, including global skills
         # outside cwd. Bounded to discovered skill directories; deduped; absolute.
@@ -336,7 +345,7 @@ class PipyNativeToolReplAdapter:
             resume_context=self.resume_context,
             resume_branch_label=self.resume_branch_label,
             native_session=self.native_session,
-            settings_manager=self.settings_manager,
+            settings_manager=runtime_settings,
             automation_observer=self.automation_observer,
             abort_event=self.abort_event,
             resource_options=self.resource_options,
@@ -424,7 +433,9 @@ class PipyNativeToolReplAdapter:
             )
         return self.provider_state.current_provider()
 
-    def _discover_skill_files(self, cwd: Path) -> tuple[SkillFile, ...]:
+    def _discover_skill_files(
+        self, cwd: Path, settings: SettingsManager
+    ) -> tuple[SkillFile, ...]:
         """Discover the skills the model may load, mirroring the /skill loader.
 
         Uses the same workspace + global + package discovery and Pi-shaped
@@ -437,7 +448,6 @@ class PipyNativeToolReplAdapter:
         """
 
         options = self.resource_options
-        settings = self.settings_manager or SettingsManager.for_workspace(cwd)
         package_roots = compose_package_runtime(
             settings,
             cwd,
@@ -450,6 +460,7 @@ class PipyNativeToolReplAdapter:
             explicit_prompt_template_paths=options.prompt_template_paths,
             include_skills_defaults=not options.no_skills,
             include_prompt_template_defaults=not options.no_prompt_templates,
+            include_workspace_defaults=settings.project_trusted,
         ).with_enablement(
             skills_patterns=settings.get_skills_patterns(),
             prompts_patterns=settings.get_prompts_patterns(),

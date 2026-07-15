@@ -45,6 +45,7 @@ def _discover(
         workspace,
         config_home_env=env if env is not None else _empty_env(),
         home_dir=home_dir if home_dir is not None else workspace,
+        include_workspace_defaults=True,
     )
 
 
@@ -375,6 +376,7 @@ def test_global_extension_is_discovered(tmp_path: Path) -> None:
         workspace,
         config_home_env={"PIPY_CONFIG_HOME": str(config_home)},
         home_dir=workspace,
+        include_workspace_defaults=True,
     )
 
     descriptor = _by_name(descriptors, "globby")

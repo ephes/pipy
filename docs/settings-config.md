@@ -293,24 +293,36 @@ preserved. The getter/setter surface should mirror Pi's typed accessors
 (`get_compaction_enabled`, `set_theme`, etc.) so callers do not reach into raw
 dicts.
 
-## Project trust (reviewed design; runtime pending)
+## Project trust (core runtime shipped)
 
-Project-local settings are currently still loaded eagerly. The reviewed
+Project-local settings and resources are now gated by the first runtime slice
+of the reviewed
 [project-trust design](superpowers/specs/2026-07-15-project-trust-design.md)
-pins the replacement boundary: resolve trust for the final runtime cwd before
-reading `.pipy/settings.json`; use a closest-ancestor boolean decision in the
-global `trust.json`; accept global-only `defaultProjectTrust:
-"ask"|"always"|"never"` (default `"ask"`); and let per-run
+for the final runtime cwd before `.pipy/settings.json` is read. Decisions use a
+closest-ancestor boolean entry in global `<config>/trust.json`; global-only
+`defaultProjectTrust: "ask"|"always"|"never"` (default `"ask"`); and per-run
 `--approve`/`--no-approve` override without persistence. An untrusted settings
 manager exposes an empty project scope and refuses project writes while global,
 base-default, and CLI/env layers remain usable.
 
-The ordered
-[implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)
-selects trust core plus settings/resource gating as the next runtime slice.
-Interactive `/trust`, project-local package/config management, and extension
-decision APIs remain later slices. Until those slices land, this section is a
-reviewed contract, not a shipped security claim.
+Protected project defaults are `.pipy/settings.json`, extensions, skills,
+templates, commands, `SYSTEM.md`, and `APPEND_SYSTEM.md`. Standalone
+`.pipy/themes` is not a discovery source today; project-package themes are gated
+through project settings. Global
+resources and packages plus explicit `--extension`, `--skill`,
+`--prompt-template`, `--theme`, and system-prompt inputs remain available while
+untrusted; `AGENTS.md` / `pipy.md` context discovery is explicitly exempt.
+Trust is an input-loading guard, not a sandbox: trusted resources and the model's
+tools still run with the pipy process's permissions.
+
+An unresolved `ask` decision fails closed in non-UI modes without reading stdin
+or writing a trust prompt to stdout/stderr. Until the next slice adds Pi's full
+startup selector, interactive TTY startup prints a concise stderr diagnostic;
+use `--approve` for one run, set global `defaultProjectTrust` to `"always"`, or
+write a saved boolean decision. Interactive `/trust`, reload persistence,
+project-local package/config management, and extension decision/read APIs remain
+later slices in the ordered
+[implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md).
 
 ## Keybindings.json — Schema, Bindings, Defaults, `/hotkeys`
 

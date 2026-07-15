@@ -42,7 +42,10 @@ def _write_single_file(workspace: Path, name: str, body: str) -> None:
 
 def _activate(workspace: Path, *, reserved: tuple[str, ...] = ()) -> list[ActivatedExtension]:
     descriptors = discover_extensions(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
     return activate_extensions(descriptors, reserved_command_names=reserved)
 
@@ -383,7 +386,10 @@ def test_keyboard_interrupt_during_activation_propagates(tmp_path: Path) -> None
         "def activate(api):\n    raise KeyboardInterrupt()\n",
     )
     descriptors = discover_extensions(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
 
     with pytest.raises(KeyboardInterrupt):

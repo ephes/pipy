@@ -46,7 +46,12 @@ def _write(workspace: Path, name: str, body: str) -> None:
 
 def _hooks(workspace: Path) -> tuple:
     activated = activate_extensions(
-        discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+        discover_extensions(
+            workspace,
+            config_home_env={},
+            home_dir=workspace,
+            include_workspace_defaults=True,
+        )
     )
     return extension_event_hooks(activated, "tool_result")
 

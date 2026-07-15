@@ -91,7 +91,11 @@ def test_compose_installs_package_resources_and_theme(tmp_path: Path) -> None:
     roots = compose_package_runtime(settings, cwd)
 
     resources = WorkspaceResources.discover(
-        cwd, config_home_env=env, home_dir=cwd, package_roots=roots
+        cwd,
+        config_home_env=env,
+        home_dir=cwd,
+        package_roots=roots,
+        include_workspace_defaults=True,
     )
     assert "pkg-skill" in resources.skill_names()
     assert "pkg-prompt" in resources.template_names()

@@ -26,8 +26,8 @@ Create or reshape user-facing pages under `docs/`:
 - `providers.md` — supported providers, env vars/auth, provider catalog,
   `models.json`, `--list-models`, `/model`, `--thinking`, and ds4 as a custom
   provider preset.
-- `settings.md` — global/project settings once shipped; until then, current
-  local defaults and the settings-config target.
+- `settings.md` — shipped global settings, trust-gated project settings, trust
+  run overrides/defaults, and the remaining interactive trust boundary.
 - `keybindings.md` — current TUI keys plus the keybindings target.
 - `sessions.md` — native product session tree, `/tree`, `/resume`, `/fork`,
   `/clone`, `/compact`, startup flags, and the separate `pipy-session` catalog.

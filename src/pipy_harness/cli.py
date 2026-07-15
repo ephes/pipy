@@ -209,6 +209,29 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path.cwd(),
         help="Working directory for the native provider. Defaults to the current directory.",
     )
+    repl_parser.set_defaults(trust_override=None)
+    repl_parser.add_argument(
+        "--approve",
+        "-a",
+        dest="trust_override",
+        action="store_const",
+        const=True,
+        help=(
+            "Trust project settings/resources for this run only. Does not "
+            "write trust.json; when repeated with --no-approve, the last flag wins."
+        ),
+    )
+    repl_parser.add_argument(
+        "--no-approve",
+        "-na",
+        dest="trust_override",
+        action="store_const",
+        const=False,
+        help=(
+            "Disable project settings/resources for this run only. Does not "
+            "write trust.json; when repeated with --approve, the last flag wins."
+        ),
+    )
     repl_parser.add_argument(
         "--goal",
         help="Optional short goal for the REPL run record. Conversation turns are not archived.",
@@ -913,7 +936,10 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_product_export(args.export)
         if getattr(args, "list_models", None) is not None:
             cwd = getattr(args, "cwd", Path.cwd()).expanduser().resolve()
-            settings_manager = _build_runtime_settings(cwd)
+            project_trusted = _resolve_runtime_project_trust(args, cwd)
+            settings_manager = _build_runtime_settings(
+                cwd, project_trusted=project_trusted
+            )
             return _handle_list_models(
                 args.list_models or None,
                 cwd=cwd,
@@ -1038,12 +1064,6 @@ def main(argv: list[str] | None = None) -> int:
             # branch or native-session resolution, so the rejection never
             # depends on a downstream code path being reached.
             _validate_native_session_flags(args)
-            validate_native_repl_input_runtime(
-                input_stream=sys.stdin,
-                error_stream=sys.stderr,
-                input_runtime=args.input_runtime,
-                workspace=args.cwd,
-            )
             repl_adapter: PipyNativeToolReplAdapter
             # The native product session tree (Pi-style --session/--fork/-c/-r)
             # is the product session source; the old metadata-only --resume
@@ -1052,14 +1072,41 @@ def main(argv: list[str] | None = None) -> int:
             resume_context = None
             resume_lineage = None
             resume_branch_label = None
+            resource_options = _resource_options_from_args(args)
+            # Resolve the product session before project trust: an opened
+            # session carries the final runtime cwd, and no project settings or
+            # resources may be observed for the shell's preliminary cwd.
+            native_session = _resolve_native_startup_session(args)
+            cwd = args.cwd.expanduser().resolve()
+            if native_session is not None:
+                session_cwd = getattr(native_session.get_header(), "cwd", "")
+                if session_cwd:
+                    cwd = Path(session_cwd).expanduser().resolve()
+            args.cwd = cwd
+            # Input-runtime validation is workspace-dependent, so it must use
+            # the session's final cwd. Session-resolution errors intentionally
+            # take precedence when both inputs are invalid.
+            validate_native_repl_input_runtime(
+                input_stream=sys.stdin,
+                error_stream=sys.stderr,
+                input_runtime=args.input_runtime,
+                workspace=cwd,
+            )
+            app_mode = _select_repl_app_mode(args)
+            interactive_tty = app_mode == "interactive" and _startup_stdin_is_tty()
+            project_trusted = _resolve_runtime_project_trust(
+                args,
+                cwd,
+                interactive_tty=interactive_tty,
+            )
             # Layered settings: a settings.json defaultProvider/defaultModel/theme
             # is the source of truth over the legacy local-state store (CLI flags
             # still win). The store remains the fallback for selection.
             settings_manager = _build_runtime_settings(
-                args.cwd.expanduser().resolve(),
+                cwd,
                 scoped_models=_parse_models_flag(getattr(args, "scoped_models", None)),
+                project_trusted=project_trusted,
             )
-            resource_options = _resource_options_from_args(args)
             file_settings = settings_manager.merged_file_settings()
             _apply_settings_theme_env(file_settings)
             eff_native_provider = args.native_provider or _settings_str(
@@ -1068,17 +1115,12 @@ def main(argv: list[str] | None = None) -> int:
             eff_native_model = args.native_model or _settings_str(
                 file_settings, "defaultModel"
             )
-            cwd = args.cwd.expanduser().resolve()
             startup_catalog_state = _build_catalog_state(
                 runtime_api_key=args.api_key,
                 cwd=cwd,
                 settings_manager=settings_manager,
                 resource_options=resource_options,
             )
-            # Resolve the Pi-style native product session for this run from the
-            # startup flags. ``pipy-session`` is a separate metadata archive and
-            # is never the product session source.
-            native_session = _resolve_native_startup_session(args)
             # The product REPL is always the bounded model-driven tool loop.
             if args.tool_budget < 1 or args.tool_budget > 200:
                 raise ValueError(
@@ -1113,7 +1155,6 @@ def main(argv: list[str] | None = None) -> int:
             # drive the same tool-loop adapter for a one-shot run (json/print) or
             # the long-lived JSONL protocol (rpc). The interactive REPL — which
             # includes piped (non-TTY) stdin as REPL input — is the default.
-            app_mode = _select_repl_app_mode(args)
             if app_mode != "interactive":
                 return _run_repl_automation(
                     app_mode,
@@ -1129,7 +1170,7 @@ def main(argv: list[str] | None = None) -> int:
                 agent=args.agent,
                 slug=args.slug,
                 command=[],
-                cwd=args.cwd,
+                cwd=cwd,
                 goal=args.goal or "Native REPL",
                 root=args.root,
                 capture_policy=CapturePolicy(),
@@ -1574,8 +1615,16 @@ def _cmd_config(args: Any) -> int:
         from pipy_harness.native.themes import builtin_palettes
 
         package_roots = compose_package_runtime(manager, cwd, install_theme_registry=False)
-        resources = WorkspaceResources.discover(cwd, package_roots=package_roots)
-        descriptors = discover_extensions(cwd, package_roots=package_roots.extensions)
+        resources = WorkspaceResources.discover(
+            cwd,
+            package_roots=package_roots,
+            include_workspace_defaults=True,
+        )
+        descriptors = discover_extensions(
+            cwd,
+            package_roots=package_roots.extensions,
+            include_workspace_defaults=True,
+        )
         theme_names = build_theme_registry(package_roots.themes).names()
         builtin_theme_names = set(builtin_palettes())
         skills = [
@@ -1699,7 +1748,10 @@ def _parse_models_flag(value: str | None) -> list[str] | None:
 
 
 def _build_runtime_settings(
-    cwd: Path, *, scoped_models: list[str] | None = None
+    cwd: Path,
+    *,
+    scoped_models: list[str] | None = None,
+    project_trusted: bool = True,
 ) -> SettingsManager:
     """Build the layered settings manager for a ``pipy repl`` run.
 
@@ -1720,7 +1772,56 @@ def _build_runtime_settings(
         prompt_history_enabled=PromptHistoryStore().enabled,
     )
     overrides = {"enabledModels": scoped_models} if scoped_models else None
-    return SettingsManager.for_workspace(cwd, base_defaults=base, overrides=overrides)
+    return SettingsManager.for_workspace(
+        cwd,
+        base_defaults=base,
+        overrides=overrides,
+        project_trusted=project_trusted,
+    )
+
+
+def _resolve_runtime_project_trust(
+    args: Any,
+    cwd: Path,
+    *,
+    interactive_tty: bool = False,
+) -> bool:
+    """Resolve core project trust before any project settings/resources load."""
+
+    from pipy_harness.native.project_trust import (
+        ProjectTrustStore,
+        has_trust_requiring_project_resources,
+        resolve_project_trusted,
+    )
+
+    # Load global settings only. Project settings cannot choose their own gate.
+    bootstrap = _build_runtime_settings(cwd, project_trusted=False)
+    has_protected = has_trust_requiring_project_resources(cwd)
+    trusted = resolve_project_trusted(
+        cwd,
+        trust_store=ProjectTrustStore(),
+        trust_override=getattr(args, "trust_override", None),
+        default_project_trust=bootstrap.get_default_project_trust(),
+        on_diagnostic=(
+            (lambda message: print(f"pipy: {message}", file=sys.stderr))
+            if interactive_tty
+            else None
+        ),
+    )
+    if (
+        interactive_tty
+        and has_protected
+        and not trusted
+        and getattr(args, "trust_override", None) is None
+        and bootstrap.get_default_project_trust() == "ask"
+    ):
+        print(
+            "pipy: project settings and resources are disabled until trust is "
+            "resolved; use --approve, set global defaultProjectTrust to "
+            '"always", or save a decision in trust.json.',
+            file=sys.stderr,
+        )
+    return trusted
 
 
 def _settings_str(file_settings: dict[str, object], key: str) -> str | None:
@@ -2410,6 +2511,7 @@ def _extension_provider_contributions(
         explicit_prompt_template_paths=options.prompt_template_paths,
         include_skills_defaults=not options.no_skills,
         include_prompt_template_defaults=not options.no_prompt_templates,
+        include_workspace_defaults=settings_manager.project_trusted,
     ).with_enablement(
         skills_patterns=settings_manager.get_skills_patterns(),
         prompts_patterns=settings_manager.get_prompts_patterns(),
@@ -2424,6 +2526,7 @@ def _extension_provider_contributions(
         extension_patterns=settings_manager.get_extensions_patterns(),
         explicit_extension_paths=options.extension_paths,
         include_default_extensions=not options.no_extensions,
+        include_workspace_defaults=settings_manager.project_trusted,
         reserved_command_names=extension_reserved_command_names(
             workspace_resources.custom_command_slash_names()
         ),

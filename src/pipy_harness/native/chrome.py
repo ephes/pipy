@@ -399,7 +399,11 @@ def _short_token_count(value: int) -> str:
 
 
 def print_startup_chrome(
-    error_stream: TextIO, *, cwd: Path, quiet: bool = False
+    error_stream: TextIO,
+    *,
+    cwd: Path,
+    quiet: bool = False,
+    include_workspace_defaults: bool = False,
 ) -> None:
     """Render the Pi-parity compact startup chrome on `error_stream`.
 
@@ -417,7 +421,9 @@ def print_startup_chrome(
         return
     style = chrome_style_for(error_stream)
     width = chrome_width(error_stream)
-    resource_labels = _resource_labels(cwd)
+    resource_labels = _resource_labels(
+        cwd, include_workspace_defaults=include_workspace_defaults
+    )
 
     # Pi opens with a blank line before the title so the chrome
     # never butts up against the previous shell line.
@@ -508,6 +514,8 @@ def print_bottom_status_block(
 
 def _startup_skill_settings(
     cwd: Path,
+    *,
+    project_trusted: bool,
 ) -> tuple[tuple["PackageRoot", ...], tuple[str, ...], bool]:
     """Inputs for the honest `[Skills]` listing: package roots + enablement.
 
@@ -523,7 +531,7 @@ def _startup_skill_settings(
         from pipy_harness.native.package_resources import resolve_package_roots
         from pipy_harness.native.settings import SettingsManager
 
-        settings = SettingsManager.for_workspace(cwd)
+        settings = SettingsManager.for_workspace(cwd, project_trusted=project_trusted)
         roots = resolve_package_roots(settings.get_package_entries(), cwd).skills
         return (
             roots,
@@ -539,6 +547,7 @@ def discover_loaded_resource_names(
     category: str = "context",
     *,
     max_items: int = 32,
+    include_workspace_defaults: bool = False,
 ) -> tuple[str, ...]:
     """Return the source labels for the requested ``category``.
 
@@ -595,13 +604,17 @@ def discover_loaded_resource_names(
         from pipy_harness.native.skills import discover_workspace_skills
 
         package_roots, skills_patterns, enable_skill_commands = _startup_skill_settings(
-            cwd
+            cwd, project_trusted=include_workspace_defaults
         )
         # `enableSkillCommands=false` registers no skills, so list none.
         if not enable_skill_commands:
             return tuple(names)
         try:
-            skills, _ = discover_workspace_skills(cwd, package_roots=package_roots)
+            skills, _ = discover_workspace_skills(
+                cwd,
+                package_roots=package_roots,
+                include_workspace_defaults=include_workspace_defaults,
+            )
         except OSError:
             return tuple(names)
         for skill in skills:
@@ -624,12 +637,13 @@ def discover_loaded_resource_names(
             add(entry_name)
             if len(names) >= max_items:
                 return tuple(names)
-    for source in workspace_sources:
-        workspace_dir = cwd / source
-        for entry_name in _directory_entry_names(workspace_dir):
-            add(entry_name)
-            if len(names) >= max_items:
-                return tuple(names)
+    if include_workspace_defaults:
+        for source in workspace_sources:
+            workspace_dir = cwd / source
+            for entry_name in _directory_entry_names(workspace_dir):
+                add(entry_name)
+                if len(names) >= max_items:
+                    return tuple(names)
     return tuple(names)
 
 
@@ -768,9 +782,17 @@ def _ancestor_context_labels(cwd: Path) -> list[str]:
     return labels_near_first
 
 
-def _resource_labels(cwd: Path) -> dict[str, str]:
+def _resource_labels(
+    cwd: Path, *, include_workspace_defaults: bool = False
+) -> dict[str, str]:
     return {
-        category: ", ".join(discover_loaded_resource_names(cwd, category))
+        category: ", ".join(
+            discover_loaded_resource_names(
+                cwd,
+                category,
+                include_workspace_defaults=include_workspace_defaults,
+            )
+        )
         for category in _STARTUP_CHROME_RESOURCE_SOURCES
     }
 

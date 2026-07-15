@@ -156,7 +156,12 @@ def _activate_answer(tmp_path):
     (ext_dir / "answer.py").write_text(
         _EXAMPLE.read_text(encoding="utf-8"), encoding="utf-8"
     )
-    descriptors = discover_extensions(tmp_path, config_home_env={}, home_dir=tmp_path)
+    descriptors = discover_extensions(
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
+    )
     outbox: list = []
     activated = activate_extensions(descriptors, message_outbox=outbox)
     return extension_command_map(activated), outbox

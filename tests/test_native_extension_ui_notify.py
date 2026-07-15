@@ -74,7 +74,12 @@ def test_lifecycle_hook_notify_reaches_sink(tmp_path: Path) -> None:
     )
     hooks = extension_event_hooks(
         activate_extensions(
-            discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+            discover_extensions(
+                workspace,
+                config_home_env={},
+                home_dir=workspace,
+                include_workspace_defaults=True,
+            )
         ),
         "turn_start",
     )

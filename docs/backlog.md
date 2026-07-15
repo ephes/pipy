@@ -326,11 +326,10 @@ still recognizes that extension/package parity is the largest surface by area:
    [implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)). Pi gates
    project-local settings/resources/packages behind saved or temporary trust,
    exposes `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, and the
-   extension `project_trust`/`ctx.isProjectTrusted()` surface. Pipy currently
-   loads project configuration without this Pi workflow. Treat this as a
-   multi-slice security/product track: trust core plus the settings/resource
-   gate is selected next, then CLI/TUI/package integration, then extension
-   exposure.
+   extension `project_trust`/`ctx.isProjectTrusted()` surface. Pipy now ships
+   the trust core, final-cwd settings/resource gate, global default, saved
+   ancestry, and run-only overrides. Continue the multi-slice track with
+   interactive/package integration, then extension exposure.
 3. **Current RPC delta.** Pipy's gated RPC baseline is green at Pi's full
    31-command vocabulary: the read-only `get_entries` (including `since`) and
    `get_tree` **shipped** 2026-07-14. The asynchronous `agent_settled` event also
@@ -1474,14 +1473,19 @@ loading order, interactive/headless mode matrix, global-only
 extension decision/read ownership. A direct fresh-context Claude Opus review was
 CLEAN. No runtime trust behavior is claimed by this design-only slice.
 
-### Next: trust core and settings/resource gate
+### Trust core and settings/resource gate — SHIPPED (2026-07-15)
 
-Implement slice 1 from the reviewed
-[implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md):
-the store/detector, trust-aware settings manager, source-provenance resource and
-package gating, final-cwd resolver, run overrides, mode matrix, and conformance
-gate. Keep interactive/package management and extension-owned trust decisions as
-their own later project-trust slices. Then continue with the
+Slice 1 from the reviewed
+[implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)
+now ships the store/detector, trust-aware settings manager, source-provenance
+resource/package gate, final-cwd resolver, run overrides, headless mode matrix,
+and deterministic conformance gate.
+
+### Next: interactive trust and package/config integration
+
+Implement slice 2: the startup selector, `/trust` and reload persistence,
+global `defaultProjectTrust` control, and package/config command trust handling.
+Keep extension-owned decisions/read APIs in slice 3. Then continue with the
 `before_provider_headers` extension hook, durable entry renderers plus the
 extension-surface `agent_settled` hook, cache-friendly dynamic tool loading, and
 package-update/config realignment. Each remains its own parity-loop gap. The

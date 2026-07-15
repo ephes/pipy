@@ -160,7 +160,9 @@ def test_startup_skills_listing_honors_disable_filter(
     )
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "cfg"))
 
-    skill_names = chrome.discover_loaded_resource_names(workspace, "skills")
+    skill_names = chrome.discover_loaded_resource_names(
+        workspace, "skills", include_workspace_defaults=True
+    )
 
     assert "visible" in skill_names
     assert "hidden" not in skill_names
@@ -198,7 +200,9 @@ def test_print_startup_chrome_renders_context(
     (workspace / "AGENTS.md").write_text("hi", encoding="utf-8")
 
     stream = io.StringIO()
-    chrome.print_startup_chrome(stream, cwd=workspace)
+    chrome.print_startup_chrome(
+        stream, cwd=workspace, include_workspace_defaults=True
+    )
     output = stream.getvalue()
 
     assert "pipy v" in output
@@ -239,12 +243,33 @@ def test_print_startup_chrome_renders_skills_when_store_populated(
     )
 
     stream = io.StringIO()
-    chrome.print_startup_chrome(stream, cwd=workspace)
+    chrome.print_startup_chrome(
+        stream, cwd=workspace, include_workspace_defaults=True
+    )
     output = stream.getvalue()
 
     assert "[Skills]" in output
     assert "commit-ready" in output
     assert "review-handoff" in output
+
+
+def test_startup_chrome_hides_untrusted_workspace_skills(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    skills_dir = workspace / ".pipy" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "workspace-only.md").write_text(
+        "---\nname: workspace-only\ndescription: d\n---\nbody\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+
+    assert chrome.discover_loaded_resource_names(workspace, "skills") == ()
+
+    stream = io.StringIO()
+    chrome.print_startup_chrome(stream, cwd=workspace)
+    assert "workspace-only" not in stream.getvalue()
 
 
 def test_print_bottom_status_block_emits_two_dim_rows() -> None:

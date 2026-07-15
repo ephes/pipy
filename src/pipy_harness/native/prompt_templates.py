@@ -90,6 +90,9 @@ def discover_workspace_prompt_templates(
     package_roots: "Sequence[PackageRoot]" = (),
     explicit_paths: Sequence[Path] = (),
     include_defaults: bool = True,
+    include_workspace_defaults: bool = False,
+    include_global_defaults: bool = True,
+    include_package_defaults: bool = True,
 ) -> tuple[list[PromptTemplate], bool]:
     """Discover prompt-template files in the workspace and global root.
 
@@ -117,6 +120,9 @@ def discover_workspace_prompt_templates(
         package_roots=package_roots,
         explicit_paths=explicit_paths,
         include_defaults=include_defaults,
+        include_workspace_defaults=include_workspace_defaults,
+        include_global_defaults=include_global_defaults,
+        include_package_defaults=include_package_defaults,
         dedupe_by_name=True,
     )
     templates = [

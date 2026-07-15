@@ -23,7 +23,7 @@ import stat
 import tempfile
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from .catalog import THINKING_LEVELS
 from .workspace_context import resolve_global_instruction_root
@@ -282,7 +282,8 @@ class SettingsManager:
     scope, deep-merges with project precedence, and applies a final CLI/env
     override layer. Writes are field-scoped, lock-guarded, preserve unknown and
     concurrently-written keys, and refuse to clobber a scope that failed to
-    load.
+    load. Direct library callers retain the historical trusted default; product
+    startup must pass its resolved project-trust decision explicitly.
     """
 
     def __init__(
@@ -293,6 +294,7 @@ class SettingsManager:
         env: dict[str, str] | os._Environ[str] | None = None,
         overrides: dict[str, Any] | None = None,
         base_defaults: dict[str, Any] | None = None,
+        project_trusted: bool = True,
     ) -> None:
         self.global_path = Path(global_path)
         self.project_path = Path(project_path) if project_path is not None else None
@@ -302,6 +304,7 @@ class SettingsManager:
         # values live here so they surface through settings when a key is unset
         # while never overriding a value the user set in a settings file.
         self._base_defaults = copy.deepcopy(base_defaults) if base_defaults else {}
+        self.project_trusted = bool(project_trusted)
         self._raw: dict[str, dict[str, Any]] = {}
         self._errors: dict[str, str] = {}
         self.reload()
@@ -315,6 +318,7 @@ class SettingsManager:
         home_dir: Path | None = None,
         overrides: dict[str, Any] | None = None,
         base_defaults: dict[str, Any] | None = None,
+        project_trusted: bool = True,
     ) -> "SettingsManager":
         return cls(
             global_path=global_settings_path(env=env, home_dir=home_dir),
@@ -322,6 +326,7 @@ class SettingsManager:
             env=env,
             overrides=overrides,
             base_defaults=base_defaults,
+            project_trusted=project_trusted,
         )
 
     # --- loading -----------------------------------------------------------
@@ -341,7 +346,10 @@ class SettingsManager:
         self._errors = {}
         scopes: list[tuple[str, Path | None]] = [
             (SCOPE_GLOBAL, self.global_path),
-            (SCOPE_PROJECT, self.project_path),
+            (
+                SCOPE_PROJECT,
+                self.project_path if self.project_trusted else None,
+            ),
         ]
         for scope, path in scopes:
             if path is None:
@@ -352,6 +360,12 @@ class SettingsManager:
                 self._raw[scope] = prior.get(scope, {})
             else:
                 self._raw[scope] = raw
+
+    def set_project_trusted(self, trusted: bool) -> None:
+        """Change the run-local project gate and reload both scopes."""
+
+        self.project_trusted = bool(trusted)
+        self.reload()
 
     def load_errors(self) -> dict[str, str]:
         return dict(self._errors)
@@ -400,6 +414,8 @@ class SettingsManager:
         written back over.
         """
 
+        if scope == SCOPE_PROJECT and not self.project_trusted:
+            raise RuntimeError("refusing to write project settings while untrusted")
         if scope in self._errors:
             raise RuntimeError(
                 f"refusing to write {scope} settings: scope failed to load "
@@ -461,6 +477,12 @@ class SettingsManager:
         if value in THINKING_LEVELS:
             return value
         return None
+
+    def get_default_project_trust(self) -> Literal["ask", "always", "never"]:
+        """Return Pi's global-only `ask|always|never` trust default."""
+
+        value = self._raw.get(SCOPE_GLOBAL, {}).get("defaultProjectTrust")
+        return value if value in {"ask", "always", "never"} else "ask"
 
     def get_enabled_models(self) -> list[str]:
         value = self._get("enabledModels")

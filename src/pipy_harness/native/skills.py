@@ -102,10 +102,15 @@ def discover_workspace_skills(
     package_roots: "Sequence[PackageRoot]" = (),
     explicit_paths: Sequence[Path] = (),
     include_defaults: bool = True,
+    include_workspace_defaults: bool = False,
+    include_global_defaults: bool = True,
+    include_package_defaults: bool = True,
 ) -> tuple[list[SkillFile], bool]:
     """Discover skill files in the workspace and global root.
 
-    The workspace dir is `<workspace>/.pipy/skills/`. The global dir is
+    Workspace-local discovery is fail-closed by default. Product callers must
+    opt in only after resolving project trust. The workspace dir is
+    `<workspace>/.pipy/skills/`. The global dir is
     resolved through `PIPY_CONFIG_HOME` then `${XDG_CONFIG_HOME}/pipy`
     then `~/.config/pipy`, and the `skills` subdir is appended. Files
     are deduplicated by canonical path. Missing dirs and files never
@@ -128,6 +133,9 @@ def discover_workspace_skills(
         package_roots=package_roots,
         explicit_paths=explicit_paths,
         include_defaults=include_defaults,
+        include_workspace_defaults=include_workspace_defaults,
+        include_global_defaults=include_global_defaults,
+        include_package_defaults=include_package_defaults,
         dedupe_by_name=True,
     )
     skills = [

@@ -433,8 +433,10 @@ paths and command gating without requiring package loading or rich UI hooks.
 
 Project trust is now specified separately in the reviewed
 [project-trust design](superpowers/specs/2026-07-15-project-trust-design.md).
-Before trust resolves, only global, explicit CLI, and inline extension sources
-may activate. Their `project_trust` handlers run serially; `undecided` continues,
+The core store/final-cwd/settings-resource gate ships, but extension-owned trust
+decisions remain a later slice. That slice will activate only global, explicit
+CLI, and inline extension sources before trust resolves. Their `project_trust`
+handlers run serially; `undecided` continues,
 the first yes/no owns the decision, and only exact `remember: true` persists it.
 The pinned startup context has `cwd`, `mode`, `has_ui`, and a bounded UI surface;
 headless select/confirm/input calls return immediately without touching protocol

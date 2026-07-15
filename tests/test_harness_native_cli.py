@@ -1716,6 +1716,7 @@ def test_cli_system_md_auto_discovery_replaces(tmp_path, monkeypatch) -> None:
     main(
         [
             "repl", "--agent", "pipy-native", "--slug", "smd", "--no-session",
+            "--approve",
             "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
         ]
     )
@@ -1952,7 +1953,9 @@ def test_cli_config_disabled_skill_dropped_from_registration(tmp_path) -> None:
         global_path=tmp_path / "cfg" / "settings.json",
         project_path=tmp_path / ".pipy" / "settings.json",
     )
-    resources = WorkspaceResources.discover(tmp_path).with_enablement(
+    resources = WorkspaceResources.discover(
+        tmp_path, include_workspace_defaults=True
+    ).with_enablement(
         skills_patterns=manager.get_skills_patterns(),
         prompts_patterns=manager.get_prompts_patterns(),
         enable_skill_commands=manager.get_enable_skill_commands(),
@@ -1966,7 +1969,9 @@ def test_cli_config_enable_skill_commands_false_drops_all_skills(tmp_path) -> No
     from pipy_harness.native.resources import WorkspaceResources
 
     _make_skill(tmp_path, "review")
-    resources = WorkspaceResources.discover(tmp_path).with_enablement(
+    resources = WorkspaceResources.discover(
+        tmp_path, include_workspace_defaults=True
+    ).with_enablement(
         enable_skill_commands=False,
     )
     assert resources.skill_names() == ()

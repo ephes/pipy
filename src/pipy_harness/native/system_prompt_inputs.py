@@ -110,11 +110,17 @@ class ResolvedSystemPrompt:
         return meta
 
 
-def _discover(cwd: Path, config_home: Path, filename: str) -> tuple[str, str] | None:
+def _discover(
+    cwd: Path,
+    config_home: Path,
+    filename: str,
+    *,
+    include_project: bool = True,
+) -> tuple[str, str] | None:
     """Return ``(source_label, path)`` for the first existing discovery file."""
 
     project = cwd / PROJECT_CONFIG_DIR_NAME / filename
-    if project.is_file():
+    if include_project and project.is_file():
         return f"{PROJECT_CONFIG_DIR_NAME}/{filename}", str(project)
     global_path = config_home / filename
     if global_path.is_file():
@@ -130,6 +136,7 @@ def resolve_system_prompt(
     system_prompt_source: str | None = None,
     append_sources: Sequence[str] | None = None,
     warn: Callable[[str], None] = _default_warn,
+    include_project_defaults: bool = True,
 ) -> ResolvedSystemPrompt:
     """Compute the effective base prompt and safe metadata (Pi parity).
 
@@ -157,7 +164,12 @@ def resolve_system_prompt(
         replaced = True
         replace_input = SystemPromptInput.of(source_label="--system-prompt", text=text)
     else:
-        discovered = _discover(cwd, config_home, SYSTEM_PROMPT_FILENAME)
+        discovered = _discover(
+            cwd,
+            config_home,
+            SYSTEM_PROMPT_FILENAME,
+            include_project=include_project_defaults,
+        )
         if discovered is not None:
             label, path = discovered
             text, _ = resolve_prompt_input(path, cwd=cwd, warn=warn)
@@ -174,7 +186,12 @@ def resolve_system_prompt(
             ("--append-system-prompt", value) for value in append_sources if value != ""
         ]
     else:
-        discovered = _discover(cwd, config_home, APPEND_SYSTEM_PROMPT_FILENAME)
+        discovered = _discover(
+            cwd,
+            config_home,
+            APPEND_SYSTEM_PROMPT_FILENAME,
+            include_project=include_project_defaults,
+        )
         if discovered is not None:
             label, path = discovered
             append_specs = [(label, path)]

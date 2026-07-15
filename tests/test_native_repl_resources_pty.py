@@ -123,7 +123,10 @@ def _drive_session(
     err_thread, err_chunks = _spawn_live_drainer(err_master)
 
     resources = WorkspaceResources.discover(
-        tmp_path, config_home_env={}, home_dir=tmp_path
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
     )
     ui = ToolLoopTerminalUi(
         input_stream=cast(TextIO, stdin),

@@ -73,6 +73,7 @@ def load_extension_provider_contributions(
     extension_patterns: Sequence[str] = (),
     explicit_extension_paths: Sequence[Path] = (),
     include_default_extensions: bool = True,
+    include_workspace_defaults: bool = False,
     reserved_command_names: Sequence[str] = (),
     reserved_tool_names: Sequence[str] = (),
 ) -> tuple[tuple[RegisteredProvider, ...], tuple[str, ...]]:
@@ -88,6 +89,7 @@ def load_extension_provider_contributions(
         package_roots=tuple(package_roots),
         explicit_paths=tuple(explicit_extension_paths),
         include_defaults=include_default_extensions,
+        include_workspace_defaults=include_workspace_defaults,
     )
     if extension_patterns:
         descriptors = [

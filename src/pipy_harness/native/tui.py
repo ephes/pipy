@@ -912,6 +912,7 @@ class ToolLoopTerminalUi:
     input_stream: TextIO
     terminal_stream: TextIO
     cwd: Path
+    include_workspace_defaults: bool = False
     runtime_label: str = TOOL_LOOP_TUI_RUNTIME_LABEL
     footer_lines: tuple[str, str] = ("", "")
     input_text: str = ""
@@ -4926,7 +4927,11 @@ class ToolLoopTerminalUi:
             ("normal", ("", "")),
         ]
         blocks: list[_HistoryBlock] = [_HistoryBlockTuple(kind, lines) for kind, lines in raw_blocks]
-        context = discover_loaded_resource_names(self.cwd, "context")
+        context = discover_loaded_resource_names(
+            self.cwd,
+            "context",
+            include_workspace_defaults=self.include_workspace_defaults,
+        )
         if context:
             blocks.append(
                 _HistoryBlockTuple(
@@ -4947,7 +4952,11 @@ class ToolLoopTerminalUi:
                     None,
                 )
             )
-        skills = discover_loaded_resource_names(self.cwd, "skills")
+        skills = discover_loaded_resource_names(
+            self.cwd,
+            "skills",
+            include_workspace_defaults=self.include_workspace_defaults,
+        )
         if skills:
             blocks.append(
                 _HistoryBlockTuple(

@@ -40,6 +40,7 @@ def _discover(
         home_dir=home_dir if home_dir is not None else workspace,
         per_file_byte_cap=per_file_byte_cap,
         total_byte_cap=total_byte_cap,
+        include_workspace_defaults=True,
     )
 
 

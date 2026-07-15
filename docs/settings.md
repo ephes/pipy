@@ -13,6 +13,27 @@ Project settings override global settings, and nested objects are deep-merged.
 `~/.pipy` is also honored as a legacy/convenience config root when it already
 exists. Pipy intentionally uses `.pipy`, not Pi's `.pi`, for project config.
 
+Project settings load only when the final runtime directory is trusted. Pipy
+stores saved decisions in `<global-config-root>/trust.json`; the closest saved
+directory or ancestor wins. A global-only setting controls the fallback:
+
+```json
+{
+  "defaultProjectTrust": "ask"
+}
+```
+
+Accepted values are `ask` (the default), `always`, and `never`. For a single
+run, `--approve` / `-a` trusts project inputs and `--no-approve` / `-na` blocks
+them without changing `trust.json`; if repeated, the last flag wins. The full
+interactive trust selector and `/trust` command are not shipped yet, so an
+unresolved interactive `ask` currently fails closed with a diagnostic. Headless
+print/JSON/RPC paths fail closed silently so their protocols stay clean.
+
+Trust only controls which project inputs pipy loads. It is not a sandbox, and a
+trusted project can still influence tools and execute extension code with the
+pipy process's permissions.
+
 Use `/settings` for common interactive controls and `/reload` after editing
 settings by hand. Provider secrets stay in auth stores or environment variables;
 do not put API keys in `settings.json`.
@@ -75,6 +96,7 @@ The notes call out the most important limits.
 | `autocompleteMaxVisible` | number | Visible autocomplete rows, `3`-`20`. |
 | `showHardwareCursor` | boolean | Show the terminal cursor while the TUI positions it. |
 | `promptHistory.enabled` | boolean | Enable local persistent prompt history. Off by default. |
+| `defaultProjectTrust` | `ask` / `always` / `never` | Global scope only; project values cannot choose their own trust. Default `ask`. |
 
 ### Sessions and compaction
 
@@ -125,6 +147,9 @@ or `PIPY_OFFLINE=1` to disable startup network operations for a run. Auth
 credentials and API keys are handled outside `settings.json`.
 
 ## Project overrides
+
+When the project is untrusted, this entire scope is skipped without opening or
+parsing `.pipy/settings.json`; global settings and CLI overrides still apply.
 
 Nested project objects merge over global objects:
 

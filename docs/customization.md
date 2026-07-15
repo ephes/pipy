@@ -10,6 +10,14 @@ pages.
 > the model to perform any action and may reference executable code. Review
 > resource content before using resources you did not write.
 
+Project `.pipy` resources are trust-gated before startup. Saved decisions live
+in the global config root's `trust.json`; `--approve` and `--no-approve` provide
+run-only overrides. When a project is untrusted, its skills, templates, commands,
+extensions, system-prompt files, settings, and project package declarations are
+not loaded. Global resources/packages and explicit per-run source flags remain
+available. `AGENTS.md` / `pipy.md` context files are intentionally exempt from
+this gate (unless `--no-context-files` is used). Trust is not a sandbox.
+
 ## Where resources live
 
 Skills, prompt templates, and custom commands are discovered from the same two

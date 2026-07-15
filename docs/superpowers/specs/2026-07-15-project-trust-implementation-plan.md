@@ -1,7 +1,7 @@
 # Project trust — implementation plan
 
-Status: implementation handoff produced by the 2026-07-15 design-only parity
-slice. No runtime task in this file is implemented by the design commit.
+Status: slice 1 (trust core and settings/resource gate) shipped 2026-07-15;
+slices 2 and 3 remain.
 
 Reviewed design:
 [`2026-07-15-project-trust-design.md`](2026-07-15-project-trust-design.md).
@@ -70,7 +70,8 @@ transition, enum fallback, global-only ownership, and write refusal.
 Split the current mixed `include_defaults` discovery switches so callers can
 independently include workspace, global, package, and explicit CLI sources.
 Thread the resolved trust boolean through package composition, extensions,
-skills, templates, custom commands, themes, and system-prompt discovery. Global
+skills, templates, custom commands, project-package themes, and system-prompt
+discovery. Global
 packages/resources and explicit CLI paths remain enabled while workspace
 defaults and project package entries are removed when untrusted.
 

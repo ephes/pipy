@@ -229,6 +229,13 @@ still have provider-specific follow-up work tracked in
 | `--name <name>`, `-n <name>` | Set session display name at startup |
 | `--verbose` | Force startup/resource chrome for this run, even when `quietStartup` is enabled |
 | `--offline` | Disable startup network operations for this run (`PIPY_OFFLINE=1` and `PIPY_SKIP_VERSION_CHECK=1`) |
+| `--approve`, `-a` | Trust project settings/resources for this run only; does not persist |
+| `--no-approve`, `-na` | Block project settings/resources for this run only; does not persist |
+
+When both trust flags are repeated, the last one wins. Saved closest-ancestor
+decisions live in the global config root's `trust.json`; global
+`defaultProjectTrust` controls the `ask|always|never` fallback. See
+[Settings](settings.md). Trust gates project inputs but is not a sandbox.
 
 ### Tool options
 

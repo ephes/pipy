@@ -133,6 +133,7 @@ def test_pipy_discovers_parity_loop_skill() -> None:
         home_dir=REPO_ROOT,
         per_file_byte_cap=64 * 1024,
         total_byte_cap=256 * 1024,
+        include_workspace_defaults=True,
     )
     found = find_skill_by_name(skills, "pipy-parity-loop")
     assert found is not None, "pipy did not discover the pipy-parity-loop skill"
@@ -243,6 +244,7 @@ def test_pipy_discovers_parity_improve_skill() -> None:
         home_dir=REPO_ROOT,
         per_file_byte_cap=64 * 1024,
         total_byte_cap=256 * 1024,
+        include_workspace_defaults=True,
     )
     found = find_skill_by_name(skills, "parity-improve")
     assert found is not None, "pipy did not discover the parity-improve skill"

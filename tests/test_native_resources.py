@@ -69,7 +69,10 @@ def _resources(tmp_path: Path) -> WorkspaceResources:
     )
     workspace.mkdir(exist_ok=True)
     return WorkspaceResources.discover(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
 
 
@@ -176,7 +179,10 @@ def test_no_resources_dispatch_is_inert(tmp_path: Path) -> None:
     workspace = tmp_path / "bare"
     workspace.mkdir()
     resources = WorkspaceResources.discover(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
     assert resources.has_any() is False
     # /skill still responds locally (empty listing), never None.
@@ -205,7 +211,10 @@ def test_control_bytes_in_name_and_description_are_stripped(tmp_path: Path) -> N
         "---\nname: clear\x1b[2Jname\ndescription: wipe\x1b[2Jscreen\x07\n---\nBODY\n",
     )
     resources = WorkspaceResources.discover(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
     skill = resources.skills[0]
     assert "\x1b" not in skill.name and "\x1b" not in skill.description
@@ -223,7 +232,10 @@ def test_control_bytes_in_custom_command_description_are_stripped(tmp_path: Path
         "---\nname: dep\ndescription: do\x1b[2Jthing\n---\nBODY\n",
     )
     resources = WorkspaceResources.discover(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
     descriptions = resources.custom_command_descriptions()
     assert "\x1b" not in descriptions["/dep"]
@@ -237,7 +249,10 @@ def test_whitespace_named_command_is_not_advertised_or_dispatched(tmp_path: Path
         "---\nname: deploy now\ndescription: spaced\n---\nBODY\n",
     )
     resources = WorkspaceResources.discover(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
     # Not advertised in slash discovery (could never be invoked).
     assert resources.custom_command_slash_names() == ()
@@ -255,7 +270,10 @@ def test_multi_word_skill_name_loads_from_full_argument(tmp_path: Path) -> None:
         "---\nname: code review\ndescription: review\n---\nREVIEWBODY\n",
     )
     resources = WorkspaceResources.discover(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
     result = dispatch_resource_command("/skill code review", resources)
     assert result is not None and result.kind == DISPATCH_SKILL_RUN

@@ -165,7 +165,10 @@ def test_tool_loop_menu_command_set_is_honest(tmp_path, monkeypatch):
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     _seed(tmp_path)
     resources = WorkspaceResources.discover(
-        tmp_path, config_home_env={}, home_dir=tmp_path
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
     )
     names = _tool_loop_command_names(resources)
     # /skill stays; the discovered template and custom command are advertised
@@ -185,7 +188,10 @@ def test_prompt_template_registers_as_its_own_command(tmp_path, monkeypatch):
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     _seed(tmp_path)
     resources = WorkspaceResources.discover(
-        tmp_path, config_home_env={}, home_dir=tmp_path
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
     )
     names = _tool_loop_command_names(resources)
     # The seeded "review" template is advertised under its own slash name.
@@ -237,7 +243,10 @@ def test_template_custom_command_name_collision_is_dispatch_honest(
         body="COMMAND_foo body $ARGUMENTS\n",
     )
     resources = WorkspaceResources.discover(
-        tmp_path, config_home_env={}, home_dir=tmp_path
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
     )
 
     # The menu description for /foo is the template's, not the command's.

@@ -21,6 +21,7 @@ from pipy_harness.native import (
     FakeNativeProvider,
     ProviderToolCall,
 )
+from pipy_harness.native.settings import SettingsManager
 
 
 class _NullEventSink:
@@ -194,6 +195,10 @@ def _prepared_for(adapter, tmp_path: Path):
     )
 
 
+def _trusted_settings(workspace: Path) -> SettingsManager:
+    return SettingsManager.for_workspace(workspace, project_trusted=True)
+
+
 def test_system_prompt_includes_skill_block_when_read_available(
     tmp_path: Path, monkeypatch
 ):
@@ -209,6 +214,7 @@ def test_system_prompt_includes_skill_block_when_read_available(
         input_stream=io.StringIO(""),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
+        settings_manager=_trusted_settings(tmp_path),
     )
     prepared = _prepared_for(adapter, tmp_path)
     _, run_kwargs = _run_adapter_with_spy(adapter, prepared, monkeypatch)
@@ -232,6 +238,7 @@ def test_system_prompt_omits_skill_block_when_read_excluded(
         input_stream=io.StringIO(""),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
+        settings_manager=_trusted_settings(tmp_path),
     )
     prepared = _prepared_for(adapter, tmp_path)
     _, run_kwargs = _run_adapter_with_spy(adapter, prepared, monkeypatch)
@@ -252,12 +259,44 @@ def test_skill_dirs_added_to_reference_roots(tmp_path: Path, monkeypatch):
         input_stream=io.StringIO(""),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
+        settings_manager=_trusted_settings(tmp_path),
     )
     prepared = _prepared_for(adapter, tmp_path)
     init_kwargs, _ = _run_adapter_with_spy(adapter, prepared, monkeypatch)
 
     reference_roots = init_kwargs["reference_roots"]
     assert skills_dir.resolve() in reference_roots
+
+
+def test_adapter_without_settings_fails_closed_for_project_resources(
+    tmp_path: Path, monkeypatch
+):
+    from pipy_harness.native.tools.read import ReadTool
+
+    _write_skill(
+        tmp_path / ".pipy" / "skills",
+        name="project-only",
+        description="must be trusted",
+        body="PROJECT SKILL BODY",
+    )
+    (tmp_path / ".pipy" / "SYSTEM.md").write_text(
+        "PROJECT SYSTEM BODY", encoding="utf-8"
+    )
+    adapter = PipyNativeToolReplAdapter(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        tool_registry={"read": ReadTool()},
+        input_stream=io.StringIO(""),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    prepared = _prepared_for(adapter, tmp_path)
+    init_kwargs, run_kwargs = _run_adapter_with_spy(adapter, prepared, monkeypatch)
+
+    assert "project-only" not in run_kwargs["system_prompt"]
+    assert "PROJECT SYSTEM BODY" not in run_kwargs["system_prompt"]
+    settings = init_kwargs["settings_manager"]
+    assert isinstance(settings, SettingsManager)
+    assert settings.project_trusted is False
 
 
 def test_model_can_read_global_skill_body_via_reference_roots(
@@ -297,7 +336,9 @@ def test_model_can_read_global_skill_body_via_reference_roots(
         error_stream=io.StringIO(),
     )
 
-    skills = adapter._discover_skill_files(workspace)
+    skills = adapter._discover_skill_files(
+        workspace, SettingsManager.for_workspace(workspace, project_trusted=False)
+    )
     assert any(s.name == "deploy" for s in skills)
     reference_roots = adapter._reference_roots_with_skill_dirs(skills)
     assert global_skills.resolve() in reference_roots
@@ -365,6 +406,7 @@ def test_model_can_read_workspace_skill_body_under_ignored_pipy_dir(
         input_stream=io.StringIO(""),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
+        settings_manager=_trusted_settings(tmp_path),
     )
     prepared = _prepared_for(adapter, tmp_path)
     init_kwargs, _ = _run_adapter_with_spy(adapter, prepared, monkeypatch)

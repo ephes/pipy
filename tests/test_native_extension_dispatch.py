@@ -83,7 +83,12 @@ def _write(workspace: Path, name: str, body: str) -> None:
 
 
 def _activate(workspace: Path):
-    descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+    descriptors = discover_extensions(
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
+    )
     return activate_extensions(descriptors)
 
 
@@ -648,7 +653,12 @@ def test_message_renderer_gets_json_safe_copy(tmp_path: Path) -> None:
         "        return 'done'\n"
         "    api.register_message_renderer('note', render)\n",
     )
-    descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+    descriptors = discover_extensions(
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
+    )
     renderers = extension_message_renderers(activate_extensions(descriptors))
     payload = {"text": "original"}
 
@@ -667,7 +677,12 @@ def test_message_renderer_output_coercion_fails_soft(tmp_path: Path) -> None:
         "def activate(api):\n"
         "    api.register_message_renderer('note', lambda data: [Bad()])\n",
     )
-    descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+    descriptors = discover_extensions(
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
+    )
     renderers = extension_message_renderers(activate_extensions(descriptors))
 
     rendered = render_extension_message(renderers, "note", {"text": "hello"}).lines
@@ -687,7 +702,12 @@ def test_async_message_renderer_fails_soft_without_unawaited_warning(
         "        return 'async'\n"
         "    api.register_message_renderer('note', render)\n",
     )
-    descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+    descriptors = discover_extensions(
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
+    )
     renderers = extension_message_renderers(activate_extensions(descriptors))
 
     with warnings.catch_warnings(record=True) as caught:
@@ -710,7 +730,12 @@ def test_message_renderer_fails_soft_and_data_is_json_safe(tmp_path: Path) -> No
         "    api.register_message_renderer('note', lambda data: ['Note', data['text']])\n"
         "    api.register_message_renderer('boom', lambda data: (_ for _ in ()).throw(RuntimeError('secret')))\n",
     )
-    descriptors = discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+    descriptors = discover_extensions(
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
+    )
     activated = activate_extensions(descriptors)
     renderers = extension_message_renderers(activated)
 
@@ -1125,7 +1150,12 @@ def test_builtin_is_not_shadowed_by_extension(tmp_path, monkeypatch) -> None:
         "    api.register_command('help', 'x', lambda ctx, args: None)\n",
         encoding="utf-8",
     )
-    descriptors = discover_extensions(tmp_path, config_home_env={}, home_dir=tmp_path)
+    descriptors = discover_extensions(
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
+    )
     # Reserved against the built-in 'help'.
     activated = activate_extensions(descriptors, reserved_command_names=("help",))
     command_map = extension_command_map(activated)

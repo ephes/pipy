@@ -94,7 +94,7 @@ them. A bare `.pipy` directory does not require a decision.
 | `.pipy/skills` | yes | project skills |
 | `.pipy/templates` | yes | Pi `.pi/prompts` |
 | `.pipy/commands` | yes | pipy-owned executable Markdown resource; folded into the protected resource set |
-| `.pipy/themes` | yes | project themes |
+| `.pipy/themes` | no | pipy does not discover standalone workspace/global theme directories; project-package themes are gated through project settings |
 | `.pipy/SYSTEM.md` | yes | project system-prompt replacement |
 | `.pipy/APPEND_SYSTEM.md` | yes | project system-prompt append |
 | project packages named by `.pipy/settings.json` | yes | unreachable until trusted settings load |
@@ -104,10 +104,10 @@ them. A bare `.pipy` directory does not require a decision.
 
 Pi also treats `.agents/skills` in the current directory or any ancestor as a
 trust-requiring project input, except the user's `~/.agents/skills`. Pipy does
-not currently discover `.agents/skills`; the trust implementation must not add
-a dead detector that prompts for a resource pipy cannot load. If `.agents/skills`
-discovery is added later, that slice must add Pi's ancestor scan and global-home
-exception to this detector at the same time.
+not currently discover `.agents/skills` or standalone `.pipy/themes`; the trust
+implementation must not add a dead detector that prompts for a resource pipy
+cannot load. If either discovery path is added later, that slice must add its
+Pi-faithful trust detector at the same time.
 
 Detection failures are conservative: an `OSError` does not make a resource
 loadable; the decision pipeline treats the affected protected input as
@@ -211,8 +211,9 @@ When untrusted:
 
 - project settings are empty, so project package declarations and local
   resource filters are absent;
-- no workspace `.pipy` extension, skill, template, command, or theme default is
-  discovered;
+- no workspace `.pipy` extension, skill, template, or command default is
+  discovered, and project-package themes are unreachable because project
+  settings are absent;
 - no project `SYSTEM.md` / `APPEND_SYSTEM.md` is read;
 - global packages and their resources remain available; and
 - explicit CLI resources remain available, including with the matching

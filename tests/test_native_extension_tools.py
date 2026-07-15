@@ -46,7 +46,12 @@ def _write(workspace: Path, name: str, body: str) -> None:
 
 def _activate(workspace: Path, *, reserved_tools=()) -> list:
     return activate_extensions(
-        discover_extensions(workspace, config_home_env={}, home_dir=workspace),
+        discover_extensions(
+            workspace,
+            config_home_env={},
+            home_dir=workspace,
+            include_workspace_defaults=True,
+        ),
         reserved_tool_names=reserved_tools,
     )
 

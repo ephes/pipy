@@ -53,7 +53,12 @@ def _write(workspace: Path, name: str, body: str) -> None:
 
 def _activate(workspace: Path) -> list:
     return activate_extensions(
-        discover_extensions(workspace, config_home_env={}, home_dir=workspace)
+        discover_extensions(
+            workspace,
+            config_home_env={},
+            home_dir=workspace,
+            include_workspace_defaults=True,
+        )
     )
 
 
@@ -356,13 +361,17 @@ def test_startup_selection_resolves_extension_provider_default(
 def test_extension_provider_reload_recomputes_removed_entries(tmp_path: Path) -> None:
     workspace = _make_workspace(tmp_path)
     _write(workspace, "selectable", _SELECTABLE_PROVIDER)
-    providers, unregistered = load_extension_provider_contributions(workspace)
+    providers, unregistered = load_extension_provider_contributions(
+        workspace, include_workspace_defaults=True
+    )
     state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
     state.set_extension_provider_contributions(providers, unregistered)
     assert state.find("extprov", "big") is not None
 
     (workspace / ".pipy" / "extensions" / "selectable.py").unlink()
-    providers2, unregistered2 = load_extension_provider_contributions(workspace)
+    providers2, unregistered2 = load_extension_provider_contributions(
+        workspace, include_workspace_defaults=True
+    )
     state.refresh()
     state.set_extension_provider_contributions(providers2, unregistered2)
 
@@ -374,7 +383,9 @@ def test_removed_active_extension_provider_resets_to_available_catalog_model(
 ) -> None:
     workspace = _make_workspace(tmp_path)
     _write(workspace, "selectable", _SELECTABLE_PROVIDER)
-    providers, unregistered = load_extension_provider_contributions(workspace)
+    providers, unregistered = load_extension_provider_contributions(
+        workspace, include_workspace_defaults=True
+    )
     state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
     state.set_extension_provider_contributions(providers, unregistered)
     repl_state = NativeReplProviderState(
@@ -412,6 +423,7 @@ def test_reserved_command_collision_hides_provider_contribution(
 
     providers, unregistered = load_extension_provider_contributions(
         workspace,
+        include_workspace_defaults=True,
         reserved_command_names=extension_reserved_command_names(),
     )
 
@@ -437,6 +449,7 @@ def test_reserved_tool_collision_hides_provider_contribution(
 
     providers, unregistered = load_extension_provider_contributions(
         workspace,
+        include_workspace_defaults=True,
         reserved_tool_names=extension_reserved_tool_names(),
     )
 

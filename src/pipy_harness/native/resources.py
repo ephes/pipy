@@ -156,6 +156,9 @@ class WorkspaceResources:
         explicit_prompt_template_paths: Sequence[Path] = (),
         include_skills_defaults: bool = True,
         include_prompt_template_defaults: bool = True,
+        include_workspace_defaults: bool = False,
+        include_global_defaults: bool = True,
+        include_package_defaults: bool = True,
     ) -> "WorkspaceResources":
         skill_pkg_roots = package_roots.skills if package_roots is not None else ()
         prompt_pkg_roots = package_roots.prompts if package_roots is not None else ()
@@ -166,6 +169,9 @@ class WorkspaceResources:
             package_roots=skill_pkg_roots,
             explicit_paths=explicit_skill_paths,
             include_defaults=include_skills_defaults,
+            include_workspace_defaults=include_workspace_defaults,
+            include_global_defaults=include_global_defaults,
+            include_package_defaults=include_package_defaults,
         )
         templates, templates_cap = discover_workspace_prompt_templates(
             workspace_root,
@@ -174,11 +180,16 @@ class WorkspaceResources:
             package_roots=prompt_pkg_roots,
             explicit_paths=explicit_prompt_template_paths,
             include_defaults=include_prompt_template_defaults,
+            include_workspace_defaults=include_workspace_defaults,
+            include_global_defaults=include_global_defaults,
+            include_package_defaults=include_package_defaults,
         )
         commands, commands_cap = discover_workspace_custom_commands(
             workspace_root,
             config_home_env=config_home_env,
             home_dir=home_dir,
+            include_workspace_defaults=include_workspace_defaults,
+            include_global_defaults=include_global_defaults,
         )
         return cls(
             skills=tuple(skills),

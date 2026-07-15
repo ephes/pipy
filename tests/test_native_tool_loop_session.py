@@ -1314,6 +1314,7 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
     )
     providers, unregistered = load_extension_provider_contributions(
         tmp_path,
+        include_workspace_defaults=True,
         reserved_command_names=extension_reserved_command_names(),
         reserved_tool_names=extension_reserved_tool_names(),
     )
@@ -1378,6 +1379,7 @@ def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
     )
     providers, unregistered = load_extension_provider_contributions(
         tmp_path,
+        include_workspace_defaults=True,
         reserved_command_names=extension_reserved_command_names(),
         reserved_tool_names=extension_reserved_tool_names(),
     )
@@ -1448,6 +1450,7 @@ def test_reload_fail_closes_removed_extension_provider_when_no_fallback(
     )
     providers, unregistered = load_extension_provider_contributions(
         tmp_path,
+        include_workspace_defaults=True,
         reserved_command_names=extension_reserved_command_names(),
         reserved_tool_names=extension_reserved_tool_names(),
     )

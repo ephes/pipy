@@ -45,6 +45,17 @@ entries oldest-first, and a version bump shows the new entries at startup.
   `app.editor.external` binding, default Ctrl-G, as an undoable edit. The
   default Ctrl-G editor binding is reserved from extension shortcuts; extensions
   that still register Ctrl-G now fail activation as a reserved shortcut.
+- Project-trust core now gates project `.pipy` settings and resources before
+  startup loads them. Decisions live in owner-private `<config>/trust.json`
+  with closest-ancestor lookup; global-only `defaultProjectTrust` accepts
+  `ask|always|never`; and `--approve`/`-a` plus `--no-approve`/`-na` override
+  one run without persistence (the last flag wins). Untrusted runs retain
+  global resources/packages and explicit CLI sources, keep `AGENTS.md`/`pipy.md`
+  context behavior, and exclude project settings, extensions, skills,
+  templates, commands, system-prompt files, and project package declarations.
+  Print/JSON/RPC/help/list-model paths fail closed without trust prompts or
+  protocol output. The full startup selector, `/trust`, package/config command
+  integration, and extension trust APIs remain follow-on slices.
 
 
 ### Removed

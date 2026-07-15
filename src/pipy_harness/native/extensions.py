@@ -159,10 +159,15 @@ def discover_extensions(
     package_roots: "Sequence[PackageRoot]" = (),
     explicit_paths: Sequence[Path] = (),
     include_defaults: bool = True,
+    include_workspace_defaults: bool = False,
+    include_global_defaults: bool = True,
+    include_package_defaults: bool = True,
 ) -> list[ExtensionDescriptor]:
     """Discover workspace and global Python extension candidates.
 
-    The workspace dir is `<workspace>/.pipy/extensions`; the global dir is
+    Workspace-local discovery is fail-closed by default. Product callers must
+    opt in only after resolving project trust. The workspace dir is
+    `<workspace>/.pipy/extensions`; the global dir is
     `<config-root>/extensions`. `package_roots` lists concrete extension
     directories contributed by installed local-path or managed git packages.
     `explicit_paths` are per-run CLI paths (single `.py` files, directory
@@ -192,10 +197,11 @@ def discover_extensions(
             path = (resolved_workspace / path).resolve()
         explicit_candidates.extend(_iter_explicit_candidates(path))
     if include_defaults:
-        sources: list[tuple[Path, SourceKind, Path]] = [
-            (workspace_dir, "workspace", resolved_workspace),
-            (global_dir, "global", global_root),
-        ]
+        sources: list[tuple[Path, SourceKind, Path]] = []
+        if include_workspace_defaults:
+            sources.append((workspace_dir, "workspace", resolved_workspace))
+        if include_global_defaults:
+            sources.append((global_dir, "global", global_root))
         # Package extension dirs are concrete roots; each owns its own label
         # root + per-package filter, searched after workspace/global so local
         # extensions win. (dir, kind, label_root, filters).
@@ -203,10 +209,11 @@ def discover_extensions(
             (source_dir, source_kind, label_root, ())
             for source_dir, source_kind, label_root in sources
         )
-        package_sources.extend(
-            (root.path, "package", root.path, tuple(root.filters))
-            for root in package_roots
-        )
+        if include_package_defaults:
+            package_sources.extend(
+                (root.path, "package", root.path, tuple(root.filters))
+                for root in package_roots
+            )
 
     descriptors: list[ExtensionDescriptor] = []
     seen_names: set[str] = set()

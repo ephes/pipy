@@ -46,6 +46,7 @@ def _discover(
         home_dir=home_dir if home_dir is not None else workspace,
         per_file_byte_cap=per_file_byte_cap,
         total_byte_cap=total_byte_cap,
+        include_workspace_defaults=True,
     )
 
 
@@ -362,6 +363,7 @@ def test_skillfile_exposes_absolute_path(tmp_path: Path) -> None:
         workspace_root=tmp_path,
         config_home_env=_empty_env(),
         home_dir=tmp_path / "cfg",
+        include_workspace_defaults=True,
     )
     assert skills
     assert skills[0].absolute_path == (skill_dir / "lint.md").resolve()

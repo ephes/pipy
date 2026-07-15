@@ -129,11 +129,16 @@ def discover_resource_files(
     package_roots: "Sequence[PackageRoot]" = (),
     explicit_paths: Sequence[Path] = (),
     include_defaults: bool = True,
+    include_workspace_defaults: bool = False,
+    include_global_defaults: bool = True,
+    include_package_defaults: bool = True,
     dedupe_by_name: bool = False,
 ) -> tuple[list[_RawResourceFile], bool]:
     """Discover Markdown files in a workspace and global resource directory.
 
-    `workspace_subdir` is the path relative to `<workspace>/.pipy/` (for
+    Workspace-local discovery is fail-closed by default. Product callers must
+    opt in only after resolving project trust. `workspace_subdir` is the path
+    relative to `<workspace>/.pipy/` (for
     example, `skills` or `templates`). `global_subdir` is the path relative to
     the global resource root. `package_roots` lists concrete `PackageRoot`s
     contributed by installed local-path or managed git packages; they are
@@ -211,18 +216,19 @@ def discover_resource_files(
         else:
             sources.append((path, "cli", path, (), False))
     if include_defaults:
-        sources.extend(
-            [
-                (workspace_dir, "workspace", resolved_workspace, (), False),
-                (global_dir, "global", global_root, (), False),
-            ]
-        )
+        if include_workspace_defaults:
+            sources.append(
+                (workspace_dir, "workspace", resolved_workspace, (), False)
+            )
+        if include_global_defaults:
+            sources.append((global_dir, "global", global_root, (), False))
         # Package roots are already concrete resource dirs; each is its own
         # containment + ignore root, searched after workspace/global.
-        sources.extend(
-            (root.path, "package", root.path, tuple(root.filters), False)
-            for root in package_roots
-        )
+        if include_package_defaults:
+            sources.extend(
+                (root.path, "package", root.path, tuple(root.filters), False)
+                for root in package_roots
+            )
 
     for source_dir, source_kind, ignore_root, package_filters, explicit_file in sources:
         if cap_reached:

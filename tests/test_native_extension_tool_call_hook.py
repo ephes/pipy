@@ -81,7 +81,10 @@ def _write(workspace: Path, name: str, body: str) -> None:
 
 def _activate(workspace: Path) -> list:
     descriptors = discover_extensions(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
     return activate_extensions(descriptors)
 

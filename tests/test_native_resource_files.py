@@ -25,6 +25,7 @@ def _discover(
         workspace,
         config_home_env=env if env is not None else {},
         home_dir=workspace,
+        include_workspace_defaults=True,
     )
 
 
@@ -101,6 +102,7 @@ def test_secret_shaped_global_filename_is_skipped(tmp_path: Path) -> None:
         workspace,
         config_home_env={PIPY_CONFIG_HOME_ENV: str(pipy_home)},
         home_dir=tmp_path,
+        include_workspace_defaults=True,
     )
 
     names = {skill.name for skill in skills}
@@ -134,7 +136,10 @@ def test_control_character_command_filename_is_not_advertised(tmp_path: Path) ->
     (commands / "\x1b.md").write_text("body\n", encoding="utf-8")
 
     resources = WorkspaceResources.discover(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
     assert resources.commands == ()
     assert resources.custom_command_slash_names() == ()

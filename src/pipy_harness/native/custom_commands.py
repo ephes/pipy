@@ -85,10 +85,14 @@ def discover_workspace_custom_commands(
     home_dir: Path | None = None,
     per_file_byte_cap: int = DEFAULT_PER_FILE_BYTE_CAP,
     total_byte_cap: int = DEFAULT_TOTAL_BYTE_CAP,
+    include_workspace_defaults: bool = False,
+    include_global_defaults: bool = True,
 ) -> tuple[list[CustomSlashCommand], bool]:
     """Discover custom slash-command files in the workspace and global root.
 
-    The workspace dir is `<workspace>/.pipy/commands/`. The global dir
+    Workspace-local discovery is fail-closed by default. Product callers must
+    opt in only after resolving project trust. The workspace dir is
+    `<workspace>/.pipy/commands/`. The global dir
     is resolved through `PIPY_CONFIG_HOME` then
     `${XDG_CONFIG_HOME}/pipy` then `~/.config/pipy`, and the
     `commands` subdir is appended. Files are deduplicated by canonical
@@ -109,6 +113,8 @@ def discover_workspace_custom_commands(
         home_dir=home_dir,
         per_file_byte_cap=per_file_byte_cap,
         total_byte_cap=total_byte_cap,
+        include_workspace_defaults=include_workspace_defaults,
+        include_global_defaults=include_global_defaults,
     )
     commands = [
         CustomSlashCommand(

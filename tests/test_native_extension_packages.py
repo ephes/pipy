@@ -28,6 +28,7 @@ def _discover(workspace: Path, package_roots, home_dir: Path):
         config_home_env=_empty_env(),
         home_dir=home_dir,
         package_roots=package_roots,
+        include_workspace_defaults=True,
     )
 
 

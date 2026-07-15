@@ -948,6 +948,7 @@ def _activate_workspace_extensions(
     extension_patterns: Sequence[str] = (),
     explicit_extension_paths: Sequence[Path] = (),
     include_default_extensions: bool = True,
+    include_workspace_defaults: bool = False,
 ) -> _ExtensionRuntime:
     """Discover + activate extensions and project their contributions.
 
@@ -969,6 +970,7 @@ def _activate_workspace_extensions(
         package_roots=tuple(package_roots),
         explicit_paths=explicit_extension_paths,
         include_defaults=include_default_extensions,
+        include_workspace_defaults=include_workspace_defaults,
     )
     if extension_patterns:
         from pipy_harness.native.resource_enablement import is_resource_enabled
@@ -1353,6 +1355,7 @@ class NativeToolReplSession:
             explicit_prompt_template_paths=resource_options.prompt_template_paths,
             include_skills_defaults=not resource_options.no_skills,
             include_prompt_template_defaults=not resource_options.no_prompt_templates,
+            include_workspace_defaults=settings.project_trusted,
         ).with_enablement(
             skills_patterns=settings.get_skills_patterns(),
             prompts_patterns=settings.get_prompts_patterns(),
@@ -1373,6 +1376,7 @@ class NativeToolReplSession:
             extension_patterns=settings.get_extensions_patterns(),
             explicit_extension_paths=resource_options.extension_paths,
             include_default_extensions=not resource_options.no_extensions,
+            include_workspace_defaults=settings.project_trusted,
         )
         extension_commands = _ext_runtime.commands
         extension_menu_names = _ext_runtime.menu_names
@@ -1472,6 +1476,7 @@ class NativeToolReplSession:
             extension_menu_names=extension_menu_names,
             extension_descriptions=extension_descriptions,
             extension_shortcut_keys=frozenset(_ext_runtime.shortcuts),
+            include_workspace_defaults=settings.project_trusted,
         )
         if terminal_ui is not None and keybindings.has_user_binding(
             "app.editor.external"
@@ -2199,6 +2204,7 @@ class NativeToolReplSession:
                 error_stream,
                 cwd=cwd,
                 quiet=settings.get_quiet_startup() and not self.verbose_startup,
+                include_workspace_defaults=settings.project_trusted,
             )
             if self.resume_context is not None:
                 print(
@@ -2714,6 +2720,7 @@ class NativeToolReplSession:
                         explicit_prompt_template_paths=resource_options.prompt_template_paths,
                         include_skills_defaults=not resource_options.no_skills,
                         include_prompt_template_defaults=not resource_options.no_prompt_templates,
+                        include_workspace_defaults=settings.project_trusted,
                     ).with_enablement(
                         skills_patterns=settings.get_skills_patterns(),
                         prompts_patterns=settings.get_prompts_patterns(),
@@ -2736,6 +2743,7 @@ class NativeToolReplSession:
                         extension_patterns=settings.get_extensions_patterns(),
                         explicit_extension_paths=resource_options.extension_paths,
                         include_default_extensions=not resource_options.no_extensions,
+                        include_workspace_defaults=settings.project_trusted,
                     )
                     extension_commands = _ext_runtime.commands
                     extension_menu_names = _ext_runtime.menu_names
@@ -2953,7 +2961,11 @@ class NativeToolReplSession:
                                 f"pipy: kept prior {scope} settings ({detail}).",
                             )
                     if self.verbose_startup or not settings.get_quiet_startup():
-                        print_startup_chrome(error_stream, cwd=cwd)
+                        print_startup_chrome(
+                            error_stream,
+                            cwd=cwd,
+                            include_workspace_defaults=settings.project_trusted,
+                        )
                     emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
                     self._emit_diagnostic(
                         terminal_ui,
@@ -4308,6 +4320,7 @@ class NativeToolReplSession:
         extension_descriptions: dict[str, str] | None = None,
         extension_shortcut_keys: frozenset[str] = frozenset(),
         keybindings_manager: KeybindingsManager | None = None,
+        include_workspace_defaults: bool = False,
     ) -> ToolLoopTerminalUi | None:
         if self.input_runtime not in {REPL_INPUT_RUNTIME_AUTO, "tool-loop-tui"}:
             return None
@@ -4324,6 +4337,7 @@ class NativeToolReplSession:
             autocomplete_max_visible=autocomplete_max_visible,
             keybindings_manager=keybindings_manager,
             extension_shortcut_keys=extension_shortcut_keys,
+            include_workspace_defaults=include_workspace_defaults,
         )
 
     @staticmethod

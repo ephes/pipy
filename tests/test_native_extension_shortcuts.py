@@ -45,7 +45,12 @@ def test_modifier_reordered_reserved_key_is_refused(tmp_path) -> None:
     )
     from pipy_harness.native.extensions import discover_extensions
 
-    descriptors = discover_extensions(tmp_path, config_home_env={}, home_dir=tmp_path)
+    descriptors = discover_extensions(
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
+    )
     activated = activate_extensions(descriptors)
     assert activated[0].status == "disabled"
     assert extension_shortcuts(activated) == {}
@@ -62,7 +67,12 @@ def test_default_external_editor_shortcut_is_reserved(tmp_path) -> None:
     )
     from pipy_harness.native.extensions import discover_extensions
 
-    descriptors = discover_extensions(tmp_path, config_home_env={}, home_dir=tmp_path)
+    descriptors = discover_extensions(
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
+    )
     activated = activate_extensions(descriptors)
     assert activated[0].status == "disabled"
     assert extension_shortcuts(activated) == {}
@@ -101,7 +111,10 @@ def _activate(tmp_path):
     from pipy_harness.native.extensions import discover_extensions
 
     descriptors = discover_extensions(
-        tmp_path, config_home_env={}, home_dir=tmp_path
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
     )
     return activate_extensions(descriptors)
 
@@ -188,7 +201,12 @@ def test_single_character_shortcut_key_is_rejected(tmp_path) -> None:
         )
         from pipy_harness.native.extensions import discover_extensions
 
-        descriptors = discover_extensions(root, config_home_env={}, home_dir=root)
+        descriptors = discover_extensions(
+            root,
+            config_home_env={},
+            home_dir=root,
+            include_workspace_defaults=True,
+        )
         activated = activate_extensions(descriptors)
         assert activated[0].status == "disabled", key
         assert extension_shortcuts(activated) == {}
@@ -204,7 +222,12 @@ def test_empty_base_shortcut_key_is_rejected(tmp_path) -> None:
     )
     from pipy_harness.native.extensions import discover_extensions
 
-    descriptors = discover_extensions(tmp_path, config_home_env={}, home_dir=tmp_path)
+    descriptors = discover_extensions(
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
+    )
     activated = activate_extensions(descriptors)
     assert activated[0].status == "disabled"
     assert extension_shortcuts(activated) == {}

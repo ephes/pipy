@@ -36,6 +36,7 @@ def _discover(workspace: Path, package_roots, home_dir: Path) -> WorkspaceResour
         config_home_env=_empty_env(),
         home_dir=home_dir,
         package_roots=package_roots,
+        include_workspace_defaults=True,
     )
 
 
@@ -155,6 +156,7 @@ def test_large_name_duplicate_does_not_halt_discovery(tmp_path: Path) -> None:
         home_dir=tmp_path,
         package_roots=roots.skills,
         total_byte_cap=2000,
+        include_workspace_defaults=True,
     )
 
     names = [s.name for s in skills]
@@ -191,6 +193,7 @@ def test_over_cap_unique_file_is_not_fully_hashed(tmp_path, monkeypatch) -> None
         home_dir=tmp_path,
         per_file_byte_cap=200,
         total_byte_cap=500,
+        include_workspace_defaults=True,
     )
 
     # The over-cap file is rejected and was never fully hashed.
@@ -221,6 +224,7 @@ def test_package_label_strips_control_bytes_from_dir_name(tmp_path: Path) -> Non
         config_home_env=_empty_env(),
         home_dir=tmp_path,
         package_roots=roots.skills,
+        include_workspace_defaults=True,
     )
 
     ctrl = next(s for s in skills if s.name == "ctrl")
