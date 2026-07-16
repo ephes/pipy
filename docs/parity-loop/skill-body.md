@@ -303,6 +303,15 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    real Pi via `pi_faux_event_driver.mts`) FIRST to capture the exact expected Pi
    sequence before writing code — for this gap it was already RED (Pi ended
    `agent_settled`, pipy at `agent_end`), giving proof of the terminator to match.
+   For a true-idle lifecycle hook inside a session, treat settlement as state of
+   the accepted run rather than a consequence of `agent_end`: mark settlement
+   pending immediately before the run dispatches `agent_start`, and clear it only
+   when the settled hook fires. The session's outer `finally` must emit any still-
+   pending hook before `session_shutdown`, so an unexpected mid-run exception
+   retains Pi-style settlement without fabricating `agent_end`. Pin completed-
+   fatal returns and unexpected exceptions as separate tests: the former still
+   emits `agent_end` before settlement, while the latter settles without an
+   invented `agent_end`; these are distinct control-flow edges.
 3. **Review the plan (different family).** Use one explicit path:
    - **Diff-based:** the plan must be a **tracked or staged** file (e.g. a spec
      under `docs/specs/`). `git add` it, then run the different-family
