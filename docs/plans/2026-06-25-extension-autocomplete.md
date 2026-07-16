@@ -1,6 +1,6 @@
 # Implementation Plan: Extension Autocomplete Providers
 
-Reviewed design: `docs/superpowers/specs/2026-06-25-extension-autocomplete-design.md` (Opus plan review CLEAN).
+Reviewed design: `docs/specs/2026-06-25-extension-autocomplete-design.md` (Opus plan review CLEAN).
 
 1. Add the provider contract and UI API aliases.
    - Define/co-locate small autocomplete context/result helpers near the TUI/provider boundary.

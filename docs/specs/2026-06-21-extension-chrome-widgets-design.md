@@ -2,7 +2,7 @@
 
 Status: design drafted 2026-06-21 (brainstorming). Second sub-slice of the
 extension-platform **rich-UI layer** follow-on
-([../../extension-api.md](../../extension-api.md), the gap audit's largest
+([../extension-api.md](../extension-api.md), the gap audit's largest
 remaining area). Tracked as extension-api **slice B** (rich-UI item B, after
 slice 17 = custom tool renderers = item A). This spec covers the persistent
 chrome surface only; the other rich-UI siblings (rich message renderers C,

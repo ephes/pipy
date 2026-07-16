@@ -2,9 +2,9 @@
 
 Date: 2026-07-13
 
-Design: `docs/superpowers/specs/2026-07-13-openai-codex-transport-reliability-design.md`
+Design: `docs/specs/2026-07-13-openai-codex-transport-reliability-design.md`
 
-Research: `docs/superpowers/specs/2026-07-13-openai-codex-transport-reliability-research.md`
+Research: `docs/specs/2026-07-13-openai-codex-transport-reliability-research.md`
 
 ## Execution rules
 

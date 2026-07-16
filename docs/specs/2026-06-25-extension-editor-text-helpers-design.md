@@ -1,8 +1,8 @@
 # Extension editor text helpers - design
 
 Status: design for one parity slice. Owning spec:
-[`docs/extension-api.md`](../../extension-api.md). Gap source:
-[`docs/pi-mono-gap-audit.md`](../../pi-mono-gap-audit.md) follow-on 1 and the
+[`docs/extension-api.md`](../extension-api.md). Gap source:
+[`docs/pi-mono-gap-audit.md`](../pi-mono-gap-audit.md) follow-on 1 and the
 `ExtensionUIContext` editor target in `docs/extension-api.md`.
 
 ## Pi Behavior

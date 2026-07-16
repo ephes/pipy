@@ -2,7 +2,7 @@
 
 Status: design drafted 2026-06-21 (brainstorming). Rich-UI sibling **C** of the
 extension-platform rich-UI layer follow-on
-([../../extension-api.md](../../extension-api.md), the gap audit's largest
+([../extension-api.md](../extension-api.md), the gap audit's largest
 remaining area). Builds directly on **slice 16** (the first, text-only
 `register_message_renderer` / `ctx.append_entry` slice) and reuses the
 **slice 17** custom-tool-renderer machinery. This spec covers the renderer

@@ -296,7 +296,7 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    `agent_settled`, pipy at `agent_end`), giving proof of the terminator to match.
 3. **Review the plan (different family).** Use one explicit path:
    - **Diff-based:** the plan must be a **tracked or staged** file (e.g. a spec
-     under `docs/superpowers/specs/`). `git add` it, then run the different-family
+     under `docs/specs/`). `git add` it, then run the different-family
      review over the diff. The harness bundles staged/untracked content but
      **not gitignored** files, so a plan kept only under the gitignored
      `docs/parity-loop/runs/` must not use this path.

@@ -8,7 +8,7 @@ OpenAI-Codex transport reliability slice 4: parity-runner defense-in-depth for t
 
 ## Pi / reference behavior and ownership
 
-Pi reference for this operator-selected reliability gap is the existing transport reliability research/design and implementation plan under `docs/superpowers/specs/2026-07-13-openai-codex-transport-reliability-*` plus `docs/superpowers/plans/2026-07-13-openai-codex-transport-reliability.md`. This slice is pipy-owned runner reliability, not a provider request-shape or Pi API surface. The exact historical raw line to recognize is the stripped child-log tail line `pipy: The read operation timed out`. The already-shipped normalized line remains `pipy: provider failure during turn:`. Both are retryable only as `provider_failure` and only when branch, HEAD, refs, and worktree are unchanged.
+Pi reference for this operator-selected reliability gap is the existing transport reliability research/design and implementation plan under `docs/specs/2026-07-13-openai-codex-transport-reliability-*` plus `docs/plans/2026-07-13-openai-codex-transport-reliability.md`. This slice is pipy-owned runner reliability, not a provider request-shape or Pi API surface. The exact historical raw line to recognize is the stripped child-log tail line `pipy: The read operation timed out`. The already-shipped normalized line remains `pipy: provider failure during turn:`. Both are retryable only as `provider_failure` and only when branch, HEAD, refs, and worktree are unchanged.
 
 ## Implementation plan
 

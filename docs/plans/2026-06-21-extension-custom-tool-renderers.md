@@ -1,6 +1,6 @@
 # Extension Custom Tool Renderers Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task and keep its listed validation gates green. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a Python extension control how its own registered tool's call and result rows render in pipy's TUI (and captured output), with themed color, via a Pi-faithful render-once contract that forward-extends to a live runtime without an API break.
 
@@ -1488,7 +1488,7 @@ def activate(api):
 - `docs/pi-mono-gap-audit.md`: in §"Extension and package platform follow-ons", move "custom tool renderers" from Follow-ons to landed.
 - `docs/parity-plan.md`: in the §4 Extension row, add custom tool renderers to the shipped list.
 - `CHANGELOG.md`: under `[Unreleased]`, add "Extensions can render their own tool call/result rows (`render_call`/`render_result`) with themed color."
-- The spec `docs/superpowers/specs/2026-06-21-extension-custom-tool-renderers-design.md`: replace the data-flow "carry details to render time" mechanism with the implemented `provider_correlation_id`-keyed sink + renderer per-call slot (no `ToolExecutionResult` change).
+- The spec `docs/specs/2026-06-21-extension-custom-tool-renderers-design.md`: replace the data-flow "carry details to render time" mechanism with the implemented `provider_correlation_id`-keyed sink + renderer per-call slot (no `ToolExecutionResult` change).
 
 - [ ] **Step 8: Run the full check suite**
 

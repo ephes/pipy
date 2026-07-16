@@ -3,7 +3,7 @@
 `scripts/parity_runner.py` runs a bounded batch of parity-loop gaps unattended,
 fresh context per gap, with hard caps and a lesson gate. It never pushes;
 commits stay local on `main` for review. See the design at
-`docs/superpowers/specs/2026-06-22-parity-runner-design.md`.
+`docs/specs/2026-06-22-parity-runner-design.md`.
 
 ## Run it
 

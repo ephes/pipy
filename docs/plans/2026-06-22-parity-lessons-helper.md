@@ -1,6 +1,6 @@
 # Parity Lessons Helper Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task and keep its listed validation gates green. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build `scripts/parity_lessons.py` — the tested, git-aware ledger helper that owns all deterministic operations on `docs/parity-loop/lessons/lessons.jsonl` (validate / append / list / mark).
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11 stdlib (`json`, `argparse`, `subprocess`, `os`, `re`, `pathlib`), pytest, git, `uv run` / `just check` (ruff + mypy + pytest).
 
-**Scope:** This is Plan 1 of 2 for the learning-loop spec (`docs/superpowers/specs/2026-06-22-parity-loop-learning-design.md`). Plan 2 (the reflect/improve skills + parity-loop body Phase 0/9 + AGENTS.md section) consumes this helper and is written separately. Do NOT implement the skills here.
+**Scope:** This is Plan 1 of 2 for the learning-loop spec (`docs/specs/2026-06-22-parity-loop-learning-design.md`). Plan 2 (the reflect/improve skills + parity-loop body Phase 0/9 + AGENTS.md section) consumes this helper and is written separately. Do NOT implement the skills here.
 
 **Constraints (read first):**
 - Work directly on `main` (trunk-based; `AGENTS.md` forbids feature branches). No worktree/branch.
@@ -74,7 +74,7 @@ git check-ignore docs/parity-loop/lessons/lessons.jsonl; echo "ignored? exit=$? 
 CLI + importable library. The ledger is `docs/parity-loop/lessons/lessons.jsonl`:
 one JSON object per line, exactly one line per lesson `id`. Judgment (what is a
 lesson, what edit fixes it) stays with agents; this module enforces structure and
-materialization. See docs/superpowers/specs/2026-06-22-parity-loop-learning-design.md.
+materialization. See docs/specs/2026-06-22-parity-loop-learning-design.md.
 """
 
 from __future__ import annotations

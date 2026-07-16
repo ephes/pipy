@@ -21,9 +21,9 @@ the reviewed design pins the
 trust-store ancestry, protected/exempt inputs, final-cwd loading order,
 interactive/headless defaults, CLI/package overrides, `/trust` and reload
 semantics, and extension decision/read ownership. See
-[`docs/superpowers/specs/2026-07-15-project-trust-design.md`](superpowers/specs/2026-07-15-project-trust-design.md)
+[`docs/specs/2026-07-15-project-trust-design.md`](specs/2026-07-15-project-trust-design.md)
 and its ordered
-[`implementation plan`](superpowers/specs/2026-07-15-project-trust-implementation-plan.md).
+[`implementation plan`](specs/2026-07-15-project-trust-implementation-plan.md).
 The next bounded runtime slice is the **`before_provider_headers` extension
 hook**. Keep header injection separate from durable entry rendering and the
 extension-surface `agent_settled` lifecycle hook.
@@ -70,7 +70,7 @@ as defense in depth, with structured attempt lifecycle logging and retry still
 guarded by the no-progress branch/HEAD/ref/worktree invariant. The documented
 residual non-goals are long-lived WebSocket reuse/continuation caching and any
 post-event turn replay. See the reviewed research, design, and plan under
-`docs/superpowers/`. With this gap closed, slice selection follows the fresh
+`docs/specs/` and `docs/plans/`. With this gap closed, slice selection follows the fresh
 queue above and in `docs/backlog.md`.
 
 ## Sources checked

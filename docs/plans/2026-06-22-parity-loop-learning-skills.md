@@ -1,6 +1,6 @@
 # Parity Loop Learning Skills Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task and keep its listed validation gates green. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Wire the learning loop's *skill* layer — make the parity loop reflect (capture lessons) and enforce a drain, and add a gated `parity-improve` sub-skill that materializes lessons — all consuming the shipped `scripts/parity_lessons.py` helper.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown skill files, pytest, `pipy_harness.native.skills.discover_workspace_skills`, `uv run` / `just check`, git (trunk-based on `main`).
 
-**Scope:** This is Plan 2 of 2 for the learning-loop spec (`docs/superpowers/specs/2026-06-22-parity-loop-learning-design.md`). Plan 1 (the `scripts/parity_lessons.py` helper + ledger) already shipped (commit `0651ad1`). This plan consumes that helper; do not modify it here except if a test reveals a genuine bug (flag it, don't silently change).
+**Scope:** This is Plan 2 of 2 for the learning-loop spec (`docs/specs/2026-06-22-parity-loop-learning-design.md`). Plan 1 (the `scripts/parity_lessons.py` helper + ledger) already shipped (commit `0651ad1`). This plan consumes that helper; do not modify it here except if a test reveals a genuine bug (flag it, don't silently change).
 
 **Constraints (read first):**
 - Work directly on `main` (trunk-based; `AGENTS.md` forbids feature branches). No worktree/branch.

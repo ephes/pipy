@@ -1,6 +1,6 @@
 # Settings and keybindings user-docs implementation plan
 
-Reviewed design: `docs/superpowers/specs/2026-06-28-settings-keybindings-user-docs-plan.md` (Pi review CLEAN).
+Reviewed design: `docs/specs/2026-06-28-settings-keybindings-user-docs-plan.md` (Pi review CLEAN).
 
 1. Draft `docs/settings.md`.
    - Acceptance: names pipy's global/project settings paths, project override behavior, `/settings` and `/reload`, common examples, grouped field reference, and explicit notes for pipy divergences (default-off install telemetry, `.pipy` path, no npm/PyPI package sources yet, some accepted settings are future/no-op where runtime support is absent).

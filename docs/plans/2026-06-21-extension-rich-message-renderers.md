@@ -1,12 +1,12 @@
 # Extension Rich Message Renderers (slice C) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task and keep its listed validation gates green. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Upgrade slice-16's text-only extension message renderer to a Pi-faithful, themed `Component` that renders an extension's custom session entry (appended via `ctx.append_entry`) with color, render-once at the current terminal width, fully fail-soft.
 
 **Architecture:** Reuse the slice-17 custom-tool-renderer machinery (`coerce_tool_render_lines`, `build_tool_render_theme` → `ToolRenderTheme`, `lines_component`, `ToolRenderComponent`) — no parallel module. A renderer that accepts a second parameter receives a new `MessageRenderContext` and may return a component; a 1-arg `renderer(data)` keeps its exact slice-16 plain-text behavior. A returned component is committed SGR-preserving under a new `custom_message_custom` TUI line-kind (mirroring `tool_call_custom`); text/lines returns and any failure fall back to today's sanitized generic path.
 
-**Tech Stack:** Python 3 (stdlib only), `uv run pytest`, `mypy`, `ruff`, `just check`. Reference: design spec `docs/superpowers/specs/2026-06-21-extension-rich-message-renderers-design.md`.
+**Tech Stack:** Python 3 (stdlib only), `uv run pytest`, `mypy`, `ruff`, `just check`. Reference: design spec `docs/specs/2026-06-21-extension-rich-message-renderers-design.md`.
 
 ---
 

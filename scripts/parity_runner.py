@@ -4,7 +4,7 @@
 Spawns a fresh agent per gap (`runner single-gap mode`), verifies each result
 against git reality, enforces caps, holds a per-repo lock, installs best-effort
 no-push guards, and runs a pre-flight/post-loop lesson gate. See
-docs/superpowers/specs/2026-06-22-parity-runner-design.md. All judgment lives in
+docs/specs/2026-06-22-parity-runner-design.md. All judgment lives in
 the spawned agent; this module owns only the loop and safety.
 """
 

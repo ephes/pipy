@@ -1,6 +1,6 @@
 # Parity Runner Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task and keep its listed validation gates green. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build `scripts/parity_runner.py` — the bounded, deterministic unattended driver that repeatedly spawns a fresh agent to run one parity-loop gap, with ref-aware verification, a per-repo lock, no-push guards, and a pre-flight/post-loop lesson gate.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11 stdlib (`subprocess`, `argparse`, `dataclasses`, `os`, `re`, `json`, `pathlib`, `shutil`, `signal`), pytest, git, `uv run` / `just check`.
 
-**Scope:** Plan B of 2 for the spec (`docs/superpowers/specs/2026-06-22-parity-runner-design.md`). **Plan A (skill-clause prerequisites) must already be merged** — the runner passes the markers `runner single-gap mode` / `runner unattended mode` that Plan A's clauses key on. Consumes the shipped `scripts/parity_lessons.py`.
+**Scope:** Plan B of 2 for the spec (`docs/specs/2026-06-22-parity-runner-design.md`). **Plan A (skill-clause prerequisites) must already be merged** — the runner passes the markers `runner single-gap mode` / `runner unattended mode` that Plan A's clauses key on. Consumes the shipped `scripts/parity_lessons.py`.
 
 **Constraints (read first):**
 - Work directly on `main` (trunk-based). No worktree/branch.
@@ -63,7 +63,7 @@ INCOMPLETE_LOCK_GRACE = 30.0  # seconds; a pid-less lock older than this is a cr
 Spawns a fresh agent per gap (`runner single-gap mode`), verifies each result
 against git reality, enforces caps, holds a per-repo lock, installs best-effort
 no-push guards, and runs a pre-flight/post-loop lesson gate. See
-docs/superpowers/specs/2026-06-22-parity-runner-design.md. All judgment lives in
+docs/specs/2026-06-22-parity-runner-design.md. All judgment lives in
 the spawned agent; this module owns only the loop and safety.
 """
 
@@ -1320,7 +1320,7 @@ parity-run label="":
 `scripts/parity_runner.py` runs a **bounded** batch of parity-loop gaps unattended,
 fresh context per gap, with hard caps and a lesson gate. It **never pushes**;
 commits stay local on `main` for review. See the design at
-`docs/superpowers/specs/2026-06-22-parity-runner-design.md`.
+`docs/specs/2026-06-22-parity-runner-design.md`.
 
 ## Run it
 

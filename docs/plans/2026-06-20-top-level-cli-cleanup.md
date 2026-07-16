@@ -1,6 +1,6 @@
 # Top-level CLI cleanup Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task and keep its listed validation gates green. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make pipy's command surface behave like Pi's — bare `pipy`/positional prompt launches the interactive session — and remove or realign the pipy-only surfaces in parity-plan §3.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3 stdlib (argparse), pytest, the existing `pipy_harness.native` runtime. No new runtime dependencies.
 
-**Source spec:** `docs/superpowers/specs/2026-06-20-top-level-cli-cleanup-design.md`
+**Source spec:** `docs/specs/2026-06-20-top-level-cli-cleanup-design.md`
 
 **Working mode:** Sequential on `main` (repo convention is linear history). One commit per slice. Run `just check` and the Pi review loop (`python3 ~/projects/agent-stuff/claude/skills/pi-review-loop/bin/pi-review-loop --repo "$PWD" --run-dir "$(mktemp -d)/pi-review"`) before each commit; only commit a slice when Pi returns CLEAN.
 

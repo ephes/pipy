@@ -1,6 +1,6 @@
 # Automation User Docs Implementation Plan
 
-Reviewed design: `docs/superpowers/specs/2026-07-06-automation-user-docs-plan.md` (plan review CLEAN via opus-review-loop).
+Reviewed design: `docs/specs/2026-07-06-automation-user-docs-plan.md` (plan review CLEAN via opus-review-loop).
 
 1. Add `docs/json.md`.
    - Acceptance: page explains user-facing `--mode json`, JSONL framing, example invocation/reader, content/privacy expectations, first header line, common event families, and where to find the full maintainer contract.

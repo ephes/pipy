@@ -1,7 +1,7 @@
 # Extension session manager view - design
 
 Status: captured plan for a future parity slice, not yet implemented. Owning
-spec: [`docs/extension-api.md`](../../extension-api.md). Gap source: Pi's
+spec: [`docs/extension-api.md`](../extension-api.md). Gap source: Pi's
 `ExtensionContext.sessionManager` surface in
 `/Users/jochen/src/pi-mono/packages/coding-agent/src/core/extensions/types.ts`
 and context construction in

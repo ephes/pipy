@@ -2,7 +2,7 @@
 
 Status: design drafted 2026-06-21 (brainstorming). First sub-slice of the
 extension-platform **rich-UI layer** follow-on
-([../../extension-api.md](../../extension-api.md), the gap audit's largest
+([../extension-api.md](../extension-api.md), the gap audit's largest
 remaining area). Tracked as extension-api **slice 17**. This spec covers
 extension-owned tool rendering only; the other rich-UI siblings (chrome widgets,
 rich message renderers, editor integration, theme controls, extension

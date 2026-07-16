@@ -1,6 +1,6 @@
 # Parity Runner Skill Prerequisites Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task and keep its listed validation gates green. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the two marker-keyed clauses the unattended runner depends on — a `skill-body.md` "runner single-gap mode" and an `improve-body.md` "runner unattended mode" — so the runner is correct from its first task.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Markdown skill files, pytest (extend `tests/test_parity_loop_skill.py`), `uv run` / `just check`, git (trunk-based on `main`).
 
-**Scope:** This is Plan A of 2 for the Phase-2 runner spec (`docs/superpowers/specs/2026-06-22-parity-runner-design.md`). Plan B (`scripts/parity_runner.py`) consumes these markers. Land this plan first.
+**Scope:** This is Plan A of 2 for the Phase-2 runner spec (`docs/specs/2026-06-22-parity-runner-design.md`). Plan B (`scripts/parity_runner.py`) consumes these markers. Land this plan first.
 
 **Constraints (read first):**
 - Work directly on `main` (trunk-based; `AGENTS.md` forbids feature branches). No worktree/branch.

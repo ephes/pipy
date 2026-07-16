@@ -81,7 +81,7 @@ pipy.
 | `/compact` | Manually compact session context | ✅ durable replay shipped | [session-tree.md](session-tree.md) |
 | `/resume` | Resume a different session | ✅ interactive picker overlay (search/scope/sort/named/rename/delete) + non-TTY subcommands | [session-tree.md](session-tree.md) |
 | `/reload` | Reload keybindings/extensions/skills/prompts/themes | ✅ re-reads settings/keybindings/resources/theme | [settings-config.md](settings-config.md) |
-| `/trust` | Persist project trust for the current project or its immediate parent | ✅ interactive current/parent trust and decline choices; changes apply after restart | [project-trust design](superpowers/specs/2026-07-15-project-trust-design.md), [settings-config.md](settings-config.md), [extension-api.md](extension-api.md) |
+| `/trust` | Persist project trust for the current project or its immediate parent | ✅ interactive current/parent trust and decline choices; changes apply after restart | [project-trust design](specs/2026-07-15-project-trust-design.md), [settings-config.md](settings-config.md), [extension-api.md](extension-api.md) |
 | `/quit` | Quit | ✅ shipped (`/quit`, `/exit`) | — (no spec needed) |
 
 **Pipy-only slash commands — realigned in the 2026-06-20 top-level CLI
@@ -245,8 +245,8 @@ OpenAI-Codex transport closeout.
    the one named follow-on.
 2. **Project trust** — the design, trust-core/settings-resource slice, and
    interactive/package-management slice shipped 2026-07-15
-   ([design](superpowers/specs/2026-07-15-project-trust-design.md),
-   [implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)).
+   ([design](specs/2026-07-15-project-trust-design.md),
+   [implementation plan](specs/2026-07-15-project-trust-implementation-plan.md)).
    Extension decision/read APIs remain the next separate slice so extension
    policy is not mixed with the shipped package UI.
 3. **RPC current delta** ([automation-rpc.md](automation-rpc.md)) — **shipped**

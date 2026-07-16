@@ -1,6 +1,6 @@
 # Pi-parity follow-ups Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task and keep its listed validation gates green. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Wire Pi's skill-advertisement system-prompt block (model loads via the read tool), move theme selection into `/settings`, and remove the pipy-only `/theme`/`/clear`/`/status`/`/help` commands outright (no deprecations).
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3 stdlib; existing `pipy_harness.native` runtime; pytest. No new deps.
 
-**Source spec:** `docs/superpowers/specs/2026-06-20-pi-parity-followups-design.md`
+**Source spec:** `docs/specs/2026-06-20-pi-parity-followups-design.md`
 
 **Working mode:** Sequential on `main`. One commit per slice. Run `just check` and the Pi review loop (`python3 ~/projects/agent-stuff/claude/skills/pi-review-loop/bin/pi-review-loop --repo "$PWD" --run-dir "$(mktemp -d)/pi-review"`) before each commit; commit a slice only when Pi returns CLEAN. Slice C also runs `just docs-build`.
 

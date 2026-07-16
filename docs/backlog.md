@@ -322,8 +322,8 @@ still recognizes that extension/package parity is the largest surface by area:
    shipped 2026-07-15 and pins Pi's ancestry, loading order, protected/exempt
    sources, mode/default/override behavior, `/trust`/reload semantics, and
    extension ownership
-   ([design](superpowers/specs/2026-07-15-project-trust-design.md),
-   [implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)). Pi gates
+   ([design](specs/2026-07-15-project-trust-design.md),
+   [implementation plan](specs/2026-07-15-project-trust-implementation-plan.md)). Pi gates
    project-local settings/resources/packages behind saved or temporary trust,
    exposes `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, and the
    extension `project_trust`/`ctx.isProjectTrusted()` surface. Pipy now ships
@@ -1478,7 +1478,7 @@ CLEAN. No runtime trust behavior is claimed by this design-only slice.
 ### Trust core and settings/resource gate — SHIPPED (2026-07-15)
 
 Slice 1 from the reviewed
-[implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)
+[implementation plan](specs/2026-07-15-project-trust-implementation-plan.md)
 now ships the store/detector, trust-aware settings manager, source-provenance
 resource/package gate, final-cwd resolver, run overrides, headless mode matrix,
 and deterministic conformance gate.
@@ -1511,7 +1511,7 @@ follow-on is the extension-surface hook.
 ### Recently shipped: OpenAI-Codex transport reliability
 
 The operator-selected transport-reliability gap has shipped. Research and the
-reviewed implementation plan are committed under `docs/superpowers/`; the
+reviewed implementation plan are committed under `docs/specs/` and `docs/plans/`; the
 runtime and integration closeout now provide:
 
 - OpenAI-Codex SSE and WebSocket receives use a validated 300,000 ms idle

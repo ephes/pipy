@@ -147,14 +147,14 @@ done-when gate; the skill does not advance until the gate is met.
 2. **Plan.** Read the pi-mono reference for the gap; produce a short design/plan
    (what Pi does, how pipy will match it through pipy-owned Python boundaries,
    constraints from `AGENTS.md`). **The plan is written to a file** (a design
-   spec under `docs/superpowers/specs/` and/or a run note under
+   spec under `docs/specs/` and/or a run note under
    `docs/parity-loop/runs/`) so it is reviewable as working-tree content.
    *Done-when:* a written plan file with done-when criteria for the gap itself.
 3. **Review the plan (different family).** Review the *plan file* with a
    different model family, using one of two explicit paths (never assume the
    harness "just picks it up"):
    - **Diff-based path:** the plan must be a **tracked or staged** file (e.g. a
-     design spec under `docs/superpowers/specs/`). `git add` it first; the
+     design spec under `docs/specs/`). `git add` it first; the
      review harness bundles staged/untracked content but **not gitignored**
      files, so a plan kept only under the gitignored `docs/parity-loop/runs/`
      would be silently excluded and must not use this path.
@@ -166,8 +166,8 @@ done-when gate; the skill does not advance until the gate is met.
    where the reviewer is *unavailable*, see "Operator override" below — it is an
    escalation/stop, not a way to pass.)
 4. **Write the implementation plan.** Turn the reviewed design into an ordered,
-   testable task breakdown (this is where `handoff-impl` / the superpowers
-   writing-plans discipline applies), also written to a file. *Done-when:* a
+   testable task breakdown using the `handoff-impl` / writing-plans discipline,
+   also written to a file. *Done-when:* a
    numbered plan with acceptance criteria per task.
 5. **Implement.** Execute the plan on `main` (trunk), TDD where it applies,
    matching Pi behavior; remove pipy-only accretions per the no-deprecation

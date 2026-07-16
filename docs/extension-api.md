@@ -432,7 +432,7 @@ first policy hook because it enables high-value workflows such as protected
 paths and command gating without requiring package loading or rich UI hooks.
 
 Project trust is now specified separately in the reviewed
-[project-trust design](superpowers/specs/2026-07-15-project-trust-design.md).
+[project-trust design](specs/2026-07-15-project-trust-design.md).
 The core store/final-cwd/settings-resource gate, interactive/package
 management integration, and extension-owned trust surfaces now ship. Pipy
 activates only global and explicit CLI extension sources before trust resolves. Their `project_trust`
@@ -443,7 +443,7 @@ headless select/confirm/input calls return immediately without touching protocol
 streams, while notify is stderr-only. Normal post-start contexts expose the
 zero-argument read callbacks `ctx.is_project_trusted()` and
 `ctx.isProjectTrusted()`. The ordered
-[implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)
+[implementation plan](specs/2026-07-15-project-trust-implementation-plan.md)
 keeps this extension-owned phase separate from trust core and interactive/
 package integration. A reusable activation batch keeps global/CLI module code
 single-run across trust resolution, provider catalog construction, and initial

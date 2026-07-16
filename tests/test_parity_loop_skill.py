@@ -7,6 +7,7 @@ rather than any runtime behavior.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -68,6 +69,76 @@ def test_canonical_body_has_no_placeholders() -> None:
     assert not found, f"canonical body contains placeholder tokens: {found}"
 
 
+def test_planning_docs_use_neutral_repo_owned_paths() -> None:
+    text = BODY.read_text(encoding="utf-8")
+    assert "docs/specs/" in text
+    assert "docs/superpowers" not in text
+
+    legacy_root = REPO_ROOT / "docs" / "superpowers"
+    legacy_files = (
+        [path.relative_to(REPO_ROOT) for path in legacy_root.rglob("*") if path.is_file()]
+        if legacy_root.exists()
+        else []
+    )
+    assert not legacy_files, f"legacy planning files remain: {legacy_files}"
+
+    historical_roots = (
+        REPO_ROOT / "docs" / "audit",
+        REPO_ROOT / "docs" / "parity-loop" / "reports",
+        REPO_ROOT / "docs" / "parity-loop" / "runs",
+    )
+    active_files = [
+        path
+        for path in (REPO_ROOT / "docs").rglob("*.md")
+        if not any(path.is_relative_to(root) for root in historical_roots)
+    ]
+    active_files.extend((REPO_ROOT / "scripts").rglob("*.py"))
+    active_files.extend((REPO_ROOT / "src").rglob("*.py"))
+    active_files.extend(
+        path
+        for name in ("AGENTS.md", "CHANGELOG.md", "README.md")
+        if (path := REPO_ROOT / name).is_file()
+    )
+    legacy_path_markers = (
+        "docs/superpowers",
+        "superpowers/plans",
+        "superpowers/specs",
+    )
+    legacy_references = [
+        path.relative_to(REPO_ROOT)
+        for path in active_files
+        if any(
+            marker in path.read_text(encoding="utf-8")
+            for marker in legacy_path_markers
+        )
+    ]
+    assert not legacy_references, (
+        "active files still reference the legacy planning path: "
+        f"{legacy_references}"
+    )
+
+    plugin_directives = [
+        path.relative_to(REPO_ROOT)
+        for directory in (REPO_ROOT / "docs" / "plans", REPO_ROOT / "docs" / "specs")
+        for path in directory.glob("*.md")
+        if "superpowers:" in path.read_text(encoding="utf-8")
+    ]
+    assert not plugin_directives, (
+        "neutral planning docs still require disabled Superpowers skills: "
+        f"{plugin_directives}"
+    )
+
+    local_link_pattern = re.compile(r"]\((?!https?://|mailto:|#)([^)#\s]+)")
+    broken_links = [
+        (path.relative_to(REPO_ROOT), target)
+        for directory in (REPO_ROOT / "docs" / "plans", REPO_ROOT / "docs" / "specs")
+        for path in directory.glob("*.md")
+        for target in local_link_pattern.findall(path.read_text(encoding="utf-8"))
+        if not (path.parent / target).resolve().exists()
+    ]
+    assert not broken_links, f"planning documents contain broken local links: {broken_links}"
+
+
 WRAPPERS = (
     REPO_ROOT / ".claude" / "skills" / "pipy-parity-loop" / "SKILL.md",
     REPO_ROOT / ".pipy" / "skills" / "pipy-parity-loop.md",
@@ -79,18 +150,24 @@ WRAPPER_MAX_BYTES = 1500
 BODY_REFERENCE = "docs/parity-loop/skill-body.md"
 
 
-@pytest.mark.parametrize("wrapper", WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+@pytest.mark.parametrize(
+    "wrapper", WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_wrapper_exists(wrapper: Path) -> None:
     assert wrapper.is_file(), f"missing wrapper: {wrapper}"
 
 
-@pytest.mark.parametrize("wrapper", WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+@pytest.mark.parametrize(
+    "wrapper", WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_wrapper_references_canonical_body(wrapper: Path) -> None:
     text = wrapper.read_text(encoding="utf-8")
     assert BODY_REFERENCE in text, f"{wrapper} must point at {BODY_REFERENCE}"
 
 
-@pytest.mark.parametrize("wrapper", WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+@pytest.mark.parametrize(
+    "wrapper", WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_wrapper_has_frontmatter_name(wrapper: Path) -> None:
     text = wrapper.read_text(encoding="utf-8")
     assert text.startswith("---"), f"{wrapper} must start with YAML frontmatter"
@@ -98,7 +175,9 @@ def test_wrapper_has_frontmatter_name(wrapper: Path) -> None:
     assert "description:" in text, f"{wrapper} must declare a description"
 
 
-@pytest.mark.parametrize("wrapper", WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+@pytest.mark.parametrize(
+    "wrapper", WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_wrapper_does_not_duplicate_body(wrapper: Path) -> None:
     size = wrapper.stat().st_size
     assert size <= WRAPPER_MAX_BYTES, (
@@ -113,9 +192,9 @@ def test_wrapper_does_not_duplicate_body(wrapper: Path) -> None:
 
 
 def test_claude_parity_wrapper_forbids_subagent_delegation() -> None:
-    text = (REPO_ROOT / ".claude" / "skills" / "pipy-parity-loop" / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    text = (
+        REPO_ROOT / ".claude" / "skills" / "pipy-parity-loop" / "SKILL.md"
+    ).read_text(encoding="utf-8")
     assert "Do not delegate parity-loop" in text
     assert "You may delegate" not in text
 
@@ -129,7 +208,7 @@ def test_agents_md_has_parity_section() -> None:
 def test_pipy_discovers_parity_loop_skill() -> None:
     skills, _cap_reached = discover_workspace_skills(
         REPO_ROOT,
-        config_home_env={},        # don't read the real ~/.config/pipy
+        config_home_env={},  # don't read the real ~/.config/pipy
         home_dir=REPO_ROOT,
         per_file_byte_cap=64 * 1024,
         total_byte_cap=256 * 1024,
@@ -145,12 +224,12 @@ IMPROVE_BODY = REPO_ROOT / "docs" / "parity-loop" / "improve-body.md"
 IMPROVE_REQUIRED_TOKENS = (
     "scripts/parity_lessons.py",
     "list --status open",
-    "different",          # different model family review
+    "different",  # different model family review
     "CLEAN",
     "sign-off",
-    "mark",               # mark applied/rejected
+    "mark",  # mark applied/rejected
     "validate",
-    "materializ",         # materialization language
+    "materializ",  # materialization language
     "runner unattended mode",
     "Never delegate the review",
 )
@@ -178,11 +257,15 @@ def test_improve_body_has_no_placeholders() -> None:
     assert not found, f"improve body contains placeholder tokens: {found}"
 
 
-@pytest.mark.parametrize("body", (BODY, IMPROVE_BODY), ids=lambda p: str(p.relative_to(REPO_ROOT)))
+@pytest.mark.parametrize(
+    "body", (BODY, IMPROVE_BODY), ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_gate_steps_cover_fd_pressure_retry(body: Path) -> None:
     text = body.read_text(encoding="utf-8")
     missing = [tok for tok in FD_PRESSURE_GATE_TOKENS if tok not in text]
-    assert not missing, f"{body.relative_to(REPO_ROOT)} lacks gate retry tokens: {missing}"
+    assert not missing, (
+        f"{body.relative_to(REPO_ROOT)} lacks gate retry tokens: {missing}"
+    )
 
 
 IMPROVE_WRAPPERS = (
@@ -193,18 +276,26 @@ IMPROVE_WRAPPERS = (
 IMPROVE_BODY_REFERENCE = "docs/parity-loop/improve-body.md"
 
 
-@pytest.mark.parametrize("wrapper", IMPROVE_WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+@pytest.mark.parametrize(
+    "wrapper", IMPROVE_WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_improve_wrapper_exists(wrapper: Path) -> None:
     assert wrapper.is_file(), f"missing wrapper: {wrapper}"
 
 
-@pytest.mark.parametrize("wrapper", IMPROVE_WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+@pytest.mark.parametrize(
+    "wrapper", IMPROVE_WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_improve_wrapper_references_body(wrapper: Path) -> None:
     text = wrapper.read_text(encoding="utf-8")
-    assert IMPROVE_BODY_REFERENCE in text, f"{wrapper} must point at {IMPROVE_BODY_REFERENCE}"
+    assert IMPROVE_BODY_REFERENCE in text, (
+        f"{wrapper} must point at {IMPROVE_BODY_REFERENCE}"
+    )
 
 
-@pytest.mark.parametrize("wrapper", IMPROVE_WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+@pytest.mark.parametrize(
+    "wrapper", IMPROVE_WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_improve_wrapper_has_frontmatter_name(wrapper: Path) -> None:
     text = wrapper.read_text(encoding="utf-8")
     assert text.startswith("---"), f"{wrapper} must start with YAML frontmatter"
@@ -212,7 +303,9 @@ def test_improve_wrapper_has_frontmatter_name(wrapper: Path) -> None:
     assert "description:" in text, f"{wrapper} must declare a description"
 
 
-@pytest.mark.parametrize("wrapper", IMPROVE_WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT)))
+@pytest.mark.parametrize(
+    "wrapper", IMPROVE_WRAPPERS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_improve_wrapper_does_not_duplicate_body(wrapper: Path) -> None:
     assert wrapper.stat().st_size <= WRAPPER_MAX_BYTES, (
         f"{wrapper} is too large; it likely duplicates the improve body"
@@ -233,14 +326,18 @@ def test_claude_improve_wrapper_forbids_subagent_delegation() -> None:
 
 def test_agents_md_has_parity_improve_section() -> None:
     text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    assert "## Parity improve" in text, "AGENTS.md must have a '## Parity improve' section"
-    assert IMPROVE_BODY_REFERENCE in text, "AGENTS.md parity-improve section must point at the body"
+    assert "## Parity improve" in text, (
+        "AGENTS.md must have a '## Parity improve' section"
+    )
+    assert IMPROVE_BODY_REFERENCE in text, (
+        "AGENTS.md parity-improve section must point at the body"
+    )
 
 
 def test_pipy_discovers_parity_improve_skill() -> None:
     skills, _cap_reached = discover_workspace_skills(
         REPO_ROOT,
-        config_home_env={},        # don't read the real ~/.config/pipy
+        config_home_env={},  # don't read the real ~/.config/pipy
         home_dir=REPO_ROOT,
         per_file_byte_cap=64 * 1024,
         total_byte_cap=256 * 1024,

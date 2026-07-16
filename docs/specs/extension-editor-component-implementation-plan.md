@@ -1,6 +1,6 @@
 # Extension Editor Component Implementation Plan
 
-Reviewed design: `docs/superpowers/specs/extension-editor-component-plan.md` (plan review CLEAN via Pi review loop).
+Reviewed design: `docs/specs/extension-editor-component-plan.md` (plan review CLEAN via Pi review loop).
 
 1. Extend extension UI protocols and contexts.
    - Add snake_case and camelCase editor-component methods to the UI protocols and concrete headless/live contexts in `src/pipy_harness/native/extension_runtime.py`.

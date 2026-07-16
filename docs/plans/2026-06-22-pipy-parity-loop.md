@@ -1,6 +1,6 @@
 # Pipy Parity Loop Skill Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task and keep its listed validation gates green. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Encode the repeated Pi-parity workflow as one canonical, in-repo skill body with thin per-agent wrappers (Claude Code, Codex, Pi, pipy), guarded by tests.
 
@@ -182,7 +182,7 @@ invocation — that outer loop is deferred (Phase 2). Reference checkout:
    written plan file with done-when criteria.
 3. **Review the plan (different family).** Use one explicit path:
    - **Diff-based:** the plan must be a **tracked or staged** file (e.g. a spec
-     under `docs/superpowers/specs/`). `git add` it, then run the different-family
+     under `docs/specs/`). `git add` it, then run the different-family
      review over the diff. The harness bundles staged/untracked content but
      **not gitignored** files, so a plan kept only under the gitignored
      `docs/parity-loop/runs/` must not use this path.
@@ -476,7 +476,7 @@ git commit -m "chore(parity-loop): satisfy lint/type gate for parity-loop skill"
 
 - This plan ships the **skill** (Phase 1 of the spec). The unattended outer-loop
   harness (Phase 2) and session-learning/reflection (Phase 3) are out of scope
-  and described in `docs/superpowers/specs/2026-06-22-pipy-parity-loop-design.md`.
+  and described in `docs/specs/2026-06-22-pipy-parity-loop-design.md`.
 - The two open questions in the spec do not block this plan: the canonical-body
   location is decided here (`docs/parity-loop/skill-body.md`), and reviewer
   selection is left to the operator/agent at run time (the body names both

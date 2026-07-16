@@ -1,6 +1,6 @@
 # Extension rich message resume/redraw implementation plan
 
-Reviewed design: `docs/superpowers/specs/2026-07-06-extension-rich-message-resume-redraw-plan.md` (plan review CLEAN via opus-review-loop).
+Reviewed design: `docs/specs/2026-07-06-extension-rich-message-resume-redraw-plan.md` (plan review CLEAN via opus-review-loop).
 
 1. Add a focused redraw primitive.
    - Implement a small helper on the live-session path that clears product-TUI custom-entry rows and replays active-branch `_CustomEntry` / displayable `_CustomMessageEntry` entries from the current `session_tree`.

@@ -1,8 +1,8 @@
 # Extension UI theme controls (rich-UI item E) — design
 
 Status: design / plan for one parity slice. Owning spec:
-[`docs/extension-api.md`](../../extension-api.md). Gap source:
-[`docs/pi-mono-gap-audit.md`](../../pi-mono-gap-audit.md) §3 follow-on 1
+[`docs/extension-api.md`](../extension-api.md). Gap source:
+[`docs/pi-mono-gap-audit.md`](../pi-mono-gap-audit.md) §3 follow-on 1
 ("Theme controls") and the same list in `docs/extension-api.md` (lines ~505–508,
 the `ctx.ui` "Theme controls" target bullet).
 

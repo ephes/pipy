@@ -4,7 +4,7 @@
 CLI + importable library. The ledger is `docs/parity-loop/lessons/lessons.jsonl`:
 one JSON object per line, exactly one line per lesson `id`. Judgment (what is a
 lesson, what edit fixes it) stays with agents; this module enforces structure and
-materialization. See docs/superpowers/specs/2026-06-22-parity-loop-learning-design.md.
+materialization. See docs/specs/2026-06-22-parity-loop-learning-design.md.
 """
 
 from __future__ import annotations

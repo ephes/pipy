@@ -1,7 +1,7 @@
 # Top-level CLI compatibility & accidental-surface cleanup — Design
 
 Status: design approved 2026-06-20. Owning parity plan section:
-[parity-plan.md](../../parity-plan.md) §2 (CLI flag/mode matrix) and §3
+[parity-plan.md](../parity-plan.md) §2 (CLI flag/mode matrix) and §3
 (accidental pipy-specific surfaces). This spec turns the §3 "remove or realign"
 rows and the §2 top-level-shape gap into a concrete, sliced implementation.
 

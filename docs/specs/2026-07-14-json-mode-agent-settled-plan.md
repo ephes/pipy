@@ -4,7 +4,7 @@ Status: shipped 2026-07-14 through the parity loop as a single gap. Gap source:
 `docs/pi-mono-gap-audit.md` priority 3 and
 `docs/backlog.md` ("JSON-mode emission ... remain separate follow-ons"), plus the
 explicit deferral in the shipped RPC slice
-(`docs/superpowers/specs/2026-07-14-rpc-agent-settled-plan.md` "Deferred:
+(`docs/specs/2026-07-14-rpc-agent-settled-plan.md` "Deferred:
 `--mode json` `agent_settled`"). This is the immediate follow-on to the shipped
 `--mode rpc` `agent_settled` (commit `4bb4792`).
 

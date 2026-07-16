@@ -1,6 +1,6 @@
 # Extension Chrome Widgets (Slice B) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Execute this plan task-by-task and keep its listed validation gates green. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add Pi's five persistent-chrome extension APIs (`set_widget`, `set_header`, `set_footer`, `set_title`, `set_working_indicator`) to pipy's extension platform, using a width-reactive snapshot rendering model.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3 (stdlib only), pytest, real-PTY harness used by the existing TUI tests, the `scripts/parity_checks/*_conformance.py` gate pattern.
 
-**Spec:** `docs/superpowers/specs/2026-06-21-extension-chrome-widgets-design.md` (Pi-reviewed CLEAN).
+**Spec:** `docs/specs/2026-06-21-extension-chrome-widgets-design.md` (Pi-reviewed CLEAN).
 
 **Module-layout note (refinement of spec §4):** the spec sketched a new `native/chrome_widgets.py`; this plan instead folds the contract types into `extension_runtime.py` and the render helper into `tool_renderers.py` to match the exact slice-17 precedent and avoid an import cycle (`tool_renderers` already imports from `extension_runtime`). Module layout is not a spec contract.
 
