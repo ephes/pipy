@@ -293,7 +293,7 @@ preserved. The getter/setter surface should mirror Pi's typed accessors
 (`get_compaction_enabled`, `set_theme`, etc.) so callers do not reach into raw
 dicts.
 
-## Project trust (core runtime shipped)
+## Project trust (interactive and management runtime shipped)
 
 Project-local settings and resources are now gated by the first runtime slice
 of the reviewed
@@ -316,12 +316,19 @@ Trust is an input-loading guard, not a sandbox: trusted resources and the model'
 tools still run with the pipy process's permissions.
 
 An unresolved `ask` decision fails closed in non-UI modes without reading stdin
-or writing a trust prompt to stdout/stderr. Until the next slice adds Pi's full
-startup selector, interactive TTY startup prints a concise stderr diagnostic;
-use `--approve` for one run, set global `defaultProjectTrust` to `"always"`, or
-write a saved boolean decision. Interactive `/trust`, reload persistence,
-project-local package/config management, and extension decision/read APIs remain
-later slices in the ordered
+or writing a trust prompt to stdout/stderr. An interactive TTY instead opens the
+five-choice startup selector for current-folder, parent-folder, session-only, or
+decline decisions. `/trust` shows the saved exact/inherited decision and current
+run state, persists a decision for the next restart, and never hot-loads or
+unloads resources. If a trusted run started with no protected inputs and the
+user later creates one, an explicit `/reload` saves exact trust only under the
+reviewed no-saved-decision guards before the next restart can surprise-prompt.
+
+`/settings` exposes the global `Ask`/`Trust`/`Do not trust` fallback. Package and
+resource-config management commands accept command-local
+`--approve`/`--no-approve`; untrusted list/config views omit project entries,
+global writes remain available, and local writes fail before mutation. Extension
+decision/read APIs remain the final trust slice in the ordered
 [implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md).
 
 ## Keybindings.json — Schema, Bindings, Defaults, `/hotkeys`

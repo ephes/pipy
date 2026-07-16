@@ -17,7 +17,13 @@ from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.project_trust import (
+    ProjectTrustEntry,
+    ProjectTrustStore,
+    get_project_trust_options,
+)
 from pipy_harness.native.repl_state import NativeModelOption
+from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
@@ -26,6 +32,7 @@ from pipy_harness.native.tui import (
     SettingsRow,
     ToolLoopTerminalUi,
     _visible_len_allow_sgr,
+    run_project_trust_selector,
 )
 
 
@@ -127,9 +134,7 @@ def test_tui_frame_owns_distinct_regions(tmp_path: Path):
 
 def test_tui_styles_only_working_spinner_with_accent(tmp_path: Path):
     ui = _ui(tmp_path)
-    frame_line = ui._block_frame_lines(
-        "working", ("⠋ Working...",), width=40
-    )[0]
+    frame_line = ui._block_frame_lines("working", ("⠋ Working...",), width=40)[0]
     styled = ui._styled_line(
         frame_line,
         style=ChromeStyle(enabled=True),
@@ -482,7 +487,9 @@ def test_tui_keeps_context_above_prompt_when_history_overflows(tmp_path: Path):
 
     frame_lines = ui._frame_lines(width=100, height=30, pad=False)
     frame = [line.text for line in frame_lines]
-    prompt_index = next(index for index, line in enumerate(frame) if "Use the ls" in line)
+    prompt_index = next(
+        index for index, line in enumerate(frame) if "Use the ls" in line
+    )
     input_index = next(
         index for index, line in enumerate(frame_lines) if line.kind == "input"
     )
@@ -529,7 +536,9 @@ def test_tui_short_height_retains_startup_chrome_before_prompt(tmp_path: Path):
     ui.append_assistant("Hello!")
 
     frame = ui.render_lines(width=100, height=24, pad=False)
-    prompt_index = next(index for index, line in enumerate(frame) if "hello world" in line)
+    prompt_index = next(
+        index for index, line in enumerate(frame) if "hello world" in line
+    )
     output_index = next(index for index, line in enumerate(frame) if "Hello!" in line)
     input_index = next(index for index, line in enumerate(frame) if line == " ")
 
@@ -862,6 +871,7 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
         "/model",
         "/scoped-models",
         "/settings",
+        "/trust",
         "/login",
         "/logout",
         "/copy",
@@ -935,16 +945,18 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
     assert "Settings and status" in rendered
     assert "  scoped-models" in rendered
     assert any(line.kind == "slash_menu_selected" for line in frame)
-    input_index = next(index for index, line in enumerate(frame) if line.kind == "input")
+    input_index = next(
+        index for index, line in enumerate(frame) if line.kind == "input"
+    )
     menu_index = next(
         index for index, line in enumerate(frame) if line.kind == "slash_menu_selected"
     )
     assert frame[input_index + 1].kind == "separator"
     assert menu_index == input_index + 2
-    # Fifteen commands match the bare "/" prefix but the menu windows to the
+    # Sixteen commands match the bare "/" prefix but the menu windows to the
     # autocompleteMaxVisible default (5) rows, so a scroll indicator appears and
     # /logout scrolls behind the "… N more" tail.
-    assert "(1/15)" in rendered
+    assert "(1/16)" in rendered
     assert "  logout" not in rendered
 
 
@@ -958,8 +970,8 @@ def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
     ]
     assert len(menu_rows) == 3
     rendered = "\n".join(line.text for line in frame)
-    # 15 commands match, only 3 shown -> overflow indicator present.
-    assert "(1/15)" in rendered
+    # 16 commands match, only 3 shown -> overflow indicator present.
+    assert "(1/16)" in rendered
 
 
 def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
@@ -1378,7 +1390,9 @@ def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result = session.run(
@@ -1519,7 +1533,9 @@ def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
 
     captured_rows: list[tuple[SettingsRow, ...]] = []
 
-    def _fake_dialog(self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None):
+    def _fake_dialog(
+        self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None
+    ):
         del on_local_action, current_index
         captured_rows.append(tuple(rows))
         # Immediately cancel (Esc) — proving /settings opens an interactive
@@ -1536,7 +1552,9 @@ def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result = session.run(
@@ -1565,6 +1583,161 @@ def test_tui_settings_command_opens_interactive_dialog_without_provider_turn(
     assert "toggle_history" in actions
     assert "clear_history" in actions
     assert any("persistent prompt history: off" in label for label in labels)
+
+
+@pytest.mark.parametrize(
+    ("saved_at_parent", "saved_decision", "expected_action"),
+    [
+        (False, False, "trust-option-2"),
+        (True, True, "trust-option-1"),
+    ],
+)
+def test_project_trust_selector_shows_exact_or_inherited_saved_and_current_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    saved_at_parent: bool,
+    saved_decision: bool,
+    expected_action: str,
+) -> None:
+    cwd = tmp_path / "parent" / "project"
+    cwd.mkdir(parents=True)
+    ui = _ui(cwd)
+    options = get_project_trust_options(cwd)
+    saved_path = cwd.parent.resolve() if saved_at_parent else cwd.resolve()
+    captured: dict[str, object] = {}
+
+    def _fake_dialog(
+        self,
+        rows,
+        *,
+        on_local_action,
+        exit_actions=frozenset(),
+        current_index=None,
+        title="Settings",
+    ):
+        del self, on_local_action
+        captured.update(
+            rows=tuple(rows),
+            exit_actions=exit_actions,
+            current_index=current_index,
+            title=title,
+        )
+        return None
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+
+    assert (
+        run_project_trust_selector(
+            ui,
+            cwd=cwd,
+            options=options,
+            saved_decision=ProjectTrustEntry(saved_path, saved_decision),
+            current_trusted=False,
+        )
+        is None
+    )
+
+    rows = captured["rows"]
+    assert isinstance(rows, tuple)
+    labels = [row.label for row in rows]
+    decision_label = "trusted" if saved_decision else "untrusted"
+    expected_saved_label = (
+        f"Saved decision: {decision_label} (inherited from {saved_path})"
+        if saved_at_parent
+        else f"Saved decision: {decision_label} ({saved_path})"
+    )
+    assert expected_saved_label in labels
+    assert "Current session: untrusted" in labels
+    assert captured["title"] == "Project trust"
+    current_index = captured["current_index"]
+    assert isinstance(current_index, int)
+    assert rows[current_index].action == expected_action
+
+
+def test_project_trust_selector_sanitizes_untrusted_path_labels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = tmp_path / "parent\x1b[31mspoof" / "project\x07name"
+    cwd.mkdir(parents=True)
+    ui = _ui(cwd)
+    captured_rows: list[SettingsRow] = []
+
+    def _fake_dialog(
+        self,
+        rows,
+        *,
+        on_local_action,
+        exit_actions=frozenset(),
+        current_index=None,
+        title="Settings",
+    ):
+        del self, on_local_action, exit_actions, current_index, title
+        captured_rows.extend(rows)
+        return None
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _fake_dialog)
+
+    assert (
+        run_project_trust_selector(
+            ui,
+            cwd=cwd,
+            options=get_project_trust_options(cwd),
+            saved_decision=ProjectTrustEntry(cwd.parent.resolve(), True),
+            current_trusted=False,
+        )
+        is None
+    )
+
+    labels = [row.label for row in captured_rows]
+    assert any("inherited from" in label for label in labels)
+    assert all("\x1b" not in label and "\x07" not in label for label in labels)
+
+
+def test_trust_command_persists_next_start_decision_without_hot_activation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    cwd = tmp_path / "project"
+    cwd.mkdir()
+    ui = _ui(cwd)
+
+    def _select_exact_trust(
+        self,
+        rows,
+        *,
+        on_local_action,
+        exit_actions=frozenset(),
+        current_index=None,
+        title="Settings",
+    ):
+        del self, rows, on_local_action, current_index, title
+        assert "trust-option-0" in exit_actions
+        return "trust-option-0"
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _select_exact_trust)
+    settings = SettingsManager.for_workspace(cwd, project_trusted=False)
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        tool_registry={},
+    )
+
+    session._handle_trust_command(
+        terminal_ui=ui,
+        error_stream=io.StringIO(),
+        cwd=cwd,
+        settings=settings,
+    )
+
+    assert ProjectTrustStore(config / "trust.json").get(cwd) is True
+    assert settings.project_trusted is False
+    notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
+    assert any(
+        "Restart pipy for this to take effect" in line
+        for block in notices
+        for line in block
+    )
 
 
 def _settings_dialog_rows() -> tuple[SettingsRow, ...]:
@@ -1613,7 +1786,9 @@ def test_tui_settings_dialog_renders_rows_with_highlight_and_affordances(
     assert "active: fake/fake-native-bootstrap" in rendered
 
 
-def test_terminal_ui_editor_text_helpers_replace_and_report_buffer(tmp_path: Path) -> None:
+def test_terminal_ui_editor_text_helpers_replace_and_report_buffer(
+    tmp_path: Path,
+) -> None:
     ui = _ui(tmp_path)
 
     assert ui.get_input_text() == ""
@@ -1773,7 +1948,9 @@ def test_persistent_history_seeds_tui_recall_when_enabled(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     session.run(
@@ -1812,7 +1989,9 @@ def test_disabled_store_does_not_seed_tui_recall(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     session.run(
@@ -1847,7 +2026,9 @@ def test_settings_dialog_toggle_and_clear_mutate_store_locally(
         lambda self, prompt_label, *, footer=None: next(scripted),
     )
 
-    def _fake_dialog(self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None):
+    def _fake_dialog(
+        self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None
+    ):
         del rows, exit_actions, current_index
         # Simulate the user toggling persistence off, then clearing history.
         on_local_action("toggle_history")
@@ -1865,7 +2046,9 @@ def test_settings_dialog_toggle_and_clear_mutate_store_locally(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result = session.run(
@@ -1932,7 +2115,9 @@ def test_settings_dialog_theme_row_applies_and_persists_theme(
     captured_selector_titles: list[str | None] = []
     captured_exit_actions: list[frozenset[str]] = []
 
-    def _fake_dialog(self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None):
+    def _fake_dialog(
+        self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None
+    ):
         del current_index
         captured_exit_actions.append(frozenset(exit_actions))
         # The dialog offers a "Theme" action row.
@@ -1971,7 +2156,9 @@ def test_settings_dialog_theme_row_applies_and_persists_theme(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result = session.run(
@@ -2049,7 +2236,9 @@ def test_settings_dialog_theme_row_works_for_static_provider_state(
     captured_exit_actions: list[frozenset[str]] = []
     captured_theme_row_labels: list[str] = []
 
-    def _fake_dialog(self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None):
+    def _fake_dialog(
+        self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None
+    ):
         del current_index
         captured_exit_actions.append(frozenset(exit_actions))
         theme_row = next((row for row in rows if row.action == "theme"), None)
@@ -2084,7 +2273,9 @@ def test_settings_dialog_theme_row_works_for_static_provider_state(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result = session.run(
@@ -2140,7 +2331,9 @@ def test_settings_dialog_scoped_models_row_routes_to_overlay(
     captured_exit_actions: list[frozenset[str]] = []
     overlay_opened: list[tuple[str, ...]] = []
 
-    def _fake_dialog(self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None):
+    def _fake_dialog(
+        self, rows, *, on_local_action, exit_actions=frozenset(), current_index=None
+    ):
         del current_index
         captured_exit_actions.append(frozenset(exit_actions))
         scope_row = next((row for row in rows if row.action == "scoped_models"), None)
@@ -2176,7 +2369,9 @@ def test_settings_dialog_scoped_models_row_routes_to_overlay(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result = session.run(
@@ -2228,7 +2423,8 @@ def test_persistent_history_contents_stay_out_of_session_archive(tmp_path: Path)
     files_with_prompt = [
         path
         for path in tmp_path.rglob("*")
-        if path.is_file() and secret_prompt in path.read_text(encoding="utf-8", errors="ignore")
+        if path.is_file()
+        and secret_prompt in path.read_text(encoding="utf-8", errors="ignore")
     ]
     assert files_with_prompt == [history_path]
 
@@ -2302,7 +2498,9 @@ def test_tui_copy_command_is_local_only_when_nothing_to_copy(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result = session.run(
@@ -2357,7 +2555,9 @@ def test_tui_copy_command_copies_last_answer_without_extra_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result = session.run(
@@ -2418,7 +2618,9 @@ def test_tui_session_does_not_print_legacy_separator(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
     error_stream = io.StringIO()
 
@@ -2587,7 +2789,9 @@ def test_tui_multiline_paste_renders_as_single_input_row(tmp_path: Path):
     # frame still renders exactly one input row with no leaked newline.
     ui._insert_input_text("!")
     assert ui.input_text == "line one\nline two!"
-    texts_after = [line.text for line in ui._frame_lines(width=72, height=16, pad=False)]
+    texts_after = [
+        line.text for line in ui._frame_lines(width=72, height=16, pad=False)
+    ]
     assert all("\n" not in text for text in texts_after)
     assert sum(line.kind == "input" for line in ui._frame_lines(width=72, height=16))
 
@@ -2844,7 +3048,9 @@ def test_tui_login_refreshes_availability_without_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     # Before login, openai-codex is unavailable (no credentials).
@@ -2891,7 +3097,9 @@ def test_tui_logout_removes_credentials_without_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     assert _codex_option(provider_state).available is True
@@ -2998,7 +3206,9 @@ def test_aborted_turn_appends_no_assistant_observation_to_context(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result = session.run(

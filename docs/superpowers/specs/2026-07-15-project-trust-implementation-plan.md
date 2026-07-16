@@ -1,7 +1,7 @@
 # Project trust — implementation plan
 
-Status: slice 1 (trust core and settings/resource gate) shipped 2026-07-15;
-slices 2 and 3 remain.
+Status: slices 1 (trust core and settings/resource gate) and 2 (interactive and
+management integration) shipped 2026-07-15; slice 3 remains.
 
 Reviewed design:
 [`2026-07-15-project-trust-design.md`](2026-07-15-project-trust-design.md).

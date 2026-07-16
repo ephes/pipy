@@ -25,8 +25,9 @@ accidental pipy-only surfaces being removed or realigned.
 current unreleased changes) has moved beyond several green June baselines.
 GPT-5.6 Sol/`max`, RPC `get_entries`/`get_tree`, and the true-idle
 `agent_settled` event (on both the `--mode rpc` and `--mode json` streams)
-shipped 2026-07-14. The project-trust design and trust-core/settings-resource
-gate shipped 2026-07-15; interactive/package management integration is next.
+shipped 2026-07-14. The project-trust design, trust-core/settings-resource
+gate, and interactive/package management integration shipped 2026-07-15; the
+extension decision/read APIs are next.
 The remaining
 `agent_settled` follow-on (the extension-surface hook), extension
 `before_provider_headers`/entry renderers,
@@ -74,8 +75,10 @@ Project trust core now resolves for the final runtime cwd before project inputs
 load. Closest-ancestor decisions live in owner-private `trust.json`; global-only
 `defaultProjectTrust` and run-only `--approve`/`--no-approve` resolve the gate;
 and untrusted runs retain global/explicit sources while excluding project
-settings/resources/packages. This is an input gate, not a sandbox. Interactive
-`/trust`, package/config integration, and extension trust APIs remain.
+settings/resources/packages. Interactive startup can save current/parent or
+session-only choices; `/trust`, guarded reload persistence, `/settings` default
+control, and package/config trust handling ship. This is an input gate, not a
+sandbox. Extension trust APIs remain.
 
 | Pi idea | Pipy state | Notes |
 | --- | --- | --- |

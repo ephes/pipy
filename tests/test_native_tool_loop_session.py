@@ -447,9 +447,7 @@ def test_non_cooperative_provider_abort_is_still_safe(
             return None
 
     # Keep the bounded join short so the test does not wait the full 2s.
-    monkeypatch.setattr(
-        NativeToolReplSession, "_CANCEL_JOIN_TIMEOUT_SECONDS", 0.2
-    )
+    monkeypatch.setattr(NativeToolReplSession, "_CANCEL_JOIN_TIMEOUT_SECONDS", 0.2)
     session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
     renderer = _RecordingAbortRenderer()
 
@@ -929,7 +927,9 @@ def test_scoped_models_show_set_clear_and_cycle(tmp_path, monkeypatch):
     assert seen == []
 
 
-def test_scoped_models_next_cycles_and_rebinds_without_provider_turn(tmp_path, monkeypatch):
+def test_scoped_models_next_cycles_and_rebinds_without_provider_turn(
+    tmp_path, monkeypatch
+):
     from pipy_harness.native.settings import SettingsManager
 
     monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "nd.json"))
@@ -1039,7 +1039,9 @@ def test_reload_refreshes_extension_message_renderers(tmp_path: Path) -> None:
 
     session.run(
         workspace_root=tmp_path,
-        input_stream=io.StringIO("/card one\n/flip-renderer\n/reload\n/card two\n/exit\n"),
+        input_stream=io.StringIO(
+            "/card one\n/flip-renderer\n/reload\n/card two\n/exit\n"
+        ),
         output_stream=io.StringIO(),
         error_stream=error_stream,
     )
@@ -1051,7 +1053,9 @@ def test_reload_refreshes_extension_message_renderers(tmp_path: Path) -> None:
     assert "old:two" not in err
 
 
-def test_reload_fires_session_start_reload_for_new_extension_generation(tmp_path: Path) -> None:
+def test_reload_fires_session_start_reload_for_new_extension_generation(
+    tmp_path: Path,
+) -> None:
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     proof = tmp_path / "session_start_reasons.txt"
@@ -1159,7 +1163,9 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: terminal_ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: (
+            terminal_ui
+        ),
     )
     provider = FakeNativeProvider(supports_tool_calls=True)
     session = NativeToolReplSession(
@@ -1255,7 +1261,9 @@ def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: terminal_ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: (
+            terminal_ui
+        ),
     )
     output_stream = io.StringIO()
 
@@ -1266,7 +1274,9 @@ def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
         error_stream=io.StringIO(),
     )
 
-    committed_frame = "\n".join(terminal_ui.render_lines(width=72, height=20, pad=False))
+    committed_frame = "\n".join(
+        terminal_ui.render_lines(width=72, height=20, pad=False)
+    )
     archive_text = output_stream.getvalue()
 
     # Styled route => SGR-safe ``custom_message_custom`` block, not plain custom.
@@ -1602,6 +1612,11 @@ def test_theme_command_removed(tmp_path: Path):
     assert "available:" not in out
 
 
+def test_trust_command_is_local_and_never_reads_captured_stdin(tmp_path: Path):
+    out = _run_local_commands(tmp_path, "/trust\n/exit\n")
+    assert "/trust requires the interactive product TUI" in out
+
+
 def test_tool_filter_options_filter_provider_visible_tools(tmp_path: Path):
     seen: list[tuple[str, ...]] = []
 
@@ -1665,13 +1680,13 @@ def test_unfiltered_tool_visibility_includes_extension_tools_added_by_reload(
         f"DYNAMIC_TOOL = Path({str(dynamic_tool_file)!r})\n"
         "def install(ctx, args):\n"
         "    DYNAMIC_TOOL.write_text(\n"
-        "        \"from pipy_harness.extensions import ExtensionTool, ToolResult\\n\"\n"
-        "        \"def activate(api):\\n\"\n"
-        "        \"    api.register_tool(ExtensionTool(\\n\"\n"
+        '        "from pipy_harness.extensions import ExtensionTool, ToolResult\\n"\n'
+        '        "def activate(api):\\n"\n'
+        '        "    api.register_tool(ExtensionTool(\\n"\n'
         "        \"        name='dynamic_tool', description='added on reload',\\n\"\n"
         "        \"        input_schema={'type': 'object'},\\n\"\n"
         "        \"        handler=lambda ctx, params: ToolResult(content='ok'),\\n\"\n"
-        "        \"    ))\\n\"\n"
+        '        "    ))\\n"\n'
         "    )\n"
         "def activate(api):\n"
         "    api.register_command('install-tool', 'install a tool', install)\n",
@@ -1685,7 +1700,9 @@ def test_unfiltered_tool_visibility_includes_extension_tools_added_by_reload(
         name: str = "recording"
         model_id: str = "recording-model"
 
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        def complete(
+            self, request: ProviderRequest, **_kwargs: object
+        ) -> ProviderResult:
             seen.append(tuple(tool.name for tool in request.available_tools))
             now = datetime.now(UTC)
             return ProviderResult(
@@ -1732,18 +1749,24 @@ def test_tool_filter_options_unknown_name_fails_early(tmp_path: Path):
 
 
 def test_no_builtin_tools_removes_builtin_but_keeps_extension_tool(tmp_path: Path):
-    from pipy_harness.native.tool_loop_session import ToolFilterOptions, _filtered_tool_names
+    from pipy_harness.native.tool_loop_session import (
+        ToolFilterOptions,
+        _filtered_tool_names,
+    )
 
     assert _filtered_tool_names(
         builtin_names={"read", "bash"},
         all_names={"read", "bash", "ext_tool"},
         options=ToolFilterOptions(no_builtin_tools=True),
     ) == {"ext_tool"}
-    assert _filtered_tool_names(
-        builtin_names={"read", "bash"},
-        all_names={"read", "bash", "ext_tool"},
-        options=ToolFilterOptions(no_tools=True),
-    ) == set()
+    assert (
+        _filtered_tool_names(
+            builtin_names={"read", "bash"},
+            all_names={"read", "bash", "ext_tool"},
+            options=ToolFilterOptions(no_tools=True),
+        )
+        == set()
+    )
 
 
 def test_extension_command_persists_session_name_and_label(

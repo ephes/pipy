@@ -174,6 +174,7 @@ class PipyNativeToolReplAdapter:
         initial_messages: tuple[str, ...] = (),
         tool_filter_options: ToolFilterOptions | None = None,
         verbose_startup: bool = False,
+        auto_trust_on_reload_cwd: Path | None = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -195,6 +196,11 @@ class PipyNativeToolReplAdapter:
         self.resource_options = resource_options or RuntimeResourceOptions.empty()
         self.tool_filter_options = tool_filter_options or ToolFilterOptions.empty()
         self.verbose_startup = bool(verbose_startup)
+        self.auto_trust_on_reload_cwd = (
+            auto_trust_on_reload_cwd.expanduser().resolve()
+            if auto_trust_on_reload_cwd is not None
+            else None
+        )
         # Pre-built native product session tree (the product session source of
         # truth). The CLI builds this from -c/-r/--session/--fork/--no-session
         # and injects it; when None the loop runs on an ephemeral in-memory tree
@@ -203,7 +209,9 @@ class PipyNativeToolReplAdapter:
         self.provider = provider
         self.provider_state = provider_state
         self.tool_registry = (
-            dict(tool_registry) if tool_registry is not None else production_tool_registry()
+            dict(tool_registry)
+            if tool_registry is not None
+            else production_tool_registry()
         )
         self.tool_budget = tool_budget
         self.input_stream = input_stream or sys.stdin
@@ -229,9 +237,7 @@ class PipyNativeToolReplAdapter:
         if not cwd.is_dir():
             raise ValueError(f"cwd is not a directory: {cwd}")
         if request.command:
-            raise ValueError(
-                "pipy-native repl does not accept a command after --"
-            )
+            raise ValueError("pipy-native repl does not accept a command after --")
 
         selection = self._current_selection()
         return PreparedRun(
@@ -310,9 +316,7 @@ class PipyNativeToolReplAdapter:
                 base_prompt, discovery
             ) + compose_skills_system_block(skills)
         else:
-            composed_system_prompt = compose_system_prompt(
-                base_prompt, discovery
-            )
+            composed_system_prompt = compose_system_prompt(base_prompt, discovery)
         if self.resume_context is not None:
             # Seed the resumed tool-loop session with only the safe
             # metadata-only resume block; no prior prompts/output/summary text.
@@ -352,6 +356,7 @@ class PipyNativeToolReplAdapter:
             initial_messages=self.initial_messages,
             tool_filter_options=self.tool_filter_options,
             verbose_startup=self.verbose_startup,
+            auto_trust_on_reload_cwd=self.auto_trust_on_reload_cwd,
         )
         run_output = session.run(
             workspace_root=prepared.cwd,

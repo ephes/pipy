@@ -63,6 +63,10 @@ from pipy_harness.native.keybindings import (
     DEFAULT_KEYBINDINGS,
     KeybindingsManager,
 )
+from pipy_harness.native.project_trust import (
+    ProjectTrustEntry,
+    ProjectTrustOption,
+)
 from pipy_harness.native.tool_renderers import (
     build_tool_render_theme,
     render_chrome_component,
@@ -102,6 +106,7 @@ TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = (
     "/model",
     "/scoped-models",
     "/settings",
+    "/trust",
     "/login",
     "/logout",
     "/copy",
@@ -448,9 +453,9 @@ class _ExtensionConfirmComponent(_ExtensionSelectComponent):
         body_width = max(20, width - 3)
         raw_lines = str(self.message).splitlines() or [""]
         for raw_line in raw_lines:
-            pieces = textwrap.wrap(
-                sanitize_label_text(raw_line), width=body_width
-            ) or [""]
+            pieces = textwrap.wrap(sanitize_label_text(raw_line), width=body_width) or [
+                ""
+            ]
             all_lines.extend(f"  {piece}" for piece in pieces)
         truncated = len(all_lines) > self._MAX_MESSAGE_LINES
         wrapped = all_lines[: self._MAX_MESSAGE_LINES]
@@ -554,9 +559,8 @@ class _ExtensionEditorComponent:
         if key in {"shift-enter", "alt-enter"}:
             self._insert("\n")
             return
-        if (
-            self._external_editor is not None
-            and _matches_key_specs(key, self._external_editor_keys)
+        if self._external_editor is not None and _matches_key_specs(
+            key, self._external_editor_keys
         ):
             edited = self._external_editor(self.text)
             if edited is not None:
@@ -760,7 +764,9 @@ class _CustomOverlayHandle:
         return self.isHidden()
 
     def focus(self) -> None:
-        changed = self._ui._custom_overlay_hidden or not self._ui._custom_overlay_focused
+        changed = (
+            self._ui._custom_overlay_hidden or not self._ui._custom_overlay_focused
+        )
         self._ui._custom_overlay_hidden = False
         self._ui._custom_overlay_focused = True
         if changed:
@@ -777,7 +783,9 @@ class _CustomOverlayHandle:
         self._paint()
 
     def isFocused(self) -> bool:  # noqa: N802 - Pi API
-        return bool(self._ui._custom_overlay_focused and not self._ui._custom_overlay_hidden)
+        return bool(
+            self._ui._custom_overlay_focused and not self._ui._custom_overlay_hidden
+        )
 
     def is_focused(self) -> bool:
         return self.isFocused()
@@ -825,8 +833,7 @@ def _resolved_key_specs(
     ):
         if keybindings_manager.has_user_binding(action):
             return [
-                _canonical_key_spec(key)
-                for key in keybindings_manager.keys_for(action)
+                _canonical_key_spec(key) for key in keybindings_manager.keys_for(action)
             ]
     return [_canonical_key_spec(key) for key in _default_keys_for_action(action)]
 
@@ -834,9 +841,7 @@ def _resolved_key_specs(
 def _matches_key_specs(key: str, specs: Sequence[str]) -> bool:
     normalized = normalize_shortcut_key(key)
     aliases = {
-        candidate
-        for spec in specs
-        if (candidate := normalize_shortcut_key(spec))
+        candidate for spec in specs if (candidate := normalize_shortcut_key(spec))
     }
     if "escape" in aliases:
         aliases.add("esc")
@@ -995,6 +1000,7 @@ class ToolLoopTerminalUi:
     settings_dialog_open: bool = False
     settings_dialog_rows: tuple[SettingsRow, ...] = ()
     settings_dialog_selection: int = 0
+    settings_dialog_title: str = "Settings"
     tree_selector_open: bool = False
     tree_selector_rows: tuple["TreeSelectorRow", ...] = ()
     tree_selector_selection: int = 0
@@ -1346,9 +1352,8 @@ class ToolLoopTerminalUi:
                     self._redo_edit()
                     self.paint()
                     continue
-                if (
-                    key.isprintable()
-                    and (len(key) == 1 or self._extension_terminal_input_last_replaced)
+                if key.isprintable() and (
+                    len(key) == 1 or self._extension_terminal_input_last_replaced
                 ):
                     self._insert_input_text(key)
                     self.paint()
@@ -1573,9 +1578,7 @@ class ToolLoopTerminalUi:
         if total == 0:
             return
         delta = -1 if key == "up" else 1
-        self.model_selector_selection = (
-            self.model_selector_selection + delta
-        ) % total
+        self.model_selector_selection = (self.model_selector_selection + delta) % total
         self.paint()
 
     def _close_model_selector(self) -> None:
@@ -1632,7 +1635,9 @@ class ToolLoopTerminalUi:
                     continue
                 if key == "a":
                     self.scoped_models_checked = {
-                        i for i, row in enumerate(self.scoped_models_rows) if row.available
+                        i
+                        for i, row in enumerate(self.scoped_models_rows)
+                        if row.available
                     }
                     self.paint()
                     continue
@@ -1746,6 +1751,7 @@ class ToolLoopTerminalUi:
         on_local_action: Callable[[str], Sequence[SettingsRow]],
         exit_actions: frozenset[str] = frozenset(),
         current_index: int | None = None,
+        title: str = "Settings",
     ) -> str | None:
         """Drive the interactive ``/settings`` dialog as a live overlay.
 
@@ -1765,13 +1771,12 @@ class ToolLoopTerminalUi:
         the caller acts on afterwards.
         """
 
+        self.settings_dialog_title = title
         self.settings_dialog_rows = tuple(rows)
         if not self.settings_dialog_rows:
             return None
         self.settings_dialog_open = True
-        self.settings_dialog_selection = self._initial_settings_selection(
-            current_index
-        )
+        self.settings_dialog_selection = self._initial_settings_selection(current_index)
         self.paint()
         fd = self.input_stream.fileno()
         try:
@@ -1788,7 +1793,11 @@ class ToolLoopTerminalUi:
                     self._navigate_settings_dialog(key)
                     continue
                 if key in {"enter", " "}:
-                    if not (0 <= self.settings_dialog_selection < len(self.settings_dialog_rows)):
+                    if not (
+                        0
+                        <= self.settings_dialog_selection
+                        < len(self.settings_dialog_rows)
+                    ):
                         continue
                     row = self.settings_dialog_rows[self.settings_dialog_selection]
                     if row.action is None:
@@ -1854,6 +1863,7 @@ class ToolLoopTerminalUi:
         self.settings_dialog_open = False
         self.settings_dialog_rows = ()
         self.settings_dialog_selection = 0
+        self.settings_dialog_title = "Settings"
         self.paint()
 
     def set_input_text(self, text: str) -> None:
@@ -1950,12 +1960,16 @@ class ToolLoopTerminalUi:
         self._set_component_attr_if_absent(
             component,
             "on_extension_shortcut",
-            lambda key: self._queue_custom_editor_action(f"app.extensionShortcut:{key}"),
+            lambda key: self._queue_custom_editor_action(
+                f"app.extensionShortcut:{key}"
+            ),
         )
         self._set_component_attr_if_absent(
             component,
             "onExtensionShortcut",
-            lambda key: self._queue_custom_editor_action(f"app.extensionShortcut:{key}"),
+            lambda key: self._queue_custom_editor_action(
+                f"app.extensionShortcut:{key}"
+            ),
         )
         self._set_component_attr_pair_if_absent(
             component,
@@ -1979,8 +1993,8 @@ class ToolLoopTerminalUi:
             for action in _CustomEditorKeybindings._HANDLER_ACTIONS:
                 try:
                     if action not in handlers:
-                        handlers[action] = (
-                            lambda action=action: self._queue_custom_editor_action(action)
+                        handlers[action] = lambda action=action: (
+                            self._queue_custom_editor_action(action)
                         )
                 except Exception:  # noqa: BLE001 - duck-typed mapping may be immutable
                     pass
@@ -1989,9 +2003,7 @@ class ToolLoopTerminalUi:
         self._custom_editor_action = action
 
     @staticmethod
-    def _set_component_attr(
-        component: object, name: str, value: object
-    ) -> None:
+    def _set_component_attr(component: object, name: str, value: object) -> None:
         try:
             setattr(component, name, value)
         except Exception:  # noqa: BLE001 - duck-typed object may forbid attrs
@@ -2231,9 +2243,7 @@ class ToolLoopTerminalUi:
                     self.paint()
                     continue
                 if key == "L":
-                    if 0 <= self.tree_selector_selection < len(
-                        self.tree_selector_rows
-                    ):
+                    if 0 <= self.tree_selector_selection < len(self.tree_selector_rows):
                         entry_id = self.tree_selector_rows[
                             self.tree_selector_selection
                         ].entry_id
@@ -2262,9 +2272,7 @@ class ToolLoopTerminalUi:
         """Default the highlight to the last active-path row, else the last row."""
 
         active = [
-            index
-            for index, row in enumerate(self.tree_selector_rows)
-            if row.active
+            index for index, row in enumerate(self.tree_selector_rows) if row.active
         ]
         if active:
             return active[-1]
@@ -2275,9 +2283,7 @@ class ToolLoopTerminalUi:
         if total == 0:
             return
         delta = -1 if key == "up" else 1
-        self.tree_selector_selection = (
-            self.tree_selector_selection + delta
-        ) % total
+        self.tree_selector_selection = (self.tree_selector_selection + delta) % total
         self.paint()
 
     def _close_tree_selector(self) -> None:
@@ -2328,9 +2334,7 @@ class ToolLoopTerminalUi:
             marker = "*" if row.active else " "
             kind = "selector_option_selected" if selected else "selector_option"
             rows.append(
-                _FrameLine(
-                    self._clip(f"{prefix}{marker} {row.label}", width), kind
-                )
+                _FrameLine(self._clip(f"{prefix}{marker} {row.label}", width), kind)
             )
         lines = [title, *rows]
         if start > 0 or start + visible_count < total:
@@ -2435,7 +2439,9 @@ class ToolLoopTerminalUi:
         return self._custom_result
 
     def _custom_component_width(self, options: object) -> int | None:
-        overlay_options = self._custom_option(options, "overlayOptions", "overlay_options")
+        overlay_options = self._custom_option(
+            options, "overlayOptions", "overlay_options"
+        )
         if callable(overlay_options):
             try:
                 overlay_options = overlay_options()
@@ -2483,9 +2489,7 @@ class ToolLoopTerminalUi:
                 return getattr(source, name)
         return None
 
-    def run_extension_select(
-        self, title: str, options: Sequence[str]
-    ) -> str | None:
+    def run_extension_select(self, title: str, options: Sequence[str]) -> str | None:
         """Run a Pi-shaped extension selector over string options."""
 
         choices = tuple(str(option) for option in options if str(option))
@@ -2837,7 +2841,8 @@ class ToolLoopTerminalUi:
         now = time.monotonic()
         if (
             not force
-            and now - self._footer_branch_last_check < self._footer_branch_check_interval
+            and now - self._footer_branch_last_check
+            < self._footer_branch_check_interval
         ):
             return
         self._footer_branch_last_check = now
@@ -2861,7 +2866,9 @@ class ToolLoopTerminalUi:
                     footer_data=FooterData(
                         git_branch=branch,
                         extension_statuses=dict(self.extension_status),
-                        available_provider_count=int(self.available_provider_count or 0),
+                        available_provider_count=int(
+                            self.available_provider_count or 0
+                        ),
                         branch_change_registrar=self.register_footer_branch_change_callback,
                     ),
                     max_lines=_FOOTER_MAX_LINES,
@@ -2913,13 +2920,17 @@ class ToolLoopTerminalUi:
                 self._extension_footer_branch = None
             else:
                 fd = (
-                    footer_data if footer_data is not None else self._footer_data_snapshot()
+                    footer_data
+                    if footer_data is not None
+                    else self._footer_data_snapshot()
                 )
                 if isinstance(fd, FooterData):
                     # Seed from the same detector used by the poller so the
                     # first poll does not rebuild solely because an external
                     # driver formatted its snapshot differently.
-                    self._extension_footer_branch = self._detect_extension_footer_branch()
+                    self._extension_footer_branch = (
+                        self._detect_extension_footer_branch()
+                    )
                 self.extension_footer = self._build_region(
                     factory, footer_data=fd, max_lines=_FOOTER_MAX_LINES
                 )
@@ -2933,7 +2944,9 @@ class ToolLoopTerminalUi:
             else:
                 if not self._extension_title_pushed:
                     self._push_terminal_title()
-                self.extension_title = sanitize_label_text(str(title))[:_TITLE_MAX_CHARS]
+                self.extension_title = sanitize_label_text(str(title))[
+                    :_TITLE_MAX_CHARS
+                ]
                 self._write_terminal_title(self.extension_title)
         # title is OS-level; no frame repaint needed.
 
@@ -3120,9 +3133,9 @@ class ToolLoopTerminalUi:
             raise
         except BaseException:  # noqa: BLE001 - never let a bad render crash paint
             raw = ["(custom component render error)"]
-        lines = [
-            _clip_custom_overlay_text(str(line), width) for line in (raw or [])
-        ][: max(1, height)]
+        lines = [_clip_custom_overlay_text(str(line), width) for line in (raw or [])][
+            : max(1, height)
+        ]
         return [_FrameLine(line, "normal") for line in lines]
 
     # -- interactive session picker (/resume + -r overlay) ------------------
@@ -3353,9 +3366,7 @@ class ToolLoopTerminalUi:
         if total == 0:
             return
         delta = -1 if key == "up" else 1
-        self.session_picker_selection = (
-            self.session_picker_selection + delta
-        ) % total
+        self.session_picker_selection = (self.session_picker_selection + delta) % total
         self.paint()
 
     def _apply_session_rename(self, path: Path, name: str) -> None:
@@ -3436,9 +3447,7 @@ class ToolLoopTerminalUi:
             row = self._selected_session_row()
             shown = (row.name or row.session_id[:8]) if row else ""
             prompt = _FrameLine(
-                self._clip(
-                    f"  delete {sanitize_label_text(shown)}? [y/N]", width
-                ),
+                self._clip(f"  delete {sanitize_label_text(shown)}? [y/N]", width),
                 "notice",
             )
         else:
@@ -3465,9 +3474,7 @@ class ToolLoopTerminalUi:
         max_rows = max(1, height - 5 - len(status_lines))
         total = len(rows_data)
         if total == 0:
-            empty = _FrameLine(
-                self._clip("  (no native sessions)", width), "normal"
-            )
+            empty = _FrameLine(self._clip("  (no native sessions)", width), "normal")
             return [title, prompt, *status_lines, empty, *footer]
         visible_count = min(total, max_rows)
         start = max(
@@ -3538,7 +3545,9 @@ class ToolLoopTerminalUi:
         self._settle_reasoning()
         self.assistant_text = ""
         self.working_text = ""
-        self._history_blocks.append(_HistoryBlockTuple("user", tuple(text.splitlines() or [""])))
+        self._history_blocks.append(
+            _HistoryBlockTuple("user", tuple(text.splitlines() or [""]))
+        )
         self.paint()
 
     def begin_assistant_turn(self) -> None:
@@ -3571,7 +3580,9 @@ class ToolLoopTerminalUi:
             self.assistant_text = final_text
         if self.assistant_text:
             self._history_blocks.append(
-                _HistoryBlockTuple("assistant", tuple(self.assistant_text.splitlines() or [""]))
+                _HistoryBlockTuple(
+                    "assistant", tuple(self.assistant_text.splitlines() or [""])
+                )
             )
             self.assistant_text = ""
         self.paint()
@@ -3581,7 +3592,9 @@ class ToolLoopTerminalUi:
         self._settle_reasoning()
         if self.assistant_text:
             self._history_blocks.append(
-                _HistoryBlockTuple("assistant", tuple(self.assistant_text.splitlines() or [""]))
+                _HistoryBlockTuple(
+                    "assistant", tuple(self.assistant_text.splitlines() or [""])
+                )
             )
             self.assistant_text = ""
         self._history_blocks.append(_HistoryBlockTuple("error", ("Operation aborted",)))
@@ -3605,7 +3618,9 @@ class ToolLoopTerminalUi:
             self._deferred_reasoning.append(self.reasoning_text)
         else:
             self._history_blocks.append(
-                _HistoryBlockTuple("reasoning", tuple(self.reasoning_text.splitlines() or [""]))
+                _HistoryBlockTuple(
+                    "reasoning", tuple(self.reasoning_text.splitlines() or [""])
+                )
             )
         self.reasoning_text = ""
 
@@ -3651,7 +3666,9 @@ class ToolLoopTerminalUi:
 
         self._settle_reasoning()
         self.working_text = ""
-        self._history_blocks.append(_HistoryBlockTuple("settings", tuple(lines) or ("",)))
+        self._history_blocks.append(
+            _HistoryBlockTuple("settings", tuple(lines) or ("",))
+        )
         self.paint()
 
     def redraw_custom_entries(
@@ -3700,7 +3717,9 @@ class ToolLoopTerminalUi:
             else:
                 label = sanitize_label_text(str(custom_type).strip()) or "custom"
                 safe_lines = tuple(sanitize_label_text(line) for line in lines) or ("",)
-                replacement_blocks.append(_HistoryBlockTuple("custom", (f"[{label}]", *safe_lines)))
+                replacement_blocks.append(
+                    _HistoryBlockTuple("custom", (f"[{label}]", *safe_lines))
+                )
 
         next_replacement = iter(replacement_blocks)
         rebuilt: list[_HistoryBlock] = []
@@ -3735,7 +3754,9 @@ class ToolLoopTerminalUi:
         self.working_text = ""
         label = sanitize_label_text(str(custom_type).strip()) or "custom"
         safe_lines = tuple(sanitize_label_text(line) for line in lines) or ("",)
-        self._history_blocks.append(_HistoryBlockTuple("custom", (f"[{label}]", *safe_lines)))
+        self._history_blocks.append(
+            _HistoryBlockTuple("custom", (f"[{label}]", *safe_lines))
+        )
         self.paint()
 
     def add_tool_call(self, header: str) -> None:
@@ -3743,7 +3764,9 @@ class ToolLoopTerminalUi:
         self.working_text = ""
         self.tool_output_text = ""
         if header.startswith("read ") or header.startswith("read resource "):
-            self._history_blocks.append(_HistoryBlockTuple("tool_read", (_compact_read_header(header),)))
+            self._history_blocks.append(
+                _HistoryBlockTuple("tool_read", (_compact_read_header(header),))
+            )
         else:
             self._history_blocks.append(_HistoryBlockTuple("tool", (header,)))
         self.paint()
@@ -3780,7 +3803,9 @@ class ToolLoopTerminalUi:
             rendered.append("[error] tool reported a failure")
         if duration_seconds is not None:
             rendered.extend(("", f"Took {duration_seconds:.1f}s"))
-        self._history_blocks.append(_HistoryBlockTuple("tool_result", tuple(rendered or [""])))
+        self._history_blocks.append(
+            _HistoryBlockTuple("tool_result", tuple(rendered or [""]))
+        )
         self.paint()
 
     def add_tool_call_custom(self, lines: Iterable[str]) -> None:
@@ -3788,7 +3813,9 @@ class ToolLoopTerminalUi:
         self._settle_reasoning()
         self.working_text = ""
         self.tool_output_text = ""
-        self._history_blocks.append(_HistoryBlockTuple("tool_call_custom", tuple(lines) or ("",)))
+        self._history_blocks.append(
+            _HistoryBlockTuple("tool_call_custom", tuple(lines) or ("",))
+        )
         self.paint()
 
     def add_tool_result_custom(
@@ -3800,7 +3827,9 @@ class ToolLoopTerminalUi:
         rendered = list(lines)
         if duration_seconds is not None:
             rendered.extend(("", f"Took {duration_seconds:.1f}s"))
-        self._history_blocks.append(_HistoryBlockTuple("tool_result_custom", tuple(rendered or [""])))
+        self._history_blocks.append(
+            _HistoryBlockTuple("tool_result_custom", tuple(rendered or [""]))
+        )
         self.paint()
 
     def add_custom_entry_styled(
@@ -3832,7 +3861,9 @@ class ToolLoopTerminalUi:
                 styled=True,
                 lines=rendered_lines,
             )
-        self._history_blocks.append(_HistoryBlockTuple("custom_message_custom", rendered_lines, state))
+        self._history_blocks.append(
+            _HistoryBlockTuple("custom_message_custom", rendered_lines, state)
+        )
         self.paint()
 
     def rerender_custom_messages(self) -> None:
@@ -3845,7 +3876,9 @@ class ToolLoopTerminalUi:
         rebuilt: list[_HistoryBlock] = []
         for block in self._history_blocks:
             kind, lines = block
-            state = cast(_CustomMessageRenderState | None, getattr(block, "state", None))
+            state = cast(
+                _CustomMessageRenderState | None, getattr(block, "state", None)
+            )
             if state is None:
                 rebuilt.append(_HistoryBlockTuple(kind, lines, state))
                 continue
@@ -3869,7 +3902,9 @@ class ToolLoopTerminalUi:
                 )
             else:
                 label = sanitize_label_text(str(state.custom_type).strip()) or "custom"
-                safe_lines = tuple(sanitize_label_text(line) for line in rendered.lines) or ("",)
+                safe_lines = tuple(
+                    sanitize_label_text(line) for line in rendered.lines
+                ) or ("",)
                 next_kind = "custom"
                 next_lines = (f"[{label}]", *safe_lines)
                 next_state = _CustomMessageRenderState(
@@ -3960,25 +3995,17 @@ class ToolLoopTerminalUi:
             # history as fits above it so render_lines() agrees with the paint()
             # live region.
             if self.custom_overlay_open:
-                selector = self._custom_overlay_region_lines(
-                    width=width, height=height
-                )
+                selector = self._custom_overlay_region_lines(width=width, height=height)
             elif self.settings_dialog_open:
                 selector = self._settings_dialog_region_lines(
                     width=width, height=height
                 )
             elif self.tree_selector_open:
-                selector = self._tree_selector_region_lines(
-                    width=width, height=height
-                )
+                selector = self._tree_selector_region_lines(width=width, height=height)
             elif self.scoped_models_open:
-                selector = self._scoped_models_region_lines(
-                    width=width, height=height
-                )
+                selector = self._scoped_models_region_lines(width=width, height=height)
             else:
-                selector = self._model_selector_region_lines(
-                    width=width, height=height
-                )
+                selector = self._model_selector_region_lines(width=width, height=height)
             max_history_lines = max(0, height - len(selector))
             if len(history_lines) > max_history_lines:
                 history_lines = history_lines[len(history_lines) - max_history_lines :]
@@ -4055,9 +4082,7 @@ class ToolLoopTerminalUi:
             - chrome_extra,
         )
         if has_tool_panel:
-            max_history_lines = min(
-                max_history_lines, _TOOL_PANEL_HISTORY_VIEW_LINES
-            )
+            max_history_lines = min(max_history_lines, _TOOL_PANEL_HISTORY_VIEW_LINES)
         min_history_lines = min(_DEFAULT_HISTORY_VIEW_LINES, max_history_lines)
         history_overflowed = len(history_lines) > max_history_lines
         if len(history_lines) > max_history_lines:
@@ -4188,7 +4213,9 @@ class ToolLoopTerminalUi:
         # 3. Draw the live region (bounded transient stream + input/footer).
         live = self._live_region_lines(width=width, height=height)
         input_index = self._input_index(live)
-        padding_before_live = max(0, self._live_input_row - committed_rows - input_index)
+        padding_before_live = max(
+            0, self._live_input_row - committed_rows - input_index
+        )
         if padding_before_live:
             live = [
                 *(_FrameLine("", "normal") for _ in range(padding_before_live)),
@@ -4373,9 +4400,7 @@ class ToolLoopTerminalUi:
                 kind = "selector_option"
             else:
                 kind = "selector_option_disabled"
-            rows.append(
-                _FrameLine(self._clip(f"{prefix}{option.label}", width), kind)
-            )
+            rows.append(_FrameLine(self._clip(f"{prefix}{option.label}", width), kind))
         lines = [title, *rows]
         if start > 0 or start + visible_count < total:
             lines.append(
@@ -4409,7 +4434,7 @@ class ToolLoopTerminalUi:
         ]
         title = _FrameLine(
             self._clip(
-                " Settings — ↑/↓ move · enter/space act · esc close",
+                f" {self.settings_dialog_title} — ↑/↓ move · enter/space act · esc close",
                 width,
             ),
             "selector_title",
@@ -4491,7 +4516,9 @@ class ToolLoopTerminalUi:
             )
         lines.append(
             _FrameLine(
-                self._clip("  (alt+up to restore queued messages to the editor)", width),
+                self._clip(
+                    "  (alt+up to restore queued messages to the editor)", width
+                ),
                 "slash_menu_scroll",
             )
         )
@@ -4550,9 +4577,7 @@ class ToolLoopTerminalUi:
             for line in lines
         ]
 
-    def _extension_widgets_lines(
-        self, placement: str, width: int
-    ) -> list[_FrameLine]:
+    def _extension_widgets_lines(self, placement: str, width: int) -> list[_FrameLine]:
         regions = (
             self.extension_widgets_below
             if placement == "below_editor"
@@ -4641,9 +4666,7 @@ class ToolLoopTerminalUi:
         menu_lines: list[_FrameLine],
         pending_lines: list[_FrameLine],
         status_lines: list[_FrameLine],
-    ) -> tuple[
-        list[_FrameLine], list[_FrameLine], list[_FrameLine], list[_FrameLine]
-    ]:
+    ) -> tuple[list[_FrameLine], list[_FrameLine], list[_FrameLine], list[_FrameLine]]:
         """Fetch + viewport-clamp the extension chrome for one frame.
 
         Returns ``(header_lines, above_widgets, below_widgets, footer_rows)``
@@ -4706,9 +4729,7 @@ class ToolLoopTerminalUi:
         rows: list[_FrameLine] = []
         for key, raw_value in items[:3]:
             value = sanitize_label_text(raw_value)
-            rows.append(
-                _FrameLine(self._clip(f"  {key}: {value}", width), "notice")
-            )
+            rows.append(_FrameLine(self._clip(f"  {key}: {value}", width), "notice"))
         hidden = len(items) - len(rows)
         if hidden > 0:
             rows.append(
@@ -4764,7 +4785,7 @@ class ToolLoopTerminalUi:
             if not style.enabled:
                 return text
             if text.startswith(" pipy v"):
-                return f" {style.title('pipy')}{style.dim(text[len(' pipy'):])}"
+                return f" {style.title('pipy')}{style.dim(text[len(' pipy') :])}"
             return style.title(text)
         if line.kind in {"dim", "resource", "footer"}:
             return style.dim(text)
@@ -4815,9 +4836,8 @@ class ToolLoopTerminalUi:
                     + text[:description_start]
                     + style.secondary_dim(text[description_start:])
                 )
-            return (
-                text[:description_start]
-                + style.secondary_dim(text[description_start:])
+            return text[:description_start] + style.secondary_dim(
+                text[description_start:]
             )
         if line.kind == "slash_menu_scroll":
             return style.secondary_dim(text)
@@ -4832,7 +4852,11 @@ class ToolLoopTerminalUi:
             return style.cursor_cell(before, cursor_char, after)
         if line.kind == "user":
             return style.user_message(text, width=width)
-        if line.kind in {"tool_call_custom", "tool_result_custom", "custom_message_custom"}:
+        if line.kind in {
+            "tool_call_custom",
+            "tool_result_custom",
+            "custom_message_custom",
+        }:
             return style.tool_custom(line.text, width=width)
         if line.kind == "chrome_custom":
             return style.tool_custom(line.text, width=width)
@@ -4915,7 +4939,10 @@ class ToolLoopTerminalUi:
                     "ctrl+t thinking fold · ctrl+v paste image · drop files to attach",
                 ),
             ),
-            ("dim", (" Type /hotkeys for the full key reference and loaded resources.",)),
+            (
+                "dim",
+                (" Type /hotkeys for the full key reference and loaded resources.",),
+            ),
             ("normal", ("",)),
             (
                 "dim",
@@ -4926,7 +4953,9 @@ class ToolLoopTerminalUi:
             ),
             ("normal", ("", "")),
         ]
-        blocks: list[_HistoryBlock] = [_HistoryBlockTuple(kind, lines) for kind, lines in raw_blocks]
+        blocks: list[_HistoryBlock] = [
+            _HistoryBlockTuple(kind, lines) for kind, lines in raw_blocks
+        ]
         context = discover_loaded_resource_names(
             self.cwd,
             "context",
@@ -4936,9 +4965,7 @@ class ToolLoopTerminalUi:
             blocks.append(
                 _HistoryBlockTuple(
                     "section",
-                    (
-                        "[Context]",
-                    ),
+                    ("[Context]",),
                     None,
                 )
             )
@@ -4961,9 +4988,7 @@ class ToolLoopTerminalUi:
             blocks.append(
                 _HistoryBlockTuple(
                     "section",
-                    (
-                        "[Skills]",
-                    ),
+                    ("[Skills]",),
                     None,
                 )
             )
@@ -5046,7 +5071,14 @@ class ToolLoopTerminalUi:
             rendered.append(_FrameLine("", "tool_result"))
         elif kind == "tool_read":
             rendered.extend((_FrameLine("", "tool_result"), _FrameLine("")))
-        elif kind in {"assistant", "tool_result", "notice", "working", "settings", "custom"}:
+        elif kind in {
+            "assistant",
+            "tool_result",
+            "notice",
+            "working",
+            "settings",
+            "custom",
+        }:
             rendered.append(_FrameLine(""))
             if kind == "tool_result":
                 rendered.append(_FrameLine(""))
@@ -5601,7 +5633,11 @@ class ToolLoopTerminalUi:
         candidate = text.strip()
         if not candidate or "\n" in candidate:
             return None
-        if len(candidate) >= 2 and candidate[0] == candidate[-1] and candidate[0] in "\"'":
+        if (
+            len(candidate) >= 2
+            and candidate[0] == candidate[-1]
+            and candidate[0] in "\"'"
+        ):
             candidate = candidate[1:-1]
         if not candidate or "\x00" in candidate:
             return None
@@ -5656,9 +5692,7 @@ class ToolLoopTerminalUi:
                 self.clipboard_temp_dir
                 / f"pipy-clipboard-{self._clipboard_image_count}.{extension}"
             )
-            descriptor = os.open(
-                path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
-            )
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(result.data)
         except OSError:
@@ -5870,7 +5904,9 @@ class ToolLoopTerminalUi:
         if callable(factory):
             self._autocomplete_provider_factories.append(factory)
             if self._custom_editor_component is not None:
-                self._forward_autocomplete_to_custom_editor(self._custom_editor_component)
+                self._forward_autocomplete_to_custom_editor(
+                    self._custom_editor_component
+                )
 
     def _autocomplete_provider(self) -> object:
         provider: object = _BuiltinAutocompleteProvider(self)
@@ -5883,7 +5919,9 @@ class ToolLoopTerminalUi:
                 provider = wrapped
         return provider
 
-    def _autocomplete_suggestions(self, *, force: bool) -> AutocompleteSuggestion | None:
+    def _autocomplete_suggestions(
+        self, *, force: bool
+    ) -> AutocompleteSuggestion | None:
         cursor = self._effective_input_cursor()
         lines, cursor_line, cursor_col = cursor_to_line_col(self.input_text, cursor)
         provider = self._autocomplete_provider()
@@ -5922,7 +5960,9 @@ class ToolLoopTerminalUi:
                 AutocompleteContext(force=force, signal=None),
             )
         suggestion = coerce_suggestion(raw)
-        self._autocomplete_active_provider = provider if suggestion is not None else None
+        self._autocomplete_active_provider = (
+            provider if suggestion is not None else None
+        )
         return suggestion
 
     def _close_autocomplete(self) -> None:
@@ -6061,9 +6101,9 @@ class ToolLoopTerminalUi:
         if not self.autocomplete_open or not self.autocomplete_items:
             return
         delta = -1 if key == "up" else 1
-        self.autocomplete_selection = (
-            self.autocomplete_selection + delta
-        ) % len(self.autocomplete_items)
+        self.autocomplete_selection = (self.autocomplete_selection + delta) % len(
+            self.autocomplete_items
+        )
         self.paint()
 
     def _accept_autocomplete_selection(self) -> None:
@@ -6092,7 +6132,9 @@ class ToolLoopTerminalUi:
         self._snapshot_for_undo()
         self._reset_history_nav()
         mode = self.autocomplete_mode
-        provider = self._autocomplete_active_provider or _BuiltinAutocompleteProvider(self)
+        provider = self._autocomplete_active_provider or _BuiltinAutocompleteProvider(
+            self
+        )
         lines, cursor_line, cursor_col = cursor_to_line_col(self.input_text, cursor)
         try:
             raw_result = call_provider_method(
@@ -6183,7 +6225,9 @@ class ToolLoopTerminalUi:
         if not self.slash_menu_open:
             return ()
         prefix = self.input_text[: self._effective_input_cursor()]
-        return tuple(command for command in self.command_names if command.startswith(prefix))
+        return tuple(
+            command for command in self.command_names if command.startswith(prefix)
+        )
 
     def _accept_slash_menu_selection(self) -> None:
         matches = self._filtered_commands()
@@ -6224,7 +6268,9 @@ class ToolLoopTerminalUi:
         items = self.autocomplete_items
         if not self.autocomplete_open or not items or max_rows <= 0:
             return []
-        menu_cap = self.autocomplete_max_visible if self.autocomplete_max_visible > 0 else 5
+        menu_cap = (
+            self.autocomplete_max_visible if self.autocomplete_max_visible > 0 else 5
+        )
         visible_count = min(len(items), max_rows, menu_cap)
         start = max(
             0,
@@ -6272,7 +6318,9 @@ class ToolLoopTerminalUi:
         matches = self._filtered_commands()
         if not self.slash_menu_open or not matches or max_rows <= 0:
             return []
-        menu_cap = self.autocomplete_max_visible if self.autocomplete_max_visible > 0 else 5
+        menu_cap = (
+            self.autocomplete_max_visible if self.autocomplete_max_visible > 0 else 5
+        )
         visible_count = min(len(matches), max_rows, menu_cap)
         start = max(
             0,
@@ -6327,6 +6375,113 @@ class ToolLoopTerminalUi:
 
 def _compact_read_header(header: str) -> str:
     return re.sub(r":\d+-\d+(?:\s+\(ctrl\+o to expand\))?$", "", header)
+
+
+def run_project_trust_selector(
+    ui: ToolLoopTerminalUi,
+    *,
+    cwd: Path,
+    options: Sequence[ProjectTrustOption],
+    saved_decision: ProjectTrustEntry | None = None,
+    current_trusted: bool | None = None,
+    startup: bool = False,
+) -> ProjectTrustOption | None:
+    """Drive the shared startup/``/trust`` selector in a live product TUI."""
+
+    canonical_cwd = cwd.expanduser().resolve()
+    display_cwd = sanitize_label_text(str(canonical_cwd))
+    rows = [
+        SettingsRow(label=display_cwd, kind="status"),
+    ]
+    if startup:
+        rows.extend(
+            (
+                SettingsRow(
+                    label="Trust enables project settings/resources and packages.",
+                    kind="status",
+                ),
+                SettingsRow(
+                    label="Trusted projects may execute project extensions.",
+                    kind="status",
+                ),
+            )
+        )
+    else:
+        if saved_decision is None:
+            saved_label = "none"
+        else:
+            decision_label = "trusted" if saved_decision.decision else "untrusted"
+            display_saved_path = sanitize_label_text(str(saved_decision.path))
+            if saved_decision.path != canonical_cwd:
+                saved_label = (
+                    f"{decision_label} (inherited from {display_saved_path})"
+                )
+            else:
+                saved_label = f"{decision_label} ({display_saved_path})"
+        rows.extend(
+            (
+                SettingsRow(label=f"Saved decision: {saved_label}", kind="status"),
+                SettingsRow(
+                    label=(
+                        "Current session: "
+                        f"{'trusted' if current_trusted else 'untrusted'}"
+                    ),
+                    kind="status",
+                ),
+            )
+        )
+    action_to_option: dict[str, ProjectTrustOption] = {}
+    saved_row_index: int | None = None
+    for index, option in enumerate(options):
+        action = f"trust-option-{index}"
+        action_to_option[action] = option
+        rows.append(
+            SettingsRow(
+                label=sanitize_label_text(option.label),
+                kind="action",
+                action=action,
+            )
+        )
+        if (
+            saved_decision is not None
+            and option.saved_path == saved_decision.path
+            and option.trusted == saved_decision.decision
+        ):
+            saved_row_index = len(rows) - 1
+    chosen = ui.run_settings_dialog(
+        rows,
+        on_local_action=lambda _action: rows,
+        exit_actions=frozenset(action_to_option),
+        current_index=saved_row_index,
+        title="Trust project folder?" if startup else "Project trust",
+    )
+    return action_to_option.get(chosen) if chosen is not None else None
+
+
+def run_startup_project_trust_selector(
+    *, cwd: Path, options: Sequence[ProjectTrustOption]
+) -> ProjectTrustOption | None:
+    """Open the pre-runtime project-trust selector on a real TTY."""
+
+    try:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return None
+    except (ValueError, OSError):
+        return None
+    ui = ToolLoopTerminalUi(
+        input_stream=sys.stdin,
+        terminal_stream=sys.stdout,
+        cwd=cwd,
+    )
+    try:
+        return run_project_trust_selector(
+            ui,
+            cwd=cwd,
+            options=options,
+            startup=True,
+        )
+    finally:
+        ui.close()
 
 
 def run_startup_session_picker(

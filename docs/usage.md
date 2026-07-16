@@ -235,7 +235,9 @@ still have provider-specific follow-up work tracked in
 When both trust flags are repeated, the last one wins. Saved closest-ancestor
 decisions live in the global config root's `trust.json`; global
 `defaultProjectTrust` controls the `ask|always|never` fallback. See
-[Settings](settings.md). Trust gates project inputs but is not a sandbox.
+[Settings](settings.md). Interactive `ask` opens the trust selector; `/trust`
+saves a current/parent decision for the next restart. Trust gates project inputs
+but is not a sandbox.
 
 ### Tool options
 

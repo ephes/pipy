@@ -39,12 +39,27 @@ def _read(path: Path) -> dict:
 
 
 def _git(*args: str, cwd: Path) -> None:
-    subprocess.run(["git", *args], cwd=cwd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
 
 def _commit_all(repo: Path, message: str) -> None:
     _git("add", ".", cwd=repo)
-    _git("-c", "user.name=pipy", "-c", "user.email=pipy@example.invalid", "commit", "-m", message, cwd=repo)
+    _git(
+        "-c",
+        "user.name=pipy",
+        "-c",
+        "user.email=pipy@example.invalid",
+        "commit",
+        "-m",
+        message,
+        cwd=repo,
+    )
 
 
 def _make_git_package(tmp_path: Path) -> Path:
@@ -100,9 +115,9 @@ def test_list_user_and_project_and_empty(tmp_path: Path) -> None:
     user = _settings(tmp_path, "user")
     project = _settings(tmp_path, "project")
 
-    assert format_package_listing(list_packages(user_path=user, project_path=project)) == (
-        "No packages installed."
-    )
+    assert format_package_listing(
+        list_packages(user_path=user, project_path=project)
+    ) == ("No packages installed.")
 
     install_package("../user-pkg", user)
     install_package("../project-pkg", project)
@@ -117,14 +132,20 @@ def test_list_user_and_project_and_empty(tmp_path: Path) -> None:
 def test_config_writes_filters_and_toggles(tmp_path: Path) -> None:
     user = _settings(tmp_path, "user")
 
-    configure_resource_filter(settings_path=user, kind="skills", pattern="lint", enable=False)
+    configure_resource_filter(
+        settings_path=user, kind="skills", pattern="lint", enable=False
+    )
     assert resource_filters(user, "skills") == ("-lint",)
 
     # Toggling the same pattern flips its sign in place (no duplicate).
-    configure_resource_filter(settings_path=user, kind="skills", pattern="lint", enable=True)
+    configure_resource_filter(
+        settings_path=user, kind="skills", pattern="lint", enable=True
+    )
     assert resource_filters(user, "skills") == ("+lint",)
 
-    configure_resource_filter(settings_path=user, kind="extensions", pattern="*", enable=False)
+    configure_resource_filter(
+        settings_path=user, kind="extensions", pattern="*", enable=False
+    )
     assert resource_filters(user, "extensions") == ("-*",)
 
 
@@ -250,14 +271,169 @@ def test_cli_install_list_remove(tmp_path, monkeypatch, capsys) -> None:
     out = capsys.readouterr().out
     assert f"Installed {pkg}" in out
 
-    assert main(["list", "--cwd", str(workspace)]) == 0
+    assert main(["list", "--approve", "--cwd", str(workspace)]) == 0
     assert str(pkg) in capsys.readouterr().out
 
-    assert main(["remove", str(pkg), "-l", "--cwd", str(workspace)]) == 0
+    assert main(["remove", str(pkg), "-l", "--approve", "--cwd", str(workspace)]) == 0
     assert f"Removed {pkg}" in capsys.readouterr().out
 
     # Removing again is non-zero (not configured).
-    assert main(["remove", str(pkg), "-l", "--cwd", str(workspace)]) == 1
+    assert main(["remove", str(pkg), "-l", "--approve", "--cwd", str(workspace)]) == 1
+
+
+def test_cli_local_package_write_requires_trust_and_last_override_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pipy_harness.cli import main
+
+    config = tmp_path / "cfg"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "ws"
+    project_settings = workspace / ".pipy" / "settings.json"
+    project_settings.parent.mkdir(parents=True)
+    project_settings.write_text('{"packages": []}\n', encoding="utf-8")
+    package = tmp_path / "package"
+    package.mkdir()
+    before = project_settings.read_bytes()
+
+    assert main(["install", str(package), "-l", "--cwd", str(workspace)]) == 1
+    assert "use --approve" in capsys.readouterr().err
+    assert project_settings.read_bytes() == before
+
+    assert (
+        main(
+            [
+                "install",
+                str(package),
+                "-l",
+                "--approve",
+                "--no-approve",
+                "--cwd",
+                str(workspace),
+            ]
+        )
+        == 1
+    )
+    capsys.readouterr()
+    assert project_settings.read_bytes() == before
+
+    assert (
+        main(
+            [
+                "install",
+                str(package),
+                "-l",
+                "--no-approve",
+                "--approve",
+                "--cwd",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    assert str(package) in capsys.readouterr().out
+    assert not (config / "trust.json").exists()
+
+
+def test_cli_untrusted_list_omits_project_packages_but_keeps_global(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pipy_harness.cli import main
+
+    config = tmp_path / "cfg"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    global_package = tmp_path / "global-package"
+    project_package = tmp_path / "project-package"
+    global_package.mkdir()
+    project_package.mkdir()
+    install_package(str(global_package), config / "settings.json")
+    install_package(str(project_package), workspace / ".pipy" / "settings.json")
+
+    assert main(["list", "--no-approve", "--cwd", str(workspace)]) == 0
+    output = capsys.readouterr().out
+    assert str(global_package) in output
+    assert str(project_package) not in output
+    assert main(["list", "--approve", "--cwd", str(workspace)]) == 0
+    assert str(project_package) in capsys.readouterr().out
+
+
+def test_cli_config_local_refuses_untrusted_but_global_write_remains_usable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from pipy_harness.cli import main
+
+    config = tmp_path / "cfg"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "ws"
+    project_settings = workspace / ".pipy" / "settings.json"
+    project_settings.parent.mkdir(parents=True)
+    project_settings.write_text("{}\n", encoding="utf-8")
+    global_skills = config / "skills"
+    global_skills.mkdir(parents=True)
+    (global_skills / "global-review.md").write_text(
+        "# global-review\n\nglobal\n", encoding="utf-8"
+    )
+    project_skills = workspace / ".pipy" / "skills"
+    project_skills.mkdir()
+    (project_skills / "project-review.md").write_text(
+        "# project-review\n\nproject\n", encoding="utf-8"
+    )
+
+    assert (
+        main(
+            [
+                "config",
+                "list",
+                "-l",
+                "--json",
+                "--no-approve",
+                "--cwd",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    listed_skills = {
+        entry["name"] for entry in json.loads(capsys.readouterr().out)["skills"]
+    }
+    assert "global-review" in listed_skills
+    assert "project-review" not in listed_skills
+
+    assert (
+        main(
+            [
+                "config",
+                "disable",
+                "skill",
+                "review",
+                "-l",
+                "--no-approve",
+                "--cwd",
+                str(workspace),
+            ]
+        )
+        == 1
+    )
+    assert "use --approve" in capsys.readouterr().err
+    assert json.loads(project_settings.read_text()) == {}
+
+    assert (
+        main(
+            [
+                "config",
+                "disable",
+                "skill",
+                "review",
+                "--no-approve",
+                "--cwd",
+                str(workspace),
+            ]
+        )
+        == 0
+    )
+    assert json.loads((config / "settings.json").read_text())["skills"] == ["-review"]
 
 
 def test_cli_install_rejects_git_source(tmp_path, monkeypatch) -> None:
@@ -267,7 +443,9 @@ def test_cli_install_rejects_git_source(tmp_path, monkeypatch) -> None:
     assert main(["install", "npm:foo"]) == 2
 
 
-def test_cli_git_install_composes_runtime_resources(tmp_path, monkeypatch, capsys) -> None:
+def test_cli_git_install_composes_runtime_resources(
+    tmp_path, monkeypatch, capsys
+) -> None:
     from pipy_harness.cli import main
 
     config_home = tmp_path / "cfg"
@@ -318,10 +496,17 @@ def test_cli_git_update_refreshes_managed_cache(tmp_path, monkeypatch, capsys) -
     skill_names = {path.name for path in roots.skills[0].path.iterdir()}
     assert "two.md" in skill_names
 
-    assert main(["update", "--dry-run", "git:example.com/no/match", "--cwd", str(workspace)]) == 1
+    assert (
+        main(
+            ["update", "--dry-run", "git:example.com/no/match", "--cwd", str(workspace)]
+        )
+        == 1
+    )
 
 
-def test_install_package_source_rejects_unsupported_remote_before_settings(tmp_path: Path) -> None:
+def test_install_package_source_rejects_unsupported_remote_before_settings(
+    tmp_path: Path,
+) -> None:
     settings = _settings(tmp_path, "user")
     # Even if POSIX can represent this as a directory name, `pypi:` is a
     # deferred package-source scheme and must not fall through as a local path.

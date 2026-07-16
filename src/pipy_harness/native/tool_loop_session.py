@@ -93,6 +93,12 @@ from pipy_harness.native.changelog import (
 )
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.project_trust import (
+    ProjectTrustError,
+    ProjectTrustStore,
+    get_project_trust_options,
+    has_trust_requiring_project_resources,
+)
 from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.catalog import THINKING_LEVELS
@@ -246,6 +252,7 @@ from pipy_harness.native.tui import (
     SettingsRow,
     TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
     ToolLoopTerminalUi,
+    run_project_trust_selector,
 )
 from pipy_harness.native.tools.bash import LocalShellResult, run_local_command
 from pipy_harness.native.file_references import resolve_file_references
@@ -328,11 +335,13 @@ def _custom_entry_redraw_rows(
                     row = (*row, data, render_metadata)
                 rows.append(row)
             else:
-                rows.append((
-                    "plain",
-                    entry.custom_type,
-                    tuple(entry.content.splitlines() or [""]),
-                ))
+                rows.append(
+                    (
+                        "plain",
+                        entry.custom_type,
+                        tuple(entry.content.splitlines() or [""]),
+                    )
+                )
     return rows
 
 
@@ -491,9 +500,7 @@ class _UsageAccumulator:
         if total_tokens > 0:
             self.last_total_tokens = total_tokens
         else:
-            self.last_total_tokens = (
-                input_tokens + output_tokens + reasoning_tokens
-            )
+            self.last_total_tokens = input_tokens + output_tokens + reasoning_tokens
         if self._pricing is not None:
             self.cost_usd += (
                 input_tokens * self._pricing.input_per_million
@@ -727,9 +734,7 @@ class _LiveExtensionUiDriver:
         next ``chrome_style_for`` render repaints with the new palette. No
         provider turn, tool call, or archive write.
         """
-        ok, message = select_theme(
-            name, environ=os.environ, store=NativeThemeStore()
-        )
+        ok, message = select_theme(name, environ=os.environ, store=NativeThemeStore())
         return ok, None if ok else message
 
 
@@ -864,9 +869,7 @@ class _ExtensionToolPort:
     def definition(self) -> ToolDefinition:
         return self._definition
 
-    def invoke(
-        self, request: ToolRequest, context: ToolContext
-    ) -> ToolExecutionResult:
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         ctx = make_extension_context(
             str(context.workspace_root),
             self._has_ui,
@@ -964,9 +967,7 @@ def _activate_workspace_extensions(
     project state.
     """
 
-    reserved = extension_reserved_command_names(
-        resources.custom_command_slash_names()
-    )
+    reserved = extension_reserved_command_names(resources.custom_command_slash_names())
     descriptors = discover_extensions(
         cwd,
         package_roots=tuple(package_roots),
@@ -1008,7 +1009,9 @@ def _activate_workspace_extensions(
         event: extension_event_hooks(activated, event) for event in LIFECYCLE_EVENTS
     }
     input_hooks = extension_event_hooks(activated, EVENT_INPUT)
-    before_agent_start_hooks = extension_event_hooks(activated, EVENT_BEFORE_AGENT_START)
+    before_agent_start_hooks = extension_event_hooks(
+        activated, EVENT_BEFORE_AGENT_START
+    )
     tool_result_hooks = extension_event_hooks(activated, EVENT_TOOL_RESULT)
     user_bash_hooks = extension_event_hooks(activated, EVENT_USER_BASH)
     before_provider_request_hooks = extension_event_hooks(
@@ -1237,7 +1240,9 @@ class NativeToolReplSession:
     workspace_root: Path | None = None
     input_runtime: str = REPL_INPUT_RUNTIME_AUTO
     reference_roots: tuple[Path, ...] = field(default_factory=tuple)
-    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = None
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None = (
+        None
+    )
     clipboard_copy: Callable[..., ClipboardResult] = copy_to_clipboard
     # OS clipboard-image reader for the editor's Ctrl+V image paste (Pi parity);
     # tests inject a deterministic fake. Returns image bytes + media type.
@@ -1282,21 +1287,27 @@ class NativeToolReplSession:
     # Pi `--verbose`: force startup/resource chrome even when quietStartup is
     # enabled in settings, without mutating the persisted setting.
     verbose_startup: bool = False
+    # Exact final cwd that entered trusted state only because no protected
+    # resource existed at startup. A later explicit /reload may persist trust
+    # once if a protected resource has appeared (Pi's narrow safety exception).
+    auto_trust_on_reload_cwd: Path | None = None
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
     MAX_MALFORMED_STREAK: ClassVar[int] = 3
 
     def __post_init__(self) -> None:
+        if self.auto_trust_on_reload_cwd is not None:
+            self.auto_trust_on_reload_cwd = (
+                self.auto_trust_on_reload_cwd.expanduser().resolve()
+            )
         if not self.provider.supports_tool_calls:
             raise ValueError(
                 f"provider {self.provider.name!r} does not advertise "
                 "supports_tool_calls=True; the pipy repl requires a "
                 "tool-capable provider"
             )
-        if isinstance(self.tool_budget, bool) or not isinstance(
-            self.tool_budget, int
-        ):
+        if isinstance(self.tool_budget, bool) or not isinstance(self.tool_budget, int):
             raise TypeError("tool_budget must be an int")
         if self.tool_budget < 1 or self.tool_budget > self.MAX_TOOL_BUDGET:
             raise ValueError(
@@ -1429,12 +1440,9 @@ class NativeToolReplSession:
                     _ext_runtime.providers,
                     _ext_runtime.unregistered_providers,
                 )
-                if (
-                    not self.provider_state.current_selection_supported()
-                    or (
-                        was_extension_selection
-                        and not self.provider_state.current_selection_uses_extension_provider()
-                    )
+                if not self.provider_state.current_selection_supported() or (
+                    was_extension_selection
+                    and not self.provider_state.current_selection_uses_extension_provider()
                 ):
                     fallback = self.provider_state.reset_to_first_available_model(
                         require_tool_calls=True
@@ -1480,6 +1488,16 @@ class NativeToolReplSession:
             extension_shortcut_keys=frozenset(_ext_runtime.shortcuts),
             include_workspace_defaults=settings.project_trusted,
         )
+        if (
+            terminal_ui is not None
+            and not settings.project_trusted
+            and has_trust_requiring_project_resources(cwd)
+        ):
+            terminal_ui.add_notice(
+                "This project is not trusted. Project .pipy resources and "
+                "packages are ignored. Use /trust to save a trust decision, "
+                "then restart pipy."
+            )
         if terminal_ui is not None and keybindings.has_user_binding(
             "app.editor.external"
         ):
@@ -1538,7 +1556,9 @@ class NativeToolReplSession:
             return terminal_ui.run_custom_component(factory, options)
 
         extension_ui_driver = (
-            _LiveExtensionUiDriver(terminal_ui, cwd) if terminal_ui is not None else None
+            _LiveExtensionUiDriver(terminal_ui, cwd)
+            if terminal_ui is not None
+            else None
         )
 
         # Merge activated extension tools into this run's tool registry
@@ -1565,9 +1585,7 @@ class NativeToolReplSession:
         if unknown_filter_names:
             known = ", ".join(sorted(run_tool_registry)) or "<none>"
             unknown = ", ".join(sorted(unknown_filter_names))
-            raise ValueError(
-                f"unknown tool name(s): {unknown}. Known tools: {known}"
-            )
+            raise ValueError(f"unknown tool name(s): {unknown}. Known tools: {known}")
         filter_configured = self.tool_filter_options != ToolFilterOptions.empty()
         active_tool_names: set[str] | None = (
             _filtered_tool_names(
@@ -1836,7 +1854,9 @@ class NativeToolReplSession:
                 )
             )
 
-        def extension_append_entry(custom_type: str, data: object | None = None) -> object:
+        def extension_append_entry(
+            custom_type: str, data: object | None = None
+        ) -> object:
             safe_type = str(custom_type).strip()
             if not is_valid_custom_entry_type(safe_type):
                 raise ValueError("invalid custom entry type")
@@ -1895,9 +1915,9 @@ class NativeToolReplSession:
                 extension_pending_steering_messages.append(content)
             elif deliver_as in {"followUp", "follow_up"}:
                 extension_pending_follow_up_messages.append(content)
-            elif (
-                not extension_in_agent_turn
-                and (options.get("triggerTurn") is True or options.get("trigger_turn") is True)
+            elif not extension_in_agent_turn and (
+                options.get("triggerTurn") is True
+                or options.get("trigger_turn") is True
             ):
                 extension_pending_messages.append(content)
             return appended.id
@@ -2065,9 +2085,7 @@ class NativeToolReplSession:
             nonlocal usage_accumulator, messages
             state = self.provider_state
             if not isinstance(state, NativeReplProviderState):
-                return (
-                    f"pipy: /{action} is unavailable for this REPL provider state."
-                )
+                return f"pipy: /{action} is unavailable for this REPL provider state."
             provider_name = argument or "openai-codex"
             if action == "login":
                 if terminal_ui is not None:
@@ -2439,7 +2457,9 @@ class NativeToolReplSession:
                     message.content
                     for message in drain_user_messages(extension_message_outbox)
                 )
-                for custom_message in drain_custom_messages(extension_custom_message_outbox):
+                for custom_message in drain_custom_messages(
+                    extension_custom_message_outbox
+                ):
                     extension_send_message(
                         custom_message.custom_type,
                         custom_message.content,
@@ -2460,7 +2480,9 @@ class NativeToolReplSession:
                     None
                     if pending_command is not None
                     else (
-                        terminal_ui.take_next_drain() if terminal_ui is not None else None
+                        terminal_ui.take_next_drain()
+                        if terminal_ui is not None
+                        else None
                     )
                 )
                 # Positional-prompt seeds (`pipy "<prompt>"`) drain first, ahead
@@ -2483,7 +2505,10 @@ class NativeToolReplSession:
                 if (
                     drained is None
                     and pending_command is None
-                    and (extension_pending_steering_messages or extension_pending_follow_up_messages)
+                    and (
+                        extension_pending_steering_messages
+                        or extension_pending_follow_up_messages
+                    )
                 ):
                     drained = (
                         extension_pending_steering_messages.pop(0)
@@ -2564,9 +2589,7 @@ class NativeToolReplSession:
                     # branch only needs to surface a handler failure and
                     # continue. Covered by
                     # test_shortcut_send_user_message_triggers_a_turn.
-                    shortcut_key = command_text[
-                        len(HOTKEY_EXTENSION_SHORTCUT_PREFIX) :
-                    ]
+                    shortcut_key = command_text[len(HOTKEY_EXTENSION_SHORTCUT_PREFIX) :]
                     shortcut_dispatch = dispatch_extension_shortcut(
                         shortcut_key,
                         _ext_runtime.shortcuts,
@@ -2687,6 +2710,23 @@ class NativeToolReplSession:
                         terminal_ui.add_notice(hotkeys_text)
                     else:
                         print(hotkeys_text, file=error_stream)
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                        )
+                    continue
+                if command_text == "/trust":
+                    self._handle_trust_command(
+                        terminal_ui=terminal_ui,
+                        error_stream=error_stream,
+                        cwd=cwd,
+                        settings=settings,
+                    )
                     if legacy_footer_enabled():
                         self._print_footer(
                             error_stream,
@@ -2917,7 +2957,9 @@ class NativeToolReplSession:
                         filter_names = set(self.tool_filter_options.allow) | set(
                             self.tool_filter_options.exclude
                         )
-                        unknown_filter_names = filter_names.difference(run_tool_registry)
+                        unknown_filter_names = filter_names.difference(
+                            run_tool_registry
+                        )
                         if unknown_filter_names:
                             known = ", ".join(sorted(run_tool_registry)) or "<none>"
                             unknown = ", ".join(sorted(unknown_filter_names))
@@ -2948,8 +2990,10 @@ class NativeToolReplSession:
                         terminal_ui.command_names = _tool_loop_command_names(
                             workspace_resources, extension_menu_names
                         )
-                        terminal_ui.command_descriptions = _tool_loop_command_descriptions(
-                            workspace_resources, extension_descriptions
+                        terminal_ui.command_descriptions = (
+                            _tool_loop_command_descriptions(
+                                workspace_resources, extension_descriptions
+                            )
                         )
                         terminal_ui.extension_shortcut_keys = frozenset(
                             _ext_runtime.shortcuts
@@ -2968,11 +3012,22 @@ class NativeToolReplSession:
                             cwd=cwd,
                             include_workspace_defaults=settings.project_trusted,
                         )
+                    saved_implicit_trust = self._maybe_save_implicit_trust_after_reload(
+                        cwd=cwd,
+                        settings=settings,
+                        terminal_ui=terminal_ui,
+                        error_stream=error_stream,
+                    )
                     emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
                     self._emit_diagnostic(
                         terminal_ui,
                         error_stream,
-                        "pipy: reloaded settings, keybindings, and resources.",
+                        (
+                            "pipy: reloaded settings, keybindings, and resources; "
+                            "saved project trust."
+                            if saved_implicit_trust
+                            else "pipy: reloaded settings, keybindings, and resources."
+                        ),
                     )
                     if legacy_footer_enabled():
                         self._print_footer(
@@ -3010,7 +3065,9 @@ class NativeToolReplSession:
                             output_path = Path(path_arg).expanduser()
                             if not output_path.is_absolute():
                                 output_path = cwd / output_path
-                            exported = export_native_branch_to_jsonl(session_tree, output_path)
+                            exported = export_native_branch_to_jsonl(
+                                session_tree, output_path
+                            )
                             diag(f"pipy: exported native session JSONL to {exported}.")
                         else:
                             output_path = (
@@ -3047,7 +3104,10 @@ class NativeToolReplSession:
                             flush=True,
                         )
                         try:
-                            confirm = input_stream.readline().strip().lower() in ("y", "yes")
+                            confirm = input_stream.readline().strip().lower() in (
+                                "y",
+                                "yes",
+                            )
                         except (OSError, ValueError):
                             confirm = False
                     if not confirm:
@@ -3077,7 +3137,10 @@ class NativeToolReplSession:
                             flush=True,
                         )
                         try:
-                            use_current = input_stream.readline().strip().lower() in ("y", "yes")
+                            use_current = input_stream.readline().strip().lower() in (
+                                "y",
+                                "yes",
+                            )
                         except (OSError, ValueError):
                             use_current = False
                         if not use_current:
@@ -3104,7 +3167,9 @@ class NativeToolReplSession:
                 if command_text == "/share":
                     token = resolve_github_token()
                     if not token:
-                        diag("pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`.")
+                        diag(
+                            "pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`."
+                        )
                         refresh_legacy_footer()
                         continue
                     try:
@@ -3122,7 +3187,9 @@ class NativeToolReplSession:
                         refresh_legacy_footer()
                         continue
                     if result.viewer_url:
-                        diag(f"pipy: share URL: {result.viewer_url}\npipy: gist URL: {result.gist_url}")
+                        diag(
+                            f"pipy: share URL: {result.viewer_url}\npipy: gist URL: {result.gist_url}"
+                        )
                     else:
                         diag(f"pipy: gist URL: {result.gist_url}")
                     refresh_legacy_footer()
@@ -3239,9 +3306,8 @@ class NativeToolReplSession:
                     argument = stripped[len("/tree") :].strip()
                     tree_sub = argument.split(maxsplit=1)[0].lower() if argument else ""
                     tree_may_change = (
-                        (not argument and terminal_ui is not None)
-                        or tree_sub in {"select", "label", "filter"}
-                    )
+                        not argument and terminal_ui is not None
+                    ) or tree_sub in {"select", "label", "filter"}
                     if tree_may_change:
                         if not extension_session_allows(
                             extension_session_before_tree_hooks,
@@ -3295,8 +3361,10 @@ class NativeToolReplSession:
                             )
                         diag("pipy: use '/resume <number|id>' to open a session.")
 
-                    if not argument and terminal_ui is not None and hasattr(
-                        terminal_ui, "run_session_picker"
+                    if (
+                        not argument
+                        and terminal_ui is not None
+                        and hasattr(terminal_ui, "run_session_picker")
                     ):
                         picked_session = self._run_interactive_session_picker(
                             session_tree=session_tree,
@@ -3335,7 +3403,9 @@ class NativeToolReplSession:
                         else:
                             target = resolve_session_file(resume_tokens[1])
                             if target is None:
-                                diag(f"pipy: no native session matched {resume_tokens[1]!r}.")
+                                diag(
+                                    f"pipy: no native session matched {resume_tokens[1]!r}."
+                                )
                             else:
                                 renamed = NativeSessionTree.open(target)
                                 new_name = " ".join(resume_tokens[2:])
@@ -3353,7 +3423,10 @@ class NativeToolReplSession:
                             target = resolve_session_file(refs[0])
                             if target is None:
                                 diag(f"pipy: no native session matched {refs[0]!r}.")
-                            elif session_tree.path is not None and target == session_tree.path:
+                            elif (
+                                session_tree.path is not None
+                                and target == session_tree.path
+                            ):
                                 diag("pipy: cannot delete the active native session.")
                             elif not confirm:
                                 diag(
@@ -3495,16 +3568,22 @@ class NativeToolReplSession:
                             usage_accumulator=usage_accumulator,
                         )
                     continue
-                if command_text == "/scoped-models" or command_text.startswith("/scoped-models "):
+                if command_text == "/scoped-models" or command_text.startswith(
+                    "/scoped-models "
+                ):
                     # Local-only: view/set/clear the enabledModels patterns that
                     # constrain the model cycle, or cycle (next/prev) over the scoped
                     # set (or full available catalog when empty). Cycling rebinds the
                     # live provider through the same select_model boundary as /model;
                     # no command here runs a provider turn or a tool call.
-                    argument = stripped[len("/scoped-models"):].strip()
+                    argument = stripped[len("/scoped-models") :].strip()
                     state = self.provider_state
                     available_refs = (
-                        [o.selection.reference for o in state.model_options() if o.available]
+                        [
+                            o.selection.reference
+                            for o in state.model_options()
+                            if o.available
+                        ]
                         if isinstance(state, NativeReplProviderState)
                         else []
                     )
@@ -3522,7 +3601,9 @@ class NativeToolReplSession:
                             terminal_ui, state=state, settings=settings
                         )
                     elif not argument:
-                        pattern_text = ", ".join(patterns) if patterns else "(none — full catalog)"
+                        pattern_text = (
+                            ", ".join(patterns) if patterns else "(none — full catalog)"
+                        )
                         cycle_text = ", ".join(scoped) if scoped else "(none available)"
                         for line in (
                             "pipy: scoped models:",
@@ -3548,7 +3629,9 @@ class NativeToolReplSession:
                         )
                         if cycle_target is None:
                             self._emit_diagnostic(
-                                terminal_ui, error_stream, "pipy: no models available to cycle."
+                                terminal_ui,
+                                error_stream,
+                                "pipy: no models available to cycle.",
                             )
                         else:
                             _ok, message = apply_model_selection(cycle_target)
@@ -3615,7 +3698,10 @@ class NativeToolReplSession:
                     command_text, workspace_resources
                 )
                 resource_provider_text: str | None = None
-                if resource_dispatch is not None and resource_dispatch.kind == DISPATCH_LIST:
+                if (
+                    resource_dispatch is not None
+                    and resource_dispatch.kind == DISPATCH_LIST
+                ):
                     self._emit_diagnostic(
                         terminal_ui, error_stream, resource_dispatch.message
                     )
@@ -3712,7 +3798,7 @@ class NativeToolReplSession:
                         (
                             f"pipy: {stripped!r} is not handled in tool-loop mode; "
                             "supported local commands are /hotkeys, /reload, "
-                            "/changelog, /model, /scoped-models, /settings, "
+                            "/changelog, /model, /scoped-models, /settings, /trust, "
                             "/login, /logout, /copy, /compact, /export, /import, "
                             "/share, /session, /name, "
                             "/new, /tree, /resume, /fork, /clone, /skill, "
@@ -3829,9 +3915,9 @@ class NativeToolReplSession:
                     extension_pending_next_turn_custom_messages
                 )
                 if injected_custom_context_count:
-                    for pending_custom_message in (
-                        extension_pending_next_turn_custom_messages
-                    ):
+                    for (
+                        pending_custom_message
+                    ) in extension_pending_next_turn_custom_messages:
                         messages.append(UserMessage(content=pending_custom_message))
                     extension_pending_next_turn_custom_messages.clear()
                 session_tree.append_message(turn_user_message)
@@ -3858,8 +3944,9 @@ class NativeToolReplSession:
                     # building the next request. The cut is at a UserMessage
                     # boundary so no tool result is orphaned, and the safe summary
                     # rides in the system prompt suffix below.
-                    if settings.get_compaction_enabled() and should_compact_tool_loop_messages(
-                        messages
+                    if (
+                        settings.get_compaction_enabled()
+                        and should_compact_tool_loop_messages(messages)
                     ):
                         notice = apply_compaction("auto")
                         self._emit_diagnostic(terminal_ui, error_stream, notice)
@@ -4025,16 +4112,14 @@ class NativeToolReplSession:
                             renderer.render_tool_call(call)
                             renderer.render_tool_result(
                                 output_text=(
-                                    f"tool budget exhausted "
-                                    f"(limit {self.tool_budget})"
+                                    f"tool budget exhausted (limit {self.tool_budget})"
                                 ),
                                 is_error=True,
                             )
                             budget_observation = self._error_observation(
                                 call=call,
                                 output_text=(
-                                    f"tool budget exhausted "
-                                    f"(limit {self.tool_budget})"
+                                    f"tool budget exhausted (limit {self.tool_budget})"
                                 ),
                             )
                             emitter.tool_execution_start(call)
@@ -4173,7 +4258,10 @@ class NativeToolReplSession:
                             consecutive_malformed_streak += 1
                             messages.append(observation)
                             session_tree.append_message(observation)
-                            if consecutive_malformed_streak >= self.MAX_MALFORMED_STREAK:
+                            if (
+                                consecutive_malformed_streak
+                                >= self.MAX_MALFORMED_STREAK
+                            ):
                                 self._emit_diagnostic(
                                     terminal_ui,
                                     error_stream,
@@ -4201,11 +4289,14 @@ class NativeToolReplSession:
                         if injected_custom_context_count:
                             agent_run_messages = (
                                 agent_run_messages[:1]
-                                + agent_run_messages[1 + injected_custom_context_count :]
+                                + agent_run_messages[
+                                    1 + injected_custom_context_count :
+                                ]
                             )
                             del messages[
-                                agent_run_start_index + 1 :
-                                agent_run_start_index + 1 + injected_custom_context_count
+                                agent_run_start_index + 1 : agent_run_start_index
+                                + 1
+                                + injected_custom_context_count
                             ]
                         emitter.agent_end(agent_run_messages, will_retry=False)
                         extension_in_agent_turn = False
@@ -4249,8 +4340,9 @@ class NativeToolReplSession:
                         + agent_run_messages[1 + injected_custom_context_count :]
                     )
                     del messages[
-                        agent_run_start_index + 1 :
-                        agent_run_start_index + 1 + injected_custom_context_count
+                        agent_run_start_index + 1 : agent_run_start_index
+                        + 1
+                        + injected_custom_context_count
                     ]
                 emitter.agent_end(agent_run_messages, will_retry=False)
                 extension_in_agent_turn = False
@@ -4617,7 +4709,9 @@ class NativeToolReplSession:
             error_stream,
             "pipy: sharing native session... press Escape to cancel.",
         )
-        worker = threading.Thread(target=_run_share, name="pipy-share-gist", daemon=True)
+        worker = threading.Thread(
+            target=_run_share, name="pipy-share-gist", daemon=True
+        )
         worker.start()
         try:
             outcome = terminal_ui.wait_for_active_turn_interrupt(
@@ -4637,7 +4731,9 @@ class NativeToolReplSession:
         if error_holder:
             error = error_holder[0]
             if isinstance(error, ShareCancelled):
-                self._emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
+                self._emit_diagnostic(
+                    terminal_ui, error_stream, "pipy: Share cancelled."
+                )
                 return None
             if isinstance(error, NativeExportError):
                 raise error
@@ -4878,7 +4974,9 @@ class NativeToolReplSession:
         # the ordinary tier for every reasoning model, plus xhigh/max only when
         # the active row maps them.
         levels = tuple(state.current_thinking_levels()) or self._THINKING_CYCLE_LEVELS
-        current_level = state.thinking_level if state.thinking_level in levels else "off"
+        current_level = (
+            state.thinking_level if state.thinking_level in levels else "off"
+        )
         next_level = levels[(levels.index(current_level) + 1) % len(levels)]
         state.thinking_level = next_level
         session_tree.append_thinking_level_change(next_level)
@@ -4929,9 +5027,7 @@ class NativeToolReplSession:
             finally:
                 done_event.set()
 
-        worker = threading.Thread(
-            target=_worker, name="pipy-local-shell", daemon=True
-        )
+        worker = threading.Thread(target=_worker, name="pipy-local-shell", daemon=True)
         worker.start()
         outcome = TURN_SETTLED
         try:
@@ -5009,7 +5105,10 @@ class NativeToolReplSession:
         budget = _context_budget_for(provider_name, model_id)
         used_pct = 0.0
         if budget.token_budget > 0:
-            if usage_accumulator is not None and usage_accumulator.last_total_tokens > 0:
+            if (
+                usage_accumulator is not None
+                and usage_accumulator.last_total_tokens > 0
+            ):
                 used_pct = (
                     100.0
                     * usage_accumulator.last_total_tokens
@@ -5042,12 +5141,8 @@ class NativeToolReplSession:
             provider_name=provider_name,
             model_id=model_id,
             effort_label=self._effort_label(provider_name, model_id),
-            tokens_in=(
-                usage_accumulator.input_tokens if usage_accumulator else 0
-            ),
-            tokens_out=(
-                usage_accumulator.output_tokens if usage_accumulator else 0
-            ),
+            tokens_in=(usage_accumulator.input_tokens if usage_accumulator else 0),
+            tokens_out=(usage_accumulator.output_tokens if usage_accumulator else 0),
             tokens_reasoning=(
                 usage_accumulator.reasoning_tokens if usage_accumulator else 0
             ),
@@ -5078,8 +5173,7 @@ class NativeToolReplSession:
         per_turn_tokens = 2_000.0
         per_tool_tokens = 1_500.0
         return (
-            user_turn_count * per_turn_tokens
-            + tool_invocation_count * per_tool_tokens
+            user_turn_count * per_turn_tokens + tool_invocation_count * per_tool_tokens
         )
 
     def _print_footer(
@@ -5107,6 +5201,83 @@ class NativeToolReplSession:
         print_bottom_status_block(
             error_stream, cwd_label=cwd_label, status_line=status_line
         )
+
+    def _handle_trust_command(
+        self,
+        *,
+        terminal_ui: ToolLoopTerminalUi | None,
+        error_stream: TextIO,
+        cwd: Path,
+        settings: "SettingsManager",
+    ) -> None:
+        """Show and persist a next-start trust decision without hot loading."""
+
+        if terminal_ui is None:
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                "pipy: /trust requires the interactive product TUI; use "
+                "--approve for this run.",
+            )
+            return
+        store = ProjectTrustStore()
+        try:
+            saved = store.get_entry(cwd)
+        except ProjectTrustError as exc:
+            terminal_ui.add_notice(f"pipy: could not read project trust: {exc}")
+            return
+        selected = run_project_trust_selector(
+            terminal_ui,
+            cwd=cwd,
+            options=get_project_trust_options(cwd),
+            saved_decision=saved,
+            current_trusted=settings.project_trusted,
+        )
+        if selected is None:
+            return
+        try:
+            store.set_many(selected.updates)
+        except ProjectTrustError as exc:
+            terminal_ui.add_notice(f"pipy: could not save project trust: {exc}")
+            return
+        terminal_ui.add_notice(
+            "pipy: saved trust decision: "
+            f"{'trusted' if selected.trusted else 'untrusted'}. "
+            "Restart pipy for this to take effect."
+        )
+
+    def _maybe_save_implicit_trust_after_reload(
+        self,
+        *,
+        cwd: Path,
+        settings: "SettingsManager",
+        terminal_ui: ToolLoopTerminalUi | None,
+        error_stream: TextIO,
+    ) -> bool:
+        """Persist Pi's narrowly guarded no-resource-start reload exception."""
+
+        resolved = cwd.expanduser().resolve()
+        if self.auto_trust_on_reload_cwd != resolved:
+            return False
+        if not settings.project_trusted or not has_trust_requiring_project_resources(
+            resolved
+        ):
+            return False
+        store = ProjectTrustStore()
+        try:
+            if store.get(resolved) is not None:
+                self.auto_trust_on_reload_cwd = None
+                return False
+            store.set(resolved, True)
+        except ProjectTrustError as exc:
+            self._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                f"pipy: could not save project trust after reload: {exc}",
+            )
+            return False
+        self.auto_trust_on_reload_cwd = None
+        return True
 
     def _settings_overlay_lines(
         self, settings_manager: "SettingsManager | None" = None
@@ -5167,7 +5338,7 @@ class NativeToolReplSession:
         # exit action; the provider/model, auth, and scoped-models flows are
         # native-only (scoped models builds model patterns from the native
         # provider state, and its row is shown only for that state).
-        exit_actions = frozenset({"theme"}) | (
+        exit_actions = frozenset({"theme", "project_trust_default"}) | (
             frozenset({"model", "login", "logout", "scoped_models"})
             if is_native
             else frozenset()
@@ -5179,6 +5350,7 @@ class NativeToolReplSession:
                 prompt_history_store,
                 in_memory_depth=len(terminal_ui.input_history),
                 terminal_ui=terminal_ui,
+                settings=settings,
             )
 
         def _local_action(action: str) -> list[SettingsRow]:
@@ -5243,15 +5415,18 @@ class NativeToolReplSession:
                 message = apply_auth_change(action, "")
                 terminal_ui.add_notice(message)
                 continue
-            if action == "scoped_models" and isinstance(
-                state, NativeReplProviderState
-            ):
+            if action == "scoped_models" and isinstance(state, NativeReplProviderState):
                 self._open_scoped_models_overlay(
                     terminal_ui, state=state, settings=settings
                 )
                 continue
             if action == "theme":
                 self._open_theme_selector(terminal_ui, settings=settings)
+                continue
+            if action == "project_trust_default":
+                self._open_default_project_trust_selector(
+                    terminal_ui, settings=settings
+                )
                 continue
 
     def _open_scoped_models_overlay(
@@ -5335,9 +5510,7 @@ class NativeToolReplSession:
         if chosen is None:
             return
         name = names[chosen]
-        ok, message = select_theme(
-            name, environ=os.environ, store=NativeThemeStore()
-        )
+        ok, message = select_theme(name, environ=os.environ, store=NativeThemeStore())
         if ok:
             # Settings is the source of truth (a later /reload re-applies
             # settings.get_theme() over the chrome store), so persist the choice
@@ -5348,6 +5521,50 @@ class NativeToolReplSession:
                 pass
         terminal_ui.add_notice(message)
 
+    def _open_default_project_trust_selector(
+        self,
+        terminal_ui: ToolLoopTerminalUi,
+        *,
+        settings: "SettingsManager",
+    ) -> None:
+        """Select Pi's global-only trust fallback for future startups."""
+
+        values = ("ask", "always", "never")
+        labels = {
+            "ask": "Ask",
+            "always": "Trust",
+            "never": "Do not trust",
+        }
+        current = settings.get_default_project_trust()
+        options = [
+            ModelSelectorOption(
+                label=(
+                    f"{labels[value]} (current)" if value == current else labels[value]
+                ),
+                selectable=True,
+            )
+            for value in values
+        ]
+        chosen = terminal_ui.run_model_selector(
+            options,
+            current_index=values.index(current),
+            title="Default project trust",
+        )
+        if chosen is None:
+            return
+        value = values[chosen]
+        try:
+            settings.set_default_project_trust(value)  # type: ignore[arg-type]
+        except (OSError, RuntimeError, ValueError) as exc:
+            terminal_ui.add_notice(
+                f"pipy: could not update default project trust: {exc}"
+            )
+            return
+        terminal_ui.add_notice(
+            f"pipy: default project trust set to {labels[value]}; "
+            "the current session is unchanged."
+        )
+
     def _settings_dialog_rows(
         self,
         state: "NativeReplProviderState | StaticNativeReplProviderState",
@@ -5355,6 +5572,7 @@ class NativeToolReplSession:
         *,
         in_memory_depth: int,
         terminal_ui: ToolLoopTerminalUi | None = None,
+        settings: "SettingsManager | None" = None,
     ) -> list[SettingsRow]:
         """Build the interactive ``/settings`` dialog rows.
 
@@ -5401,8 +5619,7 @@ class NativeToolReplSession:
         rows.append(
             SettingsRow(
                 label=(
-                    "persistent prompt history: "
-                    f"{'on' if enabled else 'off'} — toggle"
+                    f"persistent prompt history: {'on' if enabled else 'off'} — toggle"
                 ),
                 kind="action",
                 action="toggle_history",
@@ -5477,6 +5694,24 @@ class NativeToolReplSession:
                     action="scoped_models",
                 )
             )
+        rows.append(SettingsRow(label="Project trust", kind="header"))
+        trust_labels = {
+            "ask": "Ask",
+            "always": "Trust",
+            "never": "Do not trust",
+        }
+        trust_default = (
+            settings.get_default_project_trust() if settings is not None else "ask"
+        )
+        rows.append(
+            SettingsRow(
+                label=(
+                    f"default project trust: {trust_labels[trust_default]} — change…"
+                ),
+                kind="action",
+                action="project_trust_default",
+            )
+        )
         rows.append(SettingsRow(label="Providers (read-only)", kind="header"))
         for option in state.model_options():
             availability = (
@@ -5487,8 +5722,7 @@ class NativeToolReplSession:
             rows.append(
                 SettingsRow(
                     label=(
-                        f"{sanitize_text(option.selection.reference)} "
-                        f"[{availability}]"
+                        f"{sanitize_text(option.selection.reference)} [{availability}]"
                     ),
                     kind="status",
                 )
@@ -5525,7 +5759,9 @@ class NativeToolReplSession:
         # selector can mark it "(current)" and start the highlight on it. The
         # active provider is tool-capable by the tool-loop invariant, so the row
         # is selectable.
-        if not any(_matches_current(option.selection) for option in state.model_options()):
+        if not any(
+            _matches_current(option.selection) for option in state.model_options()
+        ):
             selections.append(current)
             ui_options.append(
                 ModelSelectorOption(
@@ -5537,9 +5773,7 @@ class NativeToolReplSession:
             selection = option.selection
             selectable = option.available
             reason = option.reason
-            if selectable and not self._selection_supports_tool_calls(
-                state, selection
-            ):
+            if selectable and not self._selection_supports_tool_calls(state, selection):
                 selectable = False
                 reason = "no tool-call support"
             if selectable:
@@ -5549,9 +5783,7 @@ class NativeToolReplSession:
             label = f"{selection.reference}  [{status}]"
             if _matches_current(selection):
                 label = f"{label} (current)"
-            ui_options.append(
-                ModelSelectorOption(label=label, selectable=selectable)
-            )
+            ui_options.append(ModelSelectorOption(label=label, selectable=selectable))
             selections.append(selection)
         return ui_options, selections
 
@@ -5691,23 +5923,17 @@ class NativeToolReplSession:
 
         def on_label_toggle(entry_id: str) -> None:
             existing = session_tree.get_label(entry_id)
-            session_tree.append_label_change(
-                entry_id, None if existing else "marked"
-            )
+            session_tree.append_label_change(entry_id, None if existing else "marked")
 
         chosen = terminal_ui.run_tree_selector(
             build_rows=build_rows,
             filter_modes=FILTER_MODES,
-            initial_filter=filter_mode
-            if filter_mode in FILTER_MODES
-            else "default",
+            initial_filter=filter_mode if filter_mode in FILTER_MODES else "default",
             on_label_toggle=on_label_toggle,
         )
         new_filter = terminal_ui.tree_selector_filter
         if chosen is None:
-            self._emit_diagnostic(
-                terminal_ui, error_stream, "pipy: /tree cancelled."
-            )
+            self._emit_diagnostic(terminal_ui, error_stream, "pipy: /tree cancelled.")
             return _TreeCommandOutcome(filter_mode=new_filter)
         selection = apply_tree_selection(session_tree, chosen)
         rebuild_messages()
@@ -5722,8 +5948,7 @@ class NativeToolReplSession:
             self._emit_diagnostic(
                 terminal_ui,
                 error_stream,
-                "pipy: selected user message; rehydrating editor for a new "
-                "branch.",
+                "pipy: selected user message; rehydrating editor for a new branch.",
             )
             return _TreeCommandOutcome(
                 prefill=selection.editor_text, filter_mode=new_filter
@@ -5794,8 +6019,7 @@ class NativeToolReplSession:
         repl_input: object,
         filter_mode: str,
         rebuild_messages: Callable[[], None],
-        summarizer: Callable[[list[LoopMessage], str | None], str | None]
-        | None = None,
+        summarizer: Callable[[list[LoopMessage], str | None], str | None] | None = None,
     ) -> _TreeCommandOutcome:
         """Handle ``/tree`` and its captured-stream subcommands.
 
@@ -5810,9 +6034,7 @@ class NativeToolReplSession:
 
         parts = argument.split(maxsplit=1)
         if not parts:
-            if terminal_ui is not None and hasattr(
-                terminal_ui, "run_tree_selector"
-            ):
+            if terminal_ui is not None and hasattr(terminal_ui, "run_tree_selector"):
                 return self._run_interactive_tree_selector(
                     session_tree=session_tree,
                     terminal_ui=terminal_ui,
@@ -5874,8 +6096,7 @@ class NativeToolReplSession:
                 self._emit_diagnostic(
                     terminal_ui,
                     error_stream,
-                    "pipy: selected user message; rehydrating editor for a "
-                    "new branch.",
+                    "pipy: selected user message; rehydrating editor for a new branch.",
                 )
                 return _TreeCommandOutcome(prefill=selection.editor_text)
             self._emit_diagnostic(
@@ -5934,8 +6155,7 @@ class NativeToolReplSession:
         self._emit_diagnostic(
             terminal_ui,
             error_stream,
-            f"pipy: unknown /tree subcommand {sub!r}; "
-            "use select, label, or filter.",
+            f"pipy: unknown /tree subcommand {sub!r}; use select, label, or filter.",
         )
         return _TreeCommandOutcome()
 
@@ -6002,9 +6222,7 @@ class NativeToolReplSession:
         if outcome in {TURN_ABORTED, TURN_LOCAL_COMMAND}:
             worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
             if not result_holder:
-                label = (
-                    "local command" if outcome == TURN_LOCAL_COMMAND else "escape"
-                )
+                label = "local command" if outcome == TURN_LOCAL_COMMAND else "escape"
                 # The user interrupted this tool; if the worker also raised at
                 # the same time, preserve the user-visible cancellation outcome
                 # and keep provider tool-result history balanced.
@@ -6168,7 +6386,9 @@ class _ToolLoopRenderer:
         self._output_stream = output_stream
         self._error_stream = error_stream
         self._terminal_lock = threading.Lock()
-        self._cursor_control_enabled = self._compute_cursor_control_enabled(error_stream)
+        self._cursor_control_enabled = self._compute_cursor_control_enabled(
+            error_stream
+        )
         self._enabled = self._compute_enabled(error_stream)
         self._tool_panel_bg = (
             self._ANSI_BG_TOOL_PANEL_TRUECOLOR
@@ -6250,7 +6470,16 @@ class _ToolLoopRenderer:
         return self.handle_reasoning_chunk
 
     _SPINNER_FRAMES: ClassVar[tuple[str, ...]] = (
-        "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
+        "⠋",
+        "⠙",
+        "⠹",
+        "⠸",
+        "⠼",
+        "⠴",
+        "⠦",
+        "⠧",
+        "⠇",
+        "⠏",
     )
     _SPINNER_INTERVAL_SECONDS: ClassVar[float] = 0.08
 
@@ -6287,9 +6516,7 @@ class _ToolLoopRenderer:
         def _animate(stop_event: threading.Event) -> None:
             frame_index = 0
             while not stop_event.is_set():
-                glyph = self._SPINNER_FRAMES[
-                    frame_index % len(self._SPINNER_FRAMES)
-                ]
+                glyph = self._SPINNER_FRAMES[frame_index % len(self._SPINNER_FRAMES)]
                 marker = self._style(
                     f"{glyph} Working...",
                     self._ANSI_DIM,
@@ -6344,9 +6571,7 @@ class _ToolLoopRenderer:
         self._working_shown = False
         self._working_mode = ""
 
-    def end_provider_turn(
-        self, *, final_text: str, has_tool_calls: bool
-    ) -> None:
+    def end_provider_turn(self, *, final_text: str, has_tool_calls: bool) -> None:
         del has_tool_calls
         self._clear_working()
         if self._stream_active:
@@ -6435,9 +6660,7 @@ class _ToolLoopRenderer:
                     segment, self._ANSI_BOLD + self._ANSI_ITALIC + self._ANSI_DIM
                 )
             else:
-                styled = self._style(
-                    segment, self._ANSI_ITALIC + self._ANSI_DIM
-                )
+                styled = self._style(segment, self._ANSI_ITALIC + self._ANSI_DIM)
             self._error_stream.write(styled)
         self._error_stream.flush()
         self._reasoning_emitted_any = True
@@ -6512,7 +6735,9 @@ class _ToolLoopRenderer:
                 visual_rows += (effective + width - 1) // width
             self._error_stream.write("\r")
             for _ in range(visual_rows + 1):
-                self._error_stream.write(self._ANSI_CURSOR_UP_ONE + self._ANSI_CLEAR_LINE)
+                self._error_stream.write(
+                    self._ANSI_CURSOR_UP_ONE + self._ANSI_CLEAR_LINE
+                )
             self._error_stream.write("\r")
             # Top padding row of the bubble (full-width bg).
             self._error_stream.write(self._user_message_panel_blank_line())
@@ -6567,12 +6792,20 @@ class _ToolLoopRenderer:
             args = _parse_tool_input(call.arguments_json)
             state: dict[str, object] = {}
             self._pending_render = {
-                "corr": call.provider_correlation_id, "args": args, "state": state,
+                "corr": call.provider_correlation_id,
+                "args": args,
+                "state": state,
             }
             if tool.render_call is not None:
-                lines = self._dispatch_render(tool.render_call, args, state,
-                                              is_result=False, content=None,
-                                              details=None, is_error=False)
+                lines = self._dispatch_render(
+                    tool.render_call,
+                    args,
+                    state,
+                    is_result=False,
+                    content=None,
+                    details=None,
+                    is_error=False,
+                )
                 if lines is not None:
                     self._error_stream.write(self._tool_panel_blank_line())
                     for line in lines:
@@ -6582,9 +6815,7 @@ class _ToolLoopRenderer:
                     return
         # --- existing default body ---
         self._error_stream.write(self._tool_panel_blank_line())
-        rendered = self._format_pi_call_header_rich(
-            call.tool_name, call.arguments_json
-        )
+        rendered = self._format_pi_call_header_rich(call.tool_name, call.arguments_json)
         self._error_stream.write(self._tool_panel_rich_line(rendered))
         self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
@@ -6617,8 +6848,12 @@ class _ToolLoopRenderer:
                 if self._render_details_sink is not None:
                     details = self._render_details_sink.pop(str(pending["corr"]), None)
                 lines = self._dispatch_render(
-                    tool.render_result, pending["args"], pending["state"],
-                    is_result=True, content=output_text, details=details,
+                    tool.render_result,
+                    pending["args"],
+                    pending["state"],
+                    is_result=True,
+                    content=output_text,
+                    details=details,
                     is_error=is_error,
                 )
                 if lines is not None:
@@ -6626,8 +6861,11 @@ class _ToolLoopRenderer:
                         self._error_stream.write(self._tool_panel_line(line))
                     if duration_seconds is not None:
                         self._error_stream.write(self._tool_panel_blank_line())
-                        self._error_stream.write(self._tool_panel_line(
-                            f"Took {duration_seconds:.1f}s", style=self._ANSI_DIM))
+                        self._error_stream.write(
+                            self._tool_panel_line(
+                                f"Took {duration_seconds:.1f}s", style=self._ANSI_DIM
+                            )
+                        )
                     self._error_stream.write(self._tool_panel_blank_line())
                     self._error_stream.flush()
                     return
@@ -6646,9 +6884,7 @@ class _ToolLoopRenderer:
         else:
             tail_preview = preview_lines
         for line in tail_preview:
-            self._error_stream.write(
-                self._tool_panel_line(line, style=self._ANSI_DIM)
-            )
+            self._error_stream.write(self._tool_panel_line(line, style=self._ANSI_DIM))
         if is_error:
             self._error_stream.write(
                 self._tool_panel_line(
@@ -6671,8 +6907,9 @@ class _ToolLoopRenderer:
         self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
 
-    def _dispatch_render(self, renderer, args, state, *, is_result, content,
-                         details, is_error):
+    def _dispatch_render(
+        self, renderer, args, state, *, is_result, content, details, is_error
+    ):
         # Local import: the render-theme machinery is only needed on the rarely
         # hit custom-renderer branch, so keep it off this module's hot import path.
         from pipy_harness.native.chrome import chrome_style_for
@@ -6684,10 +6921,16 @@ class _ToolLoopRenderer:
 
         style = chrome_style_for(self._error_stream)
         ctx = ToolRenderContext(
-            tool_name=self._last_tool_name, args=args, is_result=is_result,
-            is_error=is_error, content=content, details=details,
-            expanded=False, width=80,
-            theme=build_tool_render_theme(style), state=state,
+            tool_name=self._last_tool_name,
+            args=args,
+            is_result=is_result,
+            is_error=is_error,
+            content=content,
+            details=details,
+            expanded=False,
+            width=80,
+            theme=build_tool_render_theme(style),
+            state=state,
         )
         return render_tool_phase(renderer, ctx)
 
@@ -6712,7 +6955,9 @@ class _ToolLoopRenderer:
             return f" {text}\n"
         prefix = self._tool_panel_bg
         weight = self._ANSI_BOLD if bold else ""
-        return f"{prefix}{weight}{style} {text}{self._ANSI_CLEAR_EOL}{self._ANSI_RESET}\n"
+        return (
+            f"{prefix}{weight}{style} {text}{self._ANSI_CLEAR_EOL}{self._ANSI_RESET}\n"
+        )
 
     def _tool_panel_blank_line(self) -> str:
         """Emit an empty row of the dark-green panel (spacing inside the block)."""
@@ -6721,9 +6966,7 @@ class _ToolLoopRenderer:
             return "\n"
         return f"{self._tool_panel_bg}{self._ANSI_CLEAR_EOL}{self._ANSI_RESET}\n"
 
-    def _tool_panel_rich_line(
-        self, segments: list[tuple[str, str]]
-    ) -> str:
+    def _tool_panel_rich_line(self, segments: list[tuple[str, str]]) -> str:
         """Render a multi-style row inside the dark-green panel.
 
         ``segments`` is an ordered sequence of ``(text, ansi_style)``
@@ -7004,9 +7247,7 @@ class _TuiToolLoopRenderer:
         self._working_thread = thread
         thread.start()
 
-    def end_provider_turn(
-        self, *, final_text: str, has_tool_calls: bool
-    ) -> None:
+    def end_provider_turn(self, *, final_text: str, has_tool_calls: bool) -> None:
         del has_tool_calls
         self._stop_working(clear=True)
         if final_text and not self._streamed_any:
@@ -7040,9 +7281,15 @@ class _TuiToolLoopRenderer:
                 "state": state,
             }
             if tool.render_call is not None:
-                lines = self._dispatch_render(tool.render_call, args, state,
-                                              is_result=False, content=None,
-                                              details=None, is_error=False)
+                lines = self._dispatch_render(
+                    tool.render_call,
+                    args,
+                    state,
+                    is_result=False,
+                    content=None,
+                    details=None,
+                    is_error=False,
+                )
                 if lines is not None:
                     self._ui.add_tool_call_custom(lines)
                     return
@@ -7067,8 +7314,12 @@ class _TuiToolLoopRenderer:
                 if self._render_details_sink is not None:
                     details = self._render_details_sink.pop(str(pending["corr"]), None)
                 lines = self._dispatch_render(
-                    tool.render_result, pending["args"], pending["state"],
-                    is_result=True, content=output_text, details=details,
+                    tool.render_result,
+                    pending["args"],
+                    pending["state"],
+                    is_result=True,
+                    content=output_text,
+                    details=details,
                     is_error=is_error,
                 )
                 if lines is not None:
@@ -7099,8 +7350,9 @@ class _TuiToolLoopRenderer:
             duration_seconds=duration_seconds,
         )
 
-    def _dispatch_render(self, renderer, args, state, *, is_result, content,
-                         details, is_error):
+    def _dispatch_render(
+        self, renderer, args, state, *, is_result, content, details, is_error
+    ):
         # Local imports: the render-theme machinery is only needed on the
         # rarely-hit custom-renderer branch, so it is imported here rather than
         # at module top to keep this module's import-time dependency surface
@@ -7114,11 +7366,16 @@ class _TuiToolLoopRenderer:
 
         style = chrome_style_for(self._ui.terminal_stream)
         ctx = ToolRenderContext(
-            tool_name=self._last_tool_name, args=args, is_result=is_result,
-            is_error=is_error, content=content, details=details,
+            tool_name=self._last_tool_name,
+            args=args,
+            is_result=is_result,
+            is_error=is_error,
+            content=content,
+            details=details,
             expanded=self._ui.tools_expanded,
             width=self._ui._dimensions()[0],
-            theme=build_tool_render_theme(style), state=state,
+            theme=build_tool_render_theme(style),
+            state=state,
         )
         return render_tool_phase(renderer, ctx)
 

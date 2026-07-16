@@ -54,8 +54,18 @@ entries oldest-first, and a version bump shows the new entries at startup.
   context behavior, and exclude project settings, extensions, skills,
   templates, commands, system-prompt files, and project package declarations.
   Print/JSON/RPC/help/list-model paths fail closed without trust prompts or
-  protocol output. The full startup selector, `/trust`, package/config command
-  integration, and extension trust APIs remain follow-on slices.
+  protocol output.
+- Interactive project trust now ships end to end. An unresolved interactive TTY
+  opens Pi's five-choice startup selector (current folder, parent, session-only,
+  decline, or session-only decline); `/trust` shows saved/inherited and current
+  state and persists a next-restart decision without hot-loading resources; and
+  `/reload` narrowly saves trust when a previously resource-free trusted run
+  explicitly loads a newly created protected input. `/settings` now controls the
+  global `defaultProjectTrust` enum. `install`, `remove`/`uninstall`, `list`, and
+  `config` accept command-local `--approve`/`--no-approve`; untrusted listings
+  omit project entries, global operations remain usable, and local writes fail
+  before mutation. Extension-owned trust decisions/read APIs remain the final
+  project-trust follow-on; package `update` realignment remains separate.
 
 
 ### Removed

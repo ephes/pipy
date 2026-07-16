@@ -44,6 +44,14 @@ team intentionally shares that package dependency. User installs stay local to
 the current account. Use `--cwd <dir>` on package commands when operating on a
 project other than the current working directory.
 
+Package and resource-config commands resolve project trust before reading or
+changing project state. `--approve` / `-a` and `--no-approve` / `-na` are
+command-local overrides (the last one wins and neither persists). When a
+project is untrusted, `list` and `config` omit project entries but retain global
+ones, while local `install`, `remove`/`uninstall`, and `config -l` writes fail
+before mutation and explain that `--approve` is required. Package `update`
+keeps its existing behavior until the separate update-semantics realignment.
+
 To try an extension or resource without installing a package, use the per-run
 resource flags instead:
 

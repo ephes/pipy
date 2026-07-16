@@ -27,7 +27,8 @@ Create or reshape user-facing pages under `docs/`:
   `models.json`, `--list-models`, `/model`, `--thinking`, and ds4 as a custom
   provider preset.
 - `settings.md` — shipped global settings, trust-gated project settings, trust
-  run overrides/defaults, and the remaining interactive trust boundary.
+  run overrides/defaults and interactive controls, and the remaining extension
+  trust API boundary.
 - `keybindings.md` — current TUI keys plus the keybindings target.
 - `sessions.md` — native product session tree, `/tree`, `/resume`, `/fork`,
   `/clone`, `/compact`, startup flags, and the separate `pipy-session` catalog.

@@ -23,12 +23,14 @@ directory or ancestor wins. A global-only setting controls the fallback:
 }
 ```
 
-Accepted values are `ask` (the default), `always`, and `never`. For a single
-run, `--approve` / `-a` trusts project inputs and `--no-approve` / `-na` blocks
-them without changing `trust.json`; if repeated, the last flag wins. The full
-interactive trust selector and `/trust` command are not shipped yet, so an
-unresolved interactive `ask` currently fails closed with a diagnostic. Headless
-print/JSON/RPC paths fail closed silently so their protocols stay clean.
+Accepted values are `ask` (the default), `always`, and `never`; `/settings`
+exposes them as `Ask`, `Trust`, and `Do not trust`. For a single run,
+`--approve` / `-a` trusts project inputs and `--no-approve` / `-na` blocks them
+without changing `trust.json`; if repeated, the last flag wins. An unresolved
+interactive `ask` opens the five-choice trust selector. `/trust` shows the saved
+exact/inherited decision and current run state, then saves a next-restart
+decision without hot-loading resources. Headless print/JSON/RPC paths fail
+closed silently so their protocols stay clean.
 
 Trust only controls which project inputs pipy loads. It is not a sandbox, and a
 trusted project can still influence tools and execute extension code with the

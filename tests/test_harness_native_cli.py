@@ -17,7 +17,10 @@ from pipy_harness.native import (
     ProviderRequest,
     ProviderResult,
 )
-from pipy_harness.native.version_check import PIPY_OFFLINE_ENV, PIPY_SKIP_VERSION_CHECK_ENV
+from pipy_harness.native.version_check import (
+    PIPY_OFFLINE_ENV,
+    PIPY_SKIP_VERSION_CHECK_ENV,
+)
 from pipy_session import (
     inspect_finalized_session,
     list_finalized_sessions,
@@ -28,7 +31,9 @@ from pipy_session import (
 
 @pytest.fixture(autouse=True)
 def isolate_native_defaults(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "native-defaults.json"))
+    monkeypatch.setenv(
+        "PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "native-defaults.json")
+    )
     # The auto provider picker probes the openai-codex OAuth credential file
     # and conventional API-key env vars. Point them at empty tmp paths /
     # unset them so tests get the deterministic fake fallback unless they
@@ -169,8 +174,27 @@ def test_removed_flag_guard_ignores_tokens_after_separator() -> None:
 
     parser = build_parser()
     for after_separator in (
-        ["run", "--agent", "custom", "--slug", "s", "--", "some-tool", "--native-output", "json"],
-        ["run", "--agent", "custom", "--slug", "s", "--", "some-tool", "--archive-transcript"],
+        [
+            "run",
+            "--agent",
+            "custom",
+            "--slug",
+            "s",
+            "--",
+            "some-tool",
+            "--native-output",
+            "json",
+        ],
+        [
+            "run",
+            "--agent",
+            "custom",
+            "--slug",
+            "s",
+            "--",
+            "some-tool",
+            "--archive-transcript",
+        ],
     ):
         # Does not raise SystemExit: the removed token is the child's, not pipy's.
         _guard_removed_flags(parser, after_separator)
@@ -247,7 +271,9 @@ def test_cli_openai_codex_auth_login_reports_sanitized_provider_error(
         def login_interactive(self, *, input_stream, output_stream, open_browser: bool):
             raise OpenAICodexProviderError("safe auth failure")
 
-    monkeypatch.setattr("pipy_harness.cli.OpenAICodexAuthManager", CliFailingAuthManager)
+    monkeypatch.setattr(
+        "pipy_harness.cli.OpenAICodexAuthManager", CliFailingAuthManager
+    )
 
     exit_code = main(["auth", "openai-codex", "login", "--no-browser"])
 
@@ -285,7 +311,10 @@ def test_cli_native_repl_explicit_prompt_toolkit_rejects_captured_stream_before_
     captured = capfd.readouterr()
     assert exit_code == 2
     assert captured.out == ""
-    assert "pipy: prompt-toolkit input requires the process stdin and stderr TTY streams" in captured.err
+    assert (
+        "pipy: prompt-toolkit input requires the process stdin and stderr TTY streams"
+        in captured.err
+    )
     assert not list(root.glob("**/*.jsonl"))
 
 
@@ -322,7 +351,9 @@ def test_cli_verbose_overrides_quiet_startup(tmp_path, capfd, monkeypatch) -> No
     assert "pipy v" in verbose_captured.err
 
 
-def test_cli_bare_pipy_starts_native_repl_with_default_slug(tmp_path, capfd, monkeypatch) -> None:
+def test_cli_bare_pipy_starts_native_repl_with_default_slug(
+    tmp_path, capfd, monkeypatch
+) -> None:
     root = tmp_path / "sessions"
     captured_requests: list = []
 
@@ -378,26 +409,36 @@ def test_cli_native_smoke_uses_fake_provider_and_finalizes_record(tmp_path, capf
     assert event_types[-1] == "session.finalized"
     assert "native.session.started" in event_types
     assert "native.provider.completed" in event_types
-    assert not [event_type for event_type in event_types if str(event_type).startswith("native.tool.")]
+    assert not [
+        event_type
+        for event_type in event_types
+        if str(event_type).startswith("native.tool.")
+    ]
     assert "native.verification.recorded" not in event_types
     provider_payloads = [
-        event["payload"] for event in events if event["type"] == "native.provider.completed"
+        event["payload"]
+        for event in events
+        if event["type"] == "native.provider.completed"
     ]
     assert provider_payloads[0]["provider"] == "fake"
     assert provider_payloads[0]["model_id"] == "fake-native-bootstrap"
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(
+        ".md"
+    ).read_text(encoding="utf-8")
     assert "pipy native fake provider completed." not in combined
     assert "You are the native pipy runtime bootstrap" not in combined
     assert verify_session_archive(root=root).ok is True
     assert list_finalized_sessions(root=root)[0].jsonl_path == finalized[0]
     assert search_finalized_sessions("native.provider.completed", root=root)
     assert not search_finalized_sessions("native.tool.completed", root=root)
-    assert not search_finalized_sessions("pipy native fake provider completed.", root=root)
+    assert not search_finalized_sessions(
+        "pipy native fake provider completed.", root=root
+    )
     inspection = inspect_finalized_session(finalized[0], root=root)
     assert inspection.event_types["native.session.completed"] == 1
     assert "native.tool.completed" not in inspection.event_types
+
+
 def test_cli_native_rejects_command_after_separator(tmp_path, capsys):
     exit_code = main(
         [
@@ -422,7 +463,9 @@ def test_cli_native_rejects_command_after_separator(tmp_path, capsys):
     assert "do not accept a command" in captured.err
 
 
-def test_cli_native_openai_provider_is_selectable_without_storing_output(tmp_path, capfd, monkeypatch):
+def test_cli_native_openai_provider_is_selectable_without_storing_output(
+    tmp_path, capfd, monkeypatch
+):
     root = tmp_path / "sessions"
 
     class CliFakeOpenAIProvider:
@@ -432,7 +475,9 @@ def test_cli_native_openai_provider_is_selectable_without_storing_output(tmp_pat
         def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        def complete(
+            self, request: ProviderRequest, **_kwargs: object
+        ) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -442,11 +487,15 @@ def test_cli_native_openai_provider_is_selectable_without_storing_output(tmp_pat
                 ended_at=now,
                 final_text="OPENAI_OUTPUT_SHOULD_PRINT_ONLY",
                 usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
-                metadata={"provider_response_store_requested": False, "response_status": "completed"},
+                metadata={
+                    "provider_response_store_requested": False,
+                    "response_status": "completed",
+                },
             )
 
     monkeypatch.setattr(
-        "pipy_harness.native.openai_provider.OpenAIResponsesProvider", CliFakeOpenAIProvider
+        "pipy_harness.native.openai_provider.OpenAIResponsesProvider",
+        CliFakeOpenAIProvider,
     )
 
     exit_code = main(
@@ -478,21 +527,29 @@ def test_cli_native_openai_provider_is_selectable_without_storing_output(tmp_pat
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     assert len(finalized) == 1
     events = read_jsonl(finalized[0])
-    provider_completed = [event for event in events if event["type"] == "native.provider.completed"][0]
+    provider_completed = [
+        event for event in events if event["type"] == "native.provider.completed"
+    ][0]
     assert provider_completed["payload"]["provider"] == "openai"
     assert provider_completed["payload"]["model_id"] == "gpt-test"
     assert provider_completed["payload"]["provider_metadata"] == {
         "provider_response_store_requested": False,
         "response_status": "completed",
     }
-    assert not [event["type"] for event in events if str(event["type"]).startswith("native.tool.")]
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
+    assert not [
+        event["type"]
+        for event in events
+        if str(event["type"]).startswith("native.tool.")
+    ]
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(
+        ".md"
+    ).read_text(encoding="utf-8")
     assert "OPENAI_OUTPUT_SHOULD_PRINT_ONLY" not in combined
     assert "You are the native pipy runtime bootstrap" not in combined
     assert not search_finalized_sessions("OPENAI_OUTPUT_SHOULD_PRINT_ONLY", root=root)
     assert verify_session_archive(root=root).ok is True
+
+
 def test_cli_native_openrouter_provider_is_selectable_without_storing_output(
     tmp_path, capfd, monkeypatch
 ):
@@ -505,7 +562,9 @@ def test_cli_native_openrouter_provider_is_selectable_without_storing_output(
         def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        def complete(
+            self, request: ProviderRequest, **_kwargs: object
+        ) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -556,7 +615,9 @@ def test_cli_native_openrouter_provider_is_selectable_without_storing_output(
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     assert len(finalized) == 1
     events = read_jsonl(finalized[0])
-    provider_completed = [event for event in events if event["type"] == "native.provider.completed"][0]
+    provider_completed = [
+        event for event in events if event["type"] == "native.provider.completed"
+    ][0]
     assert provider_completed["payload"]["provider"] == "openrouter"
     assert provider_completed["payload"]["model_id"] == "openai/gpt-test"
     assert provider_completed["payload"]["usage"] == {
@@ -569,13 +630,17 @@ def test_cli_native_openrouter_provider_is_selectable_without_storing_output(
         "response_object": "chat.completion",
         "finish_reason": "stop",
     }
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(
+        ".md"
+    ).read_text(encoding="utf-8")
     assert "OPENROUTER_OUTPUT_SHOULD_PRINT_ONLY" not in combined
     assert "You are the native pipy runtime bootstrap" not in combined
-    assert not search_finalized_sessions("OPENROUTER_OUTPUT_SHOULD_PRINT_ONLY", root=root)
+    assert not search_finalized_sessions(
+        "OPENROUTER_OUTPUT_SHOULD_PRINT_ONLY", root=root
+    )
     assert verify_session_archive(root=root).ok is True
+
+
 def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
     tmp_path, capfd, monkeypatch
 ):
@@ -588,7 +653,9 @@ def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
         def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        def complete(
+            self, request: ProviderRequest, **_kwargs: object
+        ) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -604,7 +671,9 @@ def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
                 },
             )
 
-    monkeypatch.setattr("pipy_harness.cli.OpenAICodexResponsesProvider", CliFakeOpenAICodexProvider)
+    monkeypatch.setattr(
+        "pipy_harness.cli.OpenAICodexResponsesProvider", CliFakeOpenAICodexProvider
+    )
 
     exit_code = main(
         [
@@ -635,7 +704,9 @@ def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     assert len(finalized) == 1
     events = read_jsonl(finalized[0])
-    provider_completed = [event for event in events if event["type"] == "native.provider.completed"][0]
+    provider_completed = [
+        event for event in events if event["type"] == "native.provider.completed"
+    ][0]
     assert provider_completed["payload"]["provider"] == "openai-codex"
     assert provider_completed["payload"]["model_id"] == "gpt-test"
     assert provider_completed["payload"]["usage"] == {
@@ -647,12 +718,14 @@ def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
         "provider_response_store_requested": False,
         "response_status": "completed",
     }
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(
+        ".md"
+    ).read_text(encoding="utf-8")
     assert "OPENAI_CODEX_OUTPUT_SHOULD_PRINT_ONLY" not in combined
     assert "You are the native pipy runtime bootstrap" not in combined
     assert verify_session_archive(root=root).ok is True
+
+
 def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
     tmp_path, capfd, monkeypatch
 ):
@@ -664,7 +737,9 @@ def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
         def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        def complete(
+            self, request: ProviderRequest, **_kwargs: object
+        ) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.FAILED,
@@ -679,7 +754,8 @@ def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
             )
 
     monkeypatch.setattr(
-        "pipy_harness.native.openai_provider.OpenAIResponsesProvider", CliFailingOpenAIProvider
+        "pipy_harness.native.openai_provider.OpenAIResponsesProvider",
+        CliFailingOpenAIProvider,
     )
 
     exit_code = main(
@@ -715,11 +791,13 @@ def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
     event_types = [event["type"] for event in events]
     assert "native.provider.failed" in event_types
     assert "native.tool.skipped" in event_types
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(
+        ".md"
+    ).read_text(encoding="utf-8")
     assert "OPENAI_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE" not in combined
-    assert not search_finalized_sessions("OPENAI_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE", root=root)
+    assert not search_finalized_sessions(
+        "OPENAI_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE", root=root
+    )
     assert verify_session_archive(root=root).ok is True
 
 
@@ -734,7 +812,9 @@ def test_cli_native_openrouter_failure_does_not_print_or_store_provider_final_te
         def __init__(self, model_id=None, **_kwargs) -> None:
             self.model_id = model_id
 
-        def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        def complete(
+            self, request: ProviderRequest, **_kwargs: object
+        ) -> ProviderResult:
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.FAILED,
@@ -786,14 +866,20 @@ def test_cli_native_openrouter_failure_does_not_print_or_store_provider_final_te
     event_types = [event["type"] for event in events]
     assert "native.provider.failed" in event_types
     assert "native.tool.skipped" in event_types
-    provider_failed = [event for event in events if event["type"] == "native.provider.failed"][0]
+    provider_failed = [
+        event for event in events if event["type"] == "native.provider.failed"
+    ][0]
     assert provider_failed["payload"]["provider"] == "openrouter"
-    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(".md").read_text(
-        encoding="utf-8"
-    )
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(
+        ".md"
+    ).read_text(encoding="utf-8")
     assert "OPENROUTER_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE" not in combined
-    assert not search_finalized_sessions("OPENROUTER_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE", root=root)
+    assert not search_finalized_sessions(
+        "OPENROUTER_OUTPUT_SHOULD_NOT_PRINT_ON_FAILURE", root=root
+    )
     assert verify_session_archive(root=root).ok is True
+
+
 def test_cli_native_openrouter_missing_credentials_finalizes_failed_record(
     tmp_path, capfd, monkeypatch
 ):
@@ -832,13 +918,17 @@ def test_cli_native_openrouter_missing_credentials_finalizes_failed_record(
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     assert len(finalized) == 1
     events = read_jsonl(finalized[0])
-    provider_failed = [event for event in events if event["type"] == "native.provider.failed"][0]
+    provider_failed = [
+        event for event in events if event["type"] == "native.provider.failed"
+    ][0]
     assert provider_failed["payload"]["provider"] == "openrouter"
     assert provider_failed["payload"]["model_id"] == "openai/gpt-test"
     assert provider_failed["payload"]["error_type"] == "OpenAICompletionsAuthError"
     assert "API key is required" in provider_failed["payload"]["error_message"]
     assert "OPENROUTER_API_KEY" not in finalized[0].read_text(encoding="utf-8")
-    tool_skipped = [event for event in events if event["type"] == "native.tool.skipped"][0]
+    tool_skipped = [
+        event for event in events if event["type"] == "native.tool.skipped"
+    ][0]
     assert tool_skipped["payload"]["reason"] == "provider_not_succeeded"
     assert verify_session_archive(root=root).ok is True
 
@@ -1026,20 +1116,28 @@ def test_cli_native_openai_codex_missing_credentials_finalizes_failed_record(
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     assert len(finalized) == 1
     events = read_jsonl(finalized[0])
-    provider_failed = [event for event in events if event["type"] == "native.provider.failed"][0]
+    provider_failed = [
+        event for event in events if event["type"] == "native.provider.failed"
+    ][0]
     assert provider_failed["payload"]["provider"] == "openai-codex"
     assert provider_failed["payload"]["model_id"] == "gpt-test"
     assert provider_failed["payload"]["error_type"] == "OpenAICodexAuthError"
-    assert "OpenAI Codex login is required" in provider_failed["payload"]["error_message"]
+    assert (
+        "OpenAI Codex login is required" in provider_failed["payload"]["error_message"]
+    )
     serialized = finalized[0].read_text(encoding="utf-8")
     assert "access_token" not in serialized
     assert "refresh_token" not in serialized
-    tool_skipped = [event for event in events if event["type"] == "native.tool.skipped"][0]
+    tool_skipped = [
+        event for event in events if event["type"] == "native.tool.skipped"
+    ][0]
     assert tool_skipped["payload"]["reason"] == "provider_not_succeeded"
     assert verify_session_archive(root=root).ok is True
 
 
-def test_cli_native_openai_codex_requires_model_before_creating_record(tmp_path, capsys):
+def test_cli_native_openai_codex_requires_model_before_creating_record(
+    tmp_path, capsys
+):
     root = tmp_path / "sessions"
 
     exit_code = main(
@@ -1093,7 +1191,9 @@ def test_cli_native_openrouter_requires_model_before_creating_record(tmp_path, c
     assert not root.exists()
 
 
-def test_cli_native_openai_missing_credentials_finalizes_failed_record(tmp_path, capfd, monkeypatch):
+def test_cli_native_openai_missing_credentials_finalizes_failed_record(
+    tmp_path, capfd, monkeypatch
+):
     root = tmp_path / "sessions"
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
@@ -1126,11 +1226,15 @@ def test_cli_native_openai_missing_credentials_finalizes_failed_record(tmp_path,
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     assert len(finalized) == 1
     events = read_jsonl(finalized[0])
-    provider_failed = [event for event in events if event["type"] == "native.provider.failed"][0]
+    provider_failed = [
+        event for event in events if event["type"] == "native.provider.failed"
+    ][0]
     assert provider_failed["payload"]["provider"] == "openai"
     assert provider_failed["payload"]["error_type"] == "OpenAIAuthError"
     assert "API key is required" in provider_failed["payload"]["error_message"]
-    tool_skipped = [event for event in events if event["type"] == "native.tool.skipped"][0]
+    tool_skipped = [
+        event for event in events if event["type"] == "native.tool.skipped"
+    ][0]
     assert tool_skipped["payload"]["reason"] == "provider_not_succeeded"
     assert verify_session_archive(root=root).ok is True
 
@@ -1184,11 +1288,15 @@ def test_cli_native_requires_goal_before_creating_record(tmp_path, capsys):
 
 
 def test_cli_subprocess_behavior_still_requires_command(tmp_path, capsys):
-    exit_code = main(["run", "--agent", "custom", "--slug", "missing", "--root", str(tmp_path)])
+    exit_code = main(
+        ["run", "--agent", "custom", "--slug", "missing", "--root", str(tmp_path)]
+    )
 
     captured = capsys.readouterr()
     assert exit_code == 2
     assert "command after --" in captured.err
+
+
 def test_cli_stream_requires_pipy_native_agent(tmp_path, capsys):
     root = tmp_path / "sessions"
 
@@ -1282,9 +1390,7 @@ def test_cli_stream_with_fake_provider_streams_chunks_to_stdout_and_keeps_archiv
                 metadata=None,
             )
 
-    monkeypatch.setattr(
-        "pipy_harness.cli.FakeNativeProvider", CliStreamingFakeProvider
-    )
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliStreamingFakeProvider)
 
     exit_code = main(
         [
@@ -1315,6 +1421,8 @@ def test_cli_stream_with_fake_provider_streams_chunks_to_stdout_and_keeps_archiv
     assert "STREAM_" not in serialized
     assert "CHUNK_" not in serialized
     assert "STREAM_CHUNK_ABC" not in serialized
+
+
 def test_cli_stream_off_keeps_existing_buffered_stdout_behavior(
     tmp_path, capsys, monkeypatch
 ):
@@ -1333,7 +1441,9 @@ def test_cli_stream_off_keeps_existing_buffered_stdout_behavior(
             stream_sink=None,
             **_kwargs: object,
         ) -> ProviderResult:
-            assert stream_sink is None, "stream_sink should not be passed when --stream is off"
+            assert stream_sink is None, (
+                "stream_sink should not be passed when --stream is off"
+            )
             now = datetime.now(UTC)
             return ProviderResult(
                 status=HarnessStatus.SUCCEEDED,
@@ -1346,9 +1456,7 @@ def test_cli_stream_off_keeps_existing_buffered_stdout_behavior(
                 metadata=None,
             )
 
-    monkeypatch.setattr(
-        "pipy_harness.cli.FakeNativeProvider", CliBufferedFakeProvider
-    )
+    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliBufferedFakeProvider)
 
     exit_code = main(
         [
@@ -1428,7 +1536,9 @@ def test_cli_list_models_prints_table_and_exits(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("PIPY_AUTH_DIR", str(tmp_path / "auth"))
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("PIPY_OPENAI_CODEX_AUTH_PATH", str(tmp_path / "absent-codex.json"))
+    monkeypatch.setenv(
+        "PIPY_OPENAI_CODEX_AUTH_PATH", str(tmp_path / "absent-codex.json")
+    )
     for var in ("ANTHROPIC_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY"):
         monkeypatch.delenv(var, raising=False)
 
@@ -1449,11 +1559,7 @@ def test_cli_list_models_fuzzy_search(tmp_path, capsys, monkeypatch):
 
     exit_code = main(["repl", "--list-models", "mistral"])
     assert exit_code == 0
-    body = [
-        line
-        for line in capsys.readouterr().out.splitlines()[1:]
-        if line.strip()
-    ]
+    body = [line for line in capsys.readouterr().out.splitlines()[1:] if line.strip()]
     # Fuzzy filter over "provider id": only mistral rows match "mistral".
     assert body
     assert all(line.split()[0] == "mistral" for line in body)
@@ -1571,31 +1677,56 @@ def _capturing_repl_provider(captured: list) -> type:
 
 def test_cli_system_prompt_flag_replaces_base_prompt(tmp_path, monkeypatch) -> None:
     captured: list = []
-    monkeypatch.setattr("pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured))
+    monkeypatch.setattr(
+        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+    )
     monkeypatch.setattr(sys, "stdin", StringIO("hello\n/exit\n"))
     main(
         [
-            "repl", "--agent", "pipy-native", "--slug", "sp", "--no-session",
-            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
-            "--system-prompt", "REPLACED SYSTEM PROMPT BODY",
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "sp",
+            "--no-session",
+            "--root",
+            str(tmp_path / "s"),
+            "--cwd",
+            str(tmp_path),
+            "--system-prompt",
+            "REPLACED SYSTEM PROMPT BODY",
         ]
     )
     assert captured, "no provider request captured"
     sp = captured[0].system_prompt
     assert "REPLACED SYSTEM PROMPT BODY" in sp
-    assert "pipy" not in sp.split("REPLACED")[0]  # default bootstrap text gone before custom
+    assert (
+        "pipy" not in sp.split("REPLACED")[0]
+    )  # default bootstrap text gone before custom
 
 
 def test_cli_append_system_prompt_flag_appends(tmp_path, monkeypatch) -> None:
     captured: list = []
-    monkeypatch.setattr("pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured))
+    monkeypatch.setattr(
+        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+    )
     monkeypatch.setattr(sys, "stdin", StringIO("hello\n/exit\n"))
     main(
         [
-            "repl", "--agent", "pipy-native", "--slug", "ap", "--no-session",
-            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
-            "--append-system-prompt", "APPENDED ONE",
-            "--append-system-prompt", "APPENDED TWO",
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "ap",
+            "--no-session",
+            "--root",
+            str(tmp_path / "s"),
+            "--cwd",
+            str(tmp_path),
+            "--append-system-prompt",
+            "APPENDED ONE",
+            "--append-system-prompt",
+            "APPENDED TWO",
         ]
     )
     sp = captured[0].system_prompt
@@ -1615,8 +1746,16 @@ def test_positional_prompt_seeds_interactive_first_message(
     monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
     exit_code = main(
         [
-            "repl", "--agent", "pipy-native", "--slug", "seed", "--no-session",
-            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "seed",
+            "--no-session",
+            "--root",
+            str(tmp_path / "s"),
+            "--cwd",
+            str(tmp_path),
             "hello there",
         ]
     )
@@ -1650,9 +1789,18 @@ def test_mode_rpc_still_rejects_positional_prompt(tmp_path, monkeypatch) -> None
     )
     exit_code = main(
         [
-            "repl", "--agent", "pipy-native", "--slug", "rpc", "--no-session",
-            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
-            "--mode", "rpc",
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "rpc",
+            "--no-session",
+            "--root",
+            str(tmp_path / "s"),
+            "--cwd",
+            str(tmp_path),
+            "--mode",
+            "rpc",
             "do X",
         ]
     )
@@ -1709,15 +1857,27 @@ def test_router_list_models_routes_to_repl_flag(tmp_path, monkeypatch, capsys) -
 
 def test_cli_system_md_auto_discovery_replaces(tmp_path, monkeypatch) -> None:
     (tmp_path / ".pipy").mkdir()
-    (tmp_path / ".pipy" / "SYSTEM.md").write_text("DISCOVERED SYSTEM MD", encoding="utf-8")
+    (tmp_path / ".pipy" / "SYSTEM.md").write_text(
+        "DISCOVERED SYSTEM MD", encoding="utf-8"
+    )
     captured: list = []
-    monkeypatch.setattr("pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured))
+    monkeypatch.setattr(
+        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+    )
     monkeypatch.setattr(sys, "stdin", StringIO("hi\n/exit\n"))
     main(
         [
-            "repl", "--agent", "pipy-native", "--slug", "smd", "--no-session",
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "smd",
+            "--no-session",
             "--approve",
-            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
+            "--root",
+            str(tmp_path / "s"),
+            "--cwd",
+            str(tmp_path),
         ]
     )
     assert "DISCOVERED SYSTEM MD" in captured[0].system_prompt
@@ -1726,12 +1886,22 @@ def test_cli_system_md_auto_discovery_replaces(tmp_path, monkeypatch) -> None:
 def test_cli_no_context_files_disables_discovery(tmp_path, monkeypatch) -> None:
     (tmp_path / "AGENTS.md").write_text("SECRET PROJECT INSTRUCTIONS", encoding="utf-8")
     captured: list = []
-    monkeypatch.setattr("pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured))
+    monkeypatch.setattr(
+        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+    )
     monkeypatch.setattr(sys, "stdin", StringIO("hi\n/exit\n"))
     main(
         [
-            "repl", "--agent", "pipy-native", "--slug", "nc", "--no-session",
-            "--root", str(tmp_path / "s"), "--cwd", str(tmp_path),
+            "repl",
+            "--agent",
+            "pipy-native",
+            "--slug",
+            "nc",
+            "--no-session",
+            "--root",
+            str(tmp_path / "s"),
+            "--cwd",
+            str(tmp_path),
             "--no-context-files",
         ]
     )
@@ -1783,7 +1953,9 @@ def test_provider_factory_without_settings_keeps_provider_default(tmp_path) -> N
     from pipy_harness.cli import _provider_factory_for
     from pipy_harness.native import NativeModelSelection
 
-    provider = _provider_factory_for(None)(NativeModelSelection("openai-codex", "gpt-5.5"))
+    provider = _provider_factory_for(None)(
+        NativeModelSelection("openai-codex", "gpt-5.5")
+    )
     # Built-in openai-codex default policy (unchanged when no settings).
     policy = provider.retry_policy  # type: ignore[attr-defined]
     assert policy.max_attempts == 4
@@ -1836,9 +2008,7 @@ def test_provider_factory_rejects_explicit_null_timeouts_before_instantiation(
     from pipy_harness.native import NativeModelSelection
     from pipy_harness.native.settings import SettingsManager
 
-    (tmp_path / "settings.json").write_text(
-        json.dumps(settings_body), encoding="utf-8"
-    )
+    (tmp_path / "settings.json").write_text(json.dumps(settings_body), encoding="utf-8")
     manager = SettingsManager(
         global_path=tmp_path / "settings.json",
         project_path=None,
@@ -1855,9 +2025,7 @@ def test_provider_factory_rejects_explicit_null_timeouts_before_instantiation(
     )
 
     with pytest.raises(ValueError, match="non-negative integer"):
-        _provider_factory_for(manager)(
-            NativeModelSelection("openai-codex", "gpt-5.5")
-        )
+        _provider_factory_for(manager)(NativeModelSelection("openai-codex", "gpt-5.5"))
     assert instantiated is False
 
 
@@ -1867,7 +2035,9 @@ def _make_skill(cwd, name: str) -> None:
     (skills_dir / f"{name}.md").write_text(f"# {name}\n\nbody\n", encoding="utf-8")
 
 
-def test_cli_config_disable_then_enable_skill_writes_patterns(tmp_path, capfd, monkeypatch) -> None:
+def test_cli_config_disable_then_enable_skill_writes_patterns(
+    tmp_path, capfd, monkeypatch
+) -> None:
     config_home = tmp_path / "cfg"
     config_home.mkdir()
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
@@ -1882,7 +2052,9 @@ def test_cli_config_disable_then_enable_skill_writes_patterns(tmp_path, capfd, m
     assert on_disk["skills"] == ["+review"]
 
 
-def test_cli_config_list_shows_disabled_package_theme(tmp_path, capfd, monkeypatch) -> None:
+def test_cli_config_list_shows_disabled_package_theme(
+    tmp_path, capfd, monkeypatch
+) -> None:
     # A disabled package-contributed theme must still appear in `config list`
     # with enabled=false (like skills/prompts/extensions), not vanish.
     config_home = tmp_path / "cfg"
@@ -1900,13 +2072,15 @@ def test_cli_config_list_shows_disabled_package_theme(tmp_path, capfd, monkeypat
     assert main(["config", "disable", "theme", "midnight", "--cwd", str(ws)]) == 0
     capfd.readouterr()
 
-    assert main(["config", "list", "--json", "--cwd", str(ws)]) == 0
+    assert main(["config", "list", "--json", "--approve", "--cwd", str(ws)]) == 0
     report = json.loads(capfd.readouterr().out)
     midnight = next(t for t in report["themes"] if t["name"] == "midnight")
     assert midnight["enabled"] is False
 
 
-def test_cli_config_list_builtin_theme_stays_enabled(tmp_path, capfd, monkeypatch) -> None:
+def test_cli_config_list_builtin_theme_stays_enabled(
+    tmp_path, capfd, monkeypatch
+) -> None:
     # Runtime theme filters apply only to package themes; built-ins remain
     # selectable. `config list` must report built-ins as enabled even with a
     # `-builtin` filter present, so the report matches runtime behavior.
@@ -1917,13 +2091,15 @@ def test_cli_config_list_builtin_theme_stays_enabled(tmp_path, capfd, monkeypatc
     assert main(["config", "disable", "theme", "ocean", "--cwd", str(tmp_path)]) == 0
     capfd.readouterr()
 
-    assert main(["config", "list", "--json", "--cwd", str(tmp_path)]) == 0
+    assert main(["config", "list", "--json", "--approve", "--cwd", str(tmp_path)]) == 0
     report = json.loads(capfd.readouterr().out)
     ocean = next(t for t in report["themes"] if t["name"] == "ocean")
     assert ocean["enabled"] is True
 
 
-def test_cli_config_list_json_reports_enabled_state(tmp_path, capfd, monkeypatch) -> None:
+def test_cli_config_list_json_reports_enabled_state(
+    tmp_path, capfd, monkeypatch
+) -> None:
     config_home = tmp_path / "cfg"
     config_home.mkdir()
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(config_home))
@@ -1932,7 +2108,7 @@ def test_cli_config_list_json_reports_enabled_state(tmp_path, capfd, monkeypatch
         json.dumps({"skills": ["-review"]}), encoding="utf-8"
     )
 
-    assert main(["config", "list", "--json", "--cwd", str(tmp_path)]) == 0
+    assert main(["config", "list", "--json", "--approve", "--cwd", str(tmp_path)]) == 0
     out = capfd.readouterr().out
     report = json.loads(out)
     review = next(s for s in report["skills"] if s["name"] == "review")

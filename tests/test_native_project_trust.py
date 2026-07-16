@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import stat
 from concurrent.futures import ThreadPoolExecutor
@@ -12,13 +13,16 @@ from pipy_harness.native.project_trust import (
     PROTECTED_PROJECT_ENTRIES,
     ProjectTrustError,
     ProjectTrustStore,
+    get_project_trust_options,
     has_trust_requiring_project_resources,
+    resolve_project_trust,
     resolve_project_trusted,
 )
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
 from pipy_harness.native.package_runtime import compose_package_runtime
+from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.cli import (
     KNOWN_SUBCOMMANDS,
     _resolve_runtime_project_trust,
@@ -213,7 +217,98 @@ def test_resolver_global_default_selector_and_malformed_store(tmp_path: Path) ->
     assert diagnostics and "expected an object" in diagnostics[0]
 
 
-def test_untrusted_settings_never_open_project_and_refuse_writes(tmp_path: Path) -> None:
+def test_trust_options_match_pi_order_and_parent_updates_are_atomic(
+    tmp_path: Path,
+) -> None:
+    cwd = tmp_path / "parent" / "child"
+    cwd.mkdir(parents=True)
+    options = get_project_trust_options(cwd, include_session_only=True)
+    assert [option.label for option in options] == [
+        "Trust",
+        f"Trust parent folder ({cwd.parent.resolve()})",
+        "Trust (this session only)",
+        "Do not trust",
+        "Do not trust (this session only)",
+    ]
+    assert options[1].updates == (
+        (cwd.parent.resolve(), True),
+        (cwd.resolve(), None),
+    )
+
+
+def test_interactive_option_is_saved_before_its_resolution_wins(
+    tmp_path: Path,
+) -> None:
+    cwd = tmp_path / "project"
+    (cwd / ".pipy" / "skills").mkdir(parents=True)
+    store = ProjectTrustStore(tmp_path / "config" / "trust.json")
+    selected = get_project_trust_options(cwd, include_session_only=True)[1]
+    resolution = resolve_project_trust(
+        cwd,
+        trust_store=store,
+        select=lambda _cwd: selected,
+    )
+    assert resolution.trusted
+    assert resolution.source == "selection"
+    entry = store.get_entry(cwd)
+    assert entry is not None
+    assert entry.path == cwd.parent.resolve()
+    assert entry.decision is True
+
+
+def test_reload_auto_persists_only_newly_materialized_project_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = tmp_path / "project"
+    cwd.mkdir()
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    settings = SettingsManager.for_workspace(cwd, project_trusted=True)
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        tool_registry={},
+        auto_trust_on_reload_cwd=cwd,
+    )
+    error = io.StringIO()
+    assert not session._maybe_save_implicit_trust_after_reload(
+        cwd=cwd, settings=settings, terminal_ui=None, error_stream=error
+    )
+    assert not (config / "trust.json").exists()
+    (cwd / ".pipy" / "skills").mkdir(parents=True)
+    assert session._maybe_save_implicit_trust_after_reload(
+        cwd=cwd, settings=settings, terminal_ui=None, error_stream=error
+    )
+    assert ProjectTrustStore(config / "trust.json").get(cwd) is True
+    assert session.auto_trust_on_reload_cwd is None
+
+
+def test_reload_auto_persist_never_overrides_a_saved_decision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = tmp_path / "project"
+    (cwd / ".pipy" / "skills").mkdir(parents=True)
+    config = tmp_path / "config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    store = ProjectTrustStore(config / "trust.json")
+    store.set(cwd.parent, False)
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        tool_registry={},
+        auto_trust_on_reload_cwd=cwd,
+    )
+    assert not session._maybe_save_implicit_trust_after_reload(
+        cwd=cwd,
+        settings=SettingsManager.for_workspace(cwd, project_trusted=True),
+        terminal_ui=None,
+        error_stream=io.StringIO(),
+    )
+    assert store.get(cwd) is False
+    assert session.auto_trust_on_reload_cwd is None
+
+
+def test_untrusted_settings_never_open_project_and_refuse_writes(
+    tmp_path: Path,
+) -> None:
     global_path = tmp_path / "config" / "settings.json"
     project_path = tmp_path / "project" / ".pipy" / "settings.json"
     _write_json(global_path, {"theme": "global", "defaultProjectTrust": "always"})
@@ -247,6 +342,12 @@ def test_default_project_trust_is_global_only_and_invalid_maps_to_ask(
     _write_json(project_path, {"defaultProjectTrust": "always"})
     manager = SettingsManager(global_path=global_path, project_path=project_path)
     assert manager.get_default_project_trust() == "ask"
+    manager.set_default_project_trust("never")
+    assert manager.get_default_project_trust() == "never"
+    assert json.loads(global_path.read_text())["defaultProjectTrust"] == "never"
+    assert json.loads(project_path.read_text())["defaultProjectTrust"] == "always"
+    with pytest.raises(ValueError, match="ask, always, or never"):
+        manager.set_default_project_trust("invalid")  # type: ignore[arg-type]
 
 
 def test_untrusted_resource_provenance_keeps_global_package_and_cli(
@@ -277,7 +378,9 @@ def test_untrusted_resource_provenance_keeps_global_package_and_cli(
     assert resources.custom_command_slash_names() == ("/global-command",)
 
     (workspace / ".pipy" / "extensions").mkdir()
-    (workspace / ".pipy" / "extensions" / "ws.py").write_text("def activate(api): pass\n")
+    (workspace / ".pipy" / "extensions" / "ws.py").write_text(
+        "def activate(api): pass\n"
+    )
     (config / "extensions").mkdir()
     (config / "extensions" / "global.py").write_text("def activate(api): pass\n")
     explicit_ext = tmp_path / "explicit.py"
@@ -319,9 +422,7 @@ def test_untrusted_settings_remove_project_packages_but_keep_global_packages(
         project_path=project_path,
         project_trusted=False,
     )
-    roots = compose_package_runtime(
-        manager, workspace, install_theme_registry=False
-    )
+    roots = compose_package_runtime(manager, workspace, install_theme_registry=False)
     assert [root.path for root in roots.skills] == [global_package / "skills"]
     assert [root.path for root in roots.themes] == [global_package / "themes"]
 
@@ -359,13 +460,11 @@ def test_trust_cli_flags_are_available_through_top_level_and_last_wins() -> None
     )
     assert args.command == "repl"
     assert args.trust_override is True
-    args = parser.parse_args(
-        route_argv(["-a", "-na"], KNOWN_SUBCOMMANDS)
-    )
+    args = parser.parse_args(route_argv(["-a", "-na"], KNOWN_SUBCOMMANDS))
     assert args.trust_override is False
 
 
-def test_runtime_trust_diagnostic_is_interactive_only(
+def test_runtime_trust_selector_is_interactive_only_and_cancel_is_silent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -376,16 +475,24 @@ def test_runtime_trust_diagnostic_is_interactive_only(
     class Args:
         trust_override = None
 
+    calls: list[Path] = []
+
+    def cancel_selector(*, cwd: Path, options: object) -> None:
+        calls.append(cwd)
+
+    monkeypatch.setattr(
+        "pipy_harness.native.tui.run_startup_project_trust_selector",
+        cancel_selector,
+    )
     assert not _resolve_runtime_project_trust(Args(), workspace)
     silent = capsys.readouterr()
     assert silent.out == ""
     assert silent.err == ""
-    assert not _resolve_runtime_project_trust(
-        Args(), workspace, interactive_tty=True
-    )
+    assert not _resolve_runtime_project_trust(Args(), workspace, interactive_tty=True)
     diagnostic = capsys.readouterr()
     assert diagnostic.out == ""
-    assert "project settings and resources are disabled" in diagnostic.err
+    assert diagnostic.err == ""
+    assert calls == [workspace.resolve()]
 
 
 def test_repl_resolves_trust_for_session_header_cwd_before_settings(
@@ -413,7 +520,7 @@ def test_repl_resolves_trust_for_session_header_cwd_before_settings(
         raise RuntimeError("stop after trust")
 
     monkeypatch.setattr(
-        "pipy_harness.cli._resolve_runtime_project_trust", stop_after_trust
+        "pipy_harness.cli._resolve_runtime_project_trust_result", stop_after_trust
     )
     with pytest.raises(RuntimeError, match="stop after trust"):
         main(["repl", "--cwd", str(shell_cwd), "--no-session"])

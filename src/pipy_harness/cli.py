@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pipy_harness.adapters import (
     PipyNativeAdapter,
@@ -74,7 +74,11 @@ from pipy_harness.native.settings import (
     retry_policy_from_settings,
     timeout_ms_to_seconds,
 )
-from pipy_harness.native.themes import NativeThemeStore, THEME_ENV_VAR, resolve_active_theme_name
+from pipy_harness.native.themes import (
+    NativeThemeStore,
+    THEME_ENV_VAR,
+    resolve_active_theme_name,
+)
 from pipy_harness.native.workspace_context import (
     default_workspace_instruction_loader,
     empty_workspace_instruction_loader,
@@ -85,11 +89,38 @@ from pipy_harness.runner import (
     NullSessionRecorder,
 )
 
+if TYPE_CHECKING:
+    from pipy_harness.native.project_trust import (
+        ProjectTrustOption,
+        ProjectTrustResolution,
+    )
+
 
 STREAMING_NATIVE_PROVIDERS = frozenset({"openai-codex", "fake"})
 """Native providers that advertise streaming text deltas through
 `ProviderPort.complete(..., stream_sink=...)`. `--stream` fails closed
 with a stderr diagnostic when the active provider is not in this set."""
+
+
+def _add_trust_override_flags(parser: argparse.ArgumentParser) -> None:
+    parser.set_defaults(trust_override=None)
+    parser.add_argument(
+        "--approve",
+        "-a",
+        dest="trust_override",
+        action="store_const",
+        const=True,
+        help="Trust project-local inputs for this command only; do not persist.",
+    )
+    parser.add_argument(
+        "--no-approve",
+        "-na",
+        dest="trust_override",
+        action="store_const",
+        const=False,
+        help="Ignore project-local inputs for this command only; do not persist.",
+    )
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -106,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Without a recognized subcommand or top-level flag, pipy launches "
             "the interactive session. The prompt is a single token, so quote it: "
             '`pipy`, `pipy "explain this code"`, `pipy "@file.py summarize"` '
-            '(an @file reference works inside the quoted prompt), `pipy -p '
+            "(an @file reference works inside the quoted prompt), `pipy -p "
             '"one-shot"`. Use `pipy repl "<word>"` or `pipy -p "<word>"` to send '
             'a subcommand name (e.g. "auth") as a prompt.'
         ),
@@ -132,7 +163,9 @@ def build_parser() -> argparse.ArgumentParser:
         "openai-codex",
         help="Manage OpenAI Codex subscription OAuth credentials.",
     )
-    openai_codex_auth_subparsers = openai_codex_auth.add_subparsers(dest="auth_action", required=True)
+    openai_codex_auth_subparsers = openai_codex_auth.add_subparsers(
+        dest="auth_action", required=True
+    )
     openai_codex_login = openai_codex_auth_subparsers.add_parser(
         "login",
         help="Run OpenAI Codex OAuth login and store pipy-owned credentials.",
@@ -143,9 +176,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the OAuth URL without attempting to open a browser.",
     )
 
-    run_parser = subparsers.add_parser("run", help="Run one agent command with partial capture.")
-    run_parser.add_argument("--agent", required=True, help="Logical agent name, for example codex.")
-    run_parser.add_argument("--slug", required=True, help="Short run label for the session filename.")
+    run_parser = subparsers.add_parser(
+        "run", help="Run one agent command with partial capture."
+    )
+    run_parser.add_argument(
+        "--agent", required=True, help="Logical agent name, for example codex."
+    )
+    run_parser.add_argument(
+        "--slug", required=True, help="Short run label for the session filename."
+    )
     run_parser.add_argument(
         "--cwd",
         type=Path,
@@ -187,7 +226,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Session root. Defaults to PIPY_SESSION_DIR or ~/.local/state/pipy/sessions.",
     )
-    run_parser.add_argument("native_command", nargs=argparse.REMAINDER, help="Command to run after --.")
+    run_parser.add_argument(
+        "native_command", nargs=argparse.REMAINDER, help="Command to run after --."
+    )
 
     repl_parser = subparsers.add_parser(
         "repl",
@@ -582,6 +623,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Settings scope to write to (default global).",
     )
     config_parser.add_argument(
+        "-l",
+        "--local",
+        dest="scope",
+        action="store_const",
+        const="project",
+        help="Write project-local resource config (.pipy/settings.json).",
+    )
+    config_parser.add_argument(
         "--cwd",
         type=Path,
         default=Path.cwd(),
@@ -593,6 +642,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit machine-readable JSON (for list).",
     )
+    _add_trust_override_flags(config_parser)
 
     # Package manager. `config` above is the resource
     # enable/disable surface; these manage the `packages` settings array.
@@ -609,9 +659,13 @@ def build_parser() -> argparse.ArgumentParser:
             action="store_true",
             help="Write to project settings (.pipy/settings.json) instead of user.",
         )
-        _pkg.add_argument("--cwd", type=Path, default=Path.cwd(), help="Workspace root.")
+        _pkg.add_argument(
+            "--cwd", type=Path, default=Path.cwd(), help="Workspace root."
+        )
+        _add_trust_override_flags(_pkg)
     _list = subparsers.add_parser("list", help="List configured packages.")
     _list.add_argument("--cwd", type=Path, default=Path.cwd(), help="Workspace root.")
+    _add_trust_override_flags(_list)
 
     update_parser = subparsers.add_parser(
         "update",
@@ -636,13 +690,17 @@ def build_parser() -> argparse.ArgumentParser:
         dest="extension_source",
         help="Update one installed extension package source.",
     )
-    update_parser.add_argument("--force", action="store_true", help="Run even if already current.")
+    update_parser.add_argument(
+        "--force", action="store_true", help="Run even if already current."
+    )
     update_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the planned update command/targets without executing them.",
     )
-    update_parser.add_argument("--cwd", type=Path, default=Path.cwd(), help="Workspace root.")
+    update_parser.add_argument(
+        "--cwd", type=Path, default=Path.cwd(), help="Workspace root."
+    )
 
     _add_catalog_flags(run_parser)
     _add_catalog_flags(repl_parser)
@@ -808,7 +866,10 @@ def route_argv(
     # Treat both ``--export FILE`` and ``--export=FILE`` as top-level: argparse
     # accepts the ``--flag=value`` form, so compare the part before ``=`` against
     # the root-only set as well as the exact token.
-    if first in _TOP_LEVEL_ONLY_FLAGS or first.split("=", 1)[0] in _TOP_LEVEL_ONLY_FLAGS:
+    if (
+        first in _TOP_LEVEL_ONLY_FLAGS
+        or first.split("=", 1)[0] in _TOP_LEVEL_ONLY_FLAGS
+    ):
         return list(argv)
     return ["repl", *argv]
 
@@ -821,7 +882,7 @@ def route_argv(
 _REMOVED_FLAG_GUIDANCE: dict[str, str] = {
     "--native-output": (
         "--native-output was removed; use --mode json for the Pi-shaped session "
-        "event stream (e.g. pipy repl --mode json \"<prompt>\"), or run "
+        'event stream (e.g. pipy repl --mode json "<prompt>"), or run '
         "pipy run --agent pipy-native for the metadata-recording one-shot path."
     ),
     "--archive-transcript": (
@@ -1094,11 +1155,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             app_mode = _select_repl_app_mode(args)
             interactive_tty = app_mode == "interactive" and _startup_stdin_is_tty()
-            project_trusted = _resolve_runtime_project_trust(
+            trust_resolution = _resolve_runtime_project_trust_result(
                 args,
                 cwd,
                 interactive_tty=interactive_tty,
             )
+            project_trusted = trust_resolution.trusted
             # Layered settings: a settings.json defaultProvider/defaultModel/theme
             # is the source of truth over the legacy local-state store (CLI flags
             # still win). The store remains the fallback for selection.
@@ -1124,7 +1186,7 @@ def main(argv: list[str] | None = None) -> int:
             # The product REPL is always the bounded model-driven tool loop.
             if args.tool_budget < 1 or args.tool_budget > 200:
                 raise ValueError(
-                    "--tool-budget must be in [1, 200]; got " f"{args.tool_budget}"
+                    f"--tool-budget must be in [1, 200]; got {args.tool_budget}"
                 )
             reference_roots = _resolve_reference_roots(
                 args.read_root,
@@ -1150,6 +1212,9 @@ def main(argv: list[str] | None = None) -> int:
                 catalog_state=startup_catalog_state,
                 tool_filter_options=_tool_filter_options_from_args(args),
                 verbose_startup=bool(getattr(args, "verbose_startup", False)),
+                auto_trust_on_reload_cwd=(
+                    cwd if trust_resolution.source == "no_resources" else None
+                ),
             )
             # Headless automation surfaces (Pi --mode json/rpc, --print). These
             # drive the same tool-loop adapter for a one-shot run (json/print) or
@@ -1181,9 +1246,9 @@ def main(argv: list[str] | None = None) -> int:
             repl_recorder = (
                 NullSessionRecorder() if args.no_session else FileSessionRecorder()
             )
-            result = HarnessRunner(
-                adapter=repl_adapter, recorder=repl_recorder
-            ).run(request)
+            result = HarnessRunner(adapter=repl_adapter, recorder=repl_recorder).run(
+                request
+            )
             if result.error_type is not None:
                 detail = f": {result.error_message}" if result.error_message else ""
                 print(
@@ -1428,7 +1493,9 @@ def _adapter_for(
             stream_sink=stream_sink,
         )
     if native_provider is not None or native_model is not None:
-        raise ValueError("--native-provider and --native-model require --agent pipy-native")
+        raise ValueError(
+            "--native-provider and --native-model require --agent pipy-native"
+        )
     if stream_sink is not None:
         raise ValueError("--stream requires --agent pipy-native")
     return SubprocessAdapter()
@@ -1513,6 +1580,17 @@ _CONFIG_RESOURCE_KEYS = {
 }
 
 
+def _build_management_settings(args: Any, cwd: Path) -> SettingsManager:
+    """Resolve project trust for one package/config management command."""
+
+    resolution = _resolve_runtime_project_trust_result(
+        args,
+        cwd,
+        interactive_tty=_startup_stdin_is_tty(),
+    )
+    return _build_runtime_settings(cwd, project_trusted=resolution.trusted)
+
+
 def _cmd_package(args: Any) -> int:
     """`pipy install/remove/uninstall/list`: manage extension packages.
 
@@ -1530,18 +1608,26 @@ def _cmd_package(args: Any) -> int:
     )
 
     cwd = args.cwd.expanduser().resolve()
+    manager = _build_management_settings(args, cwd)
+    if bool(getattr(args, "local", False)) and not manager.project_trusted:
+        print(
+            "pipy: project is not trusted; use --approve to modify local "
+            "package config.",
+            file=sys.stderr,
+        )
+        return 1
     if args.command == "list":
         listing = pkg.list_packages(
             user_path=global_settings_path(),
-            project_path=project_settings_path(cwd),
+            project_path=(
+                project_settings_path(cwd) if manager.project_trusted else None
+            ),
         )
         print(pkg.format_package_listing(listing))
         return 0
 
     source = args.source
-    settings_path = (
-        project_settings_path(cwd) if args.local else global_settings_path()
-    )
+    settings_path = project_settings_path(cwd) if args.local else global_settings_path()
     try:
         if args.command == "install":
             print(
@@ -1593,8 +1679,19 @@ def _cmd_config(args: Any) -> int:
     from pipy_harness.native.settings import SCOPE_GLOBAL, SCOPE_PROJECT
 
     cwd = args.cwd.expanduser().resolve()
-    manager = SettingsManager.for_workspace(cwd)
+    manager = _build_management_settings(args, cwd)
     action = getattr(args, "action", "list") or "list"
+    if (
+        action in ("enable", "disable")
+        and args.scope == "project"
+        and not manager.project_trusted
+    ):
+        print(
+            "pipy: project is not trusted; use --approve to modify local "
+            "resource config.",
+            file=sys.stderr,
+        )
+        return 1
 
     if action == "list":
         skills_patterns = manager.get_skills_patterns()
@@ -1614,16 +1711,18 @@ def _cmd_config(args: Any) -> int:
         from pipy_harness.native.theme_files import build_theme_registry
         from pipy_harness.native.themes import builtin_palettes
 
-        package_roots = compose_package_runtime(manager, cwd, install_theme_registry=False)
+        package_roots = compose_package_runtime(
+            manager, cwd, install_theme_registry=False
+        )
         resources = WorkspaceResources.discover(
             cwd,
             package_roots=package_roots,
-            include_workspace_defaults=True,
+            include_workspace_defaults=manager.project_trusted,
         )
         descriptors = discover_extensions(
             cwd,
             package_roots=package_roots.extensions,
-            include_workspace_defaults=True,
+            include_workspace_defaults=manager.project_trusted,
         )
         theme_names = build_theme_registry(package_roots.themes).names()
         builtin_theme_names = set(builtin_palettes())
@@ -1700,15 +1799,21 @@ def _cmd_config(args: Any) -> int:
         return 2
     key = _CONFIG_RESOURCE_KEYS[resource_type]
     scope = SCOPE_PROJECT if args.scope == "project" else SCOPE_GLOBAL
-    current = manager.get_extensions_patterns() if key == "extensions" else (
-        manager.get_skills_patterns()
-        if key == "skills"
-        else manager.get_prompts_patterns()
-        if key == "prompts"
-        else manager.get_themes_patterns()
+    current = (
+        manager.get_extensions_patterns()
+        if key == "extensions"
+        else (
+            manager.get_skills_patterns()
+            if key == "skills"
+            else manager.get_prompts_patterns()
+            if key == "prompts"
+            else manager.get_themes_patterns()
+        )
     )
     updated = (
-        enable_entry(current, name) if action == "enable" else disable_entry(current, name)
+        enable_entry(current, name)
+        if action == "enable"
+        else disable_entry(current, name)
     )
     try:
         manager.set_resource_patterns(key, updated, scope=scope)
@@ -1788,40 +1893,48 @@ def _resolve_runtime_project_trust(
 ) -> bool:
     """Resolve core project trust before any project settings/resources load."""
 
+    return _resolve_runtime_project_trust_result(
+        args, cwd, interactive_tty=interactive_tty
+    ).trusted
+
+
+def _resolve_runtime_project_trust_result(
+    args: Any,
+    cwd: Path,
+    *,
+    interactive_tty: bool = False,
+) -> ProjectTrustResolution:
+    """Resolve trust and retain the winning rung for live-session behavior."""
+
     from pipy_harness.native.project_trust import (
         ProjectTrustStore,
-        has_trust_requiring_project_resources,
-        resolve_project_trusted,
+        get_project_trust_options,
+        resolve_project_trust,
     )
 
     # Load global settings only. Project settings cannot choose their own gate.
     bootstrap = _build_runtime_settings(cwd, project_trusted=False)
-    has_protected = has_trust_requiring_project_resources(cwd)
-    trusted = resolve_project_trusted(
+
+    def _select(resolved_cwd: Path) -> ProjectTrustOption | None:
+        from pipy_harness.native.tui import run_startup_project_trust_selector
+
+        return run_startup_project_trust_selector(
+            cwd=resolved_cwd,
+            options=get_project_trust_options(resolved_cwd, include_session_only=True),
+        )
+
+    return resolve_project_trust(
         cwd,
         trust_store=ProjectTrustStore(),
         trust_override=getattr(args, "trust_override", None),
         default_project_trust=bootstrap.get_default_project_trust(),
+        select=_select if interactive_tty else None,
         on_diagnostic=(
             (lambda message: print(f"pipy: {message}", file=sys.stderr))
             if interactive_tty
             else None
         ),
     )
-    if (
-        interactive_tty
-        and has_protected
-        and not trusted
-        and getattr(args, "trust_override", None) is None
-        and bootstrap.get_default_project_trust() == "ask"
-    ):
-        print(
-            "pipy: project settings and resources are disabled until trust is "
-            "resolved; use --approve, set global defaultProjectTrust to "
-            '"always", or save a decision in trust.json.',
-            file=sys.stderr,
-        )
-    return trusted
 
 
 def _settings_str(file_settings: dict[str, object], key: str) -> str | None:
@@ -1939,6 +2052,7 @@ def _tool_repl_adapter_for(
     catalog_state: ProviderCatalogState | None = None,
     tool_filter_options: ToolFilterOptions | None = None,
     verbose_startup: bool = False,
+    auto_trust_on_reload_cwd: Path | None = None,
 ) -> PipyNativeToolReplAdapter:
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
     if catalog_state is None:
@@ -1997,6 +2111,7 @@ def _tool_repl_adapter_for(
         resource_options=resource_options,
         tool_filter_options=tool_filter_options,
         verbose_startup=verbose_startup,
+        auto_trust_on_reload_cwd=auto_trust_on_reload_cwd,
     )
 
 
@@ -2033,9 +2148,7 @@ def _validate_native_session_flags(args: Any) -> None:
     if getattr(args, "fork_target", None) is not None:
         clashes = [name for name, present in conflict_specs if present]
         if clashes:
-            raise ValueError(
-                "--fork cannot be combined with " + ", ".join(clashes)
-            )
+            raise ValueError("--fork cannot be combined with " + ", ".join(clashes))
     # Use ``is not None`` so an explicit empty ``--session-id ""`` is not
     # silently treated as absent (it bypasses validation/mutual exclusion);
     # an empty value is rejected downstream by ``validate_session_id``.
@@ -2075,8 +2188,7 @@ def _confirm_cross_project_fork(other_cwd: str) -> bool:
     # other_cwd is the header cwd of another project's session file; sanitize it
     # before printing so it cannot inject terminal escape sequences.
     print(
-        f"pipy: session found in different project: "
-        f"{sanitize_label_text(other_cwd)}",
+        f"pipy: session found in different project: {sanitize_label_text(other_cwd)}",
         file=sys.stderr,
     )
     print(
@@ -2520,9 +2632,7 @@ def _extension_provider_contributions(
 
     return load_extension_provider_contributions(
         cwd,
-        package_roots=()
-        if options.no_extensions
-        else package_roots.extensions,
+        package_roots=() if options.no_extensions else package_roots.extensions,
         extension_patterns=settings_manager.get_extensions_patterns(),
         explicit_extension_paths=options.extension_paths,
         include_default_extensions=not options.no_extensions,
@@ -2647,7 +2757,9 @@ def _native_provider_for_selection(
             # Deterministic, tool-capable, streaming fake for the headless
             # automation surfaces and the conformance gate (offline).
             return AutomationFakeProvider(model_id=selection.model_id)
-        return FakeNativeProvider(model_id=selection.model_id or DEFAULT_NATIVE_MODELS["fake"])
+        return FakeNativeProvider(
+            model_id=selection.model_id or DEFAULT_NATIVE_MODELS["fake"]
+        )
     raise ValueError(f"unsupported native provider: {selection.provider_name}")
 
 

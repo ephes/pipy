@@ -46,7 +46,9 @@ _LOCK_RETRIES = 10
 _LOCK_BACKOFF_SECONDS = 0.02
 
 
-def deep_merge_settings(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+def deep_merge_settings(
+    base: dict[str, Any], override: dict[str, Any]
+) -> dict[str, Any]:
     """Merge ``override`` onto ``base`` with Pi's one-level semantics.
 
     Mirrors Pi's ``deepMergeSettings``: a top-level key whose value is a plain
@@ -405,7 +407,9 @@ class SettingsManager:
             return self.project_path
         raise ValueError(f"unknown settings scope: {scope!r}")
 
-    def set_value(self, dotted_key: str, value: Any, *, scope: str = SCOPE_GLOBAL) -> None:
+    def set_value(
+        self, dotted_key: str, value: Any, *, scope: str = SCOPE_GLOBAL
+    ) -> None:
         """Persist one field (``key`` or ``top.nested``) into ``scope``.
 
         Re-reads the current on-disk file under a lock, merges only the modified
@@ -449,9 +453,7 @@ class SettingsManager:
         value = self._get(key)
         return value if isinstance(value, bool) else default
 
-    def _get_int_in_range(
-        self, key: str, *, low: int, high: int, default: int
-    ) -> int:
+    def _get_int_in_range(self, key: str, *, low: int, high: int, default: int) -> int:
         value = self._get(key)
         if isinstance(value, bool) or not isinstance(value, int):
             return default
@@ -484,6 +486,15 @@ class SettingsManager:
         value = self._raw.get(SCOPE_GLOBAL, {}).get("defaultProjectTrust")
         return value if value in {"ask", "always", "never"} else "ask"
 
+    def set_default_project_trust(
+        self, value: Literal["ask", "always", "never"]
+    ) -> None:
+        """Persist Pi's trust fallback in global settings only."""
+
+        if value not in {"ask", "always", "never"}:
+            raise ValueError("defaultProjectTrust must be ask, always, or never")
+        self.set_value("defaultProjectTrust", value, scope=SCOPE_GLOBAL)
+
     def get_enabled_models(self) -> list[str]:
         value = self._get("enabledModels")
         if isinstance(value, list):
@@ -494,7 +505,9 @@ class SettingsManager:
         return self._get_int_in_range("editorPaddingX", low=0, high=3, default=0)
 
     def get_autocomplete_max_visible(self) -> int:
-        return self._get_int_in_range("autocompleteMaxVisible", low=3, high=20, default=5)
+        return self._get_int_in_range(
+            "autocompleteMaxVisible", low=3, high=20, default=5
+        )
 
     def get_session_dir(self) -> str | None:
         return self._get_str("sessionDir")
@@ -629,7 +642,9 @@ class SettingsManager:
                 if source is not None and source not in seen:
                     seen.add(source)
                     if isinstance(entry, str):
-                        ordered.append({"source": entry, PACKAGE_ENTRY_SCOPE_KEY: scope})
+                        ordered.append(
+                            {"source": entry, PACKAGE_ENTRY_SCOPE_KEY: scope}
+                        )
                     elif isinstance(entry, dict):
                         scoped = copy.deepcopy(entry)
                         scoped[PACKAGE_ENTRY_SCOPE_KEY] = scope
@@ -674,10 +689,14 @@ class SettingsManager:
         return self._get_choice("transport", {"auto", "sse", "websocket"}, "auto")
 
     def get_steering_mode(self) -> str:
-        return self._get_choice("steeringMode", {"all", "one-at-a-time"}, "one-at-a-time")
+        return self._get_choice(
+            "steeringMode", {"all", "one-at-a-time"}, "one-at-a-time"
+        )
 
     def get_follow_up_mode(self) -> str:
-        return self._get_choice("followUpMode", {"all", "one-at-a-time"}, "one-at-a-time")
+        return self._get_choice(
+            "followUpMode", {"all", "one-at-a-time"}, "one-at-a-time"
+        )
 
     # --- nested objects (compaction / retry / branchSummary) --------------
 
@@ -838,8 +857,7 @@ def settings_report_lines(manager: SettingsManager) -> list[str]:
         f"    httpIdleTimeoutMs: {_http_idle_timeout_display(manager)}",
         f"    retry.provider.timeoutMs: {_provider_timeout_display(manager)}",
         f"    effectiveProviderTimeoutMs: {_effective_provider_timeout_display(manager)}",
-        "    websocketConnectTimeoutMs: "
-        f"{_websocket_connect_timeout_display(manager)}",
+        f"    websocketConnectTimeoutMs: {_websocket_connect_timeout_display(manager)}",
         f"    sessionDir: {manager.get_session_dir() or '(default)'}",
     ]
 

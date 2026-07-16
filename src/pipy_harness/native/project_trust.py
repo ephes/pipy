@@ -45,8 +45,80 @@ class ProjectTrustEntry:
     decision: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectTrustOption:
+    """One Pi-shaped trust choice and its atomic persisted updates."""
+
+    label: str
+    trusted: bool
+    updates: tuple[tuple[Path, bool | None], ...]
+    saved_path: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectTrustResolution:
+    """Resolved trust plus summary-safe evidence about the winning rung."""
+
+    trusted: bool
+    source: str
+    had_protected_resources: bool
+
+
 def canonical_project_path(path: Path | str) -> Path:
     return Path(path).expanduser().resolve()
+
+
+def get_project_trust_options(
+    cwd: Path | str, *, include_session_only: bool = False
+) -> tuple[ProjectTrustOption, ...]:
+    """Return Pi's ordered trust choices for ``cwd``.
+
+    Parent trust is one atomic parent-true/exact-delete update so an existing
+    child decision cannot mask the newly chosen inherited decision.
+    """
+
+    trust_path = canonical_project_path(cwd)
+    options = [
+        ProjectTrustOption(
+            label="Trust",
+            trusted=True,
+            updates=((trust_path, True),),
+            saved_path=trust_path,
+        )
+    ]
+    parent = trust_path.parent
+    if parent != trust_path:
+        options.append(
+            ProjectTrustOption(
+                label=f"Trust parent folder ({parent})",
+                trusted=True,
+                updates=((parent, True), (trust_path, None)),
+                saved_path=parent,
+            )
+        )
+    if include_session_only:
+        options.append(
+            ProjectTrustOption(
+                label="Trust (this session only)", trusted=True, updates=()
+            )
+        )
+    options.append(
+        ProjectTrustOption(
+            label="Do not trust",
+            trusted=False,
+            updates=((trust_path, False),),
+            saved_path=trust_path,
+        )
+    )
+    if include_session_only:
+        options.append(
+            ProjectTrustOption(
+                label="Do not trust (this session only)",
+                trusted=False,
+                updates=(),
+            )
+        )
+    return tuple(options)
 
 
 def default_project_trust_path(
@@ -81,9 +153,9 @@ class _TrustFileLock:
                 try:
                     os.write(
                         self._fd,
-                        json.dumps(
-                            {"pid": os.getpid(), "created": time.time()}
-                        ).encode("utf-8"),
+                        json.dumps({"pid": os.getpid(), "created": time.time()}).encode(
+                            "utf-8"
+                        ),
                     )
                 except OSError as exc:
                     os.close(self._fd)
@@ -110,6 +182,7 @@ class _TrustFileLock:
                 raise ProjectTrustError(
                     f"could not acquire trust store lock {self._path}: {exc}"
                 ) from exc
+
     def _remove_stale_lock(self) -> bool:
         """Best-effort recovery for a lock orphaned by a dead writer."""
 
@@ -239,9 +312,7 @@ class ProjectTrustStore:
     def set(self, cwd: Path | str, decision: bool | None) -> None:
         self.set_many(((cwd, decision),))
 
-    def set_many(
-        self, updates: tuple[tuple[Path | str, bool | None], ...]
-    ) -> None:
+    def set_many(self, updates: tuple[tuple[Path | str, bool | None], ...]) -> None:
         for _path, decision in updates:
             if not isinstance(decision, bool) and decision is not None:
                 raise TypeError("project trust decisions must be bool or None")
@@ -274,39 +345,80 @@ def has_trust_requiring_project_resources(cwd: Path | str) -> bool:
 DefaultProjectTrust = Literal["ask", "always", "never"]
 
 
+def resolve_project_trust(
+    cwd: Path | str,
+    *,
+    trust_store: ProjectTrustStore,
+    trust_override: bool | None = None,
+    default_project_trust: DefaultProjectTrust = "ask",
+    select: Callable[[Path], bool | ProjectTrustOption | None] | None = None,
+    on_diagnostic: Callable[[str], None] | None = None,
+) -> ProjectTrustResolution:
+    """Resolve trust for one final runtime directory with winning-rung evidence.
+
+    Extension-owned decisions and the product TUI selector are later slices;
+    ``select`` is the interactive seam. A returned :class:`ProjectTrustOption`
+    is persisted here before its decision wins; the legacy bool return remains
+    accepted for direct tests and embedders that own persistence themselves.
+    """
+
+    resolved = canonical_project_path(cwd)
+    has_protected = has_trust_requiring_project_resources(resolved)
+    if trust_override is not None:
+        return ProjectTrustResolution(
+            trusted=trust_override,
+            source="override",
+            had_protected_resources=has_protected,
+        )
+    if not has_protected:
+        return ProjectTrustResolution(
+            trusted=True,
+            source="no_resources",
+            had_protected_resources=False,
+        )
+    try:
+        saved = trust_store.get(resolved)
+    except ProjectTrustError as exc:
+        if on_diagnostic is not None:
+            on_diagnostic(str(exc))
+        return ProjectTrustResolution(False, "store_error", True)
+    if saved is not None:
+        return ProjectTrustResolution(saved, "saved", True)
+    if default_project_trust == "always":
+        return ProjectTrustResolution(True, "default_always", True)
+    if default_project_trust == "never":
+        return ProjectTrustResolution(False, "default_never", True)
+    if select is not None:
+        selected = select(resolved)
+        if isinstance(selected, ProjectTrustOption):
+            try:
+                if selected.updates:
+                    trust_store.set_many(selected.updates)
+            except ProjectTrustError as exc:
+                if on_diagnostic is not None:
+                    on_diagnostic(str(exc))
+                return ProjectTrustResolution(False, "store_error", True)
+            return ProjectTrustResolution(selected.trusted, "selection", True)
+        return ProjectTrustResolution(selected is True, "selection", True)
+    return ProjectTrustResolution(False, "headless", True)
+
+
 def resolve_project_trusted(
     cwd: Path | str,
     *,
     trust_store: ProjectTrustStore,
     trust_override: bool | None = None,
     default_project_trust: DefaultProjectTrust = "ask",
-    select: Callable[[Path], bool | None] | None = None,
+    select: Callable[[Path], bool | ProjectTrustOption | None] | None = None,
     on_diagnostic: Callable[[str], None] | None = None,
 ) -> bool:
-    """Resolve the core trust order for one final runtime directory.
+    """Compatibility bool facade over :func:`resolve_project_trust`."""
 
-    Extension-owned decisions and the product TUI selector are later slices;
-    ``select`` is an injected synchronous seam used by direct callers/tests.
-    """
-
-    resolved = canonical_project_path(cwd)
-    if trust_override is not None:
-        return trust_override
-    if not has_trust_requiring_project_resources(resolved):
-        return True
-    try:
-        saved = trust_store.get(resolved)
-    except ProjectTrustError as exc:
-        if on_diagnostic is not None:
-            on_diagnostic(str(exc))
-        return False
-    if saved is not None:
-        return saved
-    if default_project_trust == "always":
-        return True
-    if default_project_trust == "never":
-        return False
-    if select is not None:
-        selected = select(resolved)
-        return selected is True
-    return False
+    return resolve_project_trust(
+        cwd,
+        trust_store=trust_store,
+        trust_override=trust_override,
+        default_project_trust=default_project_trust,
+        select=select,
+        on_diagnostic=on_diagnostic,
+    ).trusted

@@ -30,6 +30,7 @@ DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
     "/hotkeys",
     "/compact",
     "/settings",
+    "/trust",
     "/login",
     "/logout",
     "/model",
@@ -48,6 +49,7 @@ DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
     "/import": "Import a native session JSONL file",
     "/share": "Upload the native session as a secret GitHub gist",
     "/settings": "Settings and status",
+    "/trust": "Save project trust for the next restart",
     "/copy": "Copy the last answer to the clipboard (local)",
     "/login": "Log in (openai-codex OAuth)",
     "/logout": "Log out (openai-codex OAuth)",
@@ -99,7 +101,9 @@ class PlainNativeReplInput:
     runtime_label: str = REPL_INPUT_RUNTIME_PLAIN
 
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
-        del footer  # the plain runtime emits the footer through the session loop instead
+        del (
+            footer
+        )  # the plain runtime emits the footer through the session loop instead
         print(f"{prompt_label} ", end="", file=self.error_stream, flush=True)
         return self.input_stream.readline()
 
@@ -260,9 +264,7 @@ class ReadlineNativeReplInput:
             raise ReplInputUnavailableError(
                 "readline input could not be initialized"
             ) from exc
-        display_hook = getattr(
-            readline, "set_completion_display_matches_hook", None
-        )
+        display_hook = getattr(readline, "set_completion_display_matches_hook", None)
         if callable(display_hook):
             try:
                 display_hook(instance._display_matches)
@@ -703,9 +705,7 @@ class _SlashMenuLineEditor:
         # before the input cursor), don't append a separator space —
         # otherwise the cursor sits one column to the right of pi's
         # column-1 input position.
-        prompt_text = (
-            f"{self.prompt_label} " if self.prompt_label else ""
-        )
+        prompt_text = f"{self.prompt_label} " if self.prompt_label else ""
         out.write(prompt_text)
         out.write(self._buffer)
         # Pi's TUI paints an explicit block-cursor character at the
@@ -722,7 +722,11 @@ class _SlashMenuLineEditor:
         rows_below = 0
         matches = self._filtered_commands()
         if self._menu_open and matches:
-            menu_cap = self.autocomplete_max_visible if self.autocomplete_max_visible > 0 else _SLASH_MENU_MAX_ITEMS
+            menu_cap = (
+                self.autocomplete_max_visible
+                if self.autocomplete_max_visible > 0
+                else _SLASH_MENU_MAX_ITEMS
+            )
             visible = matches[:menu_cap]
             total = len(matches)
             for idx, name in enumerate(visible):
@@ -796,9 +800,7 @@ class _SlashMenuLineEditor:
         self._last_drawn_rows = 0
 
 
-def _slash_menu_streams_supported(
-    input_stream: TextIO, error_stream: TextIO
-) -> bool:
+def _slash_menu_streams_supported(input_stream: TextIO, error_stream: TextIO) -> bool:
     if input_stream is not sys.stdin or error_stream is not sys.stderr:
         return False
     if not bool(getattr(input_stream, "isatty", lambda: False)()):
@@ -928,7 +930,7 @@ def native_repl_input_for(
                 workspace=workspace,
                 command_names=command_names,
                 command_descriptions=command_descriptions,
-            autocomplete_max_visible=autocomplete_max_visible,
+                autocomplete_max_visible=autocomplete_max_visible,
             )
         except Exception:
             pass
@@ -1044,9 +1046,7 @@ def _prompt_toolkit_streams_supported(
     )
 
 
-def _readline_streams_supported(
-    input_stream: TextIO, error_stream: TextIO
-) -> bool:
+def _readline_streams_supported(input_stream: TextIO, error_stream: TextIO) -> bool:
     return (
         input_stream is sys.stdin
         and error_stream is sys.stderr

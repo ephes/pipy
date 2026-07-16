@@ -328,8 +328,9 @@ still recognizes that extension/package parity is the largest surface by area:
    exposes `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, and the
    extension `project_trust`/`ctx.isProjectTrusted()` surface. Pipy now ships
    the trust core, final-cwd settings/resource gate, global default, saved
-   ancestry, and run-only overrides. Continue the multi-slice track with
-   interactive/package integration, then extension exposure.
+   ancestry, run-only overrides, interactive selector, `/trust`, guarded reload
+   persistence, and package/config integration. Continue the multi-slice track
+   with extension exposure.
 3. **Current RPC delta.** Pipy's gated RPC baseline is green at Pi's full
    31-command vocabulary: the read-only `get_entries` (including `since`) and
    `get_tree` **shipped** 2026-07-14. The asynchronous `agent_settled` event also
@@ -1481,11 +1482,14 @@ now ships the store/detector, trust-aware settings manager, source-provenance
 resource/package gate, final-cwd resolver, run overrides, headless mode matrix,
 and deterministic conformance gate.
 
-### Next: interactive trust and package/config integration
+### Interactive trust and package/config integration — SHIPPED (2026-07-15)
 
-Implement slice 2: the startup selector, `/trust` and reload persistence,
-global `defaultProjectTrust` control, and package/config command trust handling.
-Keep extension-owned decisions/read APIs in slice 3. Then continue with the
+Slice 2 now ships the startup selector, `/trust` and reload persistence, global
+`defaultProjectTrust` control, and package/config command trust handling.
+
+### Next: extension-owned project-trust decision/read APIs
+
+Implement slice 3 without reopening the core or interactive boundaries. Then continue with the
 `before_provider_headers` extension hook, durable entry renderers plus the
 extension-surface `agent_settled` hook, cache-friendly dynamic tool loading, and
 package-update/config realignment. Each remains its own parity-loop gap. The

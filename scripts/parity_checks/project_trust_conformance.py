@@ -12,18 +12,24 @@ final-session-cwd startup seam. It performs no network or model calls.
 from __future__ import annotations
 
 import argparse
+import io
 import json
+import os
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from unittest.mock import patch
 
 from pipy_harness.cli import KNOWN_SUBCOMMANDS, build_parser, route_argv
+from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.project_trust import (
     PROTECTED_PROJECT_ENTRIES,
     ProjectTrustStore,
+    get_project_trust_options,
     has_trust_requiring_project_resources,
+    resolve_project_trust,
     resolve_project_trusted,
 )
 from pipy_harness.native.resources import WorkspaceResources
@@ -61,7 +67,11 @@ def _store_check(root: Path) -> Check:
     sorted_keys = list(json.loads(store.path.read_text())) == sorted(
         json.loads(store.path.read_text())
     )
-    return Check("store_ancestry_atomic", closest and inherited and sorted_keys, "closest/delete/sorted")
+    return Check(
+        "store_ancestry_atomic",
+        closest and inherited and sorted_keys,
+        "closest/delete/sorted",
+    )
 
 
 def _detector_check(root: Path) -> Check:
@@ -78,7 +88,11 @@ def _detector_check(root: Path) -> Check:
     bare = root / "bare"
     (bare / ".pipy" / "themes").mkdir(parents=True)
     (bare / "AGENTS.md").write_text("context")
-    return Check("protected_detector", all(results) and not has_trust_requiring_project_resources(bare), "protected/exempt table")
+    return Check(
+        "protected_detector",
+        all(results) and not has_trust_requiring_project_resources(bare),
+        "protected/exempt table",
+    )
 
 
 def _settings_check(root: Path) -> Check:
@@ -138,11 +152,21 @@ def _resource_check(root: Path) -> Check:
         explicit_skill_paths=(explicit,),
         include_workspace_defaults=False,
     )
-    names = (*resources.skill_names(), *resources.template_names(), *resources.custom_command_slash_names())
-    sources_ok = "explicit-skill" in names and any("global" in name for name in names) and not any("project" in name for name in names)
+    names = (
+        *resources.skill_names(),
+        *resources.template_names(),
+        *resources.custom_command_slash_names(),
+    )
+    sources_ok = (
+        "explicit-skill" in names
+        and any("global" in name for name in names)
+        and not any("project" in name for name in names)
+    )
 
     (cwd / ".pipy" / "extensions").mkdir()
-    (cwd / ".pipy" / "extensions" / "project.py").write_text("def activate(api): pass\n")
+    (cwd / ".pipy" / "extensions" / "project.py").write_text(
+        "def activate(api): pass\n"
+    )
     (config / "extensions").mkdir()
     (config / "extensions" / "global.py").write_text("def activate(api): pass\n")
     ext_names = [
@@ -159,7 +183,13 @@ def _resource_check(root: Path) -> Check:
         config_home=config,
         include_project_defaults=False,
     )
-    return Check("resource_provenance", sources_ok and ext_names == ["global"] and "project" not in prompt.base_prompt.lower(), "workspace blocked; global/explicit retained")
+    return Check(
+        "resource_provenance",
+        sources_ok
+        and ext_names == ["global"]
+        and "project" not in prompt.base_prompt.lower(),
+        "workspace blocked; global/explicit retained",
+    )
 
 
 def _resolver_check(root: Path) -> Check:
@@ -167,11 +197,19 @@ def _resolver_check(root: Path) -> Check:
     (cwd / ".pipy" / "skills").mkdir(parents=True)
     store = ProjectTrustStore(root / "resolver-config" / "trust.json")
     ask_false = not resolve_project_trusted(cwd, trust_store=store)
-    always_true = resolve_project_trusted(cwd, trust_store=store, default_project_trust="always")
+    always_true = resolve_project_trusted(
+        cwd, trust_store=store, default_project_trust="always"
+    )
     store.set(cwd.parent, False)
-    saved_wins = not resolve_project_trusted(cwd, trust_store=store, default_project_trust="always")
+    saved_wins = not resolve_project_trusted(
+        cwd, trust_store=store, default_project_trust="always"
+    )
     override_wins = resolve_project_trusted(cwd, trust_store=store, trust_override=True)
-    return Check("resolver_order", ask_false and always_true and saved_wins and override_wins, "override/no-resource/saved/default/headless")
+    return Check(
+        "resolver_order",
+        ask_false and always_true and saved_wins and override_wins,
+        "override/no-resource/saved/default/headless",
+    )
 
 
 def _cli_check(_root: Path) -> Check:
@@ -179,6 +217,113 @@ def _cli_check(_root: Path) -> Check:
     args = parser.parse_args(route_argv(["-a", "-na", "-a"], KNOWN_SUBCOMMANDS))
     ok = args.command == "repl" and args.trust_override is True
     return Check("cli_last_override", ok, "top-level routing + sequential flags")
+
+
+def _interactive_management_check(root: Path) -> Check:
+    cwd = root / "interactive" / "child"
+    (cwd / ".pipy" / "skills").mkdir(parents=True)
+    options = get_project_trust_options(cwd, include_session_only=True)
+    labels_ok = [option.label for option in options] == [
+        "Trust",
+        f"Trust parent folder ({cwd.parent.resolve()})",
+        "Trust (this session only)",
+        "Do not trust",
+        "Do not trust (this session only)",
+    ]
+    store = ProjectTrustStore(root / "interactive-config" / "trust.json")
+    resolution = resolve_project_trust(
+        cwd,
+        trust_store=store,
+        select=lambda _cwd: options[1],
+    )
+    parent_saved = (
+        resolution.trusted
+        and resolution.source == "selection"
+        and store.get_entry(cwd) is not None
+        and store.get_entry(cwd).path == cwd.parent.resolve()  # type: ignore[union-attr]
+    )
+    manager = SettingsManager(
+        global_path=root / "interactive-settings" / "settings.json",
+        project_path=cwd / ".pipy" / "settings.json",
+        project_trusted=False,
+    )
+    manager.set_default_project_trust("never")
+    global_enum = manager.get_default_project_trust() == "never"
+    parser = build_parser()
+    package_args = parser.parse_args(
+        ["install", "./pkg", "-l", "--no-approve", "--approve"]
+    )
+    config_args = parser.parse_args(["config", "-l", "-a", "-na"])
+    command_flags = (
+        package_args.local
+        and package_args.trust_override is True
+        and config_args.scope == "project"
+        and config_args.trust_override is False
+    )
+    return Check(
+        "interactive_management",
+        labels_ok and parent_saved and global_enum and command_flags,
+        "five choices/parent atomic save/global enum/management overrides",
+    )
+
+
+def _reload_persistence_check(root: Path) -> Check:
+    config = root / "reload-config"
+    cwd = root / "reload" / "project"
+    cwd.mkdir(parents=True)
+    settings = SettingsManager.for_workspace(cwd, project_trusted=True)
+
+    with patch.dict(os.environ, {"PIPY_CONFIG_HOME": str(config)}):
+        session = NativeToolReplSession(
+            provider=FakeNativeProvider(supports_tool_calls=True),
+            tool_registry={},
+            auto_trust_on_reload_cwd=cwd,
+        )
+        no_resource_guard = not session._maybe_save_implicit_trust_after_reload(
+            cwd=cwd,
+            settings=settings,
+            terminal_ui=None,
+            error_stream=io.StringIO(),
+        )
+        (cwd / ".pipy" / "skills").mkdir(parents=True)
+        saved_new_resource = session._maybe_save_implicit_trust_after_reload(
+            cwd=cwd,
+            settings=settings,
+            terminal_ui=None,
+            error_stream=io.StringIO(),
+        )
+        store = ProjectTrustStore(config / "trust.json")
+        exact_saved = store.get(cwd) is True
+        candidate_consumed = session.auto_trust_on_reload_cwd is None
+
+        inherited_cwd = root / "reload" / "inherited" / "project"
+        (inherited_cwd / ".pipy" / "skills").mkdir(parents=True)
+        store.set(inherited_cwd.parent, False)
+        inherited_session = NativeToolReplSession(
+            provider=FakeNativeProvider(supports_tool_calls=True),
+            tool_registry={},
+            auto_trust_on_reload_cwd=inherited_cwd,
+        )
+        saved_guard = not inherited_session._maybe_save_implicit_trust_after_reload(
+            cwd=inherited_cwd,
+            settings=SettingsManager.for_workspace(
+                inherited_cwd, project_trusted=True
+            ),
+            terminal_ui=None,
+            error_stream=io.StringIO(),
+        )
+        inherited_preserved = store.get(inherited_cwd) is False
+
+    return Check(
+        "reload_persistence",
+        no_resource_guard
+        and saved_new_resource
+        and exact_saved
+        and candidate_consumed
+        and saved_guard
+        and inherited_preserved,
+        "no-resource/new-resource/existing-decision guards",
+    )
 
 
 def run() -> list[Check]:
@@ -191,6 +336,8 @@ def run() -> list[Check]:
             _resource_check(root),
             _resolver_check(root),
             _cli_check(root),
+            _interactive_management_check(root),
+            _reload_persistence_check(root),
         ]
 
 
@@ -201,7 +348,12 @@ def main() -> int:
     checks = run()
     passed = all(check.passed for check in checks)
     if args.json:
-        print(json.dumps({"passed": passed, "checks": [asdict(check) for check in checks]}, indent=2))
+        print(
+            json.dumps(
+                {"passed": passed, "checks": [asdict(check) for check in checks]},
+                indent=2,
+            )
+        )
     else:
         for check in checks:
             print(f"{'PASS' if check.passed else 'FAIL'} {check.name}: {check.detail}")
