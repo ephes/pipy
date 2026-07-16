@@ -12,6 +12,7 @@ from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.project_trust import (
     PROTECTED_PROJECT_ENTRIES,
     ProjectTrustError,
+    ProjectTrustExtensionDecision,
     ProjectTrustStore,
     get_project_trust_options,
     has_trust_requiring_project_resources,
@@ -26,6 +27,7 @@ from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.cli import (
     KNOWN_SUBCOMMANDS,
     _resolve_runtime_project_trust,
+    _resolve_runtime_project_trust_startup,
     build_parser,
     main,
     route_argv,
@@ -193,6 +195,81 @@ def test_resolver_order_and_no_resource_short_circuit(tmp_path: Path) -> None:
         )
         is False
     )
+
+
+def test_extension_decision_rung_precedes_saved_default_and_ui(tmp_path: Path) -> None:
+    cwd = tmp_path / "project"
+    (cwd / ".pipy" / "skills").mkdir(parents=True)
+    store = ProjectTrustStore(tmp_path / "config" / "trust.json")
+    store.set(cwd, False)
+    calls: list[Path] = []
+    selected: list[Path] = []
+
+    def decide(path: Path) -> ProjectTrustExtensionDecision:
+        calls.append(path)
+        return ProjectTrustExtensionDecision(True)
+
+    def select(path: Path) -> bool:
+        selected.append(path)
+        return False
+
+    resolution = resolve_project_trust(
+        cwd,
+        trust_store=store,
+        default_project_trust="never",
+        extension_decision=decide,
+        select=select,
+    )
+
+    assert resolution.trusted is True
+    assert resolution.source == "extension"
+    assert calls == [cwd.resolve()]
+    assert selected == []
+    assert store.get(cwd) is False
+
+
+def test_extension_decision_exact_remember_and_suppressed_rungs(tmp_path: Path) -> None:
+    store = ProjectTrustStore(tmp_path / "config" / "trust.json")
+    calls: list[Path] = []
+
+    def undecided(path: Path) -> None:
+        calls.append(path)
+
+    assert (
+        resolve_project_trust(
+            tmp_path,
+            trust_store=store,
+            extension_decision=undecided,
+        ).source
+        == "no_resources"
+    )
+    (tmp_path / ".pipy" / "skills").mkdir(parents=True)
+    assert (
+        resolve_project_trust(
+            tmp_path,
+            trust_store=store,
+            trust_override=False,
+            extension_decision=undecided,
+        ).source
+        == "override"
+    )
+    assert calls == []
+
+    decision = ProjectTrustExtensionDecision(False, remember=True)
+
+    def decide(path: Path) -> ProjectTrustExtensionDecision:
+        calls.append(path)
+        return decision
+
+    resolution = resolve_project_trust(
+        tmp_path,
+        trust_store=store,
+        extension_decision=decide,
+    )
+    assert resolution.source == "extension"
+    assert resolution.trusted is False
+    assert calls == [tmp_path.resolve()]
+    assert store.get(tmp_path) is False
 
 
 def test_resolver_global_default_selector_and_malformed_store(tmp_path: Path) -> None:
@@ -495,6 +572,101 @@ def test_runtime_trust_selector_is_interactive_only_and_cancel_is_silent(
     assert calls == [workspace.resolve()]
 
 
+def test_bool_runtime_trust_resolver_does_not_activate_extensions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / ".pipy" / "skills").mkdir(parents=True)
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+
+    class Args:
+        trust_override = None
+
+    def unexpected_activation(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("bool trust resolver activated extensions")
+
+    monkeypatch.setattr(
+        "pipy_harness.cli._build_extension_activation_batch",
+        unexpected_activation,
+    )
+
+    assert not _resolve_runtime_project_trust(Args(), workspace)
+
+
+def test_extension_trust_decision_drives_and_closes_interactive_startup_ui(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / ".pipy" / "skills").mkdir(parents=True)
+    config = tmp_path / "config"
+    extension = config / "extensions" / "trust.py"
+    extension.parent.mkdir(parents=True)
+    extension.write_text(
+        "def activate(api):\n"
+        "    @api.on('project_trust')\n"
+        "    def decide(event, ctx):\n"
+        "        assert ctx.has_ui is True and ctx.hasUI is True\n"
+        "        assert ctx.ui.select('select', ['a', 'b']) == 'a'\n"
+        "        assert ctx.ui.input('input', 'hint') == 'typed'\n"
+        "        assert ctx.ui.confirm('confirm', 'message') is True\n"
+        "        return {'trusted': 'yes'}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    calls: list[tuple[object, ...]] = []
+
+    class FakeTerminalUi:
+        def __init__(
+            self,
+            *,
+            input_stream: object,
+            terminal_stream: object,
+            cwd: Path,
+        ) -> None:
+            calls.append(("open", input_stream, terminal_stream, cwd))
+
+        def run_extension_select(self, title: str, options: object) -> str:
+            calls.append(("select", title, options))
+            return "a"
+
+        def run_extension_input(
+            self, title: str, placeholder: str | None = None
+        ) -> str:
+            calls.append(("input", title, placeholder))
+            return "typed"
+
+        def run_extension_confirm(self, title: str, message: str) -> bool:
+            calls.append(("confirm", title, message))
+            return True
+
+        def close(self) -> None:
+            calls.append(("close",))
+
+    monkeypatch.setattr("pipy_harness.native.tui.ToolLoopTerminalUi", FakeTerminalUi)
+
+    class Args:
+        trust_override = None
+
+    resolution, batch = _resolve_runtime_project_trust_startup(
+        Args(),
+        workspace,
+        interactive_tty=True,
+        app_mode="interactive",
+    )
+
+    assert resolution.trusted is True
+    assert resolution.source == "extension"
+    assert batch is not None and batch.pending
+    assert [call[0] for call in calls] == [
+        "open",
+        "select",
+        "input",
+        "confirm",
+        "close",
+    ]
+    assert calls[0][3] == workspace.resolve()
+
+
 def test_repl_resolves_trust_for_session_header_cwd_before_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -520,7 +692,7 @@ def test_repl_resolves_trust_for_session_header_cwd_before_settings(
         raise RuntimeError("stop after trust")
 
     monkeypatch.setattr(
-        "pipy_harness.cli._resolve_runtime_project_trust_result", stop_after_trust
+        "pipy_harness.cli._resolve_runtime_project_trust_startup", stop_after_trust
     )
     with pytest.raises(RuntimeError, match="stop after trust"):
         main(["repl", "--cwd", str(shell_cwd), "--no-session"])

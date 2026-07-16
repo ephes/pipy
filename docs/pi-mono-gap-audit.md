@@ -13,10 +13,10 @@ It is a slice-selection aid: the detailed behavioral specs remain the source of
 truth for each topic, but this page records the biggest remaining gaps in one
 place and states what pipy should implement next.
 
-## Active next gap (groomed 2026-07-15)
+## Active next gap (groomed 2026-07-16)
 
-The **project-trust design, trust-core/settings-resource, and
-interactive-management slices have shipped**:
+The **project-trust design, trust-core/settings-resource,
+interactive-management, and extension-surface slices have shipped**:
 the reviewed design pins the
 trust-store ancestry, protected/exempt inputs, final-cwd loading order,
 interactive/headless defaults, CLI/package overrides, `/trust` and reload
@@ -24,8 +24,9 @@ semantics, and extension decision/read ownership. See
 [`docs/superpowers/specs/2026-07-15-project-trust-design.md`](superpowers/specs/2026-07-15-project-trust-design.md)
 and its ordered
 [`implementation plan`](superpowers/specs/2026-07-15-project-trust-implementation-plan.md).
-The next bounded runtime slice is the **extension-owned project-trust decision
-and read APIs**.
+The next bounded runtime slice is the **`before_provider_headers` extension
+hook**. Keep header injection separate from durable entry rendering and the
+extension-surface `agent_settled` lifecycle hook.
 
 GPT-5.6 Sol plus model-aware `max` thinking **shipped** (see
 [gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md) and the changelog):
@@ -44,7 +45,7 @@ not omit, uniformly across every provider and effort-label surface).
 | Priority | Pi delta | Pipy classification |
 | --- | --- | --- |
 | 1 | GPT-5.6 Sol + `max` thinking | **Shipped** 2026-07-14; generalized cross-provider clamping remains a named follow-on. |
-| 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | Design, trust core/settings-resource gate, and interactive/package integration shipped 2026-07-15; extension decision/read APIs are next. |
+| 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | **Shipped** across the design, core/resource, interactive/management, and extension-surface slices. |
 | 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` **shipped on `--mode rpc` and `--mode json`** 2026-07-14 (emitted at the true-idle boundary); the only remaining follow-on is the extension-surface `agent_settled` hook. |
 | 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | Real extension gaps; keep header injection, settled lifecycle, and durable entry rendering as focused slices. |
 | 5 | Message-anchored dynamic tool loading | Real provider/extension gap; pipy changes active tools but lacks Anthropic `tool_reference` and OpenAI tool-search placement. |
@@ -134,7 +135,8 @@ are:
   the Pi-sourced design/loading order and ships the trust store, final-cwd
   resolver, settings/resource gate, five-choice interactive selector, `/trust`,
   reload persistence, global default control, run-only overrides, and
-  management-command integration. The extension decision/read APIs remain.
+  management-command integration, pre-trust global/CLI extension decisions with
+  single activation reuse, and run-local trust read callbacks.
 - Pi's bare `update` is now self-only; `update --all` composes self plus
   packages, while `--extensions` remains packages-only. Pipy's bare update still
   composes both halves and must be realigned rather than documented as parity.
@@ -606,9 +608,9 @@ adding another bespoke slash command.
 
 1. GPT-5.6 Sol plus model-aware `max` thinking — **shipped** 2026-07-14 without
    broadening into every GPT-5.6/provider surface.
-2. Project trust — design, trust core/settings-resource gating, and
-   interactive/package management integration **shipped** 2026-07-15; next add
-   the extension decision/read APIs.
+2. Project trust — design, trust core/settings-resource gating,
+   interactive/package management integration, and extension decision/read APIs
+   **shipped** 2026-07-16.
 3. RPC `get_entries`/`get_tree` and true-idle `agent_settled` — **shipped**
    2026-07-14 as independent protocol slices; JSON-mode `agent_settled` shipped
    the same day. The extension-surface `agent_settled` emission remains an

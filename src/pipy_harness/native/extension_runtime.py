@@ -41,7 +41,7 @@ import inspect
 import json
 import sys
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, Protocol, cast, runtime_checkable
@@ -170,6 +170,7 @@ _TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
 
 # Event names (the dispatched subset grows per slice).
 EVENT_TOOL_CALL: str = "tool_call"
+EVENT_PROJECT_TRUST: str = "project_trust"
 EVENT_SESSION_START: str = "session_start"
 EVENT_SESSION_SHUTDOWN: str = "session_shutdown"
 EVENT_AGENT_START: str = "agent_start"
@@ -206,6 +207,43 @@ LIFECYCLE_EVENTS: tuple[str, ...] = (
 )
 
 HookHandler = Callable[..., object]
+
+ExtensionMode = Literal["tui", "print", "json", "rpc"]
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectTrustEvent:
+    """Startup event offered only to pre-trust extension handlers."""
+
+    cwd: str
+    type: Literal["project_trust"] = "project_trust"
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectTrustContext:
+    """Bounded startup-only context for a project-trust decision."""
+
+    cwd: str
+    mode: ExtensionMode
+    has_ui: bool
+    ui: "ExtensionUi"
+
+    @property
+    def hasUI(self) -> bool:  # noqa: N802 - Pi-shaped alias
+        return self.has_ui
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectTrustHandlerError:
+    extension: str
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectTrustDispatchResult:
+    trusted: Literal["yes", "no"] | None = None
+    remember: bool = False
+    errors: tuple[ProjectTrustHandlerError, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -462,6 +500,7 @@ def make_extension_context(
     ui_driver: "ExtensionUiDriver | None" = None,
     session_tree: "NativeSessionTree | None" = None,
     send_message_fn: "SendMessageFn | None" = None,
+    project_trusted: bool = False,
 ) -> CommandContext:
     """Build a mode-aware context for a tool/command/hook invocation.
 
@@ -487,6 +526,7 @@ def make_extension_context(
         send_message_fn=send_message_fn,
         flags=flags,
         session_tree=session_tree,
+        project_trusted=project_trusted,
     )
 
 
@@ -775,6 +815,20 @@ class ActivatedExtension:
     flags: tuple[RegisteredFlag, ...] = ()
     message_renderers: tuple[RegisteredMessageRenderer, ...] = ()
     custom_messages: tuple[QueuedCustomMessage, ...] = ()
+    _activation_key: str | None = field(default=None, repr=False, compare=False)
+    _activation_api: "_ActivationApi | None" = field(
+        default=None, repr=False, compare=False
+    )
+
+
+@dataclass(slots=True)
+class ExtensionActivationBatch:
+    """One reusable extension activation pass and its shared live outboxes."""
+
+    activated: tuple[ActivatedExtension, ...]
+    message_outbox: list[QueuedUserMessage]
+    custom_message_outbox: list[QueuedCustomMessage]
+    pending: bool = False
 
 
 @runtime_checkable
@@ -797,7 +851,9 @@ class CustomComponent(Protocol):
 CustomComponentFactory = Callable[[Callable[..., None]], CustomComponent]
 # The live driver that takes over the terminal to run a custom component.
 CustomComponentOptions = Mapping[str, object]
-CustomComponentDriver = Callable[[CustomComponentFactory, CustomComponentOptions | None], object]
+CustomComponentDriver = Callable[
+    [CustomComponentFactory, CustomComponentOptions | None], object
+]
 
 
 ThemeColor = Literal["text", "accent", "success", "warning", "error", "dim"]
@@ -947,9 +1003,7 @@ class FooterData:
     def getAvailableProviderCount(self) -> int:  # noqa: N802 - Pi-shaped API
         return self.get_available_provider_count()
 
-    def on_branch_change(
-        self, callback: Callable[[], object]
-    ) -> Callable[[], None]:
+    def on_branch_change(self, callback: Callable[[], object]) -> Callable[[], None]:
         """Register for branch changes and return a safe disposer.
 
         Live TUI snapshots delegate to the UI registrar. Headless snapshots keep
@@ -1134,9 +1188,13 @@ class ExtensionUi(Protocol):
 
     def addAutocompleteProvider(self, factory: object) -> None: ...
 
-    def on_terminal_input(self, handler: Callable[[str], object]) -> Callable[[], None]: ...
+    def on_terminal_input(
+        self, handler: Callable[[str], object]
+    ) -> Callable[[], None]: ...
 
-    def onTerminalInput(self, handler: Callable[[str], object]) -> Callable[[], None]: ...
+    def onTerminalInput(
+        self, handler: Callable[[str], object]
+    ) -> Callable[[], None]: ...
 
     def set_editor_component(self, factory: object | None) -> None: ...
 
@@ -1287,6 +1345,9 @@ class CommandContext(Protocol):
     session_manager: SessionManagerView
     sessionManager: SessionManagerView
     flags: Mapping[str, object]
+
+    def is_project_trusted(self) -> bool: ...
+    def isProjectTrusted(self) -> bool: ...
 
     def complete(self, system_prompt: str, user_text: str) -> str:
         """Run one bounded provider completion and return its text.
@@ -1692,9 +1753,7 @@ class _CollectingUi:
         if self._ui_driver is None or not self.has_ui:
             return lambda: None
         try:
-            add_listener = getattr(
-                self._ui_driver, "add_terminal_input_listener", None
-            )
+            add_listener = getattr(self._ui_driver, "add_terminal_input_listener", None)
             if callable(add_listener):
                 return cast(Callable[[], None], add_listener(handler))
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
@@ -1907,6 +1966,7 @@ class _CommandContext:
         send_message_fn: "SendMessageFn | None" = None,
         flags: Mapping[str, object] | None = None,
         session_tree: "NativeSessionTree | None" = None,
+        project_trusted: bool = False,
     ) -> None:
         self.cwd = cwd
         self.has_ui = ui.has_ui
@@ -1917,6 +1977,7 @@ class _CommandContext:
         )
         self.sessionManager: SessionManagerView = self.session_manager
         self.flags: Mapping[str, object] = dict(flags or {})
+        self._project_trusted = bool(project_trusted)
         self._complete_fn = complete_fn
         self._set_active_tools_fn = set_active_tools_fn
         self._set_model_fn = set_model_fn
@@ -1926,6 +1987,12 @@ class _CommandContext:
         self._get_session_name_fn = get_session_name_fn
         self._set_label_fn = set_label_fn
         self._send_message_fn = send_message_fn
+
+    def is_project_trusted(self) -> bool:
+        return self._project_trusted
+
+    def isProjectTrusted(self) -> bool:  # noqa: N802 - Pi-shaped alias
+        return self.is_project_trusted()
 
     def complete(self, system_prompt: str, user_text: str) -> str:
         if self._complete_fn is None:
@@ -2094,6 +2161,7 @@ def dispatch_extension_command(
     send_message_fn: "SendMessageFn | None" = None,
     flags: Mapping[str, object] | None = None,
     session_tree: "NativeSessionTree | None" = None,
+    project_trusted: bool = False,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch `command_text` to an extension command, or return None.
 
@@ -2137,6 +2205,7 @@ def dispatch_extension_command(
         send_message_fn=send_message_fn,
         flags=flags,
         session_tree=session_tree,
+        project_trusted=project_trusted,
     )
 
 
@@ -2161,6 +2230,7 @@ def dispatch_extension_shortcut(
     send_message_fn: "SendMessageFn | None" = None,
     flags: Mapping[str, object] | None = None,
     session_tree: "NativeSessionTree | None" = None,
+    project_trusted: bool = False,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch a registered extension shortcut `key`, or return None.
 
@@ -2195,6 +2265,7 @@ def dispatch_extension_shortcut(
         send_message_fn=send_message_fn,
         flags=flags,
         session_tree=session_tree,
+        project_trusted=project_trusted,
     )
 
 
@@ -2220,6 +2291,7 @@ def _run_extension_handler(
     send_message_fn: "SendMessageFn | None",
     flags: Mapping[str, object] | None,
     session_tree: "NativeSessionTree | None",
+    project_trusted: bool,
 ) -> ExtensionCommandDispatch:
     """Run a command/shortcut handler with a mode-aware context; bound errors."""
 
@@ -2239,6 +2311,7 @@ def _run_extension_handler(
         send_message_fn=send_message_fn,
         flags=flags,
         session_tree=session_tree,
+        project_trusted=project_trusted,
     )
     try:
         handler(ctx, args)
@@ -2456,7 +2529,10 @@ class _ActivationApi:
                 not callable(oauth.login)
                 or not callable(oauth.refresh_token)
                 or not callable(oauth.get_api_key)
-                or (oauth.modify_models is not None and not callable(oauth.modify_models))
+                or (
+                    oauth.modify_models is not None
+                    and not callable(oauth.modify_models)
+                )
             ):
                 raise _ActivationError(REASON_INVALID_PROVIDER)
             oauth = ExtensionOAuthConfig(
@@ -2727,6 +2803,33 @@ def activate_extensions(
     omitted, a private outbox is used (messages are simply unread).
     """
 
+    batch = activate_extension_batch(
+        descriptors,
+        reserved_command_names=reserved_command_names,
+        reserved_tool_names=reserved_tool_names,
+        message_outbox=message_outbox,
+        custom_message_outbox=custom_message_outbox,
+    )
+    return list(batch.activated)
+
+
+def activate_extension_batch(
+    descriptors: Sequence[ExtensionDescriptor],
+    *,
+    reserved_command_names: Sequence[str] = (),
+    reserved_tool_names: Sequence[str] = (),
+    message_outbox: list[QueuedUserMessage] | None = None,
+    custom_message_outbox: list[QueuedCustomMessage] | None = None,
+    preloaded: ExtensionActivationBatch | None = None,
+    pending: bool = False,
+) -> ExtensionActivationBatch:
+    """Activate once, or finalize a pending pre-trust batch in final order."""
+
+    if preloaded is not None and not preloaded.pending:
+        raise ValueError("preloaded extension batch is already finalized")
+    if preloaded is not None and pending:
+        raise ValueError("a final merge cannot remain pending")
+
     reserved = frozenset(reserved_command_names)
     reserved_tools = frozenset(reserved_tool_names)
     taken: set[str] = set()
@@ -2735,18 +2838,38 @@ def activate_extensions(
     taken_shortcuts: set[str] = set()
     taken_flags: set[str] = set()
     taken_message_renderers: set[str] = set()
-    outbox = message_outbox if message_outbox is not None else []
-    custom_outbox = custom_message_outbox if custom_message_outbox is not None else []
+    outbox = (
+        preloaded.message_outbox
+        if preloaded is not None
+        else (message_outbox if message_outbox is not None else [])
+    )
+    custom_outbox = (
+        preloaded.custom_message_outbox
+        if preloaded is not None
+        else (custom_message_outbox if custom_message_outbox is not None else [])
+    )
     results: list[ActivatedExtension] = []
+    preloaded_by_key = (
+        {
+            item._activation_key: item
+            for item in preloaded.activated
+            if item._activation_key is not None
+        }
+        if preloaded is not None
+        else {}
+    )
 
     for descriptor in descriptors:
         if descriptor.status != "loadable":
             # Discovery already disabled this; never import it.
             results.append(_passthrough_disabled(descriptor))
             continue
-        results.append(
-            _activate_one(
-                descriptor,
+        key = _descriptor_activation_key(descriptor)
+        existing = preloaded_by_key.get(key)
+        if existing is not None:
+            reused = _finalize_preloaded_extension(
+                existing,
+                descriptor=descriptor,
                 reserved=reserved,
                 taken=taken,
                 reserved_tools=reserved_tools,
@@ -2755,11 +2878,43 @@ def activate_extensions(
                 taken_shortcuts=taken_shortcuts,
                 taken_flags=taken_flags,
                 taken_message_renderers=taken_message_renderers,
+            )
+            results.append(reused)
+            continue
+        # Pending pre-trust activation stages each extension independently.
+        # Cross-extension collisions are provisional because the final reserved
+        # set can disable an earlier extension and free its names for a later
+        # one. Resolve those collisions only once, in final descriptor order.
+        activation_taken = set() if pending else taken
+        activation_taken_tools = set() if pending else taken_tools
+        activation_taken_providers = set() if pending else taken_providers
+        activation_taken_shortcuts = set() if pending else taken_shortcuts
+        activation_taken_flags = set() if pending else taken_flags
+        activation_taken_message_renderers = (
+            set() if pending else taken_message_renderers
+        )
+        results.append(
+            _activate_one(
+                descriptor,
+                reserved=reserved,
+                taken=activation_taken,
+                reserved_tools=reserved_tools,
+                taken_tools=activation_taken_tools,
+                taken_providers=activation_taken_providers,
+                taken_shortcuts=activation_taken_shortcuts,
+                taken_flags=activation_taken_flags,
+                taken_message_renderers=activation_taken_message_renderers,
                 outbox=outbox,
                 custom_outbox=custom_outbox,
+                commit_activation=not pending,
             )
         )
-    return results
+    return ExtensionActivationBatch(
+        activated=tuple(results),
+        message_outbox=outbox,
+        custom_message_outbox=custom_outbox,
+        pending=pending,
+    )
 
 
 def extension_providers(
@@ -3119,6 +3274,73 @@ def drain_custom_messages(
     return drained
 
 
+def _descriptor_activation_key(descriptor: ExtensionDescriptor) -> str:
+    if descriptor.entry_path:
+        try:
+            return str(Path(descriptor.entry_path).expanduser().resolve())
+        except OSError:
+            return str(Path(descriptor.entry_path).expanduser().absolute())
+    return f"{descriptor.source_kind}:{descriptor.path_label}"
+
+
+def _finalize_preloaded_extension(
+    existing: ActivatedExtension,
+    *,
+    descriptor: ExtensionDescriptor,
+    reserved: frozenset[str],
+    taken: set[str],
+    reserved_tools: frozenset[str],
+    taken_tools: set[str],
+    taken_providers: set[str],
+    taken_shortcuts: set[str],
+    taken_flags: set[str],
+    taken_message_renderers: set[str],
+) -> ActivatedExtension:
+    """Validate and commit one pending preload without running it again."""
+
+    if existing.status != "activated":
+        return existing
+    api = existing._activation_api
+    if api is None:
+        return _disabled(descriptor, REASON_ACTIVATION_ERROR, "invalid preload state")
+
+    for command in existing.commands:
+        if command.name in reserved:
+            return _disabled(descriptor, REASON_RESERVED_COMMAND, None)
+        if command.name in taken:
+            return _disabled(descriptor, REASON_DUPLICATE_COMMAND, None)
+    for registered_tool in existing.tools:
+        if registered_tool.tool.name in reserved_tools:
+            return _disabled(descriptor, REASON_RESERVED_TOOL, None)
+        if registered_tool.tool.name in taken_tools:
+            return _disabled(descriptor, REASON_DUPLICATE_TOOL, None)
+    for registered_provider in existing.providers:
+        if registered_provider.provider.name in taken_providers:
+            return _disabled(descriptor, REASON_DUPLICATE_PROVIDER, None)
+    for shortcut in existing.shortcuts:
+        if shortcut.key in taken_shortcuts:
+            return _disabled(descriptor, REASON_DUPLICATE_SHORTCUT, None)
+    for registered_flag in existing.flags:
+        if registered_flag.flag.name in taken_flags:
+            return _disabled(descriptor, REASON_DUPLICATE_FLAG, None)
+    for renderer in existing.message_renderers:
+        if renderer.custom_type in taken_message_renderers:
+            return _disabled(descriptor, REASON_DUPLICATE_MESSAGE_RENDERER, None)
+
+    taken.update(command.name for command in existing.commands)
+    taken_tools.update(registered_tool.tool.name for registered_tool in existing.tools)
+    taken_providers.update(
+        registered_provider.provider.name for registered_provider in existing.providers
+    )
+    taken_shortcuts.update(shortcut.key for shortcut in existing.shortcuts)
+    taken_flags.update(registered_flag.flag.name for registered_flag in existing.flags)
+    taken_message_renderers.update(
+        renderer.custom_type for renderer in existing.message_renderers
+    )
+    api.commit_activation()
+    return replace(existing, _activation_api=None)
+
+
 def _activate_one(
     descriptor: ExtensionDescriptor,
     *,
@@ -3132,6 +3354,7 @@ def _activate_one(
     taken_message_renderers: set[str],
     outbox: list[QueuedUserMessage],
     custom_outbox: list[QueuedCustomMessage],
+    commit_activation: bool = True,
 ) -> ActivatedExtension:
     try:
         module = _import_entry_module(descriptor)
@@ -3201,7 +3424,8 @@ def _activate_one(
         taken_flags.add(flag.flag.name)
     for renderer in message_renderers:
         taken_message_renderers.add(renderer.custom_type)
-    api.commit_activation()
+    if commit_activation:
+        api.commit_activation()
     return ActivatedExtension(
         name=descriptor.name,
         version=descriptor.version,
@@ -3218,6 +3442,8 @@ def _activate_one(
         flags=flags,
         message_renderers=message_renderers,
         custom_messages=custom_messages,
+        _activation_key=_descriptor_activation_key(descriptor),
+        _activation_api=None if commit_activation else api,
     )
 
 
@@ -3233,6 +3459,55 @@ def extension_event_hooks(
             continue
         hooks.extend(extension.hooks.get(event_name, ()))
     return tuple(hooks)
+
+
+def dispatch_project_trust_hooks(
+    activated: Sequence[ActivatedExtension],
+    *,
+    cwd: str,
+    mode: ExtensionMode,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: ExtensionUiDriver | None = None,
+) -> ProjectTrustDispatchResult:
+    """Run pre-trust handlers serially until the first valid yes/no result."""
+
+    ui = _CollectingUi(has_ui, notify_sink=notify_sink, ui_driver=ui_driver)
+    event = ProjectTrustEvent(cwd=cwd)
+    ctx = ProjectTrustContext(cwd=cwd, mode=mode, has_ui=has_ui, ui=ui)
+    errors: list[ProjectTrustHandlerError] = []
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        for handler in extension.hooks.get(EVENT_PROJECT_TRUST, ()):
+            try:
+                result = handler(event, ctx)
+                if inspect.isawaitable(result):
+                    result = _drive_awaitable(result)
+                if not isinstance(result, Mapping):
+                    raise ValueError("project_trust handler must return a mapping")
+                trusted = result.get("trusted")
+                if trusted == "undecided":
+                    continue
+                if trusted not in ("yes", "no"):
+                    raise ValueError(
+                        "project_trust trusted must be yes, no, or undecided"
+                    )
+                return ProjectTrustDispatchResult(
+                    trusted=cast(Literal["yes", "no"], trusted),
+                    remember=result.get("remember") is True,
+                    errors=tuple(errors),
+                )
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException as err:  # noqa: BLE001 - fail-soft extension hook
+                errors.append(
+                    ProjectTrustHandlerError(
+                        extension=extension.path_label,
+                        error=_safe_diagnostic(err),
+                    )
+                )
+    return ProjectTrustDispatchResult(errors=tuple(errors))
 
 
 def extension_tool_call_hooks(
@@ -3255,6 +3530,7 @@ def dispatch_input_hooks(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
 ) -> str:
     """Run `input` hooks over a submitted prompt; return the final text.
 
@@ -3276,6 +3552,7 @@ def dispatch_input_hooks(
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
         flags=flags,
+        project_trusted=project_trusted,
     )
     for hook in hooks:
         try:
@@ -3305,6 +3582,7 @@ def dispatch_before_agent_start_hooks(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
 ) -> BeforeAgentStartResult:
     """Run `before_agent_start` hooks; aggregate their context injections.
 
@@ -3323,6 +3601,7 @@ def dispatch_before_agent_start_hooks(
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,
             flags=flags,
+            project_trusted=project_trusted,
         )
         current_prompt = system_prompt
         for hook in hooks:
@@ -3368,6 +3647,7 @@ def dispatch_tool_result_hooks(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
 ) -> str:
     """Run `tool_result` hooks over a finalized tool result; return content.
 
@@ -3388,6 +3668,7 @@ def dispatch_tool_result_hooks(
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,
             flags=flags,
+            project_trusted=project_trusted,
         )
         for hook in hooks:
             try:
@@ -3427,6 +3708,7 @@ def dispatch_lifecycle_hooks(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
 ) -> None:
     """Run observe-only lifecycle hooks for one event, in order.
 
@@ -3447,6 +3729,7 @@ def dispatch_lifecycle_hooks(
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
         flags=flags,
+        project_trusted=project_trusted,
     )
     for hook in hooks:
         try:
@@ -3472,6 +3755,7 @@ def dispatch_tool_call_hooks(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
 ) -> ToolBlock | None:
     """Run `tool_call` hooks for one tool call; return the first block.
 
@@ -3491,6 +3775,7 @@ def dispatch_tool_call_hooks(
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
         flags=flags,
+        project_trusted=project_trusted,
     )
     for hook in hooks:
         try:
@@ -3519,6 +3804,7 @@ def dispatch_user_bash_hooks(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
 ) -> UserBashDispatch:
     """Run `user_bash` hooks for one local shell shortcut.
 
@@ -3537,6 +3823,7 @@ def dispatch_user_bash_hooks(
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
         flags=flags,
+        project_trusted=project_trusted,
     )
     for hook in hooks:
         event = UserBashEvent(
@@ -3599,6 +3886,7 @@ def dispatch_before_provider_request_hooks(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
 ) -> ProviderRequestTransform:
     """Run `before_provider_request` hooks and return the final transform.
 
@@ -3625,6 +3913,7 @@ def dispatch_before_provider_request_hooks(
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,
             flags=flags,
+            project_trusted=project_trusted,
         )
         for hook in hooks:
             event = BeforeProviderRequestEvent(
@@ -3676,6 +3965,7 @@ def dispatch_session_before_hooks(
     set_model_fn: "ControlSetModelFn | None" = None,
     set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
     flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
 ) -> SessionDecision:
     """Run session-operation gates and return the first blocking decision.
 
@@ -3694,6 +3984,7 @@ def dispatch_session_before_hooks(
         set_model_fn=set_model_fn,
         set_thinking_level_fn=set_thinking_level_fn,
         flags=flags,
+        project_trusted=project_trusted,
     )
     for hook in hooks:
         try:
@@ -3886,6 +4177,7 @@ def _passthrough_disabled(descriptor: ExtensionDescriptor) -> ActivatedExtension
         reason=descriptor.reason,
         commands=(),
         diagnostic=None,
+        _activation_key=_descriptor_activation_key(descriptor),
     )
 
 
@@ -3902,6 +4194,7 @@ def _disabled(
         reason=reason,
         commands=(),
         diagnostic=diagnostic,
+        _activation_key=_descriptor_activation_key(descriptor),
     )
 
 

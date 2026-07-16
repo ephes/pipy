@@ -72,9 +72,7 @@ def test_cli_mode_json_emits_header_and_events(
     assert "message_update" in types
     message_end = next(r for r in records if r["type"] == "message_end")
     text = "".join(
-        b["text"]
-        for b in message_end["message"]["content"]
-        if b.get("type") == "text"
+        b["text"] for b in message_end["message"]["content"] if b.get("type") == "text"
     )
     assert "ROOT" in text
 
@@ -125,3 +123,69 @@ def test_cli_print_mode_emits_final_text(
     assert "ROOT" in out
     # No JSON records in print mode — just the final text line.
     assert not out.lstrip().startswith("{")
+
+
+def test_json_trust_extension_reuses_activation_and_keeps_stdout_protocol_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfdbinary: pytest.CaptureFixture[bytes],
+) -> None:
+    work = _workspace(tmp_path)
+    config = tmp_path / "pipy-config"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    proof = tmp_path / "extension-proof.txt"
+    global_extension = config / "extensions" / "trust.py"
+    global_extension.parent.mkdir(parents=True)
+    global_extension.write_text(
+        f"open({str(proof)!r}, 'a').write('g')\n"
+        "def activate(api):\n"
+        "    @api.on('project_trust')\n"
+        "    def trust(event, ctx):\n"
+        "        assert ctx.mode == 'json' and ctx.hasUI is False\n"
+        "        assert ctx.ui.select('pick', ['yes']) is None\n"
+        "        assert ctx.ui.confirm('confirm', 'message') is False\n"
+        "        assert ctx.ui.input('input') is None\n"
+        "        ctx.ui.notify('trust decided', 'info')\n"
+        "        return {'trusted': 'yes'}\n"
+        "    @api.on('session_start')\n"
+        "    def started(event, ctx):\n"
+        "        assert ctx.is_project_trusted() is True\n"
+        "        assert ctx.isProjectTrusted() is True\n"
+        f"        open({str(proof)!r}, 'a').write('G')\n",
+        encoding="utf-8",
+    )
+    project_extension = work / ".pipy" / "extensions" / "project.py"
+    project_extension.parent.mkdir(parents=True)
+    project_extension.write_text(
+        f"open({str(proof)!r}, 'a').write('p')\n"
+        "def activate(api):\n"
+        "    @api.on('session_start')\n"
+        "    def started(event, ctx):\n"
+        "        assert ctx.is_project_trusted() is True\n"
+        "        assert ctx.isProjectTrusted() is True\n"
+        f"        open({str(proof)!r}, 'a').write('P')\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "repl",
+            "--cwd",
+            str(work),
+            "--native-provider",
+            "fake",
+            "--native-model",
+            "fake-tools",
+            "--no-session",
+            "--mode",
+            "json",
+            "ROOT",
+        ]
+    )
+
+    assert exit_code == 0
+    captured = capfdbinary.readouterr()
+    records = [json.loads(line) for line in captured.out.decode().splitlines() if line]
+    assert records[0]["type"] == "session"
+    assert "trust decided" in captured.err.decode()
+    assert proof.read_text() == "gpPG"

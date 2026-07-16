@@ -1,7 +1,7 @@
 # Project trust — implementation plan
 
-Status: slices 1 (trust core and settings/resource gate) and 2 (interactive and
-management integration) shipped 2026-07-15; slice 3 remains.
+Status: all three slices shipped (slices 1–2 on 2026-07-15; extension decision
+and read APIs on 2026-07-16).
 
 Reviewed design:
 [`2026-07-15-project-trust-design.md`](2026-07-15-project-trust-design.md).
@@ -178,7 +178,7 @@ Acceptance criteria:
    slice lands; this slice neither prompts nor invokes extension decisions for
    update.
 
-## Slice 3 — extension decision and read APIs
+## Slice 3 — extension decision and read APIs — SHIPPED (2026-07-16)
 
 ### Task 9: pre-trust extension activation and reuse
 

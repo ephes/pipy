@@ -293,7 +293,7 @@ preserved. The getter/setter surface should mirror Pi's typed accessors
 (`get_compaction_enabled`, `set_theme`, etc.) so callers do not reach into raw
 dicts.
 
-## Project trust (interactive and management runtime shipped)
+## Project trust (complete runtime track shipped)
 
 Project-local settings and resources are now gated by the first runtime slice
 of the reviewed
@@ -328,7 +328,9 @@ reviewed no-saved-decision guards before the next restart can surprise-prompt.
 resource-config management commands accept command-local
 `--approve`/`--no-approve`; untrusted list/config views omit project entries,
 global writes remain available, and local writes fail before mutation. Extension
-decision/read APIs remain the final trust slice in the ordered
+decision/read APIs also ship: pre-trust global/CLI handlers run before saved and
+default fallbacks, and normal contexts expose read-only
+`is_project_trusted()`/`isProjectTrusted()` callbacks. See the ordered
 [implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md).
 
 ## Keybindings.json — Schema, Bindings, Defaults, `/hotkeys`

@@ -329,8 +329,9 @@ still recognizes that extension/package parity is the largest surface by area:
    extension `project_trust`/`ctx.isProjectTrusted()` surface. Pipy now ships
    the trust core, final-cwd settings/resource gate, global default, saved
    ancestry, run-only overrides, interactive selector, `/trust`, guarded reload
-   persistence, and package/config integration. Continue the multi-slice track
-   with extension exposure.
+   persistence, package/config integration, pre-trust global/CLI extension
+   decision ownership with activation reuse, and run-local trust read aliases.
+   The project-trust track is complete.
 3. **Current RPC delta.** Pipy's gated RPC baseline is green at Pi's full
    31-command vocabulary: the read-only `get_entries` (including `since`) and
    `get_tree` **shipped** 2026-07-14. The asynchronous `agent_settled` event also
@@ -1487,10 +1488,18 @@ and deterministic conformance gate.
 Slice 2 now ships the startup selector, `/trust` and reload persistence, global
 `defaultProjectTrust` control, and package/config command trust handling.
 
-### Next: extension-owned project-trust decision/read APIs
+### Extension-owned project-trust decision/read APIs — SHIPPED (2026-07-16)
 
-Implement slice 3 without reopening the core or interactive boundaries. Then continue with the
-`before_provider_headers` extension hook, durable entry renderers plus the
+Slice 3 now activates only global/explicit-CLI extensions before unresolved
+trust, runs their `project_trust` handlers serially until the first yes/no,
+honors exact `remember=True`, reuses those instances across provider-catalog and
+live-session startup, and exposes zero-argument `is_project_trusted()` /
+`isProjectTrusted()` reads on normal contexts. The product JSON conformance row
+proves project code stays gated and stdout remains protocol-only.
+
+### Next: `before_provider_headers` extension hook
+
+Keep provider-header injection separate from durable entry renderers plus the
 extension-surface `agent_settled` hook, cache-friendly dynamic tool loading, and
 package-update/config realignment. Each remains its own parity-loop gap. The
 read-only RPC `get_entries`/`get_tree` slice **shipped** 2026-07-14 (pipy's RPC

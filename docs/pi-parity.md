@@ -21,13 +21,13 @@ is streamed (`docs/automation-rpc.md`) and exported (`docs/export-distribution.m
 like Pi. See [parity-plan.md](/parity-plan/) for the full plan and the list of
 accidental pipy-only surfaces being removed or realigned.
 
-**Current delta note (2026-07-15):** local Pi main `b084d2fb` (`0.80.6` plus
+**Current delta note (2026-07-16):** local Pi main `b084d2fb` (`0.80.6` plus
 current unreleased changes) has moved beyond several green June baselines.
 GPT-5.6 Sol/`max`, RPC `get_entries`/`get_tree`, and the true-idle
 `agent_settled` event (on both the `--mode rpc` and `--mode json` streams)
 shipped 2026-07-14. The project-trust design, trust-core/settings-resource
-gate, and interactive/package management integration shipped 2026-07-15; the
-extension decision/read APIs are next.
+gate, interactive/package management integration, and extension-owned trust
+decision/read APIs now ship.
 The remaining
 `agent_settled` follow-on (the extension-surface hook), extension
 `before_provider_headers`/entry renderers,

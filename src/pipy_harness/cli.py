@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pipy_harness.adapters import (
     PipyNativeAdapter,
@@ -38,6 +38,7 @@ from pipy_harness.native import (
     default_native_defaults_path,
     default_openai_codex_auth_path,
     default_selection_for,
+    production_tool_registry,
     validate_native_repl_input_runtime,
 )
 from pipy_harness.native.provider import StreamChunkSink
@@ -49,6 +50,7 @@ from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tool_loop_session import ToolFilterOptions
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.session_tree_commands import StartupSessionAborted
@@ -58,6 +60,7 @@ from pipy_harness.native.export_distribution import (
     NativeExportError,
     export_from_file,
 )
+from pipy_harness.native.extension_runtime import ExtensionActivationBatch
 from pipy_harness.native.version_check import (
     PIPY_OFFLINE_ENV,
     PIPY_SKIP_VERSION_CHECK_ENV,
@@ -997,16 +1000,31 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_product_export(args.export)
         if getattr(args, "list_models", None) is not None:
             cwd = getattr(args, "cwd", Path.cwd()).expanduser().resolve()
-            project_trusted = _resolve_runtime_project_trust(args, cwd)
+            options = _resource_options_from_args(args)
+            trust_resolution, pretrust_extensions = (
+                _resolve_runtime_project_trust_startup(
+                    args,
+                    cwd,
+                    app_mode="print",
+                    resource_options=options,
+                )
+            )
             settings_manager = _build_runtime_settings(
-                cwd, project_trusted=project_trusted
+                cwd, project_trusted=trust_resolution.trusted
+            )
+            extensions = _build_extension_activation_batch(
+                cwd,
+                settings_manager=settings_manager,
+                resource_options=options,
+                preloaded=pretrust_extensions,
             )
             return _handle_list_models(
                 args.list_models or None,
                 cwd=cwd,
                 settings_manager=settings_manager,
-                resource_options=_resource_options_from_args(args),
+                resource_options=options,
                 api_key=getattr(args, "api_key", None),
+                extension_batch=extensions,
             )
         if args.command == "config":
             return _cmd_config(args)
@@ -1155,10 +1173,14 @@ def main(argv: list[str] | None = None) -> int:
             )
             app_mode = _select_repl_app_mode(args)
             interactive_tty = app_mode == "interactive" and _startup_stdin_is_tty()
-            trust_resolution = _resolve_runtime_project_trust_result(
-                args,
-                cwd,
-                interactive_tty=interactive_tty,
+            trust_resolution, pretrust_extensions = (
+                _resolve_runtime_project_trust_startup(
+                    args,
+                    cwd,
+                    interactive_tty=interactive_tty,
+                    app_mode=app_mode,
+                    resource_options=resource_options,
+                )
             )
             project_trusted = trust_resolution.trusted
             # Layered settings: a settings.json defaultProvider/defaultModel/theme
@@ -1168,6 +1190,14 @@ def main(argv: list[str] | None = None) -> int:
                 cwd,
                 scoped_models=_parse_models_flag(getattr(args, "scoped_models", None)),
                 project_trusted=project_trusted,
+            )
+            startup_tool_registry = production_tool_registry()
+            extension_batch = _build_extension_activation_batch(
+                cwd,
+                settings_manager=settings_manager,
+                resource_options=resource_options,
+                preloaded=pretrust_extensions,
+                reserved_tool_names=tuple(startup_tool_registry),
             )
             file_settings = settings_manager.merged_file_settings()
             _apply_settings_theme_env(file_settings)
@@ -1182,6 +1212,7 @@ def main(argv: list[str] | None = None) -> int:
                 cwd=cwd,
                 settings_manager=settings_manager,
                 resource_options=resource_options,
+                extension_batch=extension_batch,
             )
             # The product REPL is always the bounded model-driven tool loop.
             if args.tool_budget < 1 or args.tool_budget > 200:
@@ -1215,6 +1246,8 @@ def main(argv: list[str] | None = None) -> int:
                 auto_trust_on_reload_cwd=(
                     cwd if trust_resolution.source == "no_resources" else None
                 ),
+                initial_extension_batch=extension_batch,
+                tool_registry=startup_tool_registry,
             )
             # Headless automation surfaces (Pi --mode json/rpc, --print). These
             # drive the same tool-loop adapter for a one-shot run (json/print) or
@@ -1583,10 +1616,11 @@ _CONFIG_RESOURCE_KEYS = {
 def _build_management_settings(args: Any, cwd: Path) -> SettingsManager:
     """Resolve project trust for one package/config management command."""
 
-    resolution = _resolve_runtime_project_trust_result(
+    resolution, _batch = _resolve_runtime_project_trust_startup(
         args,
         cwd,
         interactive_tty=_startup_stdin_is_tty(),
+        enable_extension_decision=False,
     )
     return _build_runtime_settings(cwd, project_trusted=resolution.trusted)
 
@@ -1893,20 +1927,28 @@ def _resolve_runtime_project_trust(
 ) -> bool:
     """Resolve core project trust before any project settings/resources load."""
 
-    return _resolve_runtime_project_trust_result(
-        args, cwd, interactive_tty=interactive_tty
-    ).trusted
+    resolution, _batch = _resolve_runtime_project_trust_startup(
+        args,
+        cwd,
+        interactive_tty=interactive_tty,
+        enable_extension_decision=False,
+    )
+    return resolution.trusted
 
 
-def _resolve_runtime_project_trust_result(
+def _resolve_runtime_project_trust_startup(
     args: Any,
     cwd: Path,
     *,
     interactive_tty: bool = False,
-) -> ProjectTrustResolution:
-    """Resolve trust and retain the winning rung for live-session behavior."""
+    app_mode: str | None = None,
+    resource_options: RuntimeResourceOptions | None = None,
+    enable_extension_decision: bool = True,
+) -> tuple[ProjectTrustResolution, ExtensionActivationBatch | None]:
+    """Resolve trust and retain the pending pre-trust activation, when used."""
 
     from pipy_harness.native.project_trust import (
+        ProjectTrustExtensionDecision,
         ProjectTrustStore,
         get_project_trust_options,
         resolve_project_trust,
@@ -1914,6 +1956,7 @@ def _resolve_runtime_project_trust_result(
 
     # Load global settings only. Project settings cannot choose their own gate.
     bootstrap = _build_runtime_settings(cwd, project_trusted=False)
+    pending_batch: ExtensionActivationBatch | None = None
 
     def _select(resolved_cwd: Path) -> ProjectTrustOption | None:
         from pipy_harness.native.tui import run_startup_project_trust_selector
@@ -1923,11 +1966,91 @@ def _resolve_runtime_project_trust_result(
             options=get_project_trust_options(resolved_cwd, include_session_only=True),
         )
 
-    return resolve_project_trust(
+    def _extension_decision(
+        resolved_cwd: Path,
+    ) -> ProjectTrustExtensionDecision | None:
+        nonlocal pending_batch
+        from pipy_harness.native.extension_runtime import (
+            dispatch_project_trust_hooks,
+        )
+
+        pending_batch = _build_extension_activation_batch(
+            resolved_cwd,
+            settings_manager=bootstrap,
+            resource_options=resource_options,
+            pending=True,
+        )
+        trust_mode = "tui" if (app_mode or "") == "interactive" else app_mode
+        if trust_mode not in {"tui", "print", "json", "rpc"}:
+            trust_mode = "tui" if interactive_tty else "print"
+        terminal_ui = None
+        ui_driver = None
+        has_trust_handlers = any(
+            extension.hooks.get("project_trust")
+            for extension in pending_batch.activated
+            if extension.status == "activated"
+        )
+        if interactive_tty and has_trust_handlers:
+            from pipy_harness.native.tui import ToolLoopTerminalUi
+
+            live_ui = ToolLoopTerminalUi(
+                input_stream=sys.stdin,
+                terminal_stream=sys.stdout,
+                cwd=resolved_cwd,
+            )
+            terminal_ui = live_ui
+
+            class _StartupUiDriver:
+                def select(self, title: str, options: Any) -> str | None:
+                    return live_ui.run_extension_select(title, options)
+
+                def input(
+                    self, title: str, placeholder: str | None = None
+                ) -> str | None:
+                    return live_ui.run_extension_input(title, placeholder)
+
+                def confirm(self, title: str, message: str) -> bool:
+                    return live_ui.run_extension_confirm(title, message)
+
+            ui_driver = _StartupUiDriver()
+
+        def notify(_kind: str, message: str) -> None:
+            bounded = str(message)
+            if len(bounded) > 2000:
+                bounded = bounded[:1980] + "… [truncated]"
+            print(f"pipy: {bounded}", file=sys.stderr)
+
+        try:
+            dispatched = dispatch_project_trust_hooks(
+                pending_batch.activated,
+                cwd=str(resolved_cwd),
+                mode=cast(Any, trust_mode),
+                has_ui=interactive_tty,
+                notify_sink=notify,
+                ui_driver=cast(Any, ui_driver),
+            )
+        finally:
+            if terminal_ui is not None:
+                terminal_ui.close()
+        for error in dispatched.errors:
+            print(
+                f'pipy: Extension "{error.extension}" project_trust error: '
+                f"{error.error}",
+                file=sys.stderr,
+            )
+        if dispatched.trusted is None:
+            return None
+        return ProjectTrustExtensionDecision(
+            trusted=dispatched.trusted == "yes",
+            remember=dispatched.remember,
+        )
+
+    resolution = resolve_project_trust(
         cwd,
         trust_store=ProjectTrustStore(),
         trust_override=getattr(args, "trust_override", None),
         default_project_trust=bootstrap.get_default_project_trust(),
+        extension_decision=(_extension_decision if enable_extension_decision else None),
         select=_select if interactive_tty else None,
         on_diagnostic=(
             (lambda message: print(f"pipy: {message}", file=sys.stderr))
@@ -1935,6 +2058,7 @@ def _resolve_runtime_project_trust_result(
             else None
         ),
     )
+    return resolution, pending_batch
 
 
 def _settings_str(file_settings: dict[str, object], key: str) -> str | None:
@@ -2053,6 +2177,8 @@ def _tool_repl_adapter_for(
     tool_filter_options: ToolFilterOptions | None = None,
     verbose_startup: bool = False,
     auto_trust_on_reload_cwd: Path | None = None,
+    initial_extension_batch: ExtensionActivationBatch | None = None,
+    tool_registry: dict[str, ToolPort] | None = None,
 ) -> PipyNativeToolReplAdapter:
     defaults_store = NativeDefaultsStore(default_native_defaults_path())
     if catalog_state is None:
@@ -2061,6 +2187,7 @@ def _tool_repl_adapter_for(
             cwd=cwd,
             settings_manager=settings_manager,
             resource_options=resource_options,
+            extension_batch=initial_extension_batch,
         )
     from pipy_harness.native.repl_state import normalize_repl_fake_selection
 
@@ -2112,6 +2239,8 @@ def _tool_repl_adapter_for(
         tool_filter_options=tool_filter_options,
         verbose_startup=verbose_startup,
         auto_trust_on_reload_cwd=auto_trust_on_reload_cwd,
+        initial_extension_batch=initial_extension_batch,
+        tool_registry=tool_registry,
     )
 
 
@@ -2537,6 +2666,7 @@ def _build_catalog_state(
     cwd: Path | None = None,
     settings_manager: SettingsManager | None = None,
     resource_options: RuntimeResourceOptions | None = None,
+    extension_batch: ExtensionActivationBatch | None = None,
 ) -> ProviderCatalogState:
     """Build the shared provider/model catalog state for the REPL.
 
@@ -2556,6 +2686,7 @@ def _build_catalog_state(
             cwd,
             settings_manager=settings_manager,
             resource_options=resource_options,
+            extension_batch=extension_batch,
         )
         state.set_extension_provider_contributions(providers, unregistered)
     return state
@@ -2581,6 +2712,7 @@ def _handle_list_models(
     settings_manager: SettingsManager | None = None,
     resource_options: RuntimeResourceOptions | None = None,
     api_key: str | None = None,
+    extension_batch: ExtensionActivationBatch | None = None,
 ) -> int:
     """Print the available provider/models table and exit (Pi `--list-models`)."""
 
@@ -2589,6 +2721,7 @@ def _handle_list_models(
         cwd=cwd,
         settings_manager=settings_manager,
         resource_options=resource_options,
+        extension_batch=extension_batch,
     )
     output = format_list_models(
         state.get_available(), search=search, load_error=state.error
@@ -2602,7 +2735,40 @@ def _extension_provider_contributions(
     *,
     settings_manager: SettingsManager,
     resource_options: RuntimeResourceOptions | None,
-):
+    extension_batch: ExtensionActivationBatch | None = None,
+) -> tuple[tuple[Any, ...], tuple[str, ...]]:
+    from pipy_harness.native.extension_runtime import (
+        extension_providers,
+        extension_unregistered_providers,
+    )
+
+    if extension_batch is not None:
+        return (
+            extension_providers(extension_batch.activated),
+            extension_unregistered_providers(extension_batch.activated),
+        )
+    batch = _build_extension_activation_batch(
+        cwd,
+        settings_manager=settings_manager,
+        resource_options=resource_options,
+    )
+    return (
+        extension_providers(batch.activated),
+        extension_unregistered_providers(batch.activated),
+    )
+
+
+def _build_extension_activation_batch(
+    cwd: Path,
+    *,
+    settings_manager: SettingsManager,
+    resource_options: RuntimeResourceOptions | None,
+    preloaded: ExtensionActivationBatch | None = None,
+    pending: bool = False,
+    reserved_tool_names: tuple[str, ...] = (),
+) -> ExtensionActivationBatch:
+    """Discover and activate one reusable extension batch for ``cwd``."""
+
     options = resource_options or RuntimeResourceOptions.empty()
     package_roots = compose_package_runtime(
         settings_manager,
@@ -2612,8 +2778,10 @@ def _extension_provider_contributions(
     from pipy_harness.native.extension_provider_catalog import (
         extension_reserved_command_names,
         extension_reserved_tool_names,
-        load_extension_provider_contributions,
     )
+    from pipy_harness.native.extension_runtime import activate_extension_batch
+    from pipy_harness.native.extensions import discover_extensions
+    from pipy_harness.native.resource_enablement import is_resource_enabled
     from pipy_harness.native.resources import WorkspaceResources
 
     workspace_resources = WorkspaceResources.discover(
@@ -2630,17 +2798,29 @@ def _extension_provider_contributions(
         enable_skill_commands=settings_manager.get_enable_skill_commands(),
     )
 
-    return load_extension_provider_contributions(
+    descriptors = discover_extensions(
         cwd,
         package_roots=() if options.no_extensions else package_roots.extensions,
-        extension_patterns=settings_manager.get_extensions_patterns(),
-        explicit_extension_paths=options.extension_paths,
-        include_default_extensions=not options.no_extensions,
+        explicit_paths=options.extension_paths,
+        include_defaults=not options.no_extensions,
         include_workspace_defaults=settings_manager.project_trusted,
+    )
+    patterns = settings_manager.get_extensions_patterns()
+    if patterns:
+        descriptors = [
+            descriptor
+            for descriptor in descriptors
+            if descriptor.source_kind == "cli"
+            or is_resource_enabled(descriptor.name, patterns)
+        ]
+    return activate_extension_batch(
+        descriptors,
         reserved_command_names=extension_reserved_command_names(
             workspace_resources.custom_command_slash_names()
         ),
-        reserved_tool_names=extension_reserved_tool_names(),
+        reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
+        preloaded=preloaded,
+        pending=pending,
     )
 
 

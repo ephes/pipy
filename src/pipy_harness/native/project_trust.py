@@ -64,6 +64,14 @@ class ProjectTrustResolution:
     had_protected_resources: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectTrustExtensionDecision:
+    """Validated result from the pre-trust extension decision rung."""
+
+    trusted: bool | None
+    remember: bool = False
+
+
 def canonical_project_path(path: Path | str) -> Path:
     return Path(path).expanduser().resolve()
 
@@ -351,13 +359,15 @@ def resolve_project_trust(
     trust_store: ProjectTrustStore,
     trust_override: bool | None = None,
     default_project_trust: DefaultProjectTrust = "ask",
+    extension_decision: Callable[[Path], ProjectTrustExtensionDecision | None]
+    | None = None,
     select: Callable[[Path], bool | ProjectTrustOption | None] | None = None,
     on_diagnostic: Callable[[str], None] | None = None,
 ) -> ProjectTrustResolution:
     """Resolve trust for one final runtime directory with winning-rung evidence.
 
-    Extension-owned decisions and the product TUI selector are later slices;
-    ``select`` is the interactive seam. A returned :class:`ProjectTrustOption`
+    ``extension_decision`` is invoked only after override/no-resource rungs and
+    before saved/default/UI fallbacks. A returned :class:`ProjectTrustOption`
     is persisted here before its decision wins; the legacy bool return remains
     accepted for direct tests and embedders that own persistence themselves.
     """
@@ -376,6 +386,17 @@ def resolve_project_trust(
             source="no_resources",
             had_protected_resources=False,
         )
+    if extension_decision is not None:
+        decision = extension_decision(resolved)
+        if decision is not None and decision.trusted is not None:
+            if decision.remember is True:
+                try:
+                    trust_store.set(resolved, decision.trusted)
+                except ProjectTrustError as exc:
+                    if on_diagnostic is not None:
+                        on_diagnostic(str(exc))
+                    return ProjectTrustResolution(False, "store_error", True)
+            return ProjectTrustResolution(decision.trusted, "extension", True)
     try:
         saved = trust_store.get(resolved)
     except ProjectTrustError as exc:
@@ -409,6 +430,8 @@ def resolve_project_trusted(
     trust_store: ProjectTrustStore,
     trust_override: bool | None = None,
     default_project_trust: DefaultProjectTrust = "ask",
+    extension_decision: Callable[[Path], ProjectTrustExtensionDecision | None]
+    | None = None,
     select: Callable[[Path], bool | ProjectTrustOption | None] | None = None,
     on_diagnostic: Callable[[str], None] | None = None,
 ) -> bool:
@@ -419,6 +442,7 @@ def resolve_project_trusted(
         trust_store=trust_store,
         trust_override=trust_override,
         default_project_trust=default_project_trust,
+        extension_decision=extension_decision,
         select=select,
         on_diagnostic=on_diagnostic,
     ).trusted

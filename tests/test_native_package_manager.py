@@ -359,6 +359,32 @@ def test_cli_untrusted_list_omits_project_packages_but_keeps_global(
     assert str(project_package) in capsys.readouterr().out
 
 
+def test_management_commands_do_not_activate_project_trust_extensions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from pipy_harness.cli import main
+
+    config = tmp_path / "cfg"
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
+    workspace = tmp_path / "ws"
+    project_settings = workspace / ".pipy" / "settings.json"
+    project_settings.parent.mkdir(parents=True)
+    project_settings.write_text('{"packages": []}\n', encoding="utf-8")
+
+    def unexpected_activation(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("management command activated extensions")
+
+    monkeypatch.setattr(
+        "pipy_harness.cli._build_extension_activation_batch",
+        unexpected_activation,
+    )
+
+    assert main(["list", "--cwd", str(workspace)]) == 0
+    capsys.readouterr()
+
+
 def test_cli_config_local_refuses_untrusted_but_global_write_remains_usable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

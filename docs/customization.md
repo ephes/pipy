@@ -19,6 +19,10 @@ available. `AGENTS.md` / `pipy.md` context files are intentionally exempt from
 this gate (unless `--no-context-files` is used). Interactive startup can save a
 current/parent/session-only decision; `/trust` manages the saved next-restart
 decision. Trust is not a sandbox.
+Before saved/default/UI fallback, global and explicit CLI extensions may handle
+the serial `project_trust` event; project extensions remain unavailable until a
+trusted decision wins. Normal extension contexts can read the run-local state
+through `is_project_trusted()` or `isProjectTrusted()`.
 
 ## Where resources live
 

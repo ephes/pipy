@@ -237,7 +237,8 @@ decisions live in the global config root's `trust.json`; global
 `defaultProjectTrust` controls the `ask|always|never` fallback. See
 [Settings](settings.md). Interactive `ask` opens the trust selector; `/trust`
 saves a current/parent decision for the next restart. Trust gates project inputs
-but is not a sandbox.
+but is not a sandbox. Global and explicit CLI extensions may decide unresolved
+trust before saved/default/UI fallback; project extensions remain gated.
 
 ### Tool options
 

@@ -8,6 +8,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Project-trust extensions now ship end to end. Before an unresolved decision,
+  pipy activates only global and explicit CLI extensions and runs their
+  `project_trust` handlers serially; `undecided` continues, the first yes/no
+  wins, failures warn and continue, and only exact `remember=True` persists the
+  exact cwd. Headless UI choices are inert and notifications remain stderr-only.
+  The same activation instances feed provider-catalog construction and the
+  initial live session, so module top-level code runs once while project and
+  project-package extensions remain gated. Normal extension contexts expose
+  zero-argument `is_project_trusted()` and `isProjectTrusted()` run-local reads.
 - RPC mode now implements Pi's read-only `get_entries` (including optional
   `since` slicing) and `get_tree` session-inspection commands, bringing pipy's
   green RPC baseline to all 31 Pi command types. Both return a coherent session
@@ -64,8 +73,7 @@ entries oldest-first, and a version bump shows the new entries at startup.
   global `defaultProjectTrust` enum. `install`, `remove`/`uninstall`, `list`, and
   `config` accept command-local `--approve`/`--no-approve`; untrusted listings
   omit project entries, global operations remain usable, and local writes fail
-  before mutation. Extension-owned trust decisions/read APIs remain the final
-  project-trust follow-on; package `update` realignment remains separate.
+  before mutation. Package `update` realignment remains separate.
 
 
 ### Removed

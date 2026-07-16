@@ -15,6 +15,8 @@ import argparse
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -306,9 +308,7 @@ def _reload_persistence_check(root: Path) -> Check:
         )
         saved_guard = not inherited_session._maybe_save_implicit_trust_after_reload(
             cwd=inherited_cwd,
-            settings=SettingsManager.for_workspace(
-                inherited_cwd, project_trusted=True
-            ),
+            settings=SettingsManager.for_workspace(inherited_cwd, project_trusted=True),
             terminal_ui=None,
             error_stream=io.StringIO(),
         )
@@ -326,6 +326,88 @@ def _reload_persistence_check(root: Path) -> Check:
     )
 
 
+def _extension_product_check(root: Path) -> Check:
+    cwd = root / "extension-product"
+    config = root / "extension-config"
+    proof = root / "extension-proof.txt"
+    global_extension = config / "extensions" / "trust.py"
+    global_extension.parent.mkdir(parents=True)
+    global_extension.write_text(
+        f"open({str(proof)!r}, 'a').write('g')\n"
+        "def activate(api):\n"
+        "    @api.on('project_trust')\n"
+        "    def trust(event, ctx):\n"
+        "        assert ctx.mode == 'json' and ctx.hasUI is False\n"
+        "        assert ctx.ui.select('pick', ['yes']) is None\n"
+        "        assert ctx.ui.confirm('confirm', 'message') is False\n"
+        "        assert ctx.ui.input('input') is None\n"
+        "        ctx.ui.notify('trust decided', 'info')\n"
+        "        return {'trusted': 'yes'}\n"
+        "    @api.on('session_start')\n"
+        "    def started(event, ctx):\n"
+        "        assert ctx.is_project_trusted() is True\n"
+        "        assert ctx.isProjectTrusted() is True\n"
+        f"        open({str(proof)!r}, 'a').write('G')\n",
+        encoding="utf-8",
+    )
+    project_extension = cwd / ".pipy" / "extensions" / "project.py"
+    project_extension.parent.mkdir(parents=True)
+    project_extension.write_text(
+        f"open({str(proof)!r}, 'a').write('p')\n"
+        "def activate(api):\n"
+        "    @api.on('session_start')\n"
+        "    def started(event, ctx):\n"
+        "        assert ctx.is_project_trusted() is True\n"
+        "        assert ctx.isProjectTrusted() is True\n"
+        f"        open({str(proof)!r}, 'a').write('P')\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env.update(
+        {
+            "PIPY_CONFIG_HOME": str(config),
+            "PIPY_NATIVE_DEFAULTS_PATH": str(root / "defaults.json"),
+            "PIPY_AUTH_DIR": str(root / "auth"),
+            "XDG_STATE_HOME": str(root / "state"),
+        }
+    )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pipy_harness.cli",
+            "repl",
+            "--cwd",
+            str(cwd),
+            "--native-provider",
+            "fake",
+            "--native-model",
+            "fake-tools",
+            "--no-session",
+            "--mode",
+            "json",
+            "ROOT",
+        ],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+    try:
+        records = [json.loads(line) for line in completed.stdout.splitlines()]
+        protocol_only = bool(records) and records[0].get("type") == "session"
+    except (json.JSONDecodeError, AttributeError):
+        protocol_only = False
+    return Check(
+        "extension_decision_reuse",
+        completed.returncode == 0
+        and protocol_only
+        and "trust decided" in completed.stderr
+        and proof.read_text(encoding="utf-8") == "gpPG",
+        "global decision/project gate/single activation/read aliases/protocol stdout",
+    )
+
+
 def run() -> list[Check]:
     with tempfile.TemporaryDirectory(prefix="pipy-trust-gate-") as raw:
         root = Path(raw)
@@ -338,6 +420,7 @@ def run() -> list[Check]:
             _cli_check(root),
             _interactive_management_check(root),
             _reload_persistence_check(root),
+            _extension_product_check(root),
         ]
 
 

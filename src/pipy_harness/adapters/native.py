@@ -12,6 +12,7 @@ from pipy_harness.capture import CapturePolicy
 from pipy_harness.native.automation.events import AutomationEventSink
 from pipy_harness.models import AdapterResult, PreparedRun, RunRequest
 from pipy_harness.native.fake import FakeNoOpNativeTool
+from pipy_harness.native.extension_runtime import ExtensionActivationBatch
 from pipy_harness.native.models import NativeRunInput
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
@@ -175,6 +176,7 @@ class PipyNativeToolReplAdapter:
         tool_filter_options: ToolFilterOptions | None = None,
         verbose_startup: bool = False,
         auto_trust_on_reload_cwd: Path | None = None,
+        initial_extension_batch: ExtensionActivationBatch | None = None,
     ) -> None:
         if provider is None and provider_state is None:
             raise ValueError(
@@ -201,6 +203,7 @@ class PipyNativeToolReplAdapter:
             if auto_trust_on_reload_cwd is not None
             else None
         )
+        self.initial_extension_batch = initial_extension_batch
         # Pre-built native product session tree (the product session source of
         # truth). The CLI builds this from -c/-r/--session/--fork/--no-session
         # and injects it; when None the loop runs on an ephemeral in-memory tree
@@ -357,6 +360,7 @@ class PipyNativeToolReplAdapter:
             tool_filter_options=self.tool_filter_options,
             verbose_startup=self.verbose_startup,
             auto_trust_on_reload_cwd=self.auto_trust_on_reload_cwd,
+            initial_extension_batch=self.initial_extension_batch,
         )
         run_output = session.run(
             workspace_root=prepared.cwd,

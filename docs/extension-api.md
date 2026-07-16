@@ -21,9 +21,9 @@ The pre-existing pipy runtime resources (bounded Markdown skills, prompt
 templates, custom slash commands, and chrome themes) remain supported alongside
 the Python extension API.
 
-The 2026-07-14 Pi `0.80.6` refresh identifies additional current gaps beyond
-the older rich-UI list: `project_trust`/`ctx.isProjectTrusted()`,
-`before_provider_headers`, `agent_settled`, durable TUI-only entry renderers,
+The 2026-07-14 Pi `0.80.6` refresh identified additional gaps beyond the older
+rich-UI list. Project-trust extension decisions and reads have now shipped;
+remaining deltas include `before_provider_headers`, `agent_settled`, durable TUI-only entry renderers,
 and cache-friendly dynamic tool loading with provider-native message anchoring.
 Treat each as a separate slice; do not fold them into the broad custom-component
 track.
@@ -397,7 +397,7 @@ target vocabulary includes:
 
 | Event | Purpose | Allowed return |
 | --- | --- | --- |
-| `project_trust` | Let pre-trust global/CLI extensions decide whether protected project inputs may load. Planned by the reviewed project-trust design; not implemented yet. | `{trusted: "yes"|"no"|"undecided", remember?: bool}` |
+| `project_trust` | Let pre-trust global/CLI extensions decide whether protected project inputs may load. **Shipped.** | `{trusted: "yes"|"no"|"undecided", remember?: bool}` |
 | `session_start` | Restore per-session extension state after startup, new, resume, fork, or reload. (Pi `SessionStartEvent.reason` is `"startup" \| "reload" \| "new" \| "resume" \| "fork"`.) | None |
 | `session_shutdown` | Cleanup local extension state before exit, reload, or session switch. | None |
 | `resources_discover` | Contribute additional skills, templates, commands, themes, or extension resource paths. | `ResourceContribution` |
@@ -433,20 +433,21 @@ paths and command gating without requiring package loading or rich UI hooks.
 
 Project trust is now specified separately in the reviewed
 [project-trust design](superpowers/specs/2026-07-15-project-trust-design.md).
-The core store/final-cwd/settings-resource gate and interactive/package
-management integration ship, but extension-owned trust decisions remain a
-later slice. That slice will activate only global, explicit
-CLI, and inline extension sources before trust resolves. Their `project_trust`
+The core store/final-cwd/settings-resource gate, interactive/package
+management integration, and extension-owned trust surfaces now ship. Pipy
+activates only global and explicit CLI extension sources before trust resolves. Their `project_trust`
 handlers run serially; `undecided` continues,
 the first yes/no owns the decision, and only exact `remember: true` persists it.
-The pinned startup context has `cwd`, `mode`, `has_ui`, and a bounded UI surface;
+The startup context has `cwd`, `mode`, `has_ui`/`hasUI`, and a bounded UI surface;
 headless select/confirm/input calls return immediately without touching protocol
-streams, while notify is stderr-only. The later extension slice also adds the
+streams, while notify is stderr-only. Normal post-start contexts expose the
 zero-argument read callbacks `ctx.is_project_trusted()` and
 `ctx.isProjectTrusted()`. The ordered
 [implementation plan](superpowers/specs/2026-07-15-project-trust-implementation-plan.md)
 keeps this extension-owned phase separate from trust core and interactive/
-package integration. None of these extension trust APIs are shipped yet.
+package integration. A reusable activation batch keeps global/CLI module code
+single-run across trust resolution, provider catalog construction, and initial
+session startup; `/reload` intentionally starts a fresh batch.
 
 ```python
 @dataclass(frozen=True)
@@ -1499,6 +1500,16 @@ and the live `scripts/tmux_answer_verify.sh`.
     Deferred: broader custom editor component-library parity, a full custom
     overlay stack/component library, target-aware overlay focus graph, and live
     per-frame component invalidation.
+27. Project-trust extension surfaces — **landed**: pre-trust global and explicit
+    CLI extensions receive the serial `project_trust` event before saved/default/
+    UI fallback; `undecided` continues, the first `yes`/`no` owns the decision,
+    handler errors warn and continue, and only exact `remember=True` persists
+    the exact cwd. Headless selection/input calls are inert and notifications
+    are stderr-only. The pre-trust instances are reused for provider catalog and
+    live-session construction, while project/project-package code remains gated.
+    Normal command, shortcut, lifecycle, input, tool, provider-request, and
+    session-gate contexts expose zero-argument `is_project_trusted()` and
+    `isProjectTrusted()` reads of the run-local state.
 
 ## Open Questions
 

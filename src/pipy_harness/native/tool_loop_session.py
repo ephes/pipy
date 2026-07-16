@@ -178,6 +178,7 @@ from pipy_harness.native.extension_runtime import (
     ExtensionUiDriver,
     HookHandler,
     LifecycleEvent,
+    ExtensionActivationBatch,
     QueuedCustomMessage,
     QueuedUserMessage,
     RegisteredCommand,
@@ -852,12 +853,14 @@ class _ExtensionToolPort:
         notify_sink: Callable[[str, str], None] | None = None,
         flags: Mapping[str, object] | None = None,
         render_details_sink: MutableMapping[str, object] | None = None,
+        project_trusted: bool = False,
     ) -> None:
         self._registered = registered
         self._has_ui = has_ui
         self._notify_sink = notify_sink
         self._flags = dict(flags or {})
         self._render_details_sink = render_details_sink
+        self._project_trusted = bool(project_trusted)
         tool = registered.tool
         self._definition = ToolDefinition(
             name=tool.name,
@@ -875,6 +878,7 @@ class _ExtensionToolPort:
             self._has_ui,
             self._notify_sink,
             flags=self._flags,
+            project_trusted=self._project_trusted,
         )
         try:
             result = self._registered.tool.handler(ctx, dict(request.arguments))
@@ -952,6 +956,7 @@ def _activate_workspace_extensions(
     explicit_extension_paths: Sequence[Path] = (),
     include_default_extensions: bool = True,
     include_workspace_defaults: bool = False,
+    activation_batch: ExtensionActivationBatch | None = None,
 ) -> _ExtensionRuntime:
     """Discover + activate extensions and project their contributions.
 
@@ -967,32 +972,41 @@ def _activate_workspace_extensions(
     project state.
     """
 
-    reserved = extension_reserved_command_names(resources.custom_command_slash_names())
-    descriptors = discover_extensions(
-        cwd,
-        package_roots=tuple(package_roots),
-        explicit_paths=explicit_extension_paths,
-        include_defaults=include_default_extensions,
-        include_workspace_defaults=include_workspace_defaults,
-    )
-    if extension_patterns:
-        from pipy_harness.native.resource_enablement import is_resource_enabled
+    if activation_batch is None:
+        reserved = extension_reserved_command_names(
+            resources.custom_command_slash_names()
+        )
+        descriptors = discover_extensions(
+            cwd,
+            package_roots=tuple(package_roots),
+            explicit_paths=explicit_extension_paths,
+            include_defaults=include_default_extensions,
+            include_workspace_defaults=include_workspace_defaults,
+        )
+        if extension_patterns:
+            from pipy_harness.native.resource_enablement import is_resource_enabled
 
-        descriptors = [
-            descriptor
-            for descriptor in descriptors
-            if descriptor.source_kind == "cli"
-            or is_resource_enabled(descriptor.name, list(extension_patterns))
-        ]
-    outbox: list[QueuedUserMessage] = []
-    custom_outbox: list[QueuedCustomMessage] = []
-    activated = activate_extensions(
-        descriptors,
-        reserved_command_names=reserved,
-        reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
-        message_outbox=outbox,
-        custom_message_outbox=custom_outbox,
-    )
+            descriptors = [
+                descriptor
+                for descriptor in descriptors
+                if descriptor.source_kind == "cli"
+                or is_resource_enabled(descriptor.name, list(extension_patterns))
+            ]
+        outbox: list[QueuedUserMessage] = []
+        custom_outbox: list[QueuedCustomMessage] = []
+        activated = activate_extensions(
+            descriptors,
+            reserved_command_names=reserved,
+            reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
+            message_outbox=outbox,
+            custom_message_outbox=custom_outbox,
+        )
+    else:
+        if activation_batch.pending:
+            raise ValueError("initial extension activation batch must be finalized")
+        activated = list(activation_batch.activated)
+        outbox = activation_batch.message_outbox
+        custom_outbox = activation_batch.custom_message_outbox
     command_map = extension_command_map(activated)
     menu_names = tuple(f"/{name}" for name in command_map)
     descriptions = {
@@ -1077,6 +1091,7 @@ class _ExtensionAwareEmitter(AutomationEmitter):
         notify_sink: Callable[[str, str], None] | None = None,
         ui_driver: ExtensionUiDriver | None = None,
         flags: Mapping[str, object] | None = None,
+        project_trusted: bool = False,
     ) -> None:
         super().__init__(sink)  # type: ignore[arg-type]
         self._lifecycle_hooks = lifecycle_hooks
@@ -1085,6 +1100,7 @@ class _ExtensionAwareEmitter(AutomationEmitter):
         self._lifecycle_notify_sink = notify_sink
         self._lifecycle_ui_driver = ui_driver
         self._lifecycle_flags = dict(flags or {})
+        self._lifecycle_project_trusted = bool(project_trusted)
 
     def set_lifecycle_hooks(
         self, lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
@@ -1106,6 +1122,7 @@ class _ExtensionAwareEmitter(AutomationEmitter):
             notify_sink=self._lifecycle_notify_sink,
             ui_driver=self._lifecycle_ui_driver,
             flags=self._lifecycle_flags,
+            project_trusted=self._lifecycle_project_trusted,
         )
 
     def agent_start(self) -> None:
@@ -1291,6 +1308,9 @@ class NativeToolReplSession:
     # resource existed at startup. A later explicit /reload may persist trust
     # once if a protected resource has appeared (Pi's narrow safety exception).
     auto_trust_on_reload_cwd: Path | None = None
+    # Finalized startup activation shared with catalog construction. Only the
+    # initial run consumes it; explicit /reload performs a fresh activation.
+    initial_extension_batch: ExtensionActivationBatch | None = None
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = 200
@@ -1390,6 +1410,7 @@ class NativeToolReplSession:
             explicit_extension_paths=resource_options.extension_paths,
             include_default_extensions=not resource_options.no_extensions,
             include_workspace_defaults=settings.project_trusted,
+            activation_batch=self.initial_extension_batch,
         )
         extension_commands = _ext_runtime.commands
         extension_menu_names = _ext_runtime.menu_names
@@ -1576,6 +1597,7 @@ class NativeToolReplSession:
                 notify_sink=_extension_notify,
                 flags=extension_flag_values,
                 render_details_sink=extension_render_details,
+                project_trusted=settings.project_trusted,
             )
             run_tool_registry[_port.definition.name] = _port
         filter_names = set(self.tool_filter_options.allow) | set(
@@ -1653,6 +1675,7 @@ class NativeToolReplSession:
             notify_sink=_extension_notify,
             ui_driver=extension_ui_driver,
             flags=extension_flag_values,
+            project_trusted=settings.project_trusted,
         )
         # `session_start` fires once the session is set up (reason "startup");
         # `session_shutdown` fires when the run ends.
@@ -2161,6 +2184,7 @@ class NativeToolReplSession:
                 set_model_fn=extension_set_model,
                 set_thinking_level_fn=extension_set_thinking_level,
                 flags=extension_flag_values,
+                project_trusted=settings.project_trusted,
             )
             if not decision.allow:
                 reason = decision.reason or "blocked by extension"
@@ -2319,6 +2343,7 @@ class NativeToolReplSession:
                 set_model_fn=extension_set_model,
                 set_thinking_level_fn=extension_set_thinking_level,
                 flags=extension_flag_values,
+                project_trusted=settings.project_trusted,
             )
             if decision.allow:
                 return True
@@ -2610,6 +2635,7 @@ class NativeToolReplSession:
                         send_message_fn=extension_send_message,
                         flags=extension_flag_values,
                         session_tree=session_tree,
+                        project_trusted=settings.project_trusted,
                     )
                     if (
                         shortcut_dispatch is not None
@@ -2665,6 +2691,7 @@ class NativeToolReplSession:
                         set_thinking_level_fn=extension_set_thinking_level,
                         ui_driver=extension_ui_driver,
                         flags=extension_flag_values,
+                        project_trusted=settings.project_trusted,
                     )
                     if shell_context_text is not None:
                         shell_message = UserMessage(content=shell_context_text)
@@ -2951,6 +2978,7 @@ class NativeToolReplSession:
                             notify_sink=_extension_notify,
                             flags=extension_flag_values,
                             render_details_sink=extension_render_details,
+                            project_trusted=settings.project_trusted,
                         )
                         run_tool_registry[_port.definition.name] = _port
                     if filter_configured:
@@ -3766,6 +3794,7 @@ class NativeToolReplSession:
                         send_message_fn=extension_send_message,
                         flags=extension_flag_values,
                         session_tree=session_tree,
+                        project_trusted=settings.project_trusted,
                     )
                     if extension_dispatch is not None:
                         # Notifications already surfaced live via the sink while
@@ -3847,6 +3876,7 @@ class NativeToolReplSession:
                         set_active_tools_fn=extension_set_active_tools,
                         set_model_fn=extension_set_model,
                         set_thinking_level_fn=extension_set_thinking_level,
+                        project_trusted=settings.project_trusted,
                     )
                     provider_user_input = transformed_input
                     file_references = resolve_file_references(
@@ -3896,6 +3926,7 @@ class NativeToolReplSession:
                     set_model_fn=extension_set_model,
                     set_thinking_level_fn=extension_set_thinking_level,
                     flags=extension_flag_values,
+                    project_trusted=settings.project_trusted,
                 )
                 agent_system_prompt = base_system_prompt
                 if before_agent_result.append_system_prompt:
@@ -3976,6 +4007,7 @@ class NativeToolReplSession:
                             set_model_fn=lambda _reference: False,
                             set_thinking_level_fn=extension_set_thinking_level,
                             flags=extension_flag_values,
+                            project_trusted=settings.project_trusted,
                         )
                         filtered_tools = available_tool_definitions(
                             provider_transform.available_tools
@@ -4151,6 +4183,7 @@ class NativeToolReplSession:
                             set_model_fn=lambda _reference: False,
                             set_thinking_level_fn=extension_set_thinking_level,
                             flags=extension_flag_values,
+                            project_trusted=settings.project_trusted,
                         )
                         if tool_block is not None:
                             blocked_observation = self._error_observation(
@@ -4212,6 +4245,7 @@ class NativeToolReplSession:
                                 set_model_fn=lambda _reference: False,
                                 set_thinking_level_fn=extension_set_thinking_level,
                                 flags=extension_flag_values,
+                                project_trusted=settings.project_trusted,
                             )
                             if _transformed != observation.output_text:
                                 observation = ToolResultMessage(
@@ -4766,6 +4800,7 @@ class NativeToolReplSession:
         set_thinking_level_fn: Callable[[str], bool] | None = None,
         ui_driver: ExtensionUiDriver | None = None,
         flags: Mapping[str, object] | None = None,
+        project_trusted: bool = False,
     ) -> str | None:
         """Run a ``!``/``!!`` editor shell shortcut; return context text or None.
 
@@ -4802,6 +4837,7 @@ class NativeToolReplSession:
             set_model_fn=set_model_fn,
             set_thinking_level_fn=set_thinking_level_fn,
             flags=flags,
+            project_trusted=project_trusted,
         )
         if not decision.allowed:
             self._emit_diagnostic(
