@@ -33,7 +33,7 @@ from pipy_harness.native._provider_helpers import utc_now, failed_provider_resul
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
-from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.tools.messages import (
     AssistantMessage,
     ToolResultMessage,
@@ -246,6 +246,13 @@ class AmazonBedrockProvider:
             if lowered in _BEDROCK_RESERVED_HEADERS or lowered.startswith("x-amz-"):
                 continue
             base_headers[header_name] = header_value
+        base_headers = apply_provider_headers(request, base_headers)
+        base_headers = {
+            name: value
+            for name, value in base_headers.items()
+            if name.lower() not in _BEDROCK_RESERVED_HEADERS
+            and not name.lower().startswith("x-amz-")
+        }
         try:
             signed_headers = _sigv4_sign(
                 method="POST",

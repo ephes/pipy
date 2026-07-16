@@ -40,7 +40,7 @@ from pipy_harness.native._provider_helpers import (
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
-from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.retry import (
     DEFAULT_RETRIABLE_STATUSES,
     RetryPolicy,
@@ -816,14 +816,23 @@ class OpenAICodexResponsesProvider:
                 serialize_tool_for_responses(tool)
                 for tool in request.available_tools
             ]
-        headers = {
+        # Pi fires the extension hook once against request-scoped additional
+        # headers, then each transport derives its required auth/protocol fields.
+        # Keep this snapshot outside the retry/fallback loop so every attempt
+        # reuses it without re-running extension code.
+        extension_headers = apply_provider_headers(request, {})
+        base_headers = {
+            **extension_headers,
             "Authorization": f"Bearer {credentials.access_token}",
-            "Accept": "text/event-stream",
-            "Content-Type": "application/json",
-            "OpenAI-Beta": "responses=experimental",
             "chatgpt-account-id": credentials.account_id,
             "originator": "pipy",
             "User-Agent": "pipy",
+        }
+        headers = {
+            **base_headers,
+            "Accept": "text/event-stream",
+            "Content-Type": "application/json",
+            "OpenAI-Beta": "responses=experimental",
         }
         http_client: SseHTTPClient = self.http_client
         if type(http_client) is UrllibSseHTTPClient:
@@ -864,11 +873,8 @@ class OpenAICodexResponsesProvider:
         def _websocket_attempt() -> ParsedOpenAICodexResponse:
             request_id = self.request_id_factory()
             websocket_headers = {
-                "Authorization": f"Bearer {credentials.access_token}",
+                **base_headers,
                 "OpenAI-Beta": "responses_websockets=2026-02-06",
-                "chatgpt-account-id": credentials.account_id,
-                "originator": "pipy",
-                "User-Agent": "pipy",
                 "session-id": request_id,
                 "x-client-request-id": request_id,
             }

@@ -8,6 +8,7 @@ import stat
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
+from dataclasses import replace
 from email.message import Message
 from pathlib import Path
 from typing import Any
@@ -1271,12 +1272,25 @@ def test_pre_event_websocket_transport_failure_falls_back_to_sse(tmp_path: Path)
         retry_policy=RetryPolicy(max_attempts=1),
     )
 
-    result = provider.complete(provider_request(tmp_path))
+    hook_calls = 0
+
+    def mutate(headers):
+        nonlocal hook_calls
+        hook_calls += 1
+        headers["X-Trace"] = "shared"
+
+    request = replace(
+        provider_request(tmp_path), provider_header_callback=mutate
+    )
+    result = provider.complete(request)
 
     assert result.status == HarnessStatus.SUCCEEDED
     assert result.final_text == "sse fallback"
+    assert hook_calls == 1
     assert len(ws.requests) == 1
     assert len(sse.requests) == 1
+    assert ws.requests[0]["headers"]["X-Trace"] == "shared"
+    assert sse.requests[0]["headers"]["X-Trace"] == "shared"
 
 
 def test_auto_transport_remembers_sse_after_pre_event_ws_failure(tmp_path: Path) -> None:

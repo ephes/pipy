@@ -132,6 +132,58 @@ def test_success_returns_final_text(tmp_path):
     }
 
 
+def test_extension_header_callback_adds_overrides_and_deletes(tmp_path: Path) -> None:
+    client = FakeJsonHTTPClient(
+        JsonResponse(
+            status_code=200,
+            body={
+                "object": "chat.completion",
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+    )
+    provider = OpenAIChatCompletionsProvider(
+        model_id="gpt-4o-mini",
+        api_key="sk-test",
+        http_client=client,
+        extra_headers={"X-Existing": "base", "X-Remove": "old"},
+    )
+    callback_calls = 0
+
+    def mutate(headers):
+        nonlocal callback_calls
+        callback_calls += 1
+        assert headers["Authorization"] == "Bearer sk-test"
+        headers["X-Existing"] = "overridden"
+        headers["X-Remove"] = None
+        headers["X-New"] = "added"
+
+    request = ProviderRequest(
+        system_prompt="sys",
+        user_prompt="user",
+        provider_name="openai-completions",
+        model_id="gpt-4o-mini",
+        cwd=tmp_path,
+        provider_header_callback=mutate,
+    )
+
+    result = provider.complete(request)
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert callback_calls == 1
+    assert client.requests[0]["headers"] == {
+        "Content-Type": "application/json",
+        "X-Existing": "overridden",
+        "Authorization": "Bearer sk-test",
+        "X-New": "added",
+    }
+
+
 def test_success_returns_tool_calls(tmp_path):
     client = FakeJsonHTTPClient(
         JsonResponse(

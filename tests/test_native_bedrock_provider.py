@@ -190,6 +190,48 @@ def test_success_returns_final_text(tmp_path):
     assert "tools" not in posted["body"]
 
 
+def test_extension_headers_are_mutated_before_sigv4_signing(tmp_path: Path) -> None:
+    client = FakeJsonHTTPClient(
+        JsonResponse(
+            status_code=200,
+            body={
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "ok"}],
+            },
+        )
+    )
+    provider = _make_provider(client, extra_headers={"X-Remove": "old"})
+    callback_calls = 0
+
+    def mutate(headers):
+        nonlocal callback_calls
+        callback_calls += 1
+        headers["X-Trace"] = "trace-1"
+        headers["X-Remove"] = None
+        # Signer-owned values cannot be injected through the extension seam.
+        headers["X-Amz-Date"] = "extension-owned-date"
+
+    request = ProviderRequest(
+        system_prompt="sys",
+        user_prompt="user",
+        provider_name="amazon-bedrock",
+        model_id=provider.model_id,
+        cwd=tmp_path,
+        provider_header_callback=mutate,
+    )
+
+    result = provider.complete(request)
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert callback_calls == 1
+    posted = client.requests[0]["headers"]
+    assert posted["X-Trace"] == "trace-1"
+    assert "X-Remove" not in posted
+    assert posted["X-Amz-Date"] == "20240115T120000Z"
+    assert "x-trace" in posted["Authorization"]
+    assert "x-remove" not in posted["Authorization"]
+
+
 def test_success_returns_tool_calls(tmp_path):
     client = FakeJsonHTTPClient(
         JsonResponse(

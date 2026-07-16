@@ -23,7 +23,7 @@ from pipy_harness.native._provider_helpers import utc_now, safe_response_label, 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
-from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_COMPLETIONS_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -178,6 +178,7 @@ class OpenAIChatCompletionsProvider:
         has_authorization = any(name.lower() == "authorization" for name in headers)
         if api_key and not has_authorization:
             headers["Authorization"] = f"Bearer {api_key}"
+        headers = apply_provider_headers(request, headers)
 
         try:
             response = self.http_client.post_json(

@@ -80,8 +80,8 @@ class _RetryHTTPClient:
         timeout_seconds: float | None,
         cancel_token: object = None,
     ) -> SseResponse:
-        del url, headers, body, timeout_seconds
-        self.calls.append({"index": len(self.calls)})
+        del url, body, timeout_seconds
+        self.calls.append({"index": len(self.calls), "headers": dict(headers)})
         if len(self.calls) <= self.failures:
             return SseResponse(status_code=503, body="")
         return SseResponse(status_code=200, body=self.successful_body)
@@ -122,6 +122,43 @@ def test_codex_retries_503_until_success(monkeypatch: pytest.MonkeyPatch):
     assert result.status == HarnessStatus.SUCCEEDED
     assert result.final_text == "ok"
     assert len(client.calls) == 3  # two 503s then one success
+
+
+def test_codex_header_hook_runs_once_and_reuses_snapshot_across_retries() -> None:
+    client = _RetryHTTPClient(failures=2)
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=OpenAICodexAuthManager(
+            store=_InMemoryCredentialStore(_credentials())
+        ),
+        http_client=client,
+        transport="sse",
+        retry_policy=RetryPolicy(max_attempts=4, initial_delay_seconds=0.001),
+        retry_sleep=_zero_sleep,
+        retry_jitter=_zero_jitter,
+    )
+    hook_calls = 0
+
+    def mutate(headers):
+        nonlocal hook_calls
+        hook_calls += 1
+        headers["X-Trace"] = "trace-once"
+
+    request = ProviderRequest(
+        system_prompt="sys",
+        user_prompt="hi",
+        provider_name="openai-codex",
+        model_id="gpt-test",
+        cwd=Path("."),
+        provider_header_callback=mutate,
+    )
+
+    result = provider.complete(request)
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert hook_calls == 1
+    assert len(client.calls) == 3
+    assert all(call["headers"]["X-Trace"] == "trace-once" for call in client.calls)
 
 
 def test_codex_stops_after_max_attempts(monkeypatch: pytest.MonkeyPatch):

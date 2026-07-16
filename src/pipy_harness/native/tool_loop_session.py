@@ -160,6 +160,7 @@ from pipy_harness.native.extension_runtime import (
     EVENT_AGENT_END,
     EVENT_AGENT_START,
     EVENT_BEFORE_AGENT_START,
+    EVENT_BEFORE_PROVIDER_HEADERS,
     EVENT_BEFORE_PROVIDER_REQUEST,
     EVENT_INPUT,
     EVENT_SESSION_SHUTDOWN,
@@ -191,6 +192,7 @@ from pipy_harness.native.extension_runtime import (
     ToolResult,
     activate_extensions,
     dispatch_before_agent_start_hooks,
+    dispatch_before_provider_headers_hooks,
     dispatch_before_provider_request_hooks,
     dispatch_extension_command,
     dispatch_extension_shortcut,
@@ -930,6 +932,7 @@ class _ExtensionRuntime:
     before_agent_start_hooks: tuple[HookHandler, ...]
     tool_result_hooks: tuple[HookHandler, ...]
     user_bash_hooks: tuple[HookHandler, ...]
+    before_provider_headers_hooks: tuple[HookHandler, ...]
     before_provider_request_hooks: tuple[HookHandler, ...]
     session_before_switch_hooks: tuple[HookHandler, ...]
     session_before_fork_hooks: tuple[HookHandler, ...]
@@ -1028,6 +1031,9 @@ def _activate_workspace_extensions(
     )
     tool_result_hooks = extension_event_hooks(activated, EVENT_TOOL_RESULT)
     user_bash_hooks = extension_event_hooks(activated, EVENT_USER_BASH)
+    before_provider_headers_hooks = extension_event_hooks(
+        activated, EVENT_BEFORE_PROVIDER_HEADERS
+    )
     before_provider_request_hooks = extension_event_hooks(
         activated, EVENT_BEFORE_PROVIDER_REQUEST
     )
@@ -1053,6 +1059,7 @@ def _activate_workspace_extensions(
         before_agent_start_hooks=before_agent_start_hooks,
         tool_result_hooks=tool_result_hooks,
         user_bash_hooks=user_bash_hooks,
+        before_provider_headers_hooks=before_provider_headers_hooks,
         before_provider_request_hooks=before_provider_request_hooks,
         session_before_switch_hooks=session_before_switch_hooks,
         session_before_fork_hooks=session_before_fork_hooks,
@@ -1421,6 +1428,9 @@ class NativeToolReplSession:
         extension_before_agent_start_hooks = _ext_runtime.before_agent_start_hooks
         extension_tool_result_hooks = _ext_runtime.tool_result_hooks
         extension_user_bash_hooks = _ext_runtime.user_bash_hooks
+        extension_before_provider_headers_hooks = (
+            _ext_runtime.before_provider_headers_hooks
+        )
         extension_before_provider_request_hooks = (
             _ext_runtime.before_provider_request_hooks
         )
@@ -1560,6 +1570,7 @@ class NativeToolReplSession:
                 model_id=effective_model_id,
                 cwd=cwd,
                 available_tools=(),
+                provider_header_callback=_active_provider_header_callback(),
             )
             result = self.provider.complete(request)
             if result.status != HarnessStatus.SUCCEEDED:
@@ -1581,6 +1592,28 @@ class NativeToolReplSession:
             if terminal_ui is not None
             else None
         )
+
+        def _dispatch_extension_provider_headers(
+            headers: MutableMapping[str, str | None],
+        ) -> None:
+            dispatch_before_provider_headers_hooks(
+                extension_before_provider_headers_hooks,
+                headers,
+                cwd=str(cwd),
+                has_ui=terminal_ui is not None,
+                notify_sink=_extension_notify,
+                ui_driver=extension_ui_driver,
+                flags=extension_flag_values,
+                session_tree=session_tree,
+                project_trusted=settings.project_trusted,
+            )
+
+        def _active_provider_header_callback() -> (
+            Callable[[MutableMapping[str, str | None]], None] | None
+        ):
+            if not extension_before_provider_headers_hooks:
+                return None
+            return _dispatch_extension_provider_headers
 
         # Merge activated extension tools into this run's tool registry
         # (the shared built-in registry is never mutated). Extension tools
@@ -2401,6 +2434,7 @@ class NativeToolReplSession:
                 cwd=cwd,
                 messages=tuple(branch_messages),
                 available_tools=(),
+                provider_header_callback=_active_provider_header_callback(),
             )
             try:
                 result = self.provider.complete(request)
@@ -2825,6 +2859,9 @@ class NativeToolReplSession:
                     )
                     extension_tool_result_hooks = _ext_runtime.tool_result_hooks
                     extension_user_bash_hooks = _ext_runtime.user_bash_hooks
+                    extension_before_provider_headers_hooks = (
+                        _ext_runtime.before_provider_headers_hooks
+                    )
                     extension_before_provider_request_hooks = (
                         _ext_runtime.before_provider_request_hooks
                     )
@@ -3994,6 +4031,7 @@ class NativeToolReplSession:
                         # tool-loop iterations append tool results (also user-role),
                         # and re-sending would mis-attach the image to those.
                         attachments=turn_attachments if inner_iterations == 1 else (),
+                        provider_header_callback=_active_provider_header_callback(),
                     )
                     if extension_before_provider_request_hooks:
                         provider_transform = dispatch_before_provider_request_hooks(
@@ -4033,6 +4071,9 @@ class NativeToolReplSession:
                             messages=provider_messages,
                             available_tools=filtered_tools,
                             attachments=provider_request.attachments,
+                            provider_header_callback=(
+                                provider_request.provider_header_callback
+                            ),
                         )
                     emitter.turn_start()
                     if inner_iterations == 1:

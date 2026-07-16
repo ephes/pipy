@@ -22,9 +22,10 @@ templates, custom slash commands, and chrome themes) remain supported alongside
 the Python extension API.
 
 The 2026-07-14 Pi `0.80.6` refresh identified additional gaps beyond the older
-rich-UI list. Project-trust extension decisions and reads have now shipped;
-remaining deltas include `before_provider_headers`, `agent_settled`, durable TUI-only entry renderers,
-and cache-friendly dynamic tool loading with provider-native message anchoring.
+rich-UI list. Project-trust extension decisions/reads and
+`before_provider_headers` have now shipped; remaining deltas include
+`agent_settled`, durable TUI-only entry renderers, and cache-friendly dynamic
+tool loading with provider-native message anchoring.
 Treat each as a separate slice; do not fold them into the broad custom-component
 track.
 
@@ -100,8 +101,9 @@ live product-TUI `onBranchChange(...)` callbacks; headless snapshots keep a safe
 no-op disposer.
 Session switch/fork/tree/
 compaction interception, dynamic active-tool/model/thinking controls,
-`user_bash`, and `before_provider_request` provider-payload hooks now ship as a
-live-session follow-on slice. Command/shortcut handlers also expose Pi-shaped session metadata helpers:
+`user_bash`, `before_provider_request` provider-payload hooks, and the
+mutation-only `before_provider_headers` HTTP-header hook now ship as
+live-session follow-on slices. Command/shortcut handlers also expose Pi-shaped session metadata helpers:
 `ctx.set_session_name` / `ctx.setSessionName`, `ctx.get_session_name` /
 `ctx.getSessionName`, and `ctx.set_label` / `ctx.setLabel` persist display-name
 and entry-label changes through native session entries. The read-only
@@ -417,6 +419,7 @@ target vocabulary includes:
 | `tool_execution_end` | Observe extension or native tool execution ending after `tool_result` hooks have produced the finalized result. | None |
 | `tool_result` | Observe or transform bounded tool result metadata/content before the next model turn. | None or `ToolResultTransform` |
 | `before_provider_request` | Inspect or transform the live in-memory provider request before the provider call. | None or `ProviderRequestTransform` |
+| `before_provider_headers` | Mutate assembled live request headers once per provider request; strings add/override and `None` deletes before transport. **Shipped.** | None (return values ignored) |
 | `after_provider_response` | Observe safe provider response metadata after the provider call. | None |
 | `model_select` | Observe model/provider changes. | None |
 | `thinking_level_select` | Observe thinking/reasoning level changes where the selected provider supports them. | None |
@@ -707,6 +710,20 @@ factory. `/reload` recomputes those contributions from current extension
 discovery, so removed/disabled extension providers disappear. Unregister hides
 the extension contribution and restores any built-in rows it overrode without
 mutating the built-in catalog or `models.json`.
+
+Provider ports that perform their own HTTP call use the public
+`apply_provider_headers(request, headers)` helper from
+`pipy_harness.extensions` at their final mutable-header seam. The helper fires
+the active `before_provider_headers` callback once, works on a copy, and removes
+`None` deletion sentinels before transport. Pipy's built-in adapters already do
+this; delegating ds4 relies on the shared Chat Completions adapter so it does not
+double-fire.
+
+OpenAI Codex follows Pi's narrower ownership split: the hook sees the
+request-scoped additional-header map, then the adapter derives provider-owned
+Authorization/account and SSE/WebSocket protocol headers afterward. Custom
+additions reach both transports and are reused across retry/fallback, but a hook
+cannot inspect, override, or delete those later provider-owned Codex fields.
 
 ## Dynamic CLI Flags
 
@@ -1510,6 +1527,20 @@ and the live `scripts/tmux_answer_verify.sh`.
     Normal command, shortcut, lifecycle, input, tool, provider-request, and
     session-gate contexts expose zero-argument `is_project_trusted()` and
     `isProjectTrusted()` reads of the run-local state.
+28. Provider-header hooks — **landed**: `before_provider_headers` handlers
+    receive `BeforeProviderHeadersEvent(headers,
+    type="before_provider_headers")` plus the normal mode-aware/session-manager
+    context. They run serially in extension load order against one mutable
+    `str | None` map; return values are ignored, handler failures do not stop
+    later handlers, and `None` removes a header. Every pipy-owned real HTTP
+    adapter dispatches at its owned seam; Bedrock signs the mutated base
+    headers, Codex reuses one snapshot across retries/fallback, and ds4
+    dispatches only in its delegated Chat Completions adapter. Codex handlers
+    see request-scoped additional headers before provider-owned auth/transport
+    fields are derived, so those later fields cannot be inspected or deleted.
+    The golden
+    `extension_conformance_gate.py --json` proves the live mutation and
+    archive/protocol no-leak boundary.
 
 ## Open Questions
 

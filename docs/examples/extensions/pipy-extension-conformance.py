@@ -113,6 +113,16 @@ def activate(api):
         _proof("before_agent_start", system_prompt_modified=True)
         return BeforeAgentStartResult(append_system_prompt="CONFORMANCE_CONTEXT")
 
+    @api.on("before_provider_headers")
+    def _before_provider_headers(event, ctx):
+        event.headers["X-Conformance-Base"] = None
+        event.headers["X-Conformance-Hook"] = "active"
+        _proof(
+            "before_provider_headers",
+            event_type=event.type,
+            has_session=ctx.session_manager.get_session_id() is not None,
+        )
+
     @api.on("tool_call")
     def _tool_call(event, ctx):
         if event.tool_name == "conformance_probe":

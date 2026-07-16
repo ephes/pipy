@@ -16,11 +16,13 @@ from pipy_harness.native.extension_runtime import (
     ProviderRequestTransform,
     SessionDecision,
     UserBashDecision,
+    dispatch_before_provider_headers_hooks,
     dispatch_before_provider_request_hooks,
     dispatch_session_before_hooks,
     dispatch_user_bash_hooks,
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.provider import apply_provider_headers
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     production_tool_registry,
@@ -33,6 +35,7 @@ class _CapturingProvider:
 
     def __init__(self) -> None:
         self.requests: list[ProviderRequest] = []
+        self.headers: list[dict[str, str]] = []
 
     @property
     def supports_tool_calls(self) -> bool:
@@ -40,6 +43,12 @@ class _CapturingProvider:
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.requests.append(request)
+        self.headers.append(
+            apply_provider_headers(
+                request,
+                {"X-Existing": "base", "X-Remove": "remove-me"},
+            )
+        )
         now = datetime(2026, 6, 18, 12, 0, tzinfo=UTC)
         return ProviderResult(
             status=HarnessStatus.SUCCEEDED,
@@ -104,6 +113,76 @@ def test_dispatchers_expose_dynamic_control_context(tmp_path: Path) -> None:
     assert ("set_tools_arg", ("bash",)) in calls
     assert ("set_model_arg", "fake/fake-tools") in calls
     assert ("set_thinking_arg", "low") in calls
+
+
+def test_before_provider_headers_dispatch_mutates_in_order_and_fails_soft(
+    tmp_path: Path,
+) -> None:
+    seen: list[str] = []
+
+    def first(event, _ctx):
+        assert event.type == "before_provider_headers"
+        assert event.headers["X-Existing"] == "base"
+        event.headers["X-Added"] = "first"
+        seen.append("first")
+        return {"ignored": True}
+
+    async def second(event, _ctx):
+        assert event.headers["X-Added"] == "first"
+        event.headers["X-Added"] = "second"
+        event.headers["X-Remove"] = None
+        seen.append("second")
+
+    def failing(event, _ctx):
+        event.headers["X-Before-Failure"] = "kept"
+        seen.append("failing")
+        raise RuntimeError("bounded hook failure")
+
+    def last(event, _ctx):
+        assert event.headers["X-Before-Failure"] == "kept"
+        seen.append("last")
+
+    headers: dict[str, str | None] = {
+        "X-Existing": "base",
+        "X-Remove": "remove-me",
+    }
+    dispatch_before_provider_headers_hooks(
+        (first, second, failing, last),
+        headers,
+        cwd=str(tmp_path),
+        has_ui=False,
+    )
+
+    assert seen == ["first", "second", "failing", "last"]
+    assert headers == {
+        "X-Existing": "base",
+        "X-Remove": None,
+        "X-Added": "second",
+        "X-Before-Failure": "kept",
+    }
+
+
+def test_apply_provider_headers_copies_and_filters_deletions(tmp_path: Path) -> None:
+    original = {"X-Keep": "yes", "X-Delete": "old"}
+
+    def callback(headers):
+        headers["X-Delete"] = None
+        headers["X-New"] = "new"
+
+    request = ProviderRequest(
+        system_prompt="sys",
+        user_prompt="user",
+        provider_name="stub",
+        model_id="stub-model",
+        cwd=tmp_path,
+        provider_header_callback=callback,
+    )
+
+    assert apply_provider_headers(request, original) == {
+        "X-Keep": "yes",
+        "X-New": "new",
+    }
+    assert original == {"X-Keep": "yes", "X-Delete": "old"}
 
 
 def test_user_bash_dispatch_rewrites_and_synthesizes(tmp_path: Path) -> None:
@@ -183,6 +262,82 @@ def test_before_provider_request_hook_transforms_product_request(
         getattr(message, "content", "") == "hello"
         for message in provider.requests[0].messages
     )
+
+
+def test_before_provider_headers_hook_mutates_product_http_headers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write_ext(
+        tmp_path,
+        "headers",
+        "def activate(api):\n"
+        "    @api.on('before_provider_headers')\n"
+        "    def before(event, ctx):\n"
+        "        assert event.type == 'before_provider_headers'\n"
+        "        assert event.headers['X-Existing'] == 'base'\n"
+        "        event.headers['X-Existing'] = 'overridden'\n"
+        "        event.headers['X-Remove'] = None\n"
+        "        event.headers['X-Session-Id'] = ctx.session_manager.get_session_id()\n",
+    )
+    provider = _CapturingProvider()
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry=production_tool_registry(),
+    )
+    output = io.StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n"),
+        output_stream=output,
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert len(provider.headers) == 1
+    assert provider.headers[0]["X-Existing"] == "overridden"
+    assert "X-Remove" not in provider.headers[0]
+    assert provider.headers[0]["X-Session-Id"]
+    assert "X-Session-Id" not in output.getvalue()
+
+
+def test_before_provider_headers_hooks_refresh_after_reload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write_ext(
+        tmp_path,
+        "reload_headers",
+        "from pathlib import Path\n"
+        "STATE = Path(__file__).with_name('header-state.txt')\n"
+        "VALUE = STATE.read_text(encoding='utf-8') if STATE.exists() else 'before'\n"
+        "def activate(api):\n"
+        "    @api.on('before_provider_headers')\n"
+        "    def before(event, ctx):\n"
+        "        event.headers['X-Reloaded'] = VALUE\n"
+        "    def flip(ctx, args):\n"
+        "        STATE.write_text('after', encoding='utf-8')\n"
+        "    api.register_command('flip-header', 'change header generation', flip)\n",
+    )
+    provider = _CapturingProvider()
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry=production_tool_registry(),
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("first\n/flip-header\n/reload\nsecond\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert [headers["X-Reloaded"] for headers in provider.headers] == [
+        "before",
+        "after",
+    ]
 
 
 def test_user_bash_hook_synthetic_result_reaches_next_prompt_context(

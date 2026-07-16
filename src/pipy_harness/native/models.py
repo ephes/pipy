@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -125,6 +125,10 @@ class NativeRunInput:
     system_prompt_version: str
 
 
+ProviderHeaderCallback = Callable[[MutableMapping[str, str | None]], None]
+"""In-memory extension callback for one provider request's assembled headers."""
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderRequest:
     """Request sent across the native provider port.
@@ -153,6 +157,12 @@ class ProviderRequest:
     # ignore them. The raw base64 data lives here in memory only and is never
     # archived — only safe metadata (media type / byte count / sha256) is.
     attachments: tuple["ProviderImageAttachment", ...] = ()
+    # Live request-only extension seam. Provider adapters invoke it after their
+    # mutable request headers are assembled and before the concrete HTTP call;
+    # it is intentionally excluded from repr/equality and every archive format.
+    provider_header_callback: ProviderHeaderCallback | None = field(
+        default=None, repr=False, compare=False
+    )
 
 
 @dataclass(frozen=True, slots=True)

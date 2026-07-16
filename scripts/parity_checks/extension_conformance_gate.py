@@ -39,6 +39,7 @@ from pipy_harness.native.models import (
     ProviderResult,
     ProviderToolCall,
 )
+from pipy_harness.native.provider import apply_provider_headers
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     production_tool_registry,
@@ -57,6 +58,7 @@ _REQUIRED = {
     "command_handler",
     "input",
     "before_agent_start",
+    "before_provider_headers",
     "agent_start",
     "turn_start",
     "tool_call",
@@ -91,6 +93,7 @@ class _Provider:
 
     def __init__(self) -> None:
         self.requests: list[ProviderRequest] = []
+        self.headers: list[dict[str, str]] = []
         self._turn = 0
 
     @property
@@ -99,6 +102,9 @@ class _Provider:
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.requests.append(request)
+        self.headers.append(
+            apply_provider_headers(request, {"X-Conformance-Base": "remove"})
+        )
         self._turn += 1
         now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
         tool_calls = ()
@@ -186,6 +192,16 @@ def run_checks(workspace: Path, proof: Path, sessions_root: Path) -> list[Check]
             "before_agent_start injection reached the provider request",
         ),
         Check(
+            "before_provider_headers_reached_transport",
+            bool(provider.headers)
+            and all(
+                headers.get("X-Conformance-Hook") == "active"
+                and "X-Conformance-Base" not in headers
+                for headers in provider.headers
+            ),
+            "before_provider_headers mutation reached every provider request",
+        ),
+        Check(
             "tool_result_patch_reached_model",
             "PATCHED::probe-output" in joined,
             "tool_result patch reached the model-visible observation",
@@ -211,6 +227,7 @@ def run_checks(workspace: Path, proof: Path, sessions_root: Path) -> list[Check]
                     "probe-output",  # tool result content
                     "PATCHED::",  # tool_result transform
                     "CONFORMANCE_CONTEXT",  # before_agent_start injection
+                    "X-Conformance-Hook",  # live provider header name
                     "conformance probe ran",  # ctx.ui.notify text
                     "conformance command ran",
                     # Rich message renderer (slice C), two sentinels with

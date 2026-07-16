@@ -78,6 +78,7 @@ from pipy_harness.native.extension_runtime import (
     ToolResultEvent,
     ToolResultTransform,
     BeforeProviderRequestEvent,
+    BeforeProviderHeadersEvent,
     ProviderRequestTransform,
     SessionBeforeEvent,
     SessionDecision,
@@ -88,6 +89,7 @@ from pipy_harness.native.extension_runtime import (
     activate_extensions,
     coerce_tool_render_lines,
     dispatch_before_provider_request_hooks,
+    dispatch_before_provider_headers_hooks,
     dispatch_before_agent_start_hooks,
     dispatch_extension_command,
     dispatch_input_hooks,
@@ -118,6 +120,7 @@ from pipy_harness.native.extensions import (
     discover_extensions,
     safe_extension_metadata,
 )
+from pipy_harness.native.provider import apply_provider_headers
 
 __all__ = [
     "PipyExtensionAPI",
@@ -165,6 +168,7 @@ __all__ = [
     "ToolResultEvent",
     "ToolResultTransform",
     "BeforeProviderRequestEvent",
+    "BeforeProviderHeadersEvent",
     "ProviderRequestTransform",
     "SessionBeforeEvent",
     "SessionDecision",
@@ -185,6 +189,7 @@ __all__ = [
     "dispatch_tool_result_hooks",
     "dispatch_user_bash_hooks",
     "dispatch_before_provider_request_hooks",
+    "dispatch_before_provider_headers_hooks",
     "dispatch_session_before_hooks",
     "extension_tools",
     "extension_providers",
@@ -210,4 +215,5 @@ __all__ = [
     "ExtensionDescriptor",
     "discover_extensions",
     "safe_extension_metadata",
+    "apply_provider_headers",
 ]

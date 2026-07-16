@@ -63,13 +63,14 @@ def _activate(workspace: Path) -> list:
 
 
 _FAKE_PROVIDER = (
-    "from pipy_harness.extensions import ExtensionProvider\n"
+    "from pipy_harness.extensions import ExtensionProvider, apply_provider_headers\n"
     "from pipy_harness.models import HarnessStatus\n"
     "from pipy_harness.native.models import ProviderResult\n"
     "from datetime import datetime, timezone\n"
     "class _Port:\n"
     "    def __init__(self, ctx):\n"
     "        self._ctx = ctx\n"
+    "        self.headers = {}\n"
     "    @property\n"
     "    def name(self): return self._ctx.provider_name\n"
     "    @property\n"
@@ -77,6 +78,7 @@ _FAKE_PROVIDER = (
     "    @property\n"
     "    def supports_tool_calls(self): return False\n"
     "    def complete(self, request, **kwargs):\n"
+    "        self.headers = apply_provider_headers(request, {'X-Provider': 'extension'})\n"
     "        now = datetime(2026, 6, 15, tzinfo=timezone.utc)\n"
     "        return ProviderResult(status=HarnessStatus.SUCCEEDED,\n"
     "            provider_name=self.name, model_id=self.model_id,\n"
@@ -189,9 +191,30 @@ def test_factory_builds_a_working_provider_port(tmp_path: Path) -> None:
     port = cast(ProviderPort, built)
     assert port.name == "myprov"
     assert port.model_id == "myprov/big"
-    result = port.complete(cast("object", None))  # type: ignore[arg-type]
+    callback_calls = 0
+
+    def mutate(headers):
+        nonlocal callback_calls
+        callback_calls += 1
+        headers["X-Provider"] = "mutated"
+        headers["X-Added"] = "yes"
+
+    request = ProviderRequest(
+        system_prompt="sys",
+        user_prompt="user",
+        provider_name="myprov",
+        model_id="myprov/big",
+        cwd=workspace,
+        provider_header_callback=mutate,
+    )
+    result = port.complete(request)
     assert result.status is HarnessStatus.SUCCEEDED
     assert result.final_text == "ext-ok"
+    assert callback_calls == 1
+    assert getattr(port, "headers") == {
+        "X-Provider": "mutated",
+        "X-Added": "yes",
+    }
 
 
 def test_unregister_provider_is_recorded(tmp_path: Path) -> None:

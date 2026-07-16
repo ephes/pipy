@@ -182,6 +182,7 @@ EVENT_BEFORE_AGENT_START: str = "before_agent_start"
 EVENT_TOOL_RESULT: str = "tool_result"
 EVENT_USER_BASH: str = "user_bash"
 EVENT_BEFORE_PROVIDER_REQUEST: str = "before_provider_request"
+EVENT_BEFORE_PROVIDER_HEADERS: str = "before_provider_headers"
 EVENT_SESSION_BEFORE_SWITCH: str = "session_before_switch"
 EVENT_SESSION_BEFORE_FORK: str = "session_before_fork"
 EVENT_SESSION_BEFORE_COMPACT: str = "session_before_compact"
@@ -612,6 +613,14 @@ class BeforeProviderRequestEvent:
     model_id: str
     available_tools: tuple[str, ...]
     messages: tuple[object, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeProviderHeadersEvent:
+    """Mutable request headers after adapter assembly and before transport."""
+
+    headers: MutableMapping[str, str | None]
+    type: Literal["before_provider_headers"] = "before_provider_headers"
 
 
 @dataclass(frozen=True, slots=True)
@@ -3949,6 +3958,47 @@ def dispatch_before_provider_request_hooks(
         user_prompt=current_user,
         available_tools=current_tools,
     )
+
+
+def dispatch_before_provider_headers_hooks(
+    hooks: Sequence[HookHandler],
+    headers: MutableMapping[str, str | None],
+    *,
+    cwd: str,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
+    flags: Mapping[str, object] | None = None,
+    session_tree: "NativeSessionTree | None" = None,
+    project_trusted: bool = False,
+) -> None:
+    """Run mutation-only provider-header hooks serially and fail soft.
+
+    Every hook receives the same mutable mapping, so later handlers observe
+    prior mutations. Awaitables are driven to completion and return values are
+    deliberately ignored. A bad handler does not prevent later handlers or the
+    provider request from continuing.
+    """
+
+    if not hooks:
+        return
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
+        flags=flags,
+        session_tree=session_tree,
+        project_trusted=project_trusted,
+    )
+    event = BeforeProviderHeadersEvent(headers=headers)
+    for hook in hooks:
+        try:
+            result = hook(event, ctx)
+            if inspect.isawaitable(result):
+                _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - Pi-compatible fail-soft observer
+            continue
 
 
 def dispatch_session_before_hooks(

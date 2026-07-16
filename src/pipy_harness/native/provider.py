@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.cancellation import CancelToken
@@ -20,6 +20,28 @@ for forwarding the delta string. See `docs/pi-parity.md`
 (`Streaming Output Parity Track`) for the parity bar and the
 opt-in/opt-out semantics.
 """
+
+
+def apply_provider_headers(
+    request: ProviderRequest,
+    headers: Mapping[str, str],
+) -> dict[str, str]:
+    """Apply one request-local extension header callback to copied headers.
+
+    ``None`` is the Pi-compatible deletion sentinel. Non-string values cannot
+    cross pipy's HTTP boundary and are dropped defensively. With no callback,
+    this is only a shallow copy of the adapter's existing header mapping.
+    """
+
+    mutable_headers: dict[str, str | None] = dict(headers)
+    callback = request.provider_header_callback
+    if callback is not None:
+        callback(mutable_headers)
+    return {
+        name: value
+        for name, value in mutable_headers.items()
+        if isinstance(name, str) and isinstance(value, str)
+    }
 
 
 @runtime_checkable

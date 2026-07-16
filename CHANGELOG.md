@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python extensions can now register Pi-shaped `before_provider_headers`
+  handlers. Each real HTTP provider request exposes a mutable header map after
+  request-scoped assembly; handlers run serially, may add/override values or set
+  one to `None` to delete it, and fail soft. Bedrock mutations occur before
+  SigV4 signing, while OpenAI Codex retries and WebSocket-to-SSE fallback reuse
+  one transformed snapshot without re-firing the hook. Header data remains
+  live-only and never enters session archives or JSON/RPC protocol output.
 - Project-trust extensions now ship end to end. Before an unresolved decision,
   pipy activates only global and explicit CLI extensions and runs their
   `project_trust` handlers serially; `undecided` continues, the first yes/no

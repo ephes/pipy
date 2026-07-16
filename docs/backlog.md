@@ -338,9 +338,10 @@ still recognizes that extension/package parity is the largest surface by area:
    shipped that day at the true-idle boundary on both the `--mode rpc` and
    `--mode json` streams. True in-turn injection and the extension-surface hook
    remain separate follow-ons.
-4. **Extension lifecycle and rendering deltas.** Add focused slices for
-   `before_provider_headers`, `agent_settled`, and durable TUI-only entry
-   renderers (`registerEntryRenderer` over `appendEntry`). These are distinct
+4. **Extension lifecycle and rendering deltas.** The request-scoped
+   `before_provider_headers` hook **shipped** 2026-07-16 across every real HTTP
+   adapter. Add focused slices for `agent_settled` and durable TUI-only entry
+   renderers (`registerEntryRenderer` over `appendEntry`). These remain distinct
    from pipy's shipped provider-body transform, ordinary custom messages, and
    message renderers. The broader custom editor/component/overlay stack, live
    tool-render invalidation, richer multi-widget UI, and RPC extension-UI
@@ -1497,11 +1498,20 @@ live-session startup, and exposes zero-argument `is_project_trusted()` /
 `isProjectTrusted()` reads on normal contexts. The product JSON conformance row
 proves project code stays gated and stdout remains protocol-only.
 
-### Next: `before_provider_headers` extension hook
+### `before_provider_headers` extension hook — SHIPPED (2026-07-16)
 
-Keep provider-header injection separate from durable entry renderers plus the
-extension-surface `agent_settled` hook, cache-friendly dynamic tool loading, and
-package-update/config realignment. Each remains its own parity-loop gap. The
+Serial mutation-only handlers now receive the assembled request header map on
+every real HTTP adapter. Strings add/override and `None` deletes; handler errors
+fail soft. Bedrock applies mutations before SigV4 signing, OpenAI Codex reuses
+one transformed snapshot across retries and WebSocket-to-SSE fallback, and ds4
+dispatches exactly once through its Chat Completions delegate. The golden
+extension gate proves transport delivery and no archive/protocol leakage.
+
+### Next: extension-surface `agent_settled`
+
+Keep the extension lifecycle hook separate from durable entry renderers,
+cache-friendly dynamic tool loading, and package-update/config realignment.
+Each remains its own parity-loop gap. The
 read-only RPC `get_entries`/`get_tree` slice **shipped** 2026-07-14 (pipy's RPC
 baseline is now green at Pi's full 31 commands). The `agent_settled` session
 event **shipped** 2026-07-14 too (emitted at the true-idle boundary) on both the

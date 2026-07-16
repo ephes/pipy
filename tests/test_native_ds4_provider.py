@@ -125,8 +125,23 @@ def test_ds4_provider_reuses_chat_completions_shape_without_required_auth(
         api_key=None,
         http_client=client,
     )
+    header_hook_calls = 0
 
-    result = provider.complete(_provider_request(tmp_path))
+    def mutate(headers):
+        nonlocal header_hook_calls
+        header_hook_calls += 1
+        headers["X-Ds4"] = "once"
+
+    request = ProviderRequest(
+        system_prompt="SYSTEM_PROMPT_SHOULD_NOT_BE_ARCHIVED",
+        user_prompt="Reply with exactly one sentence explaining what ds4 is.",
+        provider_name="ds4",
+        model_id=DS4_DEFAULT_MODEL,
+        cwd=tmp_path,
+        provider_header_callback=mutate,
+    )
+
+    result = provider.complete(request)
 
     assert result.status == HarnessStatus.SUCCEEDED
     assert result.provider_name == "ds4"
@@ -138,10 +153,12 @@ def test_ds4_provider_reuses_chat_completions_shape_without_required_auth(
         "total_tokens": 10,
     }
     assert provider.supports_tool_calls is True
+    assert header_hook_calls == 1
 
     posted = client.requests[0]
     assert posted["url"] == "http://127.0.0.1:8000/v1/chat/completions"
     assert "Authorization" not in posted["headers"]
+    assert posted["headers"]["X-Ds4"] == "once"
     assert posted["body"] == {
         "model": DS4_DEFAULT_MODEL,
         "messages": [

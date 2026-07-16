@@ -15,7 +15,7 @@ from pipy_harness.native._provider_helpers import utc_now, failed_provider_resul
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
-from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.tools.messages import (
     AssistantMessage,
     ToolResultMessage,
@@ -153,6 +153,7 @@ class OpenAIResponsesProvider:
         # Apply ``Bearer api_key`` only when no explicit Authorization is present.
         if self.api_key and not has_explicit_authorization:
             headers["Authorization"] = f"Bearer {self.api_key}"
+        headers = apply_provider_headers(request, headers)
 
         try:
             response = self.http_client.post_json(

@@ -15,7 +15,7 @@ from pipy_harness.native._provider_helpers import utc_now, safe_response_label, 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
-from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 
 OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -129,6 +129,7 @@ class OpenRouterChatCompletionsProvider:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        headers = apply_provider_headers(request, headers)
 
         try:
             response = self.http_client.post_json(
