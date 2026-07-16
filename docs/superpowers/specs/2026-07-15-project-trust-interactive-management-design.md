@@ -58,6 +58,13 @@ reuses pipy's inline TUI navigation and resize handling and closes before the
 normal product TUI starts, so selector text is never appended to either the
 native session tree or the metadata-first archive.
 
+All path-bearing trust-selector labels are attacker-controlled display input:
+the canonical cwd, parent-choice label, and exact/inherited saved-decision path
+must pass through the shared C0/C1 control-character sanitizer before reaching
+the SGR-aware renderer. Regression coverage includes C0 ESC/BEL and C1 CSI
+characters in filesystem names so an untrusted project cannot visually spoof
+the trust prompt.
+
 After startup, an untrusted interactive session renders one live warning only
 when a protected input exists: project `.pipy` resources/packages were ignored,
 and `/trust` can save a decision for the next restart. It is UI/diagnostic state,

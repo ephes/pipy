@@ -1658,7 +1658,7 @@ def test_project_trust_selector_shows_exact_or_inherited_saved_and_current_state
 def test_project_trust_selector_sanitizes_untrusted_path_labels(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    cwd = tmp_path / "parent\x1b[31mspoof" / "project\x07name"
+    cwd = tmp_path / "parent\x1b[31mspoof" / "project\x07name\x9b31m"
     cwd.mkdir(parents=True)
     ui = _ui(cwd)
     captured_rows: list[SettingsRow] = []
@@ -1691,7 +1691,10 @@ def test_project_trust_selector_sanitizes_untrusted_path_labels(
 
     labels = [row.label for row in captured_rows]
     assert any("inherited from" in label for label in labels)
-    assert all("\x1b" not in label and "\x07" not in label for label in labels)
+    assert all(
+        "\x1b" not in label and "\x07" not in label and "\x9b" not in label
+        for label in labels
+    )
 
 
 def test_trust_command_persists_next_start_decision_without_hot_activation(
