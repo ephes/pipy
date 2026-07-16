@@ -272,6 +272,15 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    on that path as already matched, intentionally deferred, or known separate
    gaps. When explaining a forced-default versus upstream-default divergence, cite
    the exact Pi source/comment scope instead of generalizing beyond it.
+   For an extension hook over provider request state, add a per-provider ownership
+   matrix to the plan: enumerate the exact fields present and mutable when the hook
+   fires, fields derived afterward by provider auth/signing/transport code, and any
+   reserved fields that are filtered or overwritten. Do not make a uniform claim
+   such as "assembled headers" across multiple adapters unless every named adapter
+   exposes that same assembled set at dispatch. Pin focused tests for both sides of
+   each distinct seam (a hook-visible field can be changed or deleted; a
+   provider-owned post-hook field cannot), including retry, delegation, and signing
+   variants where their ownership differs.
    If a gap source groups multiple adapters, providers, or body-family paths
    together, verify each named path independently against the Pi source and pin
    per-path behavior in the plan; do not rely on the audit's collective wording as
