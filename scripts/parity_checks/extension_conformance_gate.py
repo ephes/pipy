@@ -8,7 +8,7 @@ API and writes safe feature markers to a proof JSONL file. Asserts:
 
 1. every required feature marker is present (command + tool
    registration/execution, lifecycle, input, before_agent_start,
-   tool_call, tool_result, agent_end, session_shutdown);
+   tool_call, tool_result, agent_end, agent_settled, session_shutdown);
 2. the before_agent_start injection reached the provider request;
 3. the tool_result patch reached the model-visible observation;
 4. ctx.ui.notify surfaced to the live UI;
@@ -71,6 +71,7 @@ _REQUIRED = {
     "editor_noop",
     "turn_end",
     "agent_end",
+    "agent_settled",
     "session_shutdown",
     "set_widget",
     "set_header",
@@ -257,6 +258,7 @@ def run_checks(workspace: Path, proof: Path, sessions_root: Path) -> list[Check]
                     "tool_execute",
                     "before_agent_start",
                     "tool_result",
+                    "agent_settled",
                     "session_shutdown",
                     "set_widget",
                     "set_header",

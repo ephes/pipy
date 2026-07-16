@@ -11,8 +11,8 @@ specification was researched from the local Pi reference on 2026-06-02. Pi
 `0.80.3` later added `get_entries` and `get_tree`, taking the command union to
 31; both are now shipped in pipy's green 31-command baseline. Pi's later
 `agent_settled` session event is now emitted on both the `--mode rpc` and
-`--mode json` streams at the idle boundary (see below); only the
-extension-surface `agent_settled` hook remains an explicit follow-on.
+`--mode json` streams at the idle boundary (see below). The extension-surface
+hook now ships independently without adding another protocol event.
 
 Implementation map: `src/pipy_harness/native/automation/` (`jsonl.py` framing,
 `events.py`/`serialize.py` the Pi-shaped event vocabulary, `run_modes.py` the
@@ -167,7 +167,7 @@ Session-extension events (Pi `AgentSessionEvent`,
 | `thinking_level_changed` | `level: ThinkingLevel` | Thinking/reasoning level changed (where the provider supports it). |
 | `auto_retry_start` | `attempt: number`, `maxAttempts: number`, `delayMs: number`, `errorMessage: string` | Auto-retry attempt scheduled. |
 | `auto_retry_end` | `success: boolean`, `attempt: number`, `finalError?: string` | Auto-retry attempt settled. |
-| `agent_settled` | (none) | The agent run has settled into idle. Emitted on **both `--mode rpc` and `--mode json`** after the run's final `agent_end` (see below); only the extension-surface `agent_settled` hook remains a follow-on. |
+| `agent_settled` | (none) | The agent run has settled into idle. Emitted on **both `--mode rpc` and `--mode json`** after the run's final `agent_end` (see below); the independently shipped extension hook does not duplicate this protocol event. |
 
 `assistantMessageEvent` sub-union (Pi `AssistantMessageEvent`,
 `packages/ai/src/types.ts`) carried inside `message_update`. Pipy must emit the

@@ -18,7 +18,8 @@ The flow is deterministic and does not rely on a real model choosing the tool:
    `tool_call` records the call, the tool executes (records `tool_execute`,
    returns Pi-shaped `content` + `details`), and `tool_result` patches the
    observation.
-4. `turn_end` / `agent_end` / `session_shutdown` record the lifecycle close.
+4. `turn_end` / `agent_end` / `agent_settled` / `session_shutdown` record the
+   lifecycle close.
 
 Every marker is metadata-only: no prompt bodies, tool arguments, tool result
 content, UI text, provider payloads, secrets, or proof-file contents are ever
@@ -102,6 +103,10 @@ def activate(api):
     @api.on("agent_end")
     def _agent_end(event, ctx):
         _proof("agent_end")
+
+    @api.on("agent_settled")
+    def _agent_settled(event, ctx):
+        _proof("agent_settled")
 
     @api.on("input")
     def _input(event, ctx):

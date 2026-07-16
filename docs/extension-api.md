@@ -22,10 +22,10 @@ templates, custom slash commands, and chrome themes) remain supported alongside
 the Python extension API.
 
 The 2026-07-14 Pi `0.80.6` refresh identified additional gaps beyond the older
-rich-UI list. Project-trust extension decisions/reads and
-`before_provider_headers` have now shipped; remaining deltas include
-`agent_settled`, durable TUI-only entry renderers, and cache-friendly dynamic
-tool loading with provider-native message anchoring.
+rich-UI list. Project-trust extension decisions/reads,
+`before_provider_headers`, and the true-idle `agent_settled` lifecycle hook have
+now shipped; remaining deltas include durable TUI-only entry renderers and
+cache-friendly dynamic tool loading with provider-native message anchoring.
 Treat each as a separate slice; do not fold them into the broad custom-component
 track.
 
@@ -408,6 +408,7 @@ target vocabulary includes:
 | `before_agent_start` | Inject bounded context, alter system-prompt options, or add safe custom messages before a turn. | None or `BeforeAgentStartResult` |
 | `agent_start` | Observe an agent run for one accepted user prompt starting. | None |
 | `agent_end` | Observe the full agent run ending after turns and tools settle. | None |
+| `agent_settled` | Observe true idle after retries, compaction work, and queued continuations are exhausted. **Shipped.** | None |
 | `turn_start` | Observe one model/tool loop turn starting. | None |
 | `turn_end` | Observe one model/tool loop turn ending. | None |
 | `context` | Observe or contribute bounded context before provider-visible context is finalized. | None or `ContextContribution` |
@@ -995,6 +996,7 @@ The first conformance target should exercise at least:
 - `api.on("tool_result")`
 - `api.on("turn_end")`
 - `api.on("agent_end")`
+- `api.on("agent_settled")`
 - `ctx.cwd`
 - `ctx.has_ui`
 - `ctx.ui.notify`
@@ -1022,6 +1024,7 @@ Each line must be metadata-only. Example markers:
 {"feature":"tool_execute","details_written":true}
 {"feature":"tool_result","patched":true}
 {"feature":"agent_end","ok":true}
+{"feature":"agent_settled","ok":true}
 {"feature":"session_shutdown","ok":true}
 ```
 
@@ -1042,7 +1045,8 @@ model choosing the extension tool:
 8. Tool executes and returns `content` plus `details`.
 9. `tool_result` hook patches the result.
 10. Agent ends and records `agent_end`.
-11. Session shutdown or reload proves cleanup through `session_shutdown`.
+11. True idle records `agent_settled` after no continuation remains.
+12. Session shutdown or reload proves cleanup through `session_shutdown`.
 
 Acceptance criteria:
 
@@ -1085,7 +1089,7 @@ extension `/commands` dispatch through the live tool-loop REPL
 `tool_call` policy hook (`api.on("tool_call")` → `ToolBlock`, gate
 `scripts/parity_checks/extension_tool_call_conformance.py --json`). Slice 5: the
 lifecycle event foundation (`session_start`/`agent_start`/`turn_start`/
-`turn_end`/`agent_end`/`session_shutdown`, gate
+`turn_end`/`agent_end`/`agent_settled`/`session_shutdown`, gate
 `scripts/parity_checks/extension_lifecycle_conformance.py --json`). Slices 1–13
 have **landed** (gate
 `scripts/parity_checks/extension_live_session_conformance.py --json` plus the
@@ -1153,8 +1157,11 @@ and the live `scripts/tmux_answer_verify.sh`.
    wired into the `tool_loop_session` tool loop (first block wins; crashing hook
    fails closed; raw inputs inspected live but not archived).
 5. Lifecycle foundation — **landed**: emit `session_start`, `session_shutdown`,
-   `agent_start`, `turn_start`, `turn_end`, and `agent_end` with mode-aware
-   contexts and safe archive metadata only. Implemented as `LifecycleEvent` +
+   `agent_start`, `turn_start`, `turn_end`, `agent_end`, and true-idle
+   `agent_settled` with mode-aware contexts and safe archive metadata only.
+   `agent_settled` waits until queued continuations drain, still fires after an
+   unexpected mid-run failure, and remains separate from JSON/RPC's mode-owned
+   protocol event. Implemented as `LifecycleEvent` +
    `dispatch_lifecycle_hooks` + `extension_event_hooks`, fired through an
    `_ExtensionAwareEmitter` (observe-only, fail-soft) wired into
    `tool_loop_session`.

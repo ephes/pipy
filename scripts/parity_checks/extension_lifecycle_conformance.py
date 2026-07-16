@@ -6,7 +6,7 @@ invariants from `docs/extension-api.md`:
 
 1. a one-prompt session fires the full lifecycle sequence
    (`session_start` -> `agent_start` -> `turn_start` -> `turn_end` ->
-   `agent_end` -> `session_shutdown`) to extension observers;
+   `agent_end` -> `agent_settled` -> `session_shutdown`) to extension observers;
 2. `session_start` carries the `"startup"` reason;
 3. lifecycle observers are fail-soft: a crashing observer does not break
    the session (the run still completes and later observers still fire).
@@ -75,7 +75,7 @@ def run_checks(workspace: Path, proof: Path) -> list[Check]:
         "                fh.write(event.name + ':' + (event.reason or '') + '\\n')\n"
         "        return obs\n"
         "    for n in ('session_start','session_shutdown','agent_start',\n"
-        "              'agent_end','turn_start','turn_end'):\n"
+        "              'agent_end','agent_settled','turn_start','turn_end'):\n"
         "        api.on(n, make(n))\n",
         encoding="utf-8",
     )
@@ -104,6 +104,7 @@ def run_checks(workspace: Path, proof: Path) -> list[Check]:
         "turn_start:",
         "turn_end:",
         "agent_end:",
+        "agent_settled:",
         "session_shutdown:",
     ]
     checks.append(
@@ -116,9 +117,13 @@ def run_checks(workspace: Path, proof: Path) -> list[Check]:
     ordered = (
         "session_start:startup" in recorded
         and "agent_start:" in recorded
+        and "agent_end:" in recorded
+        and "agent_settled:" in recorded
         and "session_shutdown:" in recorded
         and recorded.index("session_start:startup") < recorded.index("agent_start:")
-        and recorded.index("agent_end:") < recorded.index("session_shutdown:")
+        and recorded.index("agent_end:") < recorded.index("agent_settled:")
+        and recorded.index("agent_settled:")
+        < recorded.index("session_shutdown:")
     )
     checks.append(Check("ordering", ordered, "session brackets the agent run"))
     checks.append(

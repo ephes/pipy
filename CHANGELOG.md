@@ -8,6 +8,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python extensions can now observe Pi's payload-free `agent_settled`
+  lifecycle hook once a provider/tool run is truly idle. Automatic retry,
+  compaction work, and queued steering/follow-up/extension prompts finish
+  first; unexpected mid-run failures still settle, and a settled handler may
+  schedule a new run without blocking on stdin. JSON/RPC protocol events remain
+  mode-owned, so their streams still emit exactly one `agent_settled`.
 - Python extensions can now register Pi-shaped `before_provider_headers`
   handlers. Each real HTTP provider request exposes a mutable header map after
   request-scoped assembly; handlers run serially, may add/override values or set
@@ -35,8 +41,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
 - `--mode json` now also emits Pi's payload-free `agent_settled` as the final
   event after the run's `agent_end`. The one-shot json driver settles into idle
   when the run returns, matching Pi's `_runAgentPrompt` `finally` that `--mode
-  json` forwards. Only the extension-surface `agent_settled` hook remains a
-  separate follow-on.
+  json` forwards. The extension-surface hook now ships independently without
+  duplicating this protocol event.
 - `openai-codex/gpt-5.6-sol` is now a built-in Codex model (372K context, image
   input) with a seventh thinking level, `max`. The thinking vocabulary is now
   `off|minimal|low|medium|high|xhigh|max` across the CLI `--thinking`/`:level`

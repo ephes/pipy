@@ -141,6 +141,7 @@ def test_golden_conformance_extension(tmp_path, monkeypatch) -> None:
         "editor_noop",
         "turn_end",
         "agent_end",
+        "agent_settled",
         "session_shutdown",
     }
     assert required <= _markers(proof)
@@ -172,6 +173,7 @@ def test_golden_conformance_extension(tmp_path, monkeypatch) -> None:
         "tool_execute",  # proof marker
         "before_agent_start",  # proof marker
         "tool_result",  # proof marker
+        "agent_settled",  # proof marker
         "session_shutdown",  # proof marker
         "conformance probe ran",  # ctx.ui.notify text
         "conformance command ran",  # ctx.ui.notify text

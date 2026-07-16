@@ -336,12 +336,12 @@ still recognizes that extension/package parity is the largest surface by area:
    31-command vocabulary: the read-only `get_entries` (including `since`) and
    `get_tree` **shipped** 2026-07-14. The asynchronous `agent_settled` event also
    shipped that day at the true-idle boundary on both the `--mode rpc` and
-   `--mode json` streams. True in-turn injection and the extension-surface hook
-   remain separate follow-ons.
+   `--mode json` streams. The extension-surface hook shipped independently on
+   2026-07-16; true in-turn injection remains a separate follow-on.
 4. **Extension lifecycle and rendering deltas.** The request-scoped
-   `before_provider_headers` hook **shipped** 2026-07-16 across every real HTTP
-   adapter. Add focused slices for `agent_settled` and durable TUI-only entry
-   renderers (`registerEntryRenderer` over `appendEntry`). These remain distinct
+   `before_provider_headers` hook and the true-idle `agent_settled` lifecycle
+   hook **shipped** 2026-07-16. The next focused slice is durable TUI-only entry
+   renderers (`registerEntryRenderer` over `appendEntry`). It remains distinct
    from pipy's shipped provider-body transform, ordinary custom messages, and
    message renderers. The broader custom editor/component/overlay stack, live
    tool-render invalidation, richer multi-widget UI, and RPC extension-UI
@@ -1507,16 +1507,21 @@ one transformed snapshot across retries and WebSocket-to-SSE fallback, and ds4
 dispatches exactly once through its Chat Completions delegate. The golden
 extension gate proves transport delivery and no archive/protocol leakage.
 
-### Next: extension-surface `agent_settled`
+### Extension-surface `agent_settled` — SHIPPED (2026-07-16)
 
-Keep the extension lifecycle hook separate from durable entry renderers,
-cache-friendly dynamic tool loading, and package-update/config realignment.
-Each remains its own parity-loop gap. The
-read-only RPC `get_entries`/`get_tree` slice **shipped** 2026-07-14 (pipy's RPC
-baseline is now green at Pi's full 31 commands). The `agent_settled` session
-event **shipped** 2026-07-14 too (emitted at the true-idle boundary) on both the
-`--mode rpc` and `--mode json` streams; the only remaining `agent_settled`
-follow-on is the extension-surface hook.
+Extensions can now observe one payload-free `agent_settled` callback after the
+provider/tool run, retry/compaction work, and every queued continuation are
+idle. It fires after unexpected mid-run failures too, and a settled handler may
+schedule a new run without blocking on stdin. The hook remains separate from
+the mode-owned JSON/RPC event, so those streams still emit exactly one protocol
+event.
+
+### Next: durable TUI-only extension entry renderers
+
+Port Pi's `registerEntryRenderer` ownership over durable `appendEntry` records
+without broadening into dynamic tool loading, package-update/config
+realignment, or the full component/overlay stack. Each remains its own
+parity-loop gap.
 
 ### Recently shipped: OpenAI-Codex transport reliability
 

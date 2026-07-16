@@ -26,9 +26,9 @@ and its ordered
 [`implementation plan`](specs/2026-07-15-project-trust-implementation-plan.md).
 The **`before_provider_headers` extension hook has shipped** across every real
 HTTP adapter, with Bedrock mutation before SigV4 signing and one Codex snapshot
-reused across retries and WebSocket-to-SSE fallback. The next bounded runtime
-slice is the extension-surface **`agent_settled` lifecycle hook**. Keep it
-separate from durable entry rendering.
+reused across retries and WebSocket-to-SSE fallback. The extension-surface
+**`agent_settled` lifecycle hook has also shipped** at the true-idle boundary.
+The next bounded runtime slice is durable TUI-only entry rendering.
 
 GPT-5.6 Sol plus model-aware `max` thinking **shipped** (see
 [gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md) and the changelog):
@@ -48,8 +48,8 @@ not omit, uniformly across every provider and effort-label surface).
 | --- | --- | --- |
 | 1 | GPT-5.6 Sol + `max` thinking | **Shipped** 2026-07-14; generalized cross-provider clamping remains a named follow-on. |
 | 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | **Shipped** across the design, core/resource, interactive/management, and extension-surface slices. |
-| 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` **shipped on `--mode rpc` and `--mode json`** 2026-07-14 (emitted at the true-idle boundary); the only remaining follow-on is the extension-surface `agent_settled` hook. |
-| 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | `before_provider_headers` **shipped** 2026-07-16; settled lifecycle and durable entry rendering remain separate focused slices. |
+| 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` **shipped on `--mode rpc` and `--mode json`** 2026-07-14 and on the extension surface 2026-07-16, without protocol duplication. |
+| 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | `before_provider_headers` and the settled lifecycle **shipped** 2026-07-16; durable entry rendering is the remaining focused slice. |
 | 5 | Message-anchored dynamic tool loading | Real provider/extension gap; pipy changes active tools but lacks Anthropic `tool_reference` and OpenAI tool-search placement. |
 | 6 | Bare self-only `update`, `--all`, project-local `config -l` | Real CLI/package semantic drift; realign outright under the no-deprecation policy. |
 | 7 | Forced tool choice, OpenRouter session affinity, Copilot MAI routing, Bedrock/Cloudflare auth, pricing/catalog refreshes | Real provider candidates, but audit and split by adapter/request ownership rather than bundling. |
@@ -155,8 +155,8 @@ are:
   the payload-free `agent_settled` event on 2026-07-14 on both the `--mode rpc`
   and `--mode json` streams, emitted once retries, compaction retries, and queued
   continuations are fully idle (json mode is one-shot, so it settles when the run
-  returns). Only the extension-surface `agent_settled` emission remains a
-  separate follow-on.
+  returns). The extension-surface hook shipped separately on 2026-07-16 without
+  adding another protocol event.
 - Pi session flags and picker workflows now ship: `--session-id`,
   `--session-dir`, `--name/-n`, `-c`, `-r`, `--session`, `--fork`, and
   `--no-session`, with Pi-style mutual exclusion and the cross-project fork
@@ -620,11 +620,10 @@ adding another bespoke slash command.
    **shipped** 2026-07-16.
 3. RPC `get_entries`/`get_tree` and true-idle `agent_settled` — **shipped**
    2026-07-14 as independent protocol slices; JSON-mode `agent_settled` shipped
-   the same day. The extension-surface `agent_settled` emission remains an
-   independently reviewable follow-on.
-4. Extension deltas — `before_provider_headers` **shipped** 2026-07-16 across
-   the real HTTP adapters. Keep durable entry renderers and settled lifecycle as
-   separate next slices, then resume the broader
+   the same day and the extension-surface hook shipped 2026-07-16.
+4. Extension deltas — `before_provider_headers` and true-idle `agent_settled`
+   **shipped** 2026-07-16. Keep durable entry renderers as the next slice, then
+   resume the broader
    component/overlay/invalidation track.
 5. Cache-friendly dynamic tool loading — plan from the provider-local
    Anthropic/OpenAI implementations, not from the extension wrapper alone.

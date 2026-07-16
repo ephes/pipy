@@ -158,6 +158,7 @@ from pipy_harness.native.session_tree_commands import (
 )
 from pipy_harness.native.extension_runtime import (
     EVENT_AGENT_END,
+    EVENT_AGENT_SETTLED,
     EVENT_AGENT_START,
     EVENT_BEFORE_AGENT_START,
     EVENT_BEFORE_PROVIDER_HEADERS,
@@ -1140,6 +1141,12 @@ class _ExtensionAwareEmitter(AutomationEmitter):
         super().agent_end(messages, will_retry=will_retry)
         self.fire_lifecycle(EVENT_AGENT_END)
 
+    def agent_settled(self) -> None:
+        # Extension-only: JSON and RPC own their protocol `agent_settled`
+        # synthesis at mode-specific idle boundaries. Sending this through the
+        # shared AutomationEmitter would duplicate those public events.
+        self.fire_lifecycle(EVENT_AGENT_SETTLED)
+
     def turn_start(self) -> None:
         super().turn_start()
         self.fire_lifecycle(EVENT_TURN_START)
@@ -1501,6 +1508,11 @@ class NativeToolReplSession:
         extension_pending_steering_messages: list[str] = []
         extension_pending_follow_up_messages: list[str] = []
         extension_in_agent_turn = False
+        # Set immediately before an accepted agent run starts and cleared only
+        # when its extension-surface true-idle notification has fired. Keeping
+        # this independent of `agent_end` lets the session finally settle a run
+        # that exits through an unexpected provider/tool/lifecycle exception.
+        agent_settled_pending = False
         # Positional prompts from ``pipy "<prompt>"`` seed the first user turn(s)
         # before the loop blocks on stdin. They drain ahead of everything else so
         # the seeded message is the session's first user message.
@@ -1987,6 +1999,24 @@ class NativeToolReplSession:
                 custom_message.details,
             )
         extension_activation_custom_messages = ()
+
+        def drain_extension_outboxes() -> None:
+            """Move newly scheduled extension messages into session queues."""
+
+            extension_pending_messages.extend(
+                message.content
+                for message in drain_user_messages(extension_message_outbox)
+            )
+            for custom_message in drain_custom_messages(
+                extension_custom_message_outbox
+            ):
+                extension_send_message(
+                    custom_message.custom_type,
+                    custom_message.content,
+                    custom_message.display,
+                    custom_message.options,
+                    custom_message.details,
+                )
 
         def extension_set_session_name(name: str | None) -> object:
             return session_tree.append_session_info(name)
@@ -2512,20 +2542,7 @@ class NativeToolReplSession:
                 # callback) at the top of every iteration, so they are
                 # always scheduled as deterministic prompts regardless of
                 # which callback queued them.
-                extension_pending_messages.extend(
-                    message.content
-                    for message in drain_user_messages(extension_message_outbox)
-                )
-                for custom_message in drain_custom_messages(
-                    extension_custom_message_outbox
-                ):
-                    extension_send_message(
-                        custom_message.custom_type,
-                        custom_message.content,
-                        custom_message.display,
-                        custom_message.options,
-                        custom_message.details,
-                    )
+                drain_extension_outboxes()
                 pending_command = (
                     terminal_ui.take_pending_command()
                     if terminal_ui is not None
@@ -2580,6 +2597,33 @@ class NativeToolReplSession:
                     and extension_pending_messages
                 ):
                     drained = extension_pending_messages.pop(0)
+                # Pi's extension `agent_settled` is later than `agent_end`: it
+                # waits until retry/compaction work and every queued continuation
+                # have drained. This outer-loop boundary is shared by TUI,
+                # captured/print, JSON, and RPC sessions and is the last point
+                # before fresh input would block (or observe EOF).
+                if (
+                    agent_settled_pending
+                    and pending_command is None
+                    and drained is None
+                ):
+                    agent_settled_pending = False
+                    emitter.agent_settled()
+                    # A settled observer may schedule a new prompt. Make it the
+                    # next run instead of blocking on input; the new run gets its
+                    # own later settled notification.
+                    drain_extension_outboxes()
+                    if (
+                        extension_pending_steering_messages
+                        or extension_pending_follow_up_messages
+                    ):
+                        drained = (
+                            extension_pending_steering_messages.pop(0)
+                            if extension_pending_steering_messages
+                            else extension_pending_follow_up_messages.pop(0)
+                        )
+                    elif extension_pending_messages:
+                        drained = extension_pending_messages.pop(0)
                 if pending_command is not None:
                     line = f"{pending_command}\n"
                 elif drained is not None:
@@ -3976,6 +4020,7 @@ class NativeToolReplSession:
                 # message index so agent_end can report the messages this run added
                 # (the user message and everything the loop appends below).
                 agent_run_start_index = len(messages)
+                agent_settled_pending = True
                 emitter.agent_start()
                 extension_in_agent_turn = True
                 messages.append(turn_user_message)
@@ -4452,6 +4497,9 @@ class NativeToolReplSession:
                 provider_failure_message=unresolved_provider_error_message,
             )
         finally:
+            if agent_settled_pending:
+                agent_settled_pending = False
+                emitter.agent_settled()
             emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
             if terminal_ui is not None:
                 terminal_ui.clear_extension_chrome()

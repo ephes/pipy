@@ -175,6 +175,7 @@ EVENT_SESSION_START: str = "session_start"
 EVENT_SESSION_SHUTDOWN: str = "session_shutdown"
 EVENT_AGENT_START: str = "agent_start"
 EVENT_AGENT_END: str = "agent_end"
+EVENT_AGENT_SETTLED: str = "agent_settled"
 EVENT_TURN_START: str = "turn_start"
 EVENT_TURN_END: str = "turn_end"
 EVENT_INPUT: str = "input"
@@ -203,6 +204,7 @@ LIFECYCLE_EVENTS: tuple[str, ...] = (
     EVENT_SESSION_SHUTDOWN,
     EVENT_AGENT_START,
     EVENT_AGENT_END,
+    EVENT_AGENT_SETTLED,
     EVENT_TURN_START,
     EVENT_TURN_END,
 )
