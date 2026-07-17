@@ -110,6 +110,15 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    structured content; nonblank output must remain present in its Pi-faithful
    position. Testing only `""` is insufficient because providers such as Anthropic
    also reject a whitespace-only text sibling.
+   For any provider-native deferred-tool slice, define one materialization-
+   eligibility predicate and use it both to remove a definition from the
+   immediate request and to emit that definition at a later load marker. Include
+   every provider-specific prerequisite in that predicate, such as a required
+   provider correlation id: an incomplete marker that cannot materialize a tool
+   later must leave it immediate rather than make it disappear. Pin this invariant
+   in the plan and add tests for a missing prerequisite plus multiple ordered load
+   markers with overlapping tool names, proving marker order and cross-marker
+   first-load deduplication.
    For trust/provenance slices, inventory the concrete loader entry points and
    source shapes before specifying protected-resource detection or prompts.
    Protect only inputs the runtime can actually discover: a resource contributed
