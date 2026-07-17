@@ -351,12 +351,12 @@ still recognizes that extension/package parity is the largest surface by area:
    message-anchored Anthropic `tool_reference` or OpenAI
    `tool_search_call`/`tool_search_output` shapes. Research the provider-local
    request ownership before changing the extension API or tool-result schema.
-6. **Package/update/config realignment.** Pi's bare `update` is now self-only;
-   `--all` composes self plus packages, `--extensions` is packages-only, and
-   `config -l` manages project-local resource overrides. Pipy's bare update
-   still composes both halves. Realign the CLI outright under the no-deprecation
-   policy; keep remote PyPI/npm execution behind the broader supply-chain
-   decision.
+6. **Package/update realignment.** Pi's bare `update` is now self-only;
+   `--all` composes self plus packages, and `--extensions` is packages-only.
+   Pipy's project-local `config -l` and its trust integration already ship, but
+   bare update still composes both halves. Realign only the update CLI outright
+   under the no-deprecation policy; keep remote PyPI/npm execution behind the
+   broader supply-chain decision.
 7. **July provider/request-shape deltas.** Audit and split rather than bundle:
    forced tool choice, OpenRouter session affinity, Copilot MAI routing,
    Bedrock/Cloudflare ambient/API-key auth, pricing tiers, and generated catalog

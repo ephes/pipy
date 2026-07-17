@@ -1764,6 +1764,7 @@ def _check_extension_provider_catalog_wiring(checks, tmp: Path):
             workspace,
             config_home_env={"PIPY_CONFIG_HOME": str(tmp / "nocfg")},
             home_dir=workspace,
+            include_workspace_defaults=True,
         )
     )
     providers: tuple[RegisteredProvider, ...] = extension_providers(activated)

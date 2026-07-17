@@ -10,12 +10,13 @@ detailed specs in `docs/backlog.md`, `docs/pi-parity.md`, `docs/session-tree.md`
 
 This document keeps two scores distinct:
 
-1. **Legacy objective score** — the locked 50-row, script-verifiable baseline
-   used to prove that pipy had crossed the original 80% target.
+1. **Legacy objective score** — the current 49-row, script-verifiable form of
+   the original 50-row baseline used to prove that pipy had crossed the 80%
+   target. C12 was removed with the retired transcript sidecar.
 2. **Current product-surface stage** — a coarser map of the remaining Pi-class
    product surfaces after that baseline is complete.
 
-## Current Stage (refreshed 2026-07-14)
+## Current Stage (refreshed 2026-07-16)
 
 `just parity-score` currently reports:
 
@@ -31,12 +32,13 @@ It does **not** mean full product parity with `~/src/pi-mono`; the remaining
 work is concentrated in larger product platforms that the locked denominator
 intentionally underweighted or excluded.
 
-Current Pi `0.80.6` moved several formerly green baselines: settings/config is
-yellow until project trust and current config/settings semantics land; RPC is
-yellow until `get_entries`/`get_tree` and settled lifecycle parity land; and
-distribution/package polish is yellow because Pi's bare update is now self-only
-with `--all` for composition. GPT-5.6 Sol plus model-aware `max` thinking is the
-selected next provider slice. The locked score intentionally does not change.
+Current Pi `0.80.6` moved several post-baseline surfaces. Project trust,
+`get_entries`/`get_tree`, the RPC/JSON and extension `agent_settled` lifecycles,
+`before_provider_headers`, and GPT-5.6 Sol plus model-aware `max` thinking now
+ship. Distribution/package polish remains yellow because Pi's bare update is
+now self-only with `--all` for composition. Durable TUI-only extension entry
+renderers are the selected next slice. The locked score intentionally does not
+change as those larger surfaces move.
 
 ## Post-Baseline Product Surface Matrix
 
@@ -47,12 +49,12 @@ feature is deferred or spec-only.
 
 | Surface | Pipy stage | Main source / notes |
 | --- | --- | --- |
-| Native runtime, providers, model-selected tools, streaming, resources, themes, image references | ✅ baseline complete | Covered by the legacy 50-row score and `docs/pi-parity.md`. |
+| Native runtime, providers, model-selected tools, streaming, resources, themes, image references | ✅ baseline complete | Covered by the legacy 49-row score and `docs/pi-parity.md`. |
 | Product TUI/editor workflow | ✅ shipped | Inline TUI, slash menu, `/settings`, `/model`, history, paste, undo/redo, resize, `/copy`, `/scoped-models`/Ctrl+P cycling, `@` file picker, path completion, clipboard/drag image references, `!`/`!!`, thinking/model hotkeys, output/thinking folding, queued steering/follow-up, overlays, mouse-selection invariant, true provider-request cancellation, and soft-wrapped long editable prompts ship. Long typed and pasted input now wraps inside the input frame with footer/status rows pinned and cursor movement mapped across wrapped rows. Specified in `docs/tui-workflow.md`. |
 | Full session-tree workflow | ✅ shipped | The private full-transcript native session tree (`pipy_harness.native.session_tree` + `session_tree_commands`) ships and passes `scripts/parity_checks/session_tree_conformance.py --json`: full-history `/tree`, `/fork`, `/clone`, `/session`, `/name`, `/new`, `/resume`, durable `/compact`, branch summaries, startup session flags, and the archive-privacy split. Design + gate in `docs/session-tree.md`. Product export/import/share now ship through `docs/export-distribution.md`. |
 | Extension/package platform | 🟡 Pi-shaped core, not Pi-equivalent | The Python runtime ships discovery/activation, commands/shortcuts/flags, tools and core hooks, provider registration, local/managed-git packages, rich message/tool/chrome rendering, editor/theme/session helpers, custom editor integration, footer data, live UI invalidation, custom-message delivery, OAuth-provider login, project-trust APIs, `before_provider_headers`, and true-idle `agent_settled`. Current gaps include durable entry renderers, cache-friendly dynamic tool loading, full component/overlay parity, live tool-render invalidation, richer/RPC UI, and remote package ecosystems. Source: `docs/extension-api.md`. |
 | Provider/model catalog | 🟡 catalog + implemented-family product construction gated; follow-ons remain | Catalog/model resolution, auth/availability, product construction for implemented families, one-shot/startup paths, extension providers, and OpenAI-Codex timeout/retry/WebSocket behavior ship. GPT-5.6 Sol + `max` shipped 2026-07-14; later July candidates include forced tool choice, OpenRouter affinity, Copilot routing, auth/pricing/catalog changes, and live Anthropic/Copilot login UX. Spec in `docs/provider-catalog.md`. |
-| Settings/config/keybindings | 🟡 June baseline shipped; current Pi follow-ons remain | Layered settings/keybindings, scoped models, prompts/resources, reload/changelog/version, transport settings, and `max` thinking pass their gates. Current gaps include project trust/defaults/CLI overrides, project-local config management, and newer display/editor settings. Spec in `docs/settings-config.md`. |
+| Settings/config/keybindings | 🟡 core plus project trust shipped; display/editor follow-ons remain | Layered settings/keybindings, scoped models, prompts/resources, reload/changelog/version, transport settings, `max` thinking, project trust/defaults/CLI overrides, and project-local config management ship. Remaining July polish includes prompt-cache miss notices, automatic theme mode, output padding, and editor/shell refinements. Spec in `docs/settings-config.md`. |
 | JSON/RPC automation | 🟡 31-command baseline shipped | Pi-shaped JSON/print/RPC modes ship with queueing, abort, bash, session operations, and introspection, including the read-only `get_entries`/`get_tree` (full 31-command Pi vocabulary) and true-idle `agent_settled` on both the RPC and JSON streams. The independently shipped extension hook does not duplicate protocol output. Spec/gate in `docs/automation-rpc.md`. |
 | Export/share/distribution/package polish | 🟡 product export baseline shipped; update semantics drifted | HTML/JSONL export, import/resume, gist share, top-level export, and self-update planning pass their gate. Pi's bare update is now self-only with `--all` for composition; pipy still composes both halves. Remote PyPI/npm sources remain deferred. |
 | User documentation | ✅ baseline pages shipped | Quickstart/usage, providers, settings/keybindings, sessions/compaction, customization/packages, JSON/RPC/SDK, terminal setup, and tmux pages ship; keep them synchronized with current slices. |
@@ -179,7 +181,7 @@ row was dropped.
 | D7 | Themes / color schemes | ✅ | **behavior check**: `grep -q 'def select_theme' …/themes.py && grep -q '_open_theme_selector' …/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py` (drives the real `/settings` theme picker `_open_theme_selector` with a stub selector choosing `ocean` — proving the picker is wired to `select_theme`; the pipy-only `/theme` command was removed — and proves the selected palette changes the rendered chrome: default `pi` separator, `ocean` after, while NO_COLOR / non-TTY always force plain output) |
 | D8 | Image/binary attachment loading | ✅ | **behavior check**: `grep -q 'def resolve_image_attachments' …/image_attachment.py && grep -q 'attachments=' …/tool_loop_session.py && uv run python scripts/parity_checks/attachment_behavior.py` (seeds a workspace PNG, drives the tool-loop REPL with a real `@image:` prompt; proves the image reaches the provider as a bounded, type-validated attachment a multimodal adapter renders as a native image block, that non-image binary fails closed, and that the metadata-first result records only safe counters — never the raw base64) |
 
-Post-baseline source-loading flags are not part of this locked 50-row
+Post-baseline source-loading flags are not part of this legacy 49-row
 denominator. They are tracked under the extension/package platform surface
 above and gated by `uv run python
 scripts/parity_checks/extension_package_conformance.py --json`, whose
@@ -234,8 +236,8 @@ helpers were reintroduced **with** a runtime consumer: the
 `pipy_harness.native.resources` registry/dispatcher is wired into the
 bounded tool loop / product TUI (`tool_loop_session.py`). Their Verify
 commands were upgraded from `test -f path` / `grep` rubber-stamps to
-**behavior checks** that seed a resource in a temp workspace and assert the
-dispatcher resolves it to a bounded provider turn (see
+**behavior checks** that seed a resource in a trusted temp workspace and assert
+the dispatcher resolves it to a bounded provider turn (see
 `scripts/parity_score.sh`), so recreating a dormant helper file cannot
 satisfy them. (Templates are invoked as `/<name> <args>`, not
 `/template <name>`.)

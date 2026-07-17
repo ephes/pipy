@@ -2,8 +2,8 @@
 
 Status: target specification researched from the local Pi reference on
 2026-06-02; **June baseline implemented and shipped 2026-06-03**, with current
-Pi `0.80.6` follow-ons identified by the 2026-07-14 grooming pass (see the
-per-section "Shipped" notes and the conformance gate below).
+Pi `0.80.6` follow-ons refreshed through 2026-07-16 (see the per-section
+"Shipped" notes and the conformance gates below).
 
 This document defines the pipy target for real feature parity with Pi's
 settings/config/keybindings system through pipy-owned Python boundaries. It is
@@ -19,10 +19,12 @@ track was full Pi-equivalent settings capability, not a metadata-only subset; it
 June baseline is verified by `scripts/parity_checks/settings_config_conformance.py`.
 Current Pi adds a project-trust/default/CLI-override workflow, project-local
 `config -l`, prompt-cache miss notices, automatic theme mode, output padding,
-and additional editor/shell settings. The project-trust design shipped
-2026-07-15, but its runtime gate and `config -l` integration remain explicit
-follow-ons; the green June gate must not be read as coverage of them. Model-aware
-`max` thinking shipped separately on 2026-07-14.
+and additional editor/shell settings. The complete project-trust track now
+ships, including the runtime gate, saved/session decisions, CLI overrides,
+extension decision/read APIs, and `config -l` integration; it is covered by
+`scripts/parity_checks/project_trust_conformance.py`. Prompt-cache miss notices,
+automatic theme mode, output padding, and the additional editor/shell settings
+remain follow-ons. Model-aware `max` thinking shipped separately on 2026-07-14.
 The sections below keep the full target spec and add a "Shipped" note where the
 delivered behavior or a deliberate divergence needs calling out.
 

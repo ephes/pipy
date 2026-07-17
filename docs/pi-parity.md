@@ -76,8 +76,8 @@ load. Closest-ancestor decisions live in owner-private `trust.json`; global-only
 and untrusted runs retain global/explicit sources while excluding project
 settings/resources/packages. Interactive startup can save current/parent or
 session-only choices; `/trust`, guarded reload persistence, `/settings` default
-control, and package/config trust handling ship. This is an input gate, not a
-sandbox. Extension trust APIs remain.
+control, package/config trust handling, and extension decision/read APIs ship.
+This is an input gate, not a sandbox.
 
 | Pi idea | Pipy state | Notes |
 | --- | --- | --- |
@@ -118,15 +118,18 @@ sandbox. Extension trust APIs remain.
 
 ## Still To Slopfork
 
-The locked 50-feature parity criterion (see `docs/parity-criterion.md`) is now
-a **legacy baseline**: 50/50 with 10 big features green. Future roadmap work
+The current 49-row form of the legacy parity criterion (see
+`docs/parity-criterion.md`) is complete: 49/49 with 10 big features green. The
+former C12 transcript-sidecar row was removed with that retired pipy-only
+surface. Future roadmap work
 uses the post-baseline product-surface matrix in that document plus the gap
 list below, not the completed 80% score alone. D4 (skills loading), D5 (prompt templates),
 and D6 (custom slash commands) went green earlier: the discovery helpers were
 reintroduced **with** a runtime consumer (`pipy_harness.native.resources`)
 wired into the product tool-loop REPL, and their parity-score checks were
 upgraded from `test -f path` rubber-stamps to behavior checks that seed a
-resource and assert the dispatcher resolves it to a bounded provider turn.
+trusted temp-workspace resource and assert the dispatcher resolves it to a
+bounded provider turn.
 E2 (session compaction) and E3 (session branching) are now green too: live
 compaction (`/compact` plus an automatic threshold) and the branch/fork
 workflow ship through real product paths. E3's original metadata-only

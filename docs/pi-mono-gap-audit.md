@@ -51,7 +51,7 @@ not omit, uniformly across every provider and effort-label surface).
 | 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` **shipped on `--mode rpc` and `--mode json`** 2026-07-14 and on the extension surface 2026-07-16, without protocol duplication. |
 | 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | `before_provider_headers` and the settled lifecycle **shipped** 2026-07-16; durable entry rendering is the remaining focused slice. |
 | 5 | Message-anchored dynamic tool loading | Real provider/extension gap; pipy changes active tools but lacks Anthropic `tool_reference` and OpenAI tool-search placement. |
-| 6 | Bare self-only `update`, `--all`, project-local `config -l` | Real CLI/package semantic drift; realign outright under the no-deprecation policy. |
+| 6 | Bare self-only `update` and `--all` | Real CLI/package semantic drift; project-local `config -l` and its trust integration already ship. |
 | 7 | Forced tool choice, OpenRouter session affinity, Copilot MAI routing, Bedrock/Cloudflare auth, pricing/catalog refreshes | Real provider candidates, but audit and split by adapter/request ownership rather than bundling. |
 | 8 | Ctrl+X transcript copy, cache-miss notices, automatic theme mode, output padding, editor/shell refinements | Real but lower-priority product polish; `/copy` already covers the main copy workflow. |
 | Out of scope | `pi-agent` storage exports, TypeScript source compatibility, reusable `pi-tui` API parity, experimental orchestrator | Not pipy-native product parity targets. |
@@ -627,8 +627,8 @@ adding another bespoke slash command.
    component/overlay/invalidation track.
 5. Cache-friendly dynamic tool loading — plan from the provider-local
    Anthropic/OpenAI implementations, not from the extension wrapper alone.
-6. Package/update/config realignment — bare self-only update, `--all`, and
-   project-local config after trust semantics are pinned.
+6. Package/update realignment — bare self-only update and `--all`; project-local
+   `config -l` already ships with trust semantics.
 7. Provider and TUI polish — split the July request-shape/auth/catalog deltas
    and Ctrl+X copy into narrow adapter/UI slices.
 

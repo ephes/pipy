@@ -1,7 +1,7 @@
 # Pipy → Pi Real Parity Plan
 
-Status: parity plan written 2026-06-02 and refreshed 2026-07-14 against local Pi
-main `b084d2fb` (`0.80.6` plus 2026-07-13 unreleased changes) at
+Status: parity plan written 2026-06-02 and refreshed through 2026-07-16 against
+local Pi main `b084d2fb` (`0.80.6` plus 2026-07-13 unreleased changes) at
 `/Users/jochen/src/pi-mono`.
 
 This document is the single clear plan for reaching **real feature parity** with
@@ -213,7 +213,7 @@ the product state, not the spec state.
 
 | Topic | Spec | Product status | Conformance gate |
 | --- | --- | --- | --- |
-| Native runtime, providers baseline, model-selected tools, streaming, workspace context | [harness-spec.md](harness-spec.md), [pi-parity.md](pi-parity.md) | ✅ baseline | `just parity-score` (legacy 50-row) |
+| Native runtime, providers baseline, model-selected tools, streaming, workspace context | [harness-spec.md](harness-spec.md), [pi-parity.md](pi-parity.md) | ✅ baseline | `just parity-score` (legacy 49-row form; C12 retired) |
 | Full session-tree workflow (full-transcript product store, `/tree` `/fork` `/clone` `/session` `/name` `/new` `/resume` interactive picker, durable compaction, full startup session flag set incl. `--session-id`/`--session-dir`/`--name`, mutual exclusion, cross-project fork prompt) | [session-tree.md](session-tree.md) | ✅ shipped — `pipy_harness.native.session_tree` + `session_tree_commands` + `tui.run_session_picker` pass the conformance gate and the Pi comparison (full-transcript store, branch/fork/clone, interactive picker rows/actions, startup flags, archive-privacy split) | `scripts/parity_checks/session_tree_conformance.py --json` + `scripts/parity_checks/session_tree_pi_comparison.py --json` (passing) |
 | Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 substantial Pi-shaped Python runtime ships: discovery/activation, commands/shortcuts/flags, tools and hooks, provider registration, local/managed-git packages, rich message/tool/chrome rendering, editor/theme/session helpers, custom editor integration, footer data, live UI invalidation, custom-message delivery, OAuth-provider login, project-trust decision/read APIs with activation reuse, request-scoped `before_provider_headers` mutation across every real HTTP adapter, and the true-idle `agent_settled` lifecycle hook. Current Pi deltas still missing include durable entry renderers, cache-friendly dynamic tool loading, full component/overlay parity, live tool-render invalidation, richer multi-widget UI, RPC extension UI, and remote package ecosystems. | the `extension_*_conformance.py` gates plus `extension_conformance_gate.py --json` |
 | Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 catalog construction and the implemented adapter families ship; OpenAI-Codex now has the 300-second idle timeout, sanitized failures, bounded pre-event retry, and real WebSocket/SSE selection. GPT-5.6 Sol + model-aware `max` shipped (2026-07-14). Remaining July deltas include forced tool choice, OpenRouter session affinity, Copilot MAI routing, auth refinements, pricing/catalog refreshes, and live Anthropic/Copilot login UX. | `scripts/parity_checks/provider_catalog_conformance.py --json` (items 1-25) |
@@ -236,7 +236,8 @@ core Pi single-agent feature. It needs its own target spec before any work.
 
 Ordering reflects dependencies and reviewability, not a hard schedule. This
 sequence was groomed on 2026-07-14 against local Pi main `b084d2fb` after the
-OpenAI-Codex transport closeout.
+OpenAI-Codex transport closeout and refreshed through the 2026-07-16 trust and
+extension-lifecycle slices.
 
 1. **GPT-5.6 Sol + model-aware `max` thinking**
    ([gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md)) — **shipped** 2026-07-14: the Sol
@@ -247,8 +248,8 @@ OpenAI-Codex transport closeout.
    interactive/package-management slice shipped 2026-07-15
    ([design](specs/2026-07-15-project-trust-design.md),
    [implementation plan](specs/2026-07-15-project-trust-implementation-plan.md)).
-   Extension decision/read APIs remain the next separate slice so extension
-   policy is not mixed with the shipped package UI.
+   Extension decision/read APIs shipped separately on 2026-07-16, completing
+   the tracked trust surface without mixing extension policy into package UI.
 3. **RPC current delta** ([automation-rpc.md](automation-rpc.md)) — **shipped**
    2026-07-14: Pi's read-only `get_entries`/`get_tree` commands and true-idle
    `agent_settled` on both the `--mode rpc` and `--mode json` streams. Residual
@@ -264,9 +265,9 @@ OpenAI-Codex transport closeout.
 5. **Cache-friendly dynamic tool loading** — plan from Pi's provider-local
    Anthropic `tool_reference` and OpenAI tool-search implementations before
    changing pipy's extension or tool-result contracts.
-6. **Package/update/config realignment** — make bare update self-only, add
-   `--all`, and add project-local config semantics after the trust boundary is
-   defined. Remote PyPI/npm execution remains behind a supply-chain policy.
+6. **Package/update realignment** — make bare update self-only and add `--all`.
+   Project-local `config -l` and its trust integration already ship. Remote
+   PyPI/npm execution remains behind a supply-chain policy.
 7. **Provider and TUI polish** — audit and split forced tool choice, OpenRouter
    affinity, Copilot routing, auth/catalog changes, and Ctrl+X copy into narrow
    owner-specific slices.
@@ -303,6 +304,6 @@ Real parity is reached when:
 - User-facing documentation covers the same product surfaces as Pi's docs, with
   shipped behavior separated from target specs ([user-documentation.md](user-documentation.md)).
 
-Until then, `docs/parity-criterion.md` keeps the legacy 50-row baseline score
+Until then, `docs/parity-criterion.md` keeps the legacy 49-row baseline score
 for regression tracking, but the post-baseline matrix there and this plan define
 the real remaining work.
