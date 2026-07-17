@@ -1518,6 +1518,23 @@ def test_openai_responses_omits_reasoning_when_unset(tmp_path):
     assert "reasoning" not in http.requests[-1]["body"]
 
 
+def test_openai_tool_search_compat_is_explicit_boolean_only(tmp_path):
+    cases = (
+        ({"supportsToolSearch": True}, True),
+        ({"supportsToolSearch": False}, False),
+        ({"supportsToolSearch": "true"}, False),
+        ({}, False),
+        (None, False),
+    )
+    for compat, expected in cases:
+        resolved = _resolve(
+            _responses_spec(compat=compat), tmp_path, {"OPENAI_API_KEY": "ok"}
+        )
+        assert resolved.supports_tool_search is expected
+        provider = build_provider(resolved, http_client=CapturingHTTPClient())
+        assert provider.supports_tool_search is expected
+
+
 def test_mistral_catalog_construction(tmp_path):
     resolved = _resolve(_mistral_spec(), tmp_path, {"MISTRAL_API_KEY": "mk"})
     http = CapturingHTTPClient()

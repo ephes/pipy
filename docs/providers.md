@@ -32,6 +32,13 @@ The built-in catalog includes rows for the implemented adapter families:
 Package or per-run extensions may add temporary provider rows for the current
 process. `models.json` may also add custom providers and models.
 
+Supported Anthropic Claude 4.5+ and selected OpenAI Responses/Codex Responses
+models preserve prompt-cache prefixes when an extension tool activates new
+tools: the definitions load at that tool result instead of moving into the
+earlier request prefix. Custom models opt in explicitly with
+`compat.supportsToolReferences` (Anthropic) or `compat.supportsToolSearch`
+(Responses); both features default off for unverified endpoints.
+
 ## Choose a provider and model
 
 Startup defaults to the deterministic fake provider so a checkout can smoke-test

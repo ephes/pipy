@@ -38,6 +38,10 @@ from pipy_harness.native._provider_helpers import (
     utc_now,
 )
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
+from pipy_harness.native.deferred_tools import (
+    responses_tool_search_items,
+    split_deferred_tools,
+)
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
@@ -55,6 +59,7 @@ from pipy_harness.native.tools.messages import (
     ToolResultMessage,
     UserMessage,
 )
+from pipy_harness.native.tools.base import ToolDefinition
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -733,6 +738,7 @@ class OpenAICodexResponsesProvider:
     transport_state: CodexTransportState = field(default_factory=CodexTransportState)
     request_id_factory: Callable[[], str] = field(default_factory=lambda: lambda: uuid.uuid4().hex)
     supports_tool_calls: bool = True
+    supports_tool_search: bool = False
     # Mapped reasoning effort for the request's ``reasoning.effort`` field. Set by
     # the REPL provider boundary from the current model + thinking level (clamped
     # and mapped); ``None`` omits ``effort`` and keeps the Pi-forced summary only.
@@ -795,10 +801,18 @@ class OpenAICodexResponsesProvider:
                 ),
             )
 
+        immediate_tools, deferred_tools = split_deferred_tools(
+            request,
+            enabled=self.supports_tool_search,
+            require_result_correlation=True,
+        )
         body: dict[str, Any] = {
             "model": self.model_id,
             "instructions": request.system_prompt,
-            "input": _responses_input_messages(request),
+            "input": _responses_input_messages(
+                request,
+                deferred_tools={tool.name: tool for tool in deferred_tools},
+            ),
             "store": False,
             "stream": True,
             "text": {"verbosity": "low"},
@@ -811,10 +825,10 @@ class OpenAICodexResponsesProvider:
             "tool_choice": "auto",
             "parallel_tool_calls": True,
         }
-        if request.available_tools:
+        if immediate_tools:
             body["tools"] = [
                 serialize_tool_for_responses(tool)
-                for tool in request.available_tools
+                for tool in immediate_tools
             ]
         # Pi fires the extension hook once against request-scoped additional
         # headers, then each transport derives its required auth/protocol fields.
@@ -1020,11 +1034,24 @@ class OpenAICodexResponsesProvider:
         )
 
 
-def _responses_input_messages(request: ProviderRequest) -> list[dict[str, object]]:
+def _responses_input_messages(
+    request: ProviderRequest,
+    *,
+    deferred_tools: Mapping[str, ToolDefinition] | None = None,
+) -> list[dict[str, object]]:
     if request.messages:
         items: list[dict[str, object]] = []
+        loaded_tool_names: set[str] = set()
         for envelope in request.messages:
             items.extend(_envelope_to_input_items(envelope))
+            if isinstance(envelope, ToolResultMessage) and deferred_tools:
+                items.extend(
+                    responses_tool_search_items(
+                        envelope,
+                        deferred_tools=deferred_tools,
+                        loaded_tool_names=loaded_tool_names,
+                    )
+                )
         return items
     messages: list[dict[str, object]] = []
     if request.no_tool_repl_context is not None:

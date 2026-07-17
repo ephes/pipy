@@ -79,6 +79,9 @@ class ResolvedConstruction:
     # bounded first-party Claude 4.5+ detector. Only the anthropic adapter uses
     # this value.
     supports_tool_references: bool = False
+    # OpenAI Responses client tool search is an explicit per-model compat bit.
+    # Only openai-responses is built here; Codex receives it in repl_state.
+    supports_tool_search: bool = False
     error: str | None = None
 
 
@@ -273,6 +276,11 @@ def resolve_construction(
         if spec.api == "anthropic-messages"
         else False
     )
+    supports_tool_search = (
+        resolve_openai_tool_search(spec)
+        if spec.api == "openai-responses"
+        else False
+    )
 
     return ResolvedConstruction(
         provider_name=spec.provider_name,
@@ -286,6 +294,7 @@ def resolve_construction(
         reasoning_effort=reasoning_effort,
         thinking_disabled=thinking_disabled,
         supports_tool_references=supports_tool_references,
+        supports_tool_search=supports_tool_search,
     )
 
 
@@ -310,6 +319,14 @@ def _resolve_anthropic_tool_references(spec: NativeModelSpec) -> bool:
     raw_minor = match.group(2)
     minor = int(raw_minor) if raw_minor is not None and len(raw_minor) < 8 else 0
     return major > 4 or (major == 4 and minor >= 5)
+
+
+def resolve_openai_tool_search(spec: NativeModelSpec) -> bool:
+    """Resolve Pi's explicit-only ``compat.supportsToolSearch`` flag."""
+
+    compat = spec.compat if isinstance(spec.compat, Mapping) else {}
+    explicit = compat.get("supportsToolSearch")
+    return explicit if isinstance(explicit, bool) else False
 
 
 _ENV_PLACEHOLDER = re.compile(r"\{([A-Z_][A-Z0-9_]*)\}")
@@ -676,6 +693,7 @@ def build_provider(
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
+            supports_tool_search=resolved.supports_tool_search,
             **http_kwargs,  # type: ignore[arg-type]
         )
 

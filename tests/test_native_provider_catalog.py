@@ -72,6 +72,23 @@ def test_gpt_5_6_sol_row_pinned():
     assert catalog.find("openai-codex", "gpt-5.6") is None
 
 
+def test_responses_tool_search_compat_matches_pi_rows() -> None:
+    catalog = build_builtin_catalog()
+    supported = {
+        ("openai", "gpt-5.4"),
+        ("openai", "gpt-5.5"),
+        ("openai-codex", "gpt-5.4"),
+        ("openai-codex", "gpt-5.5"),
+        ("openai-codex", "gpt-5.6-sol"),
+    }
+    for provider in ("openai", "openai-codex"):
+        for row in catalog.models_for(provider):
+            compat = row.compat if isinstance(row.compat, dict) else {}
+            assert compat.get("supportsToolSearch", False) is (
+                (provider, row.model_id) in supported
+            )
+
+
 def test_default_model_per_provider_covers_every_implemented_provider():
     for provider in IMPLEMENTED_PROVIDERS:
         assert provider in default_model_per_provider

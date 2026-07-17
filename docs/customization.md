@@ -183,8 +183,9 @@ parity — theme selection lives in `/settings`.)
   Pi-equivalent; richer extension UI and remote package sources are still in
   progress. An extension tool may activate more registered tools with
   `ctx.set_active_tools(...)`; purely additive changes preserve the cached tool
-  prefix on supported Anthropic Claude 4.5+ models, while other models safely
-  receive the complete current tool list.
+  prefix on supported Anthropic Claude 4.5+ and selected OpenAI/Codex Responses
+  models, while unsupported models safely receive the complete current tool
+  list.
 - **Custom providers and models** are configured through `models.json` and the
   provider catalog. See [Providers and models](providers.md).
 

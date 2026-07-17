@@ -13,9 +13,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   provider-agnostic load-point marker on that tool result; supported first-party
   Anthropic Claude 4.5+ requests keep the new definitions out of the immediate
   cache prefix with `defer_loading: true` and load them at the result with
-  `tool_reference`, while older/custom-disabled models and removals safely send
-  the complete current tool list. OpenAI Responses tool-search and Kimi
-  deferred-tool shapes remain separate follow-ons.
+  `tool_reference`, while supported OpenAI Responses and OpenAI Codex Responses
+  models now load them at the same durable result with completed client
+  `tool_search_call`/`tool_search_output` items. Older/custom-disabled models
+  and removals safely send the complete current tool list. Kimi Chat
+  Completions deferred tools remain a separate follow-on.
 - Python extensions can now register Pi-shaped durable entry renderers with
   `api.register_entry_renderer(...)`. `ctx.append_entry(...)` records receive a
   live product-TUI component with full stored-entry metadata plus current

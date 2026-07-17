@@ -45,7 +45,8 @@ the focused pytest suites.
     catalog baseUrl/model/auth/headers, runtime --api-key, routing/thinking,
     legacy URL bypass, and no secret in the turn result;
 19. no secret/token/Authorization/PKCE/auth-URL value in any archive surface;
-20. Tier 1 non-completions construction (anthropic/openai-responses/mistral);
+20. Tier 1 non-completions construction (anthropic/openai-responses/mistral),
+    including explicit OpenAI Responses tool-search compat;
 21. Tier 2 non-completions construction (google/azure/cloudflare);
 22. Tier 3 non-completions construction (bedrock/vertex) plus codex exception;
 23. pipy run one-shot construction uses the catalog-backed boundary;
@@ -1139,6 +1140,7 @@ def _check_tier1_construction(checks, tmp: Path):
                         "baseUrl": "https://oai.example/v1",
                         "apiKey": "ork",
                         "api": "openai-responses",
+                        "compat": {"supportsToolSearch": True},
                         "models": [
                             {"id": "o-pro", "reasoning": True,
                              "thinkingLevelMap": {"high": "high"}}
@@ -1151,14 +1153,23 @@ def _check_tier1_construction(checks, tmp: Path):
     )
     r_state = _state(tmp, r_path, {})
     r_spec = r_state.find("acme-oai", "o-pro")
+    r_resolved = resolve_construction(
+        r_spec,
+        store=r_state.auth_store,
+        env=r_state._env(),
+        runtime_api_key=None,
+        models_json_auth=r_state._models_json_auth("acme-oai"),
+        thinking_level="high",
+    )
     r_sent, _ = _construct_and_capture(r_state, r_spec, runtime_api_key=None, thinking_level="high")
     responses_ok = (
         r_sent["url"] == "https://oai.example/v1/responses"
         and r_sent["body"]["model"] == "o-pro"
         and r_sent["headers"]["Authorization"] == "Bearer ork"
         and r_sent["body"]["reasoning"] == {"effort": "high"}
+        and r_resolved.supports_tool_search is True
     )
-    checks.append(Check("20_openai_responses_construction", responses_ok, "openai-responses: catalog baseUrl/Bearer/reasoning.effort"))
+    checks.append(Check("20_openai_responses_construction", responses_ok, "openai-responses: catalog baseUrl/Bearer/reasoning.effort/tool-search compat"))
 
     # 20c: mistral -> Authorization Bearer, /chat/completions.
     m_path = tmp / "tier1_mistral.json"

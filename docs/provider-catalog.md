@@ -219,14 +219,17 @@ Remaining adapter/product follow-ons:
   (amazon-bedrock.ts:943-949) — it has no disabled shape — and pipy's bedrock
   adapter already omits `thinking` when no effort is resolved, so it is already
   Pi-correct.
-- Anthropic-native deferred tools have shipped on the same catalog construction
+- Cache-friendly deferred tools have shipped on the catalog/product
   path. Explicit Boolean `compat.supportsToolReferences` wins; otherwise only
   first-party non-Haiku Claude 4.5+ ids enable the feature. Additive extension-
   tool activation persists a tool-result load point, late definitions carry
   `defer_loading: true`, and the marked result emits `tool_reference` while its
   ordinary output moves to sibling text. Old/Haiku/custom-default models keep
-  the complete ordinary tool list. OpenAI Responses tool search and Kimi Chat
-  Completions deferred tools remain separate provider-owned slices.
+  the complete ordinary tool list. For OpenAI Responses and Codex Responses,
+  explicit Boolean `compat.supportsToolSearch` defaults false; supported rows
+  keep late definitions out of top-level `tools` and add completed client
+  `tool_search_call`/`tool_search_output` items after the marked result. Kimi
+  Chat Completions deferred tools remain a separate provider-owned slice.
 - Azure URL/api-version parity has shipped: the azure adapter now matches Pi's
   `AzureOpenAI` SDK v1 surface. The default api-version is `v1` (overridable by
   `AZURE_OPENAI_API_VERSION`); Azure-host base URLs (`*.openai.azure.com`,

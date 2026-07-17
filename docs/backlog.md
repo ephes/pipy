@@ -347,9 +347,10 @@ still recognizes that extension/package parity is the largest surface by area:
    UI, and RPC extension-UI channel remain strategic extension follow-ons.
 5. **Cache-friendly dynamic tool loading.** The provider-agnostic durable
    load-point marker and supported Anthropic `defer_loading` / message-anchored
-   `tool_reference` path **shipped** 2026-07-17. Pipy still lacks OpenAI
-   `tool_search_call`/`tool_search_output` placement and Kimi's Chat Completions
-   deferred-tool shape; keep those as independent provider-owned slices.
+   `tool_reference` path **shipped** 2026-07-17. OpenAI/Codex Responses
+   `tool_search_call`/`tool_search_output` placement has now shipped too. Kimi's
+   Chat Completions deferred-tool shape remains an independent provider-owned
+   slice.
 6. **Package/update realignment.** Pi's bare `update` is now self-only;
    `--all` composes self plus packages, and `--extensions` is packages-only.
    Pipy's project-local `config -l` and its trust integration already ship, but
@@ -1535,11 +1536,15 @@ full-current-tool fallback. The reviewed design and implementation plan are in
 and
 [`docs/plans/2026-07-17-anthropic-dynamic-tool-loading-implementation-plan.md`](plans/2026-07-17-anthropic-dynamic-tool-loading-implementation-plan.md).
 
-### Next: OpenAI Responses dynamic tool search
+### OpenAI Responses dynamic tool search — SHIPPED (2026-07-17)
 
-Port Pi's provider-owned `tool_search_call` / `tool_search_output` placement on
-top of the shipped durable load-point marker. Keep Kimi Chat Completions,
-package-update realignment, and broader extension UI as separate gaps.
+Supported OpenAI Responses and OpenAI Codex Responses rows now keep dynamically
+activated definitions out of top-level `tools` and place deterministic completed
+client `tool_search_call` / `tool_search_output` pairs immediately after the
+durable marked result. Explicit Boolean `compat.supportsToolSearch` wins and
+defaults false; unsupported rows keep the safe full current-tool list. Kimi Chat
+Completions, package-update realignment, and broader extension UI remain separate
+gaps.
 
 ### Recently shipped: OpenAI-Codex transport reliability
 

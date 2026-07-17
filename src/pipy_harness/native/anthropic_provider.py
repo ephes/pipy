@@ -22,6 +22,7 @@ from pipy_harness.native._provider_helpers import (
 )
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.deferred_tools import split_deferred_tools
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.tools.messages import (
@@ -29,7 +30,6 @@ from pipy_harness.native.tools.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from pipy_harness.native.tools.base import ToolDefinition
 from pipy_harness.native.usage import (
     NORMALIZED_PROVIDER_USAGE_KEYS,
     normalize_provider_usage,
@@ -205,7 +205,7 @@ class AnthropicProvider:
                 ),
             )
 
-        immediate_tools, deferred_tools = _split_deferred_tools(
+        immediate_tools, deferred_tools = split_deferred_tools(
             request,
             enabled=self.supports_tool_references,
         )
@@ -315,36 +315,6 @@ class AnthropicProvider:
             },
             tool_calls=result.tool_calls,
         )
-
-
-def _split_deferred_tools(
-    request: ProviderRequest,
-    *,
-    enabled: bool,
-) -> tuple[tuple[ToolDefinition, ...], tuple[ToolDefinition, ...]]:
-    """Split current definitions using durable message load-point markers."""
-
-    unique_tools: dict[str, ToolDefinition] = {}
-    for tool in request.available_tools:
-        unique_tools[tool.name] = tool
-    if not enabled:
-        return tuple(unique_tools.values()), ()
-
-    deferred_names: set[str] = set()
-    used_names: set[str] = set()
-    for message in request.messages:
-        if isinstance(message, AssistantMessage):
-            used_names.update(call.tool_name for call in message.tool_calls)
-        elif isinstance(message, ToolResultMessage):
-            for name in message.added_tool_names:
-                if name not in used_names:
-                    deferred_names.add(name)
-
-    immediate: list[ToolDefinition] = []
-    deferred: list[ToolDefinition] = []
-    for name, tool in unique_tools.items():
-        (deferred if name in deferred_names else immediate).append(tool)
-    return tuple(immediate), tuple(deferred)
 
 
 def _messages_payload(

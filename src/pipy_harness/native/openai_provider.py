@@ -14,6 +14,10 @@ from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_responses, extract_responses_tool_calls, urlopen_read_cancellable
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.deferred_tools import (
+    responses_tool_search_items,
+    split_deferred_tools,
+)
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.tools.messages import (
@@ -21,6 +25,7 @@ from pipy_harness.native.tools.messages import (
     ToolResultMessage,
     UserMessage,
 )
+from pipy_harness.native.tools.base import ToolDefinition
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
@@ -92,6 +97,7 @@ class OpenAIResponsesProvider:
     # mapped thinking value, placed in the Responses ``reasoning.effort`` key.
     extra_headers: Mapping[str, str] = field(default_factory=dict, repr=False)
     reasoning_effort: str | None = None
+    supports_tool_search: bool = False
 
     @property
     def name(self) -> str:
@@ -132,16 +138,24 @@ class OpenAIResponsesProvider:
                 ),
             )
 
+        immediate_tools, deferred_tools = split_deferred_tools(
+            request,
+            enabled=self.supports_tool_search,
+            require_result_correlation=True,
+        )
         body: dict[str, Any] = {
             "model": self.model_id,
             "instructions": request.system_prompt,
-            "input": _responses_input(request),
+            "input": _responses_input(
+                request,
+                deferred_tools={tool.name: tool for tool in deferred_tools},
+            ),
             "store": False,
         }
-        if request.available_tools:
+        if immediate_tools:
             body["tools"] = [
                 serialize_tool_for_responses(tool)
-                for tool in request.available_tools
+                for tool in immediate_tools
             ]
         # Responses-native thinking: the mapped effort goes in ``reasoning.effort``.
         if self.reasoning_effort is not None:
@@ -195,11 +209,24 @@ class OpenAIResponsesProvider:
         )
 
 
-def _responses_input(request: ProviderRequest) -> str | list[dict[str, object]]:
+def _responses_input(
+    request: ProviderRequest,
+    *,
+    deferred_tools: Mapping[str, ToolDefinition] | None = None,
+) -> str | list[dict[str, object]]:
     if request.messages:
         items: list[dict[str, object]] = []
+        loaded_tool_names: set[str] = set()
         for envelope in request.messages:
             items.extend(_envelope_to_input_items(envelope))
+            if isinstance(envelope, ToolResultMessage) and deferred_tools:
+                items.extend(
+                    responses_tool_search_items(
+                        envelope,
+                        deferred_tools=deferred_tools,
+                        loaded_tool_names=loaded_tool_names,
+                    )
+                )
         _attach_images(items, request)
         return items
     if request.no_tool_repl_context is None or not request.no_tool_repl_context.exchanges:

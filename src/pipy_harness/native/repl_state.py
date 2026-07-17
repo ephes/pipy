@@ -243,38 +243,41 @@ class NativeReplProviderState:
             if catalog_provider is not None:
                 return catalog_provider
         provider = self.provider_factory(selection)
-        return self._apply_codex_reasoning_effort(selection, provider)
+        return self._apply_codex_catalog_options(selection, provider)
 
-    def _apply_codex_reasoning_effort(
+    def _apply_codex_catalog_options(
         self, selection: NativeModelSelection, provider: ProviderPort
     ) -> ProviderPort:
-        """Inject the clamped+mapped thinking effort into a legacy Codex provider.
+        """Inject selected catalog options into a legacy Codex provider.
 
         The Codex adapter is built through the legacy factory (not the catalog
-        construction boundary), so the current thinking level does not reach it
-        automatically. Resolve it here, each build, so Shift+Tab / extension /
-        model-switch changes take effect on the next turn. Mirrors Pi's per-
-        request ``clampThinkingLevel`` inside ``openai-codex-responses.ts``. The
-        Codex provider is a frozen dataclass, so a new instance is returned with
-        the effort applied (every other field, e.g. the injected retry policy,
-        is preserved).
+        construction boundary), so thinking and ``supportsToolSearch`` do not
+        reach it automatically. Resolve both on each build. The frozen provider
+        is replaced while preserving every other field, including retry policy.
         """
 
-        if selection.provider_name != "openai-codex" or not self.thinking_level:
-            return provider
-        if not hasattr(provider, "reasoning_effort"):
+        if selection.provider_name != "openai-codex":
             return provider
         spec = self._spec_for(selection)
         if spec is None:
             return provider
-        from pipy_harness.native.thinking import resolve_codex_effort
+        from pipy_harness.native.provider_construction import resolve_openai_tool_search
 
-        effort = resolve_codex_effort(spec, self.thinking_level)
-        if effort is None:
+        changes: dict[str, object] = {}
+        if hasattr(provider, "supports_tool_search"):
+            changes["supports_tool_search"] = resolve_openai_tool_search(spec)
+        if self.thinking_level and hasattr(provider, "reasoning_effort"):
+            from pipy_harness.native.thinking import resolve_codex_effort
+
+            effort = resolve_codex_effort(spec, self.thinking_level)
+            if effort is not None:
+                changes["reasoning_effort"] = effort
+        if not changes:
             return provider
         if dataclasses.is_dataclass(provider) and not isinstance(provider, type):
-            return dataclasses.replace(provider, reasoning_effort=effort)  # type: ignore[type-var]
-        provider.reasoning_effort = effort  # type: ignore[attr-defined]
+            return dataclasses.replace(provider, **changes)  # type: ignore[type-var]
+        for name, value in changes.items():
+            setattr(provider, name, value)
         return provider
 
     def _spec_for(self, selection: NativeModelSelection):

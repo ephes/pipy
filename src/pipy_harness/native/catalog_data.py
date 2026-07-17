@@ -57,6 +57,7 @@ def _m(
     cost: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
     context_window: int = 128_000,
     max_tokens: int = 16_384,
+    compat: dict[str, object] | None = None,
 ) -> NativeModelSpec:
     return NativeModelSpec(
         provider_name=provider,
@@ -72,6 +73,7 @@ def _m(
         ),
         context_window=context_window,
         max_tokens=max_tokens,
+        compat=dict(compat) if compat is not None else None,
     )
 
 
@@ -137,11 +139,13 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
     _m(
         "openai", "gpt-5.5", "GPT-5.5", "openai-responses",
         reasoning=True, thinking=_REASONING_LEVELS_XHIGH, image=True,
+        compat={"supportsToolSearch": True},
         cost=(1.25, 10.0, 0.125, 0.0), context_window=400_000, max_tokens=128_000,
     ),
     _m(
         "openai", "gpt-5.4", "GPT-5.4", "openai-responses",
         reasoning=True, thinking=_REASONING_LEVELS, image=True,
+        compat={"supportsToolSearch": True},
         cost=(1.25, 10.0, 0.125, 0.0), context_window=400_000, max_tokens=128_000,
     ),
     _m(
@@ -162,11 +166,13 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
     _m(
         "openai-codex", "gpt-5.5", "GPT-5.5 (Codex/ChatGPT)", "openai-codex-responses",
         reasoning=True, thinking=_REASONING_LEVELS_XHIGH, image=True,
+        compat={"supportsToolSearch": True},
         cost=(0.0, 0.0, 0.0, 0.0), context_window=400_000, max_tokens=128_000,
     ),
     _m(
         "openai-codex", "gpt-5.4", "GPT-5.4 (Codex/ChatGPT)", "openai-codex-responses",
         reasoning=True, thinking=_REASONING_LEVELS, image=True,
+        compat={"supportsToolSearch": True},
         context_window=400_000, max_tokens=128_000,
     ),
     _m(
@@ -181,6 +187,7 @@ BUILTIN_MODEL_ROWS: tuple[NativeModelSpec, ...] = (
     _m(
         "openai-codex", "gpt-5.6-sol", "GPT-5.6 Sol (Codex/ChatGPT)",
         "openai-codex-responses", reasoning=True, thinking=_SOL_THINKING,
+        compat={"supportsToolSearch": True},
         image=True, cost=(0.0, 0.0, 0.0, 0.0),
         context_window=372_000, max_tokens=128_000,
     ),

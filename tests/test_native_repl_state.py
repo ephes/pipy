@@ -603,6 +603,14 @@ def test_codex_provider_receives_mapped_effort_and_keeps_retry_policy(tmp_path):
     assert provider.reasoning_effort == "max"
     # the legacy-factory-injected retry policy must survive effort injection
     assert provider.retry_policy is policy
+    assert provider.supports_tool_search is True
+
+
+def test_codex_tool_search_compat_is_model_specific_without_thinking(tmp_path):
+    supported, _ = _codex_repl_state(tmp_path, "gpt-5.4", None)
+    unsupported, _ = _codex_repl_state(tmp_path, "gpt-5.1-codex", None)
+    assert supported.current_provider().supports_tool_search is True
+    assert unsupported.current_provider().supports_tool_search is False
 
 
 def test_codex_provider_maps_minimal_to_low(tmp_path):

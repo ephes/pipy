@@ -25,9 +25,9 @@ The 2026-07-17 Pi refresh identified additional gaps beyond the older
 rich-UI list. Project-trust extension decisions/reads,
 `before_provider_headers`, the true-idle `agent_settled` lifecycle hook, and
 durable TUI-only entry renderers have now shipped. Cache-friendly dynamic tool
-loading now also ships for supported Anthropic Messages models through durable
-tool-result load points, `defer_loading`, and `tool_reference`; OpenAI Responses
-tool search and Kimi's Chat Completions shape remain provider-owned follow-ons.
+loading now also ships for supported Anthropic Messages and OpenAI Responses /
+Codex Responses models through durable tool-result load points. Kimi's Chat
+Completions shape remains the next independent provider-owned follow-on.
 Treat each provider shape as a separate slice; do not fold them into the broad
 custom-component track.
 
@@ -1573,9 +1573,16 @@ and the live `scripts/tmux_answer_verify.sh`.
     current active set. Native session JSONL preserves the summary-safe tool
     names for resume/provider switching. Gate:
     `scripts/parity_checks/extension_live_session_conformance.py --json` plus
-    focused Anthropic construction/request tests. OpenAI Responses
-    `tool_search_call`/`tool_search_output` and Kimi deferred tools remain
-    independent provider-owned slices.
+    focused Anthropic construction/request tests.
+31. OpenAI Responses dynamic tool search — **landed**: explicit Boolean
+    `compat.supportsToolSearch` opts selected Responses models in (default
+    false). Their top-level `tools` keeps only immediate definitions; each
+    marked `function_call_output` is followed by a deterministic completed
+    client `tool_search_call`/`tool_search_output` pair carrying the late
+    definitions with `strict: false` and `defer_loading: true`. OpenAI Codex
+    uses the full `call_id|item_id` correlation to derive the stable search id,
+    and retries/fallback reuse the same prebuilt body. Kimi deferred tools
+    remain an independent provider-owned slice.
 
 ## Open Questions
 

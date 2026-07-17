@@ -33,8 +33,10 @@ from pipy_harness.native.openai_codex_provider import (
     UrllibSseHTTPClient,
 )
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
-from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.models import ProviderRequest, ProviderToolCall
 from pipy_harness.native.retry import RetryPolicy
+from pipy_harness.native.tools import AssistantMessage, ToolResultMessage
+from pipy_harness.native.tools.base import ToolDefinition
 
 
 def _credentials() -> OpenAICodexCredentials:
@@ -226,6 +228,7 @@ def _success_response(text: str = "ok") -> SseResponse:
 class _SequenceHTTPClient:
     outcomes: list[SseResponse | BaseException]
     calls: int = 0
+    bodies: list[dict[str, Any]] = field(default_factory=list)
 
     def post_sse(
         self,
@@ -236,7 +239,8 @@ class _SequenceHTTPClient:
         timeout_seconds: float | None,
         cancel_token: object = None,
     ) -> SseResponse:
-        del url, headers, body, timeout_seconds, cancel_token
+        del url, headers, timeout_seconds, cancel_token
+        self.bodies.append(dict(body))
         outcome = self.outcomes[self.calls]
         self.calls += 1
         if isinstance(outcome, BaseException):
@@ -251,6 +255,7 @@ def _provider(
     sleeps: list[float] | None = None,
     retry_sleep: object | None = None,
     retry_clock: object | None = None,
+    supports_tool_search: bool = False,
 ) -> OpenAICodexResponsesProvider:
     sleep_log = sleeps if sleeps is not None else []
     kwargs: dict[str, Any] = {}
@@ -270,6 +275,7 @@ def _provider(
         ),
         retry_sleep=retry_sleep if callable(retry_sleep) else sleep_log.append,
         retry_jitter=_zero_jitter,
+        supports_tool_search=supports_tool_search,
         **kwargs,
     )
 
@@ -420,6 +426,51 @@ def test_pre_event_transport_failures_retry_without_duplicate_output(
     assert client.calls == 2
     assert sleeps == [1.0]
     assert chunks == ["ok"]
+
+
+def test_tool_search_body_and_derived_id_are_stable_across_retry() -> None:
+    first = OpenAICodexTransportError(
+        "OpenAI Codex transport failed while waiting for response headers.",
+        metadata={"phase": "headers", "retryable": True, "transport": "sse"},
+    )
+    client = _SequenceHTTPClient([first, _success_response()])
+    late_tool = ToolDefinition(
+        name="late_tool",
+        description="late tool",
+        input_schema={"type": "object", "properties": {}},
+    )
+    request = ProviderRequest(
+        system_prompt="sys",
+        user_prompt="load",
+        provider_name="openai-codex",
+        model_id="gpt-test",
+        cwd=Path("."),
+        messages=(
+            AssistantMessage(
+                tool_calls=(
+                    ProviderToolCall("call_loader|fc_loader", "loader", "{}"),
+                )
+            ),
+            ToolResultMessage(
+                tool_request_id="pipy-tool-load",
+                output_text="loaded",
+                provider_correlation_id="call_loader|fc_loader",
+                added_tool_names=("late_tool",),
+            ),
+        ),
+        available_tools=(late_tool,),
+    )
+
+    result = _provider(client, supports_tool_search=True).complete(request)
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert client.bodies[0] == client.bodies[1]
+    search_ids = [
+        item["call_id"]
+        for item in client.bodies[0]["input"]
+        if item.get("type") == "tool_search_call"
+    ]
+    assert search_ids == ["pi_tool_load_frjjneqko5wi"]
 
 
 @pytest.mark.parametrize(
