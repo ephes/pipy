@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'supersedable' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  PYTHONUNBUFFERED: "1"
+  UV_FROZEN: "1"
+  UV_NO_PROGRESS: "1"
+
+jobs:
+  quality:
+    name: Lint, types, and docs (Python 3.14)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.14"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.14"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: py314-quality
+      - name: Install just
+        uses: taiki-e/install-action@13608cbb45b01feb47ef444ab1a42dc41ad56f1a # v2.79.11
+        with:
+          tool: just@1.50.0
+          fallback: none
+      - name: Sync locked dependencies
+        run: uv sync --all-groups
+      - name: Verify Python selection
+        run: uv run python -c 'import sys; assert sys.version_info[:2] == (3, 14), sys.version'
+      - name: Lint
+        run: just lint
+      - name: Type check
+        run: just typecheck
+      - name: Build documentation
+        run: just docs-build
+
+  test:
+    name: Full tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: py${{ matrix.python-version }}-test
+      - name: Install just
+        uses: taiki-e/install-action@13608cbb45b01feb47ef444ab1a42dc41ad56f1a # v2.79.11
+        with:
+          tool: just@1.50.0
+          fallback: none
+      - name: Sync locked dependencies
+        run: uv sync --all-groups
+      - name: Verify Python selection
+        env:
+          EXPECTED_PYTHON: ${{ matrix.python-version }}
+        run: uv run python -c 'import os, sys; assert ".".join(map(str, sys.version_info[:2])) == os.environ["EXPECTED_PYTHON"], sys.version'
+      - name: Run full test suite
+        run: just test
+
+  real-pty:
+    name: Real PTY (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux
+            runner: ubuntu-latest
+            cache-suffix: linux-py314-pty
+          - platform: macOS
+            runner: macos-latest
+            cache-suffix: macos-py314-pty
+    env:
+      UV_PYTHON: "3.14"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.14"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: ${{ matrix.cache-suffix }}
+      - name: Install just
+        uses: taiki-e/install-action@13608cbb45b01feb47ef444ab1a42dc41ad56f1a # v2.79.11
+        with:
+          tool: just@1.50.0
+          fallback: none
+      - name: Sync locked dependencies
+        run: uv sync --all-groups
+      - name: Verify Python selection
+        run: uv run python -c 'import sys; assert sys.version_info[:2] == (3, 14), sys.version'
+      - name: Run real-PTY smoke suite
+        run: just test-pty-smoke

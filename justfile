@@ -12,6 +12,10 @@ PARITY_SINGLE_GAP_TIMEOUT := "7200"
 test:
     uv run pytest
 
+# Run a bounded, cross-platform real-PTY smoke suite.
+test-pty-smoke:
+    uv run pytest tests/test_native_tool_loop_pty_streaming.py tests/test_native_tui_chrome_pty.py tests/test_native_project_trust_tui_pty.py
+
 # Run lint checks.
 lint:
     uv run ruff check .

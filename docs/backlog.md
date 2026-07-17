@@ -1465,19 +1465,27 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 
 ## Next Slice
 
-### Architecture migration baseline — ACTIVE
+### Architecture migration baseline — SHIPPED (2026-07-17)
 
-Begin Phase 0.1 of the reviewed
-[Architecture Migration Plan](architecture-migration.md): eliminate the
-order/global-state sensitivity exposed by
+Phase 0.1 of the reviewed
+[Architecture Migration Plan](architecture-migration.md) investigated the
+historical order/global-state failure exposed by
 `tests/test_parity_probe_trust.py::test_legacy_parity_score_opts_into_trusted_workspace_fixtures`,
-prove the focused reproducer in both orders plus three consecutive clean
-`just check` runs, and add checked-in CI using the repository's `just` entry
-points. This is the prerequisite for structural extraction; it makes no product
-behavior or public API change. Phase 0.2 characterization traces, archive
-sentinel tests, and the import-boundary harness follow this baseline and must
-land before the first structural slice, the canonical typed agent-event and
-synchronous push-sink seam.
+but the isolated probe, actual predecessor order, reverse order, and repeated
+full suites were green; no concrete leak justified a retry or synthetic test
+patch. Checked-in CI now uses the repository's `just` entry points for
+lint/types/docs on Python 3.14, full tests on Python 3.11 and 3.14, and an
+explicit real-PTY smoke recipe on named Linux and macOS jobs. The existing
+Ruff-format debt remains a separate mechanical normalization slice rather than
+being hidden in this baseline.
+
+### Architecture characterization contracts — ACTIVE
+
+Implement Phase 0.2: capture current per-mode provider/tool/error/cancellation/
+queue/session/extension/JSON/RPC/SDK/TUI contracts, add explicit metadata-archive
+non-leak sentinels, and check in an import-boundary harness whose rules activate
+as new packages appear. This must land before the first structural slice, the
+canonical typed agent-event and synchronous push-sink seam.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 

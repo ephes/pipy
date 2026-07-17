@@ -229,8 +229,13 @@ Use:
 
 ```sh
 just check
+just test-pty-smoke
 just docs-build
 ```
 
 `just check` verifies Python linting, types, and tests. `just docs-build`
-verifies that the Zensical documentation site can render.
+verifies that the Zensical documentation site can render. Checked-in CI runs
+lint/types/docs on Python 3.14, the full suite on Python 3.11 and 3.14, and the
+bounded real-PTY smoke recipe on Linux and macOS. Ruff formatting is not yet a
+gate because the pre-existing tree is not format-clean; enabling it requires a
+separate mechanical normalization slice.

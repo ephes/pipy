@@ -142,31 +142,46 @@ Every slice must preserve these rules:
 
 ### Slice 0.1: Deterministic quality gate
 
-First remove order/global-state sensitivity from the full suite, including
+First investigate order/global-state sensitivity in the full suite, including
 `tests/test_parity_probe_trust.py::test_legacy_parity_score_opts_into_trusted_workspace_fixtures`,
 which failed after the full suite but passed in isolation during the architecture
-comparison. Record the contaminating predecessor or leaked state in a focused
-regression test, and run that reproducer in both orders. Run the full suite
-repeatedly before treating one green execution as a baseline.
+comparison. If it reproduces, record the contaminating predecessor or leaked
+state in a focused regression test and run that reproducer in both orders. If it
+does not reproduce, record the exact predecessor/reverse/full-suite evidence and
+do not add speculative retries or isolation. Run the full suite repeatedly
+before treating one green execution as a baseline.
 
 Add checked-in CI that invokes repository-owned commands rather than duplicating
-them. It should cover Ruff lint/format, Mypy, the full unit suite, documentation
-build, a Linux PTY subset, and—where the runner is available—a small macOS PTY
-job.
+them. It should cover Ruff lint, Mypy, the full unit suite, documentation build,
+a Linux PTY subset, and—where the runner is available—a small macOS PTY job.
+Enable `ruff format --check` only after a dedicated mechanical normalization
+slice makes the existing tree clean; do not hide a repository-wide formatting
+rewrite inside the CI baseline.
 
 Acceptance:
 
 - `just check` passes three consecutive runs from the same clean checkout.
-- The focused parity-score reproducer passes in both orders in one process (or
-  equivalent isolated subprocess arrangements), and the identified leaked
-  state is asserted to be restored. This is the operational order-independence
-  gate; three identical full-suite runs alone are not sufficient evidence.
+- A reproduced parity-score failure passes in both orders in one process (or
+  equivalent isolated subprocess arrangements), and any identified leaked state
+  is asserted to be restored. When it remains non-reproducible, the slice records
+  the exact order matrix and leaves the test unchanged; three identical
+  full-suite runs alone are not presented as proof that a leak was fixed.
 - CI and local validation use the same `just` entry points.
 - `just docs-build` runs in CI.
 - CI runs a named Linux real-PTY subset. A named macOS real-PTY subset is
   required when an available runner supports it; otherwise the workflow records
   the omission explicitly rather than silently claiming cross-platform PTY
   coverage.
+
+Implementation evidence (2026-07-17): the historical parity-score failure did
+not reproduce. The isolated test, the actual collected predecessor group
+followed by the probe, the reverse order, three complete Python 3.14 suites, and
+one complete Python 3.11 suite all passed; inspection found no repository-fixture
+mutation or ambient-state leak, so no speculative test patch was made. CI now
+gates lint/types/docs on Python 3.14, full tests on Python 3.11 and 3.14, and an
+eight-test real-PTY smoke set on Linux and macOS. The pre-existing Ruff-format
+baseline remains explicit: 239 files require formatting, so format-check
+activation is a separate mechanical slice.
 
 ### Slice 0.2: Characterization and boundary gates
 
