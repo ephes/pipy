@@ -181,6 +181,7 @@ def run_checks(base: Path) -> list[Check]:
                 crash_ws,
                 config_home_env={"PIPY_CONFIG_HOME": str(base / "nocfg")},
                 home_dir=crash_ws,
+                include_workspace_defaults=True,
             )
         )
     )
@@ -216,6 +217,7 @@ def run_checks(base: Path) -> list[Check]:
                 order_ws,
                 config_home_env={"PIPY_CONFIG_HOME": str(base / "nocfg2")},
                 home_dir=order_ws,
+                include_workspace_defaults=True,
             )
         )
     )

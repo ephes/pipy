@@ -90,6 +90,7 @@ def _activate(workspace: Path, base: Path) -> list:
             workspace,
             config_home_env={"PIPY_CONFIG_HOME": str(base / "nocfg")},
             home_dir=workspace,
+            include_workspace_defaults=True,
         )
     )
 

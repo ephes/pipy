@@ -291,6 +291,7 @@ def run_checks(workspace: Path, config_home: Path) -> list[Check]:
         workspace,
         config_home_env={"PIPY_CONFIG_HOME": str(config_home)},
         home_dir=workspace,
+        include_workspace_defaults=True,
     )
     checks: list[Check] = []
 
@@ -616,6 +617,7 @@ def run_checks(workspace: Path, config_home: Path) -> list[Check]:
         escape_ws,
         config_home_env={"PIPY_CONFIG_HOME": str(workspace.parent / "no_cfg")},
         home_dir=escape_ws,
+        include_workspace_defaults=True,
     )
     checks.append(
         Check(

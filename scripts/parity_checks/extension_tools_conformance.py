@@ -206,6 +206,7 @@ def run_checks(base: Path) -> list[Check]:
             shadow,
             config_home_env={"PIPY_CONFIG_HOME": str(base / "nocfg")},
             home_dir=shadow,
+            include_workspace_defaults=True,
         ),
         reserved_tool_names=tuple(production_tool_registry().keys()),
     )
