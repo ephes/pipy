@@ -103,6 +103,13 @@ python3 ~/projects/agent-stuff/codex/skills/opus-review-loop/bin/opus-review-loo
    e.g. `FooterData.onBranchChange` callbacks are zero-argument functions kept in
    a `Set` until disposed, so factory re-renders must not accidentally accumulate
    stale registrations or invoke callbacks with branch data Pi never supplies.
+   For any provider request-shape slice that displaces or synthesizes a text block
+   beside structured content such as a tool reference, pin and test the output
+   matrix explicitly: empty string, whitespace-only, and nonblank text. Empty and
+   whitespace-only output must not emit a sibling text block or disturb the valid
+   structured content; nonblank output must remain present in its Pi-faithful
+   position. Testing only `""` is insufficient because providers such as Anthropic
+   also reject a whitespace-only text sibling.
    For trust/provenance slices, inventory the concrete loader entry points and
    source shapes before specifying protected-resource detection or prompts.
    Protect only inputs the runtime can actually discover: a resource contributed
