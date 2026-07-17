@@ -30,6 +30,7 @@ from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     production_tool_registry,
 )
+from pipy_harness.native.tools.messages import ToolResultMessage
 
 
 def _make_workspace(tmp_path: Path) -> Path:
@@ -198,6 +199,129 @@ def test_model_can_call_an_extension_tool(tmp_path, monkeypatch) -> None:
         for m in second.messages
     )
     assert "echo:hi there" in joined
+
+
+def test_extension_tool_additive_activation_marks_its_result(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "dynamic.py").write_text(
+        "from pipy_harness.extensions import ExtensionTool, ToolResult\n"
+        "def activate(api):\n"
+        "    def prepare(ctx, _args):\n"
+        "        assert ctx.set_active_tools(['loader'])\n"
+        "    api.register_command('prepare', 'prepare dynamic tools', prepare)\n"
+        "    def loader(ctx, _params):\n"
+        "        assert ctx.set_active_tools(['loader', 'late_tool'])\n"
+        "        return ToolResult(content='late tool loaded')\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='loader', description='load another tool',\n"
+        "        input_schema={'type': 'object'}, handler=loader))\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='late_tool', description='late tool',\n"
+        "        input_schema={'type': 'object'},\n"
+        "        handler=lambda _ctx, _params: ToolResult(content='late')))\n",
+        encoding="utf-8",
+    )
+    call = ProviderToolCall(
+        provider_correlation_id="loader-call",
+        tool_name="loader",
+        arguments_json="{}",
+    )
+    provider = _StubProvider([_result(tool_calls=(call,)), _result(final_text="ok")])
+    session = NativeToolReplSession(
+        provider=provider, tool_registry=production_tool_registry(), tool_budget=5
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/prepare\nload one\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert [tool.name for tool in provider.requests[0].available_tools] == ["loader"]
+    assert [tool.name for tool in provider.requests[1].available_tools] == [
+        "loader",
+        "late_tool",
+    ]
+    marked = [
+        message
+        for message in provider.requests[1].messages
+        if isinstance(message, ToolResultMessage) and message.added_tool_names
+    ]
+    assert len(marked) == 1
+    assert marked[0].added_tool_names == ("late_tool",)
+
+
+def test_extension_tool_replacement_and_failure_do_not_mark_results(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    cases = (
+        (
+            "replacement",
+            "['late_tool']",
+            "return ToolResult(content='replaced')",
+            ["late_tool"],
+        ),
+        (
+            "failure",
+            "['loader', 'late_tool']",
+            "raise RuntimeError('boom')",
+            ["loader", "late_tool"],
+        ),
+    )
+    for case_name, active_expression, outcome, expected_tools in cases:
+        workspace = tmp_path / case_name
+        ext = workspace / ".pipy" / "extensions"
+        ext.mkdir(parents=True)
+        (ext / "dynamic.py").write_text(
+            "from pipy_harness.extensions import ExtensionTool, ToolResult\n"
+            "def activate(api):\n"
+            "    def prepare(ctx, _args):\n"
+            "        assert ctx.set_active_tools(['loader'])\n"
+            "    api.register_command('prepare', 'prepare dynamic tools', prepare)\n"
+            "    def loader(ctx, _params):\n"
+            f"        assert ctx.set_active_tools({active_expression})\n"
+            f"        {outcome}\n"
+            "    api.register_tool(ExtensionTool(\n"
+            "        name='loader', description='load another tool',\n"
+            "        input_schema={'type': 'object'}, handler=loader))\n"
+            "    api.register_tool(ExtensionTool(\n"
+            "        name='late_tool', description='late tool',\n"
+            "        input_schema={'type': 'object'},\n"
+            "        handler=lambda _ctx, _params: ToolResult(content='late')))\n",
+            encoding="utf-8",
+        )
+        call = ProviderToolCall("loader-call", "loader", "{}")
+        provider = _StubProvider(
+            [_result(tool_calls=(call,)), _result(final_text="ok")]
+        )
+        session = NativeToolReplSession(
+            provider=provider,
+            tool_registry=production_tool_registry(),
+            tool_budget=5,
+        )
+
+        result = session.run(
+            workspace_root=workspace,
+            input_stream=io.StringIO("/prepare\nload one\n"),
+            output_stream=io.StringIO(),
+            error_stream=io.StringIO(),
+        )
+
+        assert result.status is HarnessStatus.SUCCEEDED
+        assert [
+            tool.name for tool in provider.requests[1].available_tools
+        ] == expected_tools
+        assert not any(
+            getattr(message, "added_tool_names", ())
+            for message in provider.requests[1].messages
+        )
 
 
 def test_extension_tool_exception_is_bounded(tmp_path, monkeypatch) -> None:

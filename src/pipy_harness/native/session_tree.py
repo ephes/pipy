@@ -65,9 +65,7 @@ def encode_cwd_dir_name(cwd: Path) -> str:
     resolved = str(cwd)
     # Drop a single leading separator, then replace separators / colons.
     trimmed = resolved.lstrip("/\\")
-    safe = (
-        trimmed.replace("/", "-").replace("\\", "-").replace(":", "-")
-    )
+    safe = trimmed.replace("/", "-").replace("\\", "-").replace(":", "-")
     return f"--{safe}--"
 
 
@@ -115,9 +113,7 @@ def list_session_dirs(sessions_root: Path) -> list[Path]:
     root = Path(sessions_root).expanduser()
     if not root.is_dir():
         return []
-    return sorted(
-        p for p in root.glob("--*--") if p.is_dir()
-    )
+    return sorted(p for p in root.glob("--*--") if p.is_dir())
 
 
 # ---------------------------------------------------------------------------
@@ -276,13 +272,16 @@ def _message_to_json(message: LoopMessage) -> dict[str, Any]:
             ],
         }
     if isinstance(message, ToolResultMessage):
-        return {
+        body = {
             "role": "tool",
             "tool_request_id": message.tool_request_id,
             "output_text": message.output_text,
             "is_error": message.is_error,
             "provider_correlation_id": message.provider_correlation_id,
         }
+        if message.added_tool_names:
+            body["added_tool_names"] = list(message.added_tool_names)
+        return body
     raise TypeError(f"unsupported message type: {type(message)!r}")
 
 
@@ -305,11 +304,19 @@ def _message_from_json(body: dict[str, Any]) -> LoopMessage:
             tool_calls=tool_calls,
         )
     if role == "tool":
+        raw_added_tool_names = body.get("added_tool_names")
+        if raw_added_tool_names is None:
+            added_tool_names: tuple[str, ...] = ()
+        elif isinstance(raw_added_tool_names, list):
+            added_tool_names = tuple(raw_added_tool_names)
+        else:
+            raise ValueError("tool added_tool_names must be a list")
         return ToolResultMessage(
             tool_request_id=str(body["tool_request_id"]),
             output_text=str(body.get("output_text", "")),
             is_error=bool(body.get("is_error", False)),
             provider_correlation_id=body.get("provider_correlation_id"),
+            added_tool_names=added_tool_names,
         )
     raise ValueError(f"unsupported message role: {role!r}")
 
@@ -465,9 +472,7 @@ def _compaction_summary_message(summary: str) -> UserMessage:
 
 def _branch_summary_message(summary: str) -> UserMessage:
     return UserMessage(
-        content=(
-            "[Summary of an abandoned conversation branch:]\n" + summary
-        )
+        content=("[Summary of an abandoned conversation branch:]\n" + summary)
     )
 
 
@@ -534,8 +539,7 @@ def build_context(
             (
                 i
                 for i, entry in enumerate(path)
-                if isinstance(entry, CompactionEntry)
-                and entry.id == compaction.id
+                if isinstance(entry, CompactionEntry) and entry.id == compaction.id
             ),
             -1,
         )
@@ -666,9 +670,7 @@ class NativeSessionTree:
     # leaf) against snapshot reads, so a concurrent worker-thread append can
     # never expose a partial state (entries ahead of leaf, or a leaf absent from
     # the entries snapshot). Read paths capture a coherent pair under this lock.
-    _write_lock: Any = field(
-        default_factory=threading.Lock, repr=False, compare=False
-    )
+    _write_lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
 
     MAX_NAME_LENGTH: ClassVar[int] = 200
 
@@ -848,9 +850,7 @@ class NativeSessionTree:
         )
         return self._append_entry(entry)  # type: ignore[return-value]
 
-    def append_model_change(
-        self, provider: str, model_id: str
-    ) -> ModelChangeEntry:
+    def append_model_change(self, provider: str, model_id: str) -> ModelChangeEntry:
         entry = ModelChangeEntry(
             id=self._next_id(),
             parent_id=self.leaf_id,
@@ -933,9 +933,7 @@ class NativeSessionTree:
         self._name = cleaned or None
         return appended  # type: ignore[return-value]
 
-    def append_label_change(
-        self, target_id: str, label: str | None
-    ) -> LabelEntry:
+    def append_label_change(self, target_id: str, label: str | None) -> LabelEntry:
         if target_id not in self.by_id:
             raise KeyError(f"entry {target_id} not found")
         entry = LabelEntry(
@@ -1073,9 +1071,7 @@ class NativeSessionTree:
         current = self.by_id.get(start_id) if start_id else None
         while current is not None:
             path.insert(0, current)
-            current = (
-                self.by_id.get(current.parent_id) if current.parent_id else None
-            )
+            current = self.by_id.get(current.parent_id) if current.parent_id else None
         return path
 
     def build_context(self) -> SessionContext:

@@ -873,6 +873,7 @@ class _ExtensionToolPort:
         *,
         has_ui: bool,
         notify_sink: Callable[[str, str], None] | None = None,
+        set_active_tools_fn: Callable[[Sequence[str]], bool] | None = None,
         flags: Mapping[str, object] | None = None,
         render_details_sink: MutableMapping[str, object] | None = None,
         project_trusted: bool = False,
@@ -880,6 +881,7 @@ class _ExtensionToolPort:
         self._registered = registered
         self._has_ui = has_ui
         self._notify_sink = notify_sink
+        self._set_active_tools_fn = set_active_tools_fn
         self._flags = dict(flags or {})
         self._render_details_sink = render_details_sink
         self._project_trusted = bool(project_trusted)
@@ -899,6 +901,7 @@ class _ExtensionToolPort:
             str(context.workspace_root),
             self._has_ui,
             self._notify_sink,
+            set_active_tools_fn=self._set_active_tools_fn,
             flags=self._flags,
             project_trusted=self._project_trusted,
         )
@@ -1662,6 +1665,7 @@ class NativeToolReplSession:
                 _registered_tool,
                 has_ui=terminal_ui is not None,
                 notify_sink=_extension_notify,
+                set_active_tools_fn=lambda names: extension_set_active_tools(names),
                 flags=extension_flag_values,
                 render_details_sink=extension_render_details,
                 project_trusted=settings.project_trusted,
@@ -3083,6 +3087,9 @@ class NativeToolReplSession:
                             _registered_tool,
                             has_ui=terminal_ui is not None,
                             notify_sink=_extension_notify,
+                            set_active_tools_fn=lambda names: (
+                                extension_set_active_tools(names)
+                            ),
                             flags=extension_flag_values,
                             render_details_sink=extension_render_details,
                             project_trusted=settings.project_trusted,
@@ -4327,6 +4334,10 @@ class NativeToolReplSession:
                         emitter.tool_execution_start(call)
                         active_tool_call[0] = call
                         tool_started_at = datetime.now(UTC)
+                        active_tools_before = tuple(
+                            definition.name
+                            for definition in available_tool_definitions()
+                        )
                         try:
                             (
                                 observation,
@@ -4340,6 +4351,32 @@ class NativeToolReplSession:
                             )
                         finally:
                             active_tool_call[0] = None
+                        active_tools_after = tuple(
+                            definition.name
+                            for definition in available_tool_definitions()
+                        )
+                        called_port = run_tool_registry.get(call.tool_name)
+                        if (
+                            isinstance(called_port, _ExtensionToolPort)
+                            and not observation.is_error
+                            and set(active_tools_before).issubset(active_tools_after)
+                        ):
+                            before_names = set(active_tools_before)
+                            added_tool_names = tuple(
+                                name
+                                for name in active_tools_after
+                                if name not in before_names
+                            )
+                            if added_tool_names:
+                                observation = ToolResultMessage(
+                                    tool_request_id=observation.tool_request_id,
+                                    output_text=observation.output_text,
+                                    is_error=observation.is_error,
+                                    provider_correlation_id=(
+                                        observation.provider_correlation_id
+                                    ),
+                                    added_tool_names=added_tool_names,
+                                )
                         # tool_result hooks may transform the finalized,
                         # bounded observation before the emitter, renderer,
                         # model, and session tree see it. ToolResultMessage is
@@ -4368,6 +4405,7 @@ class NativeToolReplSession:
                                     provider_correlation_id=(
                                         observation.provider_correlation_id
                                     ),
+                                    added_tool_names=observation.added_tool_names,
                                 )
                         tool_ended_at = datetime.now(UTC)
                         tool_duration = (

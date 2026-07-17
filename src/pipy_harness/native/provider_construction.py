@@ -75,6 +75,10 @@ class ResolvedConstruction:
     # to emit Pi's explicit ``thinking:{type:"disabled"}`` shape. Mutually
     # exclusive with ``reasoning_effort``.
     thinking_disabled: bool = False
+    # Anthropic-native deferred tools are opt-in by explicit compat or by Pi's
+    # bounded first-party Claude 4.5+ detector. Only the anthropic adapter uses
+    # this value.
+    supports_tool_references: bool = False
     error: str | None = None
 
 
@@ -264,6 +268,11 @@ def resolve_construction(
     # only the anthropic adapter consumes ``thinking_disabled`` (the completions
     # families above carry their off-state in ``body_extra``).
     thinking_disabled = thinking_off
+    supports_tool_references = (
+        _resolve_anthropic_tool_references(spec)
+        if spec.api == "anthropic-messages"
+        else False
+    )
 
     return ResolvedConstruction(
         provider_name=spec.provider_name,
@@ -276,7 +285,31 @@ def resolve_construction(
         body_extra=body_extra,
         reasoning_effort=reasoning_effort,
         thinking_disabled=thinking_disabled,
+        supports_tool_references=supports_tool_references,
     )
+
+
+_ANTHROPIC_TOOL_REFERENCE_MODEL = re.compile(
+    r"^claude-(?:opus|sonnet|fable)-(\d+)(?:-(\d+))?(?:-|$)"
+)
+
+
+def _resolve_anthropic_tool_references(spec: NativeModelSpec) -> bool:
+    """Resolve Pi's ``compat.supportsToolReferences`` independently."""
+
+    compat = spec.compat if isinstance(spec.compat, Mapping) else {}
+    explicit = compat.get("supportsToolReferences")
+    if isinstance(explicit, bool):
+        return explicit
+    if spec.provider_name != "anthropic" or "haiku" in spec.model_id:
+        return False
+    match = _ANTHROPIC_TOOL_REFERENCE_MODEL.match(spec.model_id)
+    if match is None:
+        return False
+    major = int(match.group(1))
+    raw_minor = match.group(2)
+    minor = int(raw_minor) if raw_minor is not None and len(raw_minor) < 8 else 0
+    return major > 4 or (major == 4 and minor >= 5)
 
 
 _ENV_PLACEHOLDER = re.compile(r"\{([A-Z_][A-Z0-9_]*)\}")
@@ -320,7 +353,10 @@ _NO_REASONING_EFFORT_SIGNALS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...
     (("zai",), ("api.z.ai",)),  # isZai
     (("moonshotai", "moonshotai-cn"), ("api.moonshot.",)),  # isMoonshot
     (("together",), ("api.together.ai", "api.together.xyz")),  # isTogether
-    (("cloudflare-ai-gateway",), ("gateway.ai.cloudflare.com",)),  # isCloudflareAiGateway
+    (
+        ("cloudflare-ai-gateway",),
+        ("gateway.ai.cloudflare.com",),
+    ),  # isCloudflareAiGateway
     (("nvidia",), ("integrate.api.nvidia.com",)),  # isNvidia
     (("ant-ling",), ("api.ant-ling.com",)),  # isAntLing
 )
@@ -626,6 +662,7 @@ def build_provider(
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
             thinking_disabled=resolved.thinking_disabled,
+            supports_tool_references=resolved.supports_tool_references,
             **http_kwargs,  # type: ignore[arg-type]
         )
 

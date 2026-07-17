@@ -64,6 +64,7 @@ from pipy_harness.native.package_manager import (
     resource_filters,
 )
 from pipy_harness.native.package_runtime import compose_package_runtime
+from pipy_harness.native.project_trust import ProjectTrustStore
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.settings import (
     SettingsManager,
@@ -122,6 +123,10 @@ def _run_cli(argv: list[str]) -> tuple[int, str, str]:
 def run_checks(base: Path) -> list[Check]:
     workspace = base / "ws"
     (workspace / ".pipy").mkdir(parents=True)
+    # Package commands now honor project trust. This gate intentionally tests
+    # project package reads/writes, so save an isolated positive decision in its
+    # temporary config root before exercising those commands.
+    ProjectTrustStore().set(workspace, True)
     pkg_user = base / "pkg-user"
     pkg_user.mkdir()
     pkg_project = base / "pkg-project"
@@ -138,7 +143,9 @@ def run_checks(base: Path) -> list[Check]:
     )
 
     code_u, out_u, _ = _run_cli(["install", str(pkg_user)])
-    code_p, out_p, _ = _run_cli(["install", str(pkg_project), "-l", "--cwd", str(workspace)])
+    code_p, out_p, _ = _run_cli(
+        ["install", str(pkg_project), "-l", "--cwd", str(workspace)]
+    )
     user_settings = json.loads(global_settings_path().read_text(encoding="utf-8"))
     project_settings = json.loads(
         project_settings_path(workspace).read_text(encoding="utf-8")
@@ -164,7 +171,10 @@ def run_checks(base: Path) -> list[Check]:
     )
 
     configure_resource_filter(
-        settings_path=global_settings_path(), kind="skills", pattern="lint", enable=False
+        settings_path=global_settings_path(),
+        kind="skills",
+        pattern="lint",
+        enable=False,
     )
     configure_resource_filter(
         settings_path=global_settings_path(),
@@ -176,7 +186,8 @@ def run_checks(base: Path) -> list[Check]:
         Check(
             "config_writes_filters",
             resource_filters(global_settings_path(), "skills") == ("-lint",)
-            and resource_filters(global_settings_path(), "extensions") == ("+protected",)
+            and resource_filters(global_settings_path(), "extensions")
+            == ("+protected",)
             # The package source is NOT deleted by writing a filter.
             and str(pkg_user)
             in json.loads(global_settings_path().read_text(encoding="utf-8")).get(
@@ -382,7 +393,11 @@ def _runtime_composition_checks(base: Path) -> list[Check]:
     settings = SettingsManager.for_workspace(ws)
     try:
         roots = compose_package_runtime(settings, ws)
-        resources = WorkspaceResources.discover(ws, package_roots=roots)
+        resources = WorkspaceResources.discover(
+            ws,
+            package_roots=roots,
+            include_workspace_defaults=True,
+        )
         descriptors = discover_extensions(ws, package_roots=roots.extensions)
         ext_names = {d.name for d in descriptors}
 
@@ -431,7 +446,11 @@ def _runtime_composition_checks(base: Path) -> list[Check]:
         )
         settings.reload()
         roots2 = compose_package_runtime(settings, ws)
-        filtered = WorkspaceResources.discover(ws, package_roots=roots2).with_enablement(
+        filtered = WorkspaceResources.discover(
+            ws,
+            package_roots=roots2,
+            include_workspace_defaults=True,
+        ).with_enablement(
             skills_patterns=settings.get_skills_patterns(),
             prompts_patterns=settings.get_prompts_patterns(),
         )
@@ -603,6 +622,7 @@ def _source_loading_flag_checks(base: Path) -> list[Check]:
     )
     return checks
 
+
 def _send_message_delivery_checks(base: Path) -> list[Check]:
     workspace = base / "send-message-ws"
     ext = workspace / ".pipy" / "extensions"
@@ -689,8 +709,7 @@ def main(argv: list[str] | None = None) -> int:
         report = {
             "passed": passed,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
-                for c in checks
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
             ],
         }
         print(json.dumps(report, indent=2))

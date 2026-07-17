@@ -49,7 +49,11 @@ class CapturingHTTPClient:
                         "message": {"role": "assistant", "content": "OK"},
                     }
                 ],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
             },
         )
 
@@ -903,6 +907,7 @@ def test_qwen_chat_template_reaches_request_body(tmp_path):
     }
     assert "reasoning_effort" not in body_off
 
+
 # ---- string-thinking format (explicit-compat-only) --------------------------
 #
 # Pi's detectCompat thinkingFormat chain has NO string-thinking rung
@@ -967,7 +972,9 @@ def test_string_thinking_off_state_defaults_to_none_string(tmp_path):
 
 
 def test_string_thinking_off_state_uses_mapped_off_value(tmp_path):
-    spec = _string_thinking_spec(thinking_level_map={"high": "verbose", "off": "minimal"})
+    spec = _string_thinking_spec(
+        thinking_level_map={"high": "verbose", "off": "minimal"}
+    )
     resolved = _resolve_st(spec, tmp_path, None)
     assert resolved.body_extra["thinking"] == "minimal"
     assert resolved.reasoning_effort is None
@@ -1378,6 +1385,41 @@ def test_anthropic_catalog_custom_baseurl_and_headers(tmp_path):
     assert provider.name == "acme"
 
 
+def test_anthropic_tool_reference_compat_resolution(tmp_path):
+    cases = (
+        (_anthropic_spec(model_id="claude-sonnet-4-5"), True),
+        (_anthropic_spec(model_id="claude-opus-4-7"), True),
+        (_anthropic_spec(model_id="claude-haiku-4-5"), False),
+        (_anthropic_spec(model_id="claude-sonnet-4-1"), False),
+        (_anthropic_spec(model_id="claude-opus-4-20250514"), False),
+        (_anthropic_spec(provider_name="proxy"), False),
+        (
+            _anthropic_spec(
+                provider_name="proxy",
+                model_id="custom-model",
+                compat={"supportsToolReferences": True},
+            ),
+            True,
+        ),
+        (
+            _anthropic_spec(
+                model_id="claude-opus-4-7",
+                compat={"supportsToolReferences": False},
+            ),
+            False,
+        ),
+    )
+    for spec, expected in cases:
+        resolved = _resolve(
+            spec,
+            tmp_path,
+            {"ANTHROPIC_API_KEY": "ak"},
+        )
+        assert resolved.supports_tool_references is expected
+        provider = build_provider(resolved, http_client=CapturingHTTPClient())
+        assert provider.supports_tool_references is expected
+
+
 def test_anthropic_xhigh_thinking_clamps_to_high_budget(tmp_path):
     # Claude's budget path has no xhigh; Pi clamps it to high (16384). Use a
     # non-adaptive reasoning model so the budget path applies; the row maps only
@@ -1404,7 +1446,9 @@ def test_anthropic_disabled_thinking_when_reasoning_model_off(tmp_path):
     # disabled shape carries only ``type``.
     for thinking_level in (None, "off"):
         resolved = _resolve(
-            _anthropic_spec(), tmp_path, {"ANTHROPIC_API_KEY": "ak"},
+            _anthropic_spec(),
+            tmp_path,
+            {"ANTHROPIC_API_KEY": "ak"},
             thinking_level=thinking_level,
         )
         assert resolved.thinking_disabled is True
@@ -1589,9 +1633,7 @@ def test_azure_catalog_construction(tmp_path):
     # no-op. The genuine env-override path is exercised in the dedicated
     # monkeypatch test below. A non-Azure host base URL is respected verbatim
     # (no /openai/v1 normalization).
-    assert sent["url"] == (
-        "https://azure-openai.example/responses?api-version=v1"
-    )
+    assert sent["url"] == ("https://azure-openai.example/responses?api-version=v1")
     # The deployment (here the model id) is the body ``model`` field.
     assert sent["body"]["model"] == "gpt-5.4"
     # Azure uses the api-key header, not Authorization: Bearer
@@ -1794,9 +1836,7 @@ def test_bedrock_govcloud_model_id_prefix_omits_display(tmp_path):
 def test_bedrock_omits_thinking_block_when_reasoning_unset(tmp_path):
     # With thinking off there is no thinking block and therefore no display.
     http = CapturingHTTPClient()
-    provider = _bedrock_adapter(
-        "us.anthropic.claude-opus-4-6-v1", http_client=http
-    )
+    provider = _bedrock_adapter("us.anthropic.claude-opus-4-6-v1", http_client=http)
     provider.complete(_request(tmp_path))
     assert "thinking" not in http.requests[-1]["body"]
     assert "output_config" not in http.requests[-1]["body"]

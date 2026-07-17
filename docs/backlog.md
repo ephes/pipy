@@ -345,11 +345,11 @@ still recognizes that extension/package parity is the largest surface by area:
    entry renderers now have independent ownership. The broader custom editor/
    component/overlay stack, live tool-render invalidation, richer multi-widget
    UI, and RPC extension-UI channel remain strategic extension follow-ons.
-5. **Cache-friendly dynamic tool loading.** Pipy can change the active tool set,
-   but it does not yet preserve provider cache prefixes using Pi's
-   message-anchored Anthropic `tool_reference` or OpenAI
-   `tool_search_call`/`tool_search_output` shapes. Research the provider-local
-   request ownership before changing the extension API or tool-result schema.
+5. **Cache-friendly dynamic tool loading.** The provider-agnostic durable
+   load-point marker and supported Anthropic `defer_loading` / message-anchored
+   `tool_reference` path **shipped** 2026-07-17. Pipy still lacks OpenAI
+   `tool_search_call`/`tool_search_output` placement and Kimi's Chat Completions
+   deferred-tool shape; keep those as independent provider-owned slices.
 6. **Package/update realignment.** Pi's bare `update` is now self-only;
    `--all` composes self plus packages, and `--extensions` is packages-only.
    Pipy's project-local `config -l` and its trust integration already ship, but
@@ -1522,13 +1522,24 @@ event.
 theme context, startup and `/resume` replay, expanded-state rerender, `/reload`
 replacement, and headless omission. Message renderers remain separate.
 
-### Next: cache-friendly dynamic tool loading
+### Anthropic cache-friendly dynamic tool loading — SHIPPED (2026-07-17)
 
-Research Pi's message-anchored Anthropic `tool_reference` and OpenAI
-`tool_search_call`/`tool_search_output` ownership, then define the smallest
-provider-local slice that preserves cache prefixes when extensions change the
-active tool set. Keep package-update realignment and broader extension UI as
-separate gaps.
+Purely additive active-tool changes made by extension tools now persist ordered
+load points on native tool results. Supported first-party Anthropic Claude 4.5+
+models (or explicit compat opt-ins) keep late definitions out of the immediate
+prefix with `defer_loading: true` and load them at the result through
+`tool_reference`; output is preserved as sibling content. Removals,
+replacements, failures, unsupported models, and other providers retain the safe
+full-current-tool fallback. The reviewed design and implementation plan are in
+[`docs/specs/2026-07-17-anthropic-dynamic-tool-loading-design.md`](specs/2026-07-17-anthropic-dynamic-tool-loading-design.md)
+and
+[`docs/plans/2026-07-17-anthropic-dynamic-tool-loading-implementation-plan.md`](plans/2026-07-17-anthropic-dynamic-tool-loading-implementation-plan.md).
+
+### Next: OpenAI Responses dynamic tool search
+
+Port Pi's provider-owned `tool_search_call` / `tool_search_output` placement on
+top of the shipped durable load-point marker. Keep Kimi Chat Completions,
+package-update realignment, and broader extension UI as separate gaps.
 
 ### Recently shipped: OpenAI-Codex transport reliability
 

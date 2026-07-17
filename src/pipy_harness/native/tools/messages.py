@@ -14,7 +14,9 @@ The envelope deliberately stays minimal:
 - `ToolResultMessage` carries one tool execution's provider-visible result;
   the pipy-owned `tool_request_id` is required and validated against the
   pipy-owned prefix, while the opaque `provider_correlation_id` rides
-  separately for round-tripping back into the provider.
+  separately for round-tripping back into the provider. Summary-safe
+  `added_tool_names` marks where registered tools became active so supporting
+  providers can place their definitions without rebuilding the cached prefix.
 
 `LoopMessage` is a tagged union of the three message types. The envelope
 defines no provider-specific fields, no archive metadata, and no workspace
@@ -43,8 +45,7 @@ class UserMessage:
             raise ValueError("UserMessage.content must be a string")
         if len(self.content) > self.CONTENT_MAX_LENGTH:
             raise ValueError(
-                "UserMessage.content exceeds "
-                f"{self.CONTENT_MAX_LENGTH} characters"
+                f"UserMessage.content exceeds {self.CONTENT_MAX_LENGTH} characters"
             )
 
 
@@ -62,16 +63,14 @@ class AssistantMessage:
             raise ValueError("AssistantMessage.content must be a string")
         if len(self.content) > self.CONTENT_MAX_LENGTH:
             raise ValueError(
-                "AssistantMessage.content exceeds "
-                f"{self.CONTENT_MAX_LENGTH} characters"
+                f"AssistantMessage.content exceeds {self.CONTENT_MAX_LENGTH} characters"
             )
         if not isinstance(self.tool_calls, tuple):
             raise ValueError("AssistantMessage.tool_calls must be a tuple")
         for index, call in enumerate(self.tool_calls):
             if not isinstance(call, ProviderToolCall):
                 raise ValueError(
-                    "AssistantMessage.tool_calls["
-                    f"{index}] must be a ProviderToolCall"
+                    f"AssistantMessage.tool_calls[{index}] must be a ProviderToolCall"
                 )
 
 
@@ -88,23 +87,24 @@ class ToolResultMessage:
     boundary return value the loop already has in memory). Loop code is
     expected to construct a `ToolResultMessage` from a `ToolExecutionResult`
     when serializing the next provider message.
+
+    `added_tool_names` contains registered tool names that became active during
+    this tool execution. It is provider-agnostic history metadata; providers
+    without a native deferred-tool shape ignore it and send their normal current
+    tool list.
     """
 
     tool_request_id: str
     output_text: str
     is_error: bool = False
     provider_correlation_id: str | None = None
+    added_tool_names: tuple[str, ...] = field(default_factory=tuple)
 
     OUTPUT_TEXT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
     def __post_init__(self) -> None:
-        if (
-            not isinstance(self.tool_request_id, str)
-            or not self.tool_request_id
-        ):
-            raise ValueError(
-                "ToolResultMessage requires a non-empty tool_request_id"
-            )
+        if not isinstance(self.tool_request_id, str) or not self.tool_request_id:
+            raise ValueError("ToolResultMessage requires a non-empty tool_request_id")
         if not self.tool_request_id.startswith(SUPPORTED_TOOL_REQUEST_ID_PREFIX):
             raise ValueError(
                 "ToolResultMessage.tool_request_id must be pipy-owned "
@@ -127,6 +127,14 @@ class ToolResultMessage:
                 "ToolResultMessage.provider_correlation_id must be a non-empty "
                 "string or None"
             )
+        if not isinstance(self.added_tool_names, tuple):
+            raise ValueError("ToolResultMessage.added_tool_names must be a tuple")
+        for index, name in enumerate(self.added_tool_names):
+            if not isinstance(name, str) or not name:
+                raise ValueError(
+                    "ToolResultMessage.added_tool_names["
+                    f"{index}] must be a non-empty string"
+                )
 
 
 LoopMessage = UserMessage | AssistantMessage | ToolResultMessage

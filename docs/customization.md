@@ -181,7 +181,10 @@ parity — theme selection lives in `/settings`.)
   resources through pipy's Python extension platform. See
   [Extension API](extension-api.md). The platform is Pi-shaped but not yet
   Pi-equivalent; richer extension UI and remote package sources are still in
-  progress.
+  progress. An extension tool may activate more registered tools with
+  `ctx.set_active_tools(...)`; purely additive changes preserve the cached tool
+  prefix on supported Anthropic Claude 4.5+ models, while other models safely
+  receive the complete current tool list.
 - **Custom providers and models** are configured through `models.json` and the
   provider catalog. See [Providers and models](providers.md).
 

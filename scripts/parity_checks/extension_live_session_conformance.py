@@ -7,6 +7,8 @@ stub providers to prove Pi-shaped live-session extension behavior:
 2. `user_bash` can provide a synthetic local shell result that reaches the next
    provider-visible prompt context;
 3. `session_before_compact` can block a session operation fail-closed.
+4. an extension tool can add a registered tool and leaves a durable load-point
+   marker on its provider-visible result.
 
 No network is used.
 
@@ -27,7 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     production_tool_registry,
@@ -62,6 +64,37 @@ class _CapturingProvider:
             started_at=now,
             ended_at=now,
             final_text="ok",
+        )
+
+
+class _DynamicProvider(_CapturingProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self._turn = 0
+
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        self.requests.append(request)
+        self._turn += 1
+        now = datetime(2026, 7, 17, 12, 0, tzinfo=UTC)
+        calls = (
+            (
+                ProviderToolCall(
+                    provider_correlation_id="loader-call",
+                    tool_name="loader",
+                    arguments_json="{}",
+                ),
+            )
+            if self._turn == 1
+            else ()
+        )
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=None if calls else "ok",
+            tool_calls=calls,
         )
 
 
@@ -103,8 +136,7 @@ def _run_request_hook(workspace: Path) -> Check:
             for message in request.messages
         )
         and not any(
-            getattr(message, "content", "") == "hello"
-            for message in request.messages
+            getattr(message, "content", "") == "hello" for message in request.messages
         )
     )
     return Check(
@@ -157,9 +189,7 @@ def _run_compact_gate(workspace: Path) -> Check:
         "        return SessionDecision(allow=False, reason='no compact')\n",
     )
     err = io.StringIO()
-    result = NativeToolReplSession(
-        provider=_CapturingProvider(), tool_registry={}
-    ).run(
+    result = NativeToolReplSession(provider=_CapturingProvider(), tool_registry={}).run(
         workspace_root=workspace,
         input_stream=io.StringIO("/compact\n"),
         output_stream=io.StringIO(),
@@ -173,12 +203,62 @@ def _run_compact_gate(workspace: Path) -> Check:
     )
 
 
+def _run_dynamic_tools(workspace: Path) -> Check:
+    _write_ext(
+        workspace,
+        "dynamic",
+        "from pipy_harness.extensions import ExtensionTool, ToolResult\n"
+        "def activate(api):\n"
+        "    def prepare(ctx, _args):\n"
+        "        assert ctx.set_active_tools(['loader'])\n"
+        "    api.register_command('prepare', 'prepare dynamic tools', prepare)\n"
+        "    def loader(ctx, _params):\n"
+        "        assert ctx.set_active_tools(['loader', 'late_tool'])\n"
+        "        return ToolResult(content='loaded')\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='loader', description='loader',\n"
+        "        input_schema={'type': 'object'}, handler=loader))\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='late_tool', description='late tool',\n"
+        "        input_schema={'type': 'object'},\n"
+        "        handler=lambda _ctx, _params: ToolResult(content='late')))\n",
+    )
+    provider = _DynamicProvider()
+    result = NativeToolReplSession(
+        provider=provider, tool_registry=production_tool_registry(), tool_budget=5
+    ).run(
+        workspace_root=workspace,
+        input_stream=io.StringIO("/prepare\nload tools\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    second = provider.requests[1] if len(provider.requests) > 1 else None
+    markers = (
+        [
+            getattr(message, "added_tool_names", ())
+            for message in second.messages
+            if getattr(message, "added_tool_names", ())
+        ]
+        if second is not None
+        else []
+    )
+    return Check(
+        "extension_tool_additive_load_point",
+        result.status is HarnessStatus.SUCCEEDED
+        and second is not None
+        and [tool.name for tool in second.available_tools] == ["loader", "late_tool"]
+        and markers == [("late_tool",)],
+        "extension-tool additive activation reaches the next request with a marker",
+    )
+
+
 def run_checks(base: Path) -> list[Check]:
     checks: list[Check] = []
     for name, runner in (
         ("request", _run_request_hook),
         ("bash", _run_user_bash),
         ("compact", _run_compact_gate),
+        ("dynamic", _run_dynamic_tools),
     ):
         workspace = base / name
         workspace.mkdir()

@@ -9,6 +9,8 @@ TUI changes that landed after the earlier June snapshot.
 
 This audit compares pipy's current docs/specs and command help with the local Pi
 reference in `/Users/jochen/src/pi-mono` at `b084d2fb`.
+The dynamic-tool-loading row was refreshed independently on 2026-07-17 against
+Pi `c8560b8d`; the other rows retain the broader `b084d2fb` snapshot.
 It is a slice-selection aid: the detailed behavioral specs remain the source of
 truth for each topic, but this page records the biggest remaining gaps in one
 place and states what pipy should implement next.
@@ -29,9 +31,12 @@ HTTP adapter, with Bedrock mutation before SigV4 signing and one Codex snapshot
 reused across retries and WebSocket-to-SSE fallback. The extension-surface
 **`agent_settled` lifecycle hook has also shipped** at the true-idle boundary,
 and **durable TUI-only entry rendering has shipped** through the separate
-`register_entry_renderer` registry. The next bounded runtime slice is
-cache-friendly dynamic tool loading, starting with provider-local ownership
-research for Anthropic `tool_reference` and OpenAI tool-search placement.
+`register_entry_renderer` registry. The Anthropic half of cache-friendly
+dynamic tool loading now also ships with durable load points, first-party/
+compat gating, `defer_loading`, and message-anchored `tool_reference`. The next
+bounded runtime slice is the separate OpenAI Responses `tool_search_call` /
+`tool_search_output` placement; Kimi Chat Completions remains another
+provider-owned follow-on.
 
 GPT-5.6 Sol plus model-aware `max` thinking **shipped** (see
 [gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md) and the changelog):
@@ -53,7 +58,7 @@ not omit, uniformly across every provider and effort-label surface).
 | 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | **Shipped** across the design, core/resource, interactive/management, and extension-surface slices. |
 | 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` **shipped on `--mode rpc` and `--mode json`** 2026-07-14 and on the extension surface 2026-07-16, without protocol duplication. |
 | 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | **Shipped**: the first two landed 2026-07-16 and durable TUI-only entry rendering landed 2026-07-17. |
-| 5 | Message-anchored dynamic tool loading | Real provider/extension gap; pipy changes active tools but lacks Anthropic `tool_reference` and OpenAI tool-search placement. |
+| 5 | Message-anchored dynamic tool loading | **Anthropic slice shipped** 2026-07-17; OpenAI Responses tool-search placement and Kimi Chat Completions deferred tools remain provider-owned gaps. |
 | 6 | Bare self-only `update` and `--all` | Real CLI/package semantic drift; project-local `config -l` and its trust integration already ship. |
 | 7 | Forced tool choice, OpenRouter session affinity, Copilot MAI routing, Bedrock/Cloudflare auth, pricing/catalog refreshes | Real provider candidates, but audit and split by adapter/request ownership rather than bundling. |
 | 8 | Ctrl+X transcript copy, cache-miss notices, automatic theme mode, output padding, editor/shell refinements | Real but lower-priority product polish; `/copy` already covers the main copy workflow. |
@@ -628,8 +633,10 @@ adding another bespoke slash command.
    **shipped** 2026-07-16; durable entry renderers **shipped** 2026-07-17.
    Resume the broader component/overlay/invalidation track after the higher-
    priority dynamic-tool-loading ownership slice.
-5. Cache-friendly dynamic tool loading — plan from the provider-local
-   Anthropic/OpenAI implementations, not from the extension wrapper alone.
+5. Cache-friendly dynamic tool loading — the provider-agnostic marker and
+   Anthropic `tool_reference` slice **shipped** 2026-07-17. Continue with
+   OpenAI Responses tool-search placement, then Kimi Chat Completions, as
+   independent provider-owned slices rather than extending the wrapper blindly.
 6. Package/update realignment — bare self-only update and `--all`; project-local
    `config -l` already ships with trust semantics.
 7. Provider and TUI polish — split the July request-shape/auth/catalog deltas

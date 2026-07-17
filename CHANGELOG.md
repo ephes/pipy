@@ -8,6 +8,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python extension tools can now activate additional registered tools during
+  execution with `ctx.set_active_tools(...)`. Purely additive changes persist a
+  provider-agnostic load-point marker on that tool result; supported first-party
+  Anthropic Claude 4.5+ requests keep the new definitions out of the immediate
+  cache prefix with `defer_loading: true` and load them at the result with
+  `tool_reference`, while older/custom-disabled models and removals safely send
+  the complete current tool list. OpenAI Responses tool-search and Kimi
+  deferred-tool shapes remain separate follow-ons.
 - Python extensions can now register Pi-shaped durable entry renderers with
   `api.register_entry_renderer(...)`. `ctx.append_entry(...)` records receive a
   live product-TUI component with full stored-entry metadata plus current

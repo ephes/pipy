@@ -45,9 +45,7 @@ def test_encode_cwd_dir_name_matches_pi_shape() -> None:
 
 def test_default_native_session_dir_under_local_state(tmp_path: Path) -> None:
     root = tmp_path / "state"
-    directory = default_native_session_dir(
-        Path("/home/u/proj"), state_root=root
-    )
+    directory = default_native_session_dir(Path("/home/u/proj"), state_root=root)
     assert directory == root / "native-sessions" / "--home-u-proj--"
 
 
@@ -131,9 +129,7 @@ def test_build_context_follows_only_active_branch(tmp_path: Path) -> None:
     tree.append_message(UserMessage(content="ALT"))
     tree.append_message(AssistantMessage(content="SEEN:ROOT,ALT"))
 
-    texts = [
-        m.content for m in tree.build_context().messages if hasattr(m, "content")
-    ]
+    texts = [m.content for m in tree.build_context().messages if hasattr(m, "content")]
     assert "ROOT" in texts
     assert "ALT" in texts
     assert "MAIN" not in texts
@@ -198,9 +194,7 @@ def test_open_rebuilds_tree_labels_leaf_and_name(tmp_path: Path) -> None:
     assert reopened.get_label(root.id) == "start"
     assert reopened.name == "conformance-tree"
     texts = [
-        m.content
-        for m in reopened.build_context().messages
-        if hasattr(m, "content")
+        m.content for m in reopened.build_context().messages if hasattr(m, "content")
     ]
     assert texts == ["ROOT", "SEEN:ROOT"]
 
@@ -213,9 +207,7 @@ def test_open_skips_malformed_lines(tmp_path: Path) -> None:
         handle.write("this is not json\n")
     reopened = NativeSessionTree.open(tree.path)
     texts = [
-        m.content
-        for m in reopened.build_context().messages
-        if hasattr(m, "content")
+        m.content for m in reopened.build_context().messages if hasattr(m, "content")
     ]
     assert texts == ["ROOT"]
 
@@ -232,6 +224,7 @@ def test_tool_result_message_round_trips(tmp_path: Path) -> None:
         ToolResultMessage(
             tool_request_id="pipy-tool-1",
             output_text="done",
+            added_tool_names=("late_one", "late_two"),
         )
     )
     assert tree.path is not None
@@ -240,6 +233,7 @@ def test_tool_result_message_round_trips(tmp_path: Path) -> None:
     tool_results = [m for m in messages if isinstance(m, ToolResultMessage)]
     assert len(tool_results) == 1
     assert tool_results[0].output_text == "done"
+    assert tool_results[0].added_tool_names == ("late_one", "late_two")
 
 
 # --------------------------------------------------------------------------
@@ -271,9 +265,7 @@ def test_fork_of_compacted_branch_preserves_kept_messages(tmp_path: Path) -> Non
         tree.path, cwd, leaf_id=tree.get_leaf_id(), session_dir=session_dir
     )
     fork_texts = [
-        m.content
-        for m in forked.build_context().messages
-        if hasattr(m, "content")
+        m.content for m in forked.build_context().messages if hasattr(m, "content")
     ]
     # The retained boundary must survive the fork: KEEP/KEEP-R kept, OLD dropped.
     assert "KEEP" in fork_texts
@@ -293,9 +285,7 @@ def test_compaction_keeps_summary_then_kept_messages(tmp_path: Path) -> None:
     )
     tree.append_message(AssistantMessage(content="REPLY-KEEP"))
 
-    texts = [
-        m.content for m in tree.build_context().messages if hasattr(m, "content")
-    ]
+    texts = [m.content for m in tree.build_context().messages if hasattr(m, "content")]
     assert "earlier turns summarized" in texts[0]
     assert "OLD-1" not in texts
     assert "KEEP" in texts
@@ -313,19 +303,27 @@ def test_build_tree_nodes_sorts_children_by_timestamp(tmp_path: Path) -> None:
     # Three siblings appended (in the entries list) out of timestamp order; Pi
     # sorts each node's children by timestamp ascending regardless of file order.
     root = MessageEntry(
-        id="r", parent_id=None, timestamp="2026-07-14T00:00:00Z",
+        id="r",
+        parent_id=None,
+        timestamp="2026-07-14T00:00:00Z",
         message=UserMessage(content="ROOT"),
     )
     late = MessageEntry(
-        id="c_late", parent_id="r", timestamp="2026-07-14T00:00:03Z",
+        id="c_late",
+        parent_id="r",
+        timestamp="2026-07-14T00:00:03Z",
         message=AssistantMessage(content="LATE"),
     )
     early = MessageEntry(
-        id="c_early", parent_id="r", timestamp="2026-07-14T00:00:01Z",
+        id="c_early",
+        parent_id="r",
+        timestamp="2026-07-14T00:00:01Z",
         message=AssistantMessage(content="EARLY"),
     )
     mid = MessageEntry(
-        id="c_mid", parent_id="r", timestamp="2026-07-14T00:00:02Z",
+        id="c_mid",
+        parent_id="r",
+        timestamp="2026-07-14T00:00:02Z",
         message=AssistantMessage(content="MID"),
     )
     roots = build_tree_nodes([root, late, early, mid])

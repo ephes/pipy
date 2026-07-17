@@ -176,6 +176,9 @@ def test_openai_serializes_tool_result_envelope(tmp_path: Path):
                 tool_request_id=request_id,
                 output_text="<file contents>",
                 provider_correlation_id="call_abc",
+                # OpenAI-native tool-search placement is a separate slice;
+                # this provider must safely ignore the generic load marker.
+                added_tool_names=("read",),
             ),
         ),
         available_tools=(ReadTool().definition,),
@@ -200,6 +203,7 @@ def test_openai_serializes_tool_result_envelope(tmp_path: Path):
         "call_id": "call_abc",
         "output": "<file contents>",
     }
+    assert [tool["name"] for tool in client.requests[0]["body"]["tools"]] == ["read"]
 
 
 def test_openai_includes_assistant_text_alongside_tool_calls(tmp_path: Path):

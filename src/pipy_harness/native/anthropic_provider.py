@@ -11,7 +11,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native._provider_helpers import (
+    utc_now,
+    failed_provider_result,
+    JsonResponse,
+    JsonHTTPClient,
+    serialize_tool_for_anthropic,
+    decode_json_object,
+    urlopen_read_cancellable,
+)
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
@@ -21,7 +29,11 @@ from pipy_harness.native.tools.messages import (
     ToolResultMessage,
     UserMessage,
 )
-from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
+from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.usage import (
+    NORMALIZED_PROVIDER_USAGE_KEYS,
+    normalize_provider_usage,
+)
 
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_DEFAULT_MAX_TOKENS = 4096
@@ -106,7 +118,14 @@ class UrllibJsonHTTPClient:
                 f"Anthropic API request failed: {reason}"
             ) from exc
 
-        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=AnthropicResponseParseError, provider_label="Anthropic API"))
+        return JsonResponse(
+            status_code=status_code,
+            body=decode_json_object(
+                payload,
+                error_class=AnthropicResponseParseError,
+                provider_label="Anthropic API",
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +164,7 @@ class AnthropicProvider:
     # in that case rather than omitting the key; mutually exclusive with
     # ``reasoning_effort`` (see provider_construction.resolve_construction).
     thinking_disabled: bool = False
+    supports_tool_references: bool = False
 
     @property
     def name(self) -> str:
@@ -185,17 +205,35 @@ class AnthropicProvider:
                 ),
             )
 
+        immediate_tools, deferred_tools = _split_deferred_tools(
+            request,
+            enabled=self.supports_tool_references,
+        )
+        # Anthropic requires at least one immediate definition when tools are
+        # present. Pi falls back to the ordinary list when every current tool
+        # would otherwise be deferred.
+        if not immediate_tools and deferred_tools:
+            immediate_tools = deferred_tools
+            deferred_tools = ()
+        deferred_tool_names = frozenset(tool.name for tool in deferred_tools)
         body: dict[str, Any] = {
             "model": self.model_id,
             "max_tokens": self.max_tokens,
             "system": request.system_prompt,
-            "messages": _messages_payload(request),
+            "messages": _messages_payload(
+                request,
+                deferred_tool_names=deferred_tool_names,
+            ),
         }
         if request.available_tools:
-            body["tools"] = [
-                serialize_tool_for_anthropic(tool)
-                for tool in request.available_tools
+            serialized_tools = [
+                serialize_tool_for_anthropic(tool) for tool in immediate_tools
             ]
+            for tool in deferred_tools:
+                serialized = serialize_tool_for_anthropic(tool)
+                serialized["defer_loading"] = True
+                serialized_tools.append(serialized)
+            body["tools"] = serialized_tools
         # Anthropic-native thinking. Pi switches the adaptive Claude models
         # (Opus 4.6/4.7/4.8, Sonnet 4.6 — compat.forceAdaptiveThinking) to the
         # adaptive shape (``type: adaptive`` + ``output_config.effort``) and uses
@@ -279,11 +317,72 @@ class AnthropicProvider:
         )
 
 
-def _messages_payload(request: ProviderRequest) -> list[dict[str, object]]:
+def _split_deferred_tools(
+    request: ProviderRequest,
+    *,
+    enabled: bool,
+) -> tuple[tuple[ToolDefinition, ...], tuple[ToolDefinition, ...]]:
+    """Split current definitions using durable message load-point markers."""
+
+    unique_tools: dict[str, ToolDefinition] = {}
+    for tool in request.available_tools:
+        unique_tools[tool.name] = tool
+    if not enabled:
+        return tuple(unique_tools.values()), ()
+
+    deferred_names: set[str] = set()
+    used_names: set[str] = set()
+    for message in request.messages:
+        if isinstance(message, AssistantMessage):
+            used_names.update(call.tool_name for call in message.tool_calls)
+        elif isinstance(message, ToolResultMessage):
+            for name in message.added_tool_names:
+                if name not in used_names:
+                    deferred_names.add(name)
+
+    immediate: list[ToolDefinition] = []
+    deferred: list[ToolDefinition] = []
+    for name, tool in unique_tools.items():
+        (deferred if name in deferred_names else immediate).append(tool)
+    return tuple(immediate), tuple(deferred)
+
+
+def _messages_payload(
+    request: ProviderRequest,
+    *,
+    deferred_tool_names: frozenset[str] = frozenset(),
+) -> list[dict[str, object]]:
     if request.messages:
         items: list[dict[str, object]] = []
-        for envelope in request.messages:
-            items.append(_envelope_to_message(envelope))
+        loaded_tool_names: set[str] = set()
+        index = 0
+        while index < len(request.messages):
+            envelope = request.messages[index]
+            if not isinstance(envelope, ToolResultMessage):
+                items.append(_envelope_to_message(envelope))
+                index += 1
+                continue
+            tool_results: list[dict[str, object]] = []
+            sibling_content: list[dict[str, object]] = []
+            while index < len(request.messages) and isinstance(
+                request.messages[index], ToolResultMessage
+            ):
+                tool_result = request.messages[index]
+                assert isinstance(tool_result, ToolResultMessage)
+                result, siblings = _convert_tool_result(
+                    tool_result,
+                    deferred_tool_names=deferred_tool_names,
+                    loaded_tool_names=loaded_tool_names,
+                )
+                tool_results.append(result)
+                sibling_content.extend(siblings)
+                index += 1
+            items.append(
+                {
+                    "role": "user",
+                    "content": [*tool_results, *sibling_content],
+                }
+            )
     else:
         items = [
             {
@@ -339,7 +438,9 @@ def _envelope_to_message(envelope: Any) -> dict[str, object]:
             content.append({"type": "text", "text": envelope.content})
         for call in envelope.tool_calls:
             try:
-                parsed_input = json.loads(call.arguments_json) if call.arguments_json else {}
+                parsed_input = (
+                    json.loads(call.arguments_json) if call.arguments_json else {}
+                )
             except json.JSONDecodeError:
                 parsed_input = {}
             if not isinstance(parsed_input, Mapping):
@@ -354,18 +455,42 @@ def _envelope_to_message(envelope: Any) -> dict[str, object]:
             )
         return {"role": "assistant", "content": content}
     if isinstance(envelope, ToolResultMessage):
-        correlation = _require_provider_correlation_id(envelope)
-        block: dict[str, object] = {
-            "type": "tool_result",
-            "tool_use_id": correlation,
-            "content": envelope.output_text,
-        }
-        if envelope.is_error:
-            block["is_error"] = True
-        return {"role": "user", "content": [block]}
+        result, siblings = _convert_tool_result(
+            envelope,
+            deferred_tool_names=frozenset(),
+            loaded_tool_names=set(),
+        )
+        return {"role": "user", "content": [result, *siblings]}
     raise AnthropicResponseParseError(
         f"unsupported message envelope: {type(envelope).__name__}"
     )
+
+
+def _convert_tool_result(
+    envelope: ToolResultMessage,
+    *,
+    deferred_tool_names: frozenset[str],
+    loaded_tool_names: set[str],
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    references: list[dict[str, object]] = []
+    for name in envelope.added_tool_names:
+        if name not in deferred_tool_names or name in loaded_tool_names:
+            continue
+        loaded_tool_names.add(name)
+        references.append({"type": "tool_reference", "tool_name": name})
+    block: dict[str, object] = {
+        "type": "tool_result",
+        "tool_use_id": _require_provider_correlation_id(envelope),
+        "content": references if references else envelope.output_text,
+    }
+    if envelope.is_error:
+        block["is_error"] = True
+    siblings: list[dict[str, object]] = (
+        [{"type": "text", "text": envelope.output_text}]
+        if references and envelope.output_text.strip()
+        else []
+    )
+    return block, siblings
 
 
 def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
@@ -387,7 +512,9 @@ class ParsedAnthropicResponse:
 class AnthropicProviderError(Exception):
     """Base class for sanitized Anthropic provider errors."""
 
-    def __init__(self, message: str, *, metadata: Mapping[str, Any] | None = None) -> None:
+    def __init__(
+        self, message: str, *, metadata: Mapping[str, Any] | None = None
+    ) -> None:
         super().__init__(sanitize_text(message))
         self.metadata = dict(metadata or {})
 
@@ -399,7 +526,11 @@ class AnthropicHTTPStatusError(AnthropicProviderError):
     def from_http_error(cls, exc: urllib.error.HTTPError) -> AnthropicHTTPStatusError:
         metadata: dict[str, Any] = {"http_status": exc.code}
         try:
-            body = decode_json_object(exc.read(), error_class=AnthropicResponseParseError, provider_label="Anthropic API")
+            body = decode_json_object(
+                exc.read(),
+                error_class=AnthropicResponseParseError,
+                provider_label="Anthropic API",
+            )
         except AnthropicResponseParseError:
             body = {}
         error = body.get("error")

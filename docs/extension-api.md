@@ -21,13 +21,15 @@ The pre-existing pipy runtime resources (bounded Markdown skills, prompt
 templates, custom slash commands, and chrome themes) remain supported alongside
 the Python extension API.
 
-The 2026-07-14 Pi `0.80.6` refresh identified additional gaps beyond the older
+The 2026-07-17 Pi refresh identified additional gaps beyond the older
 rich-UI list. Project-trust extension decisions/reads,
 `before_provider_headers`, the true-idle `agent_settled` lifecycle hook, and
-durable TUI-only entry renderers have now shipped; the next current delta is
-cache-friendly dynamic tool loading with provider-native message anchoring.
-Treat each as a separate slice; do not fold them into the broad custom-component
-track.
+durable TUI-only entry renderers have now shipped. Cache-friendly dynamic tool
+loading now also ships for supported Anthropic Messages models through durable
+tool-result load points, `defer_loading`, and `tool_reference`; OpenAI Responses
+tool search and Kimi's Chat Completions shape remain provider-owned follow-ons.
+Treat each provider shape as a separate slice; do not fold them into the broad
+custom-component track.
 
 Comparability to Pi: Pipy is now **Pi-shaped for core local extension workflows,
 but not Pi-equivalent as an extension platform**. The landed API is enough for
@@ -1259,7 +1261,8 @@ and the live `scripts/tmux_answer_verify.sh`.
     `user_bash`, `before_provider_request`, `session_before_switch`,
     `session_before_fork`, `session_before_compact`, and `session_before_tree`
     hooks now dispatch from the product tool loop. Command/shortcut and safe
-    pre-turn hook contexts expose `ctx.set_active_tools(...)`,
+    pre-turn hook contexts and extension-tool handlers expose
+    `ctx.set_active_tools(...)`,
     `ctx.set_model(...)`, and `ctx.set_thinking_level(...)` through the
     existing provider-state, session-tree, and tool-registry boundaries; in-turn
     provider/tool hooks reject `ctx.set_model(...)` by returning `False` so they
@@ -1557,6 +1560,22 @@ and the live `scripts/tmux_answer_verify.sh`.
     provider context, protocol stdout, or the summary-safe archive. Gate:
     `scripts/parity_checks/extension_entry_renderer_conformance.py --json` plus
     the captured-mode proof in `extension_dispatch_conformance.py --json`.
+30. Anthropic cache-friendly dynamic tool loading — **landed**: a successful
+    extension tool that only adds registered active tools records the ordered
+    names on its durable provider-agnostic `ToolResultMessage`. Removal,
+    replacement, and handler failure retain the updated/fallback behavior but
+    record no native-deferred marker. The Anthropic adapter resolves explicit
+    `compat.supportsToolReferences` first, otherwise enabling only first-party
+    non-Haiku Claude 4.5+ models; supported requests mark late definitions with
+    `defer_loading: true` and replace the marked result content with deduplicated
+    `tool_reference` blocks while preserving ordinary output as sibling text.
+    Unsupported models and every other provider continue sending the full
+    current active set. Native session JSONL preserves the summary-safe tool
+    names for resume/provider switching. Gate:
+    `scripts/parity_checks/extension_live_session_conformance.py --json` plus
+    focused Anthropic construction/request tests. OpenAI Responses
+    `tool_search_call`/`tool_search_output` and Kimi deferred tools remain
+    independent provider-owned slices.
 
 ## Open Questions
 
