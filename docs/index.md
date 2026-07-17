@@ -35,7 +35,9 @@ Read these documents in order to learn the project from the outside in:
     streams, [RPC Mode](rpc.md) for long-lived JSONL control, and
     [Python SDK and Headless Embedding](sdk.md) for in-process Python callers.
 10. [Architecture](architecture.md): the current runtime, diagrams, codebase
-    map, and the isolation boundary between domain logic and adapters.
+    map, and the isolation boundary between domain logic and adapters. The
+    [Architecture Migration Plan](architecture-migration.md) defines the
+    ordered internal improvement slices and their acceptance gates.
 11. [Pi Parity](pi-parity.md): what has already been slopforked from Pi, what
     remains, and how pipy's architecture differs from Pi's.
 12. [Parity Plan](parity-plan.md): the clear plan to reach real Pi parity —

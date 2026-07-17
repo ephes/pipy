@@ -3,6 +3,11 @@
 Status: describes the current codebase after the native shell, proposal,
 apply, startup chrome, and input-adapter slices.
 
+This page describes the current runtime. The ordered plan for moving from the
+current large session/provider/UI modules to explicit agent, coding-session,
+event, UI, and provider boundaries is the
+[Architecture Migration Plan](architecture-migration.md).
+
 Pipy is split into two Python packages:
 
 - `pipy_harness`: the product-facing harness, native runtime, providers, tools,

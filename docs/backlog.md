@@ -31,7 +31,10 @@ summary-safe catalog/learning utility, not the product parity surface. The first
 local model path is `ds4` (`antirez/ds4` DeepSeek V4 Flash) through the
 OpenAI-compatible Chat Completions machinery with tool-loop support. Specific
 feature coverage and parity status live in [pi-parity.md](pi-parity.md). Code
-shape lives in [architecture.md](architecture.md).
+shape lives in [architecture.md](architecture.md). The ordered internal
+improvement program lives in
+[architecture-migration.md](architecture-migration.md); it supersedes the
+ordering—but not the still-relevant findings—of Tracks CQ-B through CQ-F.
 
 This page is the forward-planning index:
 
@@ -1246,10 +1249,17 @@ These remain explicitly deferred and are not slices of the audit
 track:
 
 - Rewriting pipy in TypeScript or porting pi-mono's TUI library.
-- Adding pydantic, typebox, jsonschema, attrs, or any other
-  validation/typing runtime dependency.
-- Adding multi-agent orchestration, RPC mode, full TUI, persistent
-  history, or extension/plugin loaders.
+- Adding pydantic, typebox, jsonschema, attrs, or another validation/typing
+  runtime dependency during extraction. A later dependency change requires the
+  separate ADR gate in the Architecture Migration Plan, recorded under
+  `docs/decisions/YYYY-MM-DD-<slug>.md` and independently reviewed.
+- Adding unrelated product features while performing an architectural
+  extraction. RPC mode, the inline product TUI, persistent history, and
+  extension/package loading now ship and are protected migration inputs, not
+  deferred work. This does not authorize an alternate-screen or Textual UI.
+- Adding product-level multi-agent orchestration. Using bounded coding subagents
+  to implement and review this migration does not add a multi-agent product
+  surface.
 - Re-introducing dead modules removed in Track CQ-A as a "future"
   hedge. They come back only when a runtime path consumes them.
 - Touching the public archive privacy invariants. The audit's bad-
@@ -1454,6 +1464,20 @@ Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 `help`, `model`, `settings`, `copy`, `exit`, `quit`.)
 
 ## Next Slice
+
+### Architecture migration baseline — ACTIVE
+
+Begin Phase 0.1 of the reviewed
+[Architecture Migration Plan](architecture-migration.md): eliminate the
+order/global-state sensitivity exposed by
+`tests/test_parity_probe_trust.py::test_legacy_parity_score_opts_into_trusted_workspace_fixtures`,
+prove the focused reproducer in both orders plus three consecutive clean
+`just check` runs, and add checked-in CI using the repository's `just` entry
+points. This is the prerequisite for structural extraction; it makes no product
+behavior or public API change. Phase 0.2 characterization traces, archive
+sentinel tests, and the import-boundary harness follow this baseline and must
+land before the first structural slice, the canonical typed agent-event and
+synchronous push-sink seam.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 
