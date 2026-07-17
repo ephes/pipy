@@ -224,6 +224,11 @@ The test suite mirrors these boundaries:
   normalization, and privacy assertions.
 - `tests/test_recorder.py`, `tests/test_catalog.py`, and
   `tests/test_auto_capture.py` cover session storage and catalog behavior.
+- `tests/test_architecture_mode_contracts.py`,
+  `tests/test_architecture_archive_sdk_contracts.py`, and
+  `tests/test_architecture_import_boundaries.py` freeze cross-mode event order,
+  SDK/archive privacy separation, and the dependency rules that activate as the
+  migration's agent/coding/UI/provider/extension layers appear.
 
 Use:
 

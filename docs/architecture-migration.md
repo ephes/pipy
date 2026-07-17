@@ -213,6 +213,17 @@ Acceptance:
 - The import-boundary harness is checked in with rules that activate when each
   new package appears; Phase 0 does not reference modules that do not yet exist.
 
+Implementation evidence (2026-07-18): dedicated architecture-contract tests now
+freeze synchronous SDK/finalization behavior, the raw native product-session
+versus metadata-only workflow-archive privacy split, plain/tool/error provider
+event order, JSON and RPC boundaries, queued steering/follow-up and cancellation,
+extension true-idle lifecycle order, and the planned import directions. The
+import gate statically covers both module-first and package-first migrations,
+fails closed on stale forbidden names and invalid relative imports, and activates
+new layer rules without importing effectful entrypoints. Existing specialized
+retry, tool-progress, PTY/TUI, and extension-hook suites remain the owners of
+their deeper behavior rather than being duplicated here.
+
 ## Phase 1: Canonical Agent Event Seam
 
 ### Slice 1.1: Typed event vocabulary

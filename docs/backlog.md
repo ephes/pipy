@@ -1479,13 +1479,25 @@ explicit real-PTY smoke recipe on named Linux and macOS jobs. The existing
 Ruff-format debt remains a separate mechanical normalization slice rather than
 being hidden in this baseline.
 
-### Architecture characterization contracts — ACTIVE
+### Architecture characterization contracts — SHIPPED (2026-07-18)
 
-Implement Phase 0.2: capture current per-mode provider/tool/error/cancellation/
-queue/session/extension/JSON/RPC/SDK/TUI contracts, add explicit metadata-archive
-non-leak sentinels, and check in an import-boundary harness whose rules activate
-as new packages appear. This must land before the first structural slice, the
-canonical typed agent-event and synchronous push-sink seam.
+Phase 0.2 now freezes current provider/tool/error/cancellation/queue/extension/
+JSON/RPC/SDK event and lifecycle boundaries, proves raw native product-session
+content cannot cross into the metadata-only workflow archive, and checks planned
+dependency directions without importing runtime modules. The import harness
+activates for both module-first and package-first layer migrations and fails
+closed on stale forbidden names. Existing specialized retry, tool-progress,
+PTY/TUI, and extension-hook tests remain the detailed contracts for those
+surfaces.
+
+### Canonical typed agent events — ACTIVE
+
+Implement Phase 1.1 from the reviewed
+[Architecture Migration Plan](architecture-migration.md): introduce the
+strictly typed, synchronous-push agent event vocabulary and sink protocol behind
+the current mode adapters. Preserve the characterized dictionaries, JSON/RPC,
+SDK, extension, persistence, archive, and terminal behavior; do not move
+product-session writes or convert the core to asyncio in this slice.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 

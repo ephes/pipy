@@ -1,0 +1,548 @@
+"""Static dependency gates for the native architecture migration.
+
+The target packages are introduced incrementally.  A rule becomes active as soon
+as its source exists as either a package directory or a single-file module,
+without importing it or any of its potentially effectful entrypoints.
+
+This deliberately checks only syntactic ``import`` and ``from`` statements.  It
+cannot see dynamic loading through ``importlib``, ``__import__``, or plugin
+machinery, and it does not compute a transitive dependency graph.  A permitted
+intermediate module can therefore launder a forbidden dependency; runtime and
+integration gates remain responsible for those cases.  Imports beneath
+``TYPE_CHECKING`` guards and inside function bodies are deliberately scanned and
+forbidden: type-time and function-local dependencies are still architectural
+coupling.
+"""
+
+from __future__ import annotations
+
+import ast
+from dataclasses import dataclass
+from pathlib import Path
+import re
+
+import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = REPO_ROOT / "src"
+
+
+@dataclass(frozen=True)
+class BoundaryRule:
+    source_package: str
+    forbidden_imports: tuple[str, ...]
+    reason: str
+
+
+@dataclass(frozen=True)
+class ImportReference:
+    module: str
+    line: int
+
+
+@dataclass(frozen=True)
+class BoundaryViolation:
+    rule: BoundaryRule
+    path: Path
+    imported_module: str
+    line: int
+
+    def format(self, source_root: Path) -> str:
+        relative_path = self.path.relative_to(source_root)
+        return (
+            f"{relative_path}:{self.line}: {self.rule.source_package} imports "
+            f"forbidden module {self.imported_module!r} ({self.rule.reason})"
+        )
+
+
+_LEGACY_CONCRETE_PROVIDERS = (
+    "pipy_harness.native.anthropic_provider",
+    "pipy_harness.native.azure_openai_provider",
+    "pipy_harness.native.bedrock_provider",
+    "pipy_harness.native.cloudflare_provider",
+    "pipy_harness.native.ds4_provider",
+    "pipy_harness.native.google_provider",
+    "pipy_harness.native.google_vertex_provider",
+    "pipy_harness.native.mistral_provider",
+    "pipy_harness.native.openai_codex_provider",
+    "pipy_harness.native.openai_completions_provider",
+    "pipy_harness.native.openai_provider",
+    "pipy_harness.native.openrouter_provider",
+    "pipy_harness.native.provider_construction",
+)
+
+
+ARCHITECTURE_RULES = (
+    BoundaryRule(
+        source_package="pipy_harness.native.agent",
+        forbidden_imports=(
+            "pipy_harness.cli",
+            "pipy_harness.capture",
+            "pipy_session",
+            "pipy_harness.native.ui",
+            "pipy_harness.native.tui",
+            "pipy_harness.native.coding",
+            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.session",
+            "pipy_harness.native.session_compaction",
+            "pipy_harness.native.session_resume",
+            "pipy_harness.native.session_tree",
+            "pipy_harness.native.session_tree_commands",
+            "pipy_harness.native.providers",
+            *_LEGACY_CONCRETE_PROVIDERS,
+        ),
+        reason=(
+            "the agent core must not depend on entrypoints, UI, product-session "
+            "storage, concrete providers, or the workflow archive"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.providers",
+        forbidden_imports=(
+            "pipy_harness.native.ui",
+            "pipy_harness.native.tui",
+        ),
+        reason="provider transports must not depend on UI code",
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.coding",
+        forbidden_imports=(
+            "pipy_harness.native.ui",
+            "pipy_harness.native.tui",
+            "pipy_harness.native.terminal_compare",
+            "pipy_harness.native.terminal_input",
+            "pipy_harness.native.terminal_screen",
+            "pipy_harness.native.tool_renderers",
+        ),
+        reason="the headless coding-session controller must not depend on UI/ANSI",
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.ui",
+        forbidden_imports=(
+            "pipy_harness.native.coding.session",
+            "pipy_harness.native.tool_loop_session",
+        ),
+        reason="UI adapters must consume ports/events instead of session internals",
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.extensions",
+        forbidden_imports=(
+            "pipy_harness.native.tui",
+            "pipy_harness.native.coding.session",
+            "pipy_harness.native.tool_loop_session",
+        ),
+        reason=(
+            "package activation must use extension-host ports instead of concrete "
+            "TUI/session implementations"
+        ),
+    ),
+)
+
+# These exact names are part of the migration plan but do not all exist yet.
+# Keep this list exact rather than prefix-matching it: a new nested or transitional
+# name must be reviewed explicitly instead of making stale rule entries look valid.
+_PLANNED_IMPORT_PREFIXES = frozenset(
+    {
+        "pipy_harness.native.agent",
+        "pipy_harness.native.coding",
+        "pipy_harness.native.coding.session",
+        "pipy_harness.native.extensions",
+        "pipy_harness.native.providers",
+        "pipy_harness.native.ui",
+    }
+)
+
+
+def _package_directory(source_root: Path, package: str) -> Path:
+    return source_root.joinpath(*package.split("."))
+
+
+def _source_module_or_package_exists(source_root: Path, module: str) -> bool:
+    package_directory = _package_directory(source_root, module)
+    return package_directory.is_dir() or package_directory.with_suffix(".py").is_file()
+
+
+def _unresolved_forbidden_imports(
+    source_root: Path,
+    rules: tuple[BoundaryRule, ...],
+    *,
+    planned_imports: frozenset[str],
+) -> list[str]:
+    return sorted(
+        {
+            forbidden_import
+            for rule in rules
+            for forbidden_import in rule.forbidden_imports
+            if forbidden_import not in planned_imports
+            and not _source_module_or_package_exists(source_root, forbidden_import)
+        }
+    )
+
+
+def _module_name(source_root: Path, path: Path) -> str:
+    relative = path.relative_to(source_root).with_suffix("")
+    parts = list(relative.parts)
+    if parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts)
+
+
+def _current_package(source_root: Path, path: Path) -> str:
+    module = _module_name(source_root, path)
+    if path.name == "__init__.py":
+        return module
+    return module.rpartition(".")[0]
+
+
+def _resolve_from_base(
+    current_package: str,
+    *,
+    level: int,
+    module: str | None,
+) -> str:
+    if level == 0:
+        return module or ""
+
+    package_parts = current_package.split(".") if current_package else []
+    parents_to_drop = level - 1
+    if parents_to_drop >= len(package_parts):
+        raise ValueError(
+            f"relative import level {level} escapes current package {current_package!r}"
+        )
+    base_parts = package_parts[: len(package_parts) - parents_to_drop]
+    if module:
+        base_parts.extend(module.split("."))
+    return ".".join(base_parts)
+
+
+def _import_references(source_root: Path, path: Path) -> tuple[ImportReference, ...]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    current_package = _current_package(source_root, path)
+    references: list[ImportReference] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            references.extend(
+                ImportReference(module=alias.name, line=node.lineno)
+                for alias in node.names
+            )
+            continue
+        if not isinstance(node, ast.ImportFrom):
+            continue
+
+        try:
+            base = _resolve_from_base(
+                current_package,
+                level=node.level,
+                module=node.module,
+            )
+        except ValueError as error:
+            raise ValueError(f"{path}:{node.lineno}: {error}") from error
+        if base:
+            references.append(ImportReference(module=base, line=node.lineno))
+        references.extend(
+            ImportReference(
+                module=f"{base}.{alias.name}" if base else alias.name,
+                line=node.lineno,
+            )
+            for alias in node.names
+            if alias.name != "*"
+        )
+
+    return tuple(references)
+
+
+def _matches_module_prefix(module: str, prefix: str) -> bool:
+    return module == prefix or module.startswith(f"{prefix}.")
+
+
+def _evaluate_rule(source_root: Path, rule: BoundaryRule) -> list[BoundaryViolation]:
+    package_directory = _package_directory(source_root, rule.source_package)
+    module_path = package_directory.with_suffix(".py")
+    source_files: list[Path] = []
+    if package_directory.is_dir():
+        source_files.extend(sorted(package_directory.rglob("*.py")))
+    if module_path.is_file():
+        source_files.append(module_path)
+    if not source_files:
+        return []
+
+    violations: list[BoundaryViolation] = []
+    for path in source_files:
+        references = _import_references(source_root, path)
+        for prefix in rule.forbidden_imports:
+            matching = next(
+                (
+                    reference
+                    for reference in references
+                    if _matches_module_prefix(reference.module, prefix)
+                ),
+                None,
+            )
+            if matching is not None:
+                violations.append(
+                    BoundaryViolation(
+                        rule=rule,
+                        path=path,
+                        imported_module=matching.module,
+                        line=matching.line,
+                    )
+                )
+    return violations
+
+
+def _write_module(source_root: Path, module: str, source: str) -> Path:
+    path = source_root.joinpath(*module.split(".")).with_suffix(".py")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source, encoding="utf-8")
+    return path
+
+
+def test_import_parser_resolves_absolute_and_relative_imports(tmp_path: Path) -> None:
+    source_root = tmp_path / "src"
+    path = _write_module(
+        source_root,
+        "pipy_harness.native.agent.loop",
+        """\
+import pipy_harness.cli as cli
+from .. import tui
+from ..providers.openai import OpenAIProvider
+from .events import AgentEvent
+""",
+    )
+
+    assert set(_import_references(source_root, path)) == {
+        ImportReference("pipy_harness.cli", 1),
+        ImportReference("pipy_harness.native", 2),
+        ImportReference("pipy_harness.native.tui", 2),
+        ImportReference("pipy_harness.native.providers.openai", 3),
+        ImportReference("pipy_harness.native.providers.openai.OpenAIProvider", 3),
+        ImportReference("pipy_harness.native.agent.events", 4),
+        ImportReference("pipy_harness.native.agent.events.AgentEvent", 4),
+    }
+
+
+def test_import_parser_rejects_relative_import_beyond_top_level(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    path = _write_module(
+        source_root,
+        "pipy_harness.native.agent.loop",
+        "from ....providers import Provider\n",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            rf"^{re.escape(str(path))}:1: relative import level 4 escapes current package "
+            r"'pipy_harness\.native\.agent'$"
+        ),
+    ):
+        _import_references(source_root, path)
+
+
+def test_rule_evaluator_accepts_ports_and_rejects_forbidden_layers(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    _write_module(
+        source_root,
+        "pipy_harness.native.agent.allowed",
+        """\
+from pipy_harness.native.provider import ProviderPort
+from ..models import ProviderRequest
+""",
+    )
+    forbidden_path = _write_module(
+        source_root,
+        "pipy_harness.native.agent.forbidden",
+        """\
+from pipy_harness.native import tui
+from pipy_session.recorder import append_event
+""",
+    )
+    agent_rule = ARCHITECTURE_RULES[0]
+
+    violations = _evaluate_rule(source_root, agent_rule)
+
+    assert {
+        (violation.path, violation.imported_module, violation.line)
+        for violation in violations
+    } == {
+        (forbidden_path, "pipy_harness.native.tui", 1),
+        (forbidden_path, "pipy_session.recorder", 2),
+    }
+
+
+@pytest.mark.parametrize(
+    (
+        "source_package",
+        "allowed_import",
+        "forbidden_import",
+        "expected_import",
+    ),
+    [
+        pytest.param(
+            "pipy_harness.native.agent",
+            "from pipy_harness.native.provider import ProviderPort\n",
+            "from pipy_harness.native.openai_provider import OpenAIProvider\n",
+            "pipy_harness.native.openai_provider",
+            id="agent",
+        ),
+        pytest.param(
+            "pipy_harness.native.providers",
+            "from pipy_harness.native.models import ProviderRequest\n",
+            "from pipy_harness.native.ui.state import UiState\n",
+            "pipy_harness.native.ui.state",
+            id="providers",
+        ),
+        pytest.param(
+            "pipy_harness.native.coding",
+            "from pipy_harness.native.agent.events import AgentEvent\n",
+            "from pipy_harness.native.terminal_screen import TerminalScreen\n",
+            "pipy_harness.native.terminal_screen",
+            id="coding",
+        ),
+        pytest.param(
+            "pipy_harness.native.ui",
+            "from pipy_harness.native.agent.events import AgentEvent\n",
+            (
+                "from pipy_harness.native.tool_loop_session import "
+                "NativeToolReplSession\n"
+            ),
+            "pipy_harness.native.tool_loop_session",
+            id="ui",
+        ),
+        pytest.param(
+            "pipy_harness.native.extensions",
+            "from pipy_harness.native.agent.events import AgentEvent\n",
+            "from pipy_harness.native.coding.session import CodingSession\n",
+            "pipy_harness.native.coding.session",
+            id="extensions",
+        ),
+    ],
+)
+def test_each_planned_package_boundary_activates_on_a_synthetic_tree(
+    tmp_path: Path,
+    source_package: str,
+    allowed_import: str,
+    forbidden_import: str,
+    expected_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    _write_module(source_root, f"{source_package}.allowed", allowed_import)
+    forbidden_path = _write_module(
+        source_root,
+        f"{source_package}.forbidden",
+        forbidden_import,
+    )
+    rule = next(
+        rule for rule in ARCHITECTURE_RULES if rule.source_package == source_package
+    )
+
+    violations = _evaluate_rule(source_root, rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == forbidden_path
+    assert violations[0].imported_module == expected_import
+
+
+def test_rule_is_inactive_until_its_source_package_exists(tmp_path: Path) -> None:
+    source_root = tmp_path / "src"
+    _write_module(
+        source_root,
+        "pipy_harness.native.tui",
+        "from pipy_harness.native.tool_loop_session import NativeToolReplSession\n",
+    )
+    ui_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.ui"
+    )
+
+    assert _evaluate_rule(source_root, ui_rule) == []
+
+    _write_module(
+        source_root,
+        "pipy_harness.native.ui.terminal",
+        "from pipy_harness.native.tool_loop_session import NativeToolReplSession\n",
+    )
+
+    violations = _evaluate_rule(source_root, ui_rule)
+    assert len(violations) == 1
+    assert violations[0].imported_module == "pipy_harness.native.tool_loop_session"
+
+
+def test_rule_activates_for_single_file_source_module(tmp_path: Path) -> None:
+    source_root = tmp_path / "src"
+    source_path = _write_module(
+        source_root,
+        "pipy_harness.native.extensions",
+        "from pipy_harness.native.tui import ToolLoopTerminalUi\n",
+    )
+    extensions_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.extensions"
+    )
+
+    violations = _evaluate_rule(source_root, extensions_rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == source_path
+    assert violations[0].imported_module == "pipy_harness.native.tui"
+
+
+def test_forbidden_prefix_validation_rejects_stale_legacy_names(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    _write_module(source_root, "example.existing", "VALUE = 1\n")
+    rule = BoundaryRule(
+        source_package="example.source",
+        forbidden_imports=(
+            "example.existing",
+            "example.future",
+            "example.removed_legacy",
+        ),
+        reason="synthetic rule",
+    )
+
+    assert _unresolved_forbidden_imports(
+        source_root,
+        (rule,),
+        planned_imports=frozenset({"example.future"}),
+    ) == ["example.removed_legacy"]
+
+
+def test_repository_forbidden_import_prefixes_are_known() -> None:
+    unresolved = _unresolved_forbidden_imports(
+        SOURCE_ROOT,
+        ARCHITECTURE_RULES,
+        planned_imports=_PLANNED_IMPORT_PREFIXES,
+    )
+
+    assert not unresolved, (
+        "forbidden import prefixes must resolve to source modules/packages or be "
+        "explicitly planned; stale entries: " + ", ".join(unresolved)
+    )
+
+
+def test_repository_architecture_import_boundaries() -> None:
+    native_package = SOURCE_ROOT / "pipy_harness" / "native"
+    assert SOURCE_ROOT.is_dir() and native_package.is_dir(), (
+        "architecture gate requires the real src/pipy_harness/native package layout: "
+        f"expected {native_package}"
+    )
+
+    violations = [
+        violation
+        for rule in ARCHITECTURE_RULES
+        for violation in _evaluate_rule(SOURCE_ROOT, rule)
+    ]
+
+    assert not violations, "architecture import boundary violations:\n" + "\n".join(
+        violation.format(SOURCE_ROOT) for violation in violations
+    )
