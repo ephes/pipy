@@ -79,7 +79,12 @@ ARCHITECTURE_RULES = (
         forbidden_imports=(
             "pipy_harness.cli",
             "pipy_harness.capture",
+            "pipy_harness.adapters",
+            "pipy_harness.runner",
             "pipy_session",
+            "pipy_harness.native.automation",
+            "pipy_harness.native.extension_runtime",
+            "pipy_harness.native.extensions",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
             "pipy_harness.native.coding",
@@ -93,8 +98,9 @@ ARCHITECTURE_RULES = (
             *_LEGACY_CONCRETE_PROVIDERS,
         ),
         reason=(
-            "the agent core must not depend on entrypoints, UI, product-session "
-            "storage, concrete providers, or the workflow archive"
+            "the agent core must not depend on entrypoints, outer adapters, UI, "
+            "extensions, product-session storage, concrete providers, or the "
+            "workflow archive"
         ),
     ),
     BoundaryRule(
@@ -360,6 +366,8 @@ from ..models import ProviderRequest
         "pipy_harness.native.agent.forbidden",
         """\
 from pipy_harness.native import tui
+from pipy_harness.native.automation import events
+from pipy_harness.adapters import native
 from pipy_session.recorder import append_event
 """,
     )
@@ -372,7 +380,9 @@ from pipy_session.recorder import append_event
         for violation in violations
     } == {
         (forbidden_path, "pipy_harness.native.tui", 1),
-        (forbidden_path, "pipy_session.recorder", 2),
+        (forbidden_path, "pipy_harness.native.automation", 2),
+        (forbidden_path, "pipy_harness.adapters", 3),
+        (forbidden_path, "pipy_session.recorder", 4),
     }
 
 

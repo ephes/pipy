@@ -1490,14 +1490,27 @@ closed on stale forbidden names. Existing specialized retry, tool-progress,
 PTY/TUI, and extension-hook tests remain the detailed contracts for those
 surfaces.
 
-### Canonical typed agent events — ACTIVE
+### Canonical typed agent events — SHIPPED (2026-07-18)
 
-Implement Phase 1.1 from the reviewed
-[Architecture Migration Plan](architecture-migration.md): introduce the
-strictly typed, synchronous-push agent event vocabulary and sink protocol behind
-the current mode adapters. Preserve the characterized dictionaries, JSON/RPC,
-SDK, extension, persistence, archive, and terminal behavior; do not move
-product-session writes or convert the core to asyncio in this slice.
+Phase 1.1 adds the side-effect-free `native.agent` contract package: immutable,
+runtime-validated messages and events; provider/pipy tool identity; normalized
+usage, failure, turn, cancellation, and run outcomes; redacted full-content
+payload representations; and a synchronous ordered sink. The strengthened
+dependency gate keeps this core independent of outer adapters, automation,
+extensions, UI, persistence, providers, the runner, and the workflow archive.
+No current mode or public wire format changed.
+
+### Canonical event adapters — ACTIVE
+
+Implement Phase 1.2 from the reviewed
+[Architecture Migration Plan](architecture-migration.md): project typed agent
+events into the existing Pi-shaped automation dictionaries, extension lifecycle,
+rendering, SDK, and persistence boundaries without changing JSON/RPC snapshots or
+callback order. Keep cumulative assistant partials, malformed argument parsing,
+and camelCase fields in the Pi adapter; keep RPC queue/idle transitions on its
+existing serialized boundary. Replace the legacy tool-loop message envelope
+atomically rather than leaving aliases, and add no new public records for
+reasoning, usage, cancellation, or provider failures unless explicitly planned.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 

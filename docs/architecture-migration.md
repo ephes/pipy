@@ -241,9 +241,25 @@ class AgentEventSink(Protocol):
 ```
 
 The producer completes the canonical boundary before emitting the next event.
-Event payloads distinguish full-content product/automation data from summary-safe
-workflow metadata; crossing into the workflow archive always uses an explicit
-allowlisting adapter.
+Canonical payload strings are explicitly full-content product/automation data;
+summary-safe workflow DTOs do not belong in the agent package. Crossing into the
+workflow archive always uses an explicit allowlisting adapter.
+
+Implementation evidence (2026-07-18): `native.agent` now provides frozen,
+slotted, runtime-validated messages, events, usage/failure/run results, closed
+turn/run/cancellation outcomes, and the synchronous `AgentEventSink`. Full
+prompt/model/reasoning/tool/error content is wrapped as redacted-repr
+`ProductContent`; the package exposes no serializer or workflow-archive DTO.
+The event vocabulary keys starts and live updates by the provider correlation id
+available at those boundaries, then carries both that id and the pipy-owned
+request id on the completed result; it also preserves deferred-tool history,
+cumulative usage plus last-turn context totals, tool duration, steering/follow-up
+consumption, retry and failure states, and self-contained cancellation/terminal
+outcomes. The dependency gate now rejects imports from outer adapters,
+automation, extensions, UI, product-session storage, concrete providers, the
+runner, and the workflow archive. Existing emitters and wire dictionaries remain
+unchanged for Slice 1.2; the parallel legacy message envelope must be replaced
+atomically there rather than retained through a compatibility alias.
 
 ### Slice 1.2: Adapt existing consumers
 
@@ -266,8 +282,9 @@ Acceptance for Phase 1:
 - The event producer has no knowledge of terminal or storage formats.
 - Canonical core traces are mode-neutral, while adapter tests preserve each
   public mode's current representation.
-- Import-boundary tests fail if `native.agent` imports CLI, TUI, product-session
-  paths, or concrete providers, or if provider transports import UI code.
+- Import-boundary tests fail if `native.agent` imports CLI, outer adapters,
+  automation, extensions, TUI, product-session paths, concrete providers, the
+  runner, or the workflow archive, or if provider transports import UI code.
 
 ## Phase 2: Reusable Agent Loop
 
