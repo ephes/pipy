@@ -152,7 +152,10 @@ def _populate(workspace: Path) -> Path:
 def run_checks(workspace: Path) -> list[Check]:
     sentinel = _populate(workspace)
     descriptors = discover_extensions(
-        workspace, config_home_env={}, home_dir=workspace
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
     result = activate_extensions(descriptors, reserved_command_names=("model", "help"))
     checks: list[Check] = []
@@ -276,6 +279,7 @@ def run_checks(workspace: Path) -> list[Check]:
         "reason",
         "commands",
         "message_renderers",
+        "entry_renderers",
     }
     checks.append(
         Check(
@@ -284,6 +288,7 @@ def run_checks(workspace: Path) -> list[Check]:
             and set(greeter_meta) == allowed
             and greeter_meta["commands"] == ["greet"]
             and greeter_meta["message_renderers"] == []
+            and greeter_meta["entry_renderers"] == []
             and "function" not in json.dumps(metadata).lower(),
             "activation metadata excludes handlers",
         )
@@ -306,8 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         report = {
             "passed": passed,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
-                for c in checks
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
             ],
         }
         print(json.dumps(report, indent=2))

@@ -33,7 +33,9 @@ def test_one_arg_renderer_returning_component_like_stays_plain():
             return "PLAINREPR"
 
     out = render_extension_message(
-        _renderers("note", lambda data: _Componentish()), "note", {},
+        _renderers("note", lambda data: _Componentish()),
+        "note",
+        {},
     )
     assert out.styled is False
     assert "should-not-be-used" not in "".join(out.lines)
@@ -56,8 +58,12 @@ def test_two_arg_component_renderer_is_styled():
             return text
 
     out = render_extension_message(
-        _renderers("card", renderer), "card", {"t": "hi"},
-        width=40, expanded=False, theme=_Theme(),
+        _renderers("card", renderer),
+        "card",
+        {"t": "hi"},
+        width=40,
+        expanded=False,
+        theme=_Theme(),
     )
     assert out.styled is True
     assert out.lines == ("\x1b[1mhi\x1b[0m",)
@@ -66,7 +72,9 @@ def test_two_arg_component_renderer_is_styled():
 def test_two_arg_text_return_is_plain():
     out = render_extension_message(
         _renderers("note", lambda data, ctx: f"w={ctx.width}"),
-        "note", {}, width=77,
+        "note",
+        {},
+        width=77,
     )
     assert out.lines == ("w=77",)
     assert out.styled is False
@@ -94,7 +102,9 @@ def test_component_render_exception_is_fail_soft():
             raise RuntimeError("render-boom")
 
     out = render_extension_message(
-        _renderers("card", lambda data, ctx: _Bad()), "card", {},
+        _renderers("card", lambda data, ctx: _Bad()),
+        "card",
+        {},
     )
     assert out.styled is False
     assert out.lines[0].startswith("render error:")
@@ -103,7 +113,9 @@ def test_component_render_exception_is_fail_soft():
 def test_expanded_threaded_to_renderer():
     out = render_extension_message(
         _renderers("note", lambda data, ctx: f"e={ctx.expanded}"),
-        "note", {}, expanded=True,
+        "note",
+        {},
+        expanded=True,
     )
     assert out.lines == ("e=True",)
 
@@ -114,10 +126,14 @@ def test_capture_default_second_param_treated_as_one_arg():
     # plain path and never be bound to the MessageRenderContext.
     out = render_extension_message(
         _renderers("note", lambda data, prefix="P:": [prefix + str(data)]),
-        "note", "x", width=10, expanded=False, theme=object(),
+        "note",
+        "x",
+        width=10,
+        expanded=False,
+        theme=object(),
     )
     assert out.styled is False
-    assert out.lines == ("P:x",)   # default used; ctx did NOT clobber prefix
+    assert out.lines == ("P:x",)  # default used; ctx did NOT clobber prefix
 
 
 def test_message_render_context_fields():
@@ -186,14 +202,14 @@ def test_custom_entry_redraw_rows_renders_custom_messages():
             CustomMessageEntry("2", None, now, "hidden", "HIDDEN", False, None),
             CustomMessageEntry("3", None, now, "card", "BODY", True, {"k": "v"}),
         ),
-        lambda custom_type, data: RenderedCustomEntry(("ENTRY",), False),
+        lambda entry: RenderedCustomEntry(("ENTRY",), True),
         lambda entry: RenderedCustomEntry(
             (f"MSG:{entry.content}:{entry.details['k']}",), True
         ),
     )
 
     assert rows == [
-        ("plain", "note", ("ENTRY",)),
+        ("entry", "note", ("ENTRY",)),
         ("styled", "card", ("MSG:BODY:v",)),
     ]
 
@@ -208,7 +224,7 @@ def test_custom_entry_redraw_rows_custom_message_falls_back_to_content():
     now = datetime.now(UTC)
     rows = _custom_entry_redraw_rows(
         (CustomMessageEntry("1", None, now, "card", "A\nB", True, None),),
-        lambda custom_type, data: RenderedCustomEntry(("unused",), False),
+        lambda entry: RenderedCustomEntry(("unused",), True),
     )
 
     assert rows == [("plain", "card", ("A", "B"))]
@@ -216,9 +232,11 @@ def test_custom_entry_redraw_rows_custom_message_falls_back_to_content():
 
 def test_render_extension_message_custom_message_payload_rich_component():
     def renderer(message, ctx):
-        return lines_component([
-            f"{message['customType']}:{message['content']}:{message['details']['n']}:w={ctx.width}"
-        ])
+        return lines_component(
+            [
+                f"{message['customType']}:{message['content']}:{message['details']['n']}:w={ctx.width}"
+            ]
+        )
 
     out = render_extension_message(
         _renderers("card", renderer),
@@ -229,6 +247,7 @@ def test_render_extension_message_custom_message_payload_rich_component():
 
     assert out.styled is True
     assert out.lines == ("card:BODY:7:w=55",)
+
 
 class _NoopTty:
     def write(self, text):
@@ -255,10 +274,12 @@ def test_tui_redraw_custom_entries_replaces_previous_branch(tmp_path):
     ui.add_custom_entry("old", ["OLD-BODY"])
     ui.add_notice("ordinary history remains")
 
-    ui.redraw_custom_entries((
-        ("styled", "card", ("\x1b[1mNEW-STYLED\x1b[0m",)),
-        ("plain", "note", ("NEW-PLAIN",)),
-    ))
+    ui.redraw_custom_entries(
+        (
+            ("styled", "card", ("\x1b[1mNEW-STYLED\x1b[0m",)),
+            ("plain", "note", ("NEW-PLAIN",)),
+        )
+    )
 
     blocks = ui.custom_entry_blocks()
     assert blocks == (
@@ -281,11 +302,11 @@ def test_custom_entry_redraw_rows_dispatches_branch_entries():
 
     called = []
 
-    def render(custom_type, data):
-        called.append((custom_type, data))
-        if custom_type == "card":
+    def render(entry):
+        called.append((entry.custom_type, entry.data))
+        if entry.custom_type == "card":
             return RenderedCustomEntry(lines=("STYLED",), styled=True)
-        return RenderedCustomEntry(lines=("PLAIN",), styled=False)
+        return None
 
     now = datetime.now(UTC)
     rows = _custom_entry_redraw_rows(
@@ -300,9 +321,8 @@ def test_custom_entry_redraw_rows_dispatches_branch_entries():
 
     assert called == [("card", {"x": 1}), ("note", {"y": 2})]
     assert rows == [
-        ("styled", "card", ("STYLED",)),
+        ("entry", "card", ("STYLED",)),
         ("plain", "shown", ("LINE1", "LINE2")),
-        ("plain", "note", ("PLAIN",)),
     ]
 
 
@@ -333,7 +353,9 @@ def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
     )
     rows = _custom_entry_redraw_rows(
         (entry,),
-        lambda custom_type, data: render_extension_message(renderers, custom_type, data),
+        lambda custom_type, data: render_extension_message(
+            renderers, custom_type, data
+        ),
         lambda message: render_extension_message(
             renderers,
             message.custom_type,
@@ -349,12 +371,16 @@ def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
         cwd=tmp_path,
     )
     ui.redraw_custom_entries(rows)
-    assert ui.custom_entry_blocks() == (("custom_message_custom", ("expanded=False:BODY",)),)
+    assert ui.custom_entry_blocks() == (
+        ("custom_message_custom", ("expanded=False:BODY",)),
+    )
 
     ui.tools_expanded = True
     ui.rerender_custom_messages()
 
-    assert ui.custom_entry_blocks() == (("custom_message_custom", ("expanded=True:BODY",)),)
+    assert ui.custom_entry_blocks() == (
+        ("custom_message_custom", ("expanded=True:BODY",)),
+    )
 
 
 def test_tui_rerender_custom_messages_uses_current_expanded_flag(tmp_path):
@@ -379,11 +405,15 @@ def test_tui_rerender_custom_messages_uses_current_expanded_flag(tmp_path):
         renderers=renderers,
     )
 
-    assert ui.custom_entry_blocks() == (("custom_message_custom", ("expanded=False:alpha",)),)
+    assert ui.custom_entry_blocks() == (
+        ("custom_message_custom", ("expanded=False:alpha",)),
+    )
     ui.tools_expanded = True
     ui.rerender_custom_messages()
 
-    assert ui.custom_entry_blocks() == (("custom_message_custom", ("expanded=True:alpha",)),)
+    assert ui.custom_entry_blocks() == (
+        ("custom_message_custom", ("expanded=True:alpha",)),
+    )
 
 
 def test_tui_rerender_custom_messages_fail_soft_without_body_or_exception(tmp_path):

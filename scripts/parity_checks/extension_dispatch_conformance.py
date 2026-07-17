@@ -12,8 +12,8 @@ from `docs/extension-api.md`:
    survives;
 4. an extension cannot shadow a built-in command name (disabled at
    activation, so the built-in still resolves);
-5. a custom session-entry renderer plus `ctx.append_entry(...)` persists and
-   renders without a provider turn.
+5. `ctx.append_entry(...)` persists without a provider turn while its TUI-only
+   renderer stays inert on this captured/headless path.
 
 Exits 0 when every check passes, 1 otherwise. No network.
 
@@ -107,7 +107,7 @@ def run_checks(workspace: Path) -> list[Check]:
     )
     (ext / "card.py").write_text(
         "def activate(api):\n"
-        "    api.register_message_renderer('card', lambda data: ['CARD:' + data['title']])\n"
+        "    api.register_entry_renderer('card', lambda entry, ctx: (_ for _ in ()).throw(RuntimeError('headless renderer leak')))\n"
         "    def card(ctx, args):\n"
         "        entry_id = ctx.append_entry('card', {'title': args or 'untitled'})\n"
         "        ctx.ui.notify('ENTRY:' + str(entry_id))\n"
@@ -148,13 +148,14 @@ def run_checks(workspace: Path) -> list[Check]:
     ]
     checks.append(
         Check(
-            "custom_entry_rendered",
-            "CARD:hello" in err
+            "custom_entry_persisted_headlessly",
+            "CARD:hello" not in err
+            and "headless renderer leak" not in err
             and "ENTRY:" in err
             and len(custom_entries) == 1
             and custom_entries[0].custom_type == "card"
             and custom_entries[0].data == {"title": "hello"},
-            "custom entry persisted and rendered without a provider turn",
+            "custom entry persisted without invoking its TUI-only renderer",
         )
     )
     checks.append(
@@ -171,7 +172,10 @@ def run_checks(workspace: Path) -> list[Check]:
     )
 
     descriptors = discover_extensions(
-        workspace, config_home_env={"PIPY_CONFIG_HOME": str(workspace / "nocfg")}, home_dir=workspace
+        workspace,
+        config_home_env={"PIPY_CONFIG_HOME": str(workspace / "nocfg")},
+        home_dir=workspace,
+        include_workspace_defaults=True,
     )
     command_map = extension_command_map(
         activate_extensions(descriptors, reserved_command_names=("help",))
@@ -203,8 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         report = {
             "passed": passed,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
-                for c in checks
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
             ],
         }
         print(json.dumps(report, indent=2))

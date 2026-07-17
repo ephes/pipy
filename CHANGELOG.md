@@ -8,6 +8,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Added
 
+- Python extensions can now register Pi-shaped durable entry renderers with
+  `api.register_entry_renderer(...)`. `ctx.append_entry(...)` records receive a
+  live product-TUI component with full stored-entry metadata plus current
+  expanded/width/theme context; startup replay, `/resume`, expansion changes,
+  and `/reload` use the same independent registry. Entry renderers stay inert
+  in print/JSON/RPC modes, and their output never enters session JSONL,
+  provider context, protocol stdout, or the summary-safe archive.
 - Python extensions can now observe Pi's payload-free `agent_settled`
   lifecycle hook once a provider/tool run is truly idle. Automatic retry,
   compaction work, and queued steering/follow-up/extension prompts finish

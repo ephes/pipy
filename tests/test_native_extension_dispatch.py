@@ -30,7 +30,11 @@ from pipy_harness.native.extension_runtime import (
     safe_custom_entry_data,
 )
 from pipy_harness.native.extensions import discover_extensions
-from pipy_harness.native.session_tree import CustomEntry, CustomMessageEntry, NativeSessionTree
+from pipy_harness.native.session_tree import (
+    CustomEntry,
+    CustomMessageEntry,
+    NativeSessionTree,
+)
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
@@ -436,7 +440,9 @@ def test_dispatch_exposes_hidden_thinking_label_to_live_ui(tmp_path: Path) -> No
     assert getattr(driver, "hidden_thinking_label", None) == "Thinking..."
 
 
-def test_dispatch_hidden_thinking_label_helpers_are_headless_noops(tmp_path: Path) -> None:
+def test_dispatch_hidden_thinking_label_helpers_are_headless_noops(
+    tmp_path: Path,
+) -> None:
     workspace = _make_workspace(tmp_path)
     _write(
         workspace,
@@ -802,14 +808,14 @@ def test_handler_exception_is_bounded(tmp_path: Path) -> None:
 
 
 def test_extension_custom_entry_runs_through_the_session(tmp_path, monkeypatch) -> None:
-    # Product path: a command can append a custom native-session entry and render
-    # it through the extension's renderer with no provider turn.
+    # Product path: a command persists a custom native-session entry with no
+    # provider turn; the entry renderer is TUI-only and stays inert headlessly.
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     ext = tmp_path / ".pipy" / "extensions"
     ext.mkdir(parents=True)
     (ext / "card.py").write_text(
         "def activate(api):\n"
-        "    api.register_message_renderer('card', lambda data: ['Card title: ' + data['title']])\n"
+        "    api.register_entry_renderer('card', lambda entry, ctx: (_ for _ in ()).throw(RuntimeError('must stay TUI-only')))\n"
         "    def card(ctx, args):\n"
         "        entry_id = ctx.append_entry('card', {'title': args or 'untitled'})\n"
         "        ctx.ui.notify('ENTRY_ID:' + str(entry_id))\n"
@@ -832,7 +838,8 @@ def test_extension_custom_entry_runs_through_the_session(tmp_path, monkeypatch) 
         error_stream=error_stream,
     )
 
-    assert "Card title: hello" in error_stream.getvalue()
+    assert "Card title: hello" not in error_stream.getvalue()
+    assert "must stay TUI-only" not in error_stream.getvalue()
     assert "ENTRY_ID:" in error_stream.getvalue()
     assert not provider.requests
     custom_entries = [e for e in native_session.entries if isinstance(e, CustomEntry)]

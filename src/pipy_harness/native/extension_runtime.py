@@ -87,6 +87,8 @@ REASON_INVALID_FLAG: str = "invalid_flag"
 REASON_DUPLICATE_FLAG: str = "duplicate_flag"
 REASON_INVALID_MESSAGE_RENDERER: str = "invalid_message_renderer"
 REASON_DUPLICATE_MESSAGE_RENDERER: str = "duplicate_message_renderer"
+REASON_INVALID_ENTRY_RENDERER: str = "invalid_entry_renderer"
+REASON_DUPLICATE_ENTRY_RENDERER: str = "duplicate_entry_renderer"
 
 # Built-in hotkey / editor keys an extension shortcut may never claim, so a
 # binding can never shadow core input editing or the app hotkeys. Compared
@@ -739,6 +741,12 @@ class PipyExtensionAPI(Protocol):
         renderer: Callable[..., object],
     ) -> None: ...
 
+    def register_entry_renderer(
+        self,
+        custom_type: str,
+        renderer: Callable[..., object],
+    ) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class RegisteredCommand:
@@ -752,7 +760,16 @@ class RegisteredCommand:
 
 @dataclass(frozen=True, slots=True)
 class RegisteredMessageRenderer:
-    """A renderer for extension custom session entries of one type."""
+    """A renderer for extension custom messages of one type."""
+
+    custom_type: str
+    renderer: Callable[..., object]
+    extension: str
+
+
+@dataclass(frozen=True, slots=True)
+class RegisteredEntryRenderer:
+    """A TUI renderer for durable extension custom entries of one type."""
 
     custom_type: str
     renderer: Callable[..., object]
@@ -825,6 +842,7 @@ class ActivatedExtension:
     shortcuts: tuple[RegisteredShortcut, ...] = ()
     flags: tuple[RegisteredFlag, ...] = ()
     message_renderers: tuple[RegisteredMessageRenderer, ...] = ()
+    entry_renderers: tuple[RegisteredEntryRenderer, ...] = ()
     custom_messages: tuple[QueuedCustomMessage, ...] = ()
     _activation_key: str | None = field(default=None, repr=False, compare=False)
     _activation_api: "_ActivationApi | None" = field(
@@ -926,6 +944,15 @@ class MessageRenderContext:
 
     custom_type: str
     data: object | None
+    expanded: bool
+    width: int
+    theme: object  # ToolRenderTheme | None
+
+
+@dataclass(frozen=True, slots=True)
+class EntryRenderContext:
+    """Live product-TUI context passed to a durable entry renderer."""
+
     expanded: bool
     width: int
     theme: object  # ToolRenderTheme | None
@@ -2377,6 +2404,7 @@ class _ActivationApi:
         taken_shortcuts: frozenset[str] = frozenset(),
         taken_flags: frozenset[str] = frozenset(),
         taken_message_renderers: frozenset[str] = frozenset(),
+        taken_entry_renderers: frozenset[str] = frozenset(),
     ) -> None:
         self._extension_name = extension_name
         self._reserved = reserved
@@ -2387,6 +2415,7 @@ class _ActivationApi:
         self._taken_shortcuts = taken_shortcuts
         self._taken_flags = taken_flags
         self._taken_message_renderers = taken_message_renderers
+        self._taken_entry_renderers = taken_entry_renderers
         self._outbox = outbox
         self._custom_outbox = custom_outbox
         self._staged: dict[str, RegisteredCommand] = {}
@@ -2397,6 +2426,7 @@ class _ActivationApi:
         self._staged_flags: dict[str, RegisteredFlag] = {}
         self._flag_values: dict[str, object] = {}
         self._staged_message_renderers: dict[str, RegisteredMessageRenderer] = {}
+        self._staged_entry_renderers: dict[str, RegisteredEntryRenderer] = {}
         self._hooks: dict[str, list[HookHandler]] = {}
         self._failure: tuple[str, str | None] | None = None
         # Messages are staged during activation and only committed to the
@@ -2671,6 +2701,39 @@ class _ActivationApi:
     def staged_message_renderers(self) -> tuple[RegisteredMessageRenderer, ...]:
         return tuple(self._staged_message_renderers.values())
 
+    def register_entry_renderer(
+        self,
+        custom_type: str,
+        renderer: Callable[..., object],
+    ) -> None:
+        try:
+            self._validate_and_stage_entry_renderer(custom_type, renderer)
+        except _ActivationError as err:
+            if self._failure is None:
+                self._failure = (err.reason, err.diagnostic)
+            raise
+
+    def _validate_and_stage_entry_renderer(
+        self,
+        custom_type: str,
+        renderer: Callable[..., object],
+    ) -> None:
+        if not isinstance(custom_type, str):
+            raise _ActivationError(REASON_INVALID_ENTRY_RENDERER)
+        name = custom_type.strip()
+        if not is_valid_custom_entry_type(name) or not callable(renderer):
+            raise _ActivationError(REASON_INVALID_ENTRY_RENDERER)
+        if name in self._taken_entry_renderers or name in self._staged_entry_renderers:
+            raise _ActivationError(REASON_DUPLICATE_ENTRY_RENDERER)
+        self._staged_entry_renderers[name] = RegisteredEntryRenderer(
+            custom_type=name,
+            renderer=renderer,
+            extension=self._extension_name,
+        )
+
+    def staged_entry_renderers(self) -> tuple[RegisteredEntryRenderer, ...]:
+        return tuple(self._staged_entry_renderers.values())
+
     def register_command(
         self,
         name: str,
@@ -2849,6 +2912,7 @@ def activate_extension_batch(
     taken_shortcuts: set[str] = set()
     taken_flags: set[str] = set()
     taken_message_renderers: set[str] = set()
+    taken_entry_renderers: set[str] = set()
     outbox = (
         preloaded.message_outbox
         if preloaded is not None
@@ -2889,6 +2953,7 @@ def activate_extension_batch(
                 taken_shortcuts=taken_shortcuts,
                 taken_flags=taken_flags,
                 taken_message_renderers=taken_message_renderers,
+                taken_entry_renderers=taken_entry_renderers,
             )
             results.append(reused)
             continue
@@ -2904,6 +2969,7 @@ def activate_extension_batch(
         activation_taken_message_renderers = (
             set() if pending else taken_message_renderers
         )
+        activation_taken_entry_renderers = set() if pending else taken_entry_renderers
         results.append(
             _activate_one(
                 descriptor,
@@ -2915,6 +2981,7 @@ def activate_extension_batch(
                 taken_shortcuts=activation_taken_shortcuts,
                 taken_flags=activation_taken_flags,
                 taken_message_renderers=activation_taken_message_renderers,
+                taken_entry_renderers=activation_taken_entry_renderers,
                 outbox=outbox,
                 custom_outbox=custom_outbox,
                 commit_activation=not pending,
@@ -3003,13 +3070,27 @@ def extension_flags(
 def extension_message_renderers(
     activated: Sequence[ActivatedExtension],
 ) -> dict[str, RegisteredMessageRenderer]:
-    """Collect custom session-entry renderers from activated extensions."""
+    """Collect custom-message renderers from activated extensions."""
 
     renderers: dict[str, RegisteredMessageRenderer] = {}
     for extension in activated:
         if extension.status != "activated":
             continue
         for renderer in extension.message_renderers:
+            renderers.setdefault(renderer.custom_type, renderer)
+    return renderers
+
+
+def extension_entry_renderers(
+    activated: Sequence[ActivatedExtension],
+) -> dict[str, RegisteredEntryRenderer]:
+    """Collect durable-entry TUI renderers from activated extensions."""
+
+    renderers: dict[str, RegisteredEntryRenderer] = {}
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        for renderer in extension.entry_renderers:
             renderers.setdefault(renderer.custom_type, renderer)
     return renderers
 
@@ -3160,6 +3241,59 @@ def render_extension_message(
         return RenderedCustomEntry((f"render error: {_safe_diagnostic(err)}",), False)
 
 
+def render_extension_entry(
+    renderers: Mapping[str, RegisteredEntryRenderer],
+    entry: Mapping[str, object],
+    *,
+    width: int = 80,
+    expanded: bool = False,
+    theme: object | None = None,
+) -> RenderedCustomEntry | None:
+    """Render one stored custom entry for the product TUI, fail-soft.
+
+    Pi's entry renderer is a component-only, interactive surface. Missing
+    renderers, ``None`` returns, unsupported outputs, awaitables, and failures
+    all omit the live row while leaving the durable session entry untouched.
+    """
+
+    custom_type = str(entry.get("customType", ""))
+    registered = renderers.get(custom_type)
+    if registered is None:
+        return None
+    detached = _copy_custom_entry_data(dict(entry))
+    if not isinstance(detached, dict):
+        return None
+    try:
+        rendered = registered.renderer(
+            detached,
+            EntryRenderContext(expanded=expanded, width=width, theme=theme),
+        )
+        if inspect.isawaitable(rendered):
+            close = getattr(rendered, "close", None)
+            if callable(close):
+                close()
+            return None
+        if rendered is None or isinstance(rendered, (str, bytes, bytearray)):
+            return None
+        render = getattr(rendered, "render", None)
+        if not callable(render):
+            return None
+        produced = render(width)
+        if inspect.isawaitable(produced):
+            close = getattr(produced, "close", None)
+            if callable(close):
+                close()
+            return None
+        coerced = coerce_tool_render_lines(produced)
+        if coerced is None:
+            return None
+        return RenderedCustomEntry(tuple(coerced), True)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - omit a bad live renderer safely
+        return None
+
+
 def _copy_custom_entry_data(data: object | None) -> object | None:
     if data is None:
         return None
@@ -3306,6 +3440,7 @@ def _finalize_preloaded_extension(
     taken_shortcuts: set[str],
     taken_flags: set[str],
     taken_message_renderers: set[str],
+    taken_entry_renderers: set[str],
 ) -> ActivatedExtension:
     """Validate and commit one pending preload without running it again."""
 
@@ -3334,9 +3469,12 @@ def _finalize_preloaded_extension(
     for registered_flag in existing.flags:
         if registered_flag.flag.name in taken_flags:
             return _disabled(descriptor, REASON_DUPLICATE_FLAG, None)
-    for renderer in existing.message_renderers:
-        if renderer.custom_type in taken_message_renderers:
+    for message_renderer in existing.message_renderers:
+        if message_renderer.custom_type in taken_message_renderers:
             return _disabled(descriptor, REASON_DUPLICATE_MESSAGE_RENDERER, None)
+    for entry_renderer in existing.entry_renderers:
+        if entry_renderer.custom_type in taken_entry_renderers:
+            return _disabled(descriptor, REASON_DUPLICATE_ENTRY_RENDERER, None)
 
     taken.update(command.name for command in existing.commands)
     taken_tools.update(registered_tool.tool.name for registered_tool in existing.tools)
@@ -3347,6 +3485,9 @@ def _finalize_preloaded_extension(
     taken_flags.update(registered_flag.flag.name for registered_flag in existing.flags)
     taken_message_renderers.update(
         renderer.custom_type for renderer in existing.message_renderers
+    )
+    taken_entry_renderers.update(
+        renderer.custom_type for renderer in existing.entry_renderers
     )
     api.commit_activation()
     return replace(existing, _activation_api=None)
@@ -3363,6 +3504,7 @@ def _activate_one(
     taken_shortcuts: set[str],
     taken_flags: set[str],
     taken_message_renderers: set[str],
+    taken_entry_renderers: set[str],
     outbox: list[QueuedUserMessage],
     custom_outbox: list[QueuedCustomMessage],
     commit_activation: bool = True,
@@ -3394,6 +3536,7 @@ def _activate_one(
         taken_shortcuts=frozenset(taken_shortcuts),
         taken_flags=frozenset(taken_flags),
         taken_message_renderers=frozenset(taken_message_renderers),
+        taken_entry_renderers=frozenset(taken_entry_renderers),
         outbox=outbox,
         custom_outbox=custom_outbox,
     )
@@ -3420,6 +3563,7 @@ def _activate_one(
     shortcuts = api.staged_shortcuts()
     flags = api.staged_flags()
     message_renderers = api.staged_message_renderers()
+    entry_renderers = api.staged_entry_renderers()
     custom_messages = api.staged_custom_messages()
     # Commit the command/tool/provider/shortcut names + staged
     # send_user_message prompts only now that activation fully succeeded.
@@ -3433,8 +3577,10 @@ def _activate_one(
         taken_shortcuts.add(shortcut.key)
     for flag in flags:
         taken_flags.add(flag.flag.name)
-    for renderer in message_renderers:
-        taken_message_renderers.add(renderer.custom_type)
+    for message_renderer in message_renderers:
+        taken_message_renderers.add(message_renderer.custom_type)
+    for entry_renderer in entry_renderers:
+        taken_entry_renderers.add(entry_renderer.custom_type)
     if commit_activation:
         api.commit_activation()
     return ActivatedExtension(
@@ -3452,6 +3598,7 @@ def _activate_one(
         shortcuts=shortcuts,
         flags=flags,
         message_renderers=message_renderers,
+        entry_renderers=entry_renderers,
         custom_messages=custom_messages,
         _activation_key=_descriptor_activation_key(descriptor),
         _activation_api=None if commit_activation else api,
@@ -4270,6 +4417,9 @@ def safe_activation_metadata(
             "commands": [command.name for command in item.commands],
             "message_renderers": [
                 renderer.custom_type for renderer in item.message_renderers
+            ],
+            "entry_renderers": [
+                renderer.custom_type for renderer in item.entry_renderers
             ],
         }
         for item in activated

@@ -188,11 +188,12 @@ def activate(api):
             "editor_noop",
             returned_none=ctx.ui.editor("conformance editor", "prefill") is None,
         )
-        # Append a custom entry whose data carries a unique sentinel; the
-        # registered rich renderer runs synchronously and emits the body
-        # sentinel live-only. The body sentinel must never reach proof/archive;
-        # the data sentinel may persist in the session-tree store but must not
-        # leak into the proof/metadata side-channel.
+        # Append a durable custom entry whose data carries a unique sentinel;
+        # this captured-mode gate proves persistence/privacy, while the separate
+        # TUI entry-renderer gate owns its display. send_message below invokes
+        # the registered rich message renderer and emits the body sentinel
+        # live-only. Neither sentinel may leak into the proof/metadata side
+        # channel.
         ctx.append_entry("conformance-card", {"sentinel": _MSG_DATA_SENTINEL})
         ctx.send_message({"customType": "conformance-card", "content": "custom message"})
         _proof("send_message", custom_type="conformance-card")

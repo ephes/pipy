@@ -13,7 +13,7 @@ It is a slice-selection aid: the detailed behavioral specs remain the source of
 truth for each topic, but this page records the biggest remaining gaps in one
 place and states what pipy should implement next.
 
-## Active next gap (groomed 2026-07-16)
+## Active next gap (groomed 2026-07-17)
 
 The **project-trust design, trust-core/settings-resource,
 interactive-management, and extension-surface slices have shipped**:
@@ -27,8 +27,11 @@ and its ordered
 The **`before_provider_headers` extension hook has shipped** across every real
 HTTP adapter, with Bedrock mutation before SigV4 signing and one Codex snapshot
 reused across retries and WebSocket-to-SSE fallback. The extension-surface
-**`agent_settled` lifecycle hook has also shipped** at the true-idle boundary.
-The next bounded runtime slice is durable TUI-only entry rendering.
+**`agent_settled` lifecycle hook has also shipped** at the true-idle boundary,
+and **durable TUI-only entry rendering has shipped** through the separate
+`register_entry_renderer` registry. The next bounded runtime slice is
+cache-friendly dynamic tool loading, starting with provider-local ownership
+research for Anthropic `tool_reference` and OpenAI tool-search placement.
 
 GPT-5.6 Sol plus model-aware `max` thinking **shipped** (see
 [gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md) and the changelog):
@@ -49,7 +52,7 @@ not omit, uniformly across every provider and effort-label surface).
 | 1 | GPT-5.6 Sol + `max` thinking | **Shipped** 2026-07-14; generalized cross-provider clamping remains a named follow-on. |
 | 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | **Shipped** across the design, core/resource, interactive/management, and extension-surface slices. |
 | 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` **shipped on `--mode rpc` and `--mode json`** 2026-07-14 and on the extension surface 2026-07-16, without protocol duplication. |
-| 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | `before_provider_headers` and the settled lifecycle **shipped** 2026-07-16; durable entry rendering is the remaining focused slice. |
+| 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | **Shipped**: the first two landed 2026-07-16 and durable TUI-only entry rendering landed 2026-07-17. |
 | 5 | Message-anchored dynamic tool loading | Real provider/extension gap; pipy changes active tools but lacks Anthropic `tool_reference` and OpenAI tool-search placement. |
 | 6 | Bare self-only `update` and `--all` | Real CLI/package semantic drift; project-local `config -l` and its trust integration already ship. |
 | 7 | Forced tool choice, OpenRouter session affinity, Copilot MAI routing, Bedrock/Cloudflare auth, pricing/catalog refreshes | Real provider candidates, but audit and split by adapter/request ownership rather than bundling. |
@@ -267,8 +270,9 @@ Pipy current state:
 - Extension slices 14–16 have shipped: dynamic `pipy repl` tool-loop CLI flags
   (`ExtensionFlag` + `ctx.flags`), simple command/shortcut UI primitives
   (`ctx.ui.select`/`input`/`confirm`/`set_status`/`set_working_*`), and the
-  first custom session-entry/message-rendering slice
-  (`api.register_message_renderer` + `ctx.append_entry`).
+  first custom session-entry/message-rendering slice. Durable
+  `ctx.append_entry` display has since moved to its Pi-faithful independent
+  `api.register_entry_renderer` registry; message renderers own custom messages.
 - Extension slice 17 has shipped: custom tool renderers — `ExtensionTool`
   `render_call`/`render_result` callables render an extension's own tool
   call/result rows with themed color (render-once snapshot, fail-soft fallback)
@@ -368,11 +372,10 @@ Pipy current state:
   `getExtensionStatuses()`, `getAvailableProviderCount()`, and live product-TUI
   `onBranchChange(...)` callbacks; headless snapshots keep a safe no-op
   disposer.
-- Extension rich-message resume/redraw parity has shipped: active-branch
-  `ctx.append_entry` custom entries replay into startup-opened TUI sessions and
-  are redrawn with the current run's registered renderer after successful
-  in-session `/resume` switches; renderer output remains live-only and
-  fail-soft.
+- Durable entry-renderer replay/redraw parity has shipped: active-branch
+  `ctx.append_entry` records replay into startup-opened TUI sessions and redraw
+  with the current run's independent entry renderer after `/resume`, expanded-
+  state changes, and `/reload`; renderer output remains TUI-only and fail-soft.
 - Package resources now flow through discovery at deterministic lowest
   precedence with filters applied, and the package conformance gate proves no
   source path or resource body leaks to safe metadata. The same gate now covers
@@ -622,9 +625,9 @@ adding another bespoke slash command.
    2026-07-14 as independent protocol slices; JSON-mode `agent_settled` shipped
    the same day and the extension-surface hook shipped 2026-07-16.
 4. Extension deltas — `before_provider_headers` and true-idle `agent_settled`
-   **shipped** 2026-07-16. Keep durable entry renderers as the next slice, then
-   resume the broader
-   component/overlay/invalidation track.
+   **shipped** 2026-07-16; durable entry renderers **shipped** 2026-07-17.
+   Resume the broader component/overlay/invalidation track after the higher-
+   priority dynamic-tool-loading ownership slice.
 5. Cache-friendly dynamic tool loading — plan from the provider-local
    Anthropic/OpenAI implementations, not from the extension wrapper alone.
 6. Package/update realignment — bare self-only update and `--all`; project-local

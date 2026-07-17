@@ -55,8 +55,10 @@ from pipy_harness.native.editor_completion import (
 )
 from pipy_harness.native.extension_runtime import (
     FooterData,
+    RegisteredEntryRenderer,
     RegisteredMessageRenderer,
     normalize_shortcut_key,
+    render_extension_entry,
     render_extension_message,
 )
 from pipy_harness.native.keybindings import (
@@ -719,13 +721,14 @@ class _HistoryBlockTuple(tuple):
 
 @dataclass(slots=True)
 class _CustomMessageRenderState:
-    """Live-only state needed to refresh a styled custom message in place."""
+    """Live-only state needed to refresh a custom component in place."""
 
     custom_type: str
     data: object | None
     renderers: Mapping[str, RegisteredMessageRenderer]
     styled: bool
     lines: tuple[str, ...]
+    entry_renderers: Mapping[str, RegisteredEntryRenderer] | None = None
 
 
 class _CustomOverlayHandle:
@@ -3680,7 +3683,8 @@ class ToolLoopTerminalUi:
                 str,
                 tuple[str, ...],
                 object | None,
-                Mapping[str, RegisteredMessageRenderer],
+                Mapping[str, RegisteredMessageRenderer]
+                | Mapping[str, RegisteredEntryRenderer],
             ]
         ],
     ) -> None:
@@ -3700,16 +3704,25 @@ class ToolLoopTerminalUi:
         replacement_blocks: list[_HistoryBlock] = []
         for row in entries:
             render_kind, custom_type, lines = row[:3]
-            if render_kind == "styled":
+            if render_kind in {"styled", "entry"}:
                 rendered_lines = tuple(lines) or ("",)
                 state = None
                 if len(row) >= 5:
                     state = _CustomMessageRenderState(
                         custom_type=str(custom_type),
                         data=row[3],
-                        renderers=cast(Mapping[str, RegisteredMessageRenderer], row[4]),
+                        renderers=(
+                            {}
+                            if render_kind == "entry"
+                            else cast(Mapping[str, RegisteredMessageRenderer], row[4])
+                        ),
                         styled=True,
                         lines=rendered_lines,
+                        entry_renderers=(
+                            cast(Mapping[str, RegisteredEntryRenderer], row[4])
+                            if render_kind == "entry"
+                            else None
+                        ),
                     )
                 replacement_blocks.append(
                     _HistoryBlockTuple("custom_message_custom", rendered_lines, state)
@@ -3866,6 +3879,33 @@ class ToolLoopTerminalUi:
         )
         self.paint()
 
+    def add_entry_renderer_component(
+        self,
+        lines: Iterable[str],
+        *,
+        custom_type: str,
+        entry: Mapping[str, object],
+        renderers: Mapping[str, RegisteredEntryRenderer],
+    ) -> None:
+        """Commit a durable-entry renderer's live-only component snapshot."""
+
+        self._settle_reasoning()
+        self.working_text = ""
+        self.tool_output_text = ""
+        rendered_lines = tuple(lines) or ("",)
+        state = _CustomMessageRenderState(
+            custom_type=custom_type,
+            data=dict(entry),
+            renderers={},
+            styled=True,
+            lines=rendered_lines,
+            entry_renderers=renderers,
+        )
+        self._history_blocks.append(
+            _HistoryBlockTuple("custom_message_custom", rendered_lines, state)
+        )
+        self.paint()
+
     def rerender_custom_messages(self) -> None:
         """Refresh retained rich custom-message rows for the current view flag."""
 
@@ -3882,14 +3922,38 @@ class ToolLoopTerminalUi:
             if state is None:
                 rebuilt.append(_HistoryBlockTuple(kind, lines, state))
                 continue
-            rendered = render_extension_message(
-                state.renderers,
-                state.custom_type,
-                state.data,
-                width=width,
-                expanded=self.tools_expanded,
-                theme=theme,
-            )
+            if state.entry_renderers is not None:
+                entry = state.data if isinstance(state.data, Mapping) else {}
+                rendered = render_extension_entry(
+                    state.entry_renderers,
+                    entry,
+                    width=width,
+                    expanded=self.tools_expanded,
+                    theme=theme,
+                )
+                if rendered is None:
+                    next_state = _CustomMessageRenderState(
+                        custom_type=state.custom_type,
+                        data=state.data,
+                        renderers={},
+                        styled=True,
+                        lines=(),
+                        entry_renderers=state.entry_renderers,
+                    )
+                    changed = changed or bool(lines)
+                    rebuilt.append(
+                        _HistoryBlockTuple("custom_message_custom", (), next_state)
+                    )
+                    continue
+            else:
+                rendered = render_extension_message(
+                    state.renderers,
+                    state.custom_type,
+                    state.data,
+                    width=width,
+                    expanded=self.tools_expanded,
+                    theme=theme,
+                )
             if rendered.styled:
                 next_kind = "custom_message_custom"
                 next_lines = tuple(rendered.lines) or ("",)
@@ -3899,6 +3963,7 @@ class ToolLoopTerminalUi:
                     renderers=state.renderers,
                     styled=True,
                     lines=next_lines,
+                    entry_renderers=state.entry_renderers,
                 )
             else:
                 label = sanitize_label_text(str(state.custom_type).strip()) or "custom"
@@ -3913,6 +3978,7 @@ class ToolLoopTerminalUi:
                     renderers=state.renderers,
                     styled=False,
                     lines=next_lines,
+                    entry_renderers=state.entry_renderers,
                 )
             changed = changed or next_kind != kind or next_lines != lines
             rebuilt.append(_HistoryBlockTuple(next_kind, next_lines, next_state))
@@ -6413,9 +6479,7 @@ def run_project_trust_selector(
             decision_label = "trusted" if saved_decision.decision else "untrusted"
             display_saved_path = sanitize_label_text(str(saved_decision.path))
             if saved_decision.path != canonical_cwd:
-                saved_label = (
-                    f"{decision_label} (inherited from {display_saved_path})"
-                )
+                saved_label = f"{decision_label} (inherited from {display_saved_path})"
             else:
                 saved_label = f"{decision_label} ({display_saved_path})"
         rows.extend(

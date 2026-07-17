@@ -30,8 +30,8 @@ from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
-# A 2-arg `(data, ctx)` renderer REQUIRES a MessageRenderContext, so it takes
-# the rich styled path: it themes a known body sentinel via ctx.theme.fg. The
+# A 2-arg `(entry, ctx)` durable-entry renderer takes the rich styled path: it
+# themes a known body sentinel via ctx.theme.fg. The
 # `/mkcard` command appends a custom entry whose registered renderer runs
 # synchronously through the live ui_driver.
 _EXT = '''
@@ -39,7 +39,7 @@ from pipy_harness.extensions import lines_component
 
 
 def activate(api):
-    def _render_card(data, ctx):
+    def _render_card(entry, ctx):
         body = (
             ctx.theme.fg("accent", "PTYBODY")
             if ctx.theme
@@ -47,7 +47,7 @@ def activate(api):
         )
         return lines_component([body])
 
-    api.register_message_renderer("card", _render_card)
+    api.register_entry_renderer("card", _render_card)
 
     def _mkcard(ctx, args):
         ctx.append_entry("card", {"k": "v"})

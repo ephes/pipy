@@ -185,6 +185,7 @@ from pipy_harness.native.extension_runtime import (
     QueuedUserMessage,
     RegisteredCommand,
     RegisteredFlag,
+    RegisteredEntryRenderer,
     RegisteredMessageRenderer,
     RegisteredProvider,
     RegisteredShortcut,
@@ -208,6 +209,7 @@ from pipy_harness.native.extension_runtime import (
     extension_command_map,
     extension_event_hooks,
     extension_flags,
+    extension_entry_renderers,
     extension_message_renderers,
     extension_providers,
     extension_shortcuts,
@@ -218,6 +220,7 @@ from pipy_harness.native.extension_runtime import (
     make_extension_context,
     normalize_shortcut_key,
     parse_extension_flag_tokens,
+    render_extension_entry,
     render_extension_message,
     safe_custom_entry_data,
 )
@@ -291,6 +294,19 @@ def _custom_message_renderer_payload(entry: _CustomMessageEntry) -> dict[str, ob
     }
 
 
+def _custom_entry_renderer_payload(entry: _CustomEntry) -> dict[str, object]:
+    """Return the Pi-shaped full stored entry passed to entry renderers."""
+
+    return {
+        "type": "custom",
+        "id": entry.id,
+        "parentId": entry.parent_id,
+        "timestamp": entry.timestamp,
+        "customType": entry.custom_type,
+        "data": safe_custom_entry_data(entry.data),
+    }
+
+
 _CustomEntryRedrawRow: TypeAlias = (
     tuple[str, str, tuple[str, ...]]
     | tuple[
@@ -298,33 +314,36 @@ _CustomEntryRedrawRow: TypeAlias = (
         str,
         tuple[str, ...],
         object | None,
-        Mapping[str, RegisteredMessageRenderer],
+        Mapping[str, RegisteredMessageRenderer] | Mapping[str, RegisteredEntryRenderer],
     ]
 )
 
 
 def _custom_entry_redraw_rows(
     branch: Iterable[object],
-    render_custom_entry: Callable[[str, object | None], RenderedCustomEntry],
+    render_custom_entry: Callable[[_CustomEntry], RenderedCustomEntry | None],
     render_custom_message_entry: Callable[[_CustomMessageEntry], RenderedCustomEntry]
     | None = None,
     *,
     render_metadata: Mapping[str, RegisteredMessageRenderer] | None = None,
+    entry_render_metadata: Mapping[str, RegisteredEntryRenderer] | None = None,
 ) -> list[_CustomEntryRedrawRow]:
     """Build TUI redraw rows for active-branch extension custom entries."""
 
     rows: list[_CustomEntryRedrawRow] = []
     for entry in branch:
         if isinstance(entry, _CustomEntry):
-            data = safe_custom_entry_data(entry.data)
-            rendered = render_custom_entry(entry.custom_type, data)
+            data = _custom_entry_renderer_payload(entry)
+            rendered = render_custom_entry(entry)
+            if rendered is None:
+                continue
             row: _CustomEntryRedrawRow = (
-                "styled" if rendered.styled else "plain",
+                "entry",
                 entry.custom_type,
                 tuple(rendered.lines),
             )
-            if render_metadata is not None:
-                row = (*row, data, render_metadata)
+            if entry_render_metadata is not None:
+                row = (*row, data, entry_render_metadata)
             rows.append(row)
         elif isinstance(entry, _CustomMessageEntry) and entry.display:
             if render_custom_message_entry is not None:
@@ -947,6 +966,7 @@ class _ExtensionRuntime:
     providers: tuple[RegisteredProvider, ...]
     unregistered_providers: tuple[str, ...]
     message_renderers: dict[str, RegisteredMessageRenderer]
+    entry_renderers: dict[str, RegisteredEntryRenderer]
     custom_messages: tuple[QueuedCustomMessage, ...]
 
 
@@ -1074,6 +1094,7 @@ def _activate_workspace_extensions(
         providers=extension_providers(activated),
         unregistered_providers=extension_unregistered_providers(activated),
         message_renderers=extension_message_renderers(activated),
+        entry_renderers=extension_entry_renderers(activated),
         custom_messages=custom_messages,
     )
 
@@ -1450,6 +1471,7 @@ class NativeToolReplSession:
         extension_message_outbox = _ext_runtime.outbox
         extension_custom_message_outbox = _ext_runtime.custom_outbox
         extension_renderer_map = _ext_runtime.message_renderers
+        extension_entry_renderer_map = _ext_runtime.entry_renderers
         extension_activation_custom_messages = _ext_runtime.custom_messages
         extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
             _ext_runtime.flags,
@@ -1792,7 +1814,7 @@ class NativeToolReplSession:
         usage_accumulator = _UsageAccumulator()
         usage_accumulator.bind(effective_provider_name, effective_model_id)
 
-        def render_extension_custom_entry(
+        def render_extension_custom_message(
             custom_type: str,
             data: object | None,
             *,
@@ -1816,20 +1838,41 @@ class NativeToolReplSession:
                 theme=build_tool_render_theme(style),
             )
 
-        def add_rendered_custom_entry_to_terminal(
-            custom_type: str,
-            data: object | None,
-        ) -> None:
+        def render_extension_custom_entry(
+            entry: _CustomEntry,
+            *,
+            width: int,
+            expanded: bool,
+            stream: TextIO,
+        ) -> RenderedCustomEntry | None:
+            from pipy_harness.native.chrome import chrome_style_for
+            from pipy_harness.native.tool_renderers import build_tool_render_theme
+
+            return render_extension_entry(
+                extension_entry_renderer_map,
+                _custom_entry_renderer_payload(entry),
+                width=width,
+                expanded=expanded,
+                theme=build_tool_render_theme(chrome_style_for(stream)),
+            )
+
+        def add_rendered_custom_entry_to_terminal(entry: _CustomEntry) -> None:
             if terminal_ui is None:
                 return
             rendered = render_extension_custom_entry(
-                custom_type,
-                data,
+                entry,
                 width=terminal_ui._dimensions()[0],
                 expanded=terminal_ui.tools_expanded,
                 stream=terminal_ui.terminal_stream,
             )
-            add_rendered_entry_to_terminal(custom_type, rendered, data)
+            if rendered is None:
+                return
+            terminal_ui.add_entry_renderer_component(
+                rendered.lines,
+                custom_type=entry.custom_type,
+                entry=_custom_entry_renderer_payload(entry),
+                renderers=extension_entry_renderer_map,
+            )
 
         def render_custom_message_entry(
             entry: _CustomMessageEntry,
@@ -1842,7 +1885,7 @@ class NativeToolReplSession:
                 return RenderedCustomEntry(
                     tuple(entry.content.splitlines() or [""]), False
                 )
-            return render_extension_custom_entry(
+            return render_extension_custom_message(
                 entry.custom_type,
                 _custom_message_renderer_payload(entry),
                 width=width,
@@ -1882,9 +1925,7 @@ class NativeToolReplSession:
             if terminal_ui is not None:
                 for entry in session_tree.get_branch():
                     if isinstance(entry, _CustomEntry):
-                        add_rendered_custom_entry_to_terminal(
-                            entry.custom_type, safe_custom_entry_data(entry.data)
-                        )
+                        add_rendered_custom_entry_to_terminal(entry)
                     elif isinstance(entry, _CustomMessageEntry) and entry.display:
                         add_custom_message_entry_to_terminal(entry)
 
@@ -1892,12 +1933,9 @@ class NativeToolReplSession:
             if terminal_ui is None or not hasattr(terminal_ui, "redraw_custom_entries"):
                 return
 
-            def render_for_redraw(
-                custom_type: str, data: object | None
-            ) -> RenderedCustomEntry:
+            def render_for_redraw(entry: _CustomEntry) -> RenderedCustomEntry | None:
                 return render_extension_custom_entry(
-                    custom_type,
-                    data,
+                    entry,
                     width=terminal_ui._dimensions()[0],
                     expanded=terminal_ui.tools_expanded,
                     stream=terminal_ui.terminal_stream,
@@ -1919,6 +1957,7 @@ class NativeToolReplSession:
                     render_for_redraw,
                     render_message_for_redraw,
                     render_metadata=extension_renderer_map,
+                    entry_render_metadata=extension_entry_renderer_map,
                 )
             )
 
@@ -1931,21 +1970,7 @@ class NativeToolReplSession:
             safe_data = safe_custom_entry_data(data)
             appended = session_tree.append_custom(safe_type, safe_data)
             if terminal_ui is not None:
-                add_rendered_custom_entry_to_terminal(safe_type, safe_data)
-            else:
-                rendered = render_extension_custom_entry(
-                    safe_type,
-                    safe_data,
-                    width=80,
-                    expanded=False,
-                    stream=error_stream,
-                )
-                lines = "\n".join(str(line) for line in rendered.lines)
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    f"{safe_type}:\n{lines}" if lines else safe_type,
-                )
+                add_rendered_custom_entry_to_terminal(appended)
             return appended.id
 
         def extension_send_message(
@@ -2924,6 +2949,7 @@ class NativeToolReplSession:
                     extension_message_outbox = _ext_runtime.outbox
                     extension_custom_message_outbox = _ext_runtime.custom_outbox
                     extension_renderer_map = _ext_runtime.message_renderers
+                    extension_entry_renderer_map = _ext_runtime.entry_renderers
                     extension_activation_custom_messages = _ext_runtime.custom_messages
                     for custom_message in extension_activation_custom_messages:
                         extension_send_message(
@@ -3107,6 +3133,7 @@ class NativeToolReplSession:
                         terminal_ui.extension_shortcut_keys = frozenset(
                             _ext_runtime.shortcuts
                         )
+                        redraw_custom_entries_for_active_branch()
                     load_errors = settings.load_errors()
                     if load_errors:
                         for scope, detail in load_errors.items():

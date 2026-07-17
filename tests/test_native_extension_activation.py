@@ -16,6 +16,7 @@ from pipy_harness.extensions import PipyExtensionAPI
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
     activate_extensions,
+    extension_entry_renderers,
     extension_flags,
     extension_message_renderers,
     parse_extension_flag_tokens,
@@ -40,7 +41,9 @@ def _write_single_file(workspace: Path, name: str, body: str) -> None:
     (_ext_dir(workspace) / f"{name}.py").write_text(body, encoding="utf-8")
 
 
-def _activate(workspace: Path, *, reserved: tuple[str, ...] = ()) -> list[ActivatedExtension]:
+def _activate(
+    workspace: Path, *, reserved: tuple[str, ...] = ()
+) -> list[ActivatedExtension]:
     descriptors = discover_extensions(
         workspace,
         config_home_env={},
@@ -54,7 +57,9 @@ def _by_name(result: list[ActivatedExtension], name: str) -> ActivatedExtension:
     for activated in result:
         if activated.name == name:
             return activated
-    raise AssertionError(f"no activated extension {name!r} in {[a.name for a in result]}")
+    raise AssertionError(
+        f"no activated extension {name!r} in {[a.name for a in result]}"
+    )
 
 
 def test_activate_registers_a_command(tmp_path: Path) -> None:
@@ -103,6 +108,55 @@ def test_activate_registers_message_renderer(tmp_path: Path) -> None:
 
     assert sorted(renderers) == ["card"]
     assert renderers["card"].extension == "renderext"
+
+
+def test_activate_registers_independent_entry_renderer(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "renderext",
+        "def activate(api):\n"
+        "    api.register_message_renderer('card', lambda data: ['message'])\n"
+        "    api.register_entry_renderer('card', lambda entry, ctx: None)\n",
+    )
+
+    activated = _activate(workspace)
+
+    assert set(extension_message_renderers(activated)) == {"card"}
+    assert set(extension_entry_renderers(activated)) == {"card"}
+
+
+def test_duplicate_entry_renderer_disables_later_extension(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    body = (
+        "def activate(api):\n"
+        "    api.register_entry_renderer('card', lambda entry, ctx: None)\n"
+    )
+    _write_single_file(workspace, "first", body)
+    _write_single_file(workspace, "second", body)
+
+    first = _by_name(_activate(workspace), "first")
+    second = _by_name(_activate(workspace), "second")
+
+    assert first.status == "activated"
+    assert second.status == "disabled"
+    assert second.reason == "duplicate_entry_renderer"
+
+
+def test_invalid_entry_renderer_disables_extension(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "bad",
+        "def activate(api):\n"
+        "    api.register_entry_renderer('bad/type', lambda entry, ctx: None)\n",
+    )
+
+    activated = _by_name(_activate(workspace), "bad")
+
+    assert activated.status == "disabled"
+    assert activated.reason == "invalid_entry_renderer"
+    assert not activated.entry_renderers
 
 
 def test_duplicate_message_renderer_disables_later_extension(tmp_path: Path) -> None:
@@ -576,9 +630,11 @@ def test_safe_activation_metadata_excludes_handlers(tmp_path: Path) -> None:
         "reason",
         "commands",
         "message_renderers",
+        "entry_renderers",
     }
     assert entry["commands"] == ["mc"]
     assert entry["message_renderers"] == []
+    assert entry["entry_renderers"] == []
     # No handler objects or callables leak into metadata.
     assert "lambda" not in str(entry) and "function" not in str(entry).lower()
 
@@ -587,3 +643,4 @@ def test_public_api_protocol_is_importable() -> None:
     # The public extension surface the spec examples import from.
     assert hasattr(PipyExtensionAPI, "register_command")
     assert hasattr(PipyExtensionAPI, "register_message_renderer")
+    assert hasattr(PipyExtensionAPI, "register_entry_renderer")

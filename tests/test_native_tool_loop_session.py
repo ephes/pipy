@@ -1014,7 +1014,9 @@ def test_reload_malformed_settings_keeps_prior_and_warns(tmp_path):
     assert "theme: ocean" in out
 
 
-def test_reload_refreshes_extension_message_renderers(tmp_path: Path) -> None:
+def test_reload_refreshes_extension_entry_renderers(
+    tmp_path: Path, monkeypatch
+) -> None:
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     marker = extension_dir / "renderer_prefix.txt"
@@ -1024,7 +1026,8 @@ def test_reload_refreshes_extension_message_renderers(tmp_path: Path) -> None:
         "def activate(api):\n"
         "    marker = Path(__file__).with_name('renderer_prefix.txt')\n"
         "    prefix = marker.read_text(encoding='utf-8') if marker.exists() else 'old'\n"
-        "    api.register_message_renderer('card', lambda data, prefix=prefix: [prefix + ':' + data['title']])\n"
+        "    from pipy_harness.extensions import lines_component\n"
+        "    api.register_entry_renderer('card', lambda entry, ctx, prefix=prefix: lines_component([prefix + ':' + entry['data']['title']]))\n"
         "    def card(ctx, args):\n"
         "        ctx.append_entry('card', {'title': args})\n"
         "    def flip(ctx, args):\n"
@@ -1035,22 +1038,42 @@ def test_reload_refreshes_extension_message_renderers(tmp_path: Path) -> None:
     )
     provider = FakeNativeProvider(supports_tool_calls=True)
     session = NativeToolReplSession(provider=provider, tool_registry={})
-    error_stream = io.StringIO()
+    terminal_stream = _TtyBuffer()
+    terminal_ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, io.StringIO()),
+        terminal_stream=cast(TextIO, terminal_stream),
+        cwd=tmp_path,
+    )
+    queued = ["/card one", "/flip-renderer", "/reload", "/card two", "/exit"]
+
+    def _read_line(self, prompt_label, *, footer=None):
+        del self, prompt_label, footer
+        return queued.pop(0) if queued else ""
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", _read_line)
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: (
+            terminal_ui
+        ),
+    )
 
     session.run(
         workspace_root=tmp_path,
-        input_stream=io.StringIO(
-            "/card one\n/flip-renderer\n/reload\n/card two\n/exit\n"
-        ),
+        input_stream=cast(TextIO, io.StringIO()),
         output_stream=io.StringIO(),
-        error_stream=error_stream,
+        error_stream=io.StringIO(),
     )
 
-    err = error_stream.getvalue()
+    rendered_blocks = "\n".join(
+        line for _kind, lines in terminal_ui.custom_entry_blocks() for line in lines
+    )
     assert marker.read_text(encoding="utf-8") == "new"
-    assert "old:one" in err
-    assert "new:two" in err
-    assert "old:two" not in err
+    assert "new:one" in rendered_blocks
+    assert "new:two" in rendered_blocks
+    assert "old:one" not in rendered_blocks
+    assert "old:two" not in rendered_blocks
 
 
 def test_reload_fires_session_start_reload_for_new_extension_generation(
@@ -1126,12 +1149,12 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     (extension_dir / "cards.py").write_text(
         "from pipy_harness.extensions import lines_component\n"
         "def activate(api):\n"
-        "    api.register_message_renderer('plain-card', lambda data: ['PLAIN:' + data['title']])\n"
-        "    def render_rich(data, ctx):\n"
-        "        body = f\"RICH:{data['title']}:expanded={ctx.expanded}:width={ctx.width}:theme={ctx.theme is not None}\"\n"
+        "    api.register_entry_renderer('plain-card', lambda entry, ctx: lines_component(['PLAIN:' + entry['data']['title']]))\n"
+        "    def render_rich(entry, ctx):\n"
+        "        body = f\"RICH:{entry['data']['title']}:expanded={ctx.expanded}:width={ctx.width}:theme={ctx.theme is not None}\"\n"
         "        text = ctx.theme.fg('accent', body) if ctx.theme else body\n"
         "        return lines_component([text])\n"
-        "    api.register_message_renderer('rich-card', render_rich)\n",
+        "    api.register_entry_renderer('rich-card', render_rich)\n",
         encoding="utf-8",
     )
     session_dir = tmp_path / "sessions"
@@ -1205,7 +1228,7 @@ def test_reopened_session_replays_extension_custom_entries_live_only(
     assert "PLAIN:ROOT" in committed_frame
     assert "RICH:ACTIVE" in committed_frame
     assert "expanded=False:width=101:theme=True" in committed_frame
-    assert "FALLBACK" in committed_frame
+    assert "FALLBACK" not in committed_frame
     assert "LEGACY_SHOW" in committed_frame
     assert "OFF_BRANCH" not in committed_frame
     assert "LEGACY_HIDE" not in committed_frame
@@ -1232,10 +1255,10 @@ def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
     (extension_dir / "card.py").write_text(
         "from pipy_harness.extensions import lines_component\n"
         "def activate(api):\n"
-        "    def render(data, ctx):\n"
-        "        text = ctx.theme.fg('accent', data['title']) if ctx.theme else data['title']\n"
+        "    def render(entry, ctx):\n"
+        "        text = ctx.theme.fg('accent', entry['data']['title']) if ctx.theme else entry['data']['title']\n"
         "        return lines_component([text])\n"
-        "    api.register_message_renderer('card', render)\n"
+        "    api.register_entry_renderer('card', render)\n"
         "    def cmd(ctx, args):\n"
         "        ctx.append_entry('card', {'title': 'SECRET_TITLE'})\n"
         "    api.register_command('mkcard', 'make a card', cmd)\n",

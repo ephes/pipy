@@ -23,8 +23,8 @@ the Python extension API.
 
 The 2026-07-14 Pi `0.80.6` refresh identified additional gaps beyond the older
 rich-UI list. Project-trust extension decisions/reads,
-`before_provider_headers`, and the true-idle `agent_settled` lifecycle hook have
-now shipped; remaining deltas include durable TUI-only entry renderers and
+`before_provider_headers`, the true-idle `agent_settled` lifecycle hook, and
+durable TUI-only entry renderers have now shipped; the next current delta is
 cache-friendly dynamic tool loading with provider-native message anchoring.
 Treat each as a separate slice; do not fold them into the broad custom-component
 track.
@@ -322,6 +322,12 @@ class PipyExtensionAPI(Protocol):
     def get_flag(self, name: str) -> object | None: ...
 
     def register_message_renderer(
+        self,
+        custom_type: str,
+        renderer: Callable[..., object],
+    ) -> None: ...
+
+    def register_entry_renderer(
         self,
         custom_type: str,
         renderer: Callable[..., object],
@@ -1289,26 +1295,15 @@ and the live `scripts/tmux_answer_verify.sh`.
     widget/header/footer/title/indicator surface landed in slice 18 below; the
     first-class editor helper landed separately in slice 20.)
 16. Custom session entries and message renderers — **landed for command/shortcut
-    contexts**: `api.register_message_renderer(custom_type, renderer)` accepts a
-    bounded synchronous text renderer for JSON-safe custom entries, and handlers can call
-    `ctx.append_entry(custom_type, data)` to append a `custom` entry to the
-    native product session tree and receive the new entry id. The rendered entry
-    appears in the product TUI or captured-stream diagnostics without a provider
-    turn; renderer crashes
-    fail soft with a bounded diagnostic, and non-JSON data is converted before
-    persistence. Renderers receive the same JSON-safe value that is persisted,
-    not the original live object, so the TUI and exports see one consistent
-    payload; if the original value cannot be encoded, the renderer receives a
-    stringified fallback, and if it exceeds the cap it receives a truncated
-    marker object. `custom_type` must be the same command-shaped, lowercase
-    identifier registered with the renderer (1-200 characters); unknown or differently-cased types
-    render through the bounded generic fallback. This first slice renders custom
-    entries when they are appended; active-branch custom entries are also
-    replayed into startup-opened TUI sessions and redrawn after successful
-    in-session `/resume` switches with the registered renderer available for
-    the current run. This is the first Pi-shaped `appendEntry` /
-    `registerMessageRenderer` slice. Multi-widget message components and
-    extension session-manager helpers remain follow-ons.
+    contexts**: handlers can call `ctx.append_entry(custom_type, data)` to append
+    a durable, non-LLM `custom` entry to the native product session tree and
+    receive its id. `api.register_message_renderer(custom_type, renderer)` is
+    the separate `CustomMessageEntry` surface used by `send_message`; its
+    bounded one-argument text compatibility remains supported. Non-JSON entry
+    data is converted before persistence, and `custom_type` is a command-shaped
+    lowercase identifier (1-200 characters). Durable entry display now belongs
+    to slice 29's separate `register_entry_renderer`, correcting the earlier
+    pipy-only routing of `append_entry` through message renderers.
     The rich **Component** upgrade landed in slice 19 below (rich-UI item C): a
     renderer that **requires** a second positional parameter `(data, ctx)`
     receives a `MessageRenderContext` and may return a component, committed
@@ -1548,6 +1543,20 @@ and the live `scripts/tmux_answer_verify.sh`.
     The golden
     `extension_conformance_gate.py --json` proves the live mutation and
     archive/protocol no-leak boundary.
+29. Durable entry renderers — **landed**: `api.register_entry_renderer(type,
+    renderer)` independently owns product-TUI rendering for `ctx.append_entry`
+    records. The renderer receives a detached full stored entry (`type`, `id`,
+    `parentId`, `timestamp`, `customType`, `data`) plus an
+    `EntryRenderContext` (`expanded`, `width`, `theme`) and returns a bounded
+    component such as `lines_component(...)`. Missing renderers, `None`, bad
+    outputs, and failures omit the live row without affecting persistence.
+    New appends, startup replay, `/resume`, expanded-state refresh, and `/reload`
+    use the same active entry registry; message renderers remain independent,
+    even for the same custom type. Entry renderers are never invoked in print,
+    JSON, or RPC modes, and their rendered lines never enter session JSONL,
+    provider context, protocol stdout, or the summary-safe archive. Gate:
+    `scripts/parity_checks/extension_entry_renderer_conformance.py --json` plus
+    the captured-mode proof in `extension_dispatch_conformance.py --json`.
 
 ## Open Questions
 

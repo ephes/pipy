@@ -251,6 +251,27 @@ def test_pending_cross_extension_collisions_are_resolved_only_in_final_order(
     assert [command.name for command in relevant_final[1].commands] == ["shared"]
 
 
+def test_pending_entry_renderer_collisions_finalize_in_order(tmp_path: Path) -> None:
+    body = (
+        "def activate(api):\n"
+        "    api.register_entry_renderer('card', lambda entry, ctx: None)\n"
+    )
+    _write_extension(tmp_path, "a", body)
+    _write_extension(tmp_path, "b", body)
+    descriptors = discover_extensions(tmp_path, include_workspace_defaults=True)
+
+    pending = activate_extension_batch(descriptors, pending=True)
+    relevant_pending = [item for item in pending.activated if item.name in {"a", "b"}]
+    final = activate_extension_batch(descriptors, preloaded=pending)
+    relevant_final = [item for item in final.activated if item.name in {"a", "b"}]
+
+    assert [item.status for item in relevant_pending] == ["activated", "activated"]
+    assert [(item.status, item.reason) for item in relevant_final] == [
+        ("activated", None),
+        ("disabled", "duplicate_entry_renderer"),
+    ]
+
+
 def test_failed_pretrust_activation_is_not_retried(tmp_path: Path) -> None:
     workspace = tmp_path / "work"
     workspace.mkdir()

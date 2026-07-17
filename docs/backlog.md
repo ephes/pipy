@@ -340,12 +340,11 @@ still recognizes that extension/package parity is the largest surface by area:
    2026-07-16; true in-turn injection remains a separate follow-on.
 4. **Extension lifecycle and rendering deltas.** The request-scoped
    `before_provider_headers` hook and the true-idle `agent_settled` lifecycle
-   hook **shipped** 2026-07-16. The next focused slice is durable TUI-only entry
-   renderers (`registerEntryRenderer` over `appendEntry`). It remains distinct
-   from pipy's shipped provider-body transform, ordinary custom messages, and
-   message renderers. The broader custom editor/component/overlay stack, live
-   tool-render invalidation, richer multi-widget UI, and RPC extension-UI
-   channel remain the largest strategic extension follow-ons.
+   hook **shipped** 2026-07-16, and durable TUI-only entry renderers
+   (`registerEntryRenderer` over `appendEntry`) shipped 2026-07-17. Message and
+   entry renderers now have independent ownership. The broader custom editor/
+   component/overlay stack, live tool-render invalidation, richer multi-widget
+   UI, and RPC extension-UI channel remain strategic extension follow-ons.
 5. **Cache-friendly dynamic tool loading.** Pipy can change the active tool set,
    but it does not yet preserve provider cache prefixes using Pi's
    message-anchored Anthropic `tool_reference` or OpenAI
@@ -1516,12 +1515,20 @@ schedule a new run without blocking on stdin. The hook remains separate from
 the mode-owned JSON/RPC event, so those streams still emit exactly one protocol
 event.
 
-### Next: durable TUI-only extension entry renderers
+### Durable TUI-only extension entry renderers — SHIPPED (2026-07-17)
 
-Port Pi's `registerEntryRenderer` ownership over durable `appendEntry` records
-without broadening into dynamic tool loading, package-update/config
-realignment, or the full component/overlay stack. Each remains its own
-parity-loop gap.
+`api.register_entry_renderer` now owns live product-TUI components for durable
+`ctx.append_entry` records, with the full stored entry, current expanded/width/
+theme context, startup and `/resume` replay, expanded-state rerender, `/reload`
+replacement, and headless omission. Message renderers remain separate.
+
+### Next: cache-friendly dynamic tool loading
+
+Research Pi's message-anchored Anthropic `tool_reference` and OpenAI
+`tool_search_call`/`tool_search_output` ownership, then define the smallest
+provider-local slice that preserves cache prefixes when extensions change the
+active tool set. Keep package-update realignment and broader extension UI as
+separate gaps.
 
 ### Recently shipped: OpenAI-Codex transport reliability
 
@@ -1746,18 +1753,16 @@ through discovery (see the closing note below). Landed so far:
   a persisted resource filter disables the same resource name. The package gate
   now includes this check.
 
-Custom session-entry/message-rendering follow-on: extensions can now register a
-bounded text renderer with `api.register_message_renderer(...)`; command and
-shortcut handlers can call `ctx.append_entry(...)` to write JSON-safe `custom`
-entries to the native product session tree and show the rendered result in the
-product TUI or captured-stream diagnostics. Active-branch custom entries replay
-into startup-opened TUI sessions without mutating the session file. Renderer
-crashes fail soft, non-JSON data is converted before persistence, and the
-metadata-first archive remains unaffected. Render-once custom tool renderers now
-ship (slice 17), and their renderer map refreshes across `/reload` so added,
-changed, or removed extension renderers take effect without restarting the
-session. Live (invalidate-driven) tool renderers, in-session full-history redraw
-on `/resume` switches, and per-resize custom message component invalidation/re-rendering remains a follow-on.
+Custom session-entry/message-rendering follow-on: command and shortcut handlers
+can call `ctx.append_entry(...)` to write JSON-safe durable `custom` entries;
+`api.register_entry_renderer(...)` independently renders them only in the live
+product TUI, including startup/`/resume` replay, expanded-state refresh, and
+`/reload`. `api.register_message_renderer(...)` remains the separate custom-
+message surface, including its captured-mode fallback. Renderer failures stay
+bounded, non-JSON entry data is converted before persistence, and rendered
+component bodies remain live-only. Render-once custom tool renderers also ship
+(slice 17). Live invalidation for tool renderers and broader per-frame component
+invalidation remain follow-ons.
 
 Extension UI editor follow-on: command/shortcut handlers can call
 `ctx.ui.editor(title, prefill=None)` to open a focused multi-line editor overlay
