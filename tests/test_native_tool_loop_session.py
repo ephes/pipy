@@ -25,10 +25,15 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import (
     AgentEvent,
     AgentRunCompleted,
+    AgentRunOutcome,
     AgentUsage,
+    MessageCompleted,
+    ProviderFailed,
+    TurnCompleted,
     UsageUpdated,
 )
 from pipy_harness.native.agent.loop import ProviderTurnInterruption
+from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
 from pipy_harness.native.automation.rpc import _AcceptedAbortSignal
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native import (
@@ -47,7 +52,6 @@ from pipy_harness.native.extension_provider_catalog import (
     load_extension_provider_contributions,
 )
 from pipy_harness.native.tool_loop_session import (
-    _UsageAccumulator,
     _wait_for_external_abort,
     _wait_for_provider_interrupt,
 )
@@ -147,6 +151,7 @@ class _UsageScriptProvider:
     supports_tool_calls: bool = True
     name: str = "usage-script"
     model_id: str = "usage-script-model"
+    statuses: tuple[HarnessStatus, ...] = ()
     call_index: int = 0
 
     def complete(
@@ -159,26 +164,158 @@ class _UsageScriptProvider:
     ) -> ProviderResult:
         del request, stream_sink, reasoning_sink, cancel_token
         usage, tool_calls = self.script[self.call_index]
+        status = (
+            self.statuses[self.call_index]
+            if self.call_index < len(self.statuses)
+            else HarnessStatus.SUCCEEDED
+        )
         self.call_index += 1
         now = datetime.now(UTC)
         return ProviderResult(
-            status=HarnessStatus.SUCCEEDED,
+            status=status,
             provider_name=self.name,
             model_id=self.model_id,
             started_at=now,
             ended_at=now,
-            final_text=f"provider turn {self.call_index}",
+            final_text=(
+                f"provider turn {self.call_index}"
+                if status is HarnessStatus.SUCCEEDED
+                else None
+            ),
             usage=usage,
             tool_calls=tool_calls,
+            error_type=(
+                "UsageScriptProviderFailed"
+                if status is not HarnessStatus.SUCCEEDED
+                else None
+            ),
+            error_message=(
+                "deterministic provider failure"
+                if status is not HarnessStatus.SUCCEEDED
+                else None
+            ),
         )
 
 
 @dataclass(slots=True)
 class _CollectingAgentEventSink:
     events: list[AgentEvent] = field(default_factory=list)
+    trace: list[AgentEvent | tuple[str, AgentUsage, int]] | None = None
 
     def emit(self, event: AgentEvent) -> None:
         self.events.append(event)
+        if self.trace is not None:
+            self.trace.append(event)
+
+
+def _capture_usage_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[
+    list[AgentUsageAccumulator],
+    list[tuple[str, str, AgentTokenPricing | None]],
+]:
+    """Spy on the product composition sites without replacing accumulator logic."""
+
+    import pipy_harness.native.tool_loop_session as tool_loop_session
+
+    constructed: list[AgentUsageAccumulator] = []
+    pricing_lookups: list[tuple[str, str, AgentTokenPricing | None]] = []
+    original_pricing_for = tool_loop_session._pricing_for
+
+    class _RecordingUsageAccumulator(AgentUsageAccumulator):
+        def __init__(self, pricing: AgentTokenPricing | None = None) -> None:
+            super().__init__(pricing)
+            constructed.append(self)
+
+    def record_pricing(provider_name: str, model_id: str) -> AgentTokenPricing | None:
+        pricing = original_pricing_for(provider_name, model_id)
+        pricing_lookups.append((provider_name, model_id, pricing))
+        return pricing
+
+    monkeypatch.setattr(
+        tool_loop_session, "AgentUsageAccumulator", _RecordingUsageAccumulator
+    )
+    monkeypatch.setattr(tool_loop_session, "_pricing_for", record_pricing)
+    return constructed, pricing_lookups
+
+
+def _record_footer_in_trace(
+    monkeypatch: pytest.MonkeyPatch,
+    trace: list[AgentEvent | tuple[str, AgentUsage, int]],
+) -> None:
+    def record_footer(
+        self: NativeToolReplSession,
+        error_stream: TextIO,
+        *,
+        cwd: Path,
+        provider_name: str,
+        model_id: str,
+        user_turn_count: int,
+        tool_invocation_count: int,
+        usage_accumulator: AgentUsageAccumulator | None = None,
+    ) -> None:
+        del self, error_stream, cwd, provider_name, model_id
+        del user_turn_count, tool_invocation_count
+        assert usage_accumulator is not None
+        trace.append(
+            (
+                "footer",
+                usage_accumulator.agent_usage(),
+                usage_accumulator.last_total_tokens,
+            )
+        )
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+
+
+def _assert_usage_trace_order(
+    trace: list[AgentEvent | tuple[str, AgentUsage, int]],
+    *,
+    first_run_usage: AgentUsage,
+    session_usage: AgentUsage,
+) -> None:
+    ordered = [
+        item
+        for item in trace
+        if isinstance(
+            item,
+            (
+                UsageUpdated,
+                ProviderFailed,
+                MessageCompleted,
+                TurnCompleted,
+                AgentRunCompleted,
+            ),
+        )
+        or isinstance(item, tuple)
+    ]
+    assert [
+        type(item).__name__ if not isinstance(item, tuple) else item[0]
+        for item in ordered
+    ] == [
+        "footer",
+        "MessageCompleted",  # first run's user message
+        "UsageUpdated",
+        "MessageCompleted",  # tool-requesting assistant message
+        "TurnCompleted",
+        "UsageUpdated",  # missing usage preserves cumulative usage, last total zero
+        "MessageCompleted",  # settling assistant message
+        "footer",
+        "TurnCompleted",
+        "AgentRunCompleted",
+        "MessageCompleted",  # second run's user message
+        "UsageUpdated",
+        "ProviderFailed",
+        "footer",
+        "MessageCompleted",  # failed run's empty assistant message
+        "TurnCompleted",
+        "AgentRunCompleted",
+    ]
+    assert [item for item in ordered if isinstance(item, tuple)] == [
+        ("footer", AgentUsage(), 0),
+        ("footer", first_run_usage, 0),
+        ("footer", session_usage, 12),
+    ]
 
 
 def _run_session(
@@ -210,40 +347,7 @@ def _run_session(
     return result, output_stream.getvalue(), error_stream.getvalue()
 
 
-def test_usage_accumulator_cache_hit_uses_provider_specific_denominator():
-    openai_usage = _UsageAccumulator()
-    openai_usage.bind("openai-codex", "gpt-5.5")
-    openai_usage.absorb({"input_tokens": 100, "cached_tokens": 80})
-    openai_usage.absorb({})
-
-    anthropic_usage = _UsageAccumulator()
-    anthropic_usage.bind("custom-anthropic", "claude-test")
-    anthropic_usage.absorb(
-        {
-            "input_tokens": 7,
-            "cached_tokens": 2,
-            "cache_write_tokens": 4,
-            "total_tokens": 13,
-        }
-    )
-    read_only_cache_usage = _UsageAccumulator()
-    read_only_cache_usage.bind("custom-anthropic", "claude-test")
-    read_only_cache_usage.absorb(
-        {"input_tokens": 100, "cached_tokens": 80, "total_tokens": 180}
-    )
-    all_cache_usage = _UsageAccumulator()
-    all_cache_usage.bind("custom-anthropic", "claude-test")
-    all_cache_usage.absorb({"input_tokens": 0, "cached_tokens": 20, "total_tokens": 20})
-
-    assert openai_usage.cache_hit_percent == 80.0
-    assert openai_usage.input_tokens == 100
-    assert openai_usage.last_total_tokens == 0
-    assert anthropic_usage.cache_hit_percent == pytest.approx(100.0 * 2 / 13)
-    assert read_only_cache_usage.cache_hit_percent == pytest.approx(100.0 * 80 / 180)
-    assert all_cache_usage.cache_hit_percent == 100.0
-
-
-def test_canonical_usage_is_scoped_to_each_accepted_prompt(
+def test_canonical_usage_order_and_scope_cover_success_and_provider_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     first_usage = {
@@ -275,30 +379,16 @@ def test_canonical_usage_is_scoped_to_each_accepted_prompt(
             (first_usage, (_make_call("echo", '{"text":"ok"}'),)),
             (None, ()),
             (second_usage, ()),
-        )
+        ),
+        statuses=(
+            HarnessStatus.SUCCEEDED,
+            HarnessStatus.SUCCEEDED,
+            HarnessStatus.FAILED,
+        ),
     )
-    canonical = _CollectingAgentEventSink()
-    footer_usage: list[tuple[AgentUsage, int]] = []
-
-    def record_footer(
-        self: NativeToolReplSession,
-        error_stream: TextIO,
-        *,
-        cwd: Path,
-        provider_name: str,
-        model_id: str,
-        user_turn_count: int,
-        tool_invocation_count: int,
-        usage_accumulator: _UsageAccumulator | None = None,
-    ) -> None:
-        del self, error_stream, cwd, provider_name, model_id
-        del user_turn_count, tool_invocation_count
-        assert usage_accumulator is not None
-        footer_usage.append(
-            (usage_accumulator.agent_usage(), usage_accumulator.last_total_tokens)
-        )
-
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    trace: list[AgentEvent | tuple[str, AgentUsage, int]] = []
+    canonical = _CollectingAgentEventSink(trace=trace)
+    _record_footer_in_trace(monkeypatch, trace)
     result = NativeToolReplSession(
         provider=provider,
         tool_registry={"echo": _FixtureEchoTool()},
@@ -311,6 +401,7 @@ def test_canonical_usage_is_scoped_to_each_accepted_prompt(
     )
 
     assert result.status is HarnessStatus.SUCCEEDED
+    assert result.tool_invocation_count == 1
     updates = [event for event in canonical.events if isinstance(event, UsageUpdated)]
     assert [
         (event.cumulative_usage, event.last_turn_total_tokens) for event in updates
@@ -322,10 +413,52 @@ def test_canonical_usage_is_scoped_to_each_accepted_prompt(
         first_run_usage,
         second_run_usage,
     ]
-    assert footer_usage == [
-        (AgentUsage(), 0),
-        (first_run_usage, 0),
-        (session_usage, 12),
+    assert [event.result.outcome for event in completed] == [
+        AgentRunOutcome.SUCCEEDED,
+        AgentRunOutcome.FAILED,
+    ]
+
+    _assert_usage_trace_order(
+        trace, first_run_usage=first_run_usage, session_usage=session_usage
+    )
+
+
+@pytest.mark.parametrize("model_id", ["gpt-5", "gpt-5.6-sol"])
+def test_product_pricing_lookup_is_injected_into_session_and_run_usage(
+    model_id: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    constructed, pricing_lookups = _capture_usage_construction(monkeypatch)
+    usage = {
+        "input_tokens": 10,
+        "output_tokens": 2,
+        "reasoning_tokens": 1,
+        "total_tokens": 13,
+    }
+    provider = _UsageScriptProvider(
+        ((usage, ()),), name="openai-codex", model_id=model_id
+    )
+
+    result = NativeToolReplSession(provider=provider, tool_registry={}).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("priced\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert [
+        (provider_name, selected_model)
+        for provider_name, selected_model, _ in pricing_lookups
+    ] == [
+        ("openai-codex", model_id),
+        ("openai-codex", model_id),
+    ]
+    assert len(constructed) == 2
+    assert constructed[0] is not constructed[1]
+    assert all(pricing is not None for _, _, pricing in pricing_lookups)
+    assert [accumulator.agent_usage().cost_usd for accumulator in constructed] == [
+        pytest.approx(0.0000425),
+        pytest.approx(0.0000425),
     ]
 
 
@@ -990,6 +1123,62 @@ def test_scoped_models_next_cycles_and_rebinds_without_provider_turn(
     assert seen == []  # cycling ran no provider turn
 
 
+def test_model_change_constructs_a_distinct_usage_accumulator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    constructed, pricing_lookups = _capture_usage_construction(monkeypatch)
+    seen: list[tuple[str, str]] = []
+    state = _scoped_models_state(tmp_path, seen)
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True), provider_state=state
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/model anthropic/custom-sonnet\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert [
+        (provider_name, model_id) for provider_name, model_id, _ in pricing_lookups
+    ] == [
+        ("fake", "fake-native-bootstrap"),
+        ("anthropic", "custom-sonnet"),
+    ]
+    assert len(constructed) == 2
+    assert constructed[0] is not constructed[1]
+    assert seen == []
+
+
+def test_auth_change_constructs_a_distinct_usage_accumulator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    constructed, pricing_lookups = _capture_usage_construction(monkeypatch)
+    seen: list[tuple[str, str]] = []
+    state = _scoped_models_state(tmp_path, seen)
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True), provider_state=state
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/logout openai\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert [
+        (provider_name, model_id) for provider_name, model_id, _ in pricing_lookups
+    ] == [
+        ("fake", "fake-native-bootstrap"),
+        ("openai", "gpt-5.5"),
+    ]
+    assert len(constructed) == 2
+    assert constructed[0] is not constructed[1]
+    assert seen == []
+
+
 def test_reload_rereads_edited_settings_without_provider_turn(tmp_path, monkeypatch):
     from pipy_harness.native.settings import SettingsManager
 
@@ -1410,10 +1599,96 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
     assert "before" not in output_stream.getvalue()
 
 
+def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    constructed, pricing_lookups = _capture_usage_construction(monkeypatch)
+    marker = tmp_path / "tool-capability.txt"
+    marker.write_text("enabled", encoding="utf-8")
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "capability_provider.py").write_text(
+        "from datetime import datetime, timezone\n"
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import ExtensionProvider\n"
+        "from pipy_harness.models import HarnessStatus\n"
+        "from pipy_harness.native.models import ProviderResult\n"
+        f"MARKER = Path({str(marker)!r})\n"
+        "class _Port:\n"
+        "    name = 'capabilityext'\n"
+        "    model_id = 'active'\n"
+        "    def __init__(self):\n"
+        "        self.supports_tool_calls = MARKER.read_text(encoding='utf-8') == 'enabled'\n"
+        "    def complete(self, request, **kwargs):\n"
+        "        now = datetime(2026, 7, 19, tzinfo=timezone.utc)\n"
+        "        return ProviderResult(status=HarnessStatus.SUCCEEDED,\n"
+        "            provider_name=self.name, model_id=self.model_id,\n"
+        "            started_at=now, ended_at=now, final_text='active', tool_calls=())\n"
+        "class _FallbackPort(_Port):\n"
+        "    name = 'fallbackext'\n"
+        "    model_id = 'fallback'\n"
+        "    supports_tool_calls = True\n"
+        "    def __init__(self):\n"
+        "        pass\n"
+        "def _disable(ctx, args):\n"
+        "    MARKER.write_text('disabled', encoding='utf-8')\n"
+        "def activate(api):\n"
+        "    api.register_command('disable-provider-tools', 'disable tools', _disable)\n"
+        "    api.register_provider(ExtensionProvider(name='capabilityext',\n"
+        "        default_model='active', models=('active',), factory=lambda ctx: _Port()))\n"
+        "    api.register_provider(ExtensionProvider(name='fallbackext',\n"
+        "        default_model='fallback', models=('fallback',), factory=lambda ctx: _FallbackPort()))\n",
+        encoding="utf-8",
+    )
+    providers, unregistered = load_extension_provider_contributions(
+        tmp_path,
+        include_workspace_defaults=True,
+        reserved_command_names=extension_reserved_command_names(),
+        reserved_tool_names=extension_reserved_tool_names(),
+    )
+    catalog_state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
+    catalog_state.set_extension_provider_contributions(providers, unregistered)
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("capabilityext", "active"),
+        provider_factory=lambda _selection: (_ for _ in ()).throw(
+            AssertionError("extension provider should be built from the catalog")
+        ),
+        catalog_state=catalog_state,
+        persist_defaults=False,
+    )
+    session = NativeToolReplSession(
+        provider=state.current_provider(), provider_state=state
+    )
+    error_stream = io.StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/disable-provider-tools\n/reload\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert state.current_selection().reference != "capabilityext/active"
+    assert "no longer supports tool calls after reload" in error_stream.getvalue()
+    assert [
+        (provider_name, model_id) for provider_name, model_id, _ in pricing_lookups
+    ] == [
+        ("capabilityext", "active"),
+        (
+            state.current_selection().provider_name,
+            state.current_selection().model_id,
+        ),
+    ]
+    assert len(constructed) == 2
+    assert constructed[0] is not constructed[1]
+
+
 def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
     tmp_path,
     monkeypatch,
 ):
+    constructed, pricing_lookups = _capture_usage_construction(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
@@ -1480,6 +1755,17 @@ def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
     assert session.provider.name == state.current_selection().provider_name
     assert "active model disappeared on reload" in error_stream.getvalue()
     assert "removed extension provider was used" not in output_stream.getvalue()
+    assert [
+        (provider_name, model_id) for provider_name, model_id, _ in pricing_lookups
+    ] == [
+        ("openai", "ext"),
+        (
+            state.current_selection().provider_name,
+            state.current_selection().model_id,
+        ),
+    ]
+    assert len(constructed) == 2
+    assert constructed[0] is not constructed[1]
 
 
 def test_reload_fail_closes_removed_extension_provider_when_no_fallback(

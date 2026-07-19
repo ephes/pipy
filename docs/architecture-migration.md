@@ -341,7 +341,7 @@ are deleted. Caller scheduling remains sequential and no parallel-tool scheduler
 is introduced. A cancelled uncooperative worker may outlive its bounded join,
 but its invocation sink is already closed and its turn/call identity cannot change.
 
-### Slice 2.2a: Provider-turn boundary — ACTIVE
+### Slice 2.2a: Provider-turn boundary — SHIPPED
 
 Extract one synchronous provider completion into
 `native.agent.loop.ProviderTurnExecutor`. The boundary owns text and reasoning
@@ -366,7 +366,68 @@ same slice. The shared `HarnessStatus` enum moves to dependency-neutral
 identity and runtime-resolvable annotations while the provider-turn import
 graph no longer loads capture or the metadata workflow archive.
 
-### Slice 2.2b: Full provider/tool turn loop
+Implementation evidence (2026-07-19): commit `925bd24` extracts the
+provider-turn executor and removes all six superseded session-local completion,
+delta-sink, and cancellation paths. Direct executor, tool-loop, SDK, import,
+RPC, extension, TUI, PTY, and documentation gates passed; final `just check`
+reported 3,330 passed and 2 skipped with Ruff and mypy clean across 338 sources.
+Pi `openai-codex/gpt-5.6-sol` reported CLEAN after three fixed warnings in its
+first round and a clean post-Fable re-review. Claude Fable's valid review found
+two suggestions, both fixed, then returned an unscoped CLEAN with no skipped or
+truncated files, redactions, or forbidden tool use. Five findings total were
+accepted and fixed; none were rejected or deferred.
+
+### Slice 2.2b.1: Canonical agent usage accounting — SHIPPED
+
+Move provider-neutral token accumulation, last-turn context totals, cache-hit
+classification, canonical `AgentUsage` snapshots, and injected per-token rate
+application from `NativeToolReplSession` into
+`native.agent.usage.AgentUsageAccumulator`. The same module defines the frozen,
+runtime-validated `AgentTokenPricing` value passed in by the product composition
+layer. The product-owned provider/model pricing table and lookup remain in the
+session for this slice; the reusable agent layer must not import the pricing
+catalog, provider selection, UI, product session, capture, archive, or concrete
+provider modules. `native.agent` does not eagerly re-export the usage runtime.
+
+This boundary preserves existing provider telemetry coercion, cache-denominator
+heuristics, cost display, context-meter fallback, canonical event payloads, and
+per-prompt versus session-total reset behavior. It does not move request or
+history construction, retry or token-budget policy, compaction, tool
+capabilities, active-input/queue ownership, persistence, rendering, or the full
+provider/tool loop. Pricing/catalog consolidation remains Phase 5.3.
+
+Implementation evidence (2026-07-19): the slice extracts the canonical usage
+runtime, deletes the session-local accumulator, pricing value, coercion, cache
+classification, and provider/model bind path, and migrates all six construction
+and reset sites to injected pricing. Direct usage, session integration, exact
+lifecycle ordering, pricing-prefix, all-reset-path, static import, recursive
+synthetic, and isolated fresh-process contracts passed. Final `just check`
+reported 3,382 passed and 2 skipped with Ruff and mypy clean across 340 sources;
+documentation and diff gates passed, and the source-equivalent PTY, RPC,
+extension-live-session, and TUI workflow gates remained green. Pi
+`openai-codex/gpt-5.6-sol` returned explicit CLEAN in the user-authorized fourth
+round after four accepted warnings were fixed; none were rejected or deferred.
+Claude Fable returned valid unscoped CLEAN with no findings, skipped or
+truncated files, redactions, or forbidden tool use.
+
+### Slice 2.2b.2: Canonical agent-history compaction — PENDING
+
+Move provider-neutral history compaction behind the reusable agent boundary
+without changing product-session storage, summaries, or compaction policy.
+
+### Slice 2.2b.3: Session tool-capability port seam — PENDING
+
+Replace the loop's direct session tool-capability knowledge with an injected
+port while preserving sequential scheduling, budgets, extension ordering, and
+the existing tool executor contract.
+
+### Slice 2.2b.4: Provider-request, run-effect, usage, and active-input seams — PENDING
+
+Establish the remaining typed ports needed by the reusable loop. Phase 3 still
+owns queue storage/lifecycle and Phase 3.3 still owns persistence write
+relocation; this slice only makes those product policies injectable.
+
+### Slice 2.2b.5: Full headless `AgentLoop` ownership cutover — PENDING
 
 Extract the pure turn loop from `NativeToolReplSession.run()` into
 `native.agent.loop`. It owns provider streaming, assistant-message assembly,
@@ -594,6 +655,8 @@ The default sequence is:
 | 1.1 | `804d6d7` | Canonical typed synchronous agent contracts. |
 | 1.2 | `bd1f9b9` — `refactor: route native consumers through canonical agent events` | `just check` (3,268 passed, 2 skipped), docs, PTY, automation/RPC, extension, session-tree, TUI, SDK/archive privacy, provider, and export gates passed; Pi `openai-codex/gpt-5.6-sol` round 14 CLEAN after 23 fixed findings; Claude Fable CLEAN. Its two redacted secret-sentinel fixture diffs were verified as mechanical contract migrations by the dedicated 17-test export suite and 11-check export/privacy gate. |
 | 2.1 | `5348127` — `refactor: extract reusable tool executor` | Direct executor, tool-loop integration, cancellation, rendering, extension, bash, TUI, and import-boundary contracts passed. Final `just check`: Ruff and mypy clean, 3,300 tests passed, 2 skipped; docs, 8 PTY smoke tests, 15 automation/RPC checks, 4 extension live-session checks, 12 TUI workflow checks, and diff gate passed. Pi `openai-codex/gpt-5.6-sol` round 4 CLEAN after 5 accepted/fixed Pi findings across rounds; Claude Fable round 2 returned valid unscoped CLEAN after 2 fixed findings, with no skips, truncations, redactions, or forbidden tools. |
+| 2.2a | `925bd24` — `refactor: extract provider-turn executor` | Direct provider-turn, tool-loop, SDK, import, RPC, extension, TUI, PTY, docs, and diff gates passed. Final `just check`: Ruff and mypy clean across 338 sources, 3,330 tests passed, 2 skipped; 8 PTY, 15 automation/RPC, extension, and 12 TUI workflow checks passed. Pi `openai-codex/gpt-5.6-sol` round 1 found 3 warnings, all fixed; rounds 2 and post-Fable round 3 were explicit CLEAN. Claude Fable found 2 suggestions in its first valid pass, both fixed, then returned valid unscoped CLEAN with no skips, truncations, redactions, or forbidden tools. Five total findings were accepted/fixed; none were rejected or deferred. |
+| 2.2b.1 | This commit — `refactor: extract canonical agent usage` | Direct usage, session integration, exact lifecycle-ordering, pricing-prefix, six reset-path, and static/recursive/fresh-process import contracts passed. Final `just check`: Ruff and mypy clean across 340 sources, 3,382 tests passed, 2 skipped; docs and diff gates passed, with PTY, RPC, extension-live-session, and TUI workflow conformance source-equivalent and green. Pi `openai-codex/gpt-5.6-sol` round 4 CLEAN after 4 accepted/fixed warnings and explicit authorization to continue the cycle; Claude Fable returned valid unscoped CLEAN with no findings, skips, truncations, redactions, or forbidden tools. |
 
 The earlier code-quality audit remains evidence, with this mapping:
 

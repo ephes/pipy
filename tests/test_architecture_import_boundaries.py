@@ -100,6 +100,62 @@ _CURRENT_PROVIDER_UI_BOUNDARY_SOURCES = (
     *_PROVIDER_UI_SUPPORT_MODULES,
 )
 
+_AGENT_USAGE_FORBIDDEN_IMPORTS = (
+    "pipy_harness.capture",
+    "pipy_session",
+    "pipy_harness.native.automation",
+    "pipy_harness.native.extension_runtime",
+    "pipy_harness.native.extensions",
+    "pipy_harness.native.ui",
+    "pipy_harness.native.tui",
+    "pipy_harness.native.tool_loop_session",
+    "pipy_harness.native.session",
+    "pipy_harness.native.session_compaction",
+    "pipy_harness.native.session_resume",
+    "pipy_harness.native.session_tree",
+    "pipy_harness.native.session_tree_commands",
+    "pipy_harness.native.provider_construction",
+    "pipy_harness.native.provider_registry",
+    "pipy_harness.native.catalog",
+    "pipy_harness.native.catalog_data",
+    "pipy_harness.native.catalog_state",
+    "pipy_harness.native.extension_provider_catalog",
+    "pipy_harness.native.chrome",
+    "pipy_harness.native.tool_renderers",
+    "pipy_harness.native.themes",
+    "pipy_harness.native.theme_files",
+    "pipy_harness.native.terminal_compare",
+    "pipy_harness.native.terminal_input",
+    "pipy_harness.native.terminal_screen",
+    "pipy_harness.native.agent_adapters",
+    "pipy_harness.native.repl_state",
+    "pipy_harness.native.provider",
+    "pipy_harness.native.models",
+    "pipy_harness.native.usage",
+    "pipy_harness.native.providers",
+    *_LEGACY_CONCRETE_PROVIDER_MODULES,
+)
+
+# Phase 2.2b.1 deliberately keeps canonical usage arithmetic smaller than the
+# broader agent-core boundary: it may use only these standard-library symbols
+# and the canonical immutable result contract.  Include both the ``from`` base
+# and selected name because ``_import_references`` records both; ``__future__``
+# is an import in the syntax tree too, even though it changes compiler behavior.
+_AGENT_USAGE_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "collections.abc",
+        "collections.abc.Mapping",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "math",
+        "math.isfinite",
+        "pipy_harness.native.agent.results",
+        "pipy_harness.native.agent.results.AgentUsage",
+    }
+)
+
 
 ARCHITECTURE_RULES = (
     BoundaryRule(
@@ -155,6 +211,14 @@ ARCHITECTURE_RULES = (
         reason=(
             "canonical projection contracts must not depend on composition roots, "
             "UI, concrete storage, extension hosts, or concrete providers"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.agent.usage",
+        forbidden_imports=_AGENT_USAGE_FORBIDDEN_IMPORTS,
+        reason=(
+            "canonical usage accounting must not depend on UI, product session, "
+            "capture/archive, concrete providers, or product pricing catalogs"
         ),
     ),
     *(
@@ -344,6 +408,19 @@ def _import_references(source_root: Path, path: Path) -> tuple[ImportReference, 
         )
 
     return tuple(references)
+
+
+def _unallowlisted_direct_imports(
+    source_root: Path,
+    path: Path,
+    *,
+    allowed_imports: frozenset[str],
+) -> tuple[ImportReference, ...]:
+    return tuple(
+        reference
+        for reference in _import_references(source_root, path)
+        if reference.module not in allowed_imports
+    )
 
 
 def _matches_module_prefix(module: str, prefix: str) -> bool:
@@ -572,6 +649,180 @@ import pipy_session
     }
 
 
+def test_agent_and_usage_rules_recursively_govern_usage_module(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    usage_path = _write_module(
+        source_root,
+        "pipy_harness.native.agent.usage",
+        """\
+import pipy_harness.capture
+import pipy_harness.native.tui
+import pipy_harness.native.tool_loop_session
+import pipy_harness.native.provider_registry
+import pipy_harness.native.catalog
+import pipy_harness.native.provider
+import pipy_harness.native.models
+import pipy_harness.native.usage
+import pipy_harness.native.openai_provider
+import pipy_session
+import pipy_harness.native.chrome
+import pipy_harness.native.agent_adapters
+import pipy_harness.native.repl_state
+""",
+    )
+    agent_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.agent"
+    )
+    usage_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.agent.usage"
+    )
+
+    assert {
+        (violation.path, violation.imported_module, violation.line)
+        for violation in _evaluate_rule(source_root, agent_rule)
+    } == {
+        (usage_path, "pipy_harness.capture", 1),
+        (usage_path, "pipy_harness.native.tui", 2),
+        (usage_path, "pipy_harness.native.tool_loop_session", 3),
+        (usage_path, "pipy_harness.native.openai_provider", 9),
+        (usage_path, "pipy_session", 10),
+    }
+    assert {
+        (violation.path, violation.imported_module, violation.line)
+        for violation in _evaluate_rule(source_root, usage_rule)
+    } == {
+        (usage_path, "pipy_harness.capture", 1),
+        (usage_path, "pipy_harness.native.tui", 2),
+        (usage_path, "pipy_harness.native.tool_loop_session", 3),
+        (usage_path, "pipy_harness.native.provider_registry", 4),
+        (usage_path, "pipy_harness.native.catalog", 5),
+        (usage_path, "pipy_harness.native.provider", 6),
+        (usage_path, "pipy_harness.native.models", 7),
+        (usage_path, "pipy_harness.native.usage", 8),
+        (usage_path, "pipy_harness.native.openai_provider", 9),
+        (usage_path, "pipy_session", 10),
+        (usage_path, "pipy_harness.native.chrome", 11),
+        (usage_path, "pipy_harness.native.agent_adapters", 12),
+        (usage_path, "pipy_harness.native.repl_state", 13),
+    }
+
+
+@pytest.mark.parametrize(
+    "unlisted_import",
+    (
+        "pipy_harness.native.chrome",
+        "pipy_harness.native.agent_adapters",
+        "pipy_harness.native.repl_state",
+    ),
+)
+def test_agent_usage_direct_import_allowlist_rejects_outer_runtime_modules(
+    tmp_path: Path,
+    unlisted_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    usage_path = _write_module(
+        source_root,
+        "pipy_harness.native.agent.usage",
+        f"import {unlisted_import}\n",
+    )
+
+    assert _unallowlisted_direct_imports(
+        source_root,
+        usage_path,
+        allowed_imports=_AGENT_USAGE_ALLOWED_DIRECT_IMPORTS,
+    ) == (ImportReference(unlisted_import, 1),)
+
+
+def test_agent_usage_direct_imports_match_explicit_allowlist() -> None:
+    usage_path = SOURCE_ROOT / "pipy_harness" / "native" / "agent" / "usage.py"
+    references = _import_references(SOURCE_ROOT, usage_path)
+
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT,
+        usage_path,
+        allowed_imports=_AGENT_USAGE_ALLOWED_DIRECT_IMPORTS,
+    ), "canonical usage accounting gained a direct dependency outside its allowlist"
+    assert {reference.module for reference in references} == (
+        _AGENT_USAGE_ALLOWED_DIRECT_IMPORTS
+    ), "remove stale allowances when canonical usage accounting drops imports"
+
+
+@pytest.mark.parametrize(
+    "forbidden_import",
+    (
+        "pipy_harness.native.tool_renderers",
+        "pipy_harness.native.themes",
+        "pipy_harness.native.theme_files",
+        "pipy_harness.native.terminal_compare",
+        "pipy_harness.native.terminal_input",
+        "pipy_harness.native.terminal_screen",
+    ),
+)
+def test_agent_usage_fresh_graph_detects_rendering_dependency_laundering(
+    tmp_path: Path,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    for package in (
+        "pipy_harness.__init__",
+        "pipy_harness.native.__init__",
+        "pipy_harness.native.agent.__init__",
+    ):
+        _write_module(source_root, package, "")
+    usage_path = _write_module(
+        source_root,
+        "pipy_harness.native.agent.usage",
+        "from pipy_harness.native.agent.results import AgentUsage\n",
+    )
+    _write_module(
+        source_root,
+        "pipy_harness.native.agent.results",
+        f"import {forbidden_import}\n\nclass AgentUsage:\n    pass\n",
+    )
+    _write_module(source_root, forbidden_import, "")
+
+    assert not _unallowlisted_direct_imports(
+        source_root,
+        usage_path,
+        allowed_imports=_AGENT_USAGE_ALLOWED_DIRECT_IMPORTS,
+    )
+
+    script = f"""\
+import importlib
+import sys
+
+sys.path.insert(0, {str(source_root)!r})
+importlib.import_module("pipy_harness.native.agent.usage")
+
+forbidden_prefixes = {_AGENT_USAGE_FORBIDDEN_IMPORTS!r}
+unexpected = sorted(
+    module_name
+    for module_name in sys.modules
+    if any(
+        module_name == prefix or module_name.startswith(prefix + ".")
+        for prefix in forbidden_prefixes
+    )
+)
+assert unexpected == [{forbidden_import!r}], unexpected
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 @pytest.mark.parametrize(
     ("first_module", "second_module"),
     (
@@ -726,6 +977,63 @@ provider = importlib.import_module("pipy_harness.native.provider")
 assert loop.ProviderTurnExecutor.__module__ == "pipy_harness.native.agent.loop"
 assert provider.ProviderPort.__module__ == "pipy_harness.native.provider"
 assert not hasattr(agent, "ProviderTurnExecutor")
+
+forbidden_prefixes = {forbidden_prefixes!r}
+unexpected = sorted(
+    module_name
+    for module_name in sys.modules
+    if any(
+        module_name == prefix or module_name.startswith(prefix + ".")
+        for prefix in forbidden_prefixes
+    )
+)
+assert not unexpected, unexpected
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_isolated_agent_usage_import_stays_dependency_neutral() -> None:
+    # Stub only the pre-existing outer composition roots. Import the real agent
+    # initializer first to prove it does not load or expose the usage runtime,
+    # then measure the direct usage submodule's transitive dependency graph.
+    package_root = SOURCE_ROOT / "pipy_harness"
+    native_root = package_root / "native"
+    forbidden_prefixes = _AGENT_USAGE_FORBIDDEN_IMPORTS
+    script = f"""\
+import importlib
+import sys
+import types
+
+def namespace_package(name, path):
+    module = types.ModuleType(name)
+    module.__package__ = name
+    module.__path__ = [path]
+    sys.modules[name] = module
+    return module
+
+pipy_package = namespace_package("pipy_harness", {str(package_root)!r})
+native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
+pipy_package.native = native_package
+
+agent = importlib.import_module("pipy_harness.native.agent")
+assert "pipy_harness.native.agent.usage" not in sys.modules
+assert not hasattr(agent, "AgentTokenPricing")
+assert not hasattr(agent, "AgentUsageAccumulator")
+
+usage = importlib.import_module("pipy_harness.native.agent.usage")
+assert usage.AgentTokenPricing.__module__ == "pipy_harness.native.agent.usage"
+assert usage.AgentUsageAccumulator.__module__ == "pipy_harness.native.agent.usage"
+assert not hasattr(agent, "AgentTokenPricing")
+assert not hasattr(agent, "AgentUsageAccumulator")
 
 forbidden_prefixes = {forbidden_prefixes!r}
 unexpected = sorted(

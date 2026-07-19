@@ -82,7 +82,6 @@ from pipy_harness.native.agent import (
     AgentToolCall,
     AgentToolResultMessage,
     AgentTurnOutcome,
-    AgentUsage,
     AgentUserMessage,
     FollowUpConsumed,
     MessageCompleted,
@@ -106,6 +105,7 @@ from pipy_harness.native.agent.loop import (
     ProviderTurnExecutor,
     ProviderTurnInterruption,
 )
+from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
 from pipy_harness.native.agent_adapters import (
     ProductSessionEventProjection,
     RenderingAgentEventAdapter,
@@ -537,31 +537,15 @@ def _custom_entry_redraw_rows(
     return rows
 
 
-@dataclass(frozen=True, slots=True)
-class _PricingEntry:
-    """Per-million-token pricing for one (provider, model) pair.
-
-    Pricing is illustrative and conservative. The bottom status only
-    shows the running total to the nearest mil-cent, so an exact match
-    against the provider's billing portal is not required.
-    """
-
-    input_per_million: float
-    output_per_million: float
-    reasoning_per_million: float
-    cache_read_per_million: float = 0.0
-    cache_write_per_million: float = 0.0
-
-
-_PRICING_TABLE: dict[tuple[str, str], _PricingEntry] = {
+_PRICING_TABLE: dict[tuple[str, str], AgentTokenPricing] = {
     # OpenAI Codex subscription (GPT-5.x family) — approximate.
-    ("openai-codex", "gpt-5"): _PricingEntry(
+    ("openai-codex", "gpt-5"): AgentTokenPricing(
         input_per_million=1.25, output_per_million=10.00, reasoning_per_million=10.00
     ),
 }
 
 
-def _pricing_for(provider_name: str, model_id: str) -> _PricingEntry | None:
+def _pricing_for(provider_name: str, model_id: str) -> AgentTokenPricing | None:
     """Return per-million-token pricing for (provider, model), or None.
 
     Falls back to a model-family prefix lookup so e.g. ``gpt-5.5`` reuses
@@ -605,148 +589,6 @@ class _UnavailableAfterReloadProvider:
             error_type="ProviderUnavailableAfterReload",
             error_message=self.error_message,
         )
-
-
-class _UsageAccumulator:
-    """Running counters fed from each provider turn's usage payload.
-
-    Captures input, output, cache-read/cache-write, and reasoning tokens plus
-    an approximate USD cost. The last-turn total-token snapshot drives the context-window
-    meter so the bottom status reflects real provider numbers when the
-    adapter reports them and falls back to the deterministic estimate
-    otherwise.
-    """
-
-    __slots__ = (
-        "input_tokens",
-        "output_tokens",
-        "reasoning_tokens",
-        "cache_read_tokens",
-        "cache_write_tokens",
-        "separate_cache_read_tokens",
-        "separate_cache_write_tokens",
-        "last_total_tokens",
-        "cost_usd",
-        "_pricing",
-        "_provider_name",
-        "_model_id",
-    )
-
-    def __init__(self) -> None:
-        self.input_tokens = 0
-        self.output_tokens = 0
-        self.reasoning_tokens = 0
-        self.cache_read_tokens = 0
-        self.cache_write_tokens = 0
-        self.separate_cache_read_tokens = 0
-        self.separate_cache_write_tokens = 0
-        self.last_total_tokens = 0
-        self.cost_usd = 0.0
-        self._pricing: _PricingEntry | None = None
-        self._provider_name = ""
-        self._model_id = ""
-
-    def bind(self, provider_name: str, model_id: str) -> None:
-        self._provider_name = provider_name
-        self._model_id = model_id
-        self._pricing = _pricing_for(provider_name, model_id)
-
-    @property
-    def cache_hit_percent(self) -> float | None:
-        # OpenAI-style providers report cached tokens as a subset of input
-        # tokens. Anthropic/Bedrock-style providers report cache reads/writes
-        # separately; `absorb` classifies those per turn using total_tokens.
-        denominator = float(
-            self.input_tokens
-            + self.separate_cache_read_tokens
-            + self.separate_cache_write_tokens
-        )
-        if denominator <= 0:
-            return None
-        return 100.0 * self.cache_read_tokens / denominator
-
-    def absorb(self, usage: Mapping[str, Any] | None) -> None:
-        if not usage:
-            self.last_total_tokens = 0
-            return
-        input_tokens = _coerce_int(usage.get("input_tokens"))
-        output_tokens = _coerce_int(usage.get("output_tokens"))
-        reasoning_tokens = _coerce_int(usage.get("reasoning_tokens"))
-        cache_read_tokens = _coerce_int(usage.get("cached_tokens"))
-        cache_write_tokens = _coerce_int(usage.get("cache_write_tokens"))
-        total_tokens = _coerce_int(usage.get("total_tokens"))
-        self.input_tokens += input_tokens
-        self.output_tokens += output_tokens
-        self.reasoning_tokens += reasoning_tokens
-        self.cache_read_tokens += cache_read_tokens
-        self.cache_write_tokens += cache_write_tokens
-        if _cache_counters_are_separate(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            reasoning_tokens=reasoning_tokens,
-            cache_read_tokens=cache_read_tokens,
-            cache_write_tokens=cache_write_tokens,
-            total_tokens=total_tokens,
-        ):
-            self.separate_cache_read_tokens += cache_read_tokens
-            self.separate_cache_write_tokens += cache_write_tokens
-        if total_tokens > 0:
-            self.last_total_tokens = total_tokens
-        else:
-            self.last_total_tokens = input_tokens + output_tokens + reasoning_tokens
-        if self._pricing is not None:
-            self.cost_usd += (
-                input_tokens * self._pricing.input_per_million
-                + output_tokens * self._pricing.output_per_million
-                + reasoning_tokens * self._pricing.reasoning_per_million
-                + cache_read_tokens * self._pricing.cache_read_per_million
-                + cache_write_tokens * self._pricing.cache_write_per_million
-            ) / 1_000_000.0
-
-    def agent_usage(self) -> AgentUsage:
-        """Return the current counters in the canonical immutable shape."""
-
-        return AgentUsage(
-            input_tokens=self.input_tokens,
-            output_tokens=self.output_tokens,
-            reasoning_tokens=self.reasoning_tokens,
-            cache_read_tokens=self.cache_read_tokens,
-            cache_write_tokens=self.cache_write_tokens,
-            cost_usd=self.cost_usd,
-        )
-
-
-def _coerce_int(value: Any) -> int:
-    if isinstance(value, bool):
-        return 0
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    return 0
-
-
-def _cache_counters_are_separate(
-    *,
-    input_tokens: int,
-    output_tokens: int,
-    reasoning_tokens: int,
-    cache_read_tokens: int,
-    cache_write_tokens: int,
-    total_tokens: int,
-) -> bool:
-    if cache_read_tokens <= 0 and cache_write_tokens <= 0:
-        return False
-    if total_tokens <= 0:
-        return False
-    minimum_total_if_separate = (
-        input_tokens
-        + output_tokens
-        + reasoning_tokens
-        + cache_read_tokens
-        + cache_write_tokens
-    )
-    return total_tokens >= minimum_total_if_separate
 
 
 @dataclass(frozen=True, slots=True)
@@ -2024,8 +1866,9 @@ class NativeToolReplSession:
         # mutated. base_system_prompt already carries any resume seed block.
         base_system_prompt = system_prompt
         compaction_summary = ""
-        usage_accumulator = _UsageAccumulator()
-        usage_accumulator.bind(effective_provider_name, effective_model_id)
+        usage_accumulator = AgentUsageAccumulator(
+            _pricing_for(effective_provider_name, effective_model_id)
+        )
 
         def render_extension_custom_message(
             custom_type: str,
@@ -2375,8 +2218,9 @@ class NativeToolReplSession:
             effective_provider_name = selection.provider_name
             effective_model_id = selection.model_id
             messages = []
-            usage_accumulator = _UsageAccumulator()
-            usage_accumulator.bind(effective_provider_name, effective_model_id)
+            usage_accumulator = AgentUsageAccumulator(
+                _pricing_for(effective_provider_name, effective_model_id)
+            )
             if terminal_ui is not None:
                 terminal_ui.set_footer_text(
                     self._footer_text(
@@ -2445,8 +2289,9 @@ class NativeToolReplSession:
             effective_provider_name = selection.provider_name
             effective_model_id = selection.model_id
             messages = []
-            usage_accumulator = _UsageAccumulator()
-            usage_accumulator.bind(effective_provider_name, effective_model_id)
+            usage_accumulator = AgentUsageAccumulator(
+                _pricing_for(effective_provider_name, effective_model_id)
+            )
             if terminal_ui is not None:
                 terminal_ui.set_footer_text(
                     self._footer_text(
@@ -3228,10 +3073,11 @@ class NativeToolReplSession:
                                             )
                                             effective_model_id = fallback.model_id
                                             messages = []
-                                            usage_accumulator = _UsageAccumulator()
-                                            usage_accumulator.bind(
-                                                effective_provider_name,
-                                                effective_model_id,
+                                            usage_accumulator = AgentUsageAccumulator(
+                                                _pricing_for(
+                                                    effective_provider_name,
+                                                    effective_model_id,
+                                                )
                                             )
                                             self._emit_diagnostic(
                                                 terminal_ui,
@@ -3262,10 +3108,11 @@ class NativeToolReplSession:
                                     effective_provider_name = fallback.provider_name
                                     effective_model_id = fallback.model_id
                                     messages = []
-                                    usage_accumulator = _UsageAccumulator()
-                                    usage_accumulator.bind(
-                                        effective_provider_name,
-                                        effective_model_id,
+                                    usage_accumulator = AgentUsageAccumulator(
+                                        _pricing_for(
+                                            effective_provider_name,
+                                            effective_model_id,
+                                        )
                                     )
                                     self._emit_diagnostic(
                                         terminal_ui,
@@ -4279,8 +4126,9 @@ class NativeToolReplSession:
                 # (the user message and everything the loop appends below).
                 agent_run_start_index = len(messages)
                 agent_settled_pending = True
-                run_usage_accumulator = _UsageAccumulator()
-                run_usage_accumulator.bind(effective_provider_name, effective_model_id)
+                run_usage_accumulator = AgentUsageAccumulator(
+                    _pricing_for(effective_provider_name, effective_model_id)
+                )
                 emitter.emit(AgentRunStarted())
                 if delivery_kind == "steering":
                     emitter.emit(SteeringConsumed(ProductContent(user_input)))
@@ -5416,7 +5264,7 @@ class NativeToolReplSession:
         user_turn_count: int,
         tool_invocation_count: int,
         error_stream: TextIO | None = None,
-        usage_accumulator: "_UsageAccumulator | None" = None,
+        usage_accumulator: AgentUsageAccumulator | None = None,
     ) -> str:
         plan_label = "sub" if provider_name == "openai-codex" else "api"
         budget = _context_budget_for(provider_name, model_id)
@@ -5502,7 +5350,7 @@ class NativeToolReplSession:
         model_id: str,
         user_turn_count: int,
         tool_invocation_count: int,
-        usage_accumulator: "_UsageAccumulator | None" = None,
+        usage_accumulator: AgentUsageAccumulator | None = None,
     ) -> None:
         print_input_separator(error_stream)
         footer = self._footer_text(

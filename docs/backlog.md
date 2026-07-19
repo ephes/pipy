@@ -1552,7 +1552,7 @@ extension, rendering, bash, TUI, and explicit canonical import-boundary tests
 gate commit `5348127` (`refactor: extract reusable tool executor`). The next
 ordered migration boundary is Phase 2.2a, one provider-turn completion.
 
-### Provider-turn executor — ACTIVE (2026-07-19)
+### Provider-turn executor — SHIPPED (2026-07-19)
 
 Phase 2.2a extracts one synchronous provider completion into UI-free
 `native.agent.loop.ProviderTurnExecutor`. It owns canonical text/reasoning delta
@@ -1581,6 +1581,59 @@ tool-call iterations, budgets, queue-port consumption, request policy, and the
 final typed run result must still leave `NativeToolReplSession.run()`. Parallel
 tools, richer termination, async conversion, persistence relocation, and UI or
 extension redesign remain deferred.
+
+Commit `925bd24` (`refactor: extract provider-turn executor`) passed direct
+provider-turn, tool-loop, SDK, import, RPC, extension, TUI, PTY, documentation,
+and diff gates. Final `just check` reported 3,330 passed and 2 skipped with Ruff
+and mypy clean across 338 sources. Pi `openai-codex/gpt-5.6-sol` found and fixed
+three warnings before two explicit CLEAN rounds, including a post-Fable pass.
+Claude Fable found two suggestions, both fixed, then returned valid unscoped
+CLEAN with no scope omissions or forbidden tool use. All five findings were
+accepted and fixed; none were rejected or deferred.
+
+### Canonical agent usage accounting — SHIPPED (2026-07-19)
+
+Phase 2.2b.1 moves `_UsageAccumulator` and its provider-neutral helpers from
+`NativeToolReplSession` into `native.agent.usage.AgentUsageAccumulator`. It owns
+cumulative input/output/reasoning/cache counters, the last-turn context total,
+cache-hit denominator classification, immutable `AgentUsage` projection, and
+cost application from injected frozen `AgentTokenPricing`. The composition root
+retains provider/model pricing lookup and passes the selected rate into each
+accumulator; the canonical agent layer does not import that product catalog and
+does not eagerly export the runtime helper.
+
+This slice preserves usage coercion, footer/context behavior, canonical usage
+events, and per-prompt versus session-total reset semantics. It does not change
+provider selection, requests/history, retry or token-budget policy, compaction,
+tools, queue/active-input storage, persistence, UI, RPC, SDK, or extensions.
+Pricing/catalog consolidation remains Phase 5.3.
+
+The `refactor: extract canonical agent usage` slice deletes the superseded
+session-local usage/pricing helpers and migrates all six construction/reset
+sites to the dependency-neutral accumulator. Direct arithmetic, lifecycle
+ordering, pricing-prefix, reset-path, and static/recursive/fresh-process import
+contracts passed. Final `just check` reported 3,382 passed and 2 skipped with
+Ruff and mypy clean across 340 sources; docs and diff gates passed. Pi
+`openai-codex/gpt-5.6-sol` returned explicit CLEAN after four accepted/fixed
+warnings and Claude Fable returned valid unscoped CLEAN with no findings or
+scope omissions. The next active boundary is 2.2b.2, canonical agent-history
+compaction.
+
+The remaining ordered Phase 2.2 cuts are:
+
+1. **2.2b.2 — canonical agent-history compaction:** move provider-neutral
+   history compaction without relocating product-session storage or policy.
+2. **2.2b.3 — session tool-capability port seam:** inject tool capabilities
+   while preserving sequential scheduling, budgets, and extension ordering.
+3. **2.2b.4 — provider-request, run-effect, usage, and active-input seams:**
+   establish typed loop ports; Phase 3 retains queue/lifecycle ownership and
+   Phase 3.3 retains persistence-write relocation.
+4. **2.2b.5 — full headless `AgentLoop` ownership cutover:** move the remaining
+   provider/tool cycle so `NativeToolReplSession.run()` becomes composition.
+
+All four remain pending. Parallel tools, richer termination, async conversion,
+persistence relocation, UI/extension redesign, and provider catalog work are
+not part of Phase 2.2b.1.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 

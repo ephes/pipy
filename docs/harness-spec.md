@@ -1443,6 +1443,31 @@ package does not eagerly re-export the executor. This extraction changes no
 JSON/RPC/SDK/session/extension format, queue ordering, retry policy, or privacy
 classification.
 
+### Canonical Agent Usage Accounting
+
+`pipy_harness.native.agent.usage.AgentUsageAccumulator` is the reusable owner
+of provider-neutral usage telemetry. It accumulates input, output, reasoning,
+cache-read, and cache-write tokens; keeps the last provider turn's context
+total; preserves the existing subset-versus-separate cache-counter heuristic;
+and projects immutable canonical `AgentUsage` snapshots. Missing usage resets
+only the last-turn context count, preserving the cumulative counters.
+
+Optional cost accounting receives an `AgentTokenPricing` value at construction.
+That frozen value validates and normalizes five finite, nonnegative per-million
+rates. The product composition root still owns provider/model pricing lookup
+and injects the selected value, so the reusable module has no dependency on a
+pricing catalog, provider selection, terminal/UI, product session, capture,
+workflow archive, or concrete provider. It remains a direct-submodule runtime
+and is not eagerly re-exported from `native.agent`.
+
+Phase 2.2b.1 changes no provider payload, usage event, footer/context-meter,
+JSON/RPC/SDK/session/extension, retry, budget, or queue behavior. Later ordered
+cuts move agent-history compaction (2.2b.2), add the tool-capability port
+(2.2b.3), establish provider-request/run-effect/usage/active-input seams
+(2.2b.4), and perform the full headless `AgentLoop` cutover (2.2b.5). Product
+queue/lifecycle ownership remains Phase 3 and persistence write relocation
+remains Phase 3.3.
+
 ### Read-Only Tool Request Value Objects
 
 The bounded read-only path needs stable native data contracts before it can
