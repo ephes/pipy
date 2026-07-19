@@ -20,10 +20,12 @@ Invariants pinned by the focused tests:
 - Each user turn allows at most `tool_budget` tool invocations; subsequent
   model-emitted calls receive a deterministic "tool budget exhausted"
   observation.
-- Malformed tool calls (unknown tool name, JSON decode error, schema
-  violation) are returned as canonical error tool-result messages
+- Malformed tool calls are authorized calls whose arguments fail JSON decoding
+  or schema validation. They are returned as canonical error tool-result
   observations and increment a streak counter; three consecutive malformed
-  turns end the loop with a deterministic stderr diagnostic.
+  calls end the loop with a deterministic stderr diagnostic.
+- Calls to unknown or out-of-snapshot tools are returned as budget-consuming
+  policy errors and neither increment nor reset the malformed-call streak.
 - One valid tool invocation resets the malformed streak, even if the tool
   returns an execution error such as a failed read or timed-out shell command.
 - The session does not write prompts, model text, tool payloads, file
@@ -237,7 +239,6 @@ from pipy_harness.native.extension_runtime import (
     activate_extensions,
     dispatch_before_agent_start_hooks,
     dispatch_before_provider_headers_hooks,
-    dispatch_before_provider_request_hooks,
     dispatch_extension_command,
     dispatch_extension_shortcut,
     dispatch_input_hooks,
@@ -319,6 +320,11 @@ from pipy_harness.native.tools import (
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolFilterOptions,
+)
+from pipy_harness.native.agent_request import (
+    NativeProviderRequestInput,
+    NativeProviderRequestHookContext,
+    prepare_provider_request,
 )
 
 
@@ -4134,25 +4140,28 @@ class NativeToolReplSession:
                     ):
                         notice = apply_compaction("auto")
                         self._emit_diagnostic(terminal_ui, error_stream, notice)
-                    provider_request = ProviderRequest(
-                        system_prompt=agent_system_prompt + compaction_summary,
-                        user_prompt=provider_user_input,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        cwd=cwd,
-                        messages=tuple(messages),
-                        available_tools=available_tools,
-                        # Image attachments belong to the current user message, so
-                        # they ride only the first provider call of this turn; later
-                        # tool-loop iterations append tool results (also user-role),
-                        # and re-sending would mis-attach the image to those.
-                        attachments=turn_attachments if inner_iterations == 1 else (),
-                        provider_header_callback=_active_provider_header_callback(),
-                    )
-                    if extension_before_provider_request_hooks:
-                        provider_transform = dispatch_before_provider_request_hooks(
-                            extension_before_provider_request_hooks,
-                            provider_request,
+                    provider_request_snapshot = prepare_provider_request(
+                        NativeProviderRequestInput(
+                            system_prompt=agent_system_prompt + compaction_summary,
+                            user_prompt=provider_user_input,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            cwd=cwd,
+                            messages=tuple(messages),
+                            available_tools=available_tools,
+                            # Image attachments belong to the current user message,
+                            # so they ride only the first provider call of this turn;
+                            # later tool-loop iterations append tool results (also
+                            # user-role), and re-sending would mis-attach the image.
+                            attachments=(
+                                turn_attachments if inner_iterations == 1 else ()
+                            ),
+                            provider_header_callback=(
+                                _active_provider_header_callback()
+                            ),
+                        ),
+                        extension_before_provider_request_hooks,
+                        NativeProviderRequestHookContext(
                             cwd=str(cwd),
                             has_ui=terminal_ui is not None,
                             notify_sink=_extension_notify,
@@ -4162,35 +4171,16 @@ class NativeToolReplSession:
                             set_thinking_level_fn=extension_set_thinking_level,
                             flags=extension_flag_values,
                             project_trusted=settings.project_trusted,
-                        )
-                        filtered_tools = tool_capabilities.definitions(
-                            provider_transform.available_tools
-                        )
-                        final_user_prompt = (
-                            provider_transform.user_prompt
-                            if provider_transform.user_prompt is not None
-                            else provider_request.user_prompt
-                        )
-                        provider_messages = self._provider_messages_with_prompt(
-                            tuple(messages),
-                            original_prompt=provider_request.user_prompt,
-                            provider_prompt=final_user_prompt,
-                        )
-                        provider_request = ProviderRequest(
-                            system_prompt=provider_transform.system_prompt
-                            if provider_transform.system_prompt is not None
-                            else provider_request.system_prompt,
-                            user_prompt=final_user_prompt,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            cwd=cwd,
-                            messages=provider_messages,
-                            available_tools=filtered_tools,
-                            attachments=provider_request.attachments,
-                            provider_header_callback=(
-                                provider_request.provider_header_callback
-                            ),
-                        )
+                        ),
+                    )
+                    provider_request = provider_request_snapshot.request
+                    renderer.refresh_tool_renderers(
+                        {
+                            name: extension_tool_renderers[name]
+                            for name in provider_request_snapshot.advertised_tool_names
+                            if name in extension_tool_renderers
+                        }
+                    )
                     emitter.emit(TurnStarted(turn_index))
                     if inner_iterations == 1:
                         # Pi emits the user message_start/message_end pair after
@@ -4380,6 +4370,24 @@ class NativeToolReplSession:
                             turn_tool_results.append(budget_observation)
                             messages.append(budget_observation)
                             session_tree.append_message(budget_observation)
+                            continue
+
+                        if not provider_request_snapshot.authorizes(call.tool_name):
+                            unauthorized_observation = tool_capabilities.error_result(
+                                call,
+                                f"unknown tool: {call.tool_name}",
+                            )
+                            emitter.emit(ToolCallStarted(turn_index, call))
+                            emitter.emit(
+                                ToolCallCompleted(
+                                    turn_index,
+                                    unauthorized_observation,
+                                )
+                            )
+                            turn_tool_results.append(unauthorized_observation)
+                            messages.append(unauthorized_observation)
+                            session_tree.append_message(unauthorized_observation)
+                            invocations_this_turn += 1
                             continue
 
                         emitter.emit(ToolCallStarted(turn_index, call))
@@ -4735,37 +4743,6 @@ class NativeToolReplSession:
             extension_shortcut_keys=extension_shortcut_keys,
             include_workspace_defaults=include_workspace_defaults,
         )
-
-    @staticmethod
-    def _provider_messages_with_prompt(
-        messages: tuple[AgentMessage, ...],
-        *,
-        original_prompt: str,
-        provider_prompt: str,
-    ) -> tuple[AgentMessage, ...]:
-        """Return provider-visible messages with the current prompt transformed.
-
-        `before_provider_request` transforms are provider-payload changes. The
-        durable native session tree and prompt history keep the user's literal
-        prompt, but providers that serialize `request.messages` must still see
-        the transformed current user message. Replace only the most recent
-        matching canonical user message in this request-local tuple.
-        """
-
-        if provider_prompt == original_prompt or not messages:
-            return messages
-        replaced = list(messages)
-        for index in range(len(replaced) - 1, -1, -1):
-            message = replaced[index]
-            if (
-                isinstance(message, AgentUserMessage)
-                and message.content.value == original_prompt
-            ):
-                replaced[index] = AgentUserMessage(
-                    content=ProductContent(provider_prompt)
-                )
-                return tuple(replaced)
-        return messages
 
     def _share_native_session_command(
         self,

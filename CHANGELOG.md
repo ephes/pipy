@@ -135,6 +135,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Provider requests now carry an exact request-local advertised-tool snapshot.
+  Serial `before_provider_request` tool transforms can only narrow the current
+  detached definitions in their prior order, while `ctx.set_active_tools(...)`
+  changes later provider iterations. Request construction and extension
+  transforms route through a focused product adapter; public request formats
+  and callback ordering are unchanged.
 - Model-driven tool definition lookup, execution, and policy-error creation now
   flow through the synchronous canonical `AgentToolCapabilities` port. Product
   registry composition, CLI/run filters, active-tool changes, extension reload,
@@ -190,6 +196,13 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Registered tools omitted from the exact provider request can no longer reach
+  extension tool hooks or execution when a provider returns them anyway. They
+  now produce the normal balanced, budget-consuming `unknown tool` result with
+  provider correlation and pipy request identities intact, without incrementing
+  malformed-call or real-invocation counters or invoking extension custom
+  renderers. A tool activated by an earlier call is not authorized later in the
+  same provider response.
 - Automatic context compaction is now deferred for an entire run carrying
   transient extension `deliverAs=nextTurn` custom context, preventing an
   index shift from carrying one-turn content into a later provider request.

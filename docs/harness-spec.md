@@ -1563,6 +1563,35 @@ out-of-snapshot call into the normal budget-consuming policy error before tool
 hooks, execution, or invocation counting. The unrelated June
 precedence/unknown-name conflict remains outside this extraction.
 
+### Exact Provider-Request Snapshots and Tool Authorization
+
+Phase 2.2b.4a pairs every product `ProviderRequest` with the exact ordered tool
+names advertised on that request. The canonical request layer applies serial
+tool transforms as monotonic intersections of the already-detached definition
+tuple, preserving its order while dropping duplicates, unknown names, and any
+attempt to re-enable a name removed by an earlier hook. The product adapter
+owns provider/model/cwd, prompt/history, image attachments, the live header
+callback, and extension dispatch. `ctx.set_active_tools(...)` remains a
+session-level mutation for later provider iterations; only an explicit
+`ProviderRequestTransform.available_tools` return narrows the current request.
+
+The exact snapshot remains bound to the response even if executing an earlier
+call activates another registered tool. Budget exhaustion is evaluated first.
+Otherwise, a call outside the snapshot emits the normal balanced start/error
+completion, consumes one per-turn budget slot, and enters canonical history and
+the full-content product session exactly once. It never reaches `tool_call`,
+execution/live output, extension custom rendering, `tool_result`, malformed-call
+accounting, or global invocation accounting, and it does not reset the
+consecutive malformed-call streak. The lower-level capability facade
+deliberately remains able to resolve or execute registered names: final-request
+authorization is a loop policy, not a second registry filter.
+
+This correctness slice preserves synchronous sequential scheduling, public
+JSON/RPC/SDK/extension/session shapes, callback ordering, provider correlation
+and pipy request identity, and the metadata-only workflow archive allowlist.
+Active-input cleanup/compaction closure remains 2.2b.4b; effect, usage, and
+queue-facing ports remain 2.2b.4c; persistence relocation remains Phase 3.3.
+
 ### Read-Only Tool Request Value Objects
 
 The bounded read-only path needs stable native data contracts before it can

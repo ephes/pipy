@@ -23,7 +23,7 @@ from pipy_harness.native.extension_runtime import (
     dispatch_session_before_hooks,
     dispatch_user_bash_hooks,
 )
-from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import apply_provider_headers
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tool_loop_session import (
@@ -256,22 +256,21 @@ def test_before_provider_request_hook_transforms_product_request(
 
     assert result.status is HarnessStatus.SUCCEEDED
     assert provider.requests[0].user_prompt == "hello::hook"
-    assert [tool.name for tool in provider.requests[0].available_tools] == ["bash"]
+    assert [tool.name for tool in provider.requests[0].available_tools] == list(
+        production_tool_registry()
+    )
     assert any(
         message.content.value == "hello::hook"
         for message in provider.requests[0].messages
     )
     assert not any(
-        message.content.value == "hello"
-        for message in provider.requests[0].messages
+        message.content.value == "hello" for message in provider.requests[0].messages
     )
 
 
-def test_provider_request_tool_override_selects_filtered_registered_tool(
+def test_provider_request_tool_override_cannot_widen_filtered_active_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pin the current override seam until Phase 2.2b.4 owns request policy."""
-
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     _write_ext(
         tmp_path,
@@ -297,7 +296,180 @@ def test_provider_request_tool_override_selects_filtered_registered_tool(
     )
 
     assert result.status is HarnessStatus.SUCCEEDED
-    assert [tool.name for tool in provider.requests[0].available_tools] == ["bash"]
+    assert [tool.name for tool in provider.requests[0].available_tools] == []
+
+
+def test_provider_request_hooks_intersect_serially_in_prior_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write_ext(
+        tmp_path,
+        "request_tools_1",
+        "from pipy_harness.extensions import ProviderRequestTransform\n"
+        "def activate(api):\n"
+        "    @api.on('before_provider_request')\n"
+        "    def before(event, ctx):\n"
+        "        return ProviderRequestTransform(\n"
+        "            available_tools=('bash', 'read', 'bash'))\n",
+    )
+    _write_ext(
+        tmp_path,
+        "request_tools_2",
+        "from pipy_harness.extensions import ProviderRequestTransform\n"
+        "def activate(api):\n"
+        "    @api.on('before_provider_request')\n"
+        "    def before(event, ctx):\n"
+        "        return ProviderRequestTransform(\n"
+        "            available_tools=('write', 'read', 'read', 'missing'))\n",
+    )
+    _write_ext(
+        tmp_path,
+        "request_tools_3",
+        "from pipy_harness.extensions import ProviderRequestTransform\n"
+        "def activate(api):\n"
+        "    @api.on('before_provider_request')\n"
+        "    def before(event, ctx):\n"
+        "        return ProviderRequestTransform(available_tools=('bash', 'read'))\n",
+    )
+    provider = _CapturingProvider()
+
+    result = NativeToolReplSession(
+        provider=provider,
+        tool_registry=production_tool_registry(),
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert [tool.name for tool in provider.requests[0].available_tools] == ["read"]
+
+
+def test_set_active_tools_during_hook_applies_only_to_next_request_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write_ext(
+        tmp_path,
+        "request_tools",
+        "from pipy_harness.extensions import ProviderRequestTransform\n"
+        "def activate(api):\n"
+        "    @api.on('before_provider_request')\n"
+        "    def before(event, ctx):\n"
+        "        assert ctx.set_active_tools(['bash'])\n"
+        "        return ProviderRequestTransform(available_tools=('read', 'bash'))\n",
+    )
+
+    class TwoRequestProvider(_CapturingProvider):
+        def complete(
+            self, request: ProviderRequest, **_kwargs: object
+        ) -> ProviderResult:
+            self.requests.append(request)
+            now = datetime(2026, 6, 18, 12, 0, tzinfo=UTC)
+            calls = (
+                (
+                    ProviderToolCall(
+                        provider_correlation_id="provider-read",
+                        tool_name="read",
+                        arguments_json='{"path":"missing.txt"}',
+                    ),
+                )
+                if len(self.requests) == 1
+                else ()
+            )
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="ok",
+                tool_calls=calls,
+            )
+
+    provider = TwoRequestProvider()
+    result = NativeToolReplSession(
+        provider=provider,
+        tool_registry=production_tool_registry(),
+        tool_filter_options=ToolFilterOptions(allow=("read",)),
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert [
+        tuple(tool.name for tool in request.available_tools)
+        for request in provider.requests
+    ] == [("read",), ("bash",)]
+
+
+def test_each_provider_iteration_starts_with_fresh_request_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write_ext(
+        tmp_path,
+        "request_tools",
+        "from pipy_harness.extensions import ProviderRequestTransform\n"
+        "COUNT = 0\n"
+        "def activate(api):\n"
+        "    @api.on('before_provider_request')\n"
+        "    def before(event, ctx):\n"
+        "        global COUNT\n"
+        "        COUNT += 1\n"
+        "        names = ('read',) if COUNT == 1 else ('bash',)\n"
+        "        return ProviderRequestTransform(available_tools=names)\n",
+    )
+
+    class TwoRequestProvider(_CapturingProvider):
+        def complete(
+            self, request: ProviderRequest, **_kwargs: object
+        ) -> ProviderResult:
+            self.requests.append(request)
+            now = datetime(2026, 6, 18, 12, 0, tzinfo=UTC)
+            calls = (
+                (
+                    ProviderToolCall(
+                        provider_correlation_id="provider-read",
+                        tool_name="read",
+                        arguments_json='{"path":"missing.txt"}',
+                    ),
+                )
+                if len(self.requests) == 1
+                else ()
+            )
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="ok",
+                tool_calls=calls,
+            )
+
+    provider = TwoRequestProvider()
+    result = NativeToolReplSession(
+        provider=provider,
+        tool_registry=production_tool_registry(),
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert [
+        tuple(tool.name for tool in request.available_tools)
+        for request in provider.requests
+    ] == [("read",), ("bash",)]
 
 
 def test_before_provider_headers_hook_mutates_product_http_headers(
@@ -627,18 +799,21 @@ def test_non_lifecycle_ui_driver_is_noop_when_headless(tmp_path: Path) -> None:
         has_ui=False,
         ui_driver=driver,  # type: ignore[arg-type]
     ).allowed
-    assert dispatch_before_provider_request_hooks(
-        (hook,),
-        ProviderRequest(
-            system_prompt="sys",
-            user_prompt="prompt",
-            provider_name="stub",
-            model_id="model",
-            cwd=tmp_path,
-            available_tools=(),
-        ),
-        cwd=str(tmp_path),
-        has_ui=False,
-        ui_driver=driver,  # type: ignore[arg-type]
-    ).user_prompt == "prompt"
+    assert (
+        dispatch_before_provider_request_hooks(
+            (hook,),
+            ProviderRequest(
+                system_prompt="sys",
+                user_prompt="prompt",
+                provider_name="stub",
+                model_id="model",
+                cwd=tmp_path,
+                available_tools=(),
+            ),
+            cwd=str(tmp_path),
+            has_ui=False,
+            ui_driver=driver,  # type: ignore[arg-type]
+        ).user_prompt
+        == "prompt"
+    )
     assert driver.calls == []

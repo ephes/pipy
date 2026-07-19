@@ -699,7 +699,7 @@ def test_tool_execution_errors_do_not_count_as_malformed(tmp_path: Path):
 # ----------------------------- unknown tool name ----------------------------
 
 
-def test_unknown_tool_is_returned_as_error_observation(tmp_path: Path):
+def test_unadvertised_unknown_tool_is_a_policy_error_not_malformed(tmp_path: Path):
     script = (
         (_make_call("missing_tool", "{}"),),
         (),
@@ -714,8 +714,8 @@ def test_unknown_tool_is_returned_as_error_observation(tmp_path: Path):
 
     assert result.status == HarnessStatus.SUCCEEDED
     assert result.tool_invocation_count == 0
-    assert result.malformed_argument_count == 1
-    assert result.consecutive_malformed_streak == 1
+    assert result.malformed_argument_count == 0
+    assert result.consecutive_malformed_streak == 0
     assert "pipy v" in stderr  # chrome present
 
 
@@ -769,14 +769,14 @@ def test_schema_violation_is_returned_as_error_observation(tmp_path: Path):
 
 def test_three_consecutive_malformed_turns_are_fatal(tmp_path: Path):
     script = (
-        (_make_call("missing_a", "{}"),),
-        (_make_call("missing_b", "{}"),),
-        (_make_call("missing_c", "{}"),),
+        (_make_call("echo", "{}"),),
+        (_make_call("echo", "{}"),),
+        (_make_call("echo", "{}"),),
     )
 
     result, _stdout, stderr = _run_session(
         tool_calls_script=script,
-        tool_registry={},
+        tool_registry={"echo": _FixtureEchoTool()},
         user_inputs=("call missing",),
         tmp_path=tmp_path,
     )
@@ -792,15 +792,15 @@ def test_three_consecutive_malformed_turns_are_fatal(tmp_path: Path):
 def test_three_malformed_in_one_response_are_fatal(tmp_path: Path):
     script = (
         (
-            _make_call("missing_a", "{}", correlation_id="a"),
-            _make_call("missing_b", "{}", correlation_id="b"),
-            _make_call("missing_c", "{}", correlation_id="c"),
+            _make_call("echo", "{}", correlation_id="a"),
+            _make_call("echo", "{}", correlation_id="b"),
+            _make_call("echo", "{}", correlation_id="c"),
         ),
     )
 
     result, _stdout, stderr = _run_session(
         tool_calls_script=script,
-        tool_registry={},
+        tool_registry={"echo": _FixtureEchoTool()},
         user_inputs=("call three missing",),
         tmp_path=tmp_path,
     )
@@ -816,11 +816,11 @@ def test_three_malformed_in_one_response_are_fatal(tmp_path: Path):
 def test_one_success_resets_malformed_streak(tmp_path: Path):
     tool = _FixtureEchoTool()
     script = (
-        (_make_call("missing", "{}", correlation_id="a"),),
-        (_make_call("missing", "{}", correlation_id="b"),),
+        (_make_call("echo", "{}", correlation_id="a"),),
+        (_make_call("echo", "{}", correlation_id="b"),),
         (_make_call("echo", '{"text": "hi"}', correlation_id="c"),),
-        (_make_call("missing", "{}", correlation_id="d"),),
-        (_make_call("missing", "{}", correlation_id="e"),),
+        (_make_call("echo", "{}", correlation_id="d"),),
+        (_make_call("echo", "{}", correlation_id="e"),),
         (),
     )
 
@@ -840,16 +840,16 @@ def test_one_success_resets_malformed_streak(tmp_path: Path):
 def test_tool_execution_error_resets_malformed_streak(tmp_path: Path):
     tool = _FixtureErrorTool()
     script = (
-        (_make_call("missing", "{}", correlation_id="a"),),
-        (_make_call("missing", "{}", correlation_id="b"),),
+        (_make_call("echo", "{}", correlation_id="a"),),
+        (_make_call("echo", "{}", correlation_id="b"),),
         (_make_call("fail", "{}", correlation_id="c"),),
-        (_make_call("missing", "{}", correlation_id="d"),),
+        (_make_call("echo", "{}", correlation_id="d"),),
         (),
     )
 
     result, _stdout, stderr = _run_session(
         tool_calls_script=script,
-        tool_registry={"fail": tool},
+        tool_registry={"echo": _FixtureEchoTool(), "fail": tool},
         user_inputs=("go",),
         tmp_path=tmp_path,
     )
@@ -2135,9 +2135,7 @@ def test_reload_reports_configured_extension_tool_that_disappeared(
 
     result = session.run(
         workspace_root=tmp_path,
-        input_stream=io.StringIO(
-            "/remove-filtered-tool\n/reload\nhello\n/exit\n"
-        ),
+        input_stream=io.StringIO("/remove-filtered-tool\n/reload\nhello\n/exit\n"),
         output_stream=output_stream,
         error_stream=error_stream,
     )
@@ -2165,71 +2163,6 @@ def test_tool_filter_options_unknown_name_fails_early(tmp_path: Path):
             output_stream=io.StringIO(),
             error_stream=io.StringIO(),
         )
-
-
-def test_filtered_out_registered_provider_call_still_executes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Pin the current execution seam until Phase 2.2b.4 owns request policy."""
-
-    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
-    hook_marker = tmp_path / "hidden-tool-hook.txt"
-    extension_dir = tmp_path / ".pipy" / "extensions"
-    extension_dir.mkdir(parents=True)
-    (extension_dir / "hidden_tool_guard.py").write_text(
-        "from pathlib import Path\n"
-        f"MARKER = Path({str(hook_marker)!r})\n"
-        "def activate(api):\n"
-        "    @api.on('tool_call')\n"
-        "    def observe(event, ctx):\n"
-        "        MARKER.write_text(event.tool_name + ':' + "
-        "str(event.input.get('text')), encoding='utf-8')\n",
-        encoding="utf-8",
-    )
-    invoked: list[str] = []
-
-    @dataclass(frozen=True, slots=True)
-    class RecordingTool:
-        @property
-        def definition(self) -> ToolDefinition:
-            return _FixtureEchoTool().definition
-
-        def invoke(
-            self, request: ToolRequest, context: ToolContext
-        ) -> ToolExecutionResult:
-            del context
-            text = str(request.arguments["text"])
-            assert hook_marker.read_text(encoding="utf-8") == f"echo:{text}"
-            invoked.append(text)
-            return ToolExecutionResult(
-                tool_request_id=request.tool_request_id,
-                output_text=text,
-                provider_correlation_id=request.provider_correlation_id,
-            )
-
-    provider = _UsageScriptProvider(
-        script=(
-            ({}, (_make_call("echo", '{"text":"hidden-call"}'),)),
-            ({}, ()),
-        )
-    )
-    session = NativeToolReplSession(
-        provider=provider,
-        tool_registry={"echo": RecordingTool()},
-        tool_filter_options=ToolFilterOptions(no_tools=True),
-    )
-
-    result = session.run(
-        workspace_root=tmp_path,
-        input_stream=io.StringIO("go\n"),
-        output_stream=io.StringIO(),
-        error_stream=io.StringIO(),
-    )
-
-    assert result.status is HarnessStatus.SUCCEEDED
-    assert hook_marker.read_text(encoding="utf-8") == "echo:hidden-call"
-    assert invoked == ["hidden-call"]
 
 
 def test_extension_command_persists_session_name_and_label(

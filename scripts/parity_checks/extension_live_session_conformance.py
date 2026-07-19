@@ -3,7 +3,8 @@
 Drives the real `NativeToolReplSession.run` with local Python extensions and
 stub providers to prove Pi-shaped live-session extension behavior:
 
-1. `before_provider_request` can transform a request and narrow active tools;
+1. `before_provider_request` can transform a request and explicitly narrow its
+   detached tool snapshot while active-tool mutation applies to later requests;
 2. `user_bash` can provide a synthetic local shell result that reaches the next
    provider-visible prompt context;
 3. `session_before_compact` can block a session operation fail-closed.
@@ -114,7 +115,9 @@ def _run_request_hook(workspace: Path) -> Check:
         "    def before(event, ctx):\n"
         "        assert ctx.set_active_tools(['bash'])\n"
         "        assert ctx.set_model('fake/fake-native-bootstrap') is False\n"
-        "        return ProviderRequestTransform(user_prompt=event.user_prompt + '::hook')\n",
+        "        return ProviderRequestTransform(\n"
+        "            user_prompt=event.user_prompt + '::hook',\n"
+        "            available_tools=('bash',))\n",
     )
     provider = _CapturingProvider()
     result = NativeToolReplSession(
@@ -131,18 +134,13 @@ def _run_request_hook(workspace: Path) -> Check:
         and request is not None
         and request.user_prompt == "hello::hook"
         and [tool.name for tool in request.available_tools] == ["bash"]
-        and any(
-            message.content.value == "hello::hook"
-            for message in request.messages
-        )
-        and not any(
-            message.content.value == "hello" for message in request.messages
-        )
+        and any(message.content.value == "hello::hook" for message in request.messages)
+        and not any(message.content.value == "hello" for message in request.messages)
     )
     return Check(
         "before_provider_request_transform_and_tools",
         ok,
-        "request hook transforms user prompt and narrows model-visible tools",
+        "request hook explicitly transforms the prompt and detached tool snapshot",
     )
 
 
@@ -167,9 +165,7 @@ def _run_user_bash(workspace: Path) -> Check:
     request = provider.requests[0] if provider.requests else None
     body = ""
     if request is not None:
-        body = " ".join(
-            message.content.value for message in request.messages
-        )
+        body = " ".join(message.content.value for message in request.messages)
     return Check(
         "user_bash_synthetic_result_context",
         result.status is HarnessStatus.SUCCEEDED and "SYNTHETIC-OUTPUT" in body,

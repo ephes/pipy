@@ -356,7 +356,7 @@ def test_agent_settled_fires_after_unexpected_mid_run_failure(
     ]
 
 
-def test_agent_settled_fires_after_completed_fatal_return(
+def test_agent_settled_fires_after_completed_budget_exhaustion(
     tmp_path: Path, monkeypatch
 ) -> None:
     class _MalformedProvider(_FinalTextProvider):
@@ -409,8 +409,84 @@ def test_agent_settled_fires_after_completed_fatal_return(
         error_stream=io.StringIO(),
     )
 
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert result.error_type is None
+    assert result.budget_exhausted_count == 2
+    assert proof.read_text().splitlines() == [
+        "agent_start",
+        "agent_end",
+        "agent_settled",
+        "session_shutdown",
+    ]
+
+
+def test_agent_settled_fires_after_controlled_malformed_fatal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class _MalformedBashProvider(_FinalTextProvider):
+        def __init__(self) -> None:
+            self.turn = 0
+            self.advertised_tools: list[tuple[str, ...]] = []
+
+        def complete(
+            self, request: ProviderRequest, **_kwargs: object
+        ) -> ProviderResult:
+            self.turn += 1
+            self.advertised_tools.append(
+                tuple(tool.name for tool in request.available_tools)
+            )
+            if self.turn > 3:
+                raise AssertionError("malformed fatal must stop before another request")
+            now = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text=None,
+                tool_calls=(
+                    ProviderToolCall(
+                        provider_correlation_id=f"malformed-{self.turn}",
+                        tool_name="bash",
+                        arguments_json="{",
+                    ),
+                ),
+            )
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    proof = tmp_path / "events.txt"
+    _write(
+        tmp_path,
+        "recorder",
+        "from pathlib import Path\n"
+        f"PROOF = Path({str(proof)!r})\n"
+        "def activate(api):\n"
+        "    def record(event, ctx):\n"
+        "        with PROOF.open('a') as fh:\n"
+        "            fh.write(event.name + '\\n')\n"
+        "    api.on('agent_start', record)\n"
+        "    api.on('agent_end', record)\n"
+        "    api.on('agent_settled', record)\n"
+        "    api.on('session_shutdown', record)\n",
+    )
+    provider = _MalformedBashProvider()
+    session = NativeToolReplSession(provider=provider)
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
     assert result.status is HarnessStatus.FAILED
     assert result.error_type == "NativeToolLoopMalformedFatal"
+    assert result.tool_invocation_count == 0
+    assert result.malformed_argument_count == 3
+    assert result.consecutive_malformed_streak == 3
+    assert provider.turn == 3
+    assert all("bash" in names for names in provider.advertised_tools)
     assert proof.read_text().splitlines() == [
         "agent_start",
         "agent_end",

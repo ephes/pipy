@@ -1657,16 +1657,19 @@ The remaining ordered Phase 2.2 cuts are:
 1. **2.2b.3 — session tool-capability port seam (shipped):** inject tool
    capabilities while preserving sequential scheduling, budgets, and extension
    ordering.
-2. **2.2b.4 — provider-request, run-effect, usage, and active-input seams:**
-   establish typed loop ports; Phase 3 retains queue/lifecycle ownership and
-   Phase 3.3 retains persistence-write relocation. Replace absolute-index
-   transient-context cleanup with identity-based removal or safe re-anchoring,
-   then remove the Phase 2.2b.2 automatic-compaction deferral without changing
-   one-run context lifetime.
-3. **2.2b.5 — full headless `AgentLoop` ownership cutover:** move the remaining
+2. **2.2b.4a — final provider-request snapshot and authorization (shipped):**
+   freeze the exact advertised tool set after monotonic request-hook narrowing
+   and reject out-of-snapshot returned calls before semantic hooks/execution.
+3. **2.2b.4b — identity-safe active-input overlay:** remove absolute-index
+   transient cleanup and the temporary automatic-compaction deferral while
+   preserving exactly one-run provider visibility and archive privacy.
+4. **2.2b.4c — run-effect, usage, and queue-facing ports:** establish the
+   remaining typed loop seams while Phase 3 retains queue/lifecycle ownership
+   and Phase 3.3 retains persistence-write relocation.
+5. **2.2b.5 — full headless `AgentLoop` ownership cutover:** move the remaining
    provider/tool cycle so `NativeToolReplSession.run()` becomes composition.
 
-Slice 2.2b.3 is shipped; 2.2b.4 and 2.2b.5 remain pending. Parallel tools,
+Slices 2.2b.3 and 2.2b.4a are shipped; 2.2b.4b–2.2b.5 remain pending. Parallel tools,
 richer termination, async
 conversion, persistence relocation, UI/extension redesign, and provider catalog
 work are not part of Phase 2.2b.3.
@@ -1710,6 +1713,32 @@ CLEAN with no findings. Claude Fable returned valid unscoped CLEAN with no
 findings or relevant scope omissions. The first Fable attempt was invalidated
 by the harness before verdict after an out-of-scope path request; the fresh
 replacement is the recorded gate.
+
+### Final provider-request snapshot and authorization — SHIPPED (2026-07-19)
+
+Phase 2.2b.4a introduces an exact canonical binding between one provider
+request and its ordered advertised tool names, plus a product adapter that owns
+request construction and serial `before_provider_request` dispatch. Returned
+tool names are monotonic intersections of the current detached tuple: hook
+order cannot re-enable a name, definition order wins over returned order, and
+duplicates or unknown names disappear. `ctx.set_active_tools(...)` continues
+to mutate later provider iterations, while the already-built current request
+changes only through an explicit narrowing transform.
+
+The provider response remains bound to that exact snapshot. After the existing
+budget-exhaustion precedence, any out-of-snapshot call receives a balanced
+start/completion pair and the normal pipy-owned `unknown tool` result. It
+consumes budget and is appended once to canonical history and the full-content
+native session, but cannot reach tool-call/result hooks, execution, live
+output, malformed accounting, or global invocation accounting. Dynamic tools
+activated by an earlier call do not become authorized later in the same
+provider response.
+
+This slice does not restrict the lower-level capability facade, change
+sequential scheduling or public formats, relocate persistence, or touch the
+metadata-only archive allowlist. The active-input/compaction closure remains
+2.2b.4b; effect/usage/queue-facing ports remain 2.2b.4c; the full loop remains
+2.2b.5.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 
