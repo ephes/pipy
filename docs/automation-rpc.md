@@ -492,6 +492,12 @@ targeted the aborted turn); queued follow-ups, which are meant to run after,
 remain and drain next. This is a deliberate pipy-owned simplification of Pi's
 mid-turn injection: queued input still reaches the model promptly (on the next
 turn) and the queue stays truthful, without re-entering a live provider turn. A
+callback-capable abort latch synchronously signals the active
+`ProviderTurnExecutor` when the RPC boundary accepts the command; callback
+registration completes before that RPC provider turn may start, so an accepted
+abort cannot lose to later provider completion merely because a polling waiter
+woke late. The same serialized RPC boundary still owns active/idle state,
+queue reservation, `agent_settled`, and clearing the latch for the next run. A
 `prompt` sent while a run is active is likewise routed to the observable queue by
 its `streamingBehavior` (`steer` -> steering queue, otherwise the follow-up
 queue) rather than being silently deferred, so it appears in `queue_update`/

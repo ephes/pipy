@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import get_type_hints
 
 import pytest
 
 from pipy_harness import sdk
+from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import HarnessStatus, RunRequest, RunResult
+from pipy_harness.native import NativeRunOutput, ProviderResult
 from pipy_harness.native.fake import FakeNativeProvider
+from pipy_session.recorder import SessionRecord
 
 
 def test_sdk_exports_expected_surface() -> None:
@@ -28,6 +32,13 @@ def test_sdk_exports_expected_surface() -> None:
     assert expected.issubset(set(sdk.__all__))
     for name in expected:
         assert hasattr(sdk, name)
+
+
+def test_public_run_model_type_hints_resolve_at_runtime() -> None:
+    assert get_type_hints(RunRequest)["capture_policy"] is CapturePolicy
+    assert get_type_hints(RunResult)["record"] is SessionRecord
+    assert get_type_hints(ProviderResult)["status"] is HarnessStatus
+    assert get_type_hints(NativeRunOutput)["status"] is HarnessStatus
 
 
 def test_make_native_run_request_fills_pipy_native_defaults(tmp_path: Path) -> None:

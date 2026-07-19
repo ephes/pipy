@@ -27,7 +27,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, BinaryIO, TextIO
+from typing import Any, BinaryIO, Callable, TextIO
 
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
@@ -164,6 +164,50 @@ class _QueuedPrompt:
     kind: str
 
 
+class _AcceptedAbortSignal:
+    """Event-like abort latch with one synchronous active-turn callback."""
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+        self._lock = threading.Lock()
+        self._cancel_callback: Callable[[], None] | None = None
+
+    def is_set(self) -> bool:
+        return self._event.is_set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        return self._event.wait(timeout)
+
+    def set(self) -> None:
+        with self._lock:
+            self._event.set()
+            callback = self._cancel_callback
+        if callback is not None:
+            callback()
+
+    def clear(self) -> None:
+        with self._lock:
+            self._event.clear()
+
+    def register_cancel_callback(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Register the live executor signal and replay an accepted abort."""
+
+        with self._lock:
+            self._cancel_callback = callback
+            accepted = self._event.is_set()
+        if accepted:
+            callback()
+
+        def _unregister() -> None:
+            with self._lock:
+                if self._cancel_callback is callback:
+                    self._cancel_callback = None
+
+        return _unregister
+
+
 class _PromptChannel:
     """Blocking LF line stream feeding prompts to the worker ``run`` loop.
 
@@ -253,7 +297,7 @@ class NativeRpcServer:
         self._error = error_stream
 
         self._channel = _PromptChannel()
-        self._abort = threading.Event()
+        self._abort = _AcceptedAbortSignal()
         self._lock = threading.Lock()
         self._turn_active = False
         self._steering_mode = "all"
@@ -315,8 +359,8 @@ class NativeRpcServer:
         # run's events and mislead `waitForIdle` clients. Pi emits the pair
         # atomically for the same reason. Delivery of any reserved message
         # (`_deliver`, which re-takes the lock) stays outside the hold.
-        self._abort.clear()
         with self._lock:
+            self._abort.clear()
             reserved = self._reserve_next_message_locked(settled=True)
             self._writer.write_line(event)
             if reserved is None:
@@ -618,8 +662,8 @@ class NativeRpcServer:
             active = self._turn_active
             had_steering = bool(self._steering)
             self._steering = []
-        if active:
-            self._abort.set()
+            if active:
+                self._abort.set()
         self._respond(cid, "abort")
         if had_steering:
             self._emit_queue_update()

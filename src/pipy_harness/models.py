@@ -4,23 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from pathlib import Path
 from typing import Any, Sequence
 
 from pipy_session.recorder import SessionRecord
 
 from pipy_harness.capture import CapturePolicy
-
-
-class HarnessStatus(StrEnum):
-    """Small run status vocabulary shared by harness events."""
-
-    PENDING = "pending"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    ABORTED = "aborted"
+from pipy_harness.status import HarnessStatus
 
 
 RESUME_RELATIONSHIP_RESUME = "resume"

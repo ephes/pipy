@@ -84,8 +84,6 @@ from pipy_harness.native.agent import (
     AgentTurnOutcome,
     AgentUsage,
     AgentUserMessage,
-    AssistantReasoningDelta,
-    AssistantTextDelta,
     FollowUpConsumed,
     MessageCompleted,
     MessageStarted,
@@ -104,13 +102,17 @@ from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutor,
 )
+from pipy_harness.native.agent.loop import (
+    ProviderTurnExecutor,
+    ProviderTurnInterruption,
+)
 from pipy_harness.native.agent_adapters import (
     ProductSessionEventProjection,
     RenderingAgentEventAdapter,
     SynchronousAgentEventComposite,
     WorkflowArchiveAgentEventAdapter,
 )
-from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native._provider_helpers import failed_provider_result
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_input import (
@@ -336,6 +338,118 @@ def _wait_for_tool_interrupt(
     if outcome == TURN_LOCAL_COMMAND:
         return ToolExecutionInterruption.LOCAL_COMMAND
     raise RuntimeError(f"unexpected tool interrupt outcome: {outcome!r}")
+
+
+def _wait_for_provider_interrupt(
+    terminal_ui: ToolLoopTerminalUi,
+    done_event: threading.Event,
+    cancel_event: threading.Event,
+) -> ProviderTurnInterruption:
+    """Translate terminal-driver strings into the provider-loop contract."""
+
+    try:
+        outcome = terminal_ui.wait_for_active_turn_interrupt(
+            done_event, cancel_event, accept_queue=True
+        )
+    except KeyboardInterrupt:
+        cancel_event.set()
+        return ProviderTurnInterruption.OPERATOR_ABORT
+    if outcome == TURN_SETTLED:
+        return ProviderTurnInterruption.SETTLED
+    if outcome == TURN_ABORTED:
+        return ProviderTurnInterruption.OPERATOR_ABORT
+    if outcome == TURN_STEERED:
+        return ProviderTurnInterruption.STEERING
+    if outcome == TURN_LOCAL_COMMAND:
+        return ProviderTurnInterruption.LOCAL_COMMAND
+    raise RuntimeError(f"unexpected provider interrupt outcome: {outcome!r}")
+
+
+@runtime_checkable
+class _AbortCallbackSignal(Protocol):
+    """External abort signal that can synchronously bridge acceptance."""
+
+    def is_set(self) -> bool: ...
+
+    def register_cancel_callback(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]: ...
+
+
+class _StartGatedProvider:
+    """Start a callback-capable RPC provider after abort registration."""
+
+    def __init__(self, provider: ProviderPort, start_event: threading.Event) -> None:
+        self._provider = provider
+        self._start_event = start_event
+
+    @property
+    def name(self) -> str:
+        return self._provider.name
+
+    @property
+    def model_id(self) -> str:
+        return self._provider.model_id
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return self._provider.supports_tool_calls
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        self._start_event.wait()
+        return self._provider.complete(
+            request,
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+            cancel_token=cancel_token,
+        )
+
+
+def _wait_for_external_abort(
+    abort_event: threading.Event | _AbortCallbackSignal,
+    provider_start_event: threading.Event | None,
+    done_event: threading.Event,
+    cancel_event: threading.Event,
+) -> ProviderTurnInterruption:
+    """Bridge accepted RPC aborts into executor ordering before polling."""
+
+    def _noop_unregister() -> None:
+        return None
+
+    accepted_abort = threading.Event()
+
+    def _accept_abort() -> None:
+        accepted_abort.set()
+        cancel_event.set()
+
+    unregister = _noop_unregister
+    try:
+        if isinstance(abort_event, _AbortCallbackSignal):
+            unregister = abort_event.register_cancel_callback(_accept_abort)
+        if abort_event.is_set():
+            _accept_abort()
+    finally:
+        if provider_start_event is not None:
+            provider_start_event.set()
+    try:
+        while True:
+            if accepted_abort.is_set() or abort_event.is_set():
+                _accept_abort()
+                return ProviderTurnInterruption.OPERATOR_ABORT
+            if done_event.wait(timeout=0.05):
+                if accepted_abort.is_set() or abort_event.is_set():
+                    _accept_abort()
+                    return ProviderTurnInterruption.OPERATOR_ABORT
+                return ProviderTurnInterruption.SETTLED
+    finally:
+        unregister()
 
 
 def _custom_message_renderer_payload(entry: _CustomMessageEntry) -> dict[str, object]:
@@ -1352,20 +1466,6 @@ class NativeToolReplResult:
     provider_failure_message: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class _ProviderTurnCompletion:
-    """Typed provider completion preserving the closed cancellation reason."""
-
-    result: ProviderResult | None = None
-    cancellation_reason: AgentCancellationReason | None = None
-
-    def __post_init__(self) -> None:
-        if (self.result is None) == (self.cancellation_reason is None):
-            raise ValueError(
-                "provider completion requires exactly one result or cancellation"
-            )
-
-
 @runtime_checkable
 class _QueuedDeliverySource(Protocol):
     """Optional input side channel classifying a delivered queued prompt."""
@@ -1427,7 +1527,7 @@ class NativeToolReplSession:
     # wired to this event, so an RPC ``abort`` cancels the in-flight turn at the
     # provider boundary. ``None`` (CLI/TUI/one-shot) keeps the simple blocking
     # provider call.
-    abort_event: "threading.Event | None" = None
+    abort_event: "threading.Event | _AbortCallbackSignal | None" = None
     resource_options: RuntimeResourceOptions = field(
         default_factory=RuntimeResourceOptions.empty
     )
@@ -1773,6 +1873,9 @@ class NativeToolReplSession:
             run_tool_registry[_port.definition.name] = _port
         tool_executor = ToolExecutor(
             run_tool_registry,
+            cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
+        )
+        provider_turn_executor = ProviderTurnExecutor(
             cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
         )
         filter_names = set(self.tool_filter_options.allow) | set(
@@ -4296,11 +4399,30 @@ class NativeToolReplSession:
                         emitter.emit(MessageCompleted(turn_index, turn_user_message))
                     empty_assistant = AgentAssistantMessage(ProductContent(""))
                     emitter.emit(MessageStarted(turn_index, empty_assistant))
-                    provider_completion = self._complete_provider_turn(
+                    provider_waiter = None
+                    provider_for_turn: ProviderPort = self.provider
+                    if terminal_ui is not None:
+                        provider_waiter = partial(
+                            _wait_for_provider_interrupt, terminal_ui
+                        )
+                    elif self.abort_event is not None:
+                        provider_start_event = None
+                        if isinstance(self.abort_event, _AbortCallbackSignal):
+                            provider_start_event = threading.Event()
+                            provider_for_turn = _StartGatedProvider(
+                                self.provider, provider_start_event
+                            )
+                        provider_waiter = partial(
+                            _wait_for_external_abort,
+                            self.abort_event,
+                            provider_start_event,
+                        )
+                    provider_completion = provider_turn_executor.complete(
+                        provider_for_turn,
                         provider_request,
-                        terminal_ui=terminal_ui,
-                        emitter=emitter,
+                        emitter,
                         turn_index=turn_index,
+                        waiter=provider_waiter,
                     )
                     if provider_completion.result is None:
                         # Aborted/steered turn (RPC abort, or TUI Escape/steer).
@@ -4333,6 +4455,8 @@ class NativeToolReplSession:
                         )
                         break
                     provider_result = provider_completion.result
+                    if terminal_ui is not None and terminal_ui.has_pending_messages():
+                        terminal_ui.promote_pending_to_drain()
                     usage_accumulator.absorb(provider_result.usage)
                     run_usage_accumulator.absorb(provider_result.usage)
                     emitter.emit(
@@ -4878,247 +5002,6 @@ class NativeToolReplSession:
                 return tuple(replaced)
         return messages
 
-    @staticmethod
-    def _agent_text_sink(
-        emitter: "_ExtensionAwareAgentEventSink | None",
-        *,
-        turn_index: int,
-    ) -> StreamChunkSink:
-        """Synchronously publish provider text as one canonical delta."""
-
-        def _wrapped(chunk: str) -> None:
-            if emitter is not None:
-                emitter.emit(AssistantTextDelta(turn_index, ProductContent(chunk)))
-
-        return _wrapped
-
-    @staticmethod
-    def _agent_reasoning_sink(
-        emitter: "_ExtensionAwareAgentEventSink | None",
-        *,
-        turn_index: int,
-    ) -> StreamChunkSink:
-        """Synchronously publish provider reasoning as one canonical delta."""
-
-        def _wrapped(chunk: str) -> None:
-            if emitter is not None:
-                emitter.emit(AssistantReasoningDelta(turn_index, ProductContent(chunk)))
-
-        return _wrapped
-
-    def _complete_headless_cancellable_turn(
-        self,
-        provider_request: ProviderRequest,
-        *,
-        emitter: "_ExtensionAwareAgentEventSink | None",
-        turn_index: int,
-    ) -> _ProviderTurnCompletion:
-        """Run a non-TUI provider turn that honors an external abort event.
-
-        Used by ``--mode rpc`` so an ``abort`` command cancels the live request
-        at the provider boundary. Returns ``None`` when aborted before the
-        provider settled, ending the current turn (the loop then drains/reads).
-        """
-
-        assert self.abort_event is not None
-        cancel_token = CancelToken()
-        abort_event = self.abort_event
-        done_event = threading.Event()
-        # Per-turn cancelled latch. Unlike the shared ``abort_event`` (which the
-        # RPC server clears on ``agent_end`` so the next prompt can run), this
-        # local flag stays set for the lifetime of this turn's worker. If a
-        # provider thread lingers past the cancel join, a late chunk it produces
-        # after ``agent_end`` is still suppressed here — no output leaks past the
-        # turn's end into the JSON/RPC event stream.
-        turn_cancelled = threading.Event()
-        result_holder: list[ProviderResult] = []
-        error_holder: list[BaseException] = []
-        provider_cancelled = threading.Event()
-
-        def _cancellable_sink(sink: StreamChunkSink) -> StreamChunkSink:
-            def _wrapped(chunk: str) -> None:
-                if turn_cancelled.is_set() or abort_event.is_set():
-                    return
-                sink(chunk)
-
-            return _wrapped
-
-        def _run_provider() -> None:
-            try:
-                result_holder.append(
-                    self.provider.complete(
-                        provider_request,
-                        # Cancellable wraps canonical publication so no late
-                        # render or automation event can leak after agent_end.
-                        stream_sink=_cancellable_sink(
-                            self._agent_text_sink(emitter, turn_index=turn_index)
-                        ),
-                        reasoning_sink=_cancellable_sink(
-                            self._agent_reasoning_sink(emitter, turn_index=turn_index)
-                        ),
-                        cancel_token=cancel_token,
-                    )
-                )
-            except ProviderCancelledError:
-                provider_cancelled.set()
-            except BaseException as exc:  # pragma: no cover - re-raised below
-                error_holder.append(exc)
-            finally:
-                done_event.set()
-
-        worker = threading.Thread(
-            target=_run_provider, name="pipy-rpc-provider-turn", daemon=True
-        )
-        worker.start()
-        # Wake on either provider completion or an external abort.
-        while not done_event.wait(timeout=0.05):
-            if abort_event.is_set():
-                # Latch the per-turn cancel before releasing the loop so any
-                # chunk a lingering worker emits later stays suppressed even
-                # after the RPC server clears the shared abort on agent_end.
-                turn_cancelled.set()
-                cancel_token.cancel()
-                worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
-                return _ProviderTurnCompletion(
-                    cancellation_reason=AgentCancellationReason.OPERATOR_ABORT
-                )
-        worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
-        if error_holder:
-            raise error_holder[0]
-        if not result_holder:
-            reason = (
-                AgentCancellationReason.PROVIDER_CANCELLED
-                if provider_cancelled.is_set()
-                else AgentCancellationReason.OPERATOR_ABORT
-            )
-            return _ProviderTurnCompletion(cancellation_reason=reason)
-        return _ProviderTurnCompletion(result=result_holder[0])
-
-    def _complete_provider_turn(
-        self,
-        provider_request: ProviderRequest,
-        *,
-        terminal_ui: ToolLoopTerminalUi | None,
-        emitter: "_ExtensionAwareAgentEventSink | None" = None,
-        turn_index: int,
-    ) -> _ProviderTurnCompletion:
-        if terminal_ui is None:
-            if self.abort_event is not None:
-                # Headless automation (RPC) abort: run the provider on a worker
-                # so an external abort cancels the in-flight turn at the provider
-                # boundary, mirroring the TUI cancel path without a terminal.
-                return self._complete_headless_cancellable_turn(
-                    provider_request,
-                    emitter=emitter,
-                    turn_index=turn_index,
-                )
-            try:
-                result = self.provider.complete(
-                    provider_request,
-                    stream_sink=self._agent_text_sink(emitter, turn_index=turn_index),
-                    reasoning_sink=self._agent_reasoning_sink(
-                        emitter, turn_index=turn_index
-                    ),
-                )
-            except ProviderCancelledError:
-                return _ProviderTurnCompletion(
-                    cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
-                )
-            return _ProviderTurnCompletion(result=result)
-
-        cancel_token = CancelToken()
-        abort_event = cancel_token.event
-        done_event = threading.Event()
-        result_holder: list[ProviderResult] = []
-        error_holder: list[BaseException] = []
-        provider_cancelled = threading.Event()
-
-        def _cancellable_sink(sink: StreamChunkSink) -> StreamChunkSink:
-            def _wrapped(chunk: str) -> None:
-                if abort_event.is_set():
-                    return
-                sink(chunk)
-
-            return _wrapped
-
-        def _run_provider() -> None:
-            try:
-                result_holder.append(
-                    self.provider.complete(
-                        provider_request,
-                        # Cancellable wraps canonical publication so abort
-                        # suppresses both rendering and automation projection.
-                        stream_sink=_cancellable_sink(
-                            self._agent_text_sink(emitter, turn_index=turn_index)
-                        ),
-                        reasoning_sink=_cancellable_sink(
-                            self._agent_reasoning_sink(emitter, turn_index=turn_index)
-                        ),
-                        cancel_token=cancel_token,
-                    )
-                )
-            except ProviderCancelledError:
-                provider_cancelled.set()
-            except BaseException as exc:  # pragma: no cover - re-raised on main thread
-                error_holder.append(exc)
-            finally:
-                done_event.set()
-
-        worker = threading.Thread(
-            target=_run_provider,
-            name="pipy-provider-turn",
-            daemon=True,
-        )
-        worker.start()
-        # The mid-turn watcher returns one of settled/aborted/steered. Escape /
-        # Ctrl-C abort: cancel the live provider request at its boundary (not
-        # merely hide late output) and reap the worker. The caller synchronously
-        # publishes the typed cancellation so the rendering adapter clears the
-        # active turn before it restores or promotes queued messages. Both paths
-        # return a typed cancellation so the inner loop ends this turn and the
-        # outer loop drains/reads next.
-        try:
-            outcome = terminal_ui.wait_for_active_turn_interrupt(
-                done_event, abort_event, accept_queue=True
-            )
-        except KeyboardInterrupt:
-            self._cancel_active_turn(cancel_token, worker)
-            return _ProviderTurnCompletion(
-                cancellation_reason=AgentCancellationReason.OPERATOR_ABORT
-            )
-        if outcome == TURN_ABORTED:
-            self._cancel_active_turn(cancel_token, worker)
-            return _ProviderTurnCompletion(
-                cancellation_reason=AgentCancellationReason.OPERATOR_ABORT
-            )
-        if outcome == TURN_STEERED:
-            self._cancel_active_turn(cancel_token, worker)
-            return _ProviderTurnCompletion(
-                cancellation_reason=AgentCancellationReason.STEERING
-            )
-        if outcome == TURN_LOCAL_COMMAND:
-            # A local command (`/…`/`!…`) submitted mid-turn interrupts the turn
-            # and runs locally. Cancel like a steer (no error banner); the
-            # command is held on the UI and dispatched by the next loop
-            # iteration through the normal local-command path (never the
-            # provider). Any earlier-queued steering/follow-up still promotes.
-            self._cancel_active_turn(cancel_token, worker)
-            return _ProviderTurnCompletion(
-                cancellation_reason=AgentCancellationReason.LOCAL_COMMAND
-            )
-        worker.join()
-        if error_holder:
-            raise error_holder[0]
-        if provider_cancelled.is_set() or not result_holder:
-            return _ProviderTurnCompletion(
-                cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
-            )
-        # Follow-ups (and any steering) queued during a turn that settled on its
-        # own are delivered in order after it.
-        if terminal_ui.has_pending_messages():
-            terminal_ui.promote_pending_to_drain()
-        return _ProviderTurnCompletion(result=result_holder[0])
-
     def _share_native_session_command(
         self,
         *,
@@ -5509,28 +5392,6 @@ class NativeToolReplSession:
             started=True,
             cancel_reason=cancel_reason,
         )
-
-    def _cancel_active_turn(
-        self, cancel_token: CancelToken, worker: threading.Thread
-    ) -> None:
-        """Cancel the in-flight provider request and best-effort join its worker.
-
-        ``cancel`` sets the abort flag and shuts down the worker's registered
-        HTTP connection so a blocking read raises ``ProviderCancelledError``
-        instead of running to completion. Every shipped adapter observes the
-        token, so the bounded join below normally reclaims the worker promptly.
-
-        Cancellation is cooperative: a provider that ignores ``cancel_token``
-        could leave the join to time out with the daemon worker still running.
-        That worker still cannot corrupt the session — the turn returns ``None``
-        (so no assistant/tool message or context mutation is appended) and late
-        stream/reasoning chunks are suppressed by the cancellable sink — it can
-        only finish its own request in the background and have its output
-        discarded.
-        """
-
-        cancel_token.cancel()
-        worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
 
     def _effort_label(self, provider_name: str, model_id: str) -> str:
         """Reasoning-effort label, preferring the live runtime thinking level.

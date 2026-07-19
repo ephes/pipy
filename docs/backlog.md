@@ -241,12 +241,14 @@ not a promise to skip review when a smaller, safer slice appears.
    an active turn now truly cancel the in-flight provider request: a per-turn
    `CancelToken` (`pipy_harness.native.cancellation`) is threaded through
    `ProviderPort.complete(...)` into the `urllib`/SSE HTTP boundary. The
-   underlying connection registers on the token at `connect()` time, so on abort
-   `_complete_provider_turn` shuts the socket down — interrupting both the
-   header wait (non-streaming JSON blocks inside `urlopen()` until generation
-   finishes) and any body/stream read — so the worker's blocking read raises
-   `ProviderCancelledError`. It then best-effort joins the daemon worker and
-   renders red `Operation aborted`, returning to a usable prompt. Cancellation
+   underlying connection registers on the token at `connect()` time. On abort,
+   the composition-owned TUI wait adapter signals
+   `native.agent.loop.ProviderTurnExecutor`, which shuts the socket down —
+   interrupting both the header wait (non-streaming JSON blocks inside
+   `urlopen()` until generation finishes) and any body/stream read — so the
+   worker's blocking read raises `ProviderCancelledError`. The executor then
+   best-effort joins the daemon worker and the rendering subscriber shows red
+   `Operation aborted`, returning to a usable prompt. Cancellation
    is cooperative: the aborted turn returns without appending an assistant/tool
    observation and late chunks are suppressed, so even a provider that ignored
    the token cannot mutate session/context state. The socket-shutdown read path
@@ -1522,9 +1524,10 @@ product-session subscriber. JSON/RPC/session/SDK formats and callback order stay
 stable; RPC still owns queue reservation and `agent_settled`, while direct
 product-session writes remain in place until Phase 3.3. The superseded
 `native.tools.messages` envelope, exports, and `AutomationEmitter` are deleted.
-The next migration slice is Phase 2.1, the reusable tool executor.
+The Phase 1.2 consumer cutover is followed by the shipped reusable tool
+executor and the active provider-turn boundary.
 
-### Reusable tool executor — ACTIVE (2026-07-19)
+### Reusable tool executor — SHIPPED (2026-07-19)
 
 Phase 2.1 extracts the synchronous per-call tool path from
 `NativeToolReplSession` into UI-free `native.agent.tools`. The executor owns
@@ -1544,10 +1547,40 @@ Parallel tools, richer
 termination, provider-turn extraction, and async conversion stay deferred.
 
 The private `_invoke`, `_invoke_interruptible`, and `_error_observation` paths
-are removed in the same slice. Direct executor characterization, tool-loop,
+were removed in the same slice. Direct executor characterization, tool-loop,
 extension, rendering, bash, TUI, and explicit canonical import-boundary tests
-gate the cutover. The next ordered migration boundary after review and commit is
-Phase 2.2, the provider/tool turn loop.
+gate commit `5348127` (`refactor: extract reusable tool executor`). The next
+ordered migration boundary is Phase 2.2a, one provider-turn completion.
+
+### Provider-turn executor — ACTIVE (2026-07-19)
+
+Phase 2.2a extracts one synchronous provider completion into UI-free
+`native.agent.loop.ProviderTurnExecutor`. It owns canonical text/reasoning delta
+publication, the optional worker and `CancelToken`, exact cancellation versus
+completion ordering, bounded cleanup, a late-delta admission gate, and a typed
+provider-result or closed cancellation-reason outcome. `NativeToolReplSession`
+adapts the current TUI and RPC/external-abort wait policies and retains queue
+storage/promotion, provider-request construction, extensions, tool cycles and
+budgets, plus the current zero-retry and usage-accumulation policy.
+
+The superseded `_ProviderTurnCompletion`, `_agent_text_sink`,
+`_agent_reasoning_sink`, `_complete_headless_cancellable_turn`,
+`_complete_provider_turn`, and `_cancel_active_turn` paths are deleted. Fresh
+process and recursive import gates keep the new module free of UI/TUI,
+automation, extensions, product-session and compaction code, provider
+construction and concrete transports, capture, and the metadata workflow
+archive; `native.agent` does not eagerly re-export the executor. The extraction
+uses the dependency-neutral canonical `pipy_harness.status.HarnessStatus` so
+public harness/native model exports retain their runtime enum identity and
+resolvable annotations without loading capture/archive infrastructure. It does
+not change public JSON/RPC/SDK/session/extension behavior, retry policy, or
+queued-input ordering.
+
+Phase 2.2b remains the full provider/tool cycle: assistant-message assembly,
+tool-call iterations, budgets, queue-port consumption, request policy, and the
+final typed run result must still leave `NativeToolReplSession.run()`. Parallel
+tools, richer termination, async conversion, persistence relocation, and UI or
+extension redesign remain deferred.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 

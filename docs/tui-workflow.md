@@ -76,10 +76,14 @@ Pipy current state (the boundaries this track extends):
 - `src/pipy_harness/native/repl_input.py` — the stdlib raw-mode key reader and
   key tokens (`esc`, `tab`, `shift-enter`, `ctrl-c`, `ctrl-d`, `ctrl-u`,
   `ctrl-z`, `ctrl-y`, `paste`).
-- `src/pipy_harness/native/tool_loop_session.py` — `_complete_provider_turn` /
-  `wait_for_active_turn_interrupt` wiring. True provider-request cancellation
-  has **shipped** here: the turn builds a `CancelToken`, and Escape/Ctrl-C close
-  the in-flight `urllib` response and reap the daemon worker (see *True
+- `src/pipy_harness/native/agent/loop.py` — `ProviderTurnExecutor` owns the
+  per-turn `CancelToken`, provider worker, cancellation/completion ordering,
+  bounded cleanup, and late-delta admission gate.
+- `src/pipy_harness/native/tool_loop_session.py` — the composition-owned TUI
+  wait adapter translates `wait_for_active_turn_interrupt` outcomes into the
+  executor's typed interruption vocabulary. True provider-request cancellation
+  has **shipped** across this boundary: Escape/Ctrl-C close the in-flight
+  `urllib` response and the executor reaps the daemon worker (see *True
   Provider-Request Cancellation — SHIPPED* below).
 - `src/pipy_harness/native/cancellation.py` — `CancelToken` /
   `ProviderCancelledError`, the pipy-owned cancellation primitive threaded into
@@ -505,19 +509,20 @@ boundaries:
    SSE adapter, and the `fake` provider observe the token; adapters also
    `raise_if_cancelled()` before issuing the request, so a pre-flight cancel is
    honored too.
-3. `tool_loop_session._complete_provider_turn` builds one `CancelToken` per
-   turn, uses its event for the existing late-chunk suppression, and passes it
-   into `provider.complete(...)`. On an Escape return **or** an active-turn
-   Ctrl-C (`KeyboardInterrupt` from `wait_for_active_turn_interrupt`) it calls
-   `cancel_token.cancel()` (shutting the connection down), best-effort joins the
-   daemon worker (bounded by `_CANCEL_JOIN_TIMEOUT_SECONDS`), renders the red
-   `Operation aborted` state, and returns `None`. Cancellation is cooperative:
-   every shipped adapter observes the token, so the worker unwinds and the join
-   reclaims it promptly. Even a provider that *ignored* the token could not
-   corrupt the session — the turn returns `None` (so no assistant/tool/context
-   mutation is appended) and late stream/reasoning chunks are suppressed, so an
-   abandoned daemon worker can only finish its own request and have its output
-   discarded.
+3. `native.agent.loop.ProviderTurnExecutor` builds one `CancelToken` per
+   interruptible turn, gates late text/reasoning admissions, and passes the
+   token into `provider.complete(...)`. The composition-owned TUI wait adapter
+   translates an Escape return or active-turn Ctrl-C (`KeyboardInterrupt` from
+   `wait_for_active_turn_interrupt`) into typed operator cancellation. The
+   executor calls `cancel_token.cancel()` (shutting the connection down) and
+   best-effort joins the daemon worker, bounded by the configured cancellation
+   timeout. The rendering subscriber then shows the red `Operation aborted`
+   state. Cancellation is cooperative: every shipped adapter observes the
+   token, so the worker unwinds and the join reclaims it promptly. Even a
+   provider that *ignored* the token could not corrupt the session — the typed
+   cancellation prevents assistant/tool/context mutation and the closed gate
+   rejects new stream/reasoning admissions, so an abandoned daemon worker can
+   only finish its own request and have its result discarded.
 4. Active-turn Ctrl-C is now equivalent to Escape: it aborts the turn and
    returns to a usable prompt instead of tearing the session down. (Ctrl-C at
    the idle input prompt still clears/exits as before.)
@@ -534,9 +539,9 @@ adds no metadata and `ProviderCancelledError` carries no provider payload.
 (`tests/test_native_cancellation.py`,
 `tests/test_native_provider_cancellation.py` — including a real local socket
 that proves `cancel()` interrupts a blocked `read()`, and a fake-HTTP proof
-that an adapter forwards the token), `_complete_provider_turn` Escape/Ctrl-C
-tests and a session-honesty test in `tests/test_native_tool_loop_*`, and a
-real-PTY product test
+that an adapter forwards the token), direct `ProviderTurnExecutor` and
+composition-adapter Escape/Ctrl-C tests, a session-honesty test in
+`tests/test_native_tool_loop_*`, and a real-PTY product test
 (`test_pty_active_turn_interrupt_cancels_and_returns_to_prompt`) that drives the
 actual Escape and Ctrl-C key sequences during a live turn and asserts the
 aborted state plus a usable follow-up prompt.

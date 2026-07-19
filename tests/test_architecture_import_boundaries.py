@@ -103,6 +103,14 @@ _CURRENT_PROVIDER_UI_BOUNDARY_SOURCES = (
 
 ARCHITECTURE_RULES = (
     BoundaryRule(
+        source_package="pipy_harness.status",
+        forbidden_imports=("pipy_harness", "pipy_session"),
+        reason=(
+            "the shared status vocabulary must stay dependency-neutral and "
+            "must not depend on harness, native-runtime, or archive layers"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.agent",
         forbidden_imports=(
             "pipy_harness.cli",
@@ -450,7 +458,11 @@ from pipy_harness.adapters import native
 from pipy_session.recorder import append_event
 """,
     )
-    agent_rule = ARCHITECTURE_RULES[0]
+    agent_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.agent"
+    )
 
     violations = _evaluate_rule(source_root, agent_rule)
 
@@ -463,6 +475,31 @@ from pipy_session.recorder import append_event
         (forbidden_path, "pipy_harness.adapters", 3),
         (forbidden_path, "pipy_session.recorder", 4),
     }
+
+
+def test_shared_harness_status_boundary_is_dependency_neutral(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    status_path = _write_module(
+        source_root,
+        "pipy_harness.status",
+        "from pipy_harness.models import RunResult\nimport pipy_session\n",
+    )
+    status_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.status"
+    )
+
+    assert {
+        (violation.path, violation.imported_module)
+        for violation in _evaluate_rule(source_root, status_rule)
+    } == {
+        (status_path, "pipy_harness.models"),
+        (status_path, "pipy_session"),
+    }
+    assert _evaluate_rule(SOURCE_ROOT, status_rule) == []
 
 
 def test_agent_rule_recursively_governs_tool_executor_module(tmp_path: Path) -> None:
@@ -491,6 +528,47 @@ import pipy_harness.native.tool_loop_session
         (executor_path, "pipy_harness.native.tui", 1),
         (executor_path, "pipy_harness.native.extension_runtime", 2),
         (executor_path, "pipy_harness.native.tool_loop_session", 3),
+    }
+
+
+def test_agent_rule_recursively_governs_provider_turn_executor_module(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    loop_path = _write_module(
+        source_root,
+        "pipy_harness.native.agent.loop",
+        """\
+import pipy_harness.capture
+import pipy_harness.native.automation
+import pipy_harness.native.extension_runtime
+import pipy_harness.native.tui
+import pipy_harness.native.tool_loop_session
+import pipy_harness.native.provider_construction
+import pipy_harness.native.openai_provider
+import pipy_session
+""",
+    )
+    agent_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.agent"
+    )
+
+    violations = _evaluate_rule(source_root, agent_rule)
+
+    assert {
+        (violation.path, violation.imported_module, violation.line)
+        for violation in violations
+    } == {
+        (loop_path, "pipy_harness.capture", 1),
+        (loop_path, "pipy_harness.native.automation", 2),
+        (loop_path, "pipy_harness.native.extension_runtime", 3),
+        (loop_path, "pipy_harness.native.tui", 4),
+        (loop_path, "pipy_harness.native.tool_loop_session", 5),
+        (loop_path, "pipy_harness.native.provider_construction", 6),
+        (loop_path, "pipy_harness.native.openai_provider", 7),
+        (loop_path, "pipy_session", 8),
     }
 
 
@@ -590,6 +668,89 @@ assert not unexpected, unexpected
 
 
 @pytest.mark.parametrize(
+    ("first_module", "second_module"),
+    (
+        ("pipy_harness.native.provider", "pipy_harness.native.agent.loop"),
+        ("pipy_harness.native.agent.loop", "pipy_harness.native.provider"),
+    ),
+)
+def test_isolated_provider_turn_executor_import_stays_headless_in_either_order(
+    first_module: str,
+    second_module: str,
+) -> None:
+    # ``pipy_harness`` and ``pipy_harness.native`` are pre-existing composition
+    # roots whose initializers eagerly load capture, concrete providers, and the
+    # product session. Namespace stubs preserve normal child-package discovery
+    # while excluding those unrelated initializers, so this fresh process
+    # measures the new provider-turn executor dependency graph itself.
+    package_root = SOURCE_ROOT / "pipy_harness"
+    native_root = package_root / "native"
+    forbidden_prefixes = (
+        "pipy_harness.capture",
+        "pipy_session",
+        "pipy_harness.native.automation",
+        "pipy_harness.native.extension_runtime",
+        "pipy_harness.native.extensions",
+        "pipy_harness.native.ui",
+        "pipy_harness.native.tui",
+        "pipy_harness.native.tool_loop_session",
+        "pipy_harness.native.session",
+        "pipy_harness.native.session_compaction",
+        "pipy_harness.native.session_resume",
+        "pipy_harness.native.session_tree",
+        "pipy_harness.native.provider_construction",
+        *_LEGACY_CONCRETE_PROVIDER_MODULES,
+    )
+    script = f"""\
+import importlib
+import sys
+import types
+
+def namespace_package(name, path):
+    module = types.ModuleType(name)
+    module.__package__ = name
+    module.__path__ = [path]
+    sys.modules[name] = module
+    return module
+
+pipy_package = namespace_package("pipy_harness", {str(package_root)!r})
+native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
+pipy_package.native = native_package
+
+importlib.import_module({first_module!r})
+importlib.import_module({second_module!r})
+
+agent = importlib.import_module("pipy_harness.native.agent")
+loop = importlib.import_module("pipy_harness.native.agent.loop")
+provider = importlib.import_module("pipy_harness.native.provider")
+assert loop.ProviderTurnExecutor.__module__ == "pipy_harness.native.agent.loop"
+assert provider.ProviderPort.__module__ == "pipy_harness.native.provider"
+assert not hasattr(agent, "ProviderTurnExecutor")
+
+forbidden_prefixes = {forbidden_prefixes!r}
+unexpected = sorted(
+    module_name
+    for module_name in sys.modules
+    if any(
+        module_name == prefix or module_name.startswith(prefix + ".")
+        for prefix in forbidden_prefixes
+    )
+)
+assert not unexpected, unexpected
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize(
     "source_package",
     (
         "pipy_harness.native.agent",
@@ -612,9 +773,7 @@ def test_each_canonical_agent_ui_boundary_rule_activates(
         f"import {forbidden_import}\n",
     )
     rule = next(
-        rule
-        for rule in ARCHITECTURE_RULES
-        if rule.source_package == source_package
+        rule for rule in ARCHITECTURE_RULES if rule.source_package == source_package
     )
 
     violations = _evaluate_rule(source_root, rule)
@@ -644,9 +803,7 @@ def test_each_current_provider_ui_boundary_rule_activates(
         f"import {forbidden_import}\n",
     )
     provider_rule = next(
-        rule
-        for rule in ARCHITECTURE_RULES
-        if rule.source_package == source_package
+        rule for rule in ARCHITECTURE_RULES if rule.source_package == source_package
     )
 
     violations = _evaluate_rule(source_root, provider_rule)

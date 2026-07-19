@@ -23,13 +23,14 @@ import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import (
-    AgentCancellationReason,
     AgentEvent,
     AgentRunCompleted,
     AgentUsage,
     UsageUpdated,
 )
-from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.agent.loop import ProviderTurnInterruption
+from pipy_harness.native.automation.rpc import _AcceptedAbortSignal
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native import (
     FakeNativeProvider,
     NativeToolReplResult,
@@ -45,13 +46,22 @@ from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_tool_names,
     load_extension_provider_contributions,
 )
-from pipy_harness.native.tool_loop_session import _UsageAccumulator
+from pipy_harness.native.tool_loop_session import (
+    _UsageAccumulator,
+    _wait_for_external_abort,
+    _wait_for_provider_interrupt,
+)
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import NativeSessionTree
-from pipy_harness.native.tui import TURN_ABORTED as _TURN_ABORTED
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import (
+    TURN_ABORTED,
+    TURN_LOCAL_COMMAND,
+    TURN_SETTLED,
+    TURN_STEERED,
+    ToolLoopTerminalUi,
+)
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -378,212 +388,125 @@ def test_session_rejects_non_int_tool_budget():
         NativeToolReplSession(provider=provider, tool_budget=True)
 
 
-@dataclass(slots=True)
-class _CancelObservingProvider:
-    """Provider whose turn blocks until cancelled at the provider boundary.
+class _AbortBeforeDoneWaitEvent(threading.Event):
+    """Accept an external abort immediately before completion is visible."""
 
-    Models a slow/streaming turn: it waits on the cancel token, and only when
-    the tool loop cancels does it observe the cancellation and abort. This
-    proves cancellation reaches the provider rather than the loop merely
-    hiding late output while the provider runs to completion.
-    """
-
-    supports_tool_calls: bool = True
-    name: str = "blocking"
-    model_id: str = "blocking-model"
-    started: threading.Event = field(default_factory=threading.Event)
-    finished: threading.Event = field(default_factory=threading.Event)
-    observed: list[str] = field(default_factory=list)
-
-    def complete(
+    def __init__(
         self,
-        request: ProviderRequest,
+        abort_signal: _AcceptedAbortSignal,
+        provider_start_event: threading.Event,
+    ) -> None:
+        super().__init__()
+        self._abort_signal = abort_signal
+        self._provider_start_event = provider_start_event
+        self.abort_preceded_completion = False
+
+    def wait(self, timeout: float | None = None) -> bool:
+        if not self.is_set():
+            assert self._provider_start_event.is_set()
+            self._abort_signal.set()
+            self.abort_preceded_completion = self._abort_signal.is_set()
+            self.set()
+        return super().wait(timeout)
+
+
+def test_external_abort_post_done_recheck_preserves_accepted_abort() -> None:
+    abort_signal = _AcceptedAbortSignal()
+    provider_start_event = threading.Event()
+    done_event = _AbortBeforeDoneWaitEvent(abort_signal, provider_start_event)
+    cancel_event = threading.Event()
+
+    interruption = _wait_for_external_abort(
+        abort_signal,
+        provider_start_event,
+        done_event,
+        cancel_event,
+    )
+
+    assert interruption is ProviderTurnInterruption.OPERATOR_ABORT
+    assert provider_start_event.is_set()
+    assert done_event.is_set()
+    assert done_event.abort_preceded_completion
+    assert cancel_event.is_set()
+    cancel_event.clear()
+    abort_signal.clear()
+    abort_signal.set()
+    assert not cancel_event.is_set()  # callback was unregistered on return
+
+
+@dataclass(slots=True)
+class _ProviderInterruptUi:
+    outcome: str
+    raise_keyboard_interrupt: bool = False
+    accept_queue: bool | None = None
+    accept_commands: bool | None = None
+    seen_done_event: threading.Event | None = None
+    seen_cancel_event: threading.Event | None = None
+
+    def wait_for_active_turn_interrupt(
+        self,
+        done_event: threading.Event,
+        cancel_event: threading.Event,
         *,
-        stream_sink: StreamChunkSink | None = None,
-        reasoning_sink: StreamChunkSink | None = None,
-        cancel_token: CancelToken | None = None,
-    ) -> ProviderResult:
-        del request, reasoning_sink
-        self.started.set()
-        try:
-            if cancel_token is not None and cancel_token.event.wait(timeout=2):
-                self.observed.append("cancelled")
-                # A late chunk after cancellation must be suppressed by the
-                # loop's cancellable sink; the provider then aborts instead of
-                # returning a misleading successful result.
-                if stream_sink is not None:
-                    stream_sink("late text that should be ignored")
-                raise ProviderCancelledError("native provider turn cancelled")
-            now = datetime.now(UTC)
-            return ProviderResult(
-                status=HarnessStatus.SUCCEEDED,
-                provider_name=self.name,
-                model_id=self.model_id,
-                started_at=now,
-                ended_at=now,
-                final_text="final text",
-                usage={},
-            )
-        finally:
-            self.finished.set()
-
-
-def test_provider_turn_escape_abort_cancels_provider_at_boundary(
-    tmp_path: Path,
-):
-    provider = _CancelObservingProvider()
-
-    class InterruptingUi:
-        def wait_for_active_turn_interrupt(
-            self, done_event, abort_event, **kwargs
-        ) -> str:
-            assert provider.started.wait(timeout=2)
-            assert not done_event.is_set()
-            abort_event.set()
-            return _TURN_ABORTED
-
-        def restore_pending_to_editor(self) -> None:
-            return None
-
-    session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
-    result = session._complete_provider_turn(
-        ProviderRequest(
-            system_prompt="",
-            user_prompt="hello",
-            provider_name="blocking",
-            model_id="blocking-model",
-            cwd=tmp_path,
-        ),
-        terminal_ui=cast(Any, InterruptingUi()),
-        turn_index=0,
-    )
-
-    assert result.result is None
-    assert result.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT
-    # The provider OBSERVED cancellation (true cancellation, not a UI-only flag).
-    assert provider.observed == ["cancelled"]
-    # The worker was reaped, and its late chunk was suppressed.
-    assert provider.finished.wait(timeout=2)
-
-
-def test_provider_turn_ctrl_c_abort_returns_to_prompt(tmp_path: Path):
-    provider = _CancelObservingProvider()
-
-    class CtrlCUi:
-        def wait_for_active_turn_interrupt(
-            self, done_event, abort_event, **kwargs
-        ) -> str:
-            assert provider.started.wait(timeout=2)
-            assert not done_event.is_set()
-            # Mirror the TUI's active-turn Ctrl-C: set the abort flag and raise.
-            abort_event.set()
+        poll_seconds: float = 0.05,
+        accept_queue: bool = False,
+        accept_commands: bool = False,
+    ) -> str:
+        del poll_seconds
+        self.accept_queue = accept_queue
+        self.accept_commands = accept_commands
+        self.seen_done_event = done_event
+        self.seen_cancel_event = cancel_event
+        if self.raise_keyboard_interrupt:
             raise KeyboardInterrupt
+        if self.outcome != TURN_SETTLED:
+            cancel_event.set()
+        return self.outcome
 
-        def restore_pending_to_editor(self) -> None:
-            return None
 
-    session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
-    # Ctrl-C during an active turn must NOT propagate out of the turn; it aborts
-    # and returns control to the prompt, exactly like Escape.
-    result = session._complete_provider_turn(
-        ProviderRequest(
-            system_prompt="",
-            user_prompt="hello",
-            provider_name="blocking",
-            model_id="blocking-model",
-            cwd=tmp_path,
-        ),
-        terminal_ui=cast(Any, CtrlCUi()),
-        turn_index=0,
+@pytest.mark.parametrize(
+    ("terminal_outcome", "expected_interruption", "expects_cancel"),
+    [
+        (TURN_SETTLED, ProviderTurnInterruption.SETTLED, False),
+        (TURN_ABORTED, ProviderTurnInterruption.OPERATOR_ABORT, True),
+        (TURN_STEERED, ProviderTurnInterruption.STEERING, True),
+        (TURN_LOCAL_COMMAND, ProviderTurnInterruption.LOCAL_COMMAND, True),
+    ],
+)
+def test_provider_interrupt_waiter_maps_terminal_outcomes(
+    terminal_outcome: str,
+    expected_interruption: ProviderTurnInterruption,
+    expects_cancel: bool,
+) -> None:
+    ui = _ProviderInterruptUi(terminal_outcome)
+    done_event = threading.Event()
+    cancel_event = threading.Event()
+
+    interruption = _wait_for_provider_interrupt(
+        cast(ToolLoopTerminalUi, ui), done_event, cancel_event
     )
 
-    assert result.result is None
-    assert result.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT
-    assert provider.observed == ["cancelled"]
-    assert provider.finished.wait(timeout=2)
+    assert interruption is expected_interruption
+    assert cancel_event.is_set() is expects_cancel
+    assert ui.accept_queue is True
+    assert ui.accept_commands is False
+    assert ui.seen_done_event is done_event
+    assert ui.seen_cancel_event is cancel_event
 
 
-def test_non_cooperative_provider_abort_is_still_safe(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """A provider that ignores the cancel token still aborts safely.
+def test_provider_interrupt_waiter_maps_keyboard_interrupt_and_signals_cancel() -> None:
+    ui = _ProviderInterruptUi(TURN_SETTLED, raise_keyboard_interrupt=True)
+    done_event = threading.Event()
+    cancel_event = threading.Event()
 
-    Cancellation is cooperative, so the bounded join can return with the worker
-    still alive. The provider boundary must still return a typed cancellation
-    (no late chunks, no result), which lets the outer canonical event adapter
-    render the aborted state without corrupting the session even though the
-    abandoned worker keeps running in the background.
-    """
+    interruption = _wait_for_provider_interrupt(
+        cast(ToolLoopTerminalUi, ui), done_event, cancel_event
+    )
 
-    release = threading.Event()
-
-    @dataclass(slots=True)
-    class _IgnoresCancelProvider:
-        supports_tool_calls: bool = True
-        name: str = "stubborn"
-        model_id: str = "stubborn-model"
-        started: threading.Event = field(default_factory=threading.Event)
-
-        def complete(
-            self,
-            request: ProviderRequest,
-            *,
-            stream_sink: StreamChunkSink | None = None,
-            reasoning_sink: StreamChunkSink | None = None,
-            cancel_token: CancelToken | None = None,
-        ) -> ProviderResult:
-            del request, reasoning_sink, cancel_token
-            self.started.set()
-            # Block on an unrelated event — never observes cancellation.
-            release.wait(timeout=5)
-            if stream_sink is not None:
-                stream_sink("late text that must be suppressed")
-            now = datetime.now(UTC)
-            return ProviderResult(
-                status=HarnessStatus.SUCCEEDED,
-                provider_name=self.name,
-                model_id=self.model_id,
-                started_at=now,
-                ended_at=now,
-                final_text="late final text",
-                usage={},
-            )
-
-    provider = _IgnoresCancelProvider()
-
-    class InterruptingUi:
-        def wait_for_active_turn_interrupt(
-            self, done_event, abort_event, **kwargs
-        ) -> str:
-            assert provider.started.wait(timeout=2)
-            abort_event.set()
-            return _TURN_ABORTED
-
-        def restore_pending_to_editor(self) -> None:
-            return None
-
-    # Keep the bounded join short so the test does not wait the full 2s.
-    monkeypatch.setattr(NativeToolReplSession, "_CANCEL_JOIN_TIMEOUT_SECONDS", 0.2)
-    session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
-    try:
-        result = session._complete_provider_turn(
-            ProviderRequest(
-                system_prompt="",
-                user_prompt="hello",
-                provider_name="stubborn",
-                model_id="stubborn-model",
-                cwd=tmp_path,
-            ),
-            terminal_ui=cast(Any, InterruptingUi()),
-            turn_index=0,
-        )
-
-        # The turn aborted without a provider result even though the worker is alive.
-        assert result.result is None
-        assert result.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT
-    finally:
-        # Let the abandoned worker finish; its late chunk is still suppressed.
-        release.set()
+    assert interruption is ProviderTurnInterruption.OPERATOR_ABORT
+    assert cancel_event.is_set()
+    assert ui.accept_queue is True
+    assert ui.accept_commands is False
 
 
 # --------------------------- successful invocation --------------------------

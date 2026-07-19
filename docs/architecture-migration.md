@@ -313,7 +313,7 @@ Acceptance for Phase 1:
 
 ## Phase 2: Reusable Agent Loop
 
-### Slice 2.1: Tool executor
+### Slice 2.1: Tool executor — SHIPPED
 
 Extract argument validation, tool lookup/invocation, live updates, normalized
 results, cancellation, failure mapping, and termination signaling into
@@ -341,7 +341,32 @@ are deleted. Caller scheduling remains sequential and no parallel-tool scheduler
 is introduced. A cancelled uncooperative worker may outlive its bounded join,
 but its invocation sink is already closed and its turn/call identity cannot change.
 
-### Slice 2.2: Provider/tool turn loop
+### Slice 2.2a: Provider-turn boundary — ACTIVE
+
+Extract one synchronous provider completion into
+`native.agent.loop.ProviderTurnExecutor`. The boundary owns text and reasoning
+delta publication as canonical events, the optional worker and `CancelToken`,
+exact first-cancellation versus worker-completion ordering, bounded cleanup,
+late-delta admission gating, and a typed result-or-cancellation outcome. It is
+headless and provider-neutral; it imports the provider port and canonical
+contracts, not a concrete transport, the TUI, automation, extensions, product
+session, compaction, provider construction, capture, or the workflow archive.
+The canonical `native.agent` initializer does not eagerly re-export it.
+
+`NativeToolReplSession` retains the TUI and RPC/external-abort wait adapters,
+queued-message storage and promotion, provider-request construction, extension
+preflight and lifecycle policy, tool cycles and budgets, and the current
+zero-retry and usage-accumulation policy. This first boundary deliberately does
+not move the full provider/tool cycle or make `run()` a composition-only method.
+The superseded `_ProviderTurnCompletion`, `_agent_text_sink`,
+`_agent_reasoning_sink`, `_complete_headless_cancellable_turn`,
+`_complete_provider_turn`, and `_cancel_active_turn` paths are deleted in the
+same slice. The shared `HarnessStatus` enum moves to dependency-neutral
+`pipy_harness.status`; public harness/native model exports keep the same enum
+identity and runtime-resolvable annotations while the provider-turn import
+graph no longer loads capture or the metadata workflow archive.
+
+### Slice 2.2b: Full provider/tool turn loop
 
 Extract the pure turn loop from `NativeToolReplSession.run()` into
 `native.agent.loop`. It owns provider streaming, assistant-message assembly,
@@ -349,7 +374,7 @@ tool-call cycles, retry decisions, token/tool budgets, cancellation, queued
 steering/follow-up consumption through a controller-owned port, and the final
 typed result. The coding-session controller owns queue storage, ordering, and
 lifecycle; the loop can only request the next eligible steering or follow-up
-item while a run is active. During Slice 2.2, the legacy
+item while a run is active. During Slice 2.2b, the legacy
 `NativeToolReplSession` implements and owns that port; Slice 3.1 moves the same
 storage/policy behind the new controller without changing the loop contract.
 
@@ -568,7 +593,7 @@ The default sequence is:
 | 0.2 | `b122e37` | Architecture characterization, privacy, SDK, and import contracts. |
 | 1.1 | `804d6d7` | Canonical typed synchronous agent contracts. |
 | 1.2 | `bd1f9b9` — `refactor: route native consumers through canonical agent events` | `just check` (3,268 passed, 2 skipped), docs, PTY, automation/RPC, extension, session-tree, TUI, SDK/archive privacy, provider, and export gates passed; Pi `openai-codex/gpt-5.6-sol` round 14 CLEAN after 23 fixed findings; Claude Fable CLEAN. Its two redacted secret-sentinel fixture diffs were verified as mechanical contract migrations by the dedicated 17-test export suite and 11-check export/privacy gate. |
-| 2.1 | `refactor: extract reusable tool executor` | Direct executor, tool-loop integration, cancellation, rendering, extension, bash, TUI, and import-boundary contracts passed. Final `just check`: Ruff and mypy clean, 3,300 tests passed, 2 skipped; docs, 8 PTY smoke tests, 15 automation/RPC checks, 4 extension live-session checks, 12 TUI workflow checks, and diff gate passed. Pi `openai-codex/gpt-5.6-sol` round 4 CLEAN after 5 accepted/fixed Pi findings across rounds; Claude Fable round 2 returned valid unscoped CLEAN after 2 fixed findings, with no skips, truncations, redactions, or forbidden tools. |
+| 2.1 | `5348127` — `refactor: extract reusable tool executor` | Direct executor, tool-loop integration, cancellation, rendering, extension, bash, TUI, and import-boundary contracts passed. Final `just check`: Ruff and mypy clean, 3,300 tests passed, 2 skipped; docs, 8 PTY smoke tests, 15 automation/RPC checks, 4 extension live-session checks, 12 TUI workflow checks, and diff gate passed. Pi `openai-codex/gpt-5.6-sol` round 4 CLEAN after 5 accepted/fixed Pi findings across rounds; Claude Fable round 2 returned valid unscoped CLEAN after 2 fixed findings, with no skips, truncations, redactions, or forbidden tools. |
 
 The earlier code-quality audit remains evidence, with this mapping:
 

@@ -9,7 +9,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from pipy_harness.models import HarnessStatus
+from pipy_harness.status import HarnessStatus
 
 if TYPE_CHECKING:
     from pipy_harness.native.agent import AgentMessage

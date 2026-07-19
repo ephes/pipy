@@ -1408,6 +1408,41 @@ The `pipy_harness.native.tools` package initializer exports contracts only and
 does not load concrete tools. This extraction changes no JSON/RPC/SDK,
 extension, product-session, workflow-archive, or terminal representation.
 
+### Reusable Provider-Turn Executor
+
+`pipy_harness.native.agent.loop.ProviderTurnExecutor` is the UI-free,
+synchronous boundary for one provider completion. It receives a `ProviderPort`,
+`ProviderRequest`, canonical `AgentEventSink`, turn index, and an optional
+caller-owned waiter. It publishes provider text and reasoning chunks as
+canonical deltas and returns exactly one `ProviderResult` or typed
+`AgentCancellationReason`. The interruptible path owns its worker,
+`CancelToken`, exact first-cancellation versus completion ordering, bounded
+cleanup, and a per-turn admission gate that rejects late deltas after
+cancellation or return. An already admitted synchronous callback retains its
+original turn binding and backpressure semantics.
+
+The product composition root translates the TUI and RPC/external-abort wait
+outcomes into the closed provider-turn interruption vocabulary. It continues to
+own queued-message storage and promotion, provider-request construction,
+extension policy and hooks, tool cycles and budgets, and the current zero-retry
+and usage-accumulation policy. The serialized RPC boundary uses a callback-capable
+accepted-abort latch; its executor callback is registered before the RPC provider
+starts, preserving actual acceptance-before-completion order even if waiter
+observation is delayed. Phase 2.2a therefore does not yet extract the full
+provider/tool cycle or make `NativeToolReplSession.run()` composition-only;
+Phase 2.2b owns that remaining move. The old `_ProviderTurnCompletion`, delta
+sink helpers, headless/TUI completion helpers, and active-turn cancellation
+helper are removed rather than retained as a second implementation.
+
+The module imports provider/cancellation ports, native value objects, and
+canonical agent contracts only. Its fresh-process import gate excludes UI/TUI,
+automation, extensions, product-session and compaction modules, provider
+construction and concrete transports, capture, and the metadata-only workflow
+archive in either provider-port/executor import order. The canonical agent
+package does not eagerly re-export the executor. This extraction changes no
+JSON/RPC/SDK/session/extension format, queue ordering, retry policy, or privacy
+classification.
+
 ### Read-Only Tool Request Value Objects
 
 The bounded read-only path needs stable native data contracts before it can

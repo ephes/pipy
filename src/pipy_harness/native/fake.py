@@ -206,6 +206,8 @@ class AutomationFakeProvider:
         cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
         if cancel_token is not None:
+            if cancel_token.cancelled:
+                self._cancel_observed[0] = True
             cancel_token.raise_if_cancelled()
         started_at = datetime.now(UTC)
         user_text = self._latest_user_text(request).strip()

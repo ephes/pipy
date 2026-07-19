@@ -1,0 +1,330 @@
+"""Synchronous, UI-free execution for one native provider turn."""
+
+from __future__ import annotations
+
+import threading
+from dataclasses import dataclass
+from enum import StrEnum
+from math import isfinite
+from typing import Protocol
+
+from pipy_harness.native.agent._validation import require_non_negative_int
+from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.events import AssistantReasoningDelta, AssistantTextDelta
+from pipy_harness.native.agent.ports import AgentEventSink
+from pipy_harness.native.agent.results import AgentCancellationReason
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+
+
+class ProviderTurnInterruption(StrEnum):
+    """Closed results returned by the caller-owned provider wait policy."""
+
+    SETTLED = "settled"
+    OPERATOR_ABORT = "operator_abort"
+    STEERING = "steering"
+    LOCAL_COMMAND = "local_command"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderTurnOutcome:
+    """Exactly one completed provider result or typed cancellation reason."""
+
+    result: ProviderResult | None = None
+    cancellation_reason: AgentCancellationReason | None = None
+
+    def __post_init__(self) -> None:
+        if (self.result is None) == (self.cancellation_reason is None):
+            raise ValueError(
+                "provider turn outcome requires exactly one result or cancellation"
+            )
+        if self.result is not None and not isinstance(self.result, ProviderResult):
+            raise TypeError("ProviderTurnOutcome.result must be ProviderResult")
+        if self.cancellation_reason is not None and not isinstance(
+            self.cancellation_reason, AgentCancellationReason
+        ):
+            raise TypeError(
+                "ProviderTurnOutcome.cancellation_reason must be "
+                "AgentCancellationReason"
+            )
+
+
+class ProviderTurnWaiter(Protocol):
+    """Caller-owned wait policy for an interruptible provider worker."""
+
+    def __call__(
+        self,
+        done_event: threading.Event,
+        cancel_event: threading.Event,
+        /,
+    ) -> ProviderTurnInterruption: ...
+
+
+class _ExecutionOrder:
+    """Record worker completion relative to the first cancellation signal."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._next = 0
+        self._completion: int | None = None
+        self._cancellation: int | None = None
+
+    def record_completion(self) -> None:
+        with self._lock:
+            if self._completion is None:
+                self._completion = self._next
+                self._next += 1
+
+    def record_cancellation(self) -> None:
+        with self._lock:
+            if self._cancellation is None:
+                self._cancellation = self._next
+                self._next += 1
+
+    def cancellation_precedes_completion(self) -> bool:
+        with self._lock:
+            return self._cancellation is not None and (
+                self._completion is None or self._cancellation < self._completion
+            )
+
+    def completion_precedes_cancellation(self) -> bool:
+        with self._lock:
+            return self._completion is not None and (
+                self._cancellation is None or self._completion < self._cancellation
+            )
+
+    def cancellation_started(self) -> bool:
+        with self._lock:
+            return self._cancellation is not None
+
+
+class _OrderedCancellationEvent(threading.Event):
+    """Event whose first signal participates in provider-turn ordering."""
+
+    def __init__(
+        self,
+        order: _ExecutionOrder,
+        cancel_token: CancelToken,
+    ) -> None:
+        super().__init__()
+        self._order = order
+        self._cancel_token = cancel_token
+        self._delegate = cancel_token.event
+
+    def set(self) -> None:
+        self._order.record_cancellation()
+        self._cancel_token.cancel()
+
+    def is_set(self) -> bool:
+        return self._delegate.is_set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        return self._delegate.wait(timeout)
+
+    def clear(self) -> None:
+        self._delegate.clear()
+
+
+class _DeltaAdmissionGate:
+    """Reject new deltas after a turn ends without blocking admitted sinks."""
+
+    def __init__(self, order: _ExecutionOrder) -> None:
+        self._order = order
+        self._lock = threading.Lock()
+        self._active = True
+
+    def emit(self, sink: StreamChunkSink, chunk: str) -> None:
+        with self._lock:
+            if not self._active or self._order.cancellation_started():
+                return
+        sink(chunk)
+
+    def close(self) -> None:
+        with self._lock:
+            self._active = False
+
+
+class ProviderTurnExecutor:
+    """Execute one provider completion with canonical delta publication."""
+
+    def __init__(self, *, cancel_join_timeout_seconds: float = 2.0) -> None:
+        if isinstance(cancel_join_timeout_seconds, bool) or not isinstance(
+            cancel_join_timeout_seconds, (int, float)
+        ):
+            raise TypeError("cancel_join_timeout_seconds must be a number")
+        if not isfinite(cancel_join_timeout_seconds) or cancel_join_timeout_seconds < 0:
+            raise ValueError(
+                "cancel_join_timeout_seconds must be a finite nonnegative number"
+            )
+        self._cancel_join_timeout_seconds = float(cancel_join_timeout_seconds)
+
+    def complete(
+        self,
+        provider: ProviderPort,
+        request: ProviderRequest,
+        event_sink: AgentEventSink,
+        *,
+        turn_index: int,
+        waiter: ProviderTurnWaiter | None = None,
+    ) -> ProviderTurnOutcome:
+        """Complete one turn synchronously or through the supplied wait policy."""
+
+        if not isinstance(provider, ProviderPort):
+            raise TypeError("provider must implement ProviderPort")
+        if not isinstance(request, ProviderRequest):
+            raise TypeError("request must be ProviderRequest")
+        if not isinstance(event_sink, AgentEventSink):
+            raise TypeError("event_sink must implement AgentEventSink")
+        require_non_negative_int(turn_index, "turn_index")
+        if waiter is not None and not callable(waiter):
+            raise TypeError("waiter must be callable or None")
+        if waiter is None:
+            return self._complete_synchronously(
+                provider, request, event_sink, turn_index
+            )
+        return self._complete_interruptibly(
+            provider, request, event_sink, turn_index, waiter
+        )
+
+    @staticmethod
+    def _delta_sinks(
+        event_sink: AgentEventSink,
+        turn_index: int,
+        gate: _DeltaAdmissionGate | None = None,
+    ) -> tuple[StreamChunkSink, StreamChunkSink]:
+        def _text(chunk: str) -> None:
+            event_sink.emit(AssistantTextDelta(turn_index, ProductContent(chunk)))
+
+        def _reasoning(chunk: str) -> None:
+            event_sink.emit(AssistantReasoningDelta(turn_index, ProductContent(chunk)))
+
+        if gate is None:
+            return _text, _reasoning
+        return (
+            lambda chunk: gate.emit(_text, chunk),
+            lambda chunk: gate.emit(_reasoning, chunk),
+        )
+
+    def _complete_synchronously(
+        self,
+        provider: ProviderPort,
+        request: ProviderRequest,
+        event_sink: AgentEventSink,
+        turn_index: int,
+    ) -> ProviderTurnOutcome:
+        gate = _DeltaAdmissionGate(_ExecutionOrder())
+        text_sink, reasoning_sink = self._delta_sinks(event_sink, turn_index, gate)
+        try:
+            result = provider.complete(
+                request,
+                stream_sink=text_sink,
+                reasoning_sink=reasoning_sink,
+            )
+        except ProviderCancelledError:
+            return ProviderTurnOutcome(
+                cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+            )
+        finally:
+            gate.close()
+        return ProviderTurnOutcome(result=result)
+
+    def _complete_interruptibly(
+        self,
+        provider: ProviderPort,
+        request: ProviderRequest,
+        event_sink: AgentEventSink,
+        turn_index: int,
+        waiter: ProviderTurnWaiter,
+    ) -> ProviderTurnOutcome:
+        order = _ExecutionOrder()
+        cancel_token = CancelToken()
+        cancel_event = _OrderedCancellationEvent(order, cancel_token)
+        gate = _DeltaAdmissionGate(order)
+        done_event = threading.Event()
+        results: list[ProviderResult] = []
+        errors: list[BaseException] = []
+        provider_cancelled = threading.Event()
+        text_sink, reasoning_sink = self._delta_sinks(event_sink, turn_index, gate)
+
+        def _worker() -> None:
+            try:
+                results.append(
+                    provider.complete(
+                        request,
+                        stream_sink=text_sink,
+                        reasoning_sink=reasoning_sink,
+                        cancel_token=cancel_token,
+                    )
+                )
+            except ProviderCancelledError:
+                provider_cancelled.set()
+            except BaseException as exc:  # pragma: no cover - re-raised by caller
+                errors.append(exc)
+            finally:
+                order.record_completion()
+                done_event.set()
+
+        worker = threading.Thread(
+            target=_worker, name="pipy-provider-turn", daemon=True
+        )
+        worker.start()
+        try:
+            interruption = waiter(done_event, cancel_event)
+            if not isinstance(interruption, ProviderTurnInterruption):
+                raise TypeError("provider turn waiter returned an invalid outcome")
+        except BaseException:
+            gate.close()
+            cancel_event.set()
+            worker.join(timeout=self._cancel_join_timeout_seconds)
+            raise
+
+        if interruption is not ProviderTurnInterruption.SETTLED:
+            gate.close()
+            cancel_event.set()
+            worker.join(timeout=self._cancel_join_timeout_seconds)
+            if order.completion_precedes_cancellation():
+                return _completed_outcome(results, errors, provider_cancelled)
+            return ProviderTurnOutcome(
+                cancellation_reason=_cancellation_reason(interruption)
+            )
+
+        worker.join(timeout=self._cancel_join_timeout_seconds)
+        if worker.is_alive():
+            gate.close()
+            cancel_event.set()
+            worker.join(timeout=self._cancel_join_timeout_seconds)
+        gate.close()
+        if order.cancellation_precedes_completion():
+            return ProviderTurnOutcome(
+                cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+            )
+        return _completed_outcome(results, errors, provider_cancelled)
+
+
+def _cancellation_reason(
+    interruption: ProviderTurnInterruption,
+) -> AgentCancellationReason:
+    if interruption is ProviderTurnInterruption.OPERATOR_ABORT:
+        return AgentCancellationReason.OPERATOR_ABORT
+    if interruption is ProviderTurnInterruption.STEERING:
+        return AgentCancellationReason.STEERING
+    if interruption is ProviderTurnInterruption.LOCAL_COMMAND:
+        return AgentCancellationReason.LOCAL_COMMAND
+    raise ValueError(
+        f"settled provider turn has no cancellation reason: {interruption}"
+    )
+
+
+def _completed_outcome(
+    results: list[ProviderResult],
+    errors: list[BaseException],
+    provider_cancelled: threading.Event,
+) -> ProviderTurnOutcome:
+    if errors:
+        raise errors[0]
+    if provider_cancelled.is_set() or not results:
+        return ProviderTurnOutcome(
+            cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+        )
+    return ProviderTurnOutcome(result=results[0])
