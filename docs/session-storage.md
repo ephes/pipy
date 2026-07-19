@@ -132,12 +132,14 @@ plus an automatic threshold) preserve the metadata-first contract:
   the same safe labels and the prior provider/model/turn counters. These are
   short labels only; prompts, model output, tool payloads, file contents,
   diffs, and Markdown summary text never enter them.
-- Compaction is recorded only as metadata-only counters via
-  `native.session.compacted` events (drop/retain counts, before/after byte
-  totals, trigger `manual`/`auto`) and a `compaction_count` on the completion
-  payload. The dropped raw context is simply discarded from the in-memory
-  provider-visible history; it is never written to the archive, and the safe
-  summary injected back into the provider system prompt is counts only.
+- Compaction is recorded only as one aggregate metadata-only
+  `native.session.compacted` event after a product adapter run that compacted at
+  least once. Its payload carries the adapter/mode labels, total compaction
+  count, and cumulative dropped-group count. Detailed per-reduction counters
+  and byte totals remain inside the canonical/product runtime; the dropped raw
+  context is simply discarded from the in-memory provider-visible history and
+  is never written to the archive. The safe summary injected back into the
+  provider system prompt is counts only.
 - The catalog surfaces this read-only: `list` shows the lineage relationship
   and branch label, `inspect` adds the parent id and `compaction_event_count`,
   `export` adds a safe `resume` lineage object and `compaction_event_count`,

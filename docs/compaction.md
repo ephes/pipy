@@ -41,8 +41,14 @@ summary.
 ## Automatic compaction
 
 Automatic compaction is enabled by default. The tool-loop session checks history
-between turns and compacts when message count or byte thresholds are exceeded.
-This prevents the next provider request from growing without bound.
+between turns and normally compacts when message count or byte thresholds are
+exceeded. If an extension supplies transient `deliverAs=nextTurn` context,
+automatic compaction is deferred for that entire run so the context remains
+visible for exactly one run. An extension that injects this context every turn
+can therefore defer automatic compaction indefinitely; manual `/compact`
+remains available. Phase 2.2b.4 is ordered to replace the absolute-index cleanup
+with identity-based removal or safe re-anchoring, then remove this guard without
+changing the one-run lifetime.
 
 Settings expose the current compaction controls:
 

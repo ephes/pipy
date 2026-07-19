@@ -118,7 +118,7 @@ check E1 "Session resume"            big    "test -f src/pipy_harness/native/ses
 # provider message-protocol validity (no orphaned tool result). E3 proves a
 # branch child records safe parent/branch/fork metadata, emits
 # native.session.resumed, and leaves the parent record byte-for-byte immutable.
-check E2 "Session compaction"        big    "grep -q compact_tool_loop_messages src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/compaction_behavior.py"
+check E2 "Session compaction"        big    "grep -q compact_agent_history src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/compaction_behavior.py"
 check E3 "Session branching"         small  "grep -q build_session_lineage src/pipy_harness/native/session_resume.py && uv run python scripts/parity_checks/branching_behavior.py"
 check E4 "Session export"            small  "test -f src/pipy_session/export.py || uv run pipy-session export --help 2>&1 | grep -q export"
 # E5 is a behavior check, not a file/grep rubber-stamp: it drives the product

@@ -990,7 +990,11 @@ module is live.
    because `NativeConversationState.MAX_TURNS = 8` is below the
    compaction threshold). Refs: `07:F12`. If compaction is desired,
    first lift the conversation cap (Track CQ-D slice 5) and only then
-   bring this back.
+   bring this back. **Superseded and now done:** the no-tool REPL and its dead
+   compaction path were retired, while the live product tool loop gained real
+   manual/automatic and durable compaction. Phase 2.2b.2 deletes the obsolete
+   mixed module and moves only the live canonical-message reduction to
+   `native.agent.history`; product policy and persistence stay in the session.
 5. Remove `pipy_harness.native.image_attachment` (196 L; plumbed through
    `ProviderRequest.image_attachments` but consumed by no provider).
    Refs: `07:F14`. Re-introduce only when an actual provider parses it.
@@ -1616,24 +1620,55 @@ contracts passed. Final `just check` reported 3,382 passed and 2 skipped with
 Ruff and mypy clean across 340 sources; docs and diff gates passed. Pi
 `openai-codex/gpt-5.6-sol` returned explicit CLEAN after four accepted/fixed
 warnings and Claude Fable returned valid unscoped CLEAN with no findings or
-scope omissions. The next active boundary is 2.2b.2, canonical agent-history
-compaction.
+scope omissions. Commit `c261f2c` records this slice.
+
+### Canonical agent-history compaction — SHIPPED (2026-07-19)
+
+Phase 2.2b.2 moves only the mechanical canonical-message reduction into
+`native.agent.history`. The new module accepts caller-owned limits, cuts at
+`AgentUserMessage` group boundaries, and returns an immutable retained history
+plus structural counters. It owns no compaction enablement, threshold defaults,
+summary formatting, provider-request construction, extension hooks,
+diagnostics, product-session write, or archive projection. It is neither
+eagerly exported from `native.agent` nor given an archive convenience
+serializer.
+
+`NativeToolReplSession` retains manual/automatic trigger policy, exact
+counts-only summary text and provider-system-prompt injection, extension-hook
+ordering, aggregate result counters, and durable session-tree compaction
+entries. The obsolete `native.session_compaction` module and its unused no-tool
+path are deleted without an alias. Direct allowlist, recursive synthetic, and
+isolated fresh-process import gates cover UI/render/theme/terminal,
+session/persistence/settings, provider/catalog, extension, automation,
+capture, and workflow-archive dependencies, including laundering through the
+allowed canonical-message module.
+
+A reproduced correctness prerequisite deliberately defers automatic compaction
+for the entire run while extension `deliverAs=nextTurn` transient custom context
+is attached. Without that guard, compaction could shift absolute message
+indexes and let one-turn extension context survive into a later provider
+request. A later ordinary run may compact, but an extension that injects this
+context every turn can defer automatic compaction indefinitely; manual
+`/compact` remains available. Summary text, thresholds, durable replay, public
+formats, and archive privacy otherwise stay unchanged.
 
 The remaining ordered Phase 2.2 cuts are:
 
-1. **2.2b.2 — canonical agent-history compaction:** move provider-neutral
-   history compaction without relocating product-session storage or policy.
-2. **2.2b.3 — session tool-capability port seam:** inject tool capabilities
+1. **2.2b.3 — session tool-capability port seam:** inject tool capabilities
    while preserving sequential scheduling, budgets, and extension ordering.
-3. **2.2b.4 — provider-request, run-effect, usage, and active-input seams:**
+2. **2.2b.4 — provider-request, run-effect, usage, and active-input seams:**
    establish typed loop ports; Phase 3 retains queue/lifecycle ownership and
-   Phase 3.3 retains persistence-write relocation.
-4. **2.2b.5 — full headless `AgentLoop` ownership cutover:** move the remaining
+   Phase 3.3 retains persistence-write relocation. Replace absolute-index
+   transient-context cleanup with identity-based removal or safe re-anchoring,
+   then remove the Phase 2.2b.2 automatic-compaction deferral without changing
+   one-run context lifetime.
+3. **2.2b.5 — full headless `AgentLoop` ownership cutover:** move the remaining
    provider/tool cycle so `NativeToolReplSession.run()` becomes composition.
 
-All four remain pending. Parallel tools, richer termination, async conversion,
-persistence relocation, UI/extension redesign, and provider catalog work are
-not part of Phase 2.2b.1.
+All three remain pending; 2.2b.3 is next after the history slice clears its
+mandatory review gates. Parallel tools, richer termination, async
+conversion, persistence relocation, UI/extension redesign, and provider catalog
+work are not part of Phase 2.2b.2.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 
@@ -2231,11 +2266,13 @@ What shipped (historical; `--resume`/`--branch` repl flags now retired):
   fail closed via `validate_branch_label`). `pipy_harness.models.SessionLineage`
   carries the safe parent id, relationship, branch label, fork timestamp, and
   prior provider/model/turn counters.
-- **Compaction.** `pipy_harness.native.session_compaction` is a pure
-  transformation. `/compact` (and an automatic threshold) reduce the
+- **Compaction.** The live tool-loop's canonical message reduction now lives in
+  `pipy_harness.native.agent.history`; product policy and persistence remain in
+  the session. `/compact` (and an automatic threshold) reduce the
   provider-visible context while keeping recent turns plus a safe metadata-only
-  summary appended to the system prompt. The no-tool path compacts its bounded
-  exchange context; the tool-loop cuts the `AgentMessage` history only at
+  summary appended to the system prompt. The retired no-tool path historically
+  compacted its bounded exchange context; the tool loop cuts `AgentMessage`
+  history only at
   `AgentUserMessage` group boundaries, so compaction never orphans a tool result,
   reorders a tool-call/observation pair, or exposes a raw tool payload.
 - **Archive + catalog.** The runner writes a safe `resume` object onto

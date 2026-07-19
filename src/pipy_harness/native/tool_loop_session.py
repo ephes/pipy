@@ -97,6 +97,11 @@ from pipy_harness.native.agent import (
     TurnStarted,
     UsageUpdated,
 )
+from pipy_harness.native.agent.history import (
+    AgentHistoryCompaction,
+    compact_agent_history,
+    should_compact_agent_history,
+)
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
     ToolExecutor,
@@ -157,11 +162,6 @@ from pipy_harness.native.export_distribution import (
     parse_command_path_argument,
     resolve_github_token,
     share_native_session,
-)
-from pipy_harness.native.session_compaction import (
-    DEFAULT_KEEP_RECENT_GROUPS,
-    compact_tool_loop_messages,
-    should_compact_tool_loop_messages,
 )
 from pipy_harness.native.session_resume import (
     ResumeContext,
@@ -607,6 +607,23 @@ class _ContextBudget:
 _CODEX_GPT_5_5_BUDGET = _ContextBudget(token_budget=272_000, budget_label="272k")
 _CODEX_GPT_5_6_SOL_BUDGET = _ContextBudget(token_budget=372_000, budget_label="372k")
 _DEFAULT_CONTEXT_BUDGET = _ContextBudget(token_budget=128_000, budget_label="128k")
+
+_AGENT_HISTORY_KEEP_RECENT_GROUPS = 2
+_AGENT_HISTORY_MAX_MESSAGES = 40
+_AGENT_HISTORY_MAX_BYTES = 48 * 1024
+
+
+def _agent_history_summary(result: AgentHistoryCompaction) -> str:
+    """Build the product-owned count-only provider context summary."""
+
+    return (
+        "[Context compacted to save space: "
+        f"{result.dropped_group_count} earlier exchange(s) "
+        f"({result.dropped_assistant_count} assistant turn(s), "
+        f"{result.dropped_tool_call_count} tool call(s)) were summarized and removed "
+        "from this request. Their details are no longer available; continue "
+        "from the retained recent turns below.]"
+    )
 
 
 def _context_budget_for(provider_name: str, model_id: str) -> _ContextBudget:
@@ -2335,11 +2352,15 @@ class NativeToolReplSession:
             if not decision.allow:
                 reason = decision.reason or "blocked by extension"
                 return f"pipy: compact blocked by extension: {reason}"
-            result = compact_tool_loop_messages(messages)
+            result = compact_agent_history(
+                messages,
+                keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
+            )
             if not result.changed:
                 return "pipy: nothing to compact yet."
             messages = list(result.messages)
-            compaction_summary = f"\n\n{result.summary_block}"
+            summary_block = _agent_history_summary(result)
+            compaction_summary = f"\n\n{summary_block}"
             compaction_count += 1
             compaction_dropped_group_count_total += result.dropped_group_count
             # Durable compaction: append a real ``compaction`` entry to the
@@ -2348,7 +2369,7 @@ class NativeToolReplSession:
             # retained user-turn on the active branch (after any prior
             # compaction); the live in-memory reduction above keeps the
             # provider request small for this session.
-            _append_durable_compaction(result.summary_block, result.bytes_before)
+            _append_durable_compaction(summary_block, result.bytes_before)
             return (
                 f"pipy: compacted conversation context ({trigger}; dropped "
                 f"{result.dropped_group_count} earlier exchange(s), kept "
@@ -2368,9 +2389,11 @@ class NativeToolReplSession:
                 if isinstance(entry, _MessageEntry)
                 and isinstance(entry.message, AgentUserMessage)
             ]
-            if len(user_entries) <= DEFAULT_KEEP_RECENT_GROUPS:
+            if len(user_entries) <= _AGENT_HISTORY_KEEP_RECENT_GROUPS:
                 return
-            first_kept = user_entries[len(user_entries) - DEFAULT_KEEP_RECENT_GROUPS]
+            first_kept = user_entries[
+                len(user_entries) - _AGENT_HISTORY_KEEP_RECENT_GROUPS
+            ]
             session_tree.append_compaction(
                 summary=summary_block.strip(),
                 first_kept_entry_id=first_kept.id,
@@ -4178,7 +4201,17 @@ class NativeToolReplSession:
                     # rides in the system prompt suffix below.
                     if (
                         settings.get_compaction_enabled()
-                        and should_compact_tool_loop_messages(messages)
+                        # Transient extension context is removed with indexes
+                        # captured before this inner loop. Defer compaction
+                        # until a later ordinary run so those one-turn messages
+                        # cannot be retained under shifted history indexes.
+                        and not injected_custom_context_count
+                        and should_compact_agent_history(
+                            messages,
+                            max_messages=_AGENT_HISTORY_MAX_MESSAGES,
+                            max_bytes=_AGENT_HISTORY_MAX_BYTES,
+                            keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
+                        )
                     ):
                         notice = apply_compaction("auto")
                         self._emit_diagnostic(terminal_ui, error_stream, notice)

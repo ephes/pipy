@@ -1092,8 +1092,9 @@ which is *not* the product session source:
   the runner (not the effectful adapter) writes the safe `resume` object onto
   `session.started` and emits `native.session.resumed`. Branch labels pass
   `validate_branch_label` (single-line, non-path, non-secret-shaped, bounded).
-- **Compaction** is a pure transform (`session_compaction`). The tool-loop cut
-  is constrained to canonical `AgentUserMessage` group boundaries so the
+- **Compaction** delegates its pure canonical-message reduction to
+  `native.agent.history`. The tool-loop cut is constrained to canonical
+  `AgentUserMessage` group boundaries so the
   retained provider history is always protocol-valid (no orphaned tool result,
   no reordered tool-call/observation pair, no exposed raw tool payload). The
   summary folded back into the provider system prompt is counts only; the
@@ -1103,8 +1104,12 @@ which is *not* the product session source:
   `compaction` entry (with `firstKeptEntryId`) to the native product session
   tree so reload and `/tree` navigation rebuild an equivalent reduced context;
   see [`session-tree.md`](/session-tree/).
-- **Archive metadata** stays counts/labels only: `native.session.compacted`
-  carries drop/retain counts, before/after byte totals, and a trigger label.
+- **Archive metadata** stays counts/labels only. After a product adapter run
+  that compacted at least once, the archive receives one aggregate
+  `native.session.compacted` event carrying the adapter/mode labels, total
+  compaction count, and cumulative dropped-group count. The detailed mechanical
+  counters on `AgentHistoryCompaction` remain inside the product runtime and do
+  not cross into the metadata archive.
 
 Allowed metadata: parent session id (a bare record stem), relationship,
 validated branch label, fork timestamp, prior provider/model/turn counters, and
@@ -1467,6 +1472,54 @@ cuts move agent-history compaction (2.2b.2), add the tool-capability port
 (2.2b.4), and perform the full headless `AgentLoop` cutover (2.2b.5). Product
 queue/lifecycle ownership remains Phase 3 and persistence write relocation
 remains Phase 3.3.
+
+### Canonical Agent-History Compaction
+
+`pipy_harness.native.agent.history` owns the mechanical reduction of canonical
+provider-visible history. `compact_agent_history` receives a sequence of
+`AgentMessage` values and a caller-selected retained-group count; it returns an
+immutable `AgentHistoryCompaction` containing the retained tuple and exact
+dropped group/message/user/assistant/tool-call/tool-result counts, retained
+group/message counts, and before/after byte counts.
+`should_compact_agent_history` applies caller-supplied message, byte, and
+retained-group limits. Both operations cut only at `AgentUserMessage`
+boundaries, so a retained tool result keeps the assistant tool call that
+introduced its provider correlation id.
+
+This module is mechanical rather than a product policy or persistence layer. It
+does not choose threshold defaults, enable compaction, format the counts-only
+summary, inject the summary into a provider request, invoke extension hooks,
+emit diagnostics, aggregate run-result counters, or append a durable compaction
+entry. `NativeToolReplSession` retains each of those responsibilities, including
+the exact existing summary text and `firstKeptEntryId` session-tree behavior.
+The canonical result has no archive serializer; metadata-only workflow fields
+remain explicit allowlists outside `native.agent`. The canonical package does
+not eagerly re-export the history runtime.
+
+The old `native.session_compaction` module is deleted with the already-retired
+no-tool compaction path. Static direct-import, recursive synthetic, and isolated
+fresh-process gates keep the replacement free of UI/rendering/theme/terminal,
+session/persistence/settings, provider/catalog, extension, capture, automation,
+and workflow-archive dependencies, including dependencies laundered through an
+allowed canonical-message intermediate.
+
+One behavior correction is intentionally included because the prior index-based
+extension cleanup was unsafe if automatic compaction shifted the active message
+list. While an extension's transient `deliverAs=nextTurn` custom context is
+attached, automatic compaction is deferred for that entire run. A later
+ordinary run may compact, but an extension that injects transient context on
+every turn can defer automatic compaction indefinitely; manual `/compact`
+remains available. This keeps the transient message visible for exactly its
+intended run instead of allowing it to survive into the next provider request.
+Summaries, thresholds, durable replay, public JSON/RPC/SDK/extension shapes,
+and archive privacy remain unchanged.
+
+Phase 2.2b.2 does not add tool capabilities or move provider requests, run
+effects, usage publication, active-input ownership, queues, or the complete
+provider/tool loop. Those remain the ordered Slices 2.2b.3–2.2b.5. As part of
+the active-input seam in 2.2b.4, replace absolute-index transient-context
+cleanup with identity-based removal or safe re-anchoring, then remove this
+automatic-compaction deferral without changing the context's one-run lifetime.
 
 ### Read-Only Tool Request Value Objects
 

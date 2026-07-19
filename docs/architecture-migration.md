@@ -410,10 +410,36 @@ round after four accepted warnings were fixed; none were rejected or deferred.
 Claude Fable returned valid unscoped CLEAN with no findings, skipped or
 truncated files, redactions, or forbidden tool use.
 
-### Slice 2.2b.2: Canonical agent-history compaction — PENDING
+### Slice 2.2b.2: Canonical agent-history compaction — SHIPPED
 
-Move provider-neutral history compaction behind the reusable agent boundary
-without changing product-session storage, summaries, or compaction policy.
+Move the mechanical canonical-message history reduction into
+`native.agent.history`. The reusable boundary accepts any `Sequence` of
+`AgentMessage` values plus caller-owned limits without mutating the caller's
+container, and detaches the retained history into an immutable tuple with
+structural counters. It cuts only at user group boundaries, counts
+assistant/tool-call/tool-result content exactly as before, and performs no I/O.
+
+The product session retains compaction enablement, manual/automatic triggers,
+threshold defaults, extension-hook ordering, the exact counts-only summary
+text, provider-system-prompt injection, diagnostics, aggregate result counters,
+and durable native-session-tree writes. The canonical module exposes no archive
+serializer and is not eagerly re-exported from `native.agent`. The obsolete
+`native.session_compaction` module and its unused no-tool conversation path are
+deleted rather than retained as an alias or shadow implementation.
+
+One characterized correctness prerequisite deliberately narrows automatic
+compaction: when an extension has attached transient `deliverAs=nextTurn`
+custom context, automatic compaction is deferred for that entire run. This
+prevents a retained-history index shift from carrying one-turn extension
+context into the next provider request. A later ordinary run may compact, but
+an extension that injects transient context on every turn can defer automatic
+compaction indefinitely; manual `/compact` remains available.
+
+Apart from that correction, this slice changes no product-session storage,
+provider-request schema, summary text, JSON/RPC/SDK/extension representation,
+archive allowlist, compaction policy, queue behavior, or TUI behavior. Tool
+capabilities, remaining request/effect/input seams, and the full provider/tool
+loop remain Slices 2.2b.3–2.2b.5.
 
 ### Slice 2.2b.3: Session tool-capability port seam — PENDING
 
@@ -425,7 +451,10 @@ the existing tool executor contract.
 
 Establish the remaining typed ports needed by the reusable loop. Phase 3 still
 owns queue storage/lifecycle and Phase 3.3 still owns persistence write
-relocation; this slice only makes those product policies injectable.
+relocation; this slice only makes those product policies injectable. As an
+ordered correctness closure, replace absolute-index transient-context cleanup
+with identity-based removal or safe re-anchoring, then remove the Phase 2.2b.2
+automatic-compaction deferral without changing the context's one-run lifetime.
 
 ### Slice 2.2b.5: Full headless `AgentLoop` ownership cutover — PENDING
 
@@ -656,7 +685,8 @@ The default sequence is:
 | 1.2 | `bd1f9b9` — `refactor: route native consumers through canonical agent events` | `just check` (3,268 passed, 2 skipped), docs, PTY, automation/RPC, extension, session-tree, TUI, SDK/archive privacy, provider, and export gates passed; Pi `openai-codex/gpt-5.6-sol` round 14 CLEAN after 23 fixed findings; Claude Fable CLEAN. Its two redacted secret-sentinel fixture diffs were verified as mechanical contract migrations by the dedicated 17-test export suite and 11-check export/privacy gate. |
 | 2.1 | `5348127` — `refactor: extract reusable tool executor` | Direct executor, tool-loop integration, cancellation, rendering, extension, bash, TUI, and import-boundary contracts passed. Final `just check`: Ruff and mypy clean, 3,300 tests passed, 2 skipped; docs, 8 PTY smoke tests, 15 automation/RPC checks, 4 extension live-session checks, 12 TUI workflow checks, and diff gate passed. Pi `openai-codex/gpt-5.6-sol` round 4 CLEAN after 5 accepted/fixed Pi findings across rounds; Claude Fable round 2 returned valid unscoped CLEAN after 2 fixed findings, with no skips, truncations, redactions, or forbidden tools. |
 | 2.2a | `925bd24` — `refactor: extract provider-turn executor` | Direct provider-turn, tool-loop, SDK, import, RPC, extension, TUI, PTY, docs, and diff gates passed. Final `just check`: Ruff and mypy clean across 338 sources, 3,330 tests passed, 2 skipped; 8 PTY, 15 automation/RPC, extension, and 12 TUI workflow checks passed. Pi `openai-codex/gpt-5.6-sol` round 1 found 3 warnings, all fixed; rounds 2 and post-Fable round 3 were explicit CLEAN. Claude Fable found 2 suggestions in its first valid pass, both fixed, then returned valid unscoped CLEAN with no skips, truncations, redactions, or forbidden tools. Five total findings were accepted/fixed; none were rejected or deferred. |
-| 2.2b.1 | This commit — `refactor: extract canonical agent usage` | Direct usage, session integration, exact lifecycle-ordering, pricing-prefix, six reset-path, and static/recursive/fresh-process import contracts passed. Final `just check`: Ruff and mypy clean across 340 sources, 3,382 tests passed, 2 skipped; docs and diff gates passed, with PTY, RPC, extension-live-session, and TUI workflow conformance source-equivalent and green. Pi `openai-codex/gpt-5.6-sol` round 4 CLEAN after 4 accepted/fixed warnings and explicit authorization to continue the cycle; Claude Fable returned valid unscoped CLEAN with no findings, skips, truncations, redactions, or forbidden tools. |
+| 2.2b.1 | `c261f2c` — `refactor: extract canonical agent usage` | Direct usage, session integration, exact lifecycle-ordering, pricing-prefix, six reset-path, and static/recursive/fresh-process import contracts passed. Final `just check`: Ruff and mypy clean across 340 sources, 3,382 tests passed, 2 skipped; docs and diff gates passed, with PTY, RPC, extension-live-session, and TUI workflow conformance source-equivalent and green. Pi `openai-codex/gpt-5.6-sol` round 4 CLEAN after 4 accepted/fixed warnings and explicit authorization to continue the cycle; Claude Fable returned valid unscoped CLEAN with no findings, skips, truncations, redactions, or forbidden tools. |
+| 2.2b.2 | This commit — `refactor: extract canonical agent history` | Direct history, product compaction, durable tree, extension-context lifetime, parity, and static/recursive/fresh-process import contracts passed. Final `just check`: Ruff and mypy clean across 340 sources, 3,397 tests passed, 2 skipped; docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, 4 extension live-session checks, 12 TUI workflow checks, and the compaction parity gate passed. Pi `openai-codex/gpt-5.6-sol` reached CLEAN after 5 initial slice findings were fixed; post-Fable fix reviews also reached CLEAN after 1 public-guide warning was fixed. Claude Fable round 3 returned valid unscoped CLEAN after 2 accepted/fixed documentation suggestions, with no findings, skips, truncations, redactions, or forbidden tools. The independent integration audit fixed 1 warning and 1 suggestion and returned CLEAN. Every finding was accepted/fixed; none was rejected or deferred. |
 
 The earlier code-quality audit remains evidence, with this mapping:
 

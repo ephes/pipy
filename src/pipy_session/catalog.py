@@ -120,10 +120,9 @@ class FinalizedSessionInspection:
     def compaction_event_count(self) -> int:
         """Number of ``native.session.compacted`` events in the record.
 
-        The no-tool REPL emits one event per compaction, so this is the true
-        compaction count there. The tool-loop path emits a single aggregate
-        event at finalize whose payload ``compaction_count`` holds the real
-        number of compactions; for those records this property is 0 or 1.
+        The product adapter emits at most one aggregate event per completed run;
+        its payload ``compaction_count`` holds the number of reductions. This
+        property counts event envelopes, so current records report 0 or 1.
         """
 
         return int(self.event_types.get("native.session.compacted", 0))

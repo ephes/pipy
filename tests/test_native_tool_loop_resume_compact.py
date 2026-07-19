@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+
+import pytest
 
 from pipy_harness.adapters import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy
@@ -13,11 +15,21 @@ from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import NativeToolReplSession, ProviderToolCall
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentEvent,
+    AgentMessage,
+    AgentRunCompleted,
     AgentToolResultMessage,
     AgentUserMessage,
+    ProductContent,
+)
+from pipy_harness.native.extension_runtime import (
+    ActivatedExtension,
+    ExtensionActivationBatch,
+    QueuedCustomMessage,
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.session_resume import ResumeContext
+from pipy_harness.native.session_tree import NativeSessionTree
 
 
 class _RecordingToolProvider:
@@ -62,6 +74,14 @@ class _RecordingEventSink:
         self.events.append((event_type, payload))
 
 
+class _CollectingAgentSink:
+    def __init__(self) -> None:
+        self.events: list[AgentEvent] = []
+
+    def emit(self, event: AgentEvent) -> None:
+        self.events.append(event)
+
+
 def _resume_context() -> ResumeContext:
     return ResumeContext(
         prior_session_id="2026-04-30T133000Z-studio-pipy-native-parent",
@@ -96,7 +116,9 @@ def test_tool_loop_resume_seeds_system_prompt_and_banner(tmp_path: Path) -> None
             capture_policy=CapturePolicy(),
         )
     )
-    adapter.run(prepared, event_sink=_RecordingEventSink(), capture_policy=CapturePolicy())
+    adapter.run(
+        prepared, event_sink=_RecordingEventSink(), capture_policy=CapturePolicy()
+    )
 
     assert provider.requests
     system_prompt = provider.requests[0].system_prompt
@@ -125,11 +147,25 @@ def test_tool_loop_manual_compact_reduces_history_and_keeps_protocol(
     )
 
     assert result.compaction_count == 1
+    assert result.compaction_dropped_group_count == 2
+    assert result.user_turn_count == 5
+    assert result.tool_invocation_count == 0
     assert "compacted conversation context" in error_stream.getvalue()
 
     # The fifth turn's request is the last one captured.
+    assert len(provider.requests) == 5
     final_request = provider.requests[-1]
-    assert "[Context compacted" in final_request.system_prompt
+    assert final_request.system_prompt.endswith(
+        "[Context compacted to save space: 2 earlier exchange(s) "
+        "(2 assistant turn(s), 0 tool call(s)) were summarized and removed "
+        "from this request. Their details are no longer available; continue "
+        "from the retained recent turns below.]"
+    )
+    assert [
+        message.content.value
+        for message in final_request.messages
+        if isinstance(message, AgentUserMessage)
+    ] == ["c", "d", "e"]
     # Protocol validity: retained history starts at a user message and never
     # orphans a tool result.
     messages = final_request.messages
@@ -142,6 +178,140 @@ def test_tool_loop_manual_compact_reduces_history_and_keeps_protocol(
                 seen.add(call.provider_correlation_id)
         if isinstance(message, AgentToolResultMessage):
             assert message.provider_correlation_id in seen
+
+
+def test_tool_loop_auto_compaction_changes_the_same_provider_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pipy_harness.native.tool_loop_session as tool_loop_session
+
+    monkeypatch.setattr(
+        tool_loop_session,
+        "should_compact_agent_history",
+        lambda messages, **_kwargs: True,
+    )
+    provider = _RecordingToolProvider()
+    error_stream = io.StringIO()
+    result = NativeToolReplSession(provider=provider, tool_budget=3).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("old-a\nold-b\nrecent\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert result.compaction_count == 1
+    assert result.compaction_dropped_group_count == 1
+    assert len(provider.requests) == 3
+    request = provider.requests[-1]
+    assert [
+        message.content.value
+        for message in request.messages
+        if isinstance(message, AgentUserMessage)
+    ] == ["old-b", "recent"]
+    assert request.system_prompt.endswith(
+        "[Context compacted to save space: 1 earlier exchange(s) "
+        "(1 assistant turn(s), 0 tool call(s)) were summarized and removed "
+        "from this request. Their details are no longer available; continue "
+        "from the retained recent turns below.]"
+    )
+    assert "old-a" not in request.system_prompt
+    assert (
+        "compacted conversation context (auto; dropped 1 earlier exchange(s), kept 2)"
+        in error_stream.getvalue()
+    )
+
+
+def test_auto_compaction_waits_for_transient_next_turn_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pipy_harness.native.tool_loop_session as tool_loop_session
+
+    threshold_histories: list[tuple[str, ...]] = []
+
+    def force_threshold(messages: Sequence[AgentMessage], **_kwargs: object) -> bool:
+        threshold_histories.append(tuple(message.content.value for message in messages))
+        return True
+
+    monkeypatch.setattr(
+        tool_loop_session,
+        "should_compact_agent_history",
+        force_threshold,
+    )
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    for index in range(3):
+        tree.append_message(AgentUserMessage(ProductContent(f"old-{index}")))
+        tree.append_message(AgentAssistantMessage(ProductContent(f"answer-{index}")))
+    custom_messages = tuple(
+        QueuedCustomMessage(
+            custom_type="note",
+            content=content,
+            display=False,
+            details=None,
+            options={"deliverAs": "nextTurn"},
+        )
+        for content in ("TRANSIENT-CONTEXT-A", "TRANSIENT-CONTEXT-B")
+    )
+    activated = ActivatedExtension(
+        name="transient-context",
+        version="1",
+        path_label="transient-context",
+        status="activated",
+        reason=None,
+        commands=(),
+        diagnostic=None,
+        custom_messages=custom_messages,
+    )
+    activation_batch = ExtensionActivationBatch(
+        activated=(activated,),
+        message_outbox=[],
+        custom_message_outbox=[],
+    )
+    provider = _RecordingToolProvider()
+    agent_sink = _CollectingAgentSink()
+    error_stream = io.StringIO()
+
+    result = NativeToolReplSession(
+        provider=provider,
+        native_session=tree,
+        initial_extension_batch=activation_batch,
+        agent_event_sink=agent_sink,
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("first\nsecond\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert result.compaction_count == 1
+    assert len(provider.requests) == 2
+    assert [
+        message.content.value for message in provider.requests[0].messages[-3:]
+    ] == ["first", "TRANSIENT-CONTEXT-A", "TRANSIENT-CONTEXT-B"]
+    assert "[Context compacted" not in provider.requests[0].system_prompt
+    assert [message.content.value for message in provider.requests[1].messages] == [
+        "first",
+        "answer",
+        "second",
+    ]
+    assert "TRANSIENT-CONTEXT" not in provider.requests[1].system_prompt
+    assert len(threshold_histories) == 1
+    assert all("TRANSIENT-CONTEXT" not in content for content in threshold_histories[0])
+    completed = [
+        event for event in agent_sink.events if isinstance(event, AgentRunCompleted)
+    ]
+    assert len(completed) == 2
+    assert [message.content.value for message in completed[0].result.messages] == [
+        "first",
+        "answer",
+    ]
+    assert all(
+        "TRANSIENT-CONTEXT" not in message.content.value
+        for event in completed
+        for message in event.result.messages
+    )
+    assert error_stream.getvalue().count("compacted conversation context (auto") == 1
 
 
 def test_tool_loop_compaction_with_tool_calls_no_orphans(tmp_path: Path) -> None:
@@ -202,3 +372,4 @@ def test_tool_loop_adapter_emits_compaction_event(tmp_path: Path) -> None:
     payload = compacted[0][1]
     assert payload is not None
     assert payload["compaction_count"] == 1
+    assert payload["compaction_dropped_group_count"] == 2

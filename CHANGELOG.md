@@ -135,6 +135,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Canonical agent-history compaction now lives in the dependency-neutral
+  `native.agent.history` layer. The obsolete mixed
+  `native.session_compaction` module and its unused no-tool compaction path are
+  removed; product trigger policy, exact summary text, extension ordering, and
+  durable session-tree writes remain owned by the native tool-loop session.
 - Extension custom footers now receive live product-TUI `FooterData.onBranchChange(...)` callbacks that rebuild/repaint the footer on git branch changes; headless snapshots keep the safe no-op disposer.
 - The native `google-generative-ai` provider now injects Pi's per-model
   `generationConfig.thinkingConfig`: a `thinkingLevel` enum (Gemini 3 Pro/Flash,
@@ -179,6 +184,14 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Automatic context compaction is now deferred for an entire run carrying
+  transient extension `deliverAs=nextTurn` custom context, preventing an
+  index shift from carrying one-turn content into a later provider request.
+  An extension that injects such context every turn can therefore defer
+  automatic compaction indefinitely; manual `/compact` remains available.
+  Phase 2.2b.4 will replace absolute-index cleanup with identity-based removal
+  or safe re-anchoring, then remove this guard without changing one-run context
+  lifetime.
 - Valid model-selected tool executions that return error observations (for
   example read failures or timed-out shell commands) no longer count as
   malformed provider tool calls, so the product tool loop keeps feeding those

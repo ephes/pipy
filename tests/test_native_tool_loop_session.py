@@ -966,7 +966,11 @@ def test_compaction_enabled_false_disables_auto_compaction(tmp_path, monkeypatch
     from pipy_harness.native.settings import SettingsManager
 
     # Force the threshold so auto-compaction would fire if enabled.
-    monkeypatch.setattr(tls, "should_compact_tool_loop_messages", lambda messages: True)
+    monkeypatch.setattr(
+        tls,
+        "should_compact_agent_history",
+        lambda messages, **_kwargs: True,
+    )
 
     (tmp_path / "cfg").mkdir()
     (tmp_path / "cfg" / "settings.json").write_text(
@@ -997,7 +1001,11 @@ def test_compaction_enabled_true_allows_auto_compaction(tmp_path, monkeypatch):
     import pipy_harness.native.tool_loop_session as tls
     from pipy_harness.native.settings import SettingsManager
 
-    monkeypatch.setattr(tls, "should_compact_tool_loop_messages", lambda messages: True)
+    monkeypatch.setattr(
+        tls,
+        "should_compact_agent_history",
+        lambda messages, **_kwargs: True,
+    )
     manager = SettingsManager(
         global_path=tmp_path / "cfg" / "settings.json",  # missing -> defaults (enabled)
         project_path=tmp_path / ".pipy" / "settings.json",

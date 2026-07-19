@@ -91,9 +91,15 @@ registered renderer. Custom-message sending also ships for idle provider
 delivery: `triggerTurn` starts a deterministic provider turn and
 `deliverAs: "nextTurn"` injects custom context into the next accepted turn;
 `deliverAs: "steer"` / `"followUp"` now queue provider-visible content through
-pipy's steering/follow-up drain. In-session full-history redraw on `/resume`
-switches and `CustomMessageEntry` rendering through registered renderers now ship. Extensions can also render their own tool
-call/result rows with themed color (`render_call`/`render_result`), and pin
+pipy's steering/follow-up drain. Transient `nextTurn` context defers automatic
+compaction for that entire run so it remains visible for exactly one run.
+Injecting it every turn can defer automatic compaction indefinitely; manual
+`/compact` remains available. Phase 2.2b.4 will replace absolute-index cleanup
+with identity-based removal or safe re-anchoring, then remove this guard without
+changing the one-run lifetime. In-session full-history redraw on `/resume`
+switches and `CustomMessageEntry` rendering through registered renderers now
+ship. Extensions can also render their own tool call/result rows with themed
+color (`render_call`/`render_result`), and pin
 persistent chrome — an above/below-editor widget, a custom header, a custom
 footer, the terminal title, and a custom working indicator
 (`ctx.ui.set_widget`/`set_header`/`set_footer`/`set_title`/`set_working_indicator`).

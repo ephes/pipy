@@ -19,10 +19,16 @@ from pipy_harness.native import (
 )
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentMessage,
+    AgentToolResultMessage,
     AgentUserMessage,
     ProductContent,
 )
-from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.session_tree import (
+    CompactionEntry,
+    MessageEntry,
+    NativeSessionTree,
+)
 
 
 class _SeenProvider:
@@ -42,9 +48,7 @@ class _SeenProvider:
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.requests.append(request)
         users = [
-            m.content.value
-            for m in request.messages
-            if isinstance(m, AgentUserMessage)
+            m.content.value for m in request.messages if isinstance(m, AgentUserMessage)
         ]
         now = datetime.now(UTC)
         return ProviderResult(
@@ -62,6 +66,17 @@ def _workspace(tmp_path: Path) -> Path:
     cwd = tmp_path / "workspace"
     cwd.mkdir()
     return cwd
+
+
+def _canonical_history_bytes(message: AgentMessage) -> int:
+    total = len(message.content.value.encode("utf-8"))
+    if isinstance(message, AgentAssistantMessage):
+        total += sum(
+            len(call.tool_name.encode("utf-8"))
+            + len(call.arguments_json.value.encode("utf-8"))
+            for call in message.tool_calls
+        )
+    return total
 
 
 def _run(
@@ -109,9 +124,7 @@ def test_tool_loop_context_reconstructed_from_resumed_tree(
     session_dir = tmp_path / "sessions"
     seed = NativeSessionTree.create(cwd, session_dir=session_dir)
     seed.append_message(AgentUserMessage(content=ProductContent("ROOT")))
-    seed.append_message(
-        AgentAssistantMessage(content=ProductContent("SEEN:ROOT"))
-    )
+    seed.append_message(AgentAssistantMessage(content=ProductContent("SEEN:ROOT")))
     assert seed.path is not None
 
     reopened = NativeSessionTree.open(seed.path)
@@ -144,9 +157,7 @@ def test_tool_loop_default_session_is_ephemeral(tmp_path: Path) -> None:
 
 def _request_users(request) -> list[str]:  # noqa: ANN001
     return [
-        m.content.value
-        for m in request.messages
-        if isinstance(m, AgentUserMessage)
+        m.content.value for m in request.messages if isinstance(m, AgentUserMessage)
     ]
 
 
@@ -258,9 +269,7 @@ def test_tree_select_with_summary_records_branch_summary(tmp_path: Path) -> None
     _run(
         session,
         cwd,
-        "\n".join(
-            ["ROOT", "MAIN", "/tree select 1 summarize", "ALT", "/exit", ""]
-        ),
+        "\n".join(["ROOT", "MAIN", "/tree select 1 summarize", "ALT", "/exit", ""]),
     )
 
     assert tree.path is not None
@@ -327,6 +336,37 @@ def test_durable_compaction_entry_survives_reload(tmp_path: Path) -> None:
     assert tree.path is not None
     body = tree.path.read_text(encoding="utf-8")
     assert '"type": "compaction"' in body or '"type":"compaction"' in body
+
+    branch = tree.get_branch()
+    compaction = next(entry for entry in branch if isinstance(entry, CompactionEntry))
+    compaction_index = branch.index(compaction)
+    messages_before = [
+        entry for entry in branch[:compaction_index] if isinstance(entry, MessageEntry)
+    ]
+    users_before = [
+        entry
+        for entry in messages_before
+        if isinstance(entry.message, AgentUserMessage)
+    ]
+    assert compaction.first_kept_entry_id == users_before[-2].id
+    assert compaction.summary == (
+        "[Context compacted to save space: 2 earlier exchange(s) "
+        "(2 assistant turn(s), 0 tool call(s)) were summarized and removed "
+        "from this request. Their details are no longer available; continue "
+        "from the retained recent turns below.]"
+    )
+    canonical_messages_before: list[AgentMessage] = []
+    for entry in messages_before:
+        if isinstance(
+            entry.message,
+            (AgentUserMessage, AgentAssistantMessage, AgentToolResultMessage),
+        ):
+            canonical_messages_before.append(entry.message)
+    assert len(canonical_messages_before) == len(messages_before)
+    expected_bytes = 0
+    for message in canonical_messages_before:
+        expected_bytes += _canonical_history_bytes(message)
+    assert compaction.tokens_before == expected_bytes
 
     reopened = NativeSessionTree.open(tree.path)
     rebuilt = reopened.build_context().messages
@@ -472,7 +512,9 @@ def test_diagnostics_sanitize_crafted_session_file_fields(tmp_path: Path) -> Non
     assert "\x07" not in err
 
 
-def test_resume_open_rename_and_tree_notices_sanitize_crafted_id(tmp_path: Path) -> None:
+def test_resume_open_rename_and_tree_notices_sanitize_crafted_id(
+    tmp_path: Path,
+) -> None:
     """Opening/renaming a crafted-id session and labelling/selecting its entries
     must not echo the untrusted id/entry-id raw in any notice."""
 

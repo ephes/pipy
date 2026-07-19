@@ -4,10 +4,11 @@ Drives the product tool-loop REPL through the real ``PipyNativeToolReplAdapter``
 with several plain user turns and an explicit ``/compact`` command, then proves
 the adapter emits a ``native.session.compacted`` event whose safe counters show
 context was actually compacted (a positive ``compaction_count`` and at least one
-dropped user-turn group). It also proves the pure tool-loop compactor reduces a
-message history at a user-turn boundary without orphaning a tool result
-(provider message-protocol validity), and never leaks tool-result bodies into
-the summary block.
+dropped user-turn group). It also proves the pure canonical agent-history
+compactor reduces a message history at a user-turn boundary without orphaning
+a tool result (provider message-protocol validity). Product-owned summary
+construction is checked on the subsequent provider request and never leaks
+dropped content.
 
 Exits 0 when both behaviors hold, 1 otherwise. No real network or AI calls.
 """
@@ -31,11 +32,11 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.agent.history import compact_agent_history
 from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
 )
-from pipy_harness.native.session_compaction import compact_tool_loop_messages
 
 
 class _PlainToolProvider:
@@ -45,7 +46,11 @@ class _PlainToolProvider:
     supports_tool_calls = True
     model_id = "fake-native-bootstrap"
 
+    def __init__(self) -> None:
+        self.requests: list[ProviderRequest] = []
+
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        self.requests.append(request)
         now = datetime.now(UTC)
         return ProviderResult(
             status=HarnessStatus.SUCCEEDED,
@@ -66,11 +71,18 @@ class _RecordingEventSink:
         self.events.append((event_type, payload))
 
 
-def _adapter_compaction_event() -> Mapping[str, object] | None:
+def _adapter_compaction_observation() -> tuple[
+    Mapping[str, object] | None,
+    tuple[ProviderRequest, ...],
+]:
     sink = _RecordingEventSink()
+    provider = _PlainToolProvider()
     adapter = PipyNativeToolReplAdapter(
-        provider=_PlainToolProvider(),
-        input_stream=io.StringIO("a\nb\nc\nd\n/compact\n/exit\n"),
+        provider=provider,
+        input_stream=io.StringIO(
+            "SENSITIVE_OLD_A\nSENSITIVE_OLD_B\nrecent-c\nrecent-d\n"
+            "/compact\nafter\n/exit\n"
+        ),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
         tool_budget=3,
@@ -87,18 +99,34 @@ def _adapter_compaction_event() -> Mapping[str, object] | None:
     )
     adapter.run(prepared, event_sink=sink, capture_policy=CapturePolicy())
     compacted = [p for (t, p) in sink.events if t == "native.session.compacted"]
-    return compacted[0] if compacted else None
+    return compacted[0] if compacted else None, tuple(provider.requests)
 
 
 def _adapter_compaction_holds() -> bool:
-    payload = _adapter_compaction_event()
+    payload, requests = _adapter_compaction_observation()
     if payload is None:
         return False
-    if payload.get("compaction_count", 0) <= 0:
+    if not _positive_int(payload.get("compaction_count")):
         return False
-    if payload.get("compaction_dropped_group_count", 0) <= 0:
+    if not _positive_int(payload.get("compaction_dropped_group_count")):
         return False
+    if not requests:
+        return False
+    final_request = requests[-1]
+    if "[Context compacted to save space:" not in final_request.system_prompt:
+        return False
+    for forbidden in ("SENSITIVE_OLD_A", "SENSITIVE_OLD_B"):
+        if forbidden in final_request.system_prompt:
+            return False
+        if any(
+            forbidden in message.content.value for message in final_request.messages
+        ):
+            return False
     return True
+
+
+def _positive_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 def _tool_loop_protocol_preserved() -> bool:
@@ -127,12 +155,14 @@ def _tool_loop_protocol_preserved() -> bool:
         AgentUserMessage(content=ProductContent("recent prompt")),
         AgentAssistantMessage(content=ProductContent("done 3")),
     ]
-    result = compact_tool_loop_messages(messages, keep_recent_groups=1)
+    result = compact_agent_history(messages, keep_recent_groups=1)
     if not result.changed:
         return False
     if not isinstance(result.messages[0], AgentUserMessage):
         return False
-    if "SENSITIVE_TOOL_BODY" in result.summary_block:
+    if any(
+        "SENSITIVE_TOOL_BODY" in message.content.value for message in result.messages
+    ):
         return False
     seen: set[str] = set()
     for message in result.messages:
