@@ -8,6 +8,7 @@ import inspect
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.messages import AgentMessage
 from pipy_harness.native.agent.request import (
     AgentProviderRequestSnapshot,
@@ -37,6 +38,7 @@ class NativeProviderRequestInput:
     model_id: str
     cwd: Path
     messages: tuple[AgentMessage, ...]
+    active_input: AgentActiveInput
     available_tools: tuple[ToolDefinition, ...]
     attachments: tuple[ProviderImageAttachment, ...]
     provider_header_callback: ProviderHeaderCallback | None
@@ -126,9 +128,16 @@ def prepare_provider_request(
         flags=context.flags,
         project_trusted=context.project_trusted,
     )
+    provider_prompt = (
+        request.user_prompt if transform.user_prompt is None else transform.user_prompt
+    )
     return snapshot_provider_request(
         request,
         system_prompt=transform.system_prompt,
-        user_prompt=transform.user_prompt,
+        user_prompt=provider_prompt,
+        messages=request_input.active_input.transformed_request_messages(
+            request.messages,
+            provider_prompt,
+        ),
         available_tool_names=transform.available_tools,
     )

@@ -105,7 +105,7 @@ def test_successive_snapshots_cannot_reenable_a_removed_tool(tmp_path: Path) -> 
     assert not second.authorizes("second")
 
 
-def test_prompt_transform_updates_only_latest_matching_user_message(
+def test_prompt_transform_uses_exact_caller_supplied_messages(
     tmp_path: Path,
 ) -> None:
     request = _request(tmp_path)
@@ -124,6 +124,10 @@ def test_prompt_transform_updates_only_latest_matching_user_message(
         request,
         system_prompt="transformed system",
         user_prompt="transformed user",
+        messages=(
+            *request.messages[:-1],
+            AgentUserMessage(ProductContent("transformed user")),
+        ),
     )
 
     assert snapshot.request.system_prompt == "transformed system"
@@ -134,6 +138,18 @@ def test_prompt_transform_updates_only_latest_matching_user_message(
         "transformed user",
     ]
     assert request.messages[-1].content.value == "user"
+
+
+def test_prompt_transform_requires_caller_supplied_exact_messages(
+    tmp_path: Path,
+) -> None:
+    request = _request(tmp_path)
+
+    with pytest.raises(ValueError, match="messages are required"):
+        snapshot_provider_request(request, user_prompt="transformed user")
+
+    assert request.user_prompt == "user"
+    assert request.messages == (AgentUserMessage(ProductContent("user")),)
 
 
 def test_each_provider_iteration_freezes_a_fresh_authorization_policy(
@@ -181,9 +197,11 @@ def test_headless_request_snapshot_needs_only_value_objects(tmp_path: Path) -> N
         seen.append(tuple(tool.name for tool in request.available_tools))
         return request.user_prompt
 
+    request = _request(tmp_path)
     snapshot = snapshot_provider_request(
-        _request(tmp_path),
+        request,
         user_prompt="headless",
+        messages=(AgentUserMessage(ProductContent("headless")),),
         available_tool_names=("second",),
     )
 

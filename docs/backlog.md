@@ -1643,14 +1643,15 @@ session/persistence/settings, provider/catalog, extension, automation,
 capture, and workflow-archive dependencies, including laundering through the
 allowed canonical-message module.
 
-A reproduced correctness prerequisite deliberately defers automatic compaction
-for the entire run while extension `deliverAs=nextTurn` transient custom context
-is attached. Without that guard, compaction could shift absolute message
-indexes and let one-turn extension context survive into a later provider
-request. A later ordinary run may compact, but an extension that injects this
-context every turn can defer automatic compaction indefinitely; manual
-`/compact` remains available. Summary text, thresholds, durable replay, public
-formats, and archive privacy otherwise stay unchanged.
+Slice 2.2b.4b replaces the reproduced absolute-index hazard with an
+identity-bound active input. Extension `deliverAs=nextTurn` context is now a
+detached provider-request overlay for exactly one accepted run, so automatic
+compaction can operate on durable history in that same run. The overlay remains
+visible through every provider/tool iteration, cannot enter canonical run
+results or add a duplicate product-session message, and cannot be mistaken for
+an equal-text accepted prompt during hook transformation. Manual `/compact`,
+the original bounded `CustomMessageEntry`, public formats, and archive privacy
+stay unchanged.
 
 The remaining ordered Phase 2.2 cuts are:
 
@@ -1660,7 +1661,7 @@ The remaining ordered Phase 2.2 cuts are:
 2. **2.2b.4a — final provider-request snapshot and authorization (shipped):**
    freeze the exact advertised tool set after monotonic request-hook narrowing
    and reject out-of-snapshot returned calls before semantic hooks/execution.
-3. **2.2b.4b — identity-safe active-input overlay:** remove absolute-index
+3. **2.2b.4b — identity-safe active-input overlay (shipped):** remove absolute-index
    transient cleanup and the temporary automatic-compaction deferral while
    preserving exactly one-run provider visibility and archive privacy.
 4. **2.2b.4c — run-effect, usage, and queue-facing ports:** establish the
@@ -1669,7 +1670,7 @@ The remaining ordered Phase 2.2 cuts are:
 5. **2.2b.5 — full headless `AgentLoop` ownership cutover:** move the remaining
    provider/tool cycle so `NativeToolReplSession.run()` becomes composition.
 
-Slices 2.2b.3 and 2.2b.4a are shipped; 2.2b.4b–2.2b.5 remain pending. Parallel tools,
+Slices 2.2b.3–2.2b.4b are shipped; 2.2b.4c–2.2b.5 remain pending. Parallel tools,
 richer termination, async
 conversion, persistence relocation, UI/extension redesign, and provider catalog
 work are not part of Phase 2.2b.3.

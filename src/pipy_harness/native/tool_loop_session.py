@@ -99,6 +99,7 @@ from pipy_harness.native.agent import (
     TurnStarted,
     UsageUpdated,
 )
+from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.history import (
     AgentHistoryCompaction,
     compact_agent_history,
@@ -4069,10 +4070,6 @@ class NativeToolReplSession:
                         + "\n"
                         + before_agent_result.append_system_prompt
                     )
-                # Automation: this accepted prompt begins one agent run. Snapshot the
-                # message index so agent_end can report the messages this run added
-                # (the user message and everything the loop appends below).
-                agent_run_start_index = len(messages)
                 agent_settled_pending = True
                 run_usage_accumulator = AgentUsageAccumulator(
                     _pricing_for(effective_provider_name, effective_model_id)
@@ -4086,19 +4083,14 @@ class NativeToolReplSession:
                 run_failure: AgentFailure | None = None
                 run_cancellation_reason: AgentCancellationReason | None = None
                 messages.append(turn_user_message)
-                injected_custom_context_count = len(
-                    extension_pending_next_turn_custom_messages
+                active_input = AgentActiveInput(
+                    turn_user_message,
+                    tuple(
+                        AgentUserMessage(content=ProductContent(content))
+                        for content in extension_pending_next_turn_custom_messages
+                    ),
                 )
-                if injected_custom_context_count:
-                    for (
-                        pending_custom_message
-                    ) in extension_pending_next_turn_custom_messages:
-                        messages.append(
-                            AgentUserMessage(
-                                content=ProductContent(pending_custom_message)
-                            )
-                        )
-                    extension_pending_next_turn_custom_messages.clear()
+                extension_pending_next_turn_custom_messages.clear()
                 session_tree.append_message(turn_user_message)
                 user_turn_count += 1
                 # Persist the prompt for cross-session recall when the user has
@@ -4126,11 +4118,6 @@ class NativeToolReplSession:
                     # rides in the system prompt suffix below.
                     if (
                         settings.get_compaction_enabled()
-                        # Transient extension context is removed with indexes
-                        # captured before this inner loop. Defer compaction
-                        # until a later ordinary run so those one-turn messages
-                        # cannot be retained under shifted history indexes.
-                        and not injected_custom_context_count
                         and should_compact_agent_history(
                             messages,
                             max_messages=_AGENT_HISTORY_MAX_MESSAGES,
@@ -4147,7 +4134,8 @@ class NativeToolReplSession:
                             provider_name=effective_provider_name,
                             model_id=effective_model_id,
                             cwd=cwd,
-                            messages=tuple(messages),
+                            messages=active_input.request_messages(messages),
+                            active_input=active_input,
                             available_tools=available_tools,
                             # Image attachments belong to the current user message,
                             # so they ride only the first provider call of this turn;
@@ -4562,25 +4550,13 @@ class NativeToolReplSession:
                     if tool_interrupted_turn:
                         break
                     if fatal:
-                        agent_run_messages = messages[agent_run_start_index:]
-                        if injected_custom_context_count:
-                            agent_run_messages = (
-                                agent_run_messages[:1]
-                                + agent_run_messages[
-                                    1 + injected_custom_context_count :
-                                ]
-                            )
-                            del messages[
-                                agent_run_start_index + 1 : agent_run_start_index
-                                + 1
-                                + injected_custom_context_count
-                            ]
+                        agent_run_messages = active_input.result_messages(messages)
                         assert run_failure is not None
                         emitter.emit(
                             AgentRunCompleted(
                                 AgentRunResult(
                                     AgentRunOutcome.FAILED,
-                                    tuple(agent_run_messages),
+                                    agent_run_messages,
                                     run_usage_accumulator.agent_usage(),
                                     failure=run_failure,
                                 )
@@ -4620,35 +4596,25 @@ class NativeToolReplSession:
                 # The inner loop settled this accepted prompt's agent run (no tool
                 # calls left, the budget cap, or a provider failure). Close it on the
                 # automation stream before the outer loop reads the next prompt.
-                agent_run_messages = messages[agent_run_start_index:]
-                if injected_custom_context_count:
-                    agent_run_messages = (
-                        agent_run_messages[:1]
-                        + agent_run_messages[1 + injected_custom_context_count :]
-                    )
-                    del messages[
-                        agent_run_start_index + 1 : agent_run_start_index
-                        + 1
-                        + injected_custom_context_count
-                    ]
+                agent_run_messages = active_input.result_messages(messages)
                 if run_failure is not None:
                     run_result = AgentRunResult(
                         AgentRunOutcome.FAILED,
-                        tuple(agent_run_messages),
+                        agent_run_messages,
                         run_usage_accumulator.agent_usage(),
                         failure=run_failure,
                     )
                 elif run_cancellation_reason is not None:
                     run_result = AgentRunResult(
                         AgentRunOutcome.CANCELLED,
-                        tuple(agent_run_messages),
+                        agent_run_messages,
                         run_usage_accumulator.agent_usage(),
                         cancellation_reason=run_cancellation_reason,
                     )
                 else:
                     run_result = AgentRunResult(
                         AgentRunOutcome.SUCCEEDED,
-                        tuple(agent_run_messages),
+                        agent_run_messages,
                         run_usage_accumulator.agent_usage(),
                     )
                 emitter.emit(AgentRunCompleted(run_result))

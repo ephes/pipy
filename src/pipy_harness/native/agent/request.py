@@ -5,8 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
-from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.messages import AgentMessage, AgentUserMessage
+from pipy_harness.native.agent.messages import AgentMessage
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.tools.base import ToolDefinition
 
@@ -42,6 +41,7 @@ def snapshot_provider_request(
     *,
     system_prompt: str | None = None,
     user_prompt: str | None = None,
+    messages: tuple[AgentMessage, ...] | None = None,
     available_tool_names: Iterable[str] | None = None,
 ) -> AgentProviderRequestSnapshot:
     """Apply one monotonic request transform and freeze its authorization set."""
@@ -52,6 +52,8 @@ def snapshot_provider_request(
         system_prompt if system_prompt is not None else request.system_prompt
     )
     final_user_prompt = user_prompt if user_prompt is not None else request.user_prompt
+    if final_user_prompt != request.user_prompt and messages is None:
+        raise ValueError("messages are required when user_prompt changes")
     final_tools = _narrow_tool_definitions(
         request.available_tools,
         available_tool_names,
@@ -60,11 +62,7 @@ def snapshot_provider_request(
         request,
         system_prompt=final_system_prompt,
         user_prompt=final_user_prompt,
-        messages=_provider_messages_with_prompt(
-            request.messages,
-            original_prompt=request.user_prompt,
-            provider_prompt=final_user_prompt,
-        ),
+        messages=request.messages if messages is None else messages,
         available_tools=final_tools,
     )
     return AgentProviderRequestSnapshot(
@@ -89,25 +87,3 @@ def _narrow_tool_definitions(
         seen.add(definition.name)
         narrowed.append(definition)
     return tuple(narrowed)
-
-
-def _provider_messages_with_prompt(
-    messages: tuple[AgentMessage, ...],
-    *,
-    original_prompt: str,
-    provider_prompt: str,
-) -> tuple[AgentMessage, ...]:
-    """Replace only the latest matching user prompt in request-local history."""
-
-    if provider_prompt == original_prompt or not messages:
-        return messages
-    replaced = list(messages)
-    for index in range(len(replaced) - 1, -1, -1):
-        message = replaced[index]
-        if (
-            isinstance(message, AgentUserMessage)
-            and message.content.value == original_prompt
-        ):
-            replaced[index] = AgentUserMessage(content=ProductContent(provider_prompt))
-            return tuple(replaced)
-    return messages

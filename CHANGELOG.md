@@ -203,14 +203,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   malformed-call or real-invocation counters or invoking extension custom
   renderers. A tool activated by an earlier call is not authorized later in the
   same provider response.
-- Automatic context compaction is now deferred for an entire run carrying
-  transient extension `deliverAs=nextTurn` custom context, preventing an
-  index shift from carrying one-turn content into a later provider request.
-  An extension that injects such context every turn can therefore defer
-  automatic compaction indefinitely; manual `/compact` remains available.
-  Phase 2.2b.4 will replace absolute-index cleanup with identity-based removal
-  or safe re-anchoring, then remove this guard without changing one-run context
-  lifetime.
+- Extension `deliverAs=nextTurn` custom context is now an identity-anchored,
+  request-only overlay for exactly the next accepted run. It remains visible
+  through every provider/tool iteration without entering canonical history or
+  run results, hook prompt transforms cannot confuse it with equal text, and
+  automatic compaction continues safely on durable history during the run.
 - Valid model-selected tool executions that return error observations (for
   example read failures or timed-out shell commands) no longer count as
   malformed provider tool calls, so the product tool loop keeps feeding those

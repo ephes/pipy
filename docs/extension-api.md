@@ -89,14 +89,16 @@ are replayed into startup-opened TUI sessions, including
 `--session`/`--continue`/`--resume-session` opens, with the best available
 registered renderer. Custom-message sending also ships for idle provider
 delivery: `triggerTurn` starts a deterministic provider turn and
-`deliverAs: "nextTurn"` injects custom context into the next accepted turn;
-`deliverAs: "steer"` / `"followUp"` now queue provider-visible content through
-pipy's steering/follow-up drain. Transient `nextTurn` context defers automatic
-compaction for that entire run so it remains visible for exactly one run.
-Injecting it every turn can defer automatic compaction indefinitely; manual
-`/compact` remains available. Phase 2.2b.4 will replace absolute-index cleanup
-with identity-based removal or safe re-anchoring, then remove this guard without
-changing the one-run lifetime. In-session full-history redraw on `/resume`
+`deliverAs: "nextTurn"` injects custom context into every provider request of
+the next accepted run; `deliverAs: "steer"` / `"followUp"` queue
+provider-visible content through pipy's steering/follow-up drain. The
+`nextTurn` context is a request-only overlay: it does not become a canonical
+conversation/run-result message or add a second product-session entry, and it
+disappears before the following run. Automatic compaction continues on durable
+history while the overlay is active; manual `/compact` remains available. The
+original bounded custom-message entry remains in the full-content native
+product session, while the metadata workflow archive remains allowlisted and
+content-free. In-session full-history redraw on `/resume`
 switches and `CustomMessageEntry` rendering through registered renderers now
 ship. Extensions can also render their own tool call/result rows with themed
 color (`render_call`/`render_result`), and pin

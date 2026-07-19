@@ -42,13 +42,14 @@ summary.
 
 Automatic compaction is enabled by default. The tool-loop session checks history
 between turns and normally compacts when message count or byte thresholds are
-exceeded. If an extension supplies transient `deliverAs=nextTurn` context,
-automatic compaction is deferred for that entire run so the context remains
-visible for exactly one run. An extension that injects this context every turn
-can therefore defer automatic compaction indefinitely; manual `/compact`
-remains available. Phase 2.2b.4 is ordered to replace the absolute-index cleanup
-with identity-based removal or safe re-anchoring, then remove this guard without
-changing the one-run lifetime.
+exceeded. Extension `deliverAs=nextTurn` context is a detached, identity-anchored
+request overlay: every provider iteration of exactly the next accepted run sees
+it immediately after that run's real user message. Automatic compaction continues
+to operate on the durable history during that run, while the overlay stays out of
+the canonical run result, additional product `MessageEntry` records, and the
+metadata-only archive. The original bounded extension `CustomMessageEntry`
+remains part of the native product session. Manual `/compact`, compaction summary
+text, and public session formats are unchanged.
 
 Settings expose the current compaction controls:
 

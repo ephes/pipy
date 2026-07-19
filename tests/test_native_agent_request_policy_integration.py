@@ -21,6 +21,7 @@ from pipy_harness.native.agent import (
     ToolCallStarted,
     TurnCompleted,
 )
+from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent_request import (
     NativeProviderRequestHookContext,
     NativeProviderRequestInput,
@@ -117,13 +118,15 @@ def _completed_results(sink: _EventSink) -> list[AgentToolResultMessage]:
 
 
 def _request_input(tmp_path: Path) -> NativeProviderRequestInput:
+    active_user_message = AgentUserMessage(ProductContent("user"))
     return NativeProviderRequestInput(
         system_prompt="system",
         user_prompt="user",
         provider_name="fake",
         model_id="fake-model",
         cwd=tmp_path,
-        messages=(AgentUserMessage(ProductContent("user")),),
+        messages=(active_user_message,),
+        active_input=AgentActiveInput(active_user_message),
         available_tools=tuple(
             ToolDefinition(
                 name=name,

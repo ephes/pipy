@@ -1503,23 +1503,22 @@ session/persistence/settings, provider/catalog, extension, capture, automation,
 and workflow-archive dependencies, including dependencies laundered through an
 allowed canonical-message intermediate.
 
-One behavior correction is intentionally included because the prior index-based
-extension cleanup was unsafe if automatic compaction shifted the active message
-list. While an extension's transient `deliverAs=nextTurn` custom context is
-attached, automatic compaction is deferred for that entire run. A later
-ordinary run may compact, but an extension that injects transient context on
-every turn can defer automatic compaction indefinitely; manual `/compact`
-remains available. This keeps the transient message visible for exactly its
-intended run instead of allowing it to survive into the next provider request.
-Summaries, thresholds, durable replay, public JSON/RPC/SDK/extension shapes,
-and archive privacy remain unchanged.
+Slice 2.2b.4b closes the prior index-based extension-cleanup hazard with a
+canonical `AgentActiveInput`. Its detached `deliverAs=nextTurn` overlay is
+inserted after the exact accepted-message identity on every provider iteration
+and omitted from base history and canonical run results. Automatic compaction
+therefore runs normally on durable history during that run, and the same
+identity anchor still selects the run-result suffix after retained-history
+indexes shift. Request-hook prompt transforms also replace only that identity,
+not an equal-text older or transient message. Manual compaction, summaries,
+thresholds, the existing bounded full-content `CustomMessageEntry`, public
+JSON/RPC/SDK/extension shapes, and archive privacy remain unchanged.
 
-Phase 2.2b.2 does not add tool capabilities or move provider requests, run
-effects, usage publication, active-input ownership, queues, or the complete
-provider/tool loop. Those remain the ordered Slices 2.2b.3–2.2b.5. As part of
-the active-input seam in 2.2b.4, replace absolute-index transient-context
-cleanup with identity-based removal or safe re-anchoring, then remove this
-automatic-compaction deferral without changing the context's one-run lifetime.
+Phase 2.2b.2 did not add tool capabilities or move provider requests, run
+effects, usage publication, queues, or the complete provider/tool loop. The
+tool-capability, request-snapshot, and active-input seams now ship in ordered
+Slices 2.2b.3–2.2b.4b; effect/usage/queue-facing ports and complete loop
+ownership remain 2.2b.4c–2.2b.5.
 
 ### Canonical Agent Tool-Capability Port
 
