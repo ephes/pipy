@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 from pipy_harness.native.agent._validation import (
     require_bool,
     require_non_empty_string,
 )
 from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,10 +40,15 @@ class AgentUserMessage:
     """One user message retained by the reusable agent loop."""
 
     content: ProductContent
+    CONTENT_MAX_LENGTH: ClassVar[int] = 256 * 1024
 
     def __post_init__(self) -> None:
         if not isinstance(self.content, ProductContent):
             raise TypeError("AgentUserMessage.content must be ProductContent")
+        if len(self.content.value) > self.CONTENT_MAX_LENGTH:
+            raise ValueError(
+                f"AgentUserMessage.content exceeds {self.CONTENT_MAX_LENGTH} characters"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,10 +57,16 @@ class AgentAssistantMessage:
 
     content: ProductContent
     tool_calls: tuple[AgentToolCall, ...] = ()
+    CONTENT_MAX_LENGTH: ClassVar[int] = 256 * 1024
 
     def __post_init__(self) -> None:
         if not isinstance(self.content, ProductContent):
             raise TypeError("AgentAssistantMessage.content must be ProductContent")
+        if len(self.content.value) > self.CONTENT_MAX_LENGTH:
+            raise ValueError(
+                "AgentAssistantMessage.content exceeds "
+                f"{self.CONTENT_MAX_LENGTH} characters"
+            )
         if not isinstance(self.tool_calls, tuple):
             raise TypeError("AgentAssistantMessage.tool_calls must be a tuple")
         if any(not isinstance(call, AgentToolCall) for call in self.tool_calls):
@@ -72,6 +85,7 @@ class AgentToolResultMessage:
     provider_correlation_id: str
     is_error: bool = False
     added_tool_names: tuple[str, ...] = ()
+    CONTENT_MAX_LENGTH: ClassVar[int] = 64 * 1024
 
     def __post_init__(self) -> None:
         require_non_empty_string(
@@ -80,6 +94,11 @@ class AgentToolResultMessage:
         require_non_empty_string(self.tool_name, "AgentToolResultMessage.tool_name")
         if not isinstance(self.content, ProductContent):
             raise TypeError("AgentToolResultMessage.content must be ProductContent")
+        if len(self.content.value) > self.CONTENT_MAX_LENGTH:
+            raise ValueError(
+                "AgentToolResultMessage.content exceeds "
+                f"{self.CONTENT_MAX_LENGTH} characters"
+            )
         require_bool(self.is_error, "AgentToolResultMessage.is_error")
         require_non_empty_string(
             self.provider_correlation_id,
@@ -90,6 +109,11 @@ class AgentToolResultMessage:
         for index, name in enumerate(self.added_tool_names):
             require_non_empty_string(
                 name, f"AgentToolResultMessage.added_tool_names[{index}]"
+            )
+        if not self.tool_request_id.startswith(AGENT_TOOL_REQUEST_ID_PREFIX):
+            raise ValueError(
+                "AgentToolResultMessage.tool_request_id must be pipy-owned "
+                f"(prefix '{AGENT_TOOL_REQUEST_ID_PREFIX}')"
             )
 
 

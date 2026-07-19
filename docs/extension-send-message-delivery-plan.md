@@ -41,7 +41,7 @@ to be archived as `custom_message` entries with bounded `customType`, `content`,
 2. If `options.triggerTurn` is true and the call happens while idle, enqueue the
    custom message content as the next deterministic provider prompt. This matches
    Pi's idle `triggerTurn` effect while preserving pipy's existing string-only
-   `UserMessage` provider envelope.
+   `AgentUserMessage` provider envelope.
 3. If `options.deliverAs == "nextTurn"`, enqueue the custom message content in a
    pending-next-turn list instead of starting a turn immediately. When the next
    real/seeded/extension user prompt is accepted, append those pending messages

@@ -38,12 +38,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
-from pipy_harness.native.models import ProviderToolCall
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    LoopMessage,
-    ToolResultMessage,
-    UserMessage,
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
 )
 
 CURRENT_SESSION_VERSION = 1
@@ -146,13 +147,32 @@ class SessionHeader:
 
 
 @dataclass(frozen=True, slots=True)
+class _UnresolvedToolResultMessage:
+    """Legacy stored result whose canonical tool identity is unavailable.
+
+    This value is private to the native product-session store. It preserves
+    append-only ancestry and the existing JSON schema, but is never projected
+    into provider-visible agent context.
+    """
+
+    tool_request_id: str
+    content: str
+    provider_correlation_id: str | None
+    is_error: bool = False
+    added_tool_names: tuple[str, ...] = ()
+
+
+_StoredMessage = AgentMessage | _UnresolvedToolResultMessage
+
+
+@dataclass(frozen=True, slots=True)
 class MessageEntry:
-    """A provider-visible message in the tree."""
+    """A stored conversation message entry in the tree."""
 
     id: str
     parent_id: str | None
     timestamp: str
-    message: LoopMessage
+    message: _StoredMessage
     type: str = "message"
 
 
@@ -255,27 +275,38 @@ SessionEntry = (
 # ---------------------------------------------------------------------------
 
 
-def _message_to_json(message: LoopMessage) -> dict[str, Any]:
-    if isinstance(message, UserMessage):
-        return {"role": "user", "content": message.content}
-    if isinstance(message, AssistantMessage):
+def _message_to_json(message: _StoredMessage) -> dict[str, Any]:
+    if isinstance(message, AgentUserMessage):
+        return {"role": "user", "content": message.content.value}
+    if isinstance(message, AgentAssistantMessage):
         return {
             "role": "assistant",
-            "content": message.content,
+            "content": message.content.value,
             "tool_calls": [
                 {
                     "provider_correlation_id": call.provider_correlation_id,
                     "tool_name": call.tool_name,
-                    "arguments_json": call.arguments_json,
+                    "arguments_json": call.arguments_json.value,
                 }
                 for call in message.tool_calls
             ],
         }
-    if isinstance(message, ToolResultMessage):
+    if isinstance(message, AgentToolResultMessage):
         body = {
             "role": "tool",
             "tool_request_id": message.tool_request_id,
-            "output_text": message.output_text,
+            "output_text": message.content.value,
+            "is_error": message.is_error,
+            "provider_correlation_id": message.provider_correlation_id,
+        }
+        if message.added_tool_names:
+            body["added_tool_names"] = list(message.added_tool_names)
+        return body
+    if isinstance(message, _UnresolvedToolResultMessage):
+        body = {
+            "role": "tool",
+            "tool_request_id": message.tool_request_id,
+            "output_text": message.content,
             "is_error": message.is_error,
             "provider_correlation_id": message.provider_correlation_id,
         }
@@ -285,22 +316,51 @@ def _message_to_json(message: LoopMessage) -> dict[str, Any]:
     raise TypeError(f"unsupported message type: {type(message)!r}")
 
 
-def _message_from_json(body: dict[str, Any]) -> LoopMessage:
+def _ancestor_tool_name(
+    provider_correlation_id: str,
+    parent_id: str | None,
+    by_id: dict[str, SessionEntry],
+) -> str | None:
+    """Resolve a persisted result's tool name from its own branch ancestry."""
+
+    visited: set[str] = set()
+    current_id = parent_id
+    while current_id is not None and current_id not in visited:
+        visited.add(current_id)
+        entry = by_id.get(current_id)
+        if entry is None:
+            return None
+        if isinstance(entry, MessageEntry) and isinstance(
+            entry.message, AgentAssistantMessage
+        ):
+            for call in reversed(entry.message.tool_calls):
+                if call.provider_correlation_id == provider_correlation_id:
+                    return call.tool_name
+        current_id = entry.parent_id
+    return None
+
+
+def _message_from_json(
+    body: dict[str, Any],
+    *,
+    parent_id: str | None,
+    by_id: dict[str, SessionEntry],
+) -> _StoredMessage:
     role = body.get("role")
     if role == "user":
-        return UserMessage(content=str(body.get("content", "")))
+        return AgentUserMessage(content=ProductContent(str(body.get("content", ""))))
     if role == "assistant":
         raw_calls = body.get("tool_calls") or []
         tool_calls = tuple(
-            ProviderToolCall(
+            AgentToolCall(
                 provider_correlation_id=str(call["provider_correlation_id"]),
                 tool_name=str(call["tool_name"]),
-                arguments_json=str(call["arguments_json"]),
+                arguments_json=ProductContent(str(call["arguments_json"])),
             )
             for call in raw_calls
         )
-        return AssistantMessage(
-            content=str(body.get("content", "")),
+        return AgentAssistantMessage(
+            content=ProductContent(str(body.get("content", ""))),
             tool_calls=tool_calls,
         )
     if role == "tool":
@@ -311,11 +371,32 @@ def _message_from_json(body: dict[str, Any]) -> LoopMessage:
             added_tool_names = tuple(raw_added_tool_names)
         else:
             raise ValueError("tool added_tool_names must be a list")
-        return ToolResultMessage(
-            tool_request_id=str(body["tool_request_id"]),
-            output_text=str(body.get("output_text", "")),
-            is_error=bool(body.get("is_error", False)),
-            provider_correlation_id=body.get("provider_correlation_id"),
+        tool_request_id = str(body["tool_request_id"])
+        output_text = str(body.get("output_text", ""))
+        is_error = bool(body.get("is_error", False))
+        raw_correlation_id = body.get("provider_correlation_id")
+        provider_correlation_id = (
+            raw_correlation_id if isinstance(raw_correlation_id, str) else None
+        )
+        tool_name = (
+            _ancestor_tool_name(provider_correlation_id, parent_id, by_id)
+            if provider_correlation_id
+            else None
+        )
+        if provider_correlation_id and tool_name is not None:
+            return AgentToolResultMessage(
+                tool_request_id=tool_request_id,
+                tool_name=tool_name,
+                content=ProductContent(output_text),
+                is_error=is_error,
+                provider_correlation_id=provider_correlation_id,
+                added_tool_names=added_tool_names,
+            )
+        return _UnresolvedToolResultMessage(
+            tool_request_id=tool_request_id,
+            content=output_text,
+            provider_correlation_id=provider_correlation_id,
+            is_error=is_error,
             added_tool_names=added_tool_names,
         )
     raise ValueError(f"unsupported message role: {role!r}")
@@ -358,7 +439,9 @@ def _entry_to_json(entry: SessionEntry) -> dict[str, Any]:
     return base
 
 
-def _entry_from_json(body: dict[str, Any]) -> SessionEntry | None:
+def _entry_from_json(
+    body: dict[str, Any], by_id: dict[str, SessionEntry]
+) -> SessionEntry | None:
     entry_type = body.get("type")
     entry_id = body.get("id")
     if not isinstance(entry_id, str) or not entry_id:
@@ -373,7 +456,11 @@ def _entry_from_json(body: dict[str, Any]) -> SessionEntry | None:
                 id=entry_id,
                 parent_id=parent_id,
                 timestamp=timestamp,
-                message=_message_from_json(dict(body.get("message", {}))),
+                message=_message_from_json(
+                    dict(body.get("message", {})),
+                    parent_id=parent_id,
+                    by_id=by_id,
+                ),
             )
         if entry_type == "model_change":
             return ModelChangeEntry(
@@ -456,23 +543,25 @@ def _entry_from_json(body: dict[str, Any]) -> SessionEntry | None:
 class SessionContext:
     """Provider-visible context rebuilt from the active branch."""
 
-    messages: tuple[LoopMessage, ...]
+    messages: tuple[AgentMessage, ...]
     thinking_level: str
     model: tuple[str, str] | None  # (provider, model_id)
 
 
-def _compaction_summary_message(summary: str) -> UserMessage:
-    return UserMessage(
-        content=(
+def _compaction_summary_message(summary: str) -> AgentUserMessage:
+    return AgentUserMessage(
+        content=ProductContent(
             "[Earlier context was compacted to save space. Summary of the "
             f"removed turns:]\n{summary}"
         )
     )
 
 
-def _branch_summary_message(summary: str) -> UserMessage:
-    return UserMessage(
-        content=("[Summary of an abandoned conversation branch:]\n" + summary)
+def _branch_summary_message(summary: str) -> AgentUserMessage:
+    return AgentUserMessage(
+        content=ProductContent(
+            "[Summary of an abandoned conversation branch:]\n" + summary
+        )
     )
 
 
@@ -523,13 +612,16 @@ def build_context(
         elif isinstance(entry, CompactionEntry):
             compaction = entry
 
-    messages: list[LoopMessage] = []
+    messages: list[AgentMessage] = []
 
     def append_message(entry: SessionEntry) -> None:
-        if isinstance(entry, MessageEntry):
+        if isinstance(entry, MessageEntry) and isinstance(
+            entry.message,
+            (AgentUserMessage, AgentAssistantMessage, AgentToolResultMessage),
+        ):
             messages.append(entry.message)
         elif isinstance(entry, CustomMessageEntry):
-            messages.append(UserMessage(content=entry.content))
+            messages.append(AgentUserMessage(content=ProductContent(entry.content)))
         elif isinstance(entry, BranchSummaryEntry) and entry.summary:
             messages.append(_branch_summary_message(entry.summary))
 
@@ -626,6 +718,7 @@ def _load_file_entries(path: Path) -> tuple[SessionHeader | None, list[SessionEn
         return None, []
     header: SessionHeader | None = None
     entries: list[SessionEntry] = []
+    by_id: dict[str, SessionEntry] = {}
     for index, line in enumerate(content.splitlines()):
         if not line.strip():
             continue
@@ -647,9 +740,10 @@ def _load_file_entries(path: Path) -> tuple[SessionHeader | None, list[SessionEn
                 continue
         if body.get("type") == "session":
             continue
-        entry = _entry_from_json(body)
+        entry = _entry_from_json(body, by_id)
         if entry is not None:
             entries.append(entry)
+            by_id[entry.id] = entry
     return header, entries
 
 
@@ -841,7 +935,10 @@ class NativeSessionTree:
     def _next_id(self) -> str:
         return _new_entry_id(self.by_id)
 
-    def append_message(self, message: LoopMessage) -> MessageEntry:
+    def append_message(self, message: AgentMessage) -> MessageEntry:
+        return self._append_stored_message(message)
+
+    def _append_stored_message(self, message: _StoredMessage) -> MessageEntry:
         entry = MessageEntry(
             id=self._next_id(),
             parent_id=self.leaf_id,
@@ -964,7 +1061,7 @@ class NativeSessionTree:
         """
 
         if isinstance(entry, MessageEntry):
-            return self.append_message(entry.message)
+            return self._append_stored_message(entry.message)
         if isinstance(entry, ModelChangeEntry):
             return self.append_model_change(entry.provider, entry.model_id)
         if isinstance(entry, ThinkingLevelChangeEntry):

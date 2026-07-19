@@ -236,6 +236,7 @@ def _run_comparison(pi_events: list[dict], pipy_events: list[dict]) -> list[Chec
 def _check_durable_tree_reconstruction(events: list[dict], sessions_root: Path) -> Check:
     """pipy's native session tree rebuilds the same conversation as the events."""
 
+    from pipy_harness.native.agent import AgentAssistantMessage, AgentUserMessage
     from pipy_harness.native.session_tree import NativeSessionTree
 
     session_files = sorted(sessions_root.glob("**/*.jsonl"))
@@ -243,14 +244,17 @@ def _check_durable_tree_reconstruction(events: list[dict], sessions_root: Path) 
         return Check("durable_session_tree_reconstruction", False, "no session file written")
     tree = NativeSessionTree.open(session_files[-1])
     messages = list(tree.build_context().messages)
-    roles = [type(m).__name__ for m in messages]
+    roles = [type(message).__name__ for message in messages]
     assistant_texts = [
-        m.content for m in messages if type(m).__name__ == "AssistantMessage"
+        message.content.value
+        for message in messages
+        if isinstance(message, AgentAssistantMessage)
     ]
     end = _agent_end(events)
     event_roles = [m.get("role") for m in end.get("messages", [])]
     ok = (
-        roles == ["UserMessage", "AssistantMessage"]
+        roles == ["AgentUserMessage", "AgentAssistantMessage"]
+        and isinstance(messages[0], AgentUserMessage)
         and event_roles == ["user", "assistant"]
         and assistant_texts == [_REPLY]
     )

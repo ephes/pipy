@@ -36,7 +36,7 @@ Pi reference (local checkout `/Users/jochen/src/pi-mono` at `c8560b8d`):
 
 ## Provider-agnostic load-point contract
 
-`ToolResultMessage` gains `added_tool_names: tuple[str, ...] = ()`. It contains
+`AgentToolResultMessage` gains `added_tool_names: tuple[str, ...] = ()`. It contains
 registered tool names that became active during the extension tool represented
 by that result. It is summary-safe tool metadata, not tool output. Native
 session JSONL persists the names with the result so `/resume`, provider

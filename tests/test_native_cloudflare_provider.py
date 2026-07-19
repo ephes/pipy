@@ -8,16 +8,18 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import ProviderRequest, ProviderToolCall
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
+from pipy_harness.native import ProviderRequest
 from pipy_harness.native.cloudflare_provider import (
     CloudflareHTTPStatusError,
     CloudflareWorkersAIProvider,
     JsonResponse,
-)
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
 )
 
 ACCOUNT_ID = "acct-test-1234"
@@ -206,20 +208,21 @@ def test_tool_result_round_trip(tmp_path):
         model_id="@cf/meta/llama-3.1-8b-instruct",
         cwd=tmp_path,
         messages=(
-            UserMessage(content="please read README"),
-            AssistantMessage(
-                content="",
+            AgentUserMessage(content=ProductContent("please read README")),
+            AgentAssistantMessage(
+                content=ProductContent(""),
                 tool_calls=(
-                    ProviderToolCall(
+                    AgentToolCall(
                         provider_correlation_id="call_abc123",
                         tool_name="read_file",
-                        arguments_json='{"path":"README.md"}',
+                        arguments_json=ProductContent('{"path":"README.md"}'),
                     ),
                 ),
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id="pipy-tool-0001",
-                output_text="file contents",
+                tool_name="read_file",
+                content=ProductContent("file contents"),
                 provider_correlation_id="call_abc123",
             ),
         ),

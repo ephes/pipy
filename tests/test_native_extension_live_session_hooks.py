@@ -255,11 +255,11 @@ def test_before_provider_request_hook_transforms_product_request(
     assert provider.requests[0].user_prompt == "hello::hook"
     assert [tool.name for tool in provider.requests[0].available_tools] == ["bash"]
     assert any(
-        getattr(message, "content", "") == "hello::hook"
+        message.content.value == "hello::hook"
         for message in provider.requests[0].messages
     )
     assert not any(
-        getattr(message, "content", "") == "hello"
+        message.content.value == "hello"
         for message in provider.requests[0].messages
     )
 
@@ -368,8 +368,7 @@ def test_user_bash_hook_synthetic_result_reaches_next_prompt_context(
     assert result.status is HarnessStatus.SUCCEEDED
     assert len(provider.requests) == 1
     messages = " ".join(
-        str(getattr(message, "content", "") or getattr(message, "output_text", ""))
-        for message in provider.requests[0].messages
+        message.content.value for message in provider.requests[0].messages
     )
     assert "SYNTHETIC-OUTPUT" in messages
     assert "echo real" in messages

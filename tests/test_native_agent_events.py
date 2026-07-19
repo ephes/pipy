@@ -44,6 +44,7 @@ from pipy_harness.native.agent import (
 
 
 EXPECTED_PUBLIC_EXPORTS = [
+    "AGENT_TOOL_REQUEST_ID_PREFIX",
     "AgentAssistantMessage",
     "AgentCancellationReason",
     "AgentEvent",
@@ -522,7 +523,7 @@ def test_agent_usage_rejects_invalid_totals(
 @pytest.mark.parametrize("duration", [-0.1, float("inf"), float("nan")])
 def test_tool_duration_must_be_finite_and_nonnegative(duration: float) -> None:
     result = AgentToolResultMessage(
-        "call", "read", ProductContent("result"), "provider-call"
+        "pipy-tool-call", "read", ProductContent("result"), "provider-call"
     )
 
     with pytest.raises(ValueError):

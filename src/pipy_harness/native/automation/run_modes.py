@@ -179,7 +179,7 @@ def run_json_mode(
         # compaction) drains to idle exactly when `_run_oneshot` returns; write
         # the settle line here — in a `finally`, mirroring Pi, so it still fires
         # if the run raised. RPC synthesizes its own queue-aware `agent_settled`
-        # in `RpcServer.emit`, so the shared `AutomationEmitter` never emits one.
+        # in `RpcServer.emit`, so the canonical automation adapter never emits one.
         writer.write_line({"type": "agent_settled"})
     return result.exit_code
 

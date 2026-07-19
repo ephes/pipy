@@ -8,18 +8,19 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native import ProviderRequest
-from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.openai_completions_provider import (
     JsonResponse,
     OpenAIChatCompletionsProvider,
     OpenAICompletionsHTTPStatusError,
     OpenAICompletionsResponseParseError,
-)
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
 )
 
 
@@ -269,20 +270,21 @@ def test_tool_result_round_trip(tmp_path):
         model_id="gpt-4o-mini",
         cwd=tmp_path,
         messages=(
-            UserMessage(content="please lookup"),
-            AssistantMessage(
-                content="",
+            AgentUserMessage(content=ProductContent("please lookup")),
+            AgentAssistantMessage(
+                content=ProductContent(""),
                 tool_calls=(
-                    ProviderToolCall(
+                    AgentToolCall(
                         provider_correlation_id="call_abc123",
                         tool_name="lookup",
-                        arguments_json='{"query":"docs"}',
+                        arguments_json=ProductContent('{"query":"docs"}'),
                     ),
                 ),
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id="pipy-tool-0001",
-                output_text="lookup result text",
+                tool_name="lookup",
+                content=ProductContent("lookup result text"),
                 provider_correlation_id="call_abc123",
             ),
         ),

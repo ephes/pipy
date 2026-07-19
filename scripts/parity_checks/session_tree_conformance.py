@@ -56,6 +56,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import CapturePolicy, HarnessStatus, RunRequest
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.session_tree import (
     LabelEntry,
@@ -66,10 +71,6 @@ from pipy_harness.native.session_tree import (
 from pipy_harness.native.session_tree_commands import (
     list_native_sessions,
     resolve_startup_session,
-)
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    UserMessage,
 )
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
@@ -86,7 +87,9 @@ class _SeenProvider:
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         users = tuple(
-            m.content for m in request.messages if isinstance(m, UserMessage)
+            m.content.value
+            for m in request.messages
+            if isinstance(m, AgentUserMessage)
         )
         self.requests.append(users)
         now = datetime.now(UTC)
@@ -139,9 +142,9 @@ def _drive_capture(
 
 def _branch_user_contents(tree: NativeSessionTree, leaf_id: str) -> list[str]:
     return [
-        e.message.content
+        e.message.content.value
         for e in tree.get_branch(leaf_id)
-        if isinstance(e, MessageEntry) and isinstance(e.message, UserMessage)
+        if isinstance(e, MessageEntry) and isinstance(e.message, AgentUserMessage)
     ]
 
 
@@ -149,8 +152,8 @@ def _assistant_leaf(tree: NativeSessionTree, text: str) -> str | None:
     for e in tree.get_entries():
         if (
             isinstance(e, MessageEntry)
-            and isinstance(e.message, AssistantMessage)
-            and e.message.content == text
+            and isinstance(e.message, AgentAssistantMessage)
+            and e.message.content.value == text
         ):
             return e.id
     return None
@@ -304,7 +307,7 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
     )
     rebuilt = comp_reopened.build_context().messages
     summary_in_ctx = any(
-        isinstance(m, UserMessage) and "compacted" in m.content.lower()
+        isinstance(m, AgentUserMessage) and "compacted" in m.content.value.lower()
         for m in rebuilt
     )
     checks.append(
@@ -330,9 +333,9 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
     if cclone_files:
         cloned = NativeSessionTree.open(cclone_files[0])
         cloned_users = [
-            m.content
+            m.content.value
             for m in cloned.build_context().messages
-            if isinstance(m, UserMessage)
+            if isinstance(m, AgentUserMessage)
         ]
         # The most recent retained user turns (kept across compaction) survive
         # the clone; the oldest dropped turn does not reappear.
@@ -360,7 +363,7 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
         e.type == "branch_summary" for e in bs_reopened.get_entries()
     )
     summary_used = any(
-        isinstance(m, UserMessage) and "abandoned" in m.content.lower()
+        isinstance(m, AgentUserMessage) and "abandoned" in m.content.value.lower()
         for m in bs_reopened.build_context().messages
     )
     checks.append(
@@ -418,7 +421,7 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
     flag_cwd.mkdir(parents=True, exist_ok=True)
     flag_state = state_root / "flagstate"
     fresh = resolve_startup_session(flag_cwd, mode="new", state_root=flag_state)
-    fresh.append_message(UserMessage(content="HELLO"))
+    fresh.append_message(AgentUserMessage(content=ProductContent("HELLO")))
     fid = fresh.session_id
     cont = resolve_startup_session(flag_cwd, mode="continue", state_root=flag_state)
     opened = resolve_startup_session(
@@ -462,7 +465,7 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
     reload_ok = (
         rr.name == "reloaded"
         and bool(labels)
-        and any(isinstance(m, UserMessage) for m in rr.build_context().messages)
+        and any(isinstance(m, AgentUserMessage) for m in rr.build_context().messages)
     )
     checks.append(
         Check("reload_reconstruction", reload_ok, f"name={rr.name} labels={len(labels)}")
@@ -717,11 +720,15 @@ def _resume_picker_product_checks(base: Path) -> list[Check]:
     session_dir = default_native_session_dir(cwd.expanduser().resolve(), sessions_root=store)
 
     active = NativeSessionTree.create(cwd, session_dir=session_dir)
-    active.append_message(UserMessage(content="ACTIVE"))
+    active.append_message(AgentUserMessage(content=ProductContent("ACTIVE")))
     to_rename = NativeSessionTree.create(cwd, session_dir=session_dir)
-    to_rename.append_message(UserMessage(content="RENAME_ME"))
+    to_rename.append_message(
+        AgentUserMessage(content=ProductContent("RENAME_ME"))
+    )
     to_delete = NativeSessionTree.create(cwd, session_dir=session_dir)
-    to_delete.append_message(UserMessage(content="DELETE_ME"))
+    to_delete.append_message(
+        AgentUserMessage(content=ProductContent("DELETE_ME"))
+    )
 
     session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
     ui = _ScriptedPickerUi(

@@ -33,9 +33,14 @@ from pipy_harness.native.openai_codex_provider import (
     UrllibSseHTTPClient,
 )
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
-from pipy_harness.native.models import ProviderRequest, ProviderToolCall
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    ProductContent,
+)
+from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.retry import RetryPolicy
-from pipy_harness.native.tools import AssistantMessage, ToolResultMessage
 from pipy_harness.native.tools.base import ToolDefinition
 
 
@@ -446,14 +451,18 @@ def test_tool_search_body_and_derived_id_are_stable_across_retry() -> None:
         model_id="gpt-test",
         cwd=Path("."),
         messages=(
-            AssistantMessage(
+            AgentAssistantMessage(
+                content=ProductContent(""),
                 tool_calls=(
-                    ProviderToolCall("call_loader|fc_loader", "loader", "{}"),
+                    AgentToolCall(
+                        "call_loader|fc_loader", "loader", ProductContent("{}")
+                    ),
                 )
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id="pipy-tool-load",
-                output_text="loaded",
+                tool_name="loader",
+                content=ProductContent("loaded"),
                 provider_correlation_id="call_loader|fc_loader",
                 added_tool_names=("late_tool",),
             ),

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pipy_harness.native.agent import AgentUserMessage, ProductContent
 from pipy_harness.native.session_tree import (
     NativeSessionTree,
     native_sessions_root,
@@ -19,14 +20,13 @@ from pipy_harness.native.session_tree_commands import (
     resolve_session_ref,
     resolve_startup_session,
 )
-from pipy_harness.native.tools.messages import UserMessage
 import pytest
 
 
 def _make(cwd: Path, sessions_root: Path) -> NativeSessionTree:
     session_dir = sessions_root / _encoded(cwd)
     tree = NativeSessionTree.create(cwd, session_dir=session_dir)
-    tree.append_message(UserMessage(content="hi"))
+    tree.append_message(AgentUserMessage(content=ProductContent("hi")))
     return tree
 
 

@@ -1064,6 +1064,8 @@ class ToolLoopTerminalUi:
     _pending_steering: list[str] = field(default_factory=list)
     _pending_follow_up: list[str] = field(default_factory=list)
     _pending_drain: list[str] = field(default_factory=list)
+    _pending_drain_kinds: list[str] = field(default_factory=list)
+    _last_drain_kind: str | None = None
     # A recognized local command (``/...`` or ``!...``) submitted with Enter
     # mid-turn is NOT queued for the provider: like Pi's editor, it interrupts
     # the turn and runs locally. It is held here for the session loop to pick up
@@ -6057,7 +6059,11 @@ class ToolLoopTerminalUi:
         """
 
         self._pending_drain.extend(self._pending_steering)
+        self._pending_drain_kinds.extend("steering" for _ in self._pending_steering)
         self._pending_drain.extend(self._pending_follow_up)
+        self._pending_drain_kinds.extend(
+            "follow_up" for _ in self._pending_follow_up
+        )
         self._pending_steering.clear()
         self._pending_follow_up.clear()
 
@@ -6085,6 +6091,8 @@ class ToolLoopTerminalUi:
             *self._pending_follow_up,
         ]
         self._pending_drain.clear()
+        self._pending_drain_kinds.clear()
+        self._last_drain_kind = None
         self._pending_steering.clear()
         self._pending_follow_up.clear()
         if not queued:
@@ -6111,8 +6119,17 @@ class ToolLoopTerminalUi:
         """Pop the next queued message to deliver as a prompt, or None."""
 
         if not self._pending_drain:
+            self._last_drain_kind = None
             return None
+        self._last_drain_kind = self._pending_drain_kinds.pop(0)
         return self._pending_drain.pop(0)
+
+    def take_last_drain_kind(self) -> str | None:
+        """Return and clear the classification of the last drained prompt."""
+
+        kind = self._last_drain_kind
+        self._last_drain_kind = None
+        return kind
 
     @staticmethod
     def _submitted_text_is_local_command(text: str) -> bool:

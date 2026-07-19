@@ -20,16 +20,16 @@ from pipy_harness.native._provider_helpers import (
     decode_json_object,
     urlopen_read_cancellable,
 )
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolResultMessage,
+    AgentUserMessage,
+)
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.deferred_tools import split_deferred_tools
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
-)
 from pipy_harness.native.usage import (
     NORMALIZED_PROVIDER_USAGE_KEYS,
     normalize_provider_usage,
@@ -328,17 +328,17 @@ def _messages_payload(
         index = 0
         while index < len(request.messages):
             envelope = request.messages[index]
-            if not isinstance(envelope, ToolResultMessage):
+            if not isinstance(envelope, AgentToolResultMessage):
                 items.append(_envelope_to_message(envelope))
                 index += 1
                 continue
             tool_results: list[dict[str, object]] = []
             sibling_content: list[dict[str, object]] = []
             while index < len(request.messages) and isinstance(
-                request.messages[index], ToolResultMessage
+                request.messages[index], AgentToolResultMessage
             ):
                 tool_result = request.messages[index]
-                assert isinstance(tool_result, ToolResultMessage)
+                assert isinstance(tool_result, AgentToolResultMessage)
                 result, siblings = _convert_tool_result(
                     tool_result,
                     deferred_tool_names=deferred_tool_names,
@@ -395,21 +395,23 @@ def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> 
 
 
 def _envelope_to_message(envelope: Any) -> dict[str, object]:
-    """Translate one LoopMessage into one Anthropic message dict."""
+    """Translate one ``AgentMessage`` into one Anthropic message dict."""
 
-    if isinstance(envelope, UserMessage):
+    if isinstance(envelope, AgentUserMessage):
         return {
             "role": "user",
-            "content": [{"type": "text", "text": envelope.content}],
+            "content": [{"type": "text", "text": envelope.content.value}],
         }
-    if isinstance(envelope, AssistantMessage):
+    if isinstance(envelope, AgentAssistantMessage):
         content: list[dict[str, object]] = []
-        if envelope.content:
-            content.append({"type": "text", "text": envelope.content})
+        if envelope.content.value:
+            content.append({"type": "text", "text": envelope.content.value})
         for call in envelope.tool_calls:
             try:
                 parsed_input = (
-                    json.loads(call.arguments_json) if call.arguments_json else {}
+                    json.loads(call.arguments_json.value)
+                    if call.arguments_json.value
+                    else {}
                 )
             except json.JSONDecodeError:
                 parsed_input = {}
@@ -424,7 +426,7 @@ def _envelope_to_message(envelope: Any) -> dict[str, object]:
                 }
             )
         return {"role": "assistant", "content": content}
-    if isinstance(envelope, ToolResultMessage):
+    if isinstance(envelope, AgentToolResultMessage):
         result, siblings = _convert_tool_result(
             envelope,
             deferred_tool_names=frozenset(),
@@ -437,7 +439,7 @@ def _envelope_to_message(envelope: Any) -> dict[str, object]:
 
 
 def _convert_tool_result(
-    envelope: ToolResultMessage,
+    envelope: AgentToolResultMessage,
     *,
     deferred_tool_names: frozenset[str],
     loaded_tool_names: set[str],
@@ -450,25 +452,17 @@ def _convert_tool_result(
         references.append({"type": "tool_reference", "tool_name": name})
     block: dict[str, object] = {
         "type": "tool_result",
-        "tool_use_id": _require_provider_correlation_id(envelope),
-        "content": references if references else envelope.output_text,
+        "tool_use_id": envelope.provider_correlation_id,
+        "content": references if references else envelope.content.value,
     }
     if envelope.is_error:
         block["is_error"] = True
     siblings: list[dict[str, object]] = (
-        [{"type": "text", "text": envelope.output_text}]
-        if references and envelope.output_text.strip()
+        [{"type": "text", "text": envelope.content.value}]
+        if references and envelope.content.value.strip()
         else []
     )
     return block, siblings
-
-
-def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
-    if envelope.provider_correlation_id:
-        return envelope.provider_correlation_id
-    raise AnthropicResponseParseError(
-        "ToolResultMessage is missing provider_correlation_id."
-    )
 
 
 @dataclass(frozen=True, slots=True)

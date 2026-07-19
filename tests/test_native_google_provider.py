@@ -8,15 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native import ProviderRequest, ProviderToolCall
 from pipy_harness.native.google_provider import (
     GoogleGenerativeAIProvider,
     JsonResponse,
-)
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
 )
 
 
@@ -178,10 +180,12 @@ def test_tool_result_round_trip(tmp_path):
         http_client=client,
     )
 
-    tool_call = ProviderToolCall(
+    tool_call = AgentToolCall(
         provider_correlation_id="google-tool-0",
         tool_name="read_file",
-        arguments_json=json.dumps({"path": "README.md"}, sort_keys=True),
+        arguments_json=ProductContent(
+            json.dumps({"path": "README.md"}, sort_keys=True)
+        ),
     )
     request = ProviderRequest(
         system_prompt="SYSTEM_PROMPT",
@@ -190,11 +194,14 @@ def test_tool_result_round_trip(tmp_path):
         model_id="gemini-test",
         cwd=tmp_path,
         messages=(
-            UserMessage(content="please read it"),
-            AssistantMessage(content="thinking", tool_calls=(tool_call,)),
-            ToolResultMessage(
+            AgentUserMessage(content=ProductContent("please read it")),
+            AgentAssistantMessage(
+                content=ProductContent("thinking"), tool_calls=(tool_call,)
+            ),
+            AgentToolResultMessage(
                 tool_request_id="pipy-tool-aaaa",
-                output_text="file contents go here",
+                tool_name="read_file",
+                content=ProductContent("file contents go here"),
                 provider_correlation_id="google-tool-0",
             ),
         ),

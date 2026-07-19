@@ -13,15 +13,15 @@ from typing import Any
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolResultMessage,
+    AgentUserMessage,
+)
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
-)
 
 GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
@@ -369,21 +369,13 @@ def _gemini_contents(request: ProviderRequest) -> list[dict[str, Any]]:
 
     When `request.messages` is non-empty, translate the envelope. Otherwise
     fall back to `no_tool_repl_context` (if any) followed by the current
-    `user_prompt`. The previous AssistantMessage values are passed in so
-    `ToolResultMessage` can recover the original tool name from the
-    matching `provider_correlation_id` (Gemini's `functionResponse` part
-    needs the tool name, but pipy's `ToolResultMessage` only carries the
-    pipy-owned `tool_request_id` and the opaque
-    `provider_correlation_id`).
+    `user_prompt`.
     """
 
     contents: list[dict[str, Any]] = []
     if request.messages:
-        prior_assistants: list[AssistantMessage] = []
         for envelope in request.messages:
-            contents.append(_envelope_to_content(envelope, prior_assistants))
-            if isinstance(envelope, AssistantMessage):
-                prior_assistants.append(envelope)
+            contents.append(_envelope_to_content(envelope))
         _attach_images(contents, request)
         return contents
     if request.no_tool_repl_context is not None:
@@ -435,21 +427,18 @@ def _attach_images(contents: list[dict[str, Any]], request: ProviderRequest) -> 
         return
 
 
-def _envelope_to_content(
-    envelope: Any,
-    prior_assistants: list[AssistantMessage],
-) -> dict[str, Any]:
-    """Translate one LoopMessage into a Gemini `contents` entry."""
+def _envelope_to_content(envelope: Any) -> dict[str, Any]:
+    """Translate one ``AgentMessage`` into a Gemini `contents` entry."""
 
-    if isinstance(envelope, UserMessage):
-        return {"role": "user", "parts": [{"text": envelope.content}]}
-    if isinstance(envelope, AssistantMessage):
+    if isinstance(envelope, AgentUserMessage):
+        return {"role": "user", "parts": [{"text": envelope.content.value}]}
+    if isinstance(envelope, AgentAssistantMessage):
         parts: list[dict[str, Any]] = []
-        if envelope.content:
-            parts.append({"text": envelope.content})
+        if envelope.content.value:
+            parts.append({"text": envelope.content.value})
         for call in envelope.tool_calls:
             try:
-                parsed_args = json.loads(call.arguments_json) if call.arguments_json else {}
+                parsed_args = json.loads(call.arguments_json.value) if call.arguments_json.value else {}
             except json.JSONDecodeError:
                 parsed_args = {}
             if not isinstance(parsed_args, Mapping):
@@ -465,22 +454,14 @@ def _envelope_to_content(
         if not parts:
             parts.append({"text": ""})
         return {"role": "model", "parts": parts}
-    if isinstance(envelope, ToolResultMessage):
-        # Gemini's functionResponse requires the original tool name. pipy's
-        # ToolResultMessage only carries `tool_request_id` and
-        # `provider_correlation_id`, so we recover the name from the matching
-        # AssistantMessage tool call. If no match is found we fall back to
-        # "unknown_tool" rather than failing the loop: the provider will
-        # still receive a well-formed functionResponse part and the loop's
-        # observation layer surfaces the mismatch separately.
-        tool_name = _lookup_tool_name(envelope, prior_assistants) or "unknown_tool"
+    if isinstance(envelope, AgentToolResultMessage):
         return {
             "role": "user",
             "parts": [
                 {
                     "functionResponse": {
-                        "name": tool_name,
-                        "response": {"result": envelope.output_text},
+                        "name": envelope.tool_name,
+                        "response": {"result": envelope.content.value},
                     }
                 }
             ],
@@ -488,21 +469,6 @@ def _envelope_to_content(
     raise GoogleResponseParseError(
         f"unsupported message envelope: {type(envelope).__name__}"
     )
-
-
-def _lookup_tool_name(
-    envelope: ToolResultMessage,
-    prior_assistants: list[AssistantMessage],
-) -> str | None:
-    correlation_id = envelope.provider_correlation_id
-    if not correlation_id:
-        return None
-    for assistant in prior_assistants:
-        for call in assistant.tool_calls:
-            if call.provider_correlation_id == correlation_id:
-                return call.tool_name
-    return None
-
 
 def _serialize_tool_for_gemini(tool: Any) -> dict[str, Any]:
     """Translate a `ToolDefinition` into the Gemini function declaration shape."""

@@ -56,7 +56,7 @@ class BoundaryViolation:
         )
 
 
-_LEGACY_CONCRETE_PROVIDERS = (
+_LEGACY_CONCRETE_PROVIDER_MODULES = (
     "pipy_harness.native.anthropic_provider",
     "pipy_harness.native.azure_openai_provider",
     "pipy_harness.native.bedrock_provider",
@@ -69,7 +69,33 @@ _LEGACY_CONCRETE_PROVIDERS = (
     "pipy_harness.native.openai_completions_provider",
     "pipy_harness.native.openai_provider",
     "pipy_harness.native.openrouter_provider",
+)
+
+# These modules are provider-facing architecture sources even though their
+# filenames are not concrete ``*_provider.py`` transports: the shared helper
+# owns HTTP adapter utilities, construction selects transports, the port defines
+# their contract, the fake implements that contract for headless tests, and the
+# deferred-tool adapter projects canonical history into provider requests.
+_PROVIDER_UI_SUPPORT_MODULES = (
+    "pipy_harness.native._provider_helpers",
+    "pipy_harness.native.deferred_tools",
+    "pipy_harness.native.fake",
+    "pipy_harness.native.provider",
     "pipy_harness.native.provider_construction",
+)
+
+_PROVIDER_UI_FORBIDDEN_IMPORTS = (
+    "pipy_harness.native.ui",
+    "pipy_harness.native.tui",
+)
+
+# Phase 5 will move the concrete transports under ``native.providers``.  Until
+# that cutover, enforce the same boundary for every current top-level transport
+# and the provider-facing ports, fakes, deferred-tool adapter, and shared HTTP
+# helper so the planned package rule cannot silently no-op.
+_CURRENT_PROVIDER_UI_BOUNDARY_SOURCES = (
+    *_LEGACY_CONCRETE_PROVIDER_MODULES,
+    *_PROVIDER_UI_SUPPORT_MODULES,
 )
 
 
@@ -95,7 +121,8 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.session_tree",
             "pipy_harness.native.session_tree_commands",
             "pipy_harness.native.providers",
-            *_LEGACY_CONCRETE_PROVIDERS,
+            *_LEGACY_CONCRETE_PROVIDER_MODULES,
+            "pipy_harness.native.provider_construction",
         ),
         reason=(
             "the agent core must not depend on entrypoints, outer adapters, UI, "
@@ -104,12 +131,38 @@ ARCHITECTURE_RULES = (
         ),
     ),
     BoundaryRule(
-        source_package="pipy_harness.native.providers",
+        source_package="pipy_harness.native.agent_adapters",
         forbidden_imports=(
+            "pipy_harness.cli",
+            "pipy_harness.runner",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
+            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.session_tree",
+            "pipy_harness.native.extension_runtime",
+            *_LEGACY_CONCRETE_PROVIDER_MODULES,
         ),
-        reason="provider transports must not depend on UI code",
+        reason=(
+            "canonical projection contracts must not depend on composition roots, "
+            "UI, concrete storage, extension hosts, or concrete providers"
+        ),
+    ),
+    *(
+        BoundaryRule(
+            source_package=source_package,
+            forbidden_imports=_PROVIDER_UI_FORBIDDEN_IMPORTS,
+            reason=(
+                "current provider transports, construction, ports, fakes, "
+                "deferred-tool adapters, and shared HTTP helpers must not "
+                "depend on UI code"
+            ),
+        )
+        for source_package in _CURRENT_PROVIDER_UI_BOUNDARY_SOURCES
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.providers",
+        forbidden_imports=_PROVIDER_UI_FORBIDDEN_IMPORTS,
+        reason="future Phase 5 provider transports must not depend on UI code",
     ),
     BoundaryRule(
         source_package="pipy_harness.native.coding",
@@ -192,6 +245,30 @@ def _module_name(source_root: Path, path: Path) -> str:
     if parts[-1] == "__init__":
         parts.pop()
     return ".".join(parts)
+
+
+def _discover_top_level_concrete_provider_modules(
+    source_root: Path,
+) -> tuple[str, ...]:
+    """Discover concrete legacy transports independently of boundary constants."""
+
+    native_directory = source_root / "pipy_harness" / "native"
+    discovered: list[str] = []
+    for path in sorted(native_directory.glob("*_provider.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        declares_transport = any(
+            isinstance(node, ast.ClassDef)
+            and node.name.endswith("Provider")
+            and any(
+                isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and member.name == "complete"
+                for member in node.body
+            )
+            for node in tree.body
+        )
+        if declares_transport:
+            discovered.append(_module_name(source_root, path))
+    return tuple(discovered)
 
 
 def _current_package(source_root: Path, path: Path) -> str:
@@ -387,6 +464,97 @@ from pipy_session.recorder import append_event
 
 
 @pytest.mark.parametrize(
+    "source_package",
+    (
+        "pipy_harness.native.agent",
+        "pipy_harness.native.agent_adapters",
+    ),
+)
+@pytest.mark.parametrize(
+    "forbidden_import",
+    _PROVIDER_UI_FORBIDDEN_IMPORTS,
+)
+def test_each_canonical_agent_ui_boundary_rule_activates(
+    tmp_path: Path,
+    source_package: str,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    forbidden_path = _write_module(
+        source_root,
+        source_package,
+        f"import {forbidden_import}\n",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == source_package
+    )
+
+    violations = _evaluate_rule(source_root, rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == forbidden_path
+    assert violations[0].imported_module == forbidden_import
+
+
+@pytest.mark.parametrize(
+    "source_package",
+    _CURRENT_PROVIDER_UI_BOUNDARY_SOURCES,
+)
+@pytest.mark.parametrize(
+    "forbidden_import",
+    _PROVIDER_UI_FORBIDDEN_IMPORTS,
+)
+def test_each_current_provider_ui_boundary_rule_activates(
+    tmp_path: Path,
+    source_package: str,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    provider_path = _write_module(
+        source_root,
+        source_package,
+        f"import {forbidden_import}\n",
+    )
+    provider_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == source_package
+    )
+
+    violations = _evaluate_rule(source_root, provider_rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == provider_path
+    assert violations[0].imported_module == forbidden_import
+
+
+@pytest.mark.parametrize("forbidden_import", _PROVIDER_UI_FORBIDDEN_IMPORTS)
+def test_future_provider_package_ui_boundary_rule_activates(
+    tmp_path: Path,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    provider_path = _write_module(
+        source_root,
+        "pipy_harness.native.providers.transport",
+        f"import {forbidden_import}\n",
+    )
+    provider_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.providers"
+    )
+
+    violations = _evaluate_rule(source_root, provider_rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == provider_path
+    assert violations[0].imported_module == forbidden_import
+
+
+@pytest.mark.parametrize(
     (
         "source_package",
         "allowed_import",
@@ -537,6 +705,73 @@ def test_repository_forbidden_import_prefixes_are_known() -> None:
     assert not unresolved, (
         "forbidden import prefixes must resolve to source modules/packages or be "
         "explicitly planned; stale entries: " + ", ".join(unresolved)
+    )
+
+
+def test_provider_inventory_discovers_only_top_level_concrete_transports(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    _write_module(
+        source_root,
+        "pipy_harness.native.example_provider",
+        """\
+class ExampleProvider:
+    def complete(self):
+        return None
+""",
+    )
+    _write_module(
+        source_root,
+        "pipy_harness.native.autocomplete_provider",
+        "class AutocompleteSuggestion:\n    pass\n",
+    )
+    _write_module(
+        source_root,
+        "pipy_harness.native.nested.hidden_provider",
+        """\
+class HiddenProvider:
+    def complete(self):
+        return None
+""",
+    )
+
+    assert _discover_top_level_concrete_provider_modules(source_root) == (
+        "pipy_harness.native.example_provider",
+    )
+
+
+def test_current_provider_ui_boundary_rules_resolve_to_source() -> None:
+    discovered_transports = _discover_top_level_concrete_provider_modules(SOURCE_ROOT)
+    assert discovered_transports == _LEGACY_CONCRETE_PROVIDER_MODULES, (
+        "top-level concrete provider inventory changed without matching boundary "
+        "rules; discovered: " + ", ".join(discovered_transports)
+    )
+    expected_source_order = (
+        *discovered_transports,
+        *_PROVIDER_UI_SUPPORT_MODULES,
+    )
+    assert _CURRENT_PROVIDER_UI_BOUNDARY_SOURCES == expected_source_order
+
+    expected_sources = set(expected_source_order)
+    current_rules = tuple(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package in expected_sources
+        and rule.forbidden_imports == _PROVIDER_UI_FORBIDDEN_IMPORTS
+    )
+
+    assert tuple(rule.source_package for rule in current_rules) == (
+        expected_source_order
+    )
+    missing_sources = [
+        rule.source_package
+        for rule in current_rules
+        if not _source_module_or_package_exists(SOURCE_ROOT, rule.source_package)
+    ]
+    assert not missing_sources, (
+        "current provider UI-boundary rules must resolve to source modules: "
+        + ", ".join(missing_sources)
     )
 
 

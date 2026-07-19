@@ -12,8 +12,18 @@ from typing import TextIO, cast
 import pytest
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import ProviderToolCall
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentCancellationReason,
+    AgentToolCall,
+    AssistantTextDelta,
+    MessageCompleted,
+    MessageStarted,
+    ProductContent,
+    RunCancelled,
+)
+from pipy_harness.native.agent_adapters import RenderingAgentEventAdapter
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
@@ -295,15 +305,17 @@ def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
     ui = _ui(tmp_path)
     renderer = _TuiToolLoopRenderer(ui=ui)
 
-    renderer.begin_provider_turn()
-    renderer.show_working()
-    renderer.stream_sink("hello ")
+    adapter = RenderingAgentEventAdapter(renderer)
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
+    adapter.emit(AssistantTextDelta(0, ProductContent("hello ")))
     active = "\n".join(ui.render_lines(width=72, height=14))
     assert "Working..." in active
     assert "hello" in active
 
-    renderer.stream_sink("world")
-    renderer.end_provider_turn(final_text="hello world", has_tool_calls=False)
+    adapter.emit(AssistantTextDelta(0, ProductContent("world")))
+    adapter.emit(
+        MessageCompleted(0, AgentAssistantMessage(ProductContent("hello world")))
+    )
 
     frame = "\n".join(ui.render_lines(width=72, height=20))
     assert "Working..." not in frame
@@ -313,14 +325,15 @@ def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
 def test_tui_renderer_uses_extension_working_controls(tmp_path: Path):
     ui = _ui(tmp_path)
     renderer = _TuiToolLoopRenderer(ui=ui)
+    adapter = RenderingAgentEventAdapter(renderer)
 
     ui.set_extension_working_message("Checking")
-    renderer.show_working()
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
     frame = _wait_for_frame_text(ui, "Checking")
     assert "Checking" in frame
     assert "Working..." not in frame
 
-    renderer.end_provider_turn(final_text="", has_tool_calls=False)
+    adapter.emit(MessageCompleted(0, AgentAssistantMessage(ProductContent(""))))
     ui.set_extension_working_visible(False)
     renderer.show_working()
     frame = "\n".join(ui.render_lines(width=72, height=14))
@@ -328,17 +341,23 @@ def test_tui_renderer_uses_extension_working_controls(tmp_path: Path):
     assert "Working..." not in frame
 
 
-def test_tui_renderer_abort_shows_operation_aborted(tmp_path: Path):
+@pytest.mark.parametrize("reason", tuple(AgentCancellationReason))
+def test_tui_renderer_cancellation_is_canonical_and_reason_aware(
+    tmp_path: Path, reason: AgentCancellationReason
+) -> None:
     ui = _ui(tmp_path)
     renderer = _TuiToolLoopRenderer(ui=ui)
+    adapter = RenderingAgentEventAdapter(renderer)
 
-    renderer.begin_provider_turn()
-    renderer.show_working()
-    renderer.abort_provider_turn()
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
+    adapter.emit(RunCancelled(reason))
 
     frame = "\n".join(ui.render_lines(width=72, height=14))
     assert "Working..." not in frame
-    assert "Operation aborted" in frame
+    if reason is AgentCancellationReason.OPERATOR_ABORT:
+        assert "Operation aborted" in frame
+    else:
+        assert "Operation aborted" not in frame
 
 
 def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
@@ -346,10 +365,10 @@ def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
     renderer = _TuiToolLoopRenderer(ui=ui)
 
     renderer.render_tool_call(
-        ProviderToolCall(
+        AgentToolCall(
             provider_correlation_id="call_read",
             tool_name="read",
-            arguments_json='{"path": "docs/backlog.md", "limit": 5}',
+            arguments_json=ProductContent('{"path": "docs/backlog.md", "limit": 5}'),
         )
     )
     renderer.render_tool_result(
@@ -371,10 +390,10 @@ def test_tui_renderer_keeps_non_read_tool_results_in_history_region(tmp_path: Pa
     renderer = _TuiToolLoopRenderer(ui=ui)
 
     renderer.render_tool_call(
-        ProviderToolCall(
+        AgentToolCall(
             provider_correlation_id="call_ls",
             tool_name="ls",
-            arguments_json='{"path": "."}',
+            arguments_json=ProductContent('{"path": "."}'),
         )
     )
     renderer.render_tool_result(
@@ -397,10 +416,10 @@ def test_tui_streams_tool_output_into_live_region(tmp_path: Path):
     renderer = _TuiToolLoopRenderer(ui=ui)
 
     renderer.render_tool_call(
-        ProviderToolCall(
+        AgentToolCall(
             provider_correlation_id="call_bash",
             tool_name="bash",
-            arguments_json='{"command": "just test"}',
+            arguments_json=ProductContent('{"command": "just test"}'),
         )
     )
     ui.start()
@@ -422,10 +441,10 @@ def test_tui_settled_tool_result_replaces_live_stream(tmp_path: Path):
     renderer = _TuiToolLoopRenderer(ui=ui)
 
     renderer.render_tool_call(
-        ProviderToolCall(
+        AgentToolCall(
             provider_correlation_id="call_bash",
             tool_name="bash",
-            arguments_json='{"command": "just test"}',
+            arguments_json=ProductContent('{"command": "just test"}'),
         )
     )
     renderer.tool_output_sink("streaming-dots\n")
@@ -3131,7 +3150,7 @@ def test_aborted_turn_appends_no_assistant_observation_to_context(
 
     The first turn is cancelled mid-flight; the second turn records the
     provider-visible message history it receives. That history must contain the
-    two user messages but no AssistantMessage from the aborted turn, so the
+    two user messages but no AgentAssistantMessage from the aborted turn, so the
     session never reflects a successful response that did not happen.
     """
 
@@ -3225,8 +3244,8 @@ def test_aborted_turn_appends_no_assistant_observation_to_context(
     assert provider.calls == 2
     # The second turn saw both user messages but NO assistant message from the
     # aborted first turn — the abort recorded no successful observation.
-    assert seen_message_types == [["UserMessage", "UserMessage"]]
-    assert "AssistantMessage" not in seen_message_types[0]
+    assert seen_message_types == [["AgentUserMessage", "AgentUserMessage"]]
+    assert "AgentAssistantMessage" not in seen_message_types[0]
     # The aborted state was rendered to the user.
     errors = [lines for kind, lines in ui._history_blocks if kind == "error"]
     assert any("Operation aborted" in " ".join(lines) for lines in errors)

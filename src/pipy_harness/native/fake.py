@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.agent import AgentUserMessage
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.models import (
     NativeToolRequest,
@@ -191,11 +192,9 @@ class AutomationFakeProvider:
 
     @staticmethod
     def _latest_user_text(request: ProviderRequest) -> str:
-        from pipy_harness.native.tools.messages import UserMessage
-
         for message in reversed(request.messages):
-            if isinstance(message, UserMessage):
-                return message.content
+            if isinstance(message, AgentUserMessage):
+                return message.content.value
         return request.user_prompt or ""
 
     def complete(

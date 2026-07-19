@@ -17,15 +17,19 @@ from typing import Any
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderToolCall
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.openai_provider import (
     JsonResponse,
     OpenAIResponsesProvider,
 )
 from pipy_harness.native.tools import (
-    AssistantMessage,
     ReadTool,
-    ToolResultMessage,
-    UserMessage,
     make_tool_request_id,
 )
 from pipy_harness.native.tools.base import ToolDefinition
@@ -102,7 +106,7 @@ def test_openai_serializes_tools_in_responses_request(tmp_path: Path):
         provider_name="openai",
         model_id="gpt-test",
         cwd=tmp_path,
-        messages=(UserMessage(content="please read"),),
+        messages=(AgentUserMessage(content=ProductContent("please read")),),
         available_tools=(read_tool.definition,),
     )
 
@@ -141,7 +145,7 @@ def test_openai_parses_function_call_into_provider_tool_call(tmp_path: Path):
             provider_name="openai",
             model_id="gpt-test",
             cwd=tmp_path,
-            messages=(UserMessage(content="go"),),
+            messages=(AgentUserMessage(content=ProductContent("go")),),
             available_tools=(ReadTool().definition,),
         )
     )
@@ -178,19 +182,21 @@ def test_openai_serializes_tool_result_envelope(tmp_path: Path):
         model_id="gpt-test",
         cwd=tmp_path,
         messages=(
-            UserMessage(content="read it"),
-            AssistantMessage(
+            AgentUserMessage(content=ProductContent("read it")),
+            AgentAssistantMessage(
+                content=ProductContent(""),
                 tool_calls=(
-                    ProviderToolCall(
+                    AgentToolCall(
                         provider_correlation_id="call_abc",
                         tool_name="read",
-                        arguments_json='{"path": "README.md"}',
+                        arguments_json=ProductContent('{"path": "README.md"}'),
                     ),
                 ),
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id=request_id,
-                output_text="<file contents>",
+                tool_name="read",
+                content=ProductContent("<file contents>"),
                 provider_correlation_id="call_abc",
                 added_tool_names=("read",),
             ),
@@ -230,9 +236,13 @@ def test_openai_places_deferred_tools_at_result_marker(tmp_path: Path) -> None:
         system_prompt="SYS", user_prompt="load", provider_name="openai",
         model_id="gpt-5.5", cwd=tmp_path,
         messages=(
-            AssistantMessage(tool_calls=(ProviderToolCall("call_loader", "loader", "{}"),)),
-            ToolResultMessage(
-                tool_request_id="pipy-tool-load", output_text="loaded",
+            AgentAssistantMessage(
+                content=ProductContent(""),
+                tool_calls=(AgentToolCall("call_loader", "loader", ProductContent("{}")),),
+            ),
+            AgentToolResultMessage(
+                tool_request_id="pipy-tool-load", tool_name="loader",
+                content=ProductContent("loaded"),
                 provider_correlation_id="call_loader",
                 added_tool_names=("late_tool", "later_tool", "late_tool", "missing_tool"),
             ),
@@ -277,15 +287,23 @@ def test_openai_places_distinct_searches_at_multiple_result_markers(
         system_prompt="SYS", user_prompt="load twice", provider_name="openai",
         model_id="gpt-5.5", cwd=tmp_path,
         messages=(
-            AssistantMessage(tool_calls=(ProviderToolCall("call_first", "loader", "{}"),)),
-            ToolResultMessage(
-                tool_request_id="pipy-tool-load-first", output_text="first loaded",
+            AgentAssistantMessage(
+                content=ProductContent(""),
+                tool_calls=(AgentToolCall("call_first", "loader", ProductContent("{}")),),
+            ),
+            AgentToolResultMessage(
+                tool_request_id="pipy-tool-load-first", tool_name="loader",
+                content=ProductContent("first loaded"),
                 provider_correlation_id="call_first",
                 added_tool_names=("late_tool", "shared_tool"),
             ),
-            AssistantMessage(tool_calls=(ProviderToolCall("call_second", "loader", "{}"),)),
-            ToolResultMessage(
-                tool_request_id="pipy-tool-load-second", output_text="second loaded",
+            AgentAssistantMessage(
+                content=ProductContent(""),
+                tool_calls=(AgentToolCall("call_second", "loader", ProductContent("{}")),),
+            ),
+            AgentToolResultMessage(
+                tool_request_id="pipy-tool-load-second", tool_name="loader",
+                content=ProductContent("second loaded"),
                 provider_correlation_id="call_second",
                 added_tool_names=("shared_tool", "later_tool"),
             ),
@@ -317,8 +335,9 @@ def test_openai_places_distinct_searches_at_multiple_result_markers(
 
 
 def test_openai_tool_search_unsupported_and_all_deferred_matrix(tmp_path: Path) -> None:
-    marker = ToolResultMessage(
-        tool_request_id="pipy-tool-load", output_text="loaded",
+    marker = AgentToolResultMessage(
+        tool_request_id="pipy-tool-load", tool_name="loader",
+        content=ProductContent("loaded"),
         provider_correlation_id="call_loader", added_tool_names=("late_tool",),
     )
     for supported, expected_top_level, expected_search in (
@@ -360,20 +379,21 @@ def test_openai_includes_assistant_text_alongside_tool_calls(tmp_path: Path):
         model_id="gpt-test",
         cwd=tmp_path,
         messages=(
-            UserMessage(content="hello"),
-            AssistantMessage(
-                content="let me read it",
+            AgentUserMessage(content=ProductContent("hello")),
+            AgentAssistantMessage(
+                content=ProductContent("let me read it"),
                 tool_calls=(
-                    ProviderToolCall(
+                    AgentToolCall(
                         provider_correlation_id="call_abc",
                         tool_name="read",
-                        arguments_json='{"path": "x.py"}',
+                        arguments_json=ProductContent('{"path": "x.py"}'),
                     ),
                 ),
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id=make_tool_request_id(),
-                output_text="...",
+                tool_name="read",
+                content=ProductContent("..."),
                 provider_correlation_id="call_abc",
             ),
         ),
@@ -425,7 +445,7 @@ def test_openai_handles_dict_arguments_object(tmp_path: Path):
             provider_name="openai",
             model_id="gpt-test",
             cwd=tmp_path,
-            messages=(UserMessage(content="go"),),
+            messages=(AgentUserMessage(content=ProductContent("go")),),
             available_tools=(ReadTool().definition,),
         )
     )
@@ -466,7 +486,7 @@ def test_openai_falls_back_to_id_when_call_id_missing(tmp_path: Path):
             provider_name="openai",
             model_id="gpt-test",
             cwd=tmp_path,
-            messages=(UserMessage(content="go"),),
+            messages=(AgentUserMessage(content=ProductContent("go")),),
             available_tools=(ReadTool().definition,),
         )
     )

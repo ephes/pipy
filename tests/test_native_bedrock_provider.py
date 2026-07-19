@@ -11,17 +11,19 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import ProviderRequest, ProviderToolCall
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
+from pipy_harness.native import ProviderRequest
 from pipy_harness.native.bedrock_provider import (
     AmazonBedrockProvider,
     BedrockHTTPStatusError,
     JsonResponse,
     _sigv4_sign,
-)
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
 )
 
 
@@ -72,7 +74,9 @@ def _provider_request(tmp_path: Path) -> ProviderRequest:
     )
 
 
-def _make_provider(client: FakeJsonHTTPClient, **overrides: Any) -> AmazonBedrockProvider:
+def _make_provider(
+    client: FakeJsonHTTPClient, **overrides: Any
+) -> AmazonBedrockProvider:
     defaults: dict[str, Any] = {
         "model_id": "anthropic.claude-3-5-sonnet-20240620-v1:0",
         "region": "us-east-1",
@@ -275,7 +279,7 @@ def test_success_returns_tool_calls(tmp_path):
 
 
 def test_tool_result_round_trip(tmp_path):
-    """ToolResultMessage is serialized as Anthropic ``tool_result`` blocks."""
+    """AgentToolResultMessage serializes as Anthropic ``tool_result`` blocks."""
 
     client = FakeJsonHTTPClient(
         JsonResponse(
@@ -295,20 +299,21 @@ def test_tool_result_round_trip(tmp_path):
         model_id="anthropic.claude-3-5-sonnet-20240620-v1:0",
         cwd=tmp_path,
         messages=(
-            UserMessage(content="please call the tool"),
-            AssistantMessage(
-                content="calling",
+            AgentUserMessage(content=ProductContent("please call the tool")),
+            AgentAssistantMessage(
+                content=ProductContent("calling"),
                 tool_calls=(
-                    ProviderToolCall(
+                    AgentToolCall(
                         provider_correlation_id="toolu_round_trip",
                         tool_name="read",
-                        arguments_json='{"path": "/etc/hosts"}',
+                        arguments_json=ProductContent('{"path": "/etc/hosts"}'),
                     ),
                 ),
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id="pipy-tool-0001",
-                output_text="OK",
+                tool_name="read",
+                content=ProductContent("OK"),
                 provider_correlation_id="toolu_round_trip",
             ),
         ),

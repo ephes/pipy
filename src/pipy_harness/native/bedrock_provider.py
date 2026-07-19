@@ -30,15 +30,15 @@ from pipy_harness.native.anthropic_provider import (
     supports_adaptive_thinking,
 )
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolResultMessage,
+    AgentUserMessage,
+)
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
-)
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 BEDROCK_ENDPOINT_TEMPLATE = "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/invoke"
@@ -352,21 +352,21 @@ def _messages_payload(request: ProviderRequest) -> list[dict[str, object]]:
 
 
 def _envelope_to_message(envelope: Any) -> dict[str, object]:
-    """Translate one LoopMessage into one Anthropic-shape message dict."""
+    """Translate one ``AgentMessage`` into an Anthropic-shape message dict."""
 
-    if isinstance(envelope, UserMessage):
+    if isinstance(envelope, AgentUserMessage):
         return {
             "role": "user",
-            "content": [{"type": "text", "text": envelope.content}],
+            "content": [{"type": "text", "text": envelope.content.value}],
         }
-    if isinstance(envelope, AssistantMessage):
+    if isinstance(envelope, AgentAssistantMessage):
         content: list[dict[str, object]] = []
-        if envelope.content:
-            content.append({"type": "text", "text": envelope.content})
+        if envelope.content.value:
+            content.append({"type": "text", "text": envelope.content.value})
         for call in envelope.tool_calls:
             try:
                 parsed_input: Any = (
-                    json.loads(call.arguments_json) if call.arguments_json else {}
+                    json.loads(call.arguments_json.value) if call.arguments_json.value else {}
                 )
             except json.JSONDecodeError:
                 parsed_input = {}
@@ -381,12 +381,11 @@ def _envelope_to_message(envelope: Any) -> dict[str, object]:
                 }
             )
         return {"role": "assistant", "content": content}
-    if isinstance(envelope, ToolResultMessage):
-        correlation = _require_provider_correlation_id(envelope)
+    if isinstance(envelope, AgentToolResultMessage):
         block: dict[str, object] = {
             "type": "tool_result",
-            "tool_use_id": correlation,
-            "content": envelope.output_text,
+            "tool_use_id": envelope.provider_correlation_id,
+            "content": envelope.content.value,
         }
         if envelope.is_error:
             block["is_error"] = True
@@ -394,15 +393,6 @@ def _envelope_to_message(envelope: Any) -> dict[str, object]:
     raise BedrockResponseParseError(
         f"unsupported message envelope: {type(envelope).__name__}"
     )
-
-
-def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
-    if envelope.provider_correlation_id:
-        return envelope.provider_correlation_id
-    raise BedrockResponseParseError(
-        "ToolResultMessage is missing provider_correlation_id."
-    )
-
 
 @dataclass(frozen=True, slots=True)
 class ParsedBedrockResponse:

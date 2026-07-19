@@ -102,8 +102,7 @@ def _run(workspace: Path):
     )
     second = provider.requests[1]
     joined = " ".join(
-        str(getattr(m, "content", "") or getattr(m, "output_text", ""))
-        for m in second.messages
+        message.content.value for message in second.messages
     )
     return result, joined
 

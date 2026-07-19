@@ -16,15 +16,19 @@ from typing import Any
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderToolCall
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.openrouter_provider import (
     JsonResponse,
     OpenRouterChatCompletionsProvider,
 )
 from pipy_harness.native.tools import (
-    AssistantMessage,
     ReadTool,
-    ToolResultMessage,
-    UserMessage,
     make_tool_request_id,
 )
 
@@ -94,7 +98,7 @@ def test_openrouter_serializes_tools_in_chat_request(tmp_path: Path):
         provider_name="openrouter",
         model_id="openai/gpt-test",
         cwd=tmp_path,
-        messages=(UserMessage(content="please read"),),
+        messages=(AgentUserMessage(content=ProductContent("please read")),),
         available_tools=(read_tool.definition,),
     )
 
@@ -125,7 +129,7 @@ def test_openrouter_parses_tool_calls_into_provider_tool_call(tmp_path: Path):
             provider_name="openrouter",
             model_id="openai/gpt-test",
             cwd=tmp_path,
-            messages=(UserMessage(content="go"),),
+            messages=(AgentUserMessage(content=ProductContent("go")),),
             available_tools=(ReadTool().definition,),
         )
     )
@@ -167,19 +171,21 @@ def test_openrouter_serializes_tool_result_envelope(tmp_path: Path):
         model_id="openai/gpt-test",
         cwd=tmp_path,
         messages=(
-            UserMessage(content="read it"),
-            AssistantMessage(
+            AgentUserMessage(content=ProductContent("read it")),
+            AgentAssistantMessage(
+                content=ProductContent(""),
                 tool_calls=(
-                    ProviderToolCall(
+                    AgentToolCall(
                         provider_correlation_id="call_abc",
                         tool_name="read",
-                        arguments_json='{"path": "README.md"}',
+                        arguments_json=ProductContent('{"path": "README.md"}'),
                     ),
                 ),
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id=request_id,
-                output_text="<file contents>",
+                tool_name="read",
+                content=ProductContent("<file contents>"),
                 provider_correlation_id="call_abc",
             ),
         ),

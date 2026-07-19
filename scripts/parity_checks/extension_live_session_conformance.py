@@ -132,11 +132,11 @@ def _run_request_hook(workspace: Path) -> Check:
         and request.user_prompt == "hello::hook"
         and [tool.name for tool in request.available_tools] == ["bash"]
         and any(
-            getattr(message, "content", "") == "hello::hook"
+            message.content.value == "hello::hook"
             for message in request.messages
         )
         and not any(
-            getattr(message, "content", "") == "hello" for message in request.messages
+            message.content.value == "hello" for message in request.messages
         )
     )
     return Check(
@@ -168,8 +168,7 @@ def _run_user_bash(workspace: Path) -> Check:
     body = ""
     if request is not None:
         body = " ".join(
-            str(getattr(message, "content", "") or getattr(message, "output_text", ""))
-            for message in request.messages
+            message.content.value for message in request.messages
         )
     return Check(
         "user_bash_synthetic_result_context",

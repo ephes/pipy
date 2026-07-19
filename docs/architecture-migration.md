@@ -271,6 +271,31 @@ but leaves write ownership and call sites in place; Slice 3.3 performs that move
 The Phase 0 archive sentinel tests are a hard precondition for changing the
 workflow-recorder adapter.
 
+Slice 1.2 is one atomic consumer cutover. The legacy conversation envelope and
+its emitter form a connected producer/consumer graph; landing unused adapters
+or retaining both message paths would create the shadow implementation this
+migration forbids. The slice therefore moves the loop, providers, product
+session, compaction, extensions, automation, SDK, and tests together, then
+deletes `native.tools.messages` and the legacy automation emitter.
+
+Implementation evidence (2026-07-18): the tool loop and one-shot SDK now emit
+the canonical synchronous event vocabulary. A fixed-order composite projects
+text/reasoning deltas, buffered assistant messages, and tool start/update/result
+events through the rendering adapter before the existing Pi-shaped automation
+dictionaries and extension lifecycle hooks. It also defines the future
+product-session persistence projection and feeds an explicit metadata-only
+workflow allowlist. Turn chrome and local-command rendering remain terminal
+composition concerns for Phase 4; direct product-session writes retain their
+existing ownership until Slice 3.3. `AutomationAgentEventAdapter` owns cumulative
+assistant partial text, malformed-argument fallback, camelCase fields, and
+provider tool correlation ids, while RPC still owns queue reservation and the
+true-idle `agent_settled` boundary. Steering/follow-up consumption and closed
+cancellation reasons are canonical-only bookkeeping with no new wire records.
+The SDK retains its synchronous public callbacks and result contract through a
+canonical adapter. Product-session reload infers historical tool names from
+branch-local ancestry; unresolved legacy tool records remain storage-only so
+their ancestry and JSON survive without exposing an invalid provider message.
+
 Acceptance for Phase 1:
 
 - Existing JSON/RPC snapshots and extension lifecycle tests do not change
@@ -513,6 +538,15 @@ The default sequence is:
 15. extension-runtime Slices 6.1–6.4, one independently green monolith-touching
     slice at a time; and
 16. dead-code deletion and type/complexity ratchet.
+
+### Migration commit ledger
+
+| Slice | Commit | Verification and review |
+| --- | --- | --- |
+| 0.1 | `e063e8d` | Cross-platform baseline; deterministic local/CI gates recorded above. |
+| 0.2 | `b122e37` | Architecture characterization, privacy, SDK, and import contracts. |
+| 1.1 | `804d6d7` | Canonical typed synchronous agent contracts. |
+| 1.2 | `refactor: route native consumers through canonical agent events` (this slice) | Canonical adapter, mode-trace, automation/RPC, SDK/archive privacy, extension-order, persistence, provider, and PTY contracts; full repository gates plus mandatory Pi and different-family CLEAN required before commit. |
 
 The earlier code-quality audit remains evidence, with this mapping:
 

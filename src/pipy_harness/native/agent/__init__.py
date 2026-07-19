@@ -22,6 +22,7 @@ from pipy_harness.native.agent.events import (
     TurnStarted,
     UsageUpdated,
 )
+from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
@@ -40,6 +41,7 @@ from pipy_harness.native.agent.results import (
 )
 
 __all__ = [
+    "AGENT_TOOL_REQUEST_ID_PREFIX",
     "AgentAssistantMessage",
     "AgentCancellationReason",
     "AgentEvent",

@@ -11,13 +11,13 @@ from pipy_harness.adapters import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import NativeToolReplSession, ProviderToolCall
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolResultMessage,
+    AgentUserMessage,
+)
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.session_resume import ResumeContext
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
-)
 
 
 class _RecordingToolProvider:
@@ -134,13 +134,13 @@ def test_tool_loop_manual_compact_reduces_history_and_keeps_protocol(
     # orphans a tool result.
     messages = final_request.messages
     assert messages
-    assert isinstance(messages[0], UserMessage)
+    assert isinstance(messages[0], AgentUserMessage)
     seen: set[str] = set()
     for message in messages:
-        if isinstance(message, AssistantMessage):
+        if isinstance(message, AgentAssistantMessage):
             for call in message.tool_calls:
                 seen.add(call.provider_correlation_id)
-        if isinstance(message, ToolResultMessage):
+        if isinstance(message, AgentToolResultMessage):
             assert message.provider_correlation_id in seen
 
 
@@ -165,13 +165,13 @@ def test_tool_loop_compaction_with_tool_calls_no_orphans(tmp_path: Path) -> None
 
     assert result.compaction_count == 1
     final_messages = provider.requests[-1].messages
-    assert isinstance(final_messages[0], UserMessage)
+    assert isinstance(final_messages[0], AgentUserMessage)
     seen: set[str] = set()
     for message in final_messages:
-        if isinstance(message, AssistantMessage):
+        if isinstance(message, AgentAssistantMessage):
             for call in message.tool_calls:
                 seen.add(call.provider_correlation_id)
-        if isinstance(message, ToolResultMessage):
+        if isinstance(message, AgentToolResultMessage):
             assert message.provider_correlation_id in seen
 
 

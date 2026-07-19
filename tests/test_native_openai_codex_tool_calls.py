@@ -21,6 +21,13 @@ from typing import Any
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderToolCall
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     OpenAICodexCredentials,
@@ -28,10 +35,7 @@ from pipy_harness.native.openai_codex_provider import (
     SseResponse,
 )
 from pipy_harness.native.tools import (
-    AssistantMessage,
     ReadTool,
-    ToolResultMessage,
-    UserMessage,
     make_tool_request_id,
 )
 from pipy_harness.native.tools.base import ToolDefinition
@@ -159,7 +163,7 @@ def test_openai_codex_serializes_tools_in_responses_request(tmp_path: Path):
         provider_name="openai-codex",
         model_id="gpt-test",
         cwd=tmp_path,
-        messages=(UserMessage(content="please read"),),
+        messages=(AgentUserMessage(content=ProductContent("please read")),),
         available_tools=(read_tool.definition,),
     )
 
@@ -231,7 +235,7 @@ def test_openai_codex_assembles_function_call_from_sse_deltas(tmp_path: Path):
             provider_name="openai-codex",
             model_id="gpt-test",
             cwd=tmp_path,
-            messages=(UserMessage(content="go"),),
+            messages=(AgentUserMessage(content=ProductContent("go")),),
             available_tools=(ReadTool().definition,),
         )
     )
@@ -302,7 +306,7 @@ def test_openai_codex_finalizes_function_call_on_output_item_done(tmp_path: Path
             provider_name="openai-codex",
             model_id="gpt-test",
             cwd=tmp_path,
-            messages=(UserMessage(content="go"),),
+            messages=(AgentUserMessage(content=ProductContent("go")),),
             available_tools=(ReadTool().definition,),
         )
     )
@@ -352,7 +356,7 @@ def test_openai_codex_uses_item_id_when_stream_omits_call_id(tmp_path: Path):
             provider_name="openai-codex",
             model_id="gpt-test",
             cwd=tmp_path,
-            messages=(UserMessage(content="go"),),
+            messages=(AgentUserMessage(content=ProductContent("go")),),
             available_tools=(ReadTool().definition,),
         )
     )
@@ -416,7 +420,7 @@ def test_openai_codex_assembles_multiple_function_calls_in_order(tmp_path: Path)
             provider_name="openai-codex",
             model_id="gpt-test",
             cwd=tmp_path,
-            messages=(UserMessage(content="go"),),
+            messages=(AgentUserMessage(content=ProductContent("go")),),
             available_tools=(ReadTool().definition,),
         )
     )
@@ -481,7 +485,7 @@ def test_openai_codex_merges_added_metadata_into_delta_placeholder(
             provider_name="openai-codex",
             model_id="gpt-test",
             cwd=tmp_path,
-            messages=(UserMessage(content="go"),),
+            messages=(AgentUserMessage(content=ProductContent("go")),),
             available_tools=(ReadTool().definition,),
         )
     )
@@ -542,7 +546,7 @@ def test_openai_codex_merges_added_metadata_into_done_placeholder(
             provider_name="openai-codex",
             model_id="gpt-test",
             cwd=tmp_path,
-            messages=(UserMessage(content="go"),),
+            messages=(AgentUserMessage(content=ProductContent("go")),),
             available_tools=(ReadTool().definition,),
         )
     )
@@ -583,19 +587,21 @@ def test_openai_codex_serializes_tool_result_envelope(tmp_path: Path):
         model_id="gpt-test",
         cwd=tmp_path,
         messages=(
-            UserMessage(content="read it"),
-            AssistantMessage(
+            AgentUserMessage(content=ProductContent("read it")),
+            AgentAssistantMessage(
+                content=ProductContent(""),
                 tool_calls=(
-                    ProviderToolCall(
+                    AgentToolCall(
                         provider_correlation_id="call_abc|fc_abc",
                         tool_name="read",
-                        arguments_json='{"path": "README.md"}',
+                        arguments_json=ProductContent('{"path": "README.md"}'),
                     ),
                 ),
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id=request_id,
-                output_text="<file contents>",
+                tool_name="read",
+                content=ProductContent("<file contents>"),
                 provider_correlation_id="call_abc|fc_abc",
             ),
         ),
@@ -652,18 +658,20 @@ def test_openai_codex_replays_legacy_call_id_without_item_id(tmp_path: Path):
         model_id="gpt-test",
         cwd=tmp_path,
         messages=(
-            AssistantMessage(
+            AgentAssistantMessage(
+                content=ProductContent(""),
                 tool_calls=(
-                    ProviderToolCall(
+                    AgentToolCall(
                         provider_correlation_id="call_legacy",
                         tool_name="read",
-                        arguments_json='{"path": "README.md"}',
+                        arguments_json=ProductContent('{"path": "README.md"}'),
                     ),
                 ),
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id=request_id,
-                output_text="<file contents>",
+                tool_name="read",
+                content=ProductContent("<file contents>"),
                 provider_correlation_id="call_legacy",
             ),
         ),
@@ -697,11 +705,17 @@ def test_openai_codex_places_deferred_tools_with_full_correlation_hash(tmp_path:
         system_prompt="SYS", user_prompt="load", provider_name="openai-codex",
         model_id="gpt-5.6-sol", cwd=tmp_path,
         messages=(
-            AssistantMessage(tool_calls=(
-                ProviderToolCall("call_loader|fc_loader", "loader", "{}"),
-            )),
-            ToolResultMessage(
-                tool_request_id="pipy-tool-load", output_text="loaded",
+            AgentAssistantMessage(
+                content=ProductContent(""),
+                tool_calls=(
+                    AgentToolCall(
+                        "call_loader|fc_loader", "loader", ProductContent("{}")
+                    ),
+                ),
+            ),
+            AgentToolResultMessage(
+                tool_request_id="pipy-tool-load", tool_name="loader",
+                content=ProductContent("loaded"),
                 provider_correlation_id="call_loader|fc_loader",
                 added_tool_names=("late_tool", "later_tool"),
             ),
@@ -742,8 +756,9 @@ def test_openai_codex_tool_search_defaults_off(tmp_path: Path) -> None:
     ).complete(ProviderRequest(
         system_prompt="SYS", user_prompt="load", provider_name="openai-codex",
         model_id="gpt-test", cwd=tmp_path,
-        messages=(ToolResultMessage(
-            tool_request_id="pipy-tool-load", output_text="loaded",
+        messages=(AgentToolResultMessage(
+            tool_request_id="pipy-tool-load", tool_name="loader",
+            content=ProductContent("loaded"),
             provider_correlation_id="call_loader|fc_loader",
             added_tool_names=("late_tool",),
         ),),

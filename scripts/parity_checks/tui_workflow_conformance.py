@@ -70,6 +70,10 @@ from pipy_harness.native import (  # noqa: E402
 )
 from pipy_harness.native.cancellation import ProviderCancelledError  # noqa: E402
 from pipy_harness.native.clipboard import ImageClipboardResult  # noqa: E402
+from pipy_harness.native.agent import (  # noqa: E402
+    AgentAssistantMessage,
+    AgentUserMessage,
+)
 from pipy_harness.native.models import ProviderRequest, ProviderResult  # noqa: E402
 from pipy_harness.native.provider import ProviderPort  # noqa: E402
 from pipy_harness.native.repl_state import (  # noqa: E402
@@ -78,10 +82,6 @@ from pipy_harness.native.repl_state import (  # noqa: E402
 )
 from pipy_harness.native.session_tree import NativeSessionTree  # noqa: E402
 from pipy_harness.native.settings import SettingsManager  # noqa: E402
-from pipy_harness.native.tools.messages import (  # noqa: E402
-    AssistantMessage,
-    UserMessage,
-)
 from pipy_harness.native.tui import ToolLoopTerminalUi  # noqa: E402
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 128
@@ -113,8 +113,8 @@ class _FakeProvider:
         self.calls += 1
         text = request.user_prompt or ""
         for message in request.messages:
-            if isinstance(message, UserMessage):
-                text += "\n" + str(message.content)
+            if isinstance(message, AgentUserMessage):
+                text += "\n" + message.content.value
         self.user_prompts.append(text)
         self.attachment_counts.append(len(request.attachments or ()))
         now = datetime.now(UTC)
@@ -539,7 +539,8 @@ def run_checks(base: Path) -> list[Check]:
     # No fabricated assistant after the aborted user turn in the native tree.
     entries = list(tree10.get_entries())
     has_assistant = any(
-        isinstance(getattr(e, "message", None), AssistantMessage) for e in entries
+        isinstance(getattr(e, "message", None), AgentAssistantMessage)
+        for e in entries
     )
     checks.append(
         Check("true_cancellation_and_tree_consistent",

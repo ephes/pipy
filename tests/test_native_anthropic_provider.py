@@ -9,18 +9,20 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import ProviderRequest, ProviderToolCall
+from pipy_harness.native import ProviderRequest
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.anthropic_provider import (
     AnthropicHTTPStatusError,
     AnthropicProvider,
     JsonResponse,
     UrllibJsonHTTPClient,
-)
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    LoopMessage,
-    ToolResultMessage,
-    UserMessage,
 )
 from pipy_harness.native.tools import ToolDefinition
 
@@ -76,20 +78,21 @@ def provider_request_with_tool_round_trip(tmp_path: Path) -> ProviderRequest:
         model_id="claude-test",
         cwd=tmp_path,
         messages=(
-            UserMessage(content="please run the inspector"),
-            AssistantMessage(
-                content="working on it",
+            AgentUserMessage(content=ProductContent("please run the inspector")),
+            AgentAssistantMessage(
+                content=ProductContent("working on it"),
                 tool_calls=(
-                    ProviderToolCall(
+                    AgentToolCall(
                         provider_correlation_id="toolu_01ABC",
                         tool_name="read_only_repo_inspection",
-                        arguments_json='{"path": "src/main.py"}',
+                        arguments_json=ProductContent('{"path": "src/main.py"}'),
                     ),
                 ),
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id="pipy-tool-0001",
-                output_text="STATUS=succeeded bytes=120",
+                tool_name="read_only_repo_inspection",
+                content=ProductContent("STATUS=succeeded bytes=120"),
                 provider_correlation_id="toolu_01ABC",
             ),
         ),
@@ -263,7 +266,7 @@ def _tool(name: str) -> ToolDefinition:
 def _deferred_request(
     tmp_path: Path,
     *,
-    messages: tuple[LoopMessage, ...] | None = None,
+    messages: tuple[AgentMessage, ...] | None = None,
     tools: tuple[ToolDefinition, ...] | None = None,
 ) -> ProviderRequest:
     return ProviderRequest(
@@ -274,19 +277,21 @@ def _deferred_request(
         cwd=tmp_path,
         messages=messages
         or (
-            UserMessage(content="load tools"),
-            AssistantMessage(
+            AgentUserMessage(content=ProductContent("load tools")),
+            AgentAssistantMessage(
+                content=ProductContent(""),
                 tool_calls=(
-                    ProviderToolCall(
+                    AgentToolCall(
                         provider_correlation_id="call_base",
                         tool_name="base_tool",
-                        arguments_json="{}",
+                        arguments_json=ProductContent("{}"),
                     ),
                 )
             ),
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id="pipy-tool-load",
-                output_text="loaded late tool",
+                tool_name="base_tool",
+                content=ProductContent("loaded late tool"),
                 provider_correlation_id="call_base",
                 added_tool_names=("late_tool",),
             ),
@@ -353,9 +358,10 @@ def test_anthropic_reference_omits_empty_displaced_output(tmp_path: Path) -> Non
     for output_text in ("", " \n\t"):
         request = _deferred_request(tmp_path)
         messages = list(request.messages)
-        messages[-1] = ToolResultMessage(
+        messages[-1] = AgentToolResultMessage(
             tool_request_id="pipy-tool-load",
-            output_text=output_text,
+            tool_name="base_tool",
+            content=ProductContent(output_text),
             provider_correlation_id="call_base",
             added_tool_names=("late_tool",),
         )
@@ -395,19 +401,21 @@ def test_anthropic_deferred_fallback_matrix(tmp_path: Path) -> None:
             _deferred_request(
                 tmp_path,
                 messages=(
-                    UserMessage(content="load tools"),
-                    AssistantMessage(
+                    AgentUserMessage(content=ProductContent("load tools")),
+                    AgentAssistantMessage(
+                        content=ProductContent(""),
                         tool_calls=(
-                            ProviderToolCall(
+                            AgentToolCall(
                                 provider_correlation_id="call_late",
                                 tool_name="late_tool",
-                                arguments_json="{}",
+                                arguments_json=ProductContent("{}"),
                             ),
                         )
                     ),
-                    ToolResultMessage(
+                    AgentToolResultMessage(
                         tool_request_id="pipy-tool-load",
-                        output_text="already used",
+                        tool_name="late_tool",
+                        content=ProductContent("already used"),
                         provider_correlation_id="call_late",
                         added_tool_names=("late_tool",),
                     ),
@@ -446,22 +454,25 @@ def test_anthropic_groups_consecutive_results_before_displaced_output(
     tmp_path: Path,
 ) -> None:
     messages = (
-        UserMessage(content="load tools"),
-        AssistantMessage(
+        AgentUserMessage(content=ProductContent("load tools")),
+        AgentAssistantMessage(
+            content=ProductContent(""),
             tool_calls=(
-                ProviderToolCall("call_1", "base_tool", "{}"),
-                ProviderToolCall("call_2", "base_tool", "{}"),
+                AgentToolCall("call_1", "base_tool", ProductContent("{}")),
+                AgentToolCall("call_2", "base_tool", ProductContent("{}")),
             )
         ),
-        ToolResultMessage(
+        AgentToolResultMessage(
             tool_request_id="pipy-tool-1",
-            output_text="first output",
+            tool_name="base_tool",
+            content=ProductContent("first output"),
             provider_correlation_id="call_1",
             added_tool_names=("late_tool", "late_tool", "missing_tool"),
         ),
-        ToolResultMessage(
+        AgentToolResultMessage(
             tool_request_id="pipy-tool-2",
-            output_text="second output",
+            tool_name="base_tool",
+            content=ProductContent("second output"),
             provider_correlation_id="call_2",
         ),
     )

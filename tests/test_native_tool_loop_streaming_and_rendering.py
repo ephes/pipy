@@ -23,6 +23,7 @@ from __future__ import annotations
 import io
 import time
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import TextIO, cast
 
@@ -32,8 +33,25 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
     FakeNativeProvider,
     NativeToolReplSession,
+    ProviderRequest,
+    ProviderResult,
     ProviderToolCall,
 )
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentEvent,
+    AgentFailure,
+    AgentToolCall,
+    AssistantReasoningDelta,
+    AssistantTextDelta,
+    MessageCompleted,
+    MessageStarted,
+    ProductContent,
+    ProviderFailed,
+)
+from pipy_harness.native.agent_adapters import RenderingAgentEventAdapter
+from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
 from pipy_harness.native.tools import (
     ToolContext,
@@ -90,6 +108,14 @@ def _make_call(tool_name: str, arguments_json: str) -> ProviderToolCall:
     )
 
 
+def _make_agent_call(tool_name: str, arguments_json: str) -> AgentToolCall:
+    return AgentToolCall(
+        provider_correlation_id=f"call_{tool_name}",
+        tool_name=tool_name,
+        arguments_json=ProductContent(arguments_json),
+    )
+
+
 def _run_loop(
     *,
     tool_calls_script: tuple[tuple[ProviderToolCall, ...], ...],
@@ -129,12 +155,17 @@ def _run_loop(
 def test_renderer_streams_chunks_to_output_stream_without_label_prefix():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
-    renderer.begin_provider_turn()
-    renderer.stream_sink("hello ")
-    renderer.stream_sink("world")
-    renderer.end_provider_turn(final_text="hello world", has_tool_calls=False)
+    adapter = RenderingAgentEventAdapter(renderer)
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
+    adapter.emit(AssistantTextDelta(0, ProductContent("hello ")))
+    adapter.emit(AssistantTextDelta(0, ProductContent("world")))
+    adapter.emit(
+        MessageCompleted(0, AgentAssistantMessage(ProductContent("hello world")))
+    )
 
     assert renderer.streamed_any is True
     # Pi prints the final answer with no `assistant > ` label; only the
@@ -146,16 +177,56 @@ def test_renderer_streams_chunks_to_output_stream_without_label_prefix():
     assert err.getvalue() == ""
 
 
+def test_canonical_provider_failure_preserves_partial_stream_terminal_bytes() -> None:
+    out = _StreamingStub(isatty=False)
+    err = _StreamingStub(isatty=False)
+    adapter = RenderingAgentEventAdapter(
+        _ToolLoopRenderer(
+            output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+        )
+    )
+
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
+    adapter.emit(AssistantTextDelta(0, ProductContent("partial\n")))
+    before_failure = out.getvalue()
+    adapter.emit(
+        ProviderFailed(
+            AgentFailure("ProviderFailure", ProductContent("failed")),
+            will_retry=False,
+        )
+    )
+
+    # The removed producer-driven failure finalizer always supplied an empty
+    # final text, so even a newline-terminated partial stream gained two more
+    # newlines. The canonical adapter must retain those exact captured bytes.
+    assert out.getvalue() == before_failure + "\n\n"
+    assert err.getvalue() == ""
+
+
+def test_line_renderer_keeps_tool_call_preamble_buffered() -> None:
+    out = _StreamingStub(isatty=False)
+    err = _StreamingStub(isatty=False)
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
+
+    renderer.render_buffered_assistant_text("tool preamble", has_tool_calls=True)
+
+    assert out.getvalue() == ""
+
+
 def test_renderer_renders_pi_shape_tool_call_header():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
     renderer.render_tool_call(
-        ProviderToolCall(
+        AgentToolCall(
             provider_correlation_id="cc",
             tool_name="read",
-            arguments_json='{"path": "docs/backlog.md"}',
+            arguments_json=ProductContent('{"path": "docs/backlog.md"}'),
         )
     )
     renderer.render_tool_result(
@@ -178,7 +249,9 @@ def test_renderer_renders_pi_shape_tool_call_header():
 def test_renderer_renders_tool_result_error_tag():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
     renderer.render_tool_result(
         output_text="read error: path is ignored", is_error=True
@@ -192,7 +265,9 @@ def test_renderer_renders_tool_result_error_tag():
 def test_renderer_truncates_long_result_with_earlier_lines_marker():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
     long_body = "\n".join(f"row {index}" for index in range(20))
     renderer.render_tool_result(output_text=long_body, is_error=False)
@@ -208,9 +283,11 @@ def test_renderer_disables_ansi_on_non_tty(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
-    renderer.render_tool_call(_make_call("ls", '{"path": "."}'))
+    renderer.render_tool_call(_make_agent_call("ls", '{"path": "."}'))
 
     assert "\x1b[" not in err.getvalue()
 
@@ -219,9 +296,11 @@ def test_renderer_disables_ansi_under_no_color(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("NO_COLOR", "1")
     out = _StreamingStub(isatty=True)
     err = _StreamingStub(isatty=True)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
-    renderer.render_tool_call(_make_call("ls", '{"path": "."}'))
+    renderer.render_tool_call(_make_agent_call("ls", '{"path": "."}'))
     renderer.render_tool_result(output_text="ok", is_error=False)
 
     assert "\x1b[" not in err.getvalue()
@@ -234,7 +313,9 @@ def test_renderer_clears_submitted_input_under_no_color(
     monkeypatch.setenv("TERM", "xterm-256color")
     out = _StreamingStub(isatty=True)
     err = _StreamingStub(isatty=True)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
     renderer.render_user_message("hello world!")
 
@@ -249,9 +330,11 @@ def test_renderer_enables_ansi_on_tty_with_color(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("TERM", "xterm-256color")
     out = _StreamingStub(isatty=True)
     err = _StreamingStub(isatty=True)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
-    renderer.render_tool_call(_make_call("ls", '{"path": "."}'))
+    renderer.render_tool_call(_make_agent_call("ls", '{"path": "."}'))
     renderer.render_tool_result(output_text="ok", is_error=False)
 
     assert "\x1b[" in err.getvalue()
@@ -265,10 +348,12 @@ def test_renderer_uses_fallback_backgrounds_for_plain_256color(
     monkeypatch.setenv("TERM", "xterm-256color")
     out = _StreamingStub(isatty=True)
     err = _StreamingStub(isatty=True)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
     renderer.render_user_message("hello world!")
-    renderer.render_tool_call(_make_call("ls", '{"path": "."}'))
+    renderer.render_tool_call(_make_agent_call("ls", '{"path": "."}'))
 
     rendered = err.getvalue()
     assert "\x1b[48;5;237m" in rendered
@@ -285,10 +370,12 @@ def test_renderer_uses_truecolor_backgrounds_when_advertised(
     monkeypatch.setenv("COLORTERM", "truecolor")
     out = _StreamingStub(isatty=True)
     err = _StreamingStub(isatty=True)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
     renderer.render_user_message("hello world!")
-    renderer.render_tool_call(_make_call("ls", '{"path": "."}'))
+    renderer.render_tool_call(_make_agent_call("ls", '{"path": "."}'))
 
     rendered = err.getvalue()
     assert "\x1b[48;2;52;53;65m" in rendered
@@ -298,31 +385,37 @@ def test_renderer_uses_truecolor_backgrounds_when_advertised(
 def test_renderer_renders_read_resource_for_absolute_path():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
     renderer.render_tool_call(
-        ProviderToolCall(
+        AgentToolCall(
             provider_correlation_id="cc",
             tool_name="read",
-            arguments_json='{"path": "/Users/x/src/pi-mono/AGENTS.md"}',
+            arguments_json=ProductContent('{"path": "/Users/x/src/pi-mono/AGENTS.md"}'),
         )
     )
 
     rendered = err.getvalue()
     assert "read resource /Users/x/src/pi-mono/AGENTS.md:1-200" in rendered
-    assert "(ctrl+o to expand)" not in rendered.split("read resource")[1].splitlines()[0]
+    assert (
+        "(ctrl+o to expand)" not in rendered.split("read resource")[1].splitlines()[0]
+    )
 
 
 def test_renderer_renders_read_relative_without_resource_prefix():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
     renderer.render_tool_call(
-        ProviderToolCall(
+        AgentToolCall(
             provider_correlation_id="cc",
             tool_name="read",
-            arguments_json='{"path": "docs/backlog.md"}',
+            arguments_json=ProductContent('{"path": "docs/backlog.md"}'),
         )
     )
 
@@ -334,11 +427,21 @@ def test_renderer_renders_read_relative_without_resource_prefix():
 def test_renderer_streams_reasoning_with_bold_titles():
     out = _StreamingStub(isatty=True)
     err = _StreamingStub(isatty=True)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
-    renderer.begin_provider_turn()
-    renderer.handle_reasoning_chunk("**Investigating pi-mono**")
-    renderer.handle_reasoning_chunk("\n\nI need to compare the files carefully.")
+    adapter = RenderingAgentEventAdapter(renderer)
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
+    adapter.emit(
+        AssistantReasoningDelta(0, ProductContent("**Investigating pi-mono**"))
+    )
+    adapter.emit(
+        AssistantReasoningDelta(
+            0, ProductContent("\n\nI need to compare the files carefully.")
+        )
+    )
+    adapter.emit(MessageCompleted(0, AgentAssistantMessage(ProductContent(""))))
 
     rendered = err.getvalue()
     # Bold span is emitted as ANSI bold+italic+dim without literal asterisks.
@@ -352,31 +455,42 @@ def test_renderer_streams_reasoning_with_bold_titles():
 def test_renderer_reasoning_routes_to_error_stream_not_output():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
-    renderer.begin_provider_turn()
-    renderer.handle_reasoning_chunk("Thinking about parity.")
+    adapter = RenderingAgentEventAdapter(renderer)
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
+    adapter.emit(AssistantReasoningDelta(0, ProductContent("Thinking about parity.")))
+    adapter.emit(MessageCompleted(0, AgentAssistantMessage(ProductContent(""))))
 
     assert "Thinking about parity." in err.getvalue()
     assert out.getvalue() == ""
 
 
-def test_renderer_clears_working_marker_before_streaming(monkeypatch: pytest.MonkeyPatch):
+def test_renderer_clears_working_marker_before_streaming(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.delenv("NO_COLOR", raising=False)
     out = _StreamingStub(isatty=True)
     err = _StreamingStub(isatty=True)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
-    renderer.begin_provider_turn()
-    renderer.show_working()
+    adapter = RenderingAgentEventAdapter(renderer)
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
     assert "Working..." in _wait_for_text(err, "Working...")
     assert "\x1b7\x1b[1B\r\x1b[K" in err.getvalue()
 
-    renderer.stream_sink("hello ")
+    adapter.emit(AssistantTextDelta(0, ProductContent("hello ")))
     # The clear sequence removes the reserved spinner row while restoring
     # the cursor to the assistant-start row before streaming text.
     assert "\x1b7\x1b[1B\r\x1b[K\x1b8" in err.getvalue()
     assert "hello " in out.getvalue()
+    adapter.emit(
+        MessageCompleted(0, AgentAssistantMessage(ProductContent("hello ")))
+    )
 
 
 def test_renderer_clears_working_marker_without_streaming(
@@ -389,11 +503,11 @@ def test_renderer_clears_working_marker_without_streaming(
         output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
     )
 
-    renderer.begin_provider_turn()
-    renderer.show_working()
+    adapter = RenderingAgentEventAdapter(renderer)
+    adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
     assert "Working..." in _wait_for_text(err, "Working...")
 
-    renderer.end_provider_turn(final_text="done", has_tool_calls=False)
+    adapter.emit(MessageCompleted(0, AgentAssistantMessage(ProductContent(""))))
 
     assert "\x1b7\x1b[1B\r\x1b[K\x1b8" in err.getvalue()
 
@@ -401,13 +515,15 @@ def test_renderer_clears_working_marker_without_streaming(
 def test_renderer_argument_preview_handles_invalid_json():
     out = _StreamingStub(isatty=False)
     err = _StreamingStub(isatty=False)
-    renderer = _ToolLoopRenderer(output_stream=cast(TextIO, out), error_stream=cast(TextIO, err))
+    renderer = _ToolLoopRenderer(
+        output_stream=cast(TextIO, out), error_stream=cast(TextIO, err)
+    )
 
     renderer.render_tool_call(
-        ProviderToolCall(
+        AgentToolCall(
             provider_correlation_id="cc",
             tool_name="read",
-            arguments_json="this is not json",
+            arguments_json=ProductContent("this is not json"),
         )
     )
 
@@ -433,9 +549,7 @@ class _NoOpTool:
             },
         )
 
-    def invoke(
-        self, request: ToolRequest, context: ToolContext
-    ) -> ToolExecutionResult:
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         del context
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
@@ -464,6 +578,88 @@ def test_tool_loop_streams_provider_text_chunks_into_output_stream(
     assert expected_text in output
     # The buffered final_text is not duplicated after the streamed text.
     assert output.count(expected_text) == 1
+
+
+def test_streamed_completion_bytes_and_order_ignore_provider_final_text(
+    tmp_path: Path,
+) -> None:
+    output_stream = io.StringIO()
+    observed_output: list[str] = []
+
+    class DivergentFinalTextProvider(FakeNativeProvider):
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink: StreamChunkSink | None = None,
+            reasoning_sink: StreamChunkSink | None = None,
+            cancel_token: CancelToken | None = None,
+        ) -> ProviderResult:
+            result = super().complete(
+                request,
+                stream_sink=stream_sink,
+                reasoning_sink=reasoning_sink,
+                cancel_token=cancel_token,
+            )
+            return replace(result, final_text="provider-result-owned\n")
+
+    class OrderingSink:
+        def emit(self, event: AgentEvent) -> None:
+            if isinstance(event, MessageCompleted) and isinstance(
+                event.message, AgentAssistantMessage
+            ):
+                observed_output.append(output_stream.getvalue())
+
+    session = NativeToolReplSession(
+        provider=DivergentFinalTextProvider(
+            programmable_text_chunks=("canonical-delta-owned",),
+            supports_tool_calls=True,
+        ),
+        agent_event_sink=OrderingSink(),
+    )
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("question\n"),
+        output_stream=output_stream,
+        error_stream=io.StringIO(),
+    )
+
+    expected = "\n canonical-delta-owned\n\n"
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert observed_output == [expected]
+    assert output_stream.getvalue() == expected
+    assert "provider-result-owned" not in output_stream.getvalue()
+
+
+def test_buffered_assistant_is_rendered_before_later_event_sinks(
+    tmp_path: Path,
+) -> None:
+    output_stream = io.StringIO()
+    observed_output: list[str] = []
+
+    class OrderingSink:
+        def emit(self, event: AgentEvent) -> None:
+            if isinstance(event, MessageCompleted) and isinstance(
+                event.message, AgentAssistantMessage
+            ):
+                observed_output.append(output_stream.getvalue())
+
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(
+            final_text="buffered answer", supports_tool_calls=True
+        ),
+        agent_event_sink=OrderingSink(),
+    )
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("question\n"),
+        output_stream=output_stream,
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert observed_output == ["buffered answer\n"]
+    assert output_stream.getvalue().count("buffered answer") == 1
 
 
 def test_tool_loop_renders_tool_block_on_error_stream(tmp_path: Path):

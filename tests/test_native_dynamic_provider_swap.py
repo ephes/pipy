@@ -94,10 +94,10 @@ def test_tool_loop_switch_clears_then_refusal_preserves(tmp_path: Path) -> None:
     assert [r.model_id for r in requests] == ["model-a", "model-b", "model-b"]
     # Successful switch rebinds and clears the provider-visible conversation.
     assert [
-        getattr(m, "content", "").strip() for m in requests[1].messages
+        m.content.value.strip() for m in requests[1].messages
     ] == ["second"]
     # Refused switch (availability gate) preserves the accumulated conversation.
     assert len(requests[2].messages) > 1
-    assert getattr(requests[2].messages[0], "content", "").strip() == "second"
+    assert requests[2].messages[0].content.value.strip() == "second"
     # The live selection is unchanged by the refused switch.
     assert state.current_selection() == NativeModelSelection("fake", "model-b")

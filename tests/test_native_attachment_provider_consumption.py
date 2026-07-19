@@ -12,11 +12,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from pipy_harness.native.anthropic_provider import _messages_payload
+from pipy_harness.native.agent import AgentMessage, AgentUserMessage, ProductContent
 from pipy_harness.native.google_provider import _gemini_contents
 from pipy_harness.native.image_attachment import ProviderImageAttachment
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.openai_provider import _responses_input
-from pipy_harness.native.tools.messages import LoopMessage, UserMessage
 
 
 def _content(message: object) -> list[dict[str, Any]]:
@@ -36,7 +36,7 @@ def _attachment() -> ProviderImageAttachment:
     )
 
 
-def _request(*, messages: tuple[LoopMessage, ...] = ()) -> ProviderRequest:
+def _request(*, messages: tuple[AgentMessage, ...] = ()) -> ProviderRequest:
     return ProviderRequest(
         system_prompt="sys",
         user_prompt="describe this",
@@ -64,7 +64,9 @@ def test_anthropic_attaches_image_block_to_last_user_message() -> None:
 
 
 def test_anthropic_attaches_to_messages_envelope() -> None:
-    payload = _messages_payload(_request(messages=(UserMessage(content="hi"),)))
+    payload = _messages_payload(
+        _request(messages=(AgentUserMessage(content=ProductContent("hi")),))
+    )
     user = payload[-1]
     image_blocks = [b for b in _content(user) if b.get("type") == "image"]
     assert len(image_blocks) == 1
@@ -80,7 +82,9 @@ def test_openai_responses_attaches_input_image() -> None:
 
 
 def test_openai_responses_attaches_with_messages() -> None:
-    items = _responses_input(_request(messages=(UserMessage(content="hi"),)))
+    items = _responses_input(
+        _request(messages=(AgentUserMessage(content=ProductContent("hi")),))
+    )
     assert isinstance(items, list)
     user = items[-1]
     image_parts = [c for c in _content(user) if c.get("type") == "input_image"]

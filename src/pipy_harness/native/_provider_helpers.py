@@ -405,20 +405,20 @@ def serialize_tool_for_responses(tool: Any) -> dict[str, Any]:
 
 
 def envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
-    """Serialize a `LoopMessage` envelope into the OpenAI Chat-Completions shape."""
+    """Serialize an ``AgentMessage`` into the OpenAI Chat-Completions shape."""
 
-    from pipy_harness.native.tools.messages import (
-        AssistantMessage,
-        ToolResultMessage,
-        UserMessage,
+    from pipy_harness.native.agent import (
+        AgentAssistantMessage,
+        AgentToolResultMessage,
+        AgentUserMessage,
     )
 
-    if isinstance(envelope, UserMessage):
-        return {"role": "user", "content": envelope.content}
-    if isinstance(envelope, AssistantMessage):
+    if isinstance(envelope, AgentUserMessage):
+        return {"role": "user", "content": envelope.content.value}
+    if isinstance(envelope, AgentAssistantMessage):
         message: dict[str, Any] = {"role": "assistant"}
-        if envelope.content:
-            message["content"] = envelope.content
+        if envelope.content.value:
+            message["content"] = envelope.content.value
         if envelope.tool_calls:
             message["tool_calls"] = [
                 {
@@ -426,7 +426,7 @@ def envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
                     "type": "function",
                     "function": {
                         "name": call.tool_name,
-                        "arguments": call.arguments_json,
+                        "arguments": call.arguments_json.value,
                     },
                 }
                 for call in envelope.tool_calls
@@ -434,14 +434,11 @@ def envelope_to_chat_message(envelope: Any) -> dict[str, Any]:
         if "content" not in message:
             message["content"] = ""
         return message
-    if isinstance(envelope, ToolResultMessage):
-        correlation_id = envelope.provider_correlation_id
-        if not correlation_id:
-            raise ValueError("ToolResultMessage is missing provider_correlation_id.")
+    if isinstance(envelope, AgentToolResultMessage):
         return {
             "role": "tool",
-            "tool_call_id": correlation_id,
-            "content": envelope.output_text,
+            "tool_call_id": envelope.provider_correlation_id,
+            "content": envelope.content.value,
         }
     raise ValueError(f"unsupported message envelope: {type(envelope).__name__}")
 

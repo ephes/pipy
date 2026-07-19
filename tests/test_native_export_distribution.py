@@ -27,15 +27,17 @@ from pipy_harness.native.export_distribution import (
     self_update_plan,
 )
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.session_tree import NativeSessionTree
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
-)
 
 
 class _NoTurnProvider(ProviderPort):
@@ -61,12 +63,14 @@ def _tree(tmp_path: Path) -> NativeSessionTree:
     cwd = tmp_path / "workspace"
     cwd.mkdir()
     tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
-    tree.append_message(UserMessage(content="ROOT prompt"))
-    first_reply = tree.append_message(AssistantMessage(content="ROOT answer"))
-    tree.append_message(UserMessage(content="MAIN prompt"))
+    tree.append_message(AgentUserMessage(content=ProductContent("ROOT prompt")))
+    first_reply = tree.append_message(
+        AgentAssistantMessage(content=ProductContent("ROOT answer"))
+    )
+    tree.append_message(AgentUserMessage(content=ProductContent("MAIN prompt")))
     tree.append_message(
-        AssistantMessage(
-            content=(
+        AgentAssistantMessage(
+            content=ProductContent(
                 "MAIN answer ghp_BARETOKENSHOULDNOTLEAK123456789 "
                 "github_pat_BARETOKENSHOULDNOTLEAK123456789 "
                 "ya29.BARETOKENSHOULDNOTLEAK123456789 "
@@ -75,10 +79,10 @@ def _tree(tmp_path: Path) -> NativeSessionTree:
                 '"token":"json-token-value"}'
             ),
             tool_calls=(
-                ProviderToolCall(
+                AgentToolCall(
                     provider_correlation_id="call-1",
                     tool_name="write",
-                    arguments_json=(
+                    arguments_json=ProductContent(
                         '{"path":"out.txt","content":"hello",'
                         '"api_key":"tool-json-secret-value"}'
                     ),
@@ -87,16 +91,21 @@ def _tree(tmp_path: Path) -> NativeSessionTree:
         )
     )
     tree.append_message(
-        ToolResultMessage(
+        AgentToolResultMessage(
             tool_request_id="pipy-tool-1",
-            output_text="wrote file token=ghp_SHOULD_NOT_LEAK_123456789",
+            tool_name="write",
+            content=ProductContent(
+                "wrote file token=ghp_SHOULD_NOT_LEAK_123456789"
+            ),
             provider_correlation_id="call-1",
         )
     )
     main_leaf = tree.get_leaf_id()
     tree.branch(first_reply.id)
-    tree.append_message(UserMessage(content="ALT prompt"))
-    tree.append_message(AssistantMessage(content="ALT answer"))
+    tree.append_message(AgentUserMessage(content=ProductContent("ALT prompt")))
+    tree.append_message(
+        AgentAssistantMessage(content=ProductContent("ALT answer"))
+    )
     assert main_leaf is not None
     tree.branch(main_leaf)
     return tree
@@ -248,10 +257,7 @@ def test_jsonl_export_linearizes_active_branch_and_import_round_trips(tmp_path: 
 
     before_import = output.read_text(encoding="utf-8")
     imported = import_native_session_jsonl(output, session_dir=tmp_path / "store")
-    texts = [
-        getattr(message, "content", getattr(message, "output_text", ""))
-        for message in imported.build_context().messages
-    ]
+    texts = [message.content.value for message in imported.build_context().messages]
     assert "ROOT prompt" in texts
     assert "MAIN prompt" in texts
     assert "ALT prompt" not in texts

@@ -16,7 +16,7 @@ from pipy_harness.extensions import (
     ToolResult,
     lines_component,
 )
-from pipy_harness.native.models import ProviderToolCall
+from pipy_harness.native.agent import AgentToolCall, ProductContent
 from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
@@ -78,8 +78,11 @@ def test_pty_custom_tool_result_renders_colored(monkeypatch, tmp_path: Path):
         render_details_sink={"c": {"k": "v"}},
     )
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall(
+            provider_correlation_id="c",
+            tool_name="kv",
+            arguments_json=ProductContent("{}"),
+        )
     )
     renderer.render_tool_result(output_text="x", is_error=False)
     try:

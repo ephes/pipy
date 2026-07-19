@@ -13,6 +13,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentMessage,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.session_tree import (
     BranchSummaryEntry,
     CompactionEntry,
@@ -23,15 +30,11 @@ from pipy_harness.native.session_tree import (
     SessionEntry,
     SessionInfoEntry,
     ThinkingLevelChangeEntry,
+    _UnresolvedToolResultMessage,
     default_native_session_dir,
     list_session_dirs,
     list_session_files,
     native_sessions_root,
-)
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
 )
 
 FILTER_MODES = ("default", "no-tools", "user-only", "labeled-only", "all")
@@ -59,7 +62,7 @@ class TreeSelectionResult:
 
 def _is_user_message_entry(entry: SessionEntry) -> bool:
     return isinstance(entry, MessageEntry) and isinstance(
-        entry.message, UserMessage
+        entry.message, AgentUserMessage
     )
 
 
@@ -86,10 +89,10 @@ def apply_tree_selection(
 
     if _is_user_message_entry(entry):
         assert isinstance(entry, MessageEntry)
-        assert isinstance(entry.message, UserMessage)
+        assert isinstance(entry.message, AgentUserMessage)
         tree.set_leaf(entry.parent_id)
         return TreeSelectionResult(
-            editor_text=entry.message.content,
+            editor_text=entry.message.content.value,
             is_user_selection=True,
             is_noop=False,
         )
@@ -129,7 +132,7 @@ def branch_summary_attach_parent(
 
 def abandoned_branch_messages(
     tree: NativeSessionTree, old_leaf_id: str | None, attach_parent_id: str | None
-):  # noqa: ANN201 - returns list[LoopMessage]
+) -> list[AgentMessage]:
     """Messages on the old branch that are not retained on the new branch.
 
     Collects the abandoned path from the old leaf back to the common ancestor
@@ -152,12 +155,15 @@ def abandoned_branch_messages(
     ]
     messages = []
     for entry in abandoned_entries:
-        if isinstance(entry, MessageEntry):
+        if isinstance(entry, MessageEntry) and isinstance(
+            entry.message,
+            (AgentUserMessage, AgentAssistantMessage, AgentToolResultMessage),
+        ):
             messages.append(entry.message)
         elif isinstance(entry, CustomMessageEntry) and entry.content:
-            from pipy_harness.native.tools.messages import UserMessage as _U
-
-            messages.append(_U(content=entry.content))
+            messages.append(
+                AgentUserMessage(content=ProductContent(entry.content))
+            )
     return messages
 
 
@@ -199,7 +205,7 @@ def _entry_passes_filter(
     ):
         return False
     if isinstance(entry, MessageEntry) and isinstance(
-        entry.message, ToolResultMessage
+        entry.message, (AgentToolResultMessage, _UnresolvedToolResultMessage)
     ):
         return filter_mode != "no-tools"
     return True
@@ -266,13 +272,15 @@ def _entry_preview(tree: NativeSessionTree, entry: SessionEntry) -> str:
     label_prefix = f"[{label}] " if label else ""
     if isinstance(entry, MessageEntry):
         message = entry.message
-        if isinstance(message, UserMessage):
-            return f"{label_prefix}user: {_truncate(message.content)}"
-        if isinstance(message, AssistantMessage):
-            text = message.content or "(tool call)"
+        if isinstance(message, AgentUserMessage):
+            return f"{label_prefix}user: {_truncate(message.content.value)}"
+        if isinstance(message, AgentAssistantMessage):
+            text = message.content.value or "(tool call)"
             return f"{label_prefix}assistant: {_truncate(text)}"
-        if isinstance(message, ToolResultMessage):
-            return f"{label_prefix}tool: {_truncate(message.output_text)}"
+        if isinstance(message, AgentToolResultMessage):
+            return f"{label_prefix}tool: {_truncate(message.content.value)}"
+        if isinstance(message, _UnresolvedToolResultMessage):
+            return f"{label_prefix}tool: {_truncate(message.content)}"
     if isinstance(entry, BranchSummaryEntry):
         return f"{label_prefix}branch-summary: {_truncate(entry.summary)}"
     if isinstance(entry, CompactionEntry):

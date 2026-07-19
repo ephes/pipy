@@ -287,6 +287,13 @@ Rules to match Pi:
   `firstKeptEntryId` through the compaction boundary and all later active-branch
   messages.
 
+Canonical tool results require both the provider correlation id and tool name.
+The stable JSON format does not add a `tool_name` field: reload resolves it from
+the matching assistant tool call on that result's own parent chain. A historical
+record with a null or unmatched correlation id remains a private storage-only
+message so descendants and forks keep their ancestry, but it is omitted from
+provider context rather than fabricating tool identity or dropping the entry.
+
 Not every `message` entry is provider-visible exactly as stored. The
 leaf->root context build (`buildSessionContext`) collects the active branch,
 but some entries are filtered later during LLM message conversion: for example

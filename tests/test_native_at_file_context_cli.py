@@ -22,7 +22,7 @@ from pipy_harness.adapters import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import ProviderRequest, ProviderResult
-from pipy_harness.native.tools import UserMessage
+from pipy_harness.native.agent import AgentUserMessage
 
 
 class _NullEventSink:
@@ -131,9 +131,9 @@ def test_tool_loop_repl_loads_at_file_context_into_provider_messages(
     request = provider.captured[0]
     # The user message envelope carries the literal prompt and the excerpt.
     user_messages = [
-        message.content
+        message.content.value
         for message in request.messages
-        if isinstance(message, UserMessage)
+        if isinstance(message, AgentUserMessage)
     ]
     combined = "\n".join(user_messages)
     assert "explain @notes.txt please" in combined

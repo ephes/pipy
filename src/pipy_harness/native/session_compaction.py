@@ -10,11 +10,12 @@ produces.
 
 Two surfaces are supported:
 
-- ``compact_tool_loop_messages`` operates on the tool-loop ``LoopMessage`` list
-  (``UserMessage`` / ``AssistantMessage`` / ``ToolResultMessage``). It cuts the
+- ``compact_tool_loop_messages`` operates on canonical ``AgentMessage`` values.
+  It cuts the
   history only at *user-turn group boundaries* — the index of each
-  ``UserMessage`` — so a retained ``ToolResultMessage`` is always preceded by
-  the ``AssistantMessage`` that emitted the matching tool call. This preserves
+  ``AgentUserMessage`` — so a retained ``AgentToolResultMessage`` is always
+  preceded by the ``AgentAssistantMessage`` that emitted the matching tool
+  call. This preserves
   provider message-protocol validity: compaction cannot orphan a tool result,
   reorder a tool-call/observation pair, or split a group.
 - ``compact_no_tool_context`` operates on the no-tool REPL's bounded
@@ -30,13 +31,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from pipy_harness.native.conversation import NativeNoToolReplConversationContext
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    LoopMessage,
-    ToolResultMessage,
-    UserMessage,
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentMessage,
+    AgentToolResultMessage,
+    AgentUserMessage,
 )
+from pipy_harness.native.conversation import NativeNoToolReplConversationContext
 
 # Keep this many of the most recent user-turn groups (tool-loop) or exchanges
 # (no-tool) intact when compacting. Two recent turns plus the safe summary keep
@@ -55,9 +56,9 @@ DEFAULT_NO_TOOL_MAX_BYTES = 3072
 
 @dataclass(frozen=True, slots=True)
 class ToolLoopCompactionResult:
-    """Result of compacting a tool-loop ``LoopMessage`` history."""
+    """Result of compacting a canonical agent-message history."""
 
-    messages: tuple[LoopMessage, ...]
+    messages: tuple[AgentMessage, ...]
     summary_block: str
     changed: bool
     dropped_group_count: int
@@ -113,34 +114,36 @@ class NoToolCompactionResult:
         }
 
 
-def _message_bytes(message: LoopMessage) -> int:
-    if isinstance(message, UserMessage):
-        return len(message.content.encode("utf-8"))
-    if isinstance(message, AssistantMessage):
-        total = len(message.content.encode("utf-8"))
+def _message_bytes(message: AgentMessage) -> int:
+    if isinstance(message, AgentUserMessage):
+        return len(message.content.value.encode("utf-8"))
+    if isinstance(message, AgentAssistantMessage):
+        total = len(message.content.value.encode("utf-8"))
         for call in message.tool_calls:
-            total += len(call.arguments_json.encode("utf-8"))
+            total += len(call.arguments_json.value.encode("utf-8"))
             total += len(call.tool_name.encode("utf-8"))
         return total
-    if isinstance(message, ToolResultMessage):
-        return len(message.output_text.encode("utf-8"))
+    if isinstance(message, AgentToolResultMessage):
+        return len(message.content.value.encode("utf-8"))
     return 0
 
 
-def _messages_bytes(messages: tuple[LoopMessage, ...] | list[LoopMessage]) -> int:
+def _messages_bytes(
+    messages: tuple[AgentMessage, ...] | list[AgentMessage],
+) -> int:
     return sum(_message_bytes(message) for message in messages)
 
 
-def _user_group_boundaries(messages: list[LoopMessage]) -> list[int]:
+def _user_group_boundaries(messages: list[AgentMessage]) -> list[int]:
     return [
         index
         for index, message in enumerate(messages)
-        if isinstance(message, UserMessage)
+        if isinstance(message, AgentUserMessage)
     ]
 
 
 def compact_tool_loop_messages(
-    messages: list[LoopMessage] | tuple[LoopMessage, ...],
+    messages: list[AgentMessage] | tuple[AgentMessage, ...],
     *,
     keep_recent_groups: int = DEFAULT_KEEP_RECENT_GROUPS,
 ) -> ToolLoopCompactionResult:
@@ -148,7 +151,7 @@ def compact_tool_loop_messages(
 
     The most recent ``keep_recent_groups`` user-turn groups are retained
     verbatim; earlier groups are dropped and replaced by a metadata-only
-    ``summary_block``. The cut is always at a ``UserMessage`` index, so the
+    ``summary_block``. The cut is always at an ``AgentUserMessage`` index, so the
     retained history begins with a user turn and no tool result is orphaned.
     """
 
@@ -180,13 +183,13 @@ def compact_tool_loop_messages(
     dropped = message_list[:cut_index]
     retained = message_list[cut_index:]
 
-    dropped_user = sum(1 for m in dropped if isinstance(m, UserMessage))
-    dropped_assistant = sum(1 for m in dropped if isinstance(m, AssistantMessage))
+    dropped_user = sum(1 for m in dropped if isinstance(m, AgentUserMessage))
+    dropped_assistant = sum(1 for m in dropped if isinstance(m, AgentAssistantMessage))
     dropped_tool_results = sum(
-        1 for m in dropped if isinstance(m, ToolResultMessage)
+        1 for m in dropped if isinstance(m, AgentToolResultMessage)
     )
     dropped_tool_calls = sum(
-        len(m.tool_calls) for m in dropped if isinstance(m, AssistantMessage)
+        len(m.tool_calls) for m in dropped if isinstance(m, AgentAssistantMessage)
     )
     dropped_group_count = len(boundaries) - keep_recent_groups
 
@@ -214,7 +217,7 @@ def compact_tool_loop_messages(
 
 
 def should_compact_tool_loop_messages(
-    messages: list[LoopMessage] | tuple[LoopMessage, ...],
+    messages: list[AgentMessage] | tuple[AgentMessage, ...],
     *,
     max_messages: int = DEFAULT_TOOL_LOOP_MAX_MESSAGES,
     max_bytes: int = DEFAULT_TOOL_LOOP_MAX_BYTES,

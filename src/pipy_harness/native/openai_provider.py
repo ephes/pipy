@@ -12,6 +12,11 @@ from typing import Any
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_responses, extract_responses_tool_calls, urlopen_read_cancellable
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolResultMessage,
+    AgentUserMessage,
+)
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.deferred_tools import (
@@ -20,11 +25,6 @@ from pipy_harness.native.deferred_tools import (
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
-)
 from pipy_harness.native.tools.base import ToolDefinition
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
@@ -141,7 +141,6 @@ class OpenAIResponsesProvider:
         immediate_tools, deferred_tools = split_deferred_tools(
             request,
             enabled=self.supports_tool_search,
-            require_result_correlation=True,
         )
         body: dict[str, Any] = {
             "model": self.model_id,
@@ -219,7 +218,7 @@ def _responses_input(
         loaded_tool_names: set[str] = set()
         for envelope in request.messages:
             items.extend(_envelope_to_input_items(envelope))
-            if isinstance(envelope, ToolResultMessage) and deferred_tools:
+            if isinstance(envelope, AgentToolResultMessage) and deferred_tools:
                 items.extend(
                     responses_tool_search_items(
                         envelope,
@@ -294,23 +293,23 @@ def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> 
 
 
 def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
-    """Translate one LoopMessage into one or more Responses API input items."""
+    """Translate one ``AgentMessage`` into Responses API input items."""
 
-    if isinstance(envelope, UserMessage):
+    if isinstance(envelope, AgentUserMessage):
         return [
             {
                 "role": "user",
-                "content": [{"type": "input_text", "text": envelope.content}],
+                "content": [{"type": "input_text", "text": envelope.content.value}],
             }
         ]
-    if isinstance(envelope, AssistantMessage):
+    if isinstance(envelope, AgentAssistantMessage):
         items: list[dict[str, object]] = []
-        if envelope.content:
+        if envelope.content.value:
             items.append(
                 {
                     "role": "assistant",
                     "content": [
-                        {"type": "output_text", "text": envelope.content}
+                        {"type": "output_text", "text": envelope.content.value}
                     ],
                 }
             )
@@ -320,30 +319,21 @@ def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
                     "type": "function_call",
                     "call_id": call.provider_correlation_id,
                     "name": call.tool_name,
-                    "arguments": call.arguments_json,
+                    "arguments": call.arguments_json.value,
                 }
             )
         return items
-    if isinstance(envelope, ToolResultMessage):
+    if isinstance(envelope, AgentToolResultMessage):
         return [
             {
                 "type": "function_call_output",
-                "call_id": _require_provider_correlation_id(envelope),
-                "output": envelope.output_text,
+                "call_id": envelope.provider_correlation_id,
+                "output": envelope.content.value,
             }
         ]
     raise OpenAIResponseParseError(
         f"unsupported message envelope: {type(envelope).__name__}"
     )
-
-
-def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
-    if envelope.provider_correlation_id:
-        return envelope.provider_correlation_id
-    raise OpenAIResponseParseError(
-        "ToolResultMessage is missing provider_correlation_id."
-    )
-
 
 @dataclass(frozen=True, slots=True)
 class ParsedOpenAIResponse:

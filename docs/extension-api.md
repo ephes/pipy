@@ -136,8 +136,9 @@ packages has landed.)
 - Keep extension effects visible and testable through explicit registration
   objects and event hooks.
 - Preserve archive privacy. Extension prompts, tool arguments, command output,
-  UI text, file contents, and provider payloads must not enter the default
-  session archive.
+  UI text, file contents, and provider payloads must not enter the metadata-only
+  `pipy-session` workflow archive/catalog. The immutable native product session
+  tree is the separate full-content durable store.
 
 ## Non-Goals
 
@@ -145,8 +146,9 @@ packages has landed.)
 - Do not load or execute Pi TypeScript extensions. Translation to Python is the
   compatibility story.
 - Do not expose internal session objects, recorder handles, terminal renderer
-  internals, provider HTTP clients, raw transcript sidecars, or mutable archive
-  files to extensions.
+  internals, provider HTTP clients, the removed transcript-sidecar path, or
+  mutable workflow archive/catalog files to extensions. No transcript sidecar
+  exists in the current architecture.
 - Do not allow extensions to bypass workspace path policy, `.git` default-deny,
   symlink/path-escape checks, output bounds, secret redaction, or provider
   availability gates.
@@ -162,8 +164,9 @@ packages has landed.)
 - Capability-scoped context. Handlers receive a small context object tailored
   to the event. Trusted local extensions may inspect live runtime data that is
   necessary for the hook, such as tool arguments for a permission gate. They
-  still cannot mutate the recorder, raw transcript sidecars, or terminal
-  renderer internals.
+  still cannot mutate the metadata-only workflow recorder/catalog, access the
+  removed transcript-sidecar path, or mutate terminal renderer internals. No
+  transcript sidecar exists in the current architecture.
 - Pi-shaped names, Pythonic objects. Prefer Pi's event and API vocabulary
   (`tool_call`, `tool_result`, `before_agent_start`, `register_tool`) over
   pipy-only names when the concept matches. Use snake_case, dataclasses, and
@@ -481,14 +484,15 @@ def activate(api):
 Hook event objects may expose live runtime data to trusted local Python
 extensions when the event requires it. For example, `tool_call` must expose the
 live tool name and parsed input so permission gates can inspect a bash command
-or write path. That live access does not change archive policy: default pipy
-records must not store prompts, raw tool inputs, raw tool results, file
-contents, provider payloads, secrets, or UI text unless a specific safe
-metadata rule allows it.
+or write path. That live access does not change archive policy: the
+metadata-only workflow archive/catalog must not store prompts, raw tool inputs,
+raw tool results, file contents, provider payloads, secrets, or UI text unless
+a specific safe metadata rule allows it. Full-content product history belongs
+separately to the immutable native product session tree.
 
 The same rule applies to provider hooks: a trusted extension may inspect or
-transform the live in-memory provider request, but the default archive must
-never record provider payloads.
+transform the live in-memory provider request, but the metadata-only workflow
+archive/catalog must never record provider payloads.
 
 ## Commands
 
@@ -925,14 +929,22 @@ real network. It must prove:
    update path;
 7. invalid/conflicting options and missing sources fail closed with usage;
 8. no package source path, token, command output, extension code, prompt body,
-   tool payload, or UI text leaks into the default metadata archive.
+   tool payload, or UI text leaks into the metadata-only workflow
+   archive/catalog.
 9. explicit CLI source-loading paths for extensions, skills, prompt templates,
    and themes still load when matching default discovery or persisted filters
    are disabled.
 
-## Archive And Privacy Rules
+## Product Session, Archive, And Privacy Rules
 
-Default archive records may include:
+The immutable native product session tree is pipy's full-content durable
+conversation store. It is separate from the `pipy-session` workflow
+archive/catalog, whose DTOs are explicitly allowlisted and metadata-only. Full
+content from live extension and JSON/RPC surfaces never crosses into the
+workflow archive/catalog. There is no transcript sidecar: the former opt-in
+sidecar path was removed rather than retained as a third store.
+
+Metadata-only workflow archive/catalog records may include:
 
 - extension name, version, and path label
 - manifest validation status
@@ -940,7 +952,7 @@ Default archive records may include:
 - hook names and safe counts
 - safe policy outcomes such as "blocked by protected-paths"
 
-Default archive records must not include:
+Metadata-only workflow archive/catalog records must not include:
 
 - extension source code
 - command arguments that may contain prompts or secrets
@@ -950,8 +962,9 @@ Default archive records must not include:
 - injected context text
 - provider payloads or credentials
 
-Opt-in transcript sidecars remain sensitive content and outside default
-catalog/search/inspect surfaces.
+Full-content conversation persistence belongs only to the native product
+session tree. The removed opt-in transcript-sidecar path is not a current
+storage or extension surface.
 
 ## Compatibility And Versioning
 
@@ -1170,9 +1183,10 @@ and the live `scripts/tmux_answer_verify.sh`.
    `agent_settled` waits until queued continuations drain, still fires after an
    unexpected mid-run failure, and remains separate from JSON/RPC's mode-owned
    protocol event. Implemented as `LifecycleEvent` +
-   `dispatch_lifecycle_hooks` + `extension_event_hooks`, fired through an
-   `_ExtensionAwareEmitter` (observe-only, fail-soft) wired into
-   `tool_loop_session`.
+   `dispatch_lifecycle_hooks` + `extension_event_hooks`, fired after the
+   synchronous canonical automation projection by the tool-loop composition
+   sink. Automation failure propagates before an extension hook runs; extension
+   observation remains fail-soft.
 6. Input and before-agent-start hooks — **landed**: support `input` transforms,
    `before_agent_start` context/system-prompt modifications, and
    `send_user_message(...)` enough for a command to trigger a deterministic
@@ -1202,7 +1216,7 @@ and the live `scripts/tmux_answer_verify.sh`.
    later refinement.)
 9. Minimal UI notifications — **landed**: `ctx.ui.notify` from a command or
    hook handler surfaces to the live UI via a notify sink threaded through the
-   dispatchers / tool adapter / `_ExtensionAwareEmitter`; deterministic
+   dispatchers / tool adapter / canonical event composition sink; deterministic
    (records + sink) in non-interactive mode.
 10. Golden conformance extension — **landed**: the golden
     `docs/examples/extensions/pipy-extension-conformance.py` + product-path proof
@@ -1562,7 +1576,7 @@ and the live `scripts/tmux_answer_verify.sh`.
     the captured-mode proof in `extension_dispatch_conformance.py --json`.
 30. Anthropic cache-friendly dynamic tool loading — **landed**: a successful
     extension tool that only adds registered active tools records the ordered
-    names on its durable provider-agnostic `ToolResultMessage`. Removal,
+    names on its durable provider-agnostic `AgentToolResultMessage`. Removal,
     replacement, and handler failure retain the updated/fallback behavior but
     record no native-deferred marker. The Anthropic adapter resolves explicit
     `compat.supportsToolReferences` first, otherwise enabling only first-party
@@ -1589,8 +1603,9 @@ and the live `scripts/tmux_answer_verify.sh`.
 - What is the right packaging format for shareable Python extensions:
   local-path manifests, Python entry points, git refs, PyPI packages, or a
   pipy-specific package index?
-- How should extension state be stored without creating a second transcript or
-  leaking prompts?
+- How should extension state be stored without duplicating the native product
+  session tree or leaking prompts into the metadata-only workflow
+  archive/catalog?
 - Which UI hooks are valuable enough to expose before the full TUI is more
   stable?
 - Should discovered extensions support in-session reload, and if so how should

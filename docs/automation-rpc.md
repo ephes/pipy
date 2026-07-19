@@ -15,11 +15,13 @@ specification was researched from the local Pi reference on 2026-06-02. Pi
 hook now ships independently without adding another protocol event.
 
 Implementation map: `src/pipy_harness/native/automation/` (`jsonl.py` framing,
-`events.py`/`serialize.py` the Pi-shaped event vocabulary, `run_modes.py` the
+`agent_events.py` the canonical-event to Pi-dictionary projection,
+`events.py` the projection sink protocol, `serialize.py` the canonical-message
+to Pi-message representation, `run_modes.py` the
 `--mode json`/`--print` one-shot drivers, `rpc.py` the long-lived RPC server);
-the event surface is emitted from the real `NativeToolReplSession.run` loop via
-the optional `automation_observer`; the CLI wiring is `pipy repl --mode
-json|rpc` / `--print` in `src/pipy_harness/cli.py`.
+the real `NativeToolReplSession.run` loop emits canonical events into this
+projection via its fixed synchronous composite; the CLI wiring is `pipy repl
+--mode json|rpc` / `--print` in `src/pipy_harness/cli.py`.
 
 ## Sources
 
@@ -79,11 +81,13 @@ pipy-owned Python boundaries:
 
 These are full-content automation surfaces. **The JSON/RPC event stream emits
 full session events — assistant message content, tool-call arguments, tool
-results, bash output — exactly like Pi.** The "metadata-first privacy" posture
-of the `pipy-session` archive does **not** apply to these modes. Only auth
-secrets and credential tokens are never emitted (standard). This is a
-deliberate, explicit divergence from the archive's redaction rules, scoped to
-the automation transport.
+results, bash output — exactly like Pi.** The immutable native product session
+tree is the separate full-content durable store. The "metadata-first privacy"
+posture of the `pipy-session` workflow archive/catalog does **not** apply to
+either full-content surface, and live JSON/RPC payloads never cross into that
+metadata-only archive. Only auth secrets and credential tokens are never
+emitted (standard). This is a deliberate, explicit divergence from the
+archive's redaction rules, scoped to the automation transport.
 
 Pipy's former `--native-output json` was a pipy-specific divergence that
 emitted one final **metadata-only** object (counters, labels, record paths).
@@ -198,6 +202,8 @@ above), not Pi's session version (Pi is currently at 3):
 {"type":"session","version":1,"id":"...","timestamp":"...","cwd":"..."}
 {"type":"agent_start"}
 {"type":"turn_start"}
+{"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"ROOT"}]}}
+{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"ROOT"}]}}
 {"type":"message_start","message":{"role":"assistant","content":[]}}
 {"type":"message_update","message":{...},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"SEEN:ROOT","partial":{...}}}
 {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"SEEN:ROOT"}]}}
@@ -213,8 +219,8 @@ matching Pi's `_runAgentPrompt` `finally`
 (`print-mode.ts:104-106`). Because json mode is one-shot with no
 steering/follow-up queue, the driver synthesizes the settle line directly (see
 `run_json_mode`), just as the RPC server synthesizes its own queue-aware
-`agent_settled`; the shared `AutomationEmitter` never emits one, so there is no
-double emit in either mode.
+`agent_settled`; the canonical automation projection never emits one, so there
+is no double emit in either mode.
 
 ## (b) `--mode rpc`: Headless Stdin/Stdout JSONL Protocol
 
@@ -388,10 +394,12 @@ fields. pipy also emits `agent_settled` on the `--mode json` one-shot stream: th
 driver is single-prompt with no steering/follow-up queue, so the whole run drains
 to idle exactly when it returns and the driver writes the settle line as the final
 line after `agent_end` (in a `finally`, mirroring Pi so it fires even on error).
-Each mode synthesizes its own settle line at its own idle boundary — the shared
-`AutomationEmitter` never emits one — so neither stream double-emits. The
-extension-surface `agent_settled` hook (Pi's `_emitAgentSettled` also emits to
-extensions) is tracked separately as the remaining follow-on.
+Each mode synthesizes its own settle line at its own idle boundary — the
+canonical automation projection never emits one — so neither stream
+double-emits. The extension-surface `agent_settled` hook is also shipped: the
+tool-loop composition fires it independently at true idle, after the canonical
+automation projection. It intentionally remains separate from the JSON/RPC
+protocol event so mode-owned serialization cannot double-emit.
 
 Within the 31-command baseline, pipy command names match Pi so baseline clients
 drive pipy unchanged. Commands in the
@@ -421,7 +429,7 @@ which is in-scope full-content for this surface).
 ```json
 {
   "model": { "provider": "...", "id": "...", "...": "..." },
-  "thinkingLevel": "off|minimal|low|medium|high|xhigh",
+  "thinkingLevel": "off|minimal|low|medium|high|xhigh|max",
   "isStreaming": false,
   "isCompacting": false,
   "steeringMode": "all|one-at-a-time",
@@ -610,13 +618,15 @@ It has been **removed** and replaced by `--mode json`:
 - `--native-output json` is now rejected with a migration message pointing at
   `--mode json` (and, for the metadata-recording one-shot path,
   `pipy run --agent pipy-native`). There is no deprecation alias.
-- The metadata-only summary remains valuable for the `pipy-session` archive
-  surface, but it was never an automation event stream.
+- The metadata-only summary remains valuable for the `pipy-session` workflow
+  archive/catalog surface, but it was never an automation event stream.
 
-Archive privacy is unchanged for the `pipy-session` archive: the metadata-first
-recorder still stores no prompts, model text, tool payloads, file contents, or
-diffs. The **only** thing that changes is that the JSON/RPC *transport* is a
-full-content surface, decoupled from the archive's redaction policy.
+Archive privacy is unchanged for the `pipy-session` workflow archive/catalog:
+the metadata-only recorder still stores no prompts, model text, tool payloads,
+file contents, or diffs. The immutable native product session tree remains the
+separate full-content durable store. The **only** thing that changes is that the
+JSON/RPC *transport* is also a full-content surface; its payloads never cross
+into the metadata-only archive.
 
 ## (e) Python SDK Relationship
 
@@ -673,10 +683,12 @@ These hold throughout the track, not as later deferrals:
   does **not** apply here. The only hard redaction is auth secrets/tokens: API
   keys, OAuth tokens, and credential material are never emitted in events,
   responses, error strings, or state.
-- **Archive privacy unchanged elsewhere.** The `pipy-session` metadata recorder
-  and the opt-in transcript sidecar contracts are untouched. Running in
-  JSON/RPC mode does not cause the archive to start storing prompts, model text,
-  or tool payloads. The full-content behavior is confined to the live transport.
+- **Archive privacy unchanged elsewhere.** There is no transcript sidecar: the
+  former opt-in sidecar path was removed. The immutable native product session
+  tree is the full-content durable store, while the `pipy-session` workflow
+  archive/catalog remains metadata-only. Running in JSON/RPC mode does not
+  cause prompts, model text, tool payloads, or any other live transport content
+  to cross into that archive.
 - **Strict LF-only JSONL framing** on both directions, one JSON object per line,
   single serialized writer, stdout backpressure honored.
 - **Exact command/response vocabulary.** All 31 Pi RPC command types (including

@@ -152,10 +152,7 @@ def test_golden_conformance_extension(tmp_path, monkeypatch) -> None:
     )
     # The tool_result patch reached the model-visible observation.
     second = provider.requests[1]
-    joined = " ".join(
-        str(getattr(m, "content", "") or getattr(m, "output_text", ""))
-        for m in second.messages
-    )
+    joined = " ".join(message.content.value for message in second.messages)
     assert "PATCHED::probe-output" in joined
     # ctx.ui.notify surfaced to the live UI.
     assert "conformance probe ran" in error_stream.getvalue()

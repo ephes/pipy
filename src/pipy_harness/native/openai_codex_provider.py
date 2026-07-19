@@ -38,6 +38,11 @@ from pipy_harness.native._provider_helpers import (
     utc_now,
 )
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolResultMessage,
+    AgentUserMessage,
+)
 from pipy_harness.native.deferred_tools import (
     responses_tool_search_items,
     split_deferred_tools,
@@ -53,11 +58,6 @@ from pipy_harness.native.retry import (
 from pipy_harness.native.settings import (
     DEFAULT_HTTP_IDLE_TIMEOUT_MS,
     DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS,
-)
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
 )
 from pipy_harness.native.tools.base import ToolDefinition
 from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
@@ -804,7 +804,6 @@ class OpenAICodexResponsesProvider:
         immediate_tools, deferred_tools = split_deferred_tools(
             request,
             enabled=self.supports_tool_search,
-            require_result_correlation=True,
         )
         body: dict[str, Any] = {
             "model": self.model_id,
@@ -1044,7 +1043,7 @@ def _responses_input_messages(
         loaded_tool_names: set[str] = set()
         for envelope in request.messages:
             items.extend(_envelope_to_input_items(envelope))
-            if isinstance(envelope, ToolResultMessage) and deferred_tools:
+            if isinstance(envelope, AgentToolResultMessage) and deferred_tools:
                 items.extend(
                     responses_tool_search_items(
                         envelope,
@@ -1078,7 +1077,7 @@ def _responses_input_messages(
 
 
 def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
-    """Translate one LoopMessage into one or more Responses streaming items.
+    """Translate one ``AgentMessage`` into Responses streaming items.
 
     Mirrors the Pi OpenAI Codex Responses serialization: user/assistant text
     rides as `{"role": ..., "content": [{"type": "input_text" |
@@ -1087,21 +1086,21 @@ def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
     `function_call_output` items keyed by `call_id`.
     """
 
-    if isinstance(envelope, UserMessage):
+    if isinstance(envelope, AgentUserMessage):
         return [
             {
                 "role": "user",
-                "content": [{"type": "input_text", "text": envelope.content}],
+                "content": [{"type": "input_text", "text": envelope.content.value}],
             }
         ]
-    if isinstance(envelope, AssistantMessage):
+    if isinstance(envelope, AgentAssistantMessage):
         items: list[dict[str, object]] = []
-        if envelope.content:
+        if envelope.content.value:
             items.append(
                 {
                     "role": "assistant",
                     "content": [
-                        {"type": "output_text", "text": envelope.content}
+                        {"type": "output_text", "text": envelope.content.value}
                     ],
                 }
             )
@@ -1113,37 +1112,26 @@ def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
                 "type": "function_call",
                 "call_id": call_id,
                 "name": call.tool_name,
-                "arguments": call.arguments_json,
+                "arguments": call.arguments_json.value,
             }
             if item_id is not None:
                 item["id"] = item_id
             items.append(item)
         return items
-    if isinstance(envelope, ToolResultMessage):
+    if isinstance(envelope, AgentToolResultMessage):
         return [
             {
                 "type": "function_call_output",
-                "call_id": _require_responses_tool_call_id(envelope),
-                "output": envelope.output_text,
+                "call_id": _responses_tool_call_id(envelope),
+                "output": envelope.content.value,
             }
         ]
     raise OpenAICodexResponseParseError(
         f"unsupported message envelope: {type(envelope).__name__}"
     )
 
-
-def _require_provider_correlation_id(envelope: ToolResultMessage) -> str:
-    if envelope.provider_correlation_id:
-        return envelope.provider_correlation_id
-    raise OpenAICodexProviderError(
-        "ToolResultMessage is missing provider_correlation_id."
-    )
-
-
-def _require_responses_tool_call_id(envelope: ToolResultMessage) -> str:
-    return _split_responses_tool_correlation(
-        _require_provider_correlation_id(envelope)
-    )[0]
+def _responses_tool_call_id(envelope: AgentToolResultMessage) -> str:
+    return _split_responses_tool_correlation(envelope.provider_correlation_id)[0]
 
 
 def _split_responses_tool_correlation(correlation: str) -> tuple[str, str | None]:

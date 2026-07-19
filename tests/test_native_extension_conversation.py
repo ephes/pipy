@@ -7,12 +7,16 @@ This is exposed read-only through `ctx.conversation.last_assistant_message()`.
 
 from __future__ import annotations
 
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.extension_runtime import (
     AssistantMessageView,
     dispatch_extension_command,
 )
-from pipy_harness.native.models import ProviderToolCall
-from pipy_harness.native.tools.messages import AssistantMessage, UserMessage
 
 
 def _command_map(handler):
@@ -33,10 +37,12 @@ def test_last_assistant_message_exposes_recent_text() -> None:
         seen["msg"] = msg
 
     messages = [
-        UserMessage(content="hello"),
-        AssistantMessage(content="older answer"),
-        UserMessage(content="and then?"),
-        AssistantMessage(content="Which database: MySQL or Postgres?"),
+        AgentUserMessage(content=ProductContent("hello")),
+        AgentAssistantMessage(content=ProductContent("older answer")),
+        AgentUserMessage(content=ProductContent("and then?")),
+        AgentAssistantMessage(
+            content=ProductContent("Which database: MySQL or Postgres?")
+        ),
     ]
     dispatch = dispatch_extension_command(
         "/probe",
@@ -59,14 +65,14 @@ def test_last_assistant_message_reports_incomplete_when_tool_calls_pending() -> 
         seen["msg"] = ctx.conversation.last_assistant_message()
 
     messages = [
-        UserMessage(content="do it"),
-        AssistantMessage(
-            content="",
+        AgentUserMessage(content=ProductContent("do it")),
+        AgentAssistantMessage(
+            content=ProductContent(""),
             tool_calls=(
-                ProviderToolCall(
+                AgentToolCall(
                     provider_correlation_id="c1",
                     tool_name="bash",
-                    arguments_json="{}",
+                    arguments_json=ProductContent("{}"),
                 ),
             ),
         ),
@@ -91,7 +97,7 @@ def test_last_assistant_message_is_none_without_assistant_turn() -> None:
         _command_map(handler),
         cwd="/tmp",
         has_ui=True,
-        messages=[UserMessage(content="only user text")],
+        messages=[AgentUserMessage(content=ProductContent("only user text"))],
     )
     assert dispatch is not None and dispatch.ran
     assert seen["msg"] is None

@@ -5,7 +5,7 @@ Status: parity-loop design for one bounded provider-owned slice
 ## Scope
 
 Add Pi's OpenAI Responses client-side dynamic-tool placement on top of pipy's
-shipped durable `ToolResultMessage.added_tool_names` load point. Supported
+shipped durable `AgentToolResultMessage.added_tool_names` load point. Supported
 OpenAI Responses and OpenAI Codex Responses models keep definitions added
 during an extension-tool result out of the stable top-level `tools` prefix and
 insert a completed client `tool_search_call` plus matching
@@ -80,7 +80,7 @@ from the complete request every time:
 4. Top-level `tools` contains only immediate definitions. Unlike Anthropic,
    OpenAI has no at-least-one-immediate fallback: an all-deferred set omits
    top-level `tools` and is loaded from the transcript.
-5. Each `ToolResultMessage` first emits its unchanged
+5. Each `AgentToolResultMessage` first emits its unchanged
    `function_call_output`. Its ordered marker names then select current deferred
    definitions not loaded by an earlier marker in the same request. Duplicate,
    stale, already-used, unsupported, or already-loaded names add nothing.

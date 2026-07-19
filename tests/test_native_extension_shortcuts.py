@@ -153,14 +153,14 @@ def activate(api):
     activated = _activate(tmp_path)
     shortcuts = extension_shortcuts(activated)
 
-    from pipy_harness.native.tools.messages import AssistantMessage
+    from pipy_harness.native.agent import AgentAssistantMessage, ProductContent
 
     dispatch = dispatch_extension_shortcut(
         "ctrl-x",
         shortcuts,
         cwd=str(tmp_path),
         has_ui=True,
-        messages=[AssistantMessage(content="hello there")],
+        messages=[AgentAssistantMessage(content=ProductContent("hello there"))],
     )
     assert dispatch is not None and dispatch.ran
     assert ("info", "seen:hello there") in dispatch.messages

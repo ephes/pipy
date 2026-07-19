@@ -25,6 +25,7 @@ import json
 import queue
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, TextIO
 
@@ -157,6 +158,12 @@ _KNOWN_COMMANDS = frozenset(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _QueuedPrompt:
+    text: str
+    kind: str
+
+
 class _PromptChannel:
     """Blocking LF line stream feeding prompts to the worker ``run`` loop.
 
@@ -166,11 +173,13 @@ class _PromptChannel:
     """
 
     def __init__(self) -> None:
-        self._q: "queue.Queue[str | None]" = queue.Queue()
+        self._q: "queue.Queue[_QueuedPrompt | None]" = queue.Queue()
         self._eof = False
+        self._last_delivery_kind: str | None = None
 
-    def push(self, text: str) -> None:
-        self._q.put(text if text.endswith("\n") else text + "\n")
+    def push(self, text: str, *, kind: str = "prompt") -> None:
+        line = text if text.endswith("\n") else text + "\n"
+        self._q.put(_QueuedPrompt(line, kind))
 
     def signal_eof(self) -> None:
         if not self._eof:
@@ -182,7 +191,13 @@ class _PromptChannel:
         if item is None:
             self._q.put(None)  # re-arm EOF for any later readline
             return ""
-        return item
+        self._last_delivery_kind = item.kind
+        return item.text
+
+    def take_delivery_kind(self) -> str | None:
+        kind = self._last_delivery_kind
+        self._last_delivery_kind = None
+        return kind
 
     def read(self, *_args: Any) -> str:
         return self.readline()
@@ -309,7 +324,7 @@ class NativeRpcServer:
         if reserved is not None:
             self._deliver(reserved)
 
-    def _reserve_next_message(self, *, settled: bool) -> str | None:
+    def _reserve_next_message(self, *, settled: bool) -> _QueuedPrompt | None:
         """Atomically settle the run (if any) and reserve the next queued message.
 
         pipy promotes a queued ``steer``/``follow_up`` message to run after the
@@ -335,7 +350,7 @@ class NativeRpcServer:
         with self._lock:
             return self._reserve_next_message_locked(settled=settled)
 
-    def _reserve_next_message_locked(self, *, settled: bool) -> str | None:
+    def _reserve_next_message_locked(self, *, settled: bool) -> _QueuedPrompt | None:
         """``_reserve_next_message`` core; caller must hold ``self._lock``.
 
         Split out so the ``agent_end`` boundary can settle/reserve and write the
@@ -349,18 +364,20 @@ class NativeRpcServer:
             return None
         if self._steering:
             message = self._steering.pop(0)
+            kind = "steering"
         elif self._follow_up:
             message = self._follow_up.pop(0)
+            kind = "follow_up"
         else:
             return None
         # The reserved run is active from this moment (accept time), not only
         # once the worker later emits agent_start.
         self._turn_active = True
-        return message
+        return _QueuedPrompt(message, kind)
 
-    def _deliver(self, message: str) -> None:
+    def _deliver(self, message: _QueuedPrompt) -> None:
         self._emit_queue_update()
-        self._channel.push(message)
+        self._channel.push(message.text, kind=message.kind)
 
     # -- lifecycle -------------------------------------------------------
     def run(self) -> int:
@@ -795,27 +812,25 @@ class NativeRpcServer:
         # session returns its last assistant text even with no live cache yet;
         # fall back to the live-event cache otherwise.
         text: str | None = None
-        from pipy_harness.native.tools.messages import AssistantMessage
+        from pipy_harness.native.agent import AgentAssistantMessage
 
         for message in reversed(self._messages()):
-            if isinstance(message, AssistantMessage) and message.content:
-                text = message.content
+            if isinstance(message, AgentAssistantMessage) and message.content.value:
+                text = message.content.value
                 break
         if text is None:
             text = self._last_assistant_text
         self._respond(cid, "get_last_assistant_text", {"text": text})
 
     def _cmd_get_fork_messages(self, cid: str | None, command: dict[str, Any]) -> None:
+        from pipy_harness.native.agent import AgentUserMessage
+
         entries = []
         try:
             for entry in self._tree.get_branch():
                 message = getattr(entry, "message", None)
-                if (
-                    message is not None
-                    and getattr(message, "content", None) is not None
-                    and type(message).__name__ == "UserMessage"
-                ):
-                    entries.append({"entryId": entry.id, "text": message.content})
+                if isinstance(message, AgentUserMessage):
+                    entries.append({"entryId": entry.id, "text": message.content.value})
         except Exception:
             entries = []
         self._respond(cid, "get_fork_messages", {"messages": entries})

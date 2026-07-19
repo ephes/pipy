@@ -17,8 +17,12 @@ from pipy_harness.native import (
     ProviderRequest,
     ProviderResult,
 )
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.session_tree import NativeSessionTree
-from pipy_harness.native.tools.messages import AssistantMessage, UserMessage
 
 
 class _SeenProvider:
@@ -37,7 +41,11 @@ class _SeenProvider:
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         self.requests.append(request)
-        users = [m.content for m in request.messages if isinstance(m, UserMessage)]
+        users = [
+            m.content.value
+            for m in request.messages
+            if isinstance(m, AgentUserMessage)
+        ]
         now = datetime.now(UTC)
         return ProviderResult(
             status=HarnessStatus.SUCCEEDED,
@@ -87,9 +95,9 @@ def test_tool_loop_persists_raw_turns_to_native_session_file(
     assert "SEEN:ROOT" in body
     # Active-branch user messages accumulate across turns.
     texts = [
-        m.content
+        m.content.value
         for m in provider.requests[-1].messages
-        if isinstance(m, UserMessage)
+        if isinstance(m, AgentUserMessage)
     ]
     assert texts == ["ROOT", "MAIN"]
 
@@ -100,8 +108,10 @@ def test_tool_loop_context_reconstructed_from_resumed_tree(
     cwd = _workspace(tmp_path)
     session_dir = tmp_path / "sessions"
     seed = NativeSessionTree.create(cwd, session_dir=session_dir)
-    seed.append_message(UserMessage(content="ROOT"))
-    seed.append_message(AssistantMessage(content="SEEN:ROOT"))
+    seed.append_message(AgentUserMessage(content=ProductContent("ROOT")))
+    seed.append_message(
+        AgentAssistantMessage(content=ProductContent("SEEN:ROOT"))
+    )
     assert seed.path is not None
 
     reopened = NativeSessionTree.open(seed.path)
@@ -113,9 +123,9 @@ def test_tool_loop_context_reconstructed_from_resumed_tree(
     # The first provider call after resume must carry the prior ROOT context
     # plus the new turn, proving context was rebuilt from the native file.
     users = [
-        m.content
+        m.content.value
         for m in provider.requests[0].messages
-        if isinstance(m, UserMessage)
+        if isinstance(m, AgentUserMessage)
     ]
     assert users == ["ROOT", "MORE"]
 
@@ -133,7 +143,11 @@ def test_tool_loop_default_session_is_ephemeral(tmp_path: Path) -> None:
 
 
 def _request_users(request) -> list[str]:  # noqa: ANN001
-    return [m.content for m in request.messages if isinstance(m, UserMessage)]
+    return [
+        m.content.value
+        for m in request.messages
+        if isinstance(m, AgentUserMessage)
+    ]
 
 
 def test_canonical_tree_branch_scenario(tmp_path: Path) -> None:
@@ -256,7 +270,9 @@ def test_tree_select_with_summary_records_branch_summary(tmp_path: Path) -> None
     # The branch summary message contributes to the active-branch context.
     reopened = NativeSessionTree.open(tree.path)
     rebuilt = " ".join(
-        m.content for m in reopened.build_context().messages if isinstance(m, UserMessage)
+        m.content.value
+        for m in reopened.build_context().messages
+        if isinstance(m, AgentUserMessage)
     )
     assert "abandoned" in rebuilt.lower()
 
@@ -265,7 +281,7 @@ def test_resume_rename_and_delete_with_confirmation(tmp_path: Path) -> None:
     cwd = _workspace(tmp_path)
     session_dir = tmp_path / "sessions"
     first = NativeSessionTree.create(cwd, session_dir=session_dir)
-    first.append_message(UserMessage(content="seed"))
+    first.append_message(AgentUserMessage(content=ProductContent("seed")))
     first_id = first.session_id
 
     active = NativeSessionTree.create(cwd, session_dir=session_dir)
@@ -314,9 +330,15 @@ def test_durable_compaction_entry_survives_reload(tmp_path: Path) -> None:
 
     reopened = NativeSessionTree.open(tree.path)
     rebuilt = reopened.build_context().messages
-    texts = " ".join(m.content for m in rebuilt if isinstance(m, UserMessage))
+    texts = " ".join(
+        m.content.value for m in rebuilt if isinstance(m, AgentUserMessage)
+    )
     # The compaction summary message is present on reload.
-    assert any("compacted" in m.content.lower() for m in rebuilt if isinstance(m, UserMessage))
+    assert any(
+        "compacted" in m.content.value.lower()
+        for m in rebuilt
+        if isinstance(m, AgentUserMessage)
+    )
     # Oldest dropped turn 'a' is no longer a standalone user message.
     assert " a " not in f" {texts} "
 
@@ -336,10 +358,10 @@ class _StubPickerUi:
 def test_interactive_resume_picker_wiring(tmp_path: Path) -> None:
     sessions_dir = tmp_path / "store" / "proj"
     active = NativeSessionTree.create(tmp_path / "ws", session_dir=sessions_dir)
-    active.append_message(UserMessage(content="ACTIVE"))
+    active.append_message(AgentUserMessage(content=ProductContent("ACTIVE")))
     other = NativeSessionTree.create(tmp_path / "ws", session_dir=sessions_dir)
     other.append_session_info("other-name")
-    other.append_message(UserMessage(content="OTHER"))
+    other.append_message(AgentUserMessage(content=ProductContent("OTHER")))
 
     session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
     assert active.path is not None and other.path is not None
@@ -383,7 +405,7 @@ class _RenameActiveUi:
 def test_resume_rename_active_session_updates_live_tree(tmp_path: Path) -> None:
     sessions_dir = tmp_path / "store" / "proj"
     active = NativeSessionTree.create(tmp_path / "ws", session_dir=sessions_dir)
-    active.append_message(UserMessage(content="X"))
+    active.append_message(AgentUserMessage(content=ProductContent("X")))
     assert active.path is not None
     session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
 

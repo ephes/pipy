@@ -10,6 +10,7 @@ from typing import TextIO
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.native.automation.events import AutomationEventSink
+from pipy_harness.native.agent import AgentEventSink
 from pipy_harness.models import AdapterResult, PreparedRun, RunRequest
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.extension_runtime import ExtensionActivationBatch
@@ -170,6 +171,7 @@ class PipyNativeToolReplAdapter:
         system_prompt_source: str | None = None,
         append_system_prompt_sources: list[str] | None = None,
         automation_observer: "AutomationEventSink | None" = None,
+        agent_event_sink: "AgentEventSink | None" = None,
         abort_event: "threading.Event | None" = None,
         resource_options: RuntimeResourceOptions | None = None,
         initial_messages: tuple[str, ...] = (),
@@ -194,6 +196,7 @@ class PipyNativeToolReplAdapter:
         # transports. Forwarded to the tool-loop session; ``None`` keeps the
         # interactive path unchanged.
         self.automation_observer = automation_observer
+        self.agent_event_sink = agent_event_sink
         self.abort_event = abort_event
         self.resource_options = resource_options or RuntimeResourceOptions.empty()
         self.tool_filter_options = tool_filter_options or ToolFilterOptions.empty()
@@ -354,6 +357,7 @@ class PipyNativeToolReplAdapter:
             native_session=self.native_session,
             settings_manager=runtime_settings,
             automation_observer=self.automation_observer,
+            agent_event_sink=self.agent_event_sink,
             abort_event=self.abort_event,
             resource_options=self.resource_options,
             initial_messages=self.initial_messages,

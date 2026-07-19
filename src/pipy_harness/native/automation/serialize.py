@@ -1,8 +1,7 @@
-"""Serialize native message/tool dataclasses onto Pi's JSON message shapes.
+"""Serialize canonical agent messages onto Pi's JSON message shapes.
 
-Pipy reuses its own native dataclasses (``UserMessage``, ``AssistantMessage``,
-``ToolResultMessage``, ``ProviderToolCall``) and serializes them to the same
-role/content discriminators Pi uses (`packages/ai/src/types.ts`). Exact
+Pipy projects its provider-neutral agent dataclasses onto the same role/content
+discriminators Pi uses (`packages/ai/src/types.ts`). Exact
 byte-for-byte field matching with Pi is not the gate (see
 ``docs/automation-rpc.md`` Verification); matching role/content discriminators
 and full-content presence is.
@@ -16,14 +15,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from pipy_harness.native.automation.jsonl import loads_strict
-from pipy_harness.native.models import ProviderToolCall
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    LoopMessage,
-    ToolResultMessage,
-    UserMessage,
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
 )
+from pipy_harness.native.automation.jsonl import loads_strict
 
 
 def parse_tool_arguments(arguments_json: str) -> Any:
@@ -42,17 +41,17 @@ def parse_tool_arguments(arguments_json: str) -> Any:
         return {"_raw": arguments_json}
 
 
-def tool_call_block(call: ProviderToolCall) -> dict[str, Any]:
+def tool_call_block(call: AgentToolCall) -> dict[str, Any]:
     return {
         "type": "toolCall",
         "id": call.provider_correlation_id,
         "name": call.tool_name,
-        "arguments": parse_tool_arguments(call.arguments_json),
+        "arguments": parse_tool_arguments(call.arguments_json.value),
     }
 
 
 def assistant_content_blocks(
-    content: str, tool_calls: tuple[ProviderToolCall, ...]
+    content: str, tool_calls: tuple[AgentToolCall, ...]
 ) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
     if content:
@@ -61,24 +60,26 @@ def assistant_content_blocks(
     return blocks
 
 
-def serialize_message(message: LoopMessage) -> dict[str, Any]:
+def serialize_message(message: AgentMessage) -> dict[str, Any]:
     """Map one native loop message to its Pi-shaped JSON object."""
 
-    if isinstance(message, UserMessage):
+    if isinstance(message, AgentUserMessage):
         return {
             "role": "user",
-            "content": [{"type": "text", "text": message.content}],
+            "content": [{"type": "text", "text": message.content.value}],
         }
-    if isinstance(message, AssistantMessage):
+    if isinstance(message, AgentAssistantMessage):
         return {
             "role": "assistant",
-            "content": assistant_content_blocks(message.content, message.tool_calls),
+            "content": assistant_content_blocks(
+                message.content.value, message.tool_calls
+            ),
         }
-    if isinstance(message, ToolResultMessage):
+    if isinstance(message, AgentToolResultMessage):
         return {
             "role": "toolResult",
-            "toolCallId": message.provider_correlation_id or message.tool_request_id,
-            "content": [{"type": "text", "text": message.output_text}],
+            "toolCallId": message.provider_correlation_id,
+            "content": [{"type": "text", "text": message.content.value}],
             "isError": message.is_error,
         }
     raise TypeError(f"unserializable loop message: {type(message)!r}")

@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native import models as native_models
+from pipy_harness.native.agent import AGENT_TOOL_REQUEST_ID_PREFIX
 from pipy_harness.native.tools import (
     ToolArgumentError,
     ToolContext,
@@ -25,9 +26,6 @@ from pipy_harness.native.tools import (
     ToolRequest,
     make_tool_request_id,
     validate_arguments,
-)
-from pipy_harness.native.tools.base import (
-    SUPPORTED_TOOL_REQUEST_ID_PREFIX,
 )
 
 
@@ -158,7 +156,7 @@ def test_tool_request_round_trip_with_pipy_owned_id():
     )
 
     assert request.tool_request_id == request_id
-    assert request.tool_request_id.startswith(SUPPORTED_TOOL_REQUEST_ID_PREFIX)
+    assert request.tool_request_id.startswith(AGENT_TOOL_REQUEST_ID_PREFIX)
     assert request.tool_name == "read"
     assert request.arguments == {"path": "README.md"}
     assert request.provider_correlation_id == "call_abc"
@@ -210,8 +208,8 @@ def test_make_tool_request_id_returns_unique_pipy_owned_ids():
     two = make_tool_request_id()
 
     assert one != two
-    assert one.startswith(SUPPORTED_TOOL_REQUEST_ID_PREFIX)
-    assert two.startswith(SUPPORTED_TOOL_REQUEST_ID_PREFIX)
+    assert one.startswith(AGENT_TOOL_REQUEST_ID_PREFIX)
+    assert two.startswith(AGENT_TOOL_REQUEST_ID_PREFIX)
 
 
 # -------------------------- ToolExecutionResult ---------------------------

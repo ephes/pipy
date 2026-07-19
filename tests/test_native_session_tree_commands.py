@@ -9,6 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
 from pipy_harness.native.session_tree_commands import (
     apply_tree_selection,
@@ -18,15 +23,14 @@ from pipy_harness.native.session_tree_commands import (
     resolve_startup_session,
     visible_tree_entries,
 )
-from pipy_harness.native.tools.messages import AssistantMessage, UserMessage
 
 
 def _user_entry(tree: NativeSessionTree, content: str) -> MessageEntry:
     for entry in tree.get_entries():
         if (
             isinstance(entry, MessageEntry)
-            and isinstance(entry.message, UserMessage)
-            and entry.message.content == content
+            and isinstance(entry.message, AgentUserMessage)
+            and entry.message.content.value == content
         ):
             return entry
     raise AssertionError(f"no user message {content!r}")
@@ -36,10 +40,14 @@ def _seed(tmp_path: Path) -> NativeSessionTree:
     cwd = tmp_path / "ws"
     cwd.mkdir()
     tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "s")
-    tree.append_message(UserMessage(content="ROOT"))
-    tree.append_message(AssistantMessage(content="SEEN:ROOT"))
-    tree.append_message(UserMessage(content="MAIN"))
-    tree.append_message(AssistantMessage(content="SEEN:ROOT,MAIN"))
+    tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
+    tree.append_message(
+        AgentAssistantMessage(content=ProductContent("SEEN:ROOT"))
+    )
+    tree.append_message(AgentUserMessage(content=ProductContent("MAIN")))
+    tree.append_message(
+        AgentAssistantMessage(content=ProductContent("SEEN:ROOT,MAIN"))
+    )
     return tree
 
 
@@ -57,11 +65,11 @@ def test_select_user_message_rehydrates_editor_and_branches_to_parent(
     assert tree.get_leaf_id() == parent_id
 
     # Submitting the (edited) text creates a sibling branch.
-    tree.append_message(UserMessage(content="ALT"))
+    tree.append_message(AgentUserMessage(content=ProductContent("ALT")))
     child_contents = [
-        e.message.content
+        e.message.content.value
         for e in tree.get_children(parent_id)
-        if isinstance(e, MessageEntry) and isinstance(e.message, UserMessage)
+        if isinstance(e, MessageEntry) and isinstance(e.message, AgentUserMessage)
     ]
     assert "ALT" in child_contents
 
@@ -80,8 +88,8 @@ def test_select_non_user_entry_sets_leaf_and_empty_editor(tmp_path: Path) -> Non
         e
         for e in tree.get_entries()
         if isinstance(e, MessageEntry)
-        and isinstance(e.message, AssistantMessage)
-        and e.message.content == "SEEN:ROOT,MAIN"
+        and isinstance(e.message, AgentAssistantMessage)
+        and e.message.content.value == "SEEN:ROOT,MAIN"
     )
     result = apply_tree_selection(tree, assistant.id)
     assert result.editor_text is None
@@ -135,7 +143,7 @@ def test_resolve_startup_session_modes(tmp_path: Path) -> None:
     # new -> fresh persistent session
     fresh = resolve_startup_session(cwd, mode="new", state_root=state_root)
     assert fresh is not None and fresh.path is not None
-    fresh.append_message(UserMessage(content="HELLO"))
+    fresh.append_message(AgentUserMessage(content=ProductContent("HELLO")))
     first_id = fresh.session_id
 
     # continue -> reopens the most recent session
@@ -164,13 +172,13 @@ def test_user_only_filter_hides_assistant_entries(tmp_path: Path) -> None:
     tree = _seed(tmp_path)
     visible = visible_tree_entries(tree, filter_mode="user-only")
     contents = [
-        e.message.content
+        e.message.content.value
         for e in visible
-        if isinstance(e, MessageEntry) and isinstance(e.message, UserMessage)
+        if isinstance(e, MessageEntry) and isinstance(e.message, AgentUserMessage)
     ]
     assert "ROOT" in contents
     assert "MAIN" in contents
     assert not any(
-        isinstance(e, MessageEntry) and isinstance(e.message, AssistantMessage)
+        isinstance(e, MessageEntry) and isinstance(e.message, AgentAssistantMessage)
         for e in visible
     )

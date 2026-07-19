@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from pipy_harness.models import HarnessStatus
 
 if TYPE_CHECKING:
+    from pipy_harness.native.agent import AgentMessage
     from pipy_harness.native.conversation import NativeNoToolReplConversationContext
     from pipy_harness.native.image_attachment import ProviderImageAttachment
     from pipy_harness.native.tools.base import ToolDefinition
-    from pipy_harness.native.tools.messages import LoopMessage
 
 PROVIDER_TOOL_INTENT_METADATA_KEY = "pipy_native_tool_intent"
 PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY = "pipy_native_tool_observation_fixture"
@@ -149,7 +149,7 @@ class ProviderRequest:
     provider_turn_label: str = "initial"
     tool_observation: NativeToolObservation | None = None
     no_tool_repl_context: NativeNoToolReplConversationContext | None = None
-    messages: tuple["LoopMessage", ...] = ()
+    messages: tuple["AgentMessage", ...] = ()
     available_tools: tuple["ToolDefinition", ...] = ()
     # Provider-visible image attachments for the *current* user turn (resolved
     # from ``@image:`` references). Multimodal adapters render these as native

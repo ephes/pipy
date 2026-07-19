@@ -21,7 +21,7 @@ Invariants pinned by the focused tests:
   model-emitted calls receive a deterministic "tool budget exhausted"
   observation.
 - Malformed tool calls (unknown tool name, JSON decode error, schema
-  violation) are returned to the model as `ToolResultMessage(is_error=True)`
+  violation) are returned as canonical error tool-result messages
   observations and increment a streak counter; three consecutive malformed
   turns end the loop with a deterministic stderr diagnostic.
 - One valid tool invocation resets the malformed streak, even if the tool
@@ -40,7 +40,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
-from typing import Any, ClassVar, TextIO, TypeAlias
+from typing import Any, ClassVar, Protocol, TextIO, TypeAlias, runtime_checkable
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
@@ -62,13 +62,49 @@ from pipy_harness.native.chrome import (
 from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
-    ProviderToolCall,
 )
 from pipy_harness.native.automation.events import (
-    AutomationEmitter,
     AutomationEventSink,
 )
-from pipy_harness.native.automation.serialize import parse_tool_arguments
+from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentCancellationReason,
+    AgentEvent,
+    AgentEventSink,
+    AgentFailure,
+    AgentMessage,
+    AgentRunCompleted,
+    AgentRunOutcome,
+    AgentRunResult,
+    AgentRunStarted,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentTurnOutcome,
+    AgentUsage,
+    AgentUserMessage,
+    AssistantReasoningDelta,
+    AssistantTextDelta,
+    FollowUpConsumed,
+    MessageCompleted,
+    MessageStarted,
+    ProductContent,
+    ProviderFailed,
+    RunCancelled,
+    SteeringConsumed,
+    ToolCallCompleted,
+    ToolCallStarted,
+    ToolCallUpdated,
+    TurnCompleted,
+    TurnStarted,
+    UsageUpdated,
+)
+from pipy_harness.native.agent_adapters import (
+    ProductSessionEventProjection,
+    RenderingAgentEventAdapter,
+    SynchronousAgentEventComposite,
+    WorkflowArchiveAgentEventAdapter,
+)
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native._provider_helpers import failed_provider_result
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
@@ -268,16 +304,12 @@ from pipy_harness.native.image_attachment import (
     resolve_image_attachments,
 )
 from pipy_harness.native.tools import (
-    AssistantMessage,
-    LoopMessage,
     ToolArgumentError,
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
     ToolPort,
     ToolRequest,
-    ToolResultMessage,
-    UserMessage,
     make_tool_request_id,
     validate_arguments,
 )
@@ -498,6 +530,7 @@ class _UsageAccumulator:
 
     def absorb(self, usage: Mapping[str, Any] | None) -> None:
         if not usage:
+            self.last_total_tokens = 0
             return
         input_tokens = _coerce_int(usage.get("input_tokens"))
         output_tokens = _coerce_int(usage.get("output_tokens"))
@@ -532,6 +565,18 @@ class _UsageAccumulator:
                 + cache_read_tokens * self._pricing.cache_read_per_million
                 + cache_write_tokens * self._pricing.cache_write_per_million
             ) / 1_000_000.0
+
+    def agent_usage(self) -> AgentUsage:
+        """Return the current counters in the canonical immutable shape."""
+
+        return AgentUsage(
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            reasoning_tokens=self.reasoning_tokens,
+            cache_read_tokens=self.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens,
+            cost_usd=self.cost_usd,
+        )
 
 
 def _coerce_int(value: Any) -> int:
@@ -1102,21 +1147,21 @@ def _activate_workspace_extensions(
     )
 
 
-class _ExtensionAwareEmitter(AutomationEmitter):
-    """`AutomationEmitter` that also fires extension lifecycle hooks.
+class _ExtensionAwareAgentEventSink:
+    """Fixed synchronous projection chain for one tool-loop run mode.
 
-    Mirrors Pi's lifecycle vocabulary onto the extension `@api.on(...)`
-    observers at the existing emit points, so hook dispatch is not
-    scattered through the loop. Lifecycle hooks are observe-only and
-    fail-soft (a crashing observer never breaks the session). When an
-    extension registers no lifecycle hooks this behaves exactly like the
-    base emitter.
+    Canonical events reach rendering first, then Pi automation, the internal
+    persistence/archive projections, an optional caller-supplied sink, and
+    observe-only extension lifecycle hooks last. This preserves renderer-first
+    output ordering and ensures any projection failure stops later callbacks.
     """
 
     def __init__(
         self,
-        sink: object,
+        sink: AutomationEventSink | None,
         *,
+        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
+        agent_event_sink: AgentEventSink | None,
         lifecycle_hooks: dict[str, tuple[HookHandler, ...]],
         cwd: Path,
         has_ui: bool,
@@ -1125,7 +1170,18 @@ class _ExtensionAwareEmitter(AutomationEmitter):
         flags: Mapping[str, object] | None = None,
         project_trusted: bool = False,
     ) -> None:
-        super().__init__(sink)  # type: ignore[arg-type]
+        immediate_sinks: list[AgentEventSink] = [RenderingAgentEventAdapter(renderer)]
+        if sink is not None:
+            immediate_sinks.append(AutomationAgentEventAdapter(sink))
+        immediate_sinks.extend(
+            (
+                ProductSessionEventProjection(),
+                WorkflowArchiveAgentEventAdapter(),
+            )
+        )
+        if agent_event_sink is not None:
+            immediate_sinks.append(agent_event_sink)
+        self._immediate = SynchronousAgentEventComposite(tuple(immediate_sinks))
         self._lifecycle_hooks = lifecycle_hooks
         self._lifecycle_cwd = str(cwd)
         self._lifecycle_has_ui = has_ui
@@ -1133,6 +1189,19 @@ class _ExtensionAwareEmitter(AutomationEmitter):
         self._lifecycle_ui_driver = ui_driver
         self._lifecycle_flags = dict(flags or {})
         self._lifecycle_project_trusted = bool(project_trusted)
+
+    def emit(self, event: AgentEvent) -> None:
+        """Synchronously deliver one canonical event in fixed projection order."""
+
+        self._immediate.emit(event)
+        if isinstance(event, AgentRunStarted):
+            self.fire_lifecycle(EVENT_AGENT_START)
+        elif isinstance(event, AgentRunCompleted):
+            self.fire_lifecycle(EVENT_AGENT_END)
+        elif isinstance(event, TurnStarted):
+            self.fire_lifecycle(EVENT_TURN_START)
+        elif isinstance(event, TurnCompleted):
+            self.fire_lifecycle(EVENT_TURN_END)
 
     def set_lifecycle_hooks(
         self, lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
@@ -1157,27 +1226,11 @@ class _ExtensionAwareEmitter(AutomationEmitter):
             project_trusted=self._lifecycle_project_trusted,
         )
 
-    def agent_start(self) -> None:
-        super().agent_start()
-        self.fire_lifecycle(EVENT_AGENT_START)
-
-    def agent_end(self, messages, *, will_retry: bool = False) -> None:
-        super().agent_end(messages, will_retry=will_retry)
-        self.fire_lifecycle(EVENT_AGENT_END)
-
     def agent_settled(self) -> None:
         # Extension-only: JSON and RPC own their protocol `agent_settled`
         # synthesis at mode-specific idle boundaries. Sending this through the
-        # shared AutomationEmitter would duplicate those public events.
+        # shared canonical event stream would duplicate those public events.
         self.fire_lifecycle(EVENT_AGENT_SETTLED)
-
-    def turn_start(self) -> None:
-        super().turn_start()
-        self.fire_lifecycle(EVENT_TURN_START)
-
-    def turn_end(self, message, tool_results) -> None:
-        super().turn_end(message, tool_results)
-        self.fire_lifecycle(EVENT_TURN_END)
 
 
 def _parse_tool_input(arguments_json: str) -> dict[str, object]:
@@ -1276,6 +1329,27 @@ class NativeToolReplResult:
     provider_failure_message: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _ProviderTurnCompletion:
+    """Typed provider completion preserving the closed cancellation reason."""
+
+    result: ProviderResult | None = None
+    cancellation_reason: AgentCancellationReason | None = None
+
+    def __post_init__(self) -> None:
+        if (self.result is None) == (self.cancellation_reason is None):
+            raise ValueError(
+                "provider completion requires exactly one result or cancellation"
+            )
+
+
+@runtime_checkable
+class _QueuedDeliverySource(Protocol):
+    """Optional input side channel classifying a delivered queued prompt."""
+
+    def take_delivery_kind(self) -> str | None: ...
+
+
 @dataclass
 class NativeToolReplSession:
     """Bounded model-driven tool loop, slice 4 skeleton.
@@ -1322,6 +1396,9 @@ class NativeToolReplSession:
     # default) every emit is a no-op and behavior is unchanged; the events are
     # derived from this real loop, never a parallel session model.
     automation_observer: "AutomationEventSink | None" = None
+    # Optional canonical event projection used by architecture adapters and
+    # tests. It participates in the same synchronous, ordered mode composite.
+    agent_event_sink: "AgentEventSink | None" = None
     # Optional external abort signal for the headless automation RPC mode. When
     # set, a non-TUI provider turn runs on a worker thread with a cancel token
     # wired to this event, so an RPC ``abort`` cancels the in-flight turn at the
@@ -1738,8 +1815,10 @@ class NativeToolReplSession:
         # Extension-aware emitter: also fires the lifecycle `@api.on(...)`
         # observers at the existing agent/turn emit points (no-op when no
         # lifecycle hooks were registered).
-        emitter = _ExtensionAwareEmitter(
+        emitter = _ExtensionAwareAgentEventSink(
             self.automation_observer,
+            renderer=renderer,
+            agent_event_sink=self.agent_event_sink,
             lifecycle_hooks=extension_lifecycle_hooks,
             cwd=cwd,
             has_ui=terminal_ui is not None,
@@ -1755,19 +1834,17 @@ class NativeToolReplSession:
         # renderer that was just selected. For automation it also emits Pi's
         # ``tool_execution_update`` (bounded progress) for the currently
         # executing tool call; ``_active_tool_call`` carries that call.
-        active_tool_call: list["ProviderToolCall | None"] = [None]
+        active_tool_call: list["AgentToolCall | None"] = [None]
 
         def _tool_output_sink(chunk: str) -> None:
-            renderer.tool_output_sink(chunk)
-            if not emitter.enabled:
-                return
             call = active_tool_call[0]
             if call is not None:
-                emitter.tool_execution_update(
-                    tool_call_id=call.provider_correlation_id,
-                    tool_name=call.tool_name,
-                    args=parse_tool_arguments(call.arguments_json),
-                    partial_result=chunk,
+                emitter.emit(
+                    ToolCallUpdated(
+                        turn_index,
+                        call,
+                        ProductContent(chunk),
+                    )
                 )
 
         context = ToolContext(
@@ -1787,7 +1864,7 @@ class NativeToolReplSession:
         session_tree = self.native_session or NativeSessionTree.create(
             cwd, persist=False
         )
-        messages: list[LoopMessage] = list(session_tree.build_context().messages)
+        messages: list[AgentMessage] = list(session_tree.build_context().messages)
         resource_invocation_count = 0
         user_turn_count = 0
         tool_invocation_count = 0
@@ -2259,7 +2336,7 @@ class NativeToolReplSession:
             turns and replaces the dropped prefix with a metadata-only summary
             appended to the system prompt; provider/model, usage counters,
             prompt history, and the TUI frame are all left intact. No tool
-            result is orphaned because the cut is at a UserMessage boundary.
+            result is orphaned because the cut is at a user-message boundary.
             """
 
             nonlocal messages, compaction_summary, compaction_count
@@ -2312,7 +2389,7 @@ class NativeToolReplSession:
                 entry
                 for entry in segment
                 if isinstance(entry, _MessageEntry)
-                and isinstance(entry.message, UserMessage)
+                and isinstance(entry.message, AgentUserMessage)
             ]
             if len(user_entries) <= DEFAULT_KEEP_RECENT_GROUPS:
                 return
@@ -2468,7 +2545,7 @@ class NativeToolReplSession:
             clear_extension_delivery_queues()
 
         def summarize_branch(
-            branch_messages: list[LoopMessage], focus: str | None
+            branch_messages: list[AgentMessage], focus: str | None
         ) -> str | None:
             """Summarize an abandoned branch through the active provider.
 
@@ -2581,15 +2658,12 @@ class NativeToolReplSession:
                 # fresh input: a steering interrupt or a turn that settled with
                 # follow-ups promotes them to a sequential drain, delivered in order
                 # (all steering, then all follow-up) as the next prompts.
-                drained = (
-                    None
-                    if pending_command is not None
-                    else (
-                        terminal_ui.take_next_drain()
-                        if terminal_ui is not None
-                        else None
-                    )
-                )
+                drained: str | None = None
+                delivery_kind: str | None = None
+                if pending_command is None and terminal_ui is not None:
+                    drained = terminal_ui.take_next_drain()
+                    if drained is not None:
+                        delivery_kind = terminal_ui.take_last_drain_kind()
                 # Positional-prompt seeds (`pipy "<prompt>"`) drain first, ahead
                 # of extension messages and fresh input, so a seeded prompt is the
                 # session's first user message. Like steering/extension prompts it
@@ -2615,11 +2689,12 @@ class NativeToolReplSession:
                         or extension_pending_follow_up_messages
                     )
                 ):
-                    drained = (
-                        extension_pending_steering_messages.pop(0)
-                        if extension_pending_steering_messages
-                        else extension_pending_follow_up_messages.pop(0)
-                    )
+                    if extension_pending_steering_messages:
+                        drained = extension_pending_steering_messages.pop(0)
+                        delivery_kind = "steering"
+                    else:
+                        drained = extension_pending_follow_up_messages.pop(0)
+                        delivery_kind = "follow_up"
                 if (
                     drained is None
                     and pending_command is None
@@ -2646,11 +2721,12 @@ class NativeToolReplSession:
                         extension_pending_steering_messages
                         or extension_pending_follow_up_messages
                     ):
-                        drained = (
-                            extension_pending_steering_messages.pop(0)
-                            if extension_pending_steering_messages
-                            else extension_pending_follow_up_messages.pop(0)
-                        )
+                        if extension_pending_steering_messages:
+                            drained = extension_pending_steering_messages.pop(0)
+                            delivery_kind = "steering"
+                        else:
+                            drained = extension_pending_follow_up_messages.pop(0)
+                            delivery_kind = "follow_up"
                     elif extension_pending_messages:
                         drained = extension_pending_messages.pop(0)
                 if pending_command is not None:
@@ -2664,6 +2740,8 @@ class NativeToolReplSession:
                         # visual frame instead. Pass an empty prompt so the
                         # readline / slash-menu adapter renders just the cursor.
                         line = repl_input.read_line("", footer=footer_text)
+                        if isinstance(input_stream, _QueuedDeliverySource):
+                            delivery_kind = input_stream.take_delivery_kind()
                     except KeyboardInterrupt:
                         print(file=error_stream)
                         break
@@ -2801,7 +2879,9 @@ class NativeToolReplSession:
                         project_trusted=settings.project_trusted,
                     )
                     if shell_context_text is not None:
-                        shell_message = UserMessage(content=shell_context_text)
+                        shell_message = AgentUserMessage(
+                            content=ProductContent(shell_context_text)
+                        )
                         messages.append(shell_message)
                         session_tree.append_message(shell_message)
                     if legacy_footer_enabled():
@@ -3399,7 +3479,8 @@ class NativeToolReplSession:
                     continue
                 if command_text == "/session":
                     # Local-only: report safe current native-session status. No
-                    # provider turn, tool call, or transcript content.
+                    # provider turn, tool call, native product-session content,
+                    # or product content in the metadata-only workflow archive.
                     diag(format_session_status(session_tree))
                     refresh_legacy_footer()
                     continue
@@ -3859,8 +3940,9 @@ class NativeToolReplSession:
                         )
                     continue
                 if resource_dispatch is not None and resource_dispatch.is_reject:
-                    # Fail closed: diagnostic only, no provider turn, no archive
-                    # write, no prompt-history or sidecar entry.
+                    # Fail closed: diagnostic only, no provider turn, native
+                    # product-session write, prompt-history entry, or metadata-only
+                    # workflow archive event.
                     self._emit_diagnostic(
                         terminal_ui, error_stream, resource_dispatch.message
                     )
@@ -3877,8 +3959,8 @@ class NativeToolReplSession:
                 if resource_dispatch is not None and resource_dispatch.is_run:
                     # The expanded/instruction text becomes the bounded
                     # provider-visible message; it never reaches prompt history,
-                    # the sidecar body, or the metadata archive. Only the
-                    # invocation counter is surfaced.
+                    # the native product session tree, or the metadata-only
+                    # workflow archive. Only the invocation counter is surfaced.
                     resource_invocation_count += 1
                     resource_provider_text = resource_dispatch.provider_text or ""
                     self._emit_diagnostic(
@@ -3967,20 +4049,23 @@ class NativeToolReplSession:
                 # reader (reusing this loop's ``read`` policy and reference roots),
                 # append the bounded excerpts to the provider-visible user message,
                 # and keep the literal prompt for the rendered panel, prompt
-                # history, and the sidecar transcript.
+                # history, and native product session tree. None of that content
+                # enters the metadata-only workflow archive.
                 turn_attachments: tuple[ProviderImageAttachment, ...] = ()
                 if resource_provider_text is not None:
                     # Resource turn: the bounded instruction/expansion is the
                     # provider message verbatim. @file augmentation, prompt
-                    # history, and the sidecar body are all skipped so the
-                    # literal resource text never leaks past the provider.
+                    # history, and native product-session persistence are all
+                    # skipped so the literal resource text never leaks past the
+                    # provider or into the metadata-only workflow archive.
                     provider_user_input = resource_provider_text
                 else:
                     # `input` hooks may transform the submitted prompt before
                     # the provider turn. The original `user_input` still goes
-                    # to prompt history, the sidecar, and the rendered panel;
-                    # only the provider-visible text and @file resolution use
-                    # the transformed value.
+                    # to prompt history, the native product session tree, and the
+                    # rendered panel (never the metadata-only workflow archive);
+                    # only the provider-visible text and @file resolution use the
+                    # transformed value.
                     transformed_input = dispatch_input_hooks(
                         extension_input_hooks,
                         user_input,
@@ -4012,7 +4097,8 @@ class NativeToolReplSession:
                     # User-directed image attachments (@image:<path>): bounded,
                     # fail-closed image loading that becomes provider-visible image
                     # blocks on the current user message. Raw bytes never reach the
-                    # prompt history, the transcript sidecar, or the result.
+                    # prompt history, native product session tree, metadata-only
+                    # workflow archive, or the result.
                     image_attachments = resolve_image_attachments(
                         transformed_input,
                         workspace_root=cwd,
@@ -4025,7 +4111,9 @@ class NativeToolReplSession:
                         for diagnostic in image_attachments.diagnostics():
                             self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
                         turn_attachments = image_attachments.attachments()
-                turn_user_message = UserMessage(content=provider_user_input)
+                turn_user_message = AgentUserMessage(
+                    content=ProductContent(provider_user_input)
+                )
                 # `before_agent_start` hooks may inject bounded context into
                 # this agent run's system prompt. Computed once per accepted
                 # prompt; the injected text is provider-visible but not added
@@ -4055,8 +4143,16 @@ class NativeToolReplSession:
                 # (the user message and everything the loop appends below).
                 agent_run_start_index = len(messages)
                 agent_settled_pending = True
-                emitter.agent_start()
+                run_usage_accumulator = _UsageAccumulator()
+                run_usage_accumulator.bind(effective_provider_name, effective_model_id)
+                emitter.emit(AgentRunStarted())
+                if delivery_kind == "steering":
+                    emitter.emit(SteeringConsumed(ProductContent(user_input)))
+                elif delivery_kind == "follow_up":
+                    emitter.emit(FollowUpConsumed(ProductContent(user_input)))
                 extension_in_agent_turn = True
+                run_failure: AgentFailure | None = None
+                run_cancellation_reason: AgentCancellationReason | None = None
                 messages.append(turn_user_message)
                 injected_custom_context_count = len(
                     extension_pending_next_turn_custom_messages
@@ -4065,7 +4161,11 @@ class NativeToolReplSession:
                     for (
                         pending_custom_message
                     ) in extension_pending_next_turn_custom_messages:
-                        messages.append(UserMessage(content=pending_custom_message))
+                        messages.append(
+                            AgentUserMessage(
+                                content=ProductContent(pending_custom_message)
+                            )
+                        )
                     extension_pending_next_turn_custom_messages.clear()
                 session_tree.append_message(turn_user_message)
                 user_turn_count += 1
@@ -4085,10 +4185,11 @@ class NativeToolReplSession:
 
                 while inner_iterations < inner_iteration_cap:
                     inner_iterations += 1
+                    turn_index = inner_iterations - 1
                     available_tools = available_tool_definitions()
                     # Automatic compaction: when the provider-visible history grows
                     # past the threshold, drop the oldest user-turn groups before
-                    # building the next request. The cut is at a UserMessage
+                    # building the next request. The cut is at a user-message
                     # boundary so no tool result is orphaned, and the safe summary
                     # rides in the system prompt suffix below.
                     if (
@@ -4154,34 +4255,58 @@ class NativeToolReplSession:
                                 provider_request.provider_header_callback
                             ),
                         )
-                    emitter.turn_start()
+                    emitter.emit(TurnStarted(turn_index))
                     if inner_iterations == 1:
                         # Pi emits the user message_start/message_end pair after
                         # turn_start and before the assistant message begins.
-                        emitter.non_streamed_message(turn_user_message)
-                    emitter.assistant_message_start()
-                    renderer.begin_provider_turn()
-                    renderer.show_working()
-                    provider_result = self._complete_provider_turn(
+                        emitter.emit(MessageStarted(turn_index, turn_user_message))
+                        emitter.emit(MessageCompleted(turn_index, turn_user_message))
+                    empty_assistant = AgentAssistantMessage(ProductContent(""))
+                    emitter.emit(MessageStarted(turn_index, empty_assistant))
+                    provider_completion = self._complete_provider_turn(
                         provider_request,
-                        renderer=renderer,
                         terminal_ui=terminal_ui,
                         emitter=emitter,
+                        turn_index=turn_index,
                     )
-                    if provider_result is None:
+                    if provider_completion.result is None:
                         # Aborted/steered turn (RPC abort, or TUI Escape/steer).
                         # Close the assistant message and the turn so the automation
                         # lifecycle stays balanced (message_start has a matching
                         # message_end, turn_start a matching turn_end) before the
                         # agent_end emitted after the inner loop.
-                        aborted_assistant_message = AssistantMessage(content="")
-                        emitter.assistant_message_end(aborted_assistant_message)
-                        emitter.turn_end(aborted_assistant_message, [])
+                        cancellation_reason = provider_completion.cancellation_reason
+                        assert cancellation_reason is not None
+                        run_cancellation_reason = cancellation_reason
+                        emitter.emit(RunCancelled(cancellation_reason))
+                        if terminal_ui is not None:
+                            if (
+                                cancellation_reason
+                                is AgentCancellationReason.OPERATOR_ABORT
+                            ):
+                                terminal_ui.restore_pending_to_editor()
+                            elif cancellation_reason in (
+                                AgentCancellationReason.STEERING,
+                                AgentCancellationReason.LOCAL_COMMAND,
+                            ):
+                                terminal_ui.promote_pending_to_drain()
+                        emitter.emit(MessageCompleted(turn_index, empty_assistant))
+                        emitter.emit(
+                            TurnCompleted(
+                                turn_index,
+                                AgentTurnOutcome.CANCELLED,
+                                empty_assistant,
+                            )
+                        )
                         break
+                    provider_result = provider_completion.result
                     usage_accumulator.absorb(provider_result.usage)
-                    renderer.end_provider_turn(
-                        final_text=provider_result.final_text or "",
-                        has_tool_calls=bool(provider_result.tool_calls),
+                    run_usage_accumulator.absorb(provider_result.usage)
+                    emitter.emit(
+                        UsageUpdated(
+                            run_usage_accumulator.agent_usage(),
+                            run_usage_accumulator.last_total_tokens,
+                        )
                     )
                     if provider_result.status != HarnessStatus.SUCCEEDED:
                         error_type = provider_result.error_type or "ProviderFailed"
@@ -4197,6 +4322,11 @@ class NativeToolReplSession:
                         response_status = safe_metadata.get("response_status")
                         if isinstance(response_status, str) and response_status:
                             diagnostic_suffix = f" (response_status={response_status})"
+                        run_failure = AgentFailure(
+                            error_type,
+                            ProductContent(error_message),
+                        )
+                        emitter.emit(ProviderFailed(run_failure, will_retry=False))
                         # Surface the failure on the error stream but keep the
                         # REPL alive: a transient HTTP error from a single
                         # provider turn (e.g. a 503 the retry helper exhausted
@@ -4224,25 +4354,35 @@ class NativeToolReplSession:
                         # Balance the assistant message_start emitted above and close
                         # the turn so the automation stream stays well-formed even on
                         # a failed provider turn.
-                        failed_assistant_message = AssistantMessage(content="")
-                        emitter.assistant_message_end(failed_assistant_message)
-                        emitter.turn_end(failed_assistant_message, [])
+                        emitter.emit(MessageCompleted(turn_index, empty_assistant))
+                        emitter.emit(
+                            TurnCompleted(
+                                turn_index,
+                                AgentTurnOutcome.FAILED,
+                                empty_assistant,
+                            )
+                        )
                         break
                     unresolved_provider_error_type = None
                     unresolved_provider_error_message = None
-                    tool_calls = tuple(provider_result.tool_calls)
-                    turn_assistant_message = AssistantMessage(
-                        content=provider_result.final_text or "",
+                    tool_calls = tuple(
+                        AgentToolCall(
+                            call.provider_correlation_id,
+                            call.tool_name,
+                            ProductContent(call.arguments_json),
+                        )
+                        for call in provider_result.tool_calls
+                    )
+                    turn_assistant_message = AgentAssistantMessage(
+                        content=ProductContent(provider_result.final_text or ""),
                         tool_calls=tool_calls,
                     )
-                    emitter.assistant_message_end(turn_assistant_message)
-                    turn_tool_results: list[ToolResultMessage] = []
+                    emitter.emit(MessageCompleted(turn_index, turn_assistant_message))
+                    turn_tool_results: list[AgentToolResultMessage] = []
                     messages.append(turn_assistant_message)
                     session_tree.append_message(turn_assistant_message)
 
                     if not tool_calls:
-                        if provider_result.final_text and not renderer.streamed_any:
-                            print(provider_result.final_text, file=output_stream)
                         if legacy_footer_enabled():
                             self._print_footer(
                                 error_stream,
@@ -4253,40 +4393,41 @@ class NativeToolReplSession:
                                 tool_invocation_count=tool_invocation_count,
                                 usage_accumulator=usage_accumulator,
                             )
-                        emitter.turn_end(turn_assistant_message, turn_tool_results)
+                        emitter.emit(
+                            TurnCompleted(
+                                turn_index,
+                                AgentTurnOutcome.SUCCEEDED,
+                                turn_assistant_message,
+                                tuple(turn_tool_results),
+                            )
+                        )
                         break
 
                     fatal = False
                     tool_interrupted_turn = False
+                    tool_interruption_reason: AgentCancellationReason | None = None
                     for call_index, call in enumerate(tool_calls):
                         if invocations_this_turn >= self.tool_budget:
                             budget_exhausted_count += 1
-                            renderer.render_tool_call(call)
-                            renderer.render_tool_result(
-                                output_text=(
-                                    f"tool budget exhausted (limit {self.tool_budget})"
-                                ),
-                                is_error=True,
-                            )
                             budget_observation = self._error_observation(
                                 call=call,
                                 output_text=(
                                     f"tool budget exhausted (limit {self.tool_budget})"
                                 ),
                             )
-                            emitter.tool_execution_start(call)
-                            emitter.tool_execution_end(
-                                tool_call_id=call.provider_correlation_id,
-                                tool_name=call.tool_name,
-                                result=budget_observation.output_text,
-                                is_error=True,
+                            emitter.emit(ToolCallStarted(turn_index, call))
+                            emitter.emit(
+                                ToolCallCompleted(
+                                    turn_index,
+                                    budget_observation,
+                                )
                             )
                             turn_tool_results.append(budget_observation)
                             messages.append(budget_observation)
                             session_tree.append_message(budget_observation)
                             continue
 
-                        renderer.render_tool_call(call)
+                        emitter.emit(ToolCallStarted(turn_index, call))
                         # Extension `tool_call` policy gate: a registered hook
                         # may inspect the live tool name + parsed input and
                         # return a ToolBlock to block the call. The raw input
@@ -4294,7 +4435,7 @@ class NativeToolReplSession:
                         tool_block = dispatch_tool_call_hooks(
                             extension_tool_call_hooks_,
                             tool_name=call.tool_name,
-                            tool_input=_parse_tool_input(call.arguments_json),
+                            tool_input=_parse_tool_input(call.arguments_json.value),
                             cwd=str(cwd),
                             has_ui=terminal_ui is not None,
                             notify_sink=_extension_notify,
@@ -4310,16 +4451,11 @@ class NativeToolReplSession:
                                 call=call,
                                 output_text=f"blocked by extension: {tool_block.reason}",
                             )
-                            emitter.tool_execution_start(call)
-                            emitter.tool_execution_end(
-                                tool_call_id=call.provider_correlation_id,
-                                tool_name=call.tool_name,
-                                result=blocked_observation.output_text,
-                                is_error=True,
-                            )
-                            renderer.render_tool_result(
-                                output_text=blocked_observation.output_text,
-                                is_error=True,
+                            emitter.emit(
+                                ToolCallCompleted(
+                                    turn_index,
+                                    blocked_observation,
+                                )
                             )
                             turn_tool_results.append(blocked_observation)
                             messages.append(blocked_observation)
@@ -4331,7 +4467,6 @@ class NativeToolReplSession:
                             # left unchanged.
                             invocations_this_turn += 1
                             continue
-                        emitter.tool_execution_start(call)
                         active_tool_call[0] = call
                         tool_started_at = datetime.now(UTC)
                         active_tools_before = tuple(
@@ -4368,9 +4503,10 @@ class NativeToolReplSession:
                                 if name not in before_names
                             )
                             if added_tool_names:
-                                observation = ToolResultMessage(
+                                observation = AgentToolResultMessage(
                                     tool_request_id=observation.tool_request_id,
-                                    output_text=observation.output_text,
+                                    tool_name=observation.tool_name,
+                                    content=observation.content,
                                     is_error=observation.is_error,
                                     provider_correlation_id=(
                                         observation.provider_correlation_id
@@ -4379,13 +4515,13 @@ class NativeToolReplSession:
                                 )
                         # tool_result hooks may transform the finalized,
                         # bounded observation before the emitter, renderer,
-                        # model, and session tree see it. ToolResultMessage is
+                        # model, and session tree see it. AgentToolResultMessage is
                         # frozen, so a changed result is rebuilt.
                         if extension_tool_result_hooks:
                             _transformed = dispatch_tool_result_hooks(
                                 extension_tool_result_hooks,
                                 tool_name=call.tool_name,
-                                content=observation.output_text,
+                                content=observation.content.value,
                                 is_error=observation.is_error,
                                 cwd=str(cwd),
                                 has_ui=terminal_ui is not None,
@@ -4397,10 +4533,11 @@ class NativeToolReplSession:
                                 flags=extension_flag_values,
                                 project_trusted=settings.project_trusted,
                             )
-                            if _transformed != observation.output_text:
-                                observation = ToolResultMessage(
+                            if _transformed != observation.content.value:
+                                observation = AgentToolResultMessage(
                                     tool_request_id=observation.tool_request_id,
-                                    output_text=_transformed,
+                                    tool_name=observation.tool_name,
+                                    content=ProductContent(_transformed),
                                     is_error=observation.is_error,
                                     provider_correlation_id=(
                                         observation.provider_correlation_id
@@ -4411,18 +4548,14 @@ class NativeToolReplSession:
                         tool_duration = (
                             tool_ended_at - tool_started_at
                         ).total_seconds()
-                        emitter.tool_execution_end(
-                            tool_call_id=call.provider_correlation_id,
-                            tool_name=call.tool_name,
-                            result=observation.output_text,
-                            is_error=observation.is_error,
+                        emitter.emit(
+                            ToolCallCompleted(
+                                turn_index,
+                                observation,
+                                duration_seconds=tool_duration,
+                            )
                         )
                         turn_tool_results.append(observation)
-                        renderer.render_tool_result(
-                            output_text=observation.output_text,
-                            is_error=observation.is_error,
-                            duration_seconds=tool_duration,
-                        )
                         if tool_interrupt in {TURN_ABORTED, TURN_LOCAL_COMMAND}:
                             messages.append(observation)
                             session_tree.append_message(observation)
@@ -4437,6 +4570,11 @@ class NativeToolReplSession:
                                 messages.append(skipped)
                                 session_tree.append_message(skipped)
                             tool_interrupted_turn = True
+                            tool_interruption_reason = (
+                                AgentCancellationReason.LOCAL_COMMAND
+                                if tool_interrupt == TURN_LOCAL_COMMAND
+                                else AgentCancellationReason.OPERATOR_ABORT
+                            )
                             break
                         if tool_call_malformed:
                             malformed_argument_count += 1
@@ -4466,7 +4604,29 @@ class NativeToolReplSession:
                         messages.append(observation)
                         session_tree.append_message(observation)
 
-                    emitter.turn_end(turn_assistant_message, turn_tool_results)
+                    turn_outcome = AgentTurnOutcome.SUCCEEDED
+                    if tool_interrupted_turn:
+                        assert tool_interruption_reason is not None
+                        run_cancellation_reason = tool_interruption_reason
+                        emitter.emit(RunCancelled(tool_interruption_reason))
+                        turn_outcome = AgentTurnOutcome.CANCELLED
+                    elif fatal:
+                        run_failure = AgentFailure(
+                            "NativeToolLoopMalformedFatal",
+                            ProductContent(
+                                f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
+                                "tool calls"
+                            ),
+                        )
+                        turn_outcome = AgentTurnOutcome.FAILED
+                    emitter.emit(
+                        TurnCompleted(
+                            turn_index,
+                            turn_outcome,
+                            turn_assistant_message,
+                            tuple(turn_tool_results),
+                        )
+                    )
                     if tool_interrupted_turn:
                         break
                     if fatal:
@@ -4483,7 +4643,17 @@ class NativeToolReplSession:
                                 + 1
                                 + injected_custom_context_count
                             ]
-                        emitter.agent_end(agent_run_messages, will_retry=False)
+                        assert run_failure is not None
+                        emitter.emit(
+                            AgentRunCompleted(
+                                AgentRunResult(
+                                    AgentRunOutcome.FAILED,
+                                    tuple(agent_run_messages),
+                                    run_usage_accumulator.agent_usage(),
+                                    failure=run_failure,
+                                )
+                            )
+                        )
                         extension_in_agent_turn = False
                         ended_at = datetime.now(UTC)
                         try:
@@ -4529,7 +4699,27 @@ class NativeToolReplSession:
                         + 1
                         + injected_custom_context_count
                     ]
-                emitter.agent_end(agent_run_messages, will_retry=False)
+                if run_failure is not None:
+                    run_result = AgentRunResult(
+                        AgentRunOutcome.FAILED,
+                        tuple(agent_run_messages),
+                        run_usage_accumulator.agent_usage(),
+                        failure=run_failure,
+                    )
+                elif run_cancellation_reason is not None:
+                    run_result = AgentRunResult(
+                        AgentRunOutcome.CANCELLED,
+                        tuple(agent_run_messages),
+                        run_usage_accumulator.agent_usage(),
+                        cancellation_reason=run_cancellation_reason,
+                    )
+                else:
+                    run_result = AgentRunResult(
+                        AgentRunOutcome.SUCCEEDED,
+                        tuple(agent_run_messages),
+                        run_usage_accumulator.agent_usage(),
+                    )
+                emitter.emit(AgentRunCompleted(run_result))
                 extension_in_agent_turn = False
 
             try:
@@ -4624,18 +4814,18 @@ class NativeToolReplSession:
 
     @staticmethod
     def _provider_messages_with_prompt(
-        messages: tuple[LoopMessage, ...],
+        messages: tuple[AgentMessage, ...],
         *,
         original_prompt: str,
         provider_prompt: str,
-    ) -> tuple[LoopMessage, ...]:
+    ) -> tuple[AgentMessage, ...]:
         """Return provider-visible messages with the current prompt transformed.
 
         `before_provider_request` transforms are provider-payload changes. The
         durable native session tree and prompt history keep the user's literal
         prompt, but providers that serialize `request.messages` must still see
         the transformed current user message. Replace only the most recent
-        matching `UserMessage` in this request-local tuple.
+        matching canonical user message in this request-local tuple.
         """
 
         if provider_prompt == original_prompt or not messages:
@@ -4643,28 +4833,41 @@ class NativeToolReplSession:
         replaced = list(messages)
         for index in range(len(replaced) - 1, -1, -1):
             message = replaced[index]
-            if isinstance(message, UserMessage) and message.content == original_prompt:
-                replaced[index] = UserMessage(content=provider_prompt)
+            if (
+                isinstance(message, AgentUserMessage)
+                and message.content.value == original_prompt
+            ):
+                replaced[index] = AgentUserMessage(
+                    content=ProductContent(provider_prompt)
+                )
                 return tuple(replaced)
         return messages
 
     @staticmethod
-    def _tee_stream_sink(
-        base: StreamChunkSink, emitter: "AutomationEmitter | None"
+    def _agent_text_sink(
+        emitter: "_ExtensionAwareAgentEventSink | None",
+        *,
+        turn_index: int,
     ) -> StreamChunkSink:
-        """Tee provider text deltas into the automation emitter.
-
-        Each streamed chunk becomes a Pi ``message_update`` with a
-        ``text_delta`` ``assistantMessageEvent``. A no-op passthrough when the
-        emitter is absent/disabled, so the interactive path is unchanged.
-        """
-
-        if emitter is None or not emitter.enabled:
-            return base
+        """Synchronously publish provider text as one canonical delta."""
 
         def _wrapped(chunk: str) -> None:
-            base(chunk)
-            emitter.assistant_text_delta(chunk)
+            if emitter is not None:
+                emitter.emit(AssistantTextDelta(turn_index, ProductContent(chunk)))
+
+        return _wrapped
+
+    @staticmethod
+    def _agent_reasoning_sink(
+        emitter: "_ExtensionAwareAgentEventSink | None",
+        *,
+        turn_index: int,
+    ) -> StreamChunkSink:
+        """Synchronously publish provider reasoning as one canonical delta."""
+
+        def _wrapped(chunk: str) -> None:
+            if emitter is not None:
+                emitter.emit(AssistantReasoningDelta(turn_index, ProductContent(chunk)))
 
         return _wrapped
 
@@ -4672,9 +4875,9 @@ class NativeToolReplSession:
         self,
         provider_request: ProviderRequest,
         *,
-        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
-        emitter: "AutomationEmitter | None",
-    ) -> ProviderResult | None:
+        emitter: "_ExtensionAwareAgentEventSink | None",
+        turn_index: int,
+    ) -> _ProviderTurnCompletion:
         """Run a non-TUI provider turn that honors an external abort event.
 
         Used by ``--mode rpc`` so an ``abort`` command cancels the live request
@@ -4695,6 +4898,7 @@ class NativeToolReplSession:
         turn_cancelled = threading.Event()
         result_holder: list[ProviderResult] = []
         error_holder: list[BaseException] = []
+        provider_cancelled = threading.Event()
 
         def _cancellable_sink(sink: StreamChunkSink) -> StreamChunkSink:
             def _wrapped(chunk: str) -> None:
@@ -4709,18 +4913,19 @@ class NativeToolReplSession:
                 result_holder.append(
                     self.provider.complete(
                         provider_request,
-                        # Cancellable wraps the tee so an abort suppresses BOTH
-                        # the renderer write and the automation text_delta event —
-                        # no late chunk can leak after abort/agent_end.
+                        # Cancellable wraps canonical publication so no late
+                        # render or automation event can leak after agent_end.
                         stream_sink=_cancellable_sink(
-                            self._tee_stream_sink(renderer.stream_sink, emitter)
+                            self._agent_text_sink(emitter, turn_index=turn_index)
                         ),
-                        reasoning_sink=_cancellable_sink(renderer.reasoning_sink),
+                        reasoning_sink=_cancellable_sink(
+                            self._agent_reasoning_sink(emitter, turn_index=turn_index)
+                        ),
                         cancel_token=cancel_token,
                     )
                 )
             except ProviderCancelledError:
-                pass
+                provider_cancelled.set()
             except BaseException as exc:  # pragma: no cover - re-raised below
                 error_holder.append(exc)
             finally:
@@ -4739,41 +4944,59 @@ class NativeToolReplSession:
                 turn_cancelled.set()
                 cancel_token.cancel()
                 worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
-                return None
+                return _ProviderTurnCompletion(
+                    cancellation_reason=AgentCancellationReason.OPERATOR_ABORT
+                )
         worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
         if error_holder:
             raise error_holder[0]
         if not result_holder:
-            return None
-        return result_holder[0]
+            reason = (
+                AgentCancellationReason.PROVIDER_CANCELLED
+                if provider_cancelled.is_set()
+                else AgentCancellationReason.OPERATOR_ABORT
+            )
+            return _ProviderTurnCompletion(cancellation_reason=reason)
+        return _ProviderTurnCompletion(result=result_holder[0])
 
     def _complete_provider_turn(
         self,
         provider_request: ProviderRequest,
         *,
-        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
         terminal_ui: ToolLoopTerminalUi | None,
-        emitter: "AutomationEmitter | None" = None,
-    ) -> ProviderResult | None:
+        emitter: "_ExtensionAwareAgentEventSink | None" = None,
+        turn_index: int,
+    ) -> _ProviderTurnCompletion:
         if terminal_ui is None:
             if self.abort_event is not None:
                 # Headless automation (RPC) abort: run the provider on a worker
                 # so an external abort cancels the in-flight turn at the provider
                 # boundary, mirroring the TUI cancel path without a terminal.
                 return self._complete_headless_cancellable_turn(
-                    provider_request, renderer=renderer, emitter=emitter
+                    provider_request,
+                    emitter=emitter,
+                    turn_index=turn_index,
                 )
-            return self.provider.complete(
-                provider_request,
-                stream_sink=self._tee_stream_sink(renderer.stream_sink, emitter),
-                reasoning_sink=renderer.reasoning_sink,
-            )
+            try:
+                result = self.provider.complete(
+                    provider_request,
+                    stream_sink=self._agent_text_sink(emitter, turn_index=turn_index),
+                    reasoning_sink=self._agent_reasoning_sink(
+                        emitter, turn_index=turn_index
+                    ),
+                )
+            except ProviderCancelledError:
+                return _ProviderTurnCompletion(
+                    cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+                )
+            return _ProviderTurnCompletion(result=result)
 
         cancel_token = CancelToken()
         abort_event = cancel_token.event
         done_event = threading.Event()
         result_holder: list[ProviderResult] = []
         error_holder: list[BaseException] = []
+        provider_cancelled = threading.Event()
 
         def _cancellable_sink(sink: StreamChunkSink) -> StreamChunkSink:
             def _wrapped(chunk: str) -> None:
@@ -4788,15 +5011,19 @@ class NativeToolReplSession:
                 result_holder.append(
                     self.provider.complete(
                         provider_request,
-                        # Cancellable wraps the tee so an abort suppresses BOTH
-                        # the renderer write and the automation text_delta event.
+                        # Cancellable wraps canonical publication so abort
+                        # suppresses both rendering and automation projection.
                         stream_sink=_cancellable_sink(
-                            self._tee_stream_sink(renderer.stream_sink, emitter)
+                            self._agent_text_sink(emitter, turn_index=turn_index)
                         ),
-                        reasoning_sink=_cancellable_sink(renderer.reasoning_sink),
+                        reasoning_sink=_cancellable_sink(
+                            self._agent_reasoning_sink(emitter, turn_index=turn_index)
+                        ),
                         cancel_token=cancel_token,
                     )
                 )
+            except ProviderCancelledError:
+                provider_cancelled.set()
             except BaseException as exc:  # pragma: no cover - re-raised on main thread
                 error_holder.append(exc)
             finally:
@@ -4810,30 +5037,30 @@ class NativeToolReplSession:
         worker.start()
         # The mid-turn watcher returns one of settled/aborted/steered. Escape /
         # Ctrl-C abort: cancel the live provider request at its boundary (not
-        # merely hide late output), reap the worker, render the aborted state,
-        # and restore any queued messages to the editor. A steering submit also
-        # cancels the request, but promotes the queued messages for sequential
-        # delivery (no aborted banner). Both return None so the inner loop ends
-        # this turn and the outer loop drains/reads next.
+        # merely hide late output) and reap the worker. The caller synchronously
+        # publishes the typed cancellation so the rendering adapter clears the
+        # active turn before it restores or promotes queued messages. Both paths
+        # return a typed cancellation so the inner loop ends this turn and the
+        # outer loop drains/reads next.
         try:
             outcome = terminal_ui.wait_for_active_turn_interrupt(
                 done_event, abort_event, accept_queue=True
             )
         except KeyboardInterrupt:
             self._cancel_active_turn(cancel_token, worker)
-            renderer.abort_provider_turn()
-            terminal_ui.restore_pending_to_editor()
-            return None
+            return _ProviderTurnCompletion(
+                cancellation_reason=AgentCancellationReason.OPERATOR_ABORT
+            )
         if outcome == TURN_ABORTED:
             self._cancel_active_turn(cancel_token, worker)
-            renderer.abort_provider_turn()
-            terminal_ui.restore_pending_to_editor()
-            return None
+            return _ProviderTurnCompletion(
+                cancellation_reason=AgentCancellationReason.OPERATOR_ABORT
+            )
         if outcome == TURN_STEERED:
             self._cancel_active_turn(cancel_token, worker)
-            renderer.steer_provider_turn()
-            terminal_ui.promote_pending_to_drain()
-            return None
+            return _ProviderTurnCompletion(
+                cancellation_reason=AgentCancellationReason.STEERING
+            )
         if outcome == TURN_LOCAL_COMMAND:
             # A local command (`/…`/`!…`) submitted mid-turn interrupts the turn
             # and runs locally. Cancel like a steer (no error banner); the
@@ -4841,17 +5068,21 @@ class NativeToolReplSession:
             # iteration through the normal local-command path (never the
             # provider). Any earlier-queued steering/follow-up still promotes.
             self._cancel_active_turn(cancel_token, worker)
-            renderer.steer_provider_turn()
-            terminal_ui.promote_pending_to_drain()
-            return None
+            return _ProviderTurnCompletion(
+                cancellation_reason=AgentCancellationReason.LOCAL_COMMAND
+            )
         worker.join()
         if error_holder:
             raise error_holder[0]
+        if provider_cancelled.is_set() or not result_holder:
+            return _ProviderTurnCompletion(
+                cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
+            )
         # Follow-ups (and any steering) queued during a turn that settled on its
         # own are delivered in order after it.
         if terminal_ui.has_pending_messages():
             terminal_ui.promote_pending_to_drain()
-        return result_holder[0]
+        return _ProviderTurnCompletion(result=result_holder[0])
 
     def _share_native_session_command(
         self,
@@ -6018,7 +6249,7 @@ class NativeToolReplSession:
         print(safe_message, file=error_stream)
 
     def _copy_last_answer(
-        self, messages: list[LoopMessage], *, error_stream: TextIO
+        self, messages: list[AgentMessage], *, error_stream: TextIO
     ) -> str:
         """Copy the most recent assistant answer; return a local status line.
 
@@ -6156,7 +6387,7 @@ class NativeToolReplSession:
         session_tree: NativeSessionTree,
         entry: object,
         directive: str,
-        summarizer: Callable[[list[LoopMessage], str | None], str | None],
+        summarizer: Callable[[list[AgentMessage], str | None], str | None],
         rebuild_messages: Callable[[], None],
         terminal_ui: "ToolLoopTerminalUi | None",
         error_stream: TextIO,
@@ -6190,8 +6421,8 @@ class NativeToolReplSession:
         rebuild_messages()
         editor_text: str | None = None
         message = getattr(entry, "message", None)
-        if isinstance(entry, _MessageEntry) and isinstance(message, UserMessage):
-            editor_text = message.content
+        if isinstance(entry, _MessageEntry) and isinstance(message, AgentUserMessage):
+            editor_text = message.content.value
         self._emit_diagnostic(
             terminal_ui,
             error_stream,
@@ -6209,7 +6440,8 @@ class NativeToolReplSession:
         repl_input: object,
         filter_mode: str,
         rebuild_messages: Callable[[], None],
-        summarizer: Callable[[list[LoopMessage], str | None], str | None] | None = None,
+        summarizer: Callable[[list[AgentMessage], str | None], str | None]
+        | None = None,
     ) -> _TreeCommandOutcome:
         """Handle ``/tree`` and its captured-stream subcommands.
 
@@ -6350,22 +6582,22 @@ class NativeToolReplSession:
         return _TreeCommandOutcome()
 
     @staticmethod
-    def _last_assistant_answer(messages: list[LoopMessage]) -> str:
+    def _last_assistant_answer(messages: list[AgentMessage]) -> str:
         for message in reversed(messages):
-            if isinstance(message, AssistantMessage):
-                content = message.content.strip()
+            if isinstance(message, AgentAssistantMessage):
+                content = message.content.value.strip()
                 if content:
-                    return message.content
+                    return message.content.value
         return ""
 
     def _invoke_interruptible(
         self,
         *,
-        call: ProviderToolCall,
+        call: AgentToolCall,
         context: ToolContext,
         registry: dict[str, ToolPort] | None = None,
         terminal_ui: ToolLoopTerminalUi | None = None,
-    ) -> tuple[ToolResultMessage, str, bool]:
+    ) -> tuple[AgentToolResultMessage, str, bool]:
         """Invoke a tool while the live TUI can submit local commands.
 
         Model-driven bash tools run tests/builds on the tool loop's main path.
@@ -6384,7 +6616,7 @@ class NativeToolReplSession:
 
         cancel_event = threading.Event()
         done_event = threading.Event()
-        result_holder: list[tuple[ToolResultMessage, bool]] = []
+        result_holder: list[tuple[AgentToolResultMessage, bool]] = []
         error_holder: list[BaseException] = []
         cancellable_context = replace(context, cancel_event=cancel_event)
 
@@ -6438,10 +6670,10 @@ class NativeToolReplSession:
     def _invoke(
         self,
         *,
-        call: ProviderToolCall,
+        call: AgentToolCall,
         context: ToolContext,
         registry: dict[str, ToolPort] | None = None,
-    ) -> tuple[ToolResultMessage, bool]:
+    ) -> tuple[AgentToolResultMessage, bool]:
         tool = (registry if registry is not None else self.tool_registry).get(
             call.tool_name
         )
@@ -6454,7 +6686,7 @@ class NativeToolReplSession:
                 True,
             )
         try:
-            raw_args = json.loads(call.arguments_json)
+            raw_args = json.loads(call.arguments_json.value)
         except json.JSONDecodeError as exc:
             return (
                 self._error_observation(
@@ -6489,11 +6721,15 @@ class NativeToolReplSession:
                 f"tool {call.tool_name!r} returned non-ToolExecutionResult value"
             )
         return (
-            ToolResultMessage(
+            AgentToolResultMessage(
                 tool_request_id=execution_result.tool_request_id,
-                output_text=execution_result.output_text,
+                tool_name=call.tool_name,
+                content=ProductContent(execution_result.output_text),
                 is_error=execution_result.is_error,
-                provider_correlation_id=execution_result.provider_correlation_id,
+                provider_correlation_id=(
+                    execution_result.provider_correlation_id
+                    or call.provider_correlation_id
+                ),
             ),
             False,
         )
@@ -6501,12 +6737,13 @@ class NativeToolReplSession:
     @staticmethod
     def _error_observation(
         *,
-        call: ProviderToolCall,
+        call: AgentToolCall,
         output_text: str,
-    ) -> ToolResultMessage:
-        return ToolResultMessage(
+    ) -> AgentToolResultMessage:
+        return AgentToolResultMessage(
             tool_request_id=make_tool_request_id(),
-            output_text=output_text,
+            tool_name=call.tool_name,
+            content=ProductContent(output_text),
             is_error=True,
             provider_correlation_id=call.provider_correlation_id,
         )
@@ -6592,6 +6829,7 @@ class _ToolLoopRenderer:
         )
         self._stream_active = False
         self._stream_emitted_any = False
+        self._stream_ended_with_newline = False
         self._streamed_any = False
         self._working_shown = False
         self._working_mode = ""
@@ -6647,10 +6885,17 @@ class _ToolLoopRenderer:
     def stream_sink(self) -> StreamChunkSink:
         return self._handle_stream_chunk
 
+    def start_assistant_message(self) -> None:
+        """Reset and display provider-turn chrome for a canonical message start."""
+
+        self.begin_provider_turn()
+        self.show_working()
+
     def begin_provider_turn(self) -> None:
         self._close_reasoning()
         self._stream_active = False
         self._stream_emitted_any = False
+        self._stream_ended_with_newline = False
         self._working_shown = False
         self._working_mode = ""
         self._reasoning_emitted_any = False
@@ -6761,8 +7006,13 @@ class _ToolLoopRenderer:
         self._working_shown = False
         self._working_mode = ""
 
-    def end_provider_turn(self, *, final_text: str, has_tool_calls: bool) -> None:
+    def complete_assistant_message(self, *, has_tool_calls: bool) -> None:
         del has_tool_calls
+        self._finish_provider_turn(
+            stream_ended_with_newline=self._stream_ended_with_newline
+        )
+
+    def _finish_provider_turn(self, *, stream_ended_with_newline: bool) -> None:
         self._clear_working()
         if self._stream_active:
             # Flush a trailing newline so the next render block starts
@@ -6770,16 +7020,23 @@ class _ToolLoopRenderer:
             # then a second one so a blank row sits between the last
             # response line and the next input-frame separator, matching
             # pi's spacing below the assistant message.
-            if not self._stream_emitted_any or not final_text.endswith("\n"):
+            if not self._stream_emitted_any or not stream_ended_with_newline:
                 self._output_stream.write("\n\n")
             else:
                 self._output_stream.write("\n")
             self._output_stream.flush()
         self._stream_active = False
 
-    def abort_provider_turn(self) -> None:
+    def fail_assistant_message(self) -> None:
+        # Preserve the historical provider-failure bytes: a partial stream is
+        # always terminated with two newlines, even when its last delta ended
+        # with one. Successful completion instead follows the canonical delta
+        # tail through ``complete_assistant_message`` above.
+        self._finish_provider_turn(stream_ended_with_newline=False)
+
+    def cancel_assistant_message(self, reason: AgentCancellationReason) -> None:
         self._clear_working()
-        if self._enabled:
+        if reason is AgentCancellationReason.OPERATOR_ABORT and self._enabled:
             message = self._style(" Operation aborted", "\x1b[38;2;204;102;102m")
             try:
                 with self._terminal_lock:
@@ -6787,14 +7044,8 @@ class _ToolLoopRenderer:
                     self._error_stream.flush()
             except (ValueError, OSError):
                 pass
-        else:
+        elif reason is AgentCancellationReason.OPERATOR_ABORT:
             print("Operation aborted", file=self._error_stream)
-        self._stream_active = False
-
-    def steer_provider_turn(self) -> None:
-        # Captured-stream callers do not accept mid-turn input, so steering does
-        # not occur here; provided for interface parity with the TUI renderer.
-        self._clear_working()
         self._stream_active = False
 
     def _handle_stream_chunk(self, chunk: str) -> None:
@@ -6820,6 +7071,7 @@ class _ToolLoopRenderer:
                 self._output_stream.write(chunk.replace("\n", "\n "))
                 self._output_stream.flush()
         self._stream_emitted_any = True
+        self._stream_ended_with_newline = chunk.endswith("\n")
         self._streamed_any = True
 
     def handle_reasoning_chunk(self, chunk: str) -> None:
@@ -6938,6 +7190,14 @@ class _ToolLoopRenderer:
             self._error_stream.write(self._user_message_panel_blank_line())
         self._error_stream.flush()
 
+    def render_buffered_assistant_text(
+        self, text: str, *, has_tool_calls: bool
+    ) -> None:
+        """Render a non-streamed assistant completion from its canonical event."""
+
+        if not has_tool_calls:
+            print(text, file=self._output_stream)
+
     def _user_message_panel_line(self, text: str) -> str:
         """Render the text row of the user-message bubble."""
 
@@ -6972,14 +7232,14 @@ class _ToolLoopRenderer:
             f"{self._ANSI_RESET}\n"
         )
 
-    def render_tool_call(self, call: ProviderToolCall) -> None:
+    def render_tool_call(self, call: AgentToolCall) -> None:
         self._clear_working()
         self._close_reasoning()
         self._last_tool_name = call.tool_name
         self._pending_render = None
         tool = self._tool_renderers.get(call.tool_name)
         if tool is not None:
-            args = _parse_tool_input(call.arguments_json)
+            args = _parse_tool_input(call.arguments_json.value)
             state: dict[str, object] = {}
             self._pending_render = {
                 "corr": call.provider_correlation_id,
@@ -7005,7 +7265,9 @@ class _ToolLoopRenderer:
                     return
         # --- existing default body ---
         self._error_stream.write(self._tool_panel_blank_line())
-        rendered = self._format_pi_call_header_rich(call.tool_name, call.arguments_json)
+        rendered = self._format_pi_call_header_rich(
+            call.tool_name, call.arguments_json.value
+        )
         self._error_stream.write(self._tool_panel_rich_line(rendered))
         self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
@@ -7391,6 +7653,12 @@ class _TuiToolLoopRenderer:
     def reasoning_sink(self) -> StreamChunkSink:
         return self.handle_reasoning_chunk
 
+    def start_assistant_message(self) -> None:
+        """Reset and display provider-turn chrome for a canonical message start."""
+
+        self.begin_provider_turn()
+        self.show_working()
+
     def begin_provider_turn(self) -> None:
         self._stop_working(clear=True)
         self._streamed_any = False
@@ -7437,33 +7705,41 @@ class _TuiToolLoopRenderer:
         self._working_thread = thread
         thread.start()
 
-    def end_provider_turn(self, *, final_text: str, has_tool_calls: bool) -> None:
+    def complete_assistant_message(self, *, has_tool_calls: bool) -> None:
         del has_tool_calls
+        self._finish_provider_turn()
+
+    def _finish_provider_turn(self) -> None:
         self._stop_working(clear=True)
-        if final_text and not self._streamed_any:
-            self._ui.append_assistant(final_text)
-            self._streamed_any = True
         self._ui.settle_assistant()
 
-    def abort_provider_turn(self) -> None:
-        self._stop_working(clear=True)
-        self._ui.show_operation_aborted()
+    def fail_assistant_message(self) -> None:
+        self._finish_provider_turn()
 
-    def steer_provider_turn(self) -> None:
-        # A steering message interrupts the turn but is not an error, so stop the
-        # spinner without the red "Operation aborted" banner.
+    def cancel_assistant_message(self, reason: AgentCancellationReason) -> None:
         self._stop_working(clear=True)
+        if reason is AgentCancellationReason.OPERATOR_ABORT:
+            self._ui.show_operation_aborted()
 
     def render_user_message(self, text: str) -> None:
         self._ui.submit_user_message(text)
 
-    def render_tool_call(self, call: ProviderToolCall) -> None:
+    def render_buffered_assistant_text(
+        self, text: str, *, has_tool_calls: bool
+    ) -> None:
+        """Render a non-streamed assistant completion from its canonical event."""
+
+        del has_tool_calls
+        self._ui.append_assistant(text)
+        self._streamed_any = True
+
+    def render_tool_call(self, call: AgentToolCall) -> None:
         self._stop_working(clear=True)
         self._last_tool_name = call.tool_name
         self._pending_render = None
         tool = self._tool_renderers.get(call.tool_name)
         if tool is not None:
-            args = _parse_tool_input(call.arguments_json)
+            args = _parse_tool_input(call.arguments_json.value)
             state: dict[str, object] = {}
             self._pending_render = {
                 "corr": call.provider_correlation_id,
@@ -7617,11 +7893,11 @@ def _extension_tool_renderer_map(
     }
 
 
-def _plain_tool_call_header(call: ProviderToolCall) -> str:
+def _plain_tool_call_header(call: AgentToolCall) -> str:
     """Return a concise tool-call label for the TUI history region."""
 
     try:
-        data = json.loads(call.arguments_json)
+        data = json.loads(call.arguments_json.value)
     except json.JSONDecodeError:
         data = {}
     if not isinstance(data, dict):

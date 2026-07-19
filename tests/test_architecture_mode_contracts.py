@@ -21,6 +21,13 @@ import pytest
 from pipy_harness.adapters.native import PipyNativeToolReplAdapter
 from pipy_harness.native.automation.rpc import NativeRpcServer
 from pipy_harness.native.automation.run_modes import run_json_mode
+from pipy_harness.native.agent import (
+    AgentEvent,
+    AssistantTextDelta,
+    FollowUpConsumed,
+    ProductContent,
+    SteeringConsumed,
+)
 from pipy_harness.native.fake import AutomationFakeProvider, FakeNativeProvider
 from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.session_tree import NativeSessionTree
@@ -49,6 +56,14 @@ class _CollectingSink:
 
     def emit(self, event: dict[str, Any]) -> None:
         self.events.append(dict(event))
+
+
+class _CanonicalCollectingSink:
+    def __init__(self) -> None:
+        self.events: list[AgentEvent] = []
+
+    def emit(self, event: AgentEvent) -> None:
+        self.events.append(event)
 
 
 class _ReleaseAfterSteerResponse(io.BytesIO):
@@ -182,6 +197,60 @@ def _event_trace(events: Iterable[dict[str, Any]]) -> list[str]:
     return trace
 
 
+def test_tool_loop_exposes_one_mode_neutral_canonical_trace(tmp_path: Path) -> None:
+    canonical = _CanonicalCollectingSink()
+    automation = _CollectingSink()
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(
+            supports_tool_calls=True,
+            programmable_text_chunks=("hello", " world"),
+        ),
+        tool_registry={},
+        automation_observer=automation,
+        agent_event_sink=canonical,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("prompt\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status.value == "succeeded"
+    assert [type(event).__name__ for event in canonical.events] == [
+        "AgentRunStarted",
+        "TurnStarted",
+        "MessageStarted",
+        "MessageCompleted",
+        "MessageStarted",
+        "AssistantTextDelta",
+        "AssistantTextDelta",
+        "UsageUpdated",
+        "MessageCompleted",
+        "TurnCompleted",
+        "AgentRunCompleted",
+    ]
+    deltas = [
+        event.delta
+        for event in canonical.events
+        if isinstance(event, AssistantTextDelta)
+    ]
+    assert deltas == [ProductContent("hello"), ProductContent(" world")]
+    assert _event_trace(automation.events) == [
+        "agent_start",
+        "turn_start",
+        "message_start:user",
+        "message_end:user",
+        "message_start:assistant",
+        "message_update:text_delta",
+        "message_update:text_delta",
+        "message_end:assistant",
+        "turn_end",
+        "agent_end",
+    ]
+
+
 @pytest.mark.parametrize(
     ("tool_call", "tool_registry", "expected_middle", "malformed_count"),
     [
@@ -308,8 +377,12 @@ def test_rpc_queues_steering_before_follow_up_and_settles_once(tmp_path: Path) -
     release = threading.Event()
     stdout = _ReleaseAfterSteerResponse(release)
     provider = _BlockingFirstProvider(release)
+    canonical = _CanonicalCollectingSink()
     server = NativeRpcServer(
-        adapter=PipyNativeToolReplAdapter(provider=provider),
+        adapter=PipyNativeToolReplAdapter(
+            provider=provider,
+            agent_event_sink=canonical,
+        ),
         cwd=tmp_path,
         native_session=NativeSessionTree.create(tmp_path, persist=False),
         stdin=io.StringIO(commands + "\n"),
@@ -340,6 +413,15 @@ def test_rpc_queues_steering_before_follow_up_and_settles_once(tmp_path: Path) -
     assert event_types.count("agent_end") == 3
     assert event_types.count("agent_settled") == 1
     assert event_types[-2:] == ["agent_end", "agent_settled"]
+    consumed = [
+        event
+        for event in canonical.events
+        if isinstance(event, (SteeringConsumed, FollowUpConsumed))
+    ]
+    assert consumed == [
+        SteeringConsumed(ProductContent("STEER")),
+        FollowUpConsumed(ProductContent("FOLLOW")),
+    ]
 
 
 def test_rpc_abort_reaches_provider_and_closes_the_event_lifecycle(

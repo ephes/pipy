@@ -4,16 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from pipy_harness.native.agent import AgentAssistantMessage, AgentToolResultMessage
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.tools.base import ToolDefinition
-from pipy_harness.native.tools.messages import AssistantMessage, ToolResultMessage
 
 
 def split_deferred_tools(
     request: ProviderRequest,
     *,
     enabled: bool,
-    require_result_correlation: bool = False,
 ) -> tuple[tuple[ToolDefinition, ...], tuple[ToolDefinition, ...]]:
     """Split current definitions using durable message load-point markers."""
 
@@ -26,11 +25,9 @@ def split_deferred_tools(
     deferred_names: set[str] = set()
     used_names: set[str] = set()
     for message in request.messages:
-        if isinstance(message, AssistantMessage):
+        if isinstance(message, AgentAssistantMessage):
             used_names.update(call.tool_name for call in message.tool_calls)
-        elif isinstance(message, ToolResultMessage):
-            if require_result_correlation and message.provider_correlation_id is None:
-                continue
+        elif isinstance(message, AgentToolResultMessage):
             for name in message.added_tool_names:
                 if name not in used_names:
                     deferred_names.add(name)
@@ -59,7 +56,7 @@ def short_hash(value: str) -> str:
 
 
 def responses_tool_search_items(
-    message: ToolResultMessage,
+    message: AgentToolResultMessage,
     *,
     deferred_tools: Mapping[str, ToolDefinition],
     loaded_tool_names: set[str],
@@ -67,8 +64,6 @@ def responses_tool_search_items(
     """Build Pi's completed client tool-search pair for one result marker."""
 
     correlation_id = message.provider_correlation_id
-    if correlation_id is None:
-        return []
     selected: list[ToolDefinition] = []
     for name in message.added_tool_names:
         tool = deferred_tools.get(name)

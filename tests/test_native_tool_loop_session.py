@@ -22,6 +22,13 @@ from typing import Any, TextIO, cast
 import pytest
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.agent import (
+    AgentCancellationReason,
+    AgentEvent,
+    AgentRunCompleted,
+    AgentUsage,
+    UsageUpdated,
+)
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native import (
     FakeNativeProvider,
@@ -122,6 +129,48 @@ def _make_call(
     )
 
 
+@dataclass(slots=True)
+class _UsageScriptProvider:
+    """Tool-capable provider with deterministic per-call usage payloads."""
+
+    script: tuple[tuple[Mapping[str, Any] | None, tuple[ProviderToolCall, ...]], ...]
+    supports_tool_calls: bool = True
+    name: str = "usage-script"
+    model_id: str = "usage-script-model"
+    call_index: int = 0
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        del request, stream_sink, reasoning_sink, cancel_token
+        usage, tool_calls = self.script[self.call_index]
+        self.call_index += 1
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text=f"provider turn {self.call_index}",
+            usage=usage,
+            tool_calls=tool_calls,
+        )
+
+
+@dataclass(slots=True)
+class _CollectingAgentEventSink:
+    events: list[AgentEvent] = field(default_factory=list)
+
+    def emit(self, event: AgentEvent) -> None:
+        self.events.append(event)
+
+
 def _run_session(
     *,
     tool_calls_script: tuple[tuple[ProviderToolCall, ...], ...],
@@ -155,6 +204,7 @@ def test_usage_accumulator_cache_hit_uses_provider_specific_denominator():
     openai_usage = _UsageAccumulator()
     openai_usage.bind("openai-codex", "gpt-5.5")
     openai_usage.absorb({"input_tokens": 100, "cached_tokens": 80})
+    openai_usage.absorb({})
 
     anthropic_usage = _UsageAccumulator()
     anthropic_usage.bind("custom-anthropic", "claude-test")
@@ -176,9 +226,97 @@ def test_usage_accumulator_cache_hit_uses_provider_specific_denominator():
     all_cache_usage.absorb({"input_tokens": 0, "cached_tokens": 20, "total_tokens": 20})
 
     assert openai_usage.cache_hit_percent == 80.0
+    assert openai_usage.input_tokens == 100
+    assert openai_usage.last_total_tokens == 0
     assert anthropic_usage.cache_hit_percent == pytest.approx(100.0 * 2 / 13)
     assert read_only_cache_usage.cache_hit_percent == pytest.approx(100.0 * 80 / 180)
     assert all_cache_usage.cache_hit_percent == 100.0
+
+
+def test_canonical_usage_is_scoped_to_each_accepted_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_usage = {
+        "input_tokens": 10,
+        "output_tokens": 2,
+        "reasoning_tokens": 1,
+        "cached_tokens": 3,
+        "cache_write_tokens": 4,
+        "total_tokens": 20,
+    }
+    second_usage = {"input_tokens": 7, "output_tokens": 5, "total_tokens": 12}
+    first_run_usage = AgentUsage(
+        input_tokens=10,
+        output_tokens=2,
+        reasoning_tokens=1,
+        cache_read_tokens=3,
+        cache_write_tokens=4,
+    )
+    second_run_usage = AgentUsage(input_tokens=7, output_tokens=5)
+    session_usage = AgentUsage(
+        input_tokens=17,
+        output_tokens=7,
+        reasoning_tokens=1,
+        cache_read_tokens=3,
+        cache_write_tokens=4,
+    )
+    provider = _UsageScriptProvider(
+        (
+            (first_usage, (_make_call("echo", '{"text":"ok"}'),)),
+            (None, ()),
+            (second_usage, ()),
+        )
+    )
+    canonical = _CollectingAgentEventSink()
+    footer_usage: list[tuple[AgentUsage, int]] = []
+
+    def record_footer(
+        self: NativeToolReplSession,
+        error_stream: TextIO,
+        *,
+        cwd: Path,
+        provider_name: str,
+        model_id: str,
+        user_turn_count: int,
+        tool_invocation_count: int,
+        usage_accumulator: _UsageAccumulator | None = None,
+    ) -> None:
+        del self, error_stream, cwd, provider_name, model_id
+        del user_turn_count, tool_invocation_count
+        assert usage_accumulator is not None
+        footer_usage.append(
+            (usage_accumulator.agent_usage(), usage_accumulator.last_total_tokens)
+        )
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    result = NativeToolReplSession(
+        provider=provider,
+        tool_registry={"echo": _FixtureEchoTool()},
+        agent_event_sink=canonical,
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("first\nsecond\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    updates = [event for event in canonical.events if isinstance(event, UsageUpdated)]
+    assert [
+        (event.cumulative_usage, event.last_turn_total_tokens) for event in updates
+    ] == [(first_run_usage, 20), (first_run_usage, 0), (second_run_usage, 12)]
+    completed = [
+        event for event in canonical.events if isinstance(event, AgentRunCompleted)
+    ]
+    assert [event.result.usage for event in completed] == [
+        first_run_usage,
+        second_run_usage,
+    ]
+    assert footer_usage == [
+        (AgentUsage(), 0),
+        (first_run_usage, 0),
+        (session_usage, 12),
+    ]
 
 
 # --------------------- production registry holds model tools ----------------
@@ -290,23 +428,6 @@ class _CancelObservingProvider:
             self.finished.set()
 
 
-class _RecordingAbortRenderer:
-    def __init__(self) -> None:
-        self.chunks: list[str] = []
-        self.aborted = False
-
-    @property
-    def stream_sink(self) -> StreamChunkSink:
-        return self.chunks.append
-
-    @property
-    def reasoning_sink(self) -> StreamChunkSink:
-        return lambda _chunk: None
-
-    def abort_provider_turn(self) -> None:
-        self.aborted = True
-
-
 def test_provider_turn_escape_abort_cancels_provider_at_boundary(
     tmp_path: Path,
 ):
@@ -325,8 +446,6 @@ def test_provider_turn_escape_abort_cancels_provider_at_boundary(
             return None
 
     session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
-    renderer = _RecordingAbortRenderer()
-
     result = session._complete_provider_turn(
         ProviderRequest(
             system_prompt="",
@@ -335,17 +454,16 @@ def test_provider_turn_escape_abort_cancels_provider_at_boundary(
             model_id="blocking-model",
             cwd=tmp_path,
         ),
-        renderer=cast(Any, renderer),
         terminal_ui=cast(Any, InterruptingUi()),
+        turn_index=0,
     )
 
-    assert result is None
-    assert renderer.aborted is True
+    assert result.result is None
+    assert result.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT
     # The provider OBSERVED cancellation (true cancellation, not a UI-only flag).
     assert provider.observed == ["cancelled"]
     # The worker was reaped, and its late chunk was suppressed.
     assert provider.finished.wait(timeout=2)
-    assert renderer.chunks == []
 
 
 def test_provider_turn_ctrl_c_abort_returns_to_prompt(tmp_path: Path):
@@ -365,8 +483,6 @@ def test_provider_turn_ctrl_c_abort_returns_to_prompt(tmp_path: Path):
             return None
 
     session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
-    renderer = _RecordingAbortRenderer()
-
     # Ctrl-C during an active turn must NOT propagate out of the turn; it aborts
     # and returns control to the prompt, exactly like Escape.
     result = session._complete_provider_turn(
@@ -377,15 +493,14 @@ def test_provider_turn_ctrl_c_abort_returns_to_prompt(tmp_path: Path):
             model_id="blocking-model",
             cwd=tmp_path,
         ),
-        renderer=cast(Any, renderer),
         terminal_ui=cast(Any, CtrlCUi()),
+        turn_index=0,
     )
 
-    assert result is None
-    assert renderer.aborted is True
+    assert result.result is None
+    assert result.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT
     assert provider.observed == ["cancelled"]
     assert provider.finished.wait(timeout=2)
-    assert renderer.chunks == []
 
 
 def test_non_cooperative_provider_abort_is_still_safe(
@@ -394,9 +509,10 @@ def test_non_cooperative_provider_abort_is_still_safe(
     """A provider that ignores the cancel token still aborts safely.
 
     Cancellation is cooperative, so the bounded join can return with the worker
-    still alive. The turn must still return ``None`` and render the aborted
-    state (no late chunks, no result), so the session cannot be corrupted even
-    though the abandoned worker keeps running in the background.
+    still alive. The provider boundary must still return a typed cancellation
+    (no late chunks, no result), which lets the outer canonical event adapter
+    render the aborted state without corrupting the session even though the
+    abandoned worker keeps running in the background.
     """
 
     release = threading.Event()
@@ -449,8 +565,6 @@ def test_non_cooperative_provider_abort_is_still_safe(
     # Keep the bounded join short so the test does not wait the full 2s.
     monkeypatch.setattr(NativeToolReplSession, "_CANCEL_JOIN_TIMEOUT_SECONDS", 0.2)
     session = NativeToolReplSession(provider=provider, workspace_root=tmp_path)
-    renderer = _RecordingAbortRenderer()
-
     try:
         result = session._complete_provider_turn(
             ProviderRequest(
@@ -460,20 +574,16 @@ def test_non_cooperative_provider_abort_is_still_safe(
                 model_id="stubborn-model",
                 cwd=tmp_path,
             ),
-            renderer=cast(Any, renderer),
             terminal_ui=cast(Any, InterruptingUi()),
+            turn_index=0,
         )
 
-        # The turn aborted and returned None even though the worker is alive.
-        assert result is None
-        assert renderer.aborted is True
-        # No late chunk has been rendered (the cancellable sink drops them).
-        assert renderer.chunks == []
+        # The turn aborted without a provider result even though the worker is alive.
+        assert result.result is None
+        assert result.cancellation_reason is AgentCancellationReason.OPERATOR_ABORT
     finally:
         # Let the abandoned worker finish; its late chunk is still suppressed.
         release.set()
-
-    assert renderer.chunks == []
 
 
 # --------------------------- successful invocation --------------------------

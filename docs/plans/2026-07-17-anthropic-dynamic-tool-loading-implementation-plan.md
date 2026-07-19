@@ -3,7 +3,7 @@
 Design: [`../specs/2026-07-17-anthropic-dynamic-tool-loading-design.md`](../specs/2026-07-17-anthropic-dynamic-tool-loading-design.md)
 
 1. Add and persist the provider-agnostic load-point marker.
-   - Extend `ToolResultMessage` with ordered `added_tool_names` and validation.
+   - Extend `AgentToolResultMessage` with ordered `added_tool_names` and validation.
    - Round-trip the optional field through native session JSONL while accepting
      old records that omit it.
    - Acceptance: focused message/session-tree tests prove ordered round-trip and

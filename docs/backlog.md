@@ -600,7 +600,7 @@ Parity Track`) and the parity-map entry in `docs/pi-parity.md`
   envelope plus `available_tools` into the OpenAI Responses API
   `input`/`tools` shape, parses `function_call` outputs into
   `ProviderToolCall` values on `ProviderResult.tool_calls`, serializes
-  `ToolResultMessage` as Responses `function_call_output` items, and
+  `AgentToolResultMessage` as Responses `function_call_output` items, and
   flips `supports_tool_calls=True`.
 - `OpenAICodexResponsesProvider` does the same over Codex Responses
   streaming, assembling function calls across the SSE event stream
@@ -621,7 +621,7 @@ Parity Track`) and the parity-map entry in `docs/pi-parity.md`
    `docs/harness-spec.md`, `docs/architecture.md`, and `README.md`.
 2. `OpenAIResponsesProvider` tool-call wiring: serialize messages and
    tools into the Responses `input`/`tools` shape, parse `function_call`
-   outputs into `ProviderToolCall`, serialize `ToolResultMessage` as
+   outputs into `ProviderToolCall`, serialize `AgentToolResultMessage` as
    `function_call_output`, flip `supports_tool_calls=True`, ship the
    hermetic JSON-transport end-to-end test, and update the existing
    `test_real_providers_advertise_tool_call_support_correctly`
@@ -630,7 +630,7 @@ Parity Track`) and the parity-map entry in `docs/pi-parity.md`
    and tools into the Codex Responses streaming shape, assemble
    function calls across the SSE event stream, allow terminal
    `response.completed` without final text when tool_calls are present,
-   serialize `ToolResultMessage` as `function_call_output`, flip
+   serialize `AgentToolResultMessage` as `function_call_output`, flip
    `supports_tool_calls=True`, and ship the hermetic SSE-transport
    end-to-end test.
 4. README and cross-doc cleanup: remove any remaining "follow-up" /
@@ -649,7 +649,7 @@ These hold throughout the track, not as later deferrals:
   No pydantic, jsonschema, or attrs.
 - Reuse the existing tool-loop contracts and helpers (`ToolDefinition`,
   `ToolRequest`, `ToolExecutionResult`, `ToolPort`, `validate_arguments`,
-  the `LoopMessage` envelope, `NativeToolReplSession`). Do not redesign
+  the `AgentMessage` envelope, `NativeToolReplSession`). Do not redesign
   the loop.
 - `NativeToolResult` (archive-safe metadata) and `ToolExecutionResult`
   (provider-visible payload) stay strictly separate; do not conflate.
@@ -657,8 +657,9 @@ These hold throughout the track, not as later deferrals:
   provider identifiers ride separately as `provider_correlation_id`.
 - The no-tool REPL and the existing slash commands keep working in
   both modes.
-- The opt-in `--archive-transcript` sidecar contracts (path, exclusion
-  from `pipy-session list/search/inspect`, off-by-default) are unchanged.
+- The removed `--archive-transcript` sidecar is not reintroduced. Full-content
+  history stays in the private native product session tree and remains separate
+  from `pipy-session list/search/inspect` metadata archive surfaces.
 - Each slice ships focused tests, a green `just check`, updated docs,
   a conventional commit, and stops for review.
 
@@ -820,10 +821,11 @@ parity-map entry in `docs/pi-parity.md`
 ### Goal
 
 - `pipy run --agent pipy-native --stream` routes provider-emitted
-  text deltas to a configurable chunk sink (stdout in plain text
-  mode, stderr in `--native-output json` mode) as they arrive, while
-  the final successful provider text and the metadata-first archive
-  records are unchanged.
+  text deltas to stdout as they arrive, while the final successful provider
+  text and the metadata-first archive records are unchanged. The former
+  `--native-output json` mode has since been removed; current automation uses
+  `pipy repl --mode json` for the separate full-content Pi-shaped session event
+  stream, and that mode is not combined with `pipy run --stream`.
 - One real provider (`openai-codex`, whose SSE parser already
   iterates `response.output_text.delta` events) flips on streaming
   first. Other tool-capable providers (`openai`, `openrouter`) stay
@@ -1500,7 +1502,7 @@ dependency gate keeps this core independent of outer adapters, automation,
 extensions, UI, persistence, providers, the runner, and the workflow archive.
 No current mode or public wire format changed.
 
-### Canonical event adapters — ACTIVE
+### Canonical event adapters — SHIPPED (2026-07-18)
 
 Implement Phase 1.2 from the reviewed
 [Architecture Migration Plan](architecture-migration.md): project typed agent
@@ -1511,6 +1513,16 @@ and camelCase fields in the Pi adapter; keep RPC queue/idle transitions on its
 existing serialized boundary. Replace the legacy tool-loop message envelope
 atomically rather than leaving aliases, and add no new public records for
 reasoning, usage, cancellation, or provider failures unless explicitly planned.
+
+Delivered as one atomic cutover because the conversation envelope and event
+producer are one connected graph. The tool loop and one-shot SDK emit canonical
+events through fixed-order synchronous projections for automation, extensions,
+rendering, SDK callbacks, metadata-only workflow counts, and the defined future
+product-session subscriber. JSON/RPC/session/SDK formats and callback order stay
+stable; RPC still owns queue reservation and `agent_settled`, while direct
+product-session writes remain in place until Phase 3.3. The superseded
+`native.tools.messages` envelope, exports, and `AutomationEmitter` are deleted.
+The next active migration slice is Phase 2.1, the reusable tool executor.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 
@@ -1735,8 +1747,8 @@ through discovery (see the closing note below). Landed so far:
   `scripts/parity_checks/extension_tool_call_conformance.py --json`.
 - Slice 5 (lifecycle events): `session_start`, `session_shutdown`,
   `agent_start`, `agent_end`, `turn_start`, and `turn_end` fire to `@api.on(...)`
-  observers via an `_ExtensionAwareEmitter` wrapping the automation emitter
-  (`dispatch_lifecycle_hooks`); observe-only, fail-soft. Gate:
+  observers after the canonical automation projection in the tool-loop
+  composition sink (`dispatch_lifecycle_hooks`); observe-only, fail-soft. Gate:
   `scripts/parity_checks/extension_lifecycle_conformance.py --json`.
 - Slice 6 (`input`/`before_agent_start` + `send_user_message`): input transform,
   before_agent_start system-prompt injection, send_user_message-triggered turn.
@@ -2112,8 +2124,8 @@ What shipped (historical; `--resume`/`--branch` repl flags now retired):
   transformation. `/compact` (and an automatic threshold) reduce the
   provider-visible context while keeping recent turns plus a safe metadata-only
   summary appended to the system prompt. The no-tool path compacts its bounded
-  exchange context; the tool-loop cuts the `LoopMessage` history only at
-  `UserMessage` group boundaries, so compaction never orphans a tool result,
+  exchange context; the tool-loop cuts the `AgentMessage` history only at
+  `AgentUserMessage` group boundaries, so compaction never orphans a tool result,
   reorders a tool-call/observation pair, or exposes a raw tool payload.
 - **Archive + catalog.** The runner writes a safe `resume` object onto
   `session.started` and emits `native.session.resumed`; compaction emits

@@ -20,7 +20,7 @@ from pipy_harness.native.extension_runtime import (
 )
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.tui import ToolLoopTerminalUi
-from pipy_harness.native.tools.messages import AssistantMessage
+from pipy_harness.native.agent import AgentAssistantMessage, ProductContent
 
 _EXAMPLE = (
     Path(__file__).resolve().parents[1]
@@ -190,7 +190,11 @@ def test_answer_handler_extracts_and_submits(tmp_path) -> None:
         command_map,
         cwd=str(tmp_path),
         has_ui=True,
-        messages=[AssistantMessage(content="To proceed: Which DB? (mysql/pg)")],
+        messages=[
+            AgentAssistantMessage(
+                content=ProductContent("To proceed: Which DB? (mysql/pg)")
+            )
+        ],
         complete_fn=fake_complete,
         ui_custom_driver=fake_driver,
     )
@@ -211,7 +215,7 @@ def test_answer_handler_requires_interactive_ui(tmp_path) -> None:
         command_map,
         cwd=str(tmp_path),
         has_ui=False,
-        messages=[AssistantMessage(content="anything?")],
+        messages=[AgentAssistantMessage(content=ProductContent("anything?"))],
     )
     assert dispatch is not None and dispatch.ran
     assert ("error", "answer requires interactive mode") in dispatch.messages
@@ -234,7 +238,11 @@ def test_answer_handler_no_questions_found(tmp_path) -> None:
         command_map,
         cwd=str(tmp_path),
         has_ui=True,
-        messages=[AssistantMessage(content="A complete answer with no questions.")],
+        messages=[
+            AgentAssistantMessage(
+                content=ProductContent("A complete answer with no questions.")
+            )
+        ],
         complete_fn=lambda _s, _u: '{"questions": []}',
     )
     assert dispatch is not None and dispatch.ran

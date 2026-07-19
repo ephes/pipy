@@ -7,6 +7,7 @@ from pipy_harness.extensions import (
     ToolResult,
     lines_component,
 )
+from pipy_harness.native.agent import AgentToolCall, ProductContent
 from pipy_harness.native.tool_loop_session import (
     _ExtensionToolPort,
     _TuiToolLoopRenderer,
@@ -70,8 +71,6 @@ def _tui(tmp_path):
 
 
 def test_tui_renderer_uses_render_result(tmp_path):
-    from pipy_harness.native.models import ProviderToolCall
-
     tool = ExtensionTool(
         name="kv", description="d", input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="ignored", details={"k": "v"}),
@@ -87,8 +86,11 @@ def test_tui_renderer_uses_render_result(tmp_path):
         render_details_sink=sink,
     )
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="corr-1", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall(
+            provider_correlation_id="corr-1",
+            tool_name="kv",
+            arguments_json=ProductContent("{}"),
+        )
     )
     renderer.render_tool_result(output_text="ignored", is_error=False)
     blocks = [b for b in ui._history_blocks if b[0] == "tool_result_custom"]
@@ -98,8 +100,6 @@ def test_tui_renderer_uses_render_result(tmp_path):
 
 
 def test_tui_renderer_falls_back_when_renderer_crashes(tmp_path):
-    from pipy_harness.native.models import ProviderToolCall
-
     def boom(ctx):
         raise RuntimeError("nope")
 
@@ -113,8 +113,11 @@ def test_tui_renderer_falls_back_when_renderer_crashes(tmp_path):
         ui=ui, tool_renderers={"kv": tool}, render_details_sink={},
     )
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall(
+            provider_correlation_id="c",
+            tool_name="kv",
+            arguments_json=ProductContent("{}"),
+        )
     )
     renderer.render_tool_result(output_text="real-output", is_error=False)
     kinds = [b[0] for b in ui._history_blocks]
@@ -122,8 +125,6 @@ def test_tui_renderer_falls_back_when_renderer_crashes(tmp_path):
 
 
 def test_tui_renderer_falls_back_when_render_call_crashes(tmp_path):
-    from pipy_harness.native.models import ProviderToolCall
-
     def boom(ctx):
         raise RuntimeError("nope")
 
@@ -137,15 +138,17 @@ def test_tui_renderer_falls_back_when_render_call_crashes(tmp_path):
         ui=ui, tool_renderers={"kv": tool}, render_details_sink={},
     )
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall(
+            provider_correlation_id="c",
+            tool_name="kv",
+            arguments_json=ProductContent("{}"),
+        )
     )
     kinds = [b[0] for b in ui._history_blocks]
     assert "tool" in kinds and "tool_call_custom" not in kinds
 
 
 def test_captured_renderer_emits_custom_lines(tmp_path):
-    from pipy_harness.native.models import ProviderToolCall
     from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
 
     out, err = io.StringIO(), io.StringIO()
@@ -160,15 +163,17 @@ def test_captured_renderer_emits_custom_lines(tmp_path):
         render_details_sink={"c": {"k": "v"}},
     )
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall(
+            provider_correlation_id="c",
+            tool_name="kv",
+            arguments_json=ProductContent("{}"),
+        )
     )
     renderer.render_tool_result(output_text="x", is_error=False)
     assert "KV:v" in err.getvalue()
 
 
 def test_captured_renderer_emits_custom_call_lines(tmp_path):
-    from pipy_harness.native.models import ProviderToolCall
     from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
 
     out, err = io.StringIO(), io.StringIO()
@@ -182,14 +187,16 @@ def test_captured_renderer_emits_custom_call_lines(tmp_path):
         tool_renderers={"kv": tool}, render_details_sink={},
     )
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall(
+            provider_correlation_id="c",
+            tool_name="kv",
+            arguments_json=ProductContent("{}"),
+        )
     )
     assert "CALL:kv" in err.getvalue()
 
 
 def test_captured_renderer_refreshes_tool_renderers_after_reload():
-    from pipy_harness.native.models import ProviderToolCall
     from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
 
     out, err = io.StringIO(), io.StringIO()
@@ -208,18 +215,15 @@ def test_captured_renderer_refreshes_tool_renderers_after_reload():
         tool_renderers={"kv": first}, render_details_sink={},
     )
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c1", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall("c1", "kv", ProductContent("{}"))
     )
     renderer.refresh_tool_renderers({"kv": second})
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c2", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall("c2", "kv", ProductContent("{}"))
     )
     renderer.refresh_tool_renderers({})
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c3", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall("c3", "kv", ProductContent("{}"))
     )
 
     rendered = err.getvalue()
@@ -230,8 +234,6 @@ def test_captured_renderer_refreshes_tool_renderers_after_reload():
 
 
 def test_tui_renderer_refreshes_tool_renderers_after_reload(tmp_path):
-    from pipy_harness.native.models import ProviderToolCall
-
     first = ExtensionTool(
         name="kv", description="d", input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="x"),
@@ -245,18 +247,15 @@ def test_tui_renderer_refreshes_tool_renderers_after_reload(tmp_path):
     ui = _tui(tmp_path)
     renderer = _TuiToolLoopRenderer(ui=ui, tool_renderers={"kv": first})
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c1", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall("c1", "kv", ProductContent("{}"))
     )
     renderer.refresh_tool_renderers({"kv": second})
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c2", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall("c2", "kv", ProductContent("{}"))
     )
     renderer.refresh_tool_renderers({})
     renderer.render_tool_call(
-        ProviderToolCall(provider_correlation_id="c3", tool_name="kv",
-                         arguments_json="{}")
+        AgentToolCall("c3", "kv", ProductContent("{}"))
     )
 
     custom_blocks = [b for b in ui._history_blocks if b[0] == "tool_call_custom"]

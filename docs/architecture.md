@@ -95,10 +95,15 @@ This diagram compresses the native event stream. See
 [Harness Spec](harness-spec.md) for the detailed harness, provider, tool,
 proposal, apply, and session event vocabulary.
 
-Provider text, prompts, raw HTTP payloads, raw tool results, diffs, file
-contents, stdout, stderr, command output, auth material, secrets, credentials,
-tokens, private keys, and sensitive personal data are excluded from JSONL,
-Markdown, catalog output, and structured native JSON output by default.
+The following exclusion rule applies only to the metadata-only `pipy-session`
+workflow archive: its recorder JSONL, derived Markdown summaries, and catalog
+list/search/inspect/verify output exclude provider text, prompts, raw HTTP
+payloads, raw tool results, diffs, file contents, stdout, stderr, command
+output, auth material, secrets, credentials, tokens, private keys, and
+sensitive personal data by default. It does not describe the separate private
+native product session tree, which intentionally stores full-content
+conversation JSONL, or the JSON/RPC/SDK agent transports, which carry
+full-content payloads through their explicit product boundaries.
 
 ## Codebase Map
 
@@ -110,9 +115,10 @@ Markdown, catalog output, and structured native JSON output by default.
 | Native adapters | `src/pipy_harness/adapters/native.py` | Bridge the harness port to one-shot native sessions (`PipyNativeAdapter`) and the bounded model-driven tool-loop product REPL (`PipyNativeToolReplAdapter`). |
 | Subprocess adapter | `src/pipy_harness/adapters/subprocess.py` | Run arbitrary child processes for conservative lifecycle capture. |
 | Capture policy | `src/pipy_harness/capture.py` | Sanitization, workspace basename plus hash, argv redaction, and optional changed-path capture. |
-| Native sessions | `src/pipy_harness/native/session.py` | One-shot native control flow, provider turns, event emission, and metadata-only runtime policy. |
-| Canonical agent contracts | `src/pipy_harness/native/agent/` | Immutable provider-neutral messages, full-content event vocabulary, normalized usage/failure/run results, and the synchronous `AgentEventSink` port. The package has no UI, automation, extension, provider-transport, persistence, runner, or archive dependency. Current mode emitters are adapted in the next migration slice. |
-| Tool-loop session | `src/pipy_harness/native/tool_loop_session.py` | Bounded model-driven REPL: turn loop, `--tool-budget` enforcement, malformed-call streak fatal-after-three, and the production tool registry. The native session tree is the full-content record; there is no transcript sidecar. |
+| Native sessions | `src/pipy_harness/native/session.py` | One-shot native control flow and provider turns. Its public stream/result callbacks are synchronous projections of canonical agent events; metadata-only runtime events remain separately allowlisted. |
+| Canonical agent contracts | `src/pipy_harness/native/agent/` | Immutable provider-neutral messages, full-content event vocabulary, normalized usage/failure/run results, and the synchronous `AgentEventSink` port. The package has no UI, automation, extension, provider-transport, persistence, runner, or archive dependency. |
+| Agent-event projections | `src/pipy_harness/native/agent_adapters.py`, `src/pipy_harness/native/automation/agent_events.py` | Fixed-order synchronous rendering, product-session, SDK, metadata-only workflow, and Pi-shaped automation projections. Rendering owns provider text/reasoning deltas, buffered assistant messages, and tool start/update/result output; automation owns cumulative text partials, malformed tool arguments, camelCase fields, and public provider correlation ids. RPC retains queue and true-idle settlement ownership. |
+| Tool-loop session | `src/pipy_harness/native/tool_loop_session.py` | Bounded model-driven REPL and current composition root: canonical run/turn/message/tool events, existing rendering and extension ordering, `--tool-budget` enforcement, malformed-call streak fatal-after-three, and the production tool registry. The native session tree is the full-content record; there is no transcript sidecar. |
 | Tool-loop terminal UI | `src/pipy_harness/native/tui.py` | Pipy-owned inline-scrollback TTY shell for the bounded tool-loop REPL. It never enters the alternate screen: finalized startup, user, assistant, reasoning, tool, and notice blocks commit into the terminal's normal buffer while the bounded live stream tail, input/editor, slash/menu overlays, and footer/status repaint in a bottom-pinned live region. Captured streams keep the deterministic line-rendering fallback. |
 | Terminal-screen verifier | `src/pipy_harness/native/terminal_screen.py` | Stdlib ANSI screen-cell model used by TUI tests and tmux verification artifacts. Replays terminal output into viewport rows, columns, cursor position, scroll state, visible-string findings, reverse/cell attributes, and screen anomaly reports. |
 | Terminal comparison verifier | `src/pipy_harness/native/terminal_compare.py` | Compares pipy and Pi screen metrics from controlled tmux captures, writing row/column and cell-attribute deltas plus anomalies for prompt, expected output, footer/status, input row, live cursor, and drawn cursor positions. |
@@ -124,7 +130,7 @@ Markdown, catalog output, and structured native JSON output by default.
 | Shared provider helpers | `src/pipy_harness/native/_provider_helpers.py`, `deferred_tools.py` | Shared HTTP/result/tool serializers plus the provider-neutral durable dynamic-tool split and Pi-compatible deterministic hash used by Anthropic and both OpenAI Responses adapters. |
 | Providers | `src/pipy_harness/native/fake.py`, `ds4_provider.py`, `openai_provider.py`, `openai_completions_provider.py`, `openai_codex_provider.py`, `openrouter_provider.py`, `anthropic_provider.py`, `google_provider.py`, `google_vertex_provider.py`, `mistral_provider.py`, `bedrock_provider.py`, `azure_openai_provider.py`, `cloudflare_provider.py` | Deterministic fake provider plus stdlib HTTP adapters for twelve real providers. Tool-capable adapters advertise `supports_tool_calls=True`; supported Anthropic/OpenAI Responses models also place dynamically activated tool definitions at their durable result load point. |
 | Archive-safe tool port | `src/pipy_harness/native/tool.py` | Minimal `ToolPort` invocation protocol for the native runtime bootstrap. |
-| Model-driven tool contracts | `src/pipy_harness/native/tools/base.py`, `messages.py` | `ToolDefinition`, `ToolRequest`, `ToolExecutionResult`, `ToolArgumentError`, `ToolContext`, `ToolPort`, manual JSON-schema-subset `validate_arguments`, and the `UserMessage`/`AssistantMessage`/`ToolResultMessage` envelope. |
+| Model-driven tool contracts | `src/pipy_harness/native/tools/base.py`, `src/pipy_harness/native/agent/messages.py` | `ToolDefinition`, `ToolRequest`, `ToolExecutionResult`, `ToolArgumentError`, `ToolContext`, `ToolPort`, manual JSON-schema-subset `validate_arguments`, and the canonical `AgentUserMessage`/`AgentAssistantMessage`/`AgentToolResultMessage` envelope. |
 | Model-driven tools | `src/pipy_harness/native/tools/read.py`, `ls.py`, `grep.py`, `find.py`, `write.py`, `edit.py`, `edit_diff.py`, `truncate.py`, `bash.py` | Production registry tools for the bounded tool-loop. Filesystem tools reuse `_validate_workspace_relative_path`, `_is_ignored_or_generated`, `_is_relative_to`, and `_resolved_relative_label` from `read_only_tool.py` for `.git`/symlink default-deny, and stat-gate oversized file reads before loading content. `truncate` is pure transformation only. `bash` is a real shell matching Pi: it runs `bash -c <command>` in the workspace with the inherited environment, streams combined stdout/stderr to the live UI when available, returns bounded combined output to the model, and kills the process group on timeout. The archive records only safe counters and labels, never the raw command or output. |
 | Usage normalization | `src/pipy_harness/native/usage.py` | Normalizes provider token counters to the safe allowlisted metadata keys. |
 | Read boundary | `src/pipy_harness/native/read_only_tool.py` | Bounded explicit file excerpt reads with workspace-relative validation, metadata-only archive output, and the `_resolved_relative_label` helper used by every model-driven tool. Backs `@path` references and the model-driven `read` tool. |

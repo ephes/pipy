@@ -20,6 +20,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.export_distribution import (
     ShareCancelled,
     compare_versions,
@@ -32,9 +39,7 @@ from pipy_harness.native.export_distribution import (
     import_native_session_jsonl,
     self_update_plan,
 )
-from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.session_tree import NativeSessionTree
-from pipy_harness.native.tools.messages import AssistantMessage, ToolResultMessage, UserMessage
 from pipy_session.recorder import append_event, finalize_session, init_session
 from pipy_session.export import export_session
 
@@ -50,12 +55,14 @@ def _seed_tree(tmp_path: Path) -> NativeSessionTree:
     cwd = tmp_path / "workspace"
     cwd.mkdir()
     tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "native-store")
-    tree.append_message(UserMessage(content="ROOT export prompt"))
-    root_reply = tree.append_message(AssistantMessage(content="ROOT export answer"))
-    tree.append_message(UserMessage(content="MAIN export prompt"))
+    tree.append_message(AgentUserMessage(content=ProductContent("ROOT export prompt")))
+    root_reply = tree.append_message(
+        AgentAssistantMessage(content=ProductContent("ROOT export answer"))
+    )
+    tree.append_message(AgentUserMessage(content=ProductContent("MAIN export prompt")))
     tree.append_message(
-        AssistantMessage(
-            content=(
+        AgentAssistantMessage(
+            content=ProductContent(
                 "MAIN export answer ghp_GATE_BARE_SHOULD_NOT_LEAK "
                 "github_pat_GATE_BARE_SHOULD_NOT_LEAK "
                 "ya29.GATEBARESHOULDNOTLEAK "
@@ -63,10 +70,10 @@ def _seed_tree(tmp_path: Path) -> NativeSessionTree:
                 '{"api_key":"gate-json-secret","password":"gate-json-password"}'
             ),
             tool_calls=(
-                ProviderToolCall(
+                AgentToolCall(
                     provider_correlation_id="call-1",
                     tool_name="write",
-                    arguments_json=(
+                    arguments_json=ProductContent(
                         '{"path":"demo.txt","content":"demo",'
                         '"token":"gate-tool-json-token"}'
                     ),
@@ -75,16 +82,23 @@ def _seed_tree(tmp_path: Path) -> NativeSessionTree:
         )
     )
     tree.append_message(
-        ToolResultMessage(
+        AgentToolResultMessage(
             tool_request_id="pipy-tool-1",
-            output_text="write ok api_key=sk-CONFORMANCE-SHOULD-NOT-LEAK",
+            tool_name="write",
+            content=ProductContent(
+                "write ok api_key=sk-CONFORMANCE-SHOULD-NOT-LEAK"
+            ),
             provider_correlation_id="call-1",
         )
     )
     main_leaf = tree.get_leaf_id()
     tree.branch(root_reply.id)
-    tree.append_message(UserMessage(content="OFFBRANCH export prompt"))
-    tree.append_message(AssistantMessage(content="OFFBRANCH export answer"))
+    tree.append_message(
+        AgentUserMessage(content=ProductContent("OFFBRANCH export prompt"))
+    )
+    tree.append_message(
+        AgentAssistantMessage(content=ProductContent("OFFBRANCH export answer"))
+    )
     assert main_leaf is not None
     tree.branch(main_leaf)
     return tree
@@ -158,7 +172,7 @@ def run_gate() -> list[Check]:
         )
         imported = import_native_session_jsonl(jsonl, session_dir=tmp / "import-store")
         imported_text = "\n".join(
-            getattr(message, "content", getattr(message, "output_text", ""))
+            message.content.value
             for message in imported.build_context().messages
         )
         checks.append(

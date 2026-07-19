@@ -572,7 +572,7 @@ produces output the committed history fills the full window height with the
 input/footer at the bottom rather than capping the frame to the upper half.
 Typing `/` in the product TUI opens the same command-list/description
 surface inside the frame for the commands this tool-loop dispatcher can execute
-locally (`hotkeys` — with `help` as its alias — `model`, `skill`, `settings`,
+locally (`hotkeys`, `model`, `skill`, `settings`,
 `login`, `logout`, `copy`, `exit`, `quit`, plus each discovered prompt template
 as its own `/<template-name>` and any discovered workspace/global custom slash
 commands); Up/Down moves the selected row, Tab or Enter accepts the selected
@@ -723,9 +723,12 @@ its scroll/full-height behavior are verified through PTY captures and the ANSI
 screen-cell model rather than `render_lines()` alone. Captured streams and explicit non-TTY input runtimes
 continue to use the deterministic line-oriented fallback so stdout/stderr
 automation contracts and tests remain stable. The TUI shell is a presentation
-boundary only; provider calls, bounded tool-loop behavior, transcript
-sidecars, and metadata-first archive policy stay behind the existing native
-session/tool/provider ports.
+boundary only; provider calls, bounded tool-loop behavior, the immutable
+full-content native product session tree, and the separate metadata-only
+workflow archive/catalog stay behind the existing native
+session/tool/provider ports. Prompts, reasoning, model output, tool arguments,
+and tool results never cross from the product session into that metadata-only
+archive.
 
 The Pi-style interactive editor surfaces from
 [tui-workflow.md](/tui-workflow/) have shipped on this shell, all stdlib-only
@@ -1081,21 +1084,21 @@ which is *not* the product session source:
 - **Archive resume seeding** (the `--resume`/`--branch` archive lineage path)
   reuses the metadata-only reader. A fresh archive record is seeded with
   `compose_resume_system_block` (prior provider/model/turn labels only). The
-  parent is read read-only and never mutated; no raw transcript sidecar is
-  copied. Display uses a separate `compose_resume_status_line` banner carrying
-  the same safe labels (and the branch label when forking) — never summary
-  text.
+  parent is read read-only and never mutated; no full-content native product
+  session data is copied into the metadata-only workflow archive/catalog.
+  Display uses a separate `compose_resume_status_line` banner carrying the same
+  safe labels (and the branch label when forking) — never summary text.
 - **Lineage** is a plain-data `SessionLineage` value object on `RunRequest`, so
   the runner (not the effectful adapter) writes the safe `resume` object onto
   `session.started` and emits `native.session.resumed`. Branch labels pass
   `validate_branch_label` (single-line, non-path, non-secret-shaped, bounded).
 - **Compaction** is a pure transform (`session_compaction`). The tool-loop cut
-  is constrained to `UserMessage` group boundaries so the retained provider
-  history is always protocol-valid (no orphaned tool result, no reordered
-  tool-call/observation pair, no exposed raw tool payload). The summary folded
-  back into the provider system prompt is counts only; the dropped raw context
-  is discarded from the live in-memory request. Triggers are an explicit
-  `/compact` command and an automatic threshold. In the product runtime,
+  is constrained to canonical `AgentUserMessage` group boundaries so the
+  retained provider history is always protocol-valid (no orphaned tool result,
+  no reordered tool-call/observation pair, no exposed raw tool payload). The
+  summary folded back into the provider system prompt is counts only; the
+  dropped raw context is discarded from the live in-memory request. Triggers
+  are an explicit `/compact` command and an automatic threshold. In the product runtime,
   `/compact` additionally appends a durable
   `compaction` entry (with `firstKeptEntryId`) to the native product session
   tree so reload and `/tree` navigation rebuild an equivalent reduced context;
@@ -1148,21 +1151,22 @@ tokens, private keys, and sensitive personal data.
 
 ### No-Tool REPL Conversation Context
 
-The no-tool REPL now has bounded in-memory conversation context for ordinary
-no-tool REPL turns, including ordinary non-command REPL turns, backed by
-summary-safe archive evidence only. The
+The retired no-tool REPL had bounded in-memory conversation context for
+ordinary no-tool REPL turns, including ordinary non-command REPL turns, backed
+by summary-safe archive evidence only. The
 read-failure recovery review and smoke records show a clean closeout, including
 fake-provider REPL smoke with finalized archive verification. Ordinary
-non-command REPL turns may forward prior successful ordinary no-tool user
+non-command REPL turns could forward prior successful ordinary no-tool user
 prompts and provider final text through `NativeNoToolReplConversationContext`
-under the existing REPL provider-turn limit and a 4 KiB provider-visible
-history byte budget; oldest no-tool exchanges are dropped before provider
-visibility. It is cleared when provider/model selection changes, on login, on
-logout, after provider failure, and by `/clear`; `/read`, `/ask-file`,
-`/propose-file`, `/apply-proposal`, and `/verify just-check` are excluded.
-Archive metadata-only Provider lifecycle events may state whether history
-exchanges were forwarded, history bytes were forwarded, terminal session event
-labels, retained-at-end counters, and how many exchanges remained retained.
+under that REPL's provider-turn limit and a 4 KiB provider-visible history byte
+budget; the oldest no-tool exchanges were dropped before provider visibility.
+It was cleared when provider/model selection changed, on login, on
+logout, after provider failure, and by the then-supported `/clear`; `/read`,
+`/ask-file`, `/propose-file`, `/apply-proposal`, and `/verify just-check` were
+excluded. Archive metadata-only Provider lifecycle events could state whether
+history exchanges were forwarded, history bytes were forwarded, terminal
+session event labels, retained-at-end counters, and how many exchanges remained
+retained.
 Excluded history: file excerpts, `/ask-file` questions, `/propose-file` change
 requests, visible proposal drafts, raw proposal text, patch text, diffs,
 verification status or output, command output, provider metadata, tool
@@ -1180,19 +1184,24 @@ credentials, API keys, tokens, private keys, and sensitive personal data.
 
 ### No-Tool REPL Conversation Context Review And Smoke
 
-The bounded no-tool REPL conversation context implementation is reviewed and
-smoked. The two-round independent review cycle first round reported one
+The bounded no-tool REPL conversation context implementation was reviewed and
+smoke-tested before that shell was retired. The two-round independent review
+cycle's first round reported one
 warning and three suggestions; the second round reported zero findings. Smoke
 used two ordinary fake-provider REPL turns, `pipy-session verify`, and
 `just check` passed. It did not require implementation hardening.
 
+The current product session does not expose `/clear`, `/status`, or `/help`.
+Those pipy-only commands were removed outright with no compatibility aliases or
+deprecation layer; use `/new`, `/session`, and `/hotkeys`, respectively.
+
 ### Native Local Clear REPL Command
 
-The native shell exposes a local `/clear` command that clears retained no-tool
-history and discards any pending same-session proposal draft. Malformed
-`/clear <text>` remains local and does not clear retained no-tool history, does
-not reset provider/model selection, auth state, read budgets, verification
-availability, or provider turn indexes. It archives metadata-only.
+The retired native no-tool shell exposed a local `/clear` command that cleared
+retained no-tool history and discarded any pending same-session proposal draft.
+Malformed `/clear <text>` remained local and did not clear retained no-tool
+history, reset provider/model selection, auth state, read budgets, verification
+availability, or provider turn indexes. It archived metadata only.
 
 ### Native Local Clear Review And Smoke
 
@@ -1200,26 +1209,27 @@ The `/clear` slice had a two-round independent review cycle with two
 suggestion-level coverage items; the second review reported no findings,
 `just check` passed, fake-provider REPL smoke passed, and the next native work
 selected by the follow-up decision slice was a local `/status` command. The
-implementation is now present.
+implementation was present only in the no-tool shell that was later retired.
 
 ### Native Local Status REPL Command
 
-The native shell exposes a local `/status` command with summary-safe archive
-evidence only, clean second review, and a later closeout audit also found no
-new issues. /status is listed by `/help`, uses static supported-command usage
-diagnostics, and prints safe state labels and counters to stderr: provider/model
-selection labels, provider turn count and limit, retained no-tool history
-counts and byte counts, explicit-read budget booleans, pending proposal
-availability, and verification availability. It must not invoke providers,
-tools, reads, writes, patch apply, verification commands, shell commands,
-network access, provider-visible context handoff, provider-side tools, another
-provider turn, consume provider turns, consume explicit-read budgets, mutate
-retained conversation context, clear pending proposals, change provider/model
-selection, change auth state, change verification availability, emits no
-archive events, and stores no raw command text. Forbidden content: raw prompts,
-provider final text, model output, provider responses, provider-native
-payloads, excerpts, proposal text, patch text, diffs, file contents, command
-stdout, command stderr, shell commands, auth material, authorization URLs,
+The retired native no-tool shell exposed a local `/status` command with
+summary-safe archive evidence only, clean second review, and a later closeout
+audit also found no new issues. `/status` was listed by the then-supported
+`/help`, used static supported-command usage diagnostics, and printed safe state
+labels and counters to stderr: provider/model selection labels, provider turn
+count and limit, retained no-tool history counts and byte counts, explicit-read
+budget booleans, pending proposal availability, and verification availability.
+It was required not to invoke providers, tools, reads, writes, patch apply,
+verification commands, shell commands, network access, provider-visible context
+handoff, provider-side tools, or another provider turn; consume provider turns
+or explicit-read budgets; mutate retained conversation context; clear pending
+proposals; change provider/model selection, auth state, or verification
+availability; emit archive events; or store raw command text. Forbidden content
+was raw prompts, provider final text, model output, provider responses,
+provider-native payloads, excerpts, proposal text, patch text, diffs, file
+contents, command stdout, command stderr, shell commands, auth material,
+authorization URLs,
 secrets, credentials, API keys, tokens, private keys, and sensitive personal
 data.
 
@@ -1347,8 +1357,11 @@ Boundaries (`pipy_harness.native.image_attachment`):
   (`image_attachment_count`/`image_attachment_loaded_count`/`image_attachment_failed_count`
   on `NativeToolReplResult`, forwarded into `AdapterResult.metadata` and thus
   the finalized record, in the tool loop — alongside the matching
-  `file_reference_*` counters). The raw base64 image bytes are never
-  archived and never written to the opt-in transcript sidecar.
+  `file_reference_*` counters). The raw base64 image bytes live only on the
+  in-memory provider request and are not written to the immutable full-content
+  native product session tree. Only the allowlisted counters cross into the
+  separate metadata-only workflow archive/catalog; raw image content never
+  crosses that boundary.
 
 ### Native Explicit Multi-File Context Budget
 
@@ -1546,28 +1559,37 @@ only if the remaining context is still useful and policy-compliant. Otherwise
 the tool observation or post-tool turn should be skipped or failed with safe
 reason labels.
 
-Archives and structured stdout remain metadata-only when repo context is
-produced. JSONL, Markdown, and the metadata archive may record only safe
-metadata such as source labels, counts, byte and line counts, excerpt counts,
-distinct file counts, redaction and skipped booleans, safe skip reason labels,
-`duration_seconds`, storage booleans, `tool_request_id`, `turn_index`, and
-optional finalized-record references. They must not store raw excerpt text,
+When repo context is produced, the separate `pipy-session` workflow archive
+remains metadata-only. Its recorder JSONL, derived Markdown, and catalog
+`list`, `search`, `inspect`, `verify`, and `export` commands comprise the
+metadata archive surfaces. JSONL, Markdown, and the metadata archive may record
+only safe metadata such as source labels, counts, byte and line counts, excerpt
+counts, distinct file counts, redaction and skipped booleans, safe skip reason
+labels, `duration_seconds`, storage booleans, `tool_request_id`, `turn_index`,
+and optional finalized-record references. They must not store raw excerpt text,
 file contents, search result text, raw prompts, model output, provider
 responses, raw tool payloads, stdout, stderr, diffs, patches, shell commands,
 raw args, model-selected paths, secrets, credentials, tokens, private keys, or
 sensitive personal data. Storage booleans must make the boundary explicit; raw
 repo context storage remains false by default.
 
+This restriction is specific to that metadata-only workflow archive and its
+catalog projections. It does not make the private full-content native product
+session JSONL or the full-content JSON, RPC, and SDK automation and embedding
+boundaries metadata-only. Those surfaces keep their own content and privacy
+contracts; only explicitly allowlisted metadata may cross from them into the
+workflow archive.
+
 ### Patch Proposal Boundary
 
-The native patch proposal boundary is a metadata-only step before supervised
-write capability. After one successful bounded read-only tool observation and
-one successful follow-up provider turn, `NativeAgentSession` may parse a single
-pipy-owned structured proposal from provider result metadata and emit
-`native.patch.proposal.recorded`. Without an injected human-reviewed patch apply
-request, the runtime hard-stops after this event. It does not apply edits, run
-shell commands, run verification commands, request network access, or create
-another provider turn.
+The native patch proposal boundary produces a metadata-only workflow-archive
+projection before supervised write capability. After one successful bounded
+read-only tool observation and one successful follow-up provider turn,
+`NativeAgentSession` may parse a single pipy-owned structured proposal from
+provider result metadata and emit `native.patch.proposal.recorded`. Without an
+injected human-reviewed patch apply request, the runtime hard-stops after this
+event. It does not apply edits, run shell commands, run verification commands,
+request network access, or create another provider turn.
 
 The accepted provider metadata key is pipy-owned and bounded:
 `pipy_native_patch_proposal`. Its value must be a mapping with only these
@@ -1593,9 +1615,10 @@ provider response ids, function arguments, or arbitrary provider payloads as
 archiveable proposal content. Unknown fields, provider-owned ids, bad counts,
 storage booleans set to true, unsupported source/status/reason labels, or
 unsupported operation labels fail closed. When a proposal key is present but
-unsafe or unsupported, the archive may record a skipped proposal event with
-`reason_label` set to `unsafe_proposal` or `unsupported_proposal`; counts are
-zero, operation labels are empty, and all storage booleans remain false.
+unsafe or unsupported, the workflow archive may record a skipped proposal
+event with `reason_label` set to `unsafe_proposal` or `unsupported_proposal`;
+counts are zero, operation labels are empty, and all storage booleans remain
+false.
 
 The `native.patch.proposal.recorded` payload allowlist is exactly:
 
@@ -1615,14 +1638,16 @@ The `native.patch.proposal.recorded` payload allowlist is exactly:
 - `raw_transcript_imported`
 - `workspace_mutated`
 
-Proposal archive and structured stdout boundaries stay metadata-only. JSONL
-and Markdown must not include raw patch text, raw
-diffs, file contents, file paths proposed by the model, raw prompts, model
-output, provider responses, provider-native payloads, tool payloads, stdout,
-stderr, shell commands, auth material, secrets, credentials, tokens, private
-keys, or sensitive personal data. The current JSON stdout schema does not
-include proposal detail; proposal metadata is represented only by finalized
-archive events.
+The patch-proposal projection into the `pipy-session` workflow archive stays
+metadata-only. Its recorder JSONL, derived Markdown, and catalog surfaces must
+not include raw patch text, raw diffs, file contents, file paths proposed by
+the model, raw prompts, model output, provider responses, provider-native
+payloads, tool payloads, stdout, stderr, shell commands, auth material,
+secrets, credentials, tokens, private keys, or sensitive personal data. Only
+the allowlisted proposal metadata above may cross into finalized workflow-
+archive events. The former pipy-only `--native-output json` structured-stdout
+surface has been removed; there is no current JSON stdout schema for proposal
+detail.
 
 ### Patch Apply Boundary
 

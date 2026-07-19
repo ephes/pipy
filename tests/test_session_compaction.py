@@ -7,7 +7,14 @@ import json
 from pipy_harness.native.conversation import (
     NativeNoToolReplConversationContext,
 )
-from pipy_harness.native.models import ProviderToolCall
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.session_compaction import (
     DEFAULT_KEEP_RECENT_GROUPS,
     NoToolCompactionResult,
@@ -17,44 +24,44 @@ from pipy_harness.native.session_compaction import (
     should_compact_no_tool_context,
     should_compact_tool_loop_messages,
 )
-from pipy_harness.native.tools.base import SUPPORTED_TOOL_REQUEST_ID_PREFIX
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
-)
+from pipy_harness.native.agent import AGENT_TOOL_REQUEST_ID_PREFIX
 
 
-def _tool_call(correlation: str, *, name: str = "read") -> ProviderToolCall:
-    return ProviderToolCall(
+def _tool_call(correlation: str, *, name: str = "read") -> AgentToolCall:
+    return AgentToolCall(
         provider_correlation_id=correlation,
         tool_name=name,
-        arguments_json='{"path": "README.md"}',
+        arguments_json=ProductContent('{"path": "README.md"}'),
     )
 
 
-def _tool_result(correlation: str, *, request_suffix: str = "0001") -> ToolResultMessage:
-    return ToolResultMessage(
-        tool_request_id=f"{SUPPORTED_TOOL_REQUEST_ID_PREFIX}{request_suffix}",
-        output_text="RAW_TOOL_OUTPUT_BODY_THAT_IS_SENSITIVE",
+def _tool_result(
+    correlation: str, *, request_suffix: str = "0001"
+) -> AgentToolResultMessage:
+    return AgentToolResultMessage(
+        tool_request_id=f"{AGENT_TOOL_REQUEST_ID_PREFIX}{request_suffix}",
+        tool_name="read",
+        content=ProductContent("RAW_TOOL_OUTPUT_BODY_THAT_IS_SENSITIVE"),
         provider_correlation_id=correlation,
     )
 
 
-def _group(index: int) -> list:
-    """One complete user-turn group: user -> assistant(tool) -> tool -> assistant."""
+def _group(index: int) -> list[AgentMessage]:
+    """One complete user turn across the canonical agent message variants."""
 
     correlation = f"corr-{index}"
     return [
-        UserMessage(content=f"user prompt {index}"),
-        AssistantMessage(content="", tool_calls=(_tool_call(correlation),)),
+        AgentUserMessage(content=ProductContent(f"user prompt {index}")),
+        AgentAssistantMessage(
+            content=ProductContent(""), tool_calls=(_tool_call(correlation),)
+        ),
         _tool_result(correlation, request_suffix=f"{index:04d}"),
-        AssistantMessage(content=f"final answer {index}"),
+        AgentAssistantMessage(content=ProductContent(f"final answer {index}")),
     ]
 
 
-def _conversation(group_count: int) -> list:
-    messages: list = []
+def _conversation(group_count: int) -> list[AgentMessage]:
+    messages: list[AgentMessage] = []
     for index in range(group_count):
         messages.extend(_group(index))
     return messages
@@ -68,8 +75,11 @@ def test_compact_tool_loop_drops_old_groups_keeps_recent() -> None:
     assert isinstance(result, ToolLoopCompactionResult)
     assert result.changed
     # Only the last two user-turn groups remain.
-    user_messages = [m for m in result.messages if isinstance(m, UserMessage)]
-    assert [m.content for m in user_messages] == ["user prompt 3", "user prompt 4"]
+    user_messages = [m for m in result.messages if isinstance(m, AgentUserMessage)]
+    assert [m.content.value for m in user_messages] == [
+        "user prompt 3",
+        "user prompt 4",
+    ]
     assert result.dropped_group_count == 3
     assert result.retained_group_count == 2
 
@@ -80,7 +90,7 @@ def test_compact_tool_loop_retained_history_starts_with_user_message() -> None:
     result = compact_tool_loop_messages(messages, keep_recent_groups=1)
 
     assert result.messages
-    assert isinstance(result.messages[0], UserMessage)
+    assert isinstance(result.messages[0], AgentUserMessage)
 
 
 def test_compact_tool_loop_never_orphans_tool_results() -> None:
@@ -88,14 +98,14 @@ def test_compact_tool_loop_never_orphans_tool_results() -> None:
 
     result = compact_tool_loop_messages(messages, keep_recent_groups=2)
 
-    # Every ToolResultMessage in the retained history must be preceded by an
-    # AssistantMessage whose tool_calls include its provider_correlation_id.
+    # Every AgentToolResultMessage in the retained history must be preceded by
+    # an AgentAssistantMessage whose tool_calls include its correlation ID.
     seen_correlations: set[str] = set()
     for message in result.messages:
-        if isinstance(message, AssistantMessage):
+        if isinstance(message, AgentAssistantMessage):
             for call in message.tool_calls:
                 seen_correlations.add(call.provider_correlation_id)
-        if isinstance(message, ToolResultMessage):
+        if isinstance(message, AgentToolResultMessage):
             assert message.provider_correlation_id in seen_correlations
 
 

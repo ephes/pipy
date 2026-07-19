@@ -15,10 +15,10 @@ unaffected.
 
 from __future__ import annotations
 
-from pipy_harness.native.automation.events import (
-    AutomationEmitter,
-    AutomationEventSink,
+from pipy_harness.native.automation.agent_events import (
+    AutomationAgentEventAdapter,
 )
+from pipy_harness.native.automation.events import AutomationEventSink
 from pipy_harness.native.automation.jsonl import (
     JsonlLineBuffer,
     JsonlWriter,
@@ -27,7 +27,7 @@ from pipy_harness.native.automation.jsonl import (
 from pipy_harness.native.automation.serialize import serialize_message
 
 __all__ = [
-    "AutomationEmitter",
+    "AutomationAgentEventAdapter",
     "AutomationEventSink",
     "JsonlLineBuffer",
     "JsonlWriter",

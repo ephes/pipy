@@ -130,14 +130,14 @@ def _tool_loop_behaviour_holds() -> bool:
     second_messages = requests[1].messages
     if len(second_messages) != 1:
         return False
-    if second_messages[0].content.strip() != "second":
+    if second_messages[0].content.value.strip() != "second":
         return False
     # Refused switch did NOT clear: the third request still carries the prior
     # exchange ahead of the new prompt.
     third_messages = requests[2].messages
     if len(third_messages) <= 1:
         return False
-    if third_messages[0].content.strip() != "second":
+    if third_messages[0].content.value.strip() != "second":
         return False
     return True
 

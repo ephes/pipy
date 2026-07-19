@@ -62,7 +62,9 @@ class CapturingToolProvider:
         )
 
 
-def _write(directory: Path, filename: str, *, name: str, description: str, body: str) -> None:
+def _write(
+    directory: Path, filename: str, *, name: str, description: str, body: str
+) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     text = f"---\nname: {name}\ndescription: {description}\n---\n\n{body}"
     (directory / filename).write_text(text, encoding="utf-8")
@@ -110,15 +112,13 @@ def _run(tmp_path, monkeypatch, script, *, history=None):
     return provider, result
 
 
-def test_tool_loop_runs_skill_template_command_and_lists_and_rejects(tmp_path, monkeypatch):
+def test_tool_loop_runs_skill_template_command_and_lists_and_rejects(
+    tmp_path, monkeypatch
+):
     _seed(tmp_path)
     # The template is invoked by its own name (Pi shape); no /template wrapper.
     script = (
-        "/skill\n"
-        "/skill lint\n"
-        "/review the auth module\n"
-        "/deploy staging\n"
-        "/skill nope\n"
+        "/skill\n/skill lint\n/review the auth module\n/deploy staging\n/skill nope\n"
     )
     provider, result = _run(tmp_path, monkeypatch, script)
 
@@ -129,24 +129,20 @@ def test_tool_loop_runs_skill_template_command_and_lists_and_rejects(tmp_path, m
     assert user_prompts[1].strip() == "TEMPLATE_review the auth module now"
     assert user_prompts[2].strip() == "COMMAND_deploy_for staging"
 
-    # The provider also sees the bounded text as the latest UserMessage.
+    # The provider also sees the bounded text as the latest AgentUserMessage.
     last_messages = provider.requests[2].messages
-    assert last_messages[-1].content.strip() == "COMMAND_deploy_for staging"
+    assert last_messages[-1].content.value.strip() == "COMMAND_deploy_for staging"
 
     assert result.resource_invocation_count == 3
     assert result.user_turn_count == 3
 
 
-def test_tool_loop_resource_runs_never_touch_history(
-    tmp_path, monkeypatch
-):
+def test_tool_loop_resource_runs_never_touch_history(tmp_path, monkeypatch):
     _seed(tmp_path)
     history = PromptHistoryStore(path=tmp_path / "history.txt")
     history.set_enabled(True)
     script = "/skill lint\n/review X\n/deploy Y\nplain prompt\n"
-    _provider, result = _run(
-        tmp_path, monkeypatch, script, history=history
-    )
+    _provider, result = _run(tmp_path, monkeypatch, script, history=history)
 
     # Only the genuine prompt is persisted to local history; resource
     # invocations are not.

@@ -313,7 +313,10 @@ def test_prompt_racing_agent_end_is_reserved_not_stranded(
         assert server._turn_active is True
         assert server._steering == []
         assert server._follow_up == []
-    assert server._channel._q.get_nowait() == "NEXT\n"
+    queued = server._channel._q.get_nowait()
+    assert queued is not None
+    assert queued.text == "NEXT\n"
+    assert queued.kind == "follow_up"
 
 
 def test_prompt_emits_correlated_success_then_event_sequence(client) -> None:
@@ -583,11 +586,17 @@ def _last_record(buf: io.BytesIO) -> dict:
 
 
 def _seed_two(tmp_path: Path):
-    from pipy_harness.native.tools.messages import AssistantMessage, UserMessage
+    from pipy_harness.native.agent import (
+        AgentAssistantMessage,
+        AgentUserMessage,
+        ProductContent,
+    )
 
     tree = NativeSessionTree.create(tmp_path, persist=False)
-    root = tree.append_message(UserMessage(content="ROOT"))
-    reply = tree.append_message(AssistantMessage(content="REPLY"))
+    root = tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
+    reply = tree.append_message(
+        AgentAssistantMessage(content=ProductContent("REPLY"))
+    )
     return tree, root, reply
 
 
@@ -667,12 +676,12 @@ def test_get_tree_includes_resolved_label(tmp_path: Path) -> None:
 def test_get_tree_deep_history_encodes_without_recursionerror(
     tmp_path: Path,
 ) -> None:
-    from pipy_harness.native.tools.messages import UserMessage
+    from pipy_harness.native.agent import AgentUserMessage, ProductContent
 
     depth = 2000
     tree = NativeSessionTree.create(tmp_path, persist=False)
     for i in range(depth):
-        tree.append_message(UserMessage(content=str(i)))
+        tree.append_message(AgentUserMessage(content=ProductContent(str(i))))
     server, buf = _direct_server(tmp_path, tree)
     # Must not raise RecursionError despite a ~2000-deep nested tree.
     server._cmd_get_tree("d", {})
@@ -694,14 +703,18 @@ def test_encode_session_tree_is_byte_identical_to_json_dumps(tmp_path: Path) -> 
     # on a shallow labelled+branched tree where json.dumps is safe.
     from pipy_harness.native.session_tree import _entry_to_json, build_tree_nodes
     from pipy_harness.native.automation.rpc import _encode_session_tree
-    from pipy_harness.native.tools.messages import AssistantMessage, UserMessage
+    from pipy_harness.native.agent import (
+        AgentAssistantMessage,
+        AgentUserMessage,
+        ProductContent,
+    )
 
     tree = NativeSessionTree.create(tmp_path, persist=False)
-    root = tree.append_message(UserMessage(content="ROOT"))
-    tree.append_message(AssistantMessage(content="REPLY"))
+    root = tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
+    tree.append_message(AgentAssistantMessage(content=ProductContent("REPLY")))
     tree.append_label_change(root.id, "pinned")
     tree.branch(root.id)
-    tree.append_message(UserMessage(content="ALT"))
+    tree.append_message(AgentUserMessage(content=ProductContent("ALT")))
 
     roots = build_tree_nodes(tree.entries)
 

@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
-SUPPORTED_TOOL_REQUEST_ID_PREFIX = "pipy-tool-"
+from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
 
 _ALLOWED_TOP_LEVEL_TYPES = ("object",)
 _ALLOWED_TYPES = ("object", "string", "integer", "boolean", "array")
@@ -145,10 +145,10 @@ class ToolRequest:
     def __post_init__(self) -> None:
         if not isinstance(self.tool_request_id, str) or not self.tool_request_id:
             raise ValueError("ToolRequest requires a non-empty tool_request_id")
-        if not self.tool_request_id.startswith(SUPPORTED_TOOL_REQUEST_ID_PREFIX):
+        if not self.tool_request_id.startswith(AGENT_TOOL_REQUEST_ID_PREFIX):
             raise ValueError(
                 "ToolRequest tool_request_id must be pipy-owned "
-                f"(prefix '{SUPPORTED_TOOL_REQUEST_ID_PREFIX}')"
+                f"(prefix '{AGENT_TOOL_REQUEST_ID_PREFIX}')"
             )
         if not isinstance(self.tool_name, str) or not self.tool_name:
             raise ValueError("ToolRequest requires a non-empty tool_name")
@@ -185,10 +185,10 @@ class ToolExecutionResult:
             raise ValueError(
                 "ToolExecutionResult requires a non-empty tool_request_id"
             )
-        if not self.tool_request_id.startswith(SUPPORTED_TOOL_REQUEST_ID_PREFIX):
+        if not self.tool_request_id.startswith(AGENT_TOOL_REQUEST_ID_PREFIX):
             raise ValueError(
                 "ToolExecutionResult tool_request_id must be pipy-owned "
-                f"(prefix '{SUPPORTED_TOOL_REQUEST_ID_PREFIX}')"
+                f"(prefix '{AGENT_TOOL_REQUEST_ID_PREFIX}')"
             )
         if not isinstance(self.output_text, str):
             raise ValueError("ToolExecutionResult.output_text must be a string")
@@ -297,7 +297,7 @@ def make_tool_request_id() -> str:
     accidental cross-wiring.
     """
 
-    return f"{SUPPORTED_TOOL_REQUEST_ID_PREFIX}{uuid.uuid4()}"
+    return f"{AGENT_TOOL_REQUEST_ID_PREFIX}{uuid.uuid4()}"
 
 
 def validate_arguments(

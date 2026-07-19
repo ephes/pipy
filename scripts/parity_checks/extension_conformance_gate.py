@@ -173,8 +173,7 @@ def run_checks(workspace: Path, proof: Path, sessions_root: Path) -> list[Check]
     second = provider.requests[1] if len(provider.requests) > 1 else None
     joined = (
         " ".join(
-            str(getattr(m, "content", "") or getattr(m, "output_text", ""))
-            for m in second.messages
+            message.content.value for message in second.messages
         )
         if second is not None
         else ""

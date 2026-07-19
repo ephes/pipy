@@ -23,18 +23,19 @@ from tempfile import mkdtemp
 from pipy_harness.adapters import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import HarnessStatus, RunRequest
+from pipy_harness.native.agent import (
+    AGENT_TOOL_REQUEST_ID_PREFIX,
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
-    ProviderToolCall,
 )
 from pipy_harness.native.session_compaction import compact_tool_loop_messages
-from pipy_harness.native.tools.base import SUPPORTED_TOOL_REQUEST_ID_PREFIX
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    ToolResultMessage,
-    UserMessage,
-)
 
 
 class _PlainToolProvider:
@@ -103,38 +104,42 @@ def _adapter_compaction_holds() -> bool:
 def _tool_loop_protocol_preserved() -> bool:
     correlation = "corr-old"
     messages = [
-        UserMessage(content="old prompt 1"),
-        AssistantMessage(content="", tool_calls=(
-            ProviderToolCall(
-                provider_correlation_id=correlation,
-                tool_name="read",
-                arguments_json='{"path": "x"}',
+        AgentUserMessage(content=ProductContent("old prompt 1")),
+        AgentAssistantMessage(
+            content=ProductContent(""),
+            tool_calls=(
+                AgentToolCall(
+                    provider_correlation_id=correlation,
+                    tool_name="read",
+                    arguments_json=ProductContent('{"path": "x"}'),
+                ),
             ),
-        )),
-        ToolResultMessage(
-            tool_request_id=f"{SUPPORTED_TOOL_REQUEST_ID_PREFIX}0001",
-            output_text="SENSITIVE_TOOL_BODY",
+        ),
+        AgentToolResultMessage(
+            tool_request_id=f"{AGENT_TOOL_REQUEST_ID_PREFIX}0001",
+            tool_name="read",
+            content=ProductContent("SENSITIVE_TOOL_BODY"),
             provider_correlation_id=correlation,
         ),
-        AssistantMessage(content="done 1"),
-        UserMessage(content="old prompt 2"),
-        AssistantMessage(content="done 2"),
-        UserMessage(content="recent prompt"),
-        AssistantMessage(content="done 3"),
+        AgentAssistantMessage(content=ProductContent("done 1")),
+        AgentUserMessage(content=ProductContent("old prompt 2")),
+        AgentAssistantMessage(content=ProductContent("done 2")),
+        AgentUserMessage(content=ProductContent("recent prompt")),
+        AgentAssistantMessage(content=ProductContent("done 3")),
     ]
     result = compact_tool_loop_messages(messages, keep_recent_groups=1)
     if not result.changed:
         return False
-    if not isinstance(result.messages[0], UserMessage):
+    if not isinstance(result.messages[0], AgentUserMessage):
         return False
     if "SENSITIVE_TOOL_BODY" in result.summary_block:
         return False
     seen: set[str] = set()
     for message in result.messages:
-        if isinstance(message, AssistantMessage):
+        if isinstance(message, AgentAssistantMessage):
             for call in message.tool_calls:
                 seen.add(call.provider_correlation_id)
-        if isinstance(message, ToolResultMessage):
+        if isinstance(message, AgentToolResultMessage):
             if message.provider_correlation_id not in seen:
                 return False
     return True

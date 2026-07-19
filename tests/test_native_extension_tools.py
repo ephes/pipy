@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.agent import AgentToolResultMessage
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
     extension_tools,
@@ -30,7 +31,6 @@ from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     production_tool_registry,
 )
-from pipy_harness.native.tools.messages import ToolResultMessage
 
 
 def _make_workspace(tmp_path: Path) -> Path:
@@ -194,10 +194,7 @@ def test_model_can_call_an_extension_tool(tmp_path, monkeypatch) -> None:
     assert result.tool_invocation_count == 1
     # The tool's result content flowed back into the next provider request.
     second = provider.requests[1]
-    joined = " ".join(
-        str(getattr(m, "content", "") or getattr(m, "output_text", ""))
-        for m in second.messages
-    )
+    joined = " ".join(message.content.value for message in second.messages)
     assert "echo:hi there" in joined
 
 
@@ -251,7 +248,7 @@ def test_extension_tool_additive_activation_marks_its_result(
     marked = [
         message
         for message in provider.requests[1].messages
-        if isinstance(message, ToolResultMessage) and message.added_tool_names
+        if isinstance(message, AgentToolResultMessage) and message.added_tool_names
     ]
     assert len(marked) == 1
     assert marked[0].added_tool_names == ("late_tool",)
@@ -362,7 +359,6 @@ def test_extension_tool_exception_is_bounded(tmp_path, monkeypatch) -> None:
     assert result.status is HarnessStatus.SUCCEEDED
     second = provider.requests[1]
     joined = " ".join(
-        str(getattr(m, "content", "") or getattr(m, "output_text", ""))
-        for m in second.messages
+        message.content.value for message in second.messages
     )
     assert "/secret" not in joined and "leak-xyz" not in joined

@@ -22,12 +22,6 @@ from pipy_harness.native.tools.base import (
     make_tool_request_id,
     validate_arguments,
 )
-from pipy_harness.native.tools.messages import (
-    AssistantMessage,
-    LoopMessage,
-    ToolResultMessage,
-    UserMessage,
-)
 from pipy_harness.native.tools.edit import EditTool
 from pipy_harness.native.tools.edit_diff import EditDiffTool
 from pipy_harness.native.tools.find import FindTool
@@ -38,12 +32,10 @@ from pipy_harness.native.tools.truncate import TruncateTool
 from pipy_harness.native.tools.write import WriteTool
 
 __all__ = [
-    "AssistantMessage",
     "EditTool",
     "EditDiffTool",
     "FindTool",
     "GrepTool",
-    "LoopMessage",
     "LsTool",
     "ReadTool",
     "TruncateTool",
@@ -54,8 +46,6 @@ __all__ = [
     "ToolExecutionResult",
     "ToolPort",
     "ToolRequest",
-    "ToolResultMessage",
-    "UserMessage",
     "make_tool_request_id",
     "validate_arguments",
 ]

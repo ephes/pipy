@@ -49,11 +49,15 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentUserMessage,
+    ProductContent,
+)
 from pipy_harness.native.session_tree import (
     MessageEntry,
     NativeSessionTree,
 )
-from pipy_harness.native.tools.messages import AssistantMessage, UserMessage
 
 _EXPECTED = {
     "name": "compare-tree",
@@ -119,9 +123,9 @@ def _drive_pi(pi_dir: Path) -> dict:
 
 def _user_chain(tree: NativeSessionTree, leaf_id: str | None) -> list[str]:
     return [
-        e.message.content
+        e.message.content.value
         for e in tree.get_branch(leaf_id)
-        if isinstance(e, MessageEntry) and isinstance(e.message, UserMessage)
+        if isinstance(e, MessageEntry) and isinstance(e.message, AgentUserMessage)
     ]
 
 
@@ -155,25 +159,31 @@ def _drive_pipy() -> dict:
     tree = NativeSessionTree.create(cwd, session_dir=session_dir)
     # Mirror the Pi driver exactly: interleave assistant replies and branch back
     # to the assistant after ROOT (the parent of the MAIN user turn).
-    tree.append_message(UserMessage(content="ROOT"))
-    a1 = tree.append_message(AssistantMessage(content="SEEN:ROOT"))
-    tree.append_message(UserMessage(content="MAIN"))
-    a2 = tree.append_message(AssistantMessage(content="SEEN:ROOT,MAIN"))
+    tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
+    a1 = tree.append_message(
+        AgentAssistantMessage(content=ProductContent("SEEN:ROOT"))
+    )
+    tree.append_message(AgentUserMessage(content=ProductContent("MAIN")))
+    a2 = tree.append_message(
+        AgentAssistantMessage(content=ProductContent("SEEN:ROOT,MAIN"))
+    )
     tree.set_leaf(a1.id)
-    tree.append_message(UserMessage(content="ALT"))
-    a3 = tree.append_message(AssistantMessage(content="SEEN:ROOT,ALT"))
+    tree.append_message(AgentUserMessage(content=ProductContent("ALT")))
+    a3 = tree.append_message(
+        AgentAssistantMessage(content=ProductContent("SEEN:ROOT,ALT"))
+    )
 
     tree.set_leaf(a3.id)
     active_alt = [
-        m.content
+        m.content.value
         for m in tree.build_context().messages
-        if isinstance(m, UserMessage)
+        if isinstance(m, AgentUserMessage)
     ]
     tree.set_leaf(a2.id)
     active_main = [
-        m.content
+        m.content.value
         for m in tree.build_context().messages
-        if isinstance(m, UserMessage)
+        if isinstance(m, AgentUserMessage)
     ]
 
     tree.set_leaf(a3.id)

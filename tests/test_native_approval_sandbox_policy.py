@@ -759,21 +759,22 @@ def test_backlog_records_done_completion_and_provider_priority_order():
     assert "Textual, prompt-toolkit, curses, and a small custom terminal layer" in (
         compact_pi_parity_roadmap
     )
-    assert (
-        "input-adapter boundary preserves plain captured-stream fallback"
-        in (compact_pi_parity_roadmap)
+    assert "input-adapter boundary preserves plain captured-stream fallback" in (
+        compact_pi_parity_roadmap
     )
     assert "stdlib-only `slash-menu` raw-mode line editor" in compact_pi_parity_roadmap
     assert "stdlib `readline` adapter" in compact_pi_parity_roadmap
     assert "Workspace-relative path completion" in compact_pi_parity_roadmap
     assert "startup-chrome slice" not in compact_pi_parity_roadmap
     assert (
-        "### Extension API slice 12 closeout: package runtime composition"
-        in next_slice
+        "### Extension API slice 12 closeout: package runtime composition" in next_slice
     )
     assert "Slices 1–12 have **landed**" in compact_next_slice
     assert "/pipy-extension-conformance" in next_slice
-    assert "api.register_provider(ExtensionProvider(name, default_model, models, factory))" in next_slice
+    assert (
+        "api.register_provider(ExtensionProvider(name, default_model, models, factory))"
+        in next_slice
+    )
     assert "build_extension_provider_port" in next_slice
     assert "pipy install/remove/uninstall" in next_slice
     assert "extension_package_conformance.py" in next_slice
@@ -1127,9 +1128,7 @@ def test_selected_read_failure_recovery_boundary_is_documented():
         compact_boundary
     )
     assert "`Read-Failure Recovery Boundary Direction`" in compact_repl
-    assert "two successful explicit file excerpts per REPL session" in (
-        compact_repl
-    )
+    assert "two successful explicit file excerpts per REPL session" in (compact_repl)
     assert "one bounded failed or skipped read-attempt budget" in compact_repl
     assert "leaves the successful excerpt budget available" in (compact_repl)
 
@@ -1184,8 +1183,8 @@ def test_selected_no_tool_repl_conversation_context_boundary_is_documented():
     compact_boundary = collapse_whitespace(boundary_section)
 
     assert (
-        "now has bounded in-memory conversation context for ordinary no-tool REPL turns"
-        in (compact_boundary)
+        "retired no-tool REPL had bounded in-memory conversation context for ordinary no-tool REPL turns"
+        in compact_boundary
     )
     assert "summary-safe archive evidence only" in compact_boundary
     assert "read-failure recovery review and smoke records show a clean closeout" in (
@@ -1199,13 +1198,13 @@ def test_selected_no_tool_repl_conversation_context_boundary_is_documented():
         compact_boundary
     )
     assert "`NativeNoToolReplConversationContext`" in compact_boundary
-    assert "existing REPL provider-turn limit" in compact_boundary
+    assert "under that REPL's provider-turn limit" in compact_boundary
     assert "4 KiB provider-visible history byte budget" in compact_boundary
     assert (
-        "oldest no-tool exchanges are dropped before provider visibility"
+        "oldest no-tool exchanges were dropped before provider visibility"
         in compact_boundary
     )
-    assert "cleared when provider/model selection changes" in compact_boundary
+    assert "cleared when provider/model selection changed" in compact_boundary
     assert "on login" in compact_boundary
     assert "on logout" in compact_boundary
     assert "after provider failure" in compact_boundary
@@ -1226,8 +1225,8 @@ def test_no_tool_repl_conversation_context_review_and_next_clear_boundary_are_do
     compact_review = collapse_whitespace(review_section)
 
     assert (
-        "bounded no-tool REPL conversation context implementation is reviewed and smoked"
-        in (compact_review)
+        "bounded no-tool REPL conversation context implementation was reviewed and smoke-tested before that shell was retired"
+        in compact_review
     )
     assert "two-round independent review cycle" in compact_review
     assert "first round reported one warning and three suggestions" in compact_review
@@ -1241,15 +1240,15 @@ def test_no_tool_repl_conversation_context_review_and_next_clear_boundary_are_do
     clear_review_section = markdown_section(spec, "Native Local Clear Review And Smoke")
     compact_clear_review = collapse_whitespace(clear_review_section)
 
-    assert "native shell exposes a local `/clear` command" in compact_clear
-    assert "discards any pending same-session proposal draft" in compact_clear
-    assert "Malformed `/clear <text>` remains local" in compact_clear
-    assert "does not clear retained no-tool history" in compact_clear
-    assert "does not reset provider/model selection, auth state, read budgets" in (
-        compact_clear
+    assert (
+        "retired native no-tool shell exposed a local `/clear` command" in compact_clear
     )
+    assert "discarded any pending same-session proposal draft" in compact_clear
+    assert "Malformed `/clear <text>` remained local" in compact_clear
+    assert "did not clear retained no-tool history" in compact_clear
+    assert "reset provider/model selection, auth state, read budgets" in (compact_clear)
     assert "verification availability, or provider turn indexes" in compact_clear
-    assert "archives metadata-only" in compact_clear
+    assert "archived metadata only" in compact_clear
     assert "two-round independent review cycle" in compact_clear_review
     assert "two suggestion-level coverage items" in compact_clear_review
     assert "second review reported no findings" in compact_clear_review
@@ -1259,7 +1258,16 @@ def test_no_tool_repl_conversation_context_review_and_next_clear_boundary_are_do
         "next native work selected by the follow-up decision slice was a local `/status` command"
         in (compact_clear_review)
     )
-    assert "implementation is now present" in compact_clear_review
+    assert (
+        "implementation was present only in the no-tool shell that was later retired"
+        in compact_clear_review
+    )
+    assert (
+        "current product session does not expose `/clear`, `/status`, or `/help`"
+        in compact_review
+    )
+    assert "removed outright with no compatibility aliases" in compact_review
+    assert "use `/new`, `/session`, and `/hotkeys`, respectively" in compact_review
     assert "metadata-only" in compact_boundary
     assert "Provider lifecycle events" in compact_boundary
     assert "history exchanges were forwarded" in compact_boundary
@@ -1334,14 +1342,22 @@ def test_selected_local_status_repl_boundary_is_documented():
     status_section = markdown_section(spec, "Native Local Status REPL Command")
     compact_status = collapse_whitespace(status_section)
 
-    assert "native shell exposes a local `/status` command" in compact_status
+    assert (
+        "retired native no-tool shell exposed a local `/status` command"
+        in compact_status
+    )
     assert "summary-safe archive evidence only" in compact_status
     assert "clean second review" in compact_status
     assert "later closeout audit also found no new issues" in compact_status
     assert "/status" in compact_status
-    assert "listed by `/help`" in compact_status
+    assert "listed by the then-supported `/help`" in compact_status
     assert "static supported-command usage diagnostics" in compact_status
     assert "safe state labels and counters to stderr" in compact_status
+    assert "consume provider turns or explicit-read budgets" in compact_status
+    assert (
+        "change provider/model selection, auth state, or verification availability"
+        in compact_status
+    )
     assert "other similarly safe booleans" not in compact_status
 
     for allowed_status in (
@@ -1366,15 +1382,10 @@ def test_selected_local_status_repl_boundary_is_documented():
         "provider-visible context handoff",
         "provider-side tools",
         "another provider turn",
-        "consume provider turns",
-        "consume explicit-read budgets",
         "mutate retained conversation context",
         "clear pending proposals",
-        "change provider/model selection",
-        "change auth state",
-        "change verification availability",
-        "emits no archive events",
-        "stores no raw command text",
+        "emit archive events",
+        "store raw command text",
     ):
         assert forbidden_effect in compact_status
 

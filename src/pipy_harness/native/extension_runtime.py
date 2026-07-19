@@ -1441,11 +1441,11 @@ class _ConversationView:
 
     def last_assistant_message(self) -> "AssistantMessageView | None":
         # Import here to avoid a heavy import at module load.
-        from pipy_harness.native.tools.messages import AssistantMessage
+        from pipy_harness.native.agent import AgentAssistantMessage
 
         for message in reversed(self._messages):
-            if isinstance(message, AssistantMessage):
-                text = message.content or ""
+            if isinstance(message, AgentAssistantMessage):
+                text = message.content.value
                 complete = bool(text.strip()) and not message.tool_calls
                 return AssistantMessageView(text=text, complete=complete)
         return None

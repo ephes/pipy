@@ -47,6 +47,7 @@ from pipy_harness.native import (
     ProviderRequest,
     ProviderResult,
 )
+from pipy_harness.native.agent import AgentEvent, AgentUsage, UsageUpdated
 from pipy_harness.native.session import (
     NativeAgentSession,
     SYSTEM_PROMPT_ID,
@@ -67,7 +68,9 @@ class RecordingSink:
         summary: str,
         payload: Mapping[str, object] | None = None,
     ) -> None:
-        self.events.append((event_type, summary, dict(payload) if payload is not None else None))
+        self.events.append(
+            (event_type, summary, dict(payload) if payload is not None else None)
+        )
 
 
 @dataclass(slots=True)
@@ -101,7 +104,9 @@ class CapturingProvider:
             model_id=self.model_id,
             started_at=now,
             ended_at=now,
-            final_text=self.final_text if self.status == HarnessStatus.SUCCEEDED else None,
+            final_text=self.final_text
+            if self.status == HarnessStatus.SUCCEEDED
+            else None,
             usage=self.usage,
             metadata=self.metadata,
         )
@@ -236,7 +241,10 @@ def safe_read_only_intent() -> dict[str, object]:
         "stderr_stored": False,
         "diffs_stored": False,
         "file_contents_stored": False,
-        "metadata": {"fixture": "safe-read-only", "request_kind": "explicit-file-excerpt"},
+        "metadata": {
+            "fixture": "safe-read-only",
+            "request_kind": "explicit-file-excerpt",
+        },
     }
 
 
@@ -275,7 +283,9 @@ def safe_patch_proposal() -> dict[str, object]:
     }
 
 
-def safe_patch_apply_request(path: str, old_text: str, new_text: str) -> NativePatchApplyRequest:
+def safe_patch_apply_request(
+    path: str, old_text: str, new_text: str
+) -> NativePatchApplyRequest:
     identity = NativeToolRequestIdentity.current_noop()
     return NativePatchApplyRequest(
         tool_request_id=identity.request_id,
@@ -321,7 +331,9 @@ def provider_result(
     )
 
 
-def test_native_session_no_intent_builds_prompt_calls_provider_and_emits_safe_events(tmp_path):
+def test_native_session_no_intent_builds_prompt_calls_provider_and_emits_safe_events(
+    tmp_path,
+):
     provider = CapturingProvider()
     sink = RecordingSink()
     output = NativeAgentSession(provider=provider).run(
@@ -387,7 +399,9 @@ def test_native_session_normalizes_provider_usage_before_archiving(tmp_path):
         sink,
     )
 
-    provider_completed = [event for event in sink.events if event[0] == "native.provider.completed"][0]
+    provider_completed = [
+        event for event in sink.events if event[0] == "native.provider.completed"
+    ][0]
     assert provider_completed[2]["usage"] == {
         "cached_tokens": 3,
         "input_tokens": 10,
@@ -426,13 +440,19 @@ def test_native_session_drops_raw_content_provider_metadata_before_archiving(tmp
         sink,
     )
 
-    provider_completed = [event for event in sink.events if event[0] == "native.provider.completed"][0]
-    assert provider_completed[2]["provider_metadata"] == {"response_status": "completed"}
+    provider_completed = [
+        event for event in sink.events if event[0] == "native.provider.completed"
+    ][0]
+    assert provider_completed[2]["provider_metadata"] == {
+        "response_status": "completed"
+    }
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "SHOULD_NOT_PERSIST" not in serialized
 
 
-def test_native_session_safe_fake_noop_intent_invokes_tool_after_detected_event(tmp_path):
+def test_native_session_safe_fake_noop_intent_invokes_tool_after_detected_event(
+    tmp_path,
+):
     provider = FakeNativeProvider(tool_intent=safe_noop_intent())
     sink = RecordingSink()
     output = NativeAgentSession(provider=provider).run(
@@ -458,9 +478,15 @@ def test_native_session_safe_fake_noop_intent_invokes_tool_after_detected_event(
         "native.tool.completed",
         "native.session.completed",
     ]
-    provider_completed = [event for event in sink.events if event[0] == "native.provider.completed"][0]
-    assert provider_completed[2]["provider_metadata"] == {"tool_intent_metadata_present": True}
-    intent_detected = [event for event in sink.events if event[0] == "native.tool.intent.detected"][0]
+    provider_completed = [
+        event for event in sink.events if event[0] == "native.provider.completed"
+    ][0]
+    assert provider_completed[2]["provider_metadata"] == {
+        "tool_intent_metadata_present": True
+    }
+    intent_detected = [
+        event for event in sink.events if event[0] == "native.tool.intent.detected"
+    ][0]
     intent_payload = intent_detected[2]
     assert intent_payload is not None
     assert intent_payload["tool_request_id"] == "native-tool-0001"
@@ -472,7 +498,9 @@ def test_native_session_safe_fake_noop_intent_invokes_tool_after_detected_event(
         "safe_count": 1,
         "tool_payloads_stored": False,
     }
-    tool_completed = [event for event in sink.events if event[0] == "native.tool.completed"][0]
+    tool_completed = [
+        event for event in sink.events if event[0] == "native.tool.completed"
+    ][0]
     tool_payload = tool_completed[2]
     assert tool_payload is not None
     assert tool_payload["tool_request_id"] == "native-tool-0001"
@@ -489,7 +517,9 @@ def test_native_session_safe_fake_noop_intent_invokes_tool_after_detected_event(
     assert tool_payload["file_contents_stored"] is False
 
 
-def test_native_session_safe_noop_intent_does_not_call_provider_after_tool_result(tmp_path):
+def test_native_session_safe_noop_intent_does_not_call_provider_after_tool_result(
+    tmp_path,
+):
     provider = CapturingProvider(
         final_text="MODEL_OUTPUT_SHOULD_NOT_BE_ARCHIVED_AFTER_TOOL",
         metadata={PROVIDER_TOOL_INTENT_METADATA_KEY: safe_noop_intent()},
@@ -530,9 +560,13 @@ def test_native_session_safe_noop_intent_does_not_call_provider_after_tool_resul
     assert event_types.index("native.provider.completed") < tool_completed_index
     assert not event_types[tool_completed_index + 1 : -1]
     tool_payloads = [
-        payload for event_type, _, payload in sink.events if event_type.startswith("native.tool.")
+        payload
+        for event_type, _, payload in sink.events
+        if event_type.startswith("native.tool.")
     ]
-    assert [payload["tool_request_id"] for payload in tool_payloads if payload is not None] == [
+    assert [
+        payload["tool_request_id"] for payload in tool_payloads if payload is not None
+    ] == [
         "native-tool-0001",
         "native-tool-0001",
         "native-tool-0001",
@@ -559,7 +593,9 @@ def test_native_session_safe_noop_intent_does_not_call_provider_after_tool_resul
             assert payload["file_contents_stored"] is False
 
 
-def test_native_session_supported_synthetic_observation_fixture_makes_one_follow_up_turn(tmp_path):
+def test_native_session_supported_synthetic_observation_fixture_makes_one_follow_up_turn(
+    tmp_path,
+):
     provider = SequentialCapturingProvider(
         results=[
             provider_result(
@@ -609,8 +645,14 @@ def test_native_session_supported_synthetic_observation_fixture_makes_one_follow
     assert isinstance(follow_up_request.tool_observation, NativeToolObservation)
     assert follow_up_request.tool_observation.tool_request_id == "native-tool-0001"
     assert follow_up_request.tool_observation.turn_index == 0
-    assert follow_up_request.tool_observation.status == NativeToolObservationStatus.SUCCEEDED
-    assert follow_up_request.tool_observation.reason_label == NativeToolObservationReason.TOOL_RESULT_SUCCEEDED
+    assert (
+        follow_up_request.tool_observation.status
+        == NativeToolObservationStatus.SUCCEEDED
+    )
+    assert (
+        follow_up_request.tool_observation.reason_label
+        == NativeToolObservationReason.TOOL_RESULT_SUCCEEDED
+    )
 
     event_types = [event[0] for event in sink.events]
     assert event_types == [
@@ -625,20 +667,34 @@ def test_native_session_supported_synthetic_observation_fixture_makes_one_follow
         "native.provider.completed",
         "native.session.completed",
     ]
-    provider_payloads = [payload for event_type, _, payload in sink.events if event_type.startswith("native.provider.")]
-    assert [payload["provider_turn_index"] for payload in provider_payloads if payload is not None] == [
+    provider_payloads = [
+        payload
+        for event_type, _, payload in sink.events
+        if event_type.startswith("native.provider.")
+    ]
+    assert [
+        payload["provider_turn_index"]
+        for payload in provider_payloads
+        if payload is not None
+    ] == [
         0,
         0,
         1,
         1,
     ]
-    assert [payload["provider_turn_label"] for payload in provider_payloads if payload is not None] == [
+    assert [
+        payload["provider_turn_label"]
+        for payload in provider_payloads
+        if payload is not None
+    ] == [
         "initial",
         "initial",
         "post_tool_observation",
         "post_tool_observation",
     ]
-    observation_event = [event for event in sink.events if event[0] == "native.tool.observation.recorded"][0]
+    observation_event = [
+        event for event in sink.events if event[0] == "native.tool.observation.recorded"
+    ][0]
     observation_payload = observation_event[2]
     assert observation_payload == {
         "adapter": "pipy-native",
@@ -669,6 +725,120 @@ def test_native_session_supported_synthetic_observation_fixture_makes_one_follow
     assert "SAFE_GOAL_METADATA" not in serialized
     assert "INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT" not in serialized
     assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
+
+
+def test_native_session_stream_callback_remains_initial_turn_only(tmp_path) -> None:
+    class RecordingAgentSink:
+        def __init__(self) -> None:
+            self.events: list[AgentEvent] = []
+
+        def emit(self, event: AgentEvent) -> None:
+            self.events.append(event)
+
+    class StreamingSequentialProvider(SequentialCapturingProvider):
+        stream_sink_presence: list[bool]
+
+        def complete(
+            self,
+            request: ProviderRequest,
+            *,
+            stream_sink=None,
+            **_kwargs: object,
+        ) -> ProviderResult:
+            self.stream_sink_presence.append(stream_sink is not None)
+            if stream_sink is not None:
+                stream_sink(f"stream-{len(self.stream_sink_presence)}")
+            return super().complete(request)
+
+    provider = StreamingSequentialProvider(
+        results=[
+            provider_result(
+                final_text="initial",
+                usage={"input_tokens": 3, "output_tokens": 5, "total_tokens": 8},
+                metadata={
+                    PROVIDER_TOOL_INTENT_METADATA_KEY: safe_noop_intent(),
+                    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY: (
+                        safe_synthetic_observation_fixture()
+                    ),
+                },
+            ),
+            provider_result(
+                final_text="follow-up",
+                usage={"input_tokens": 7, "output_tokens": 11, "total_tokens": 18},
+            ),
+        ]
+    )
+    provider.stream_sink_presence = []
+    chunks: list[str] = []
+    agent_sink = RecordingAgentSink()
+
+    NativeAgentSession(
+        provider=provider,
+        stream_sink=chunks.append,
+        agent_event_sink=agent_sink,
+    ).run(
+        NativeRunInput(
+            goal="stream initial only",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        RecordingSink(),
+    )
+
+    assert provider.stream_sink_presence == [True, False]
+    assert chunks == ["stream-1"]
+    usage_events = [
+        event for event in agent_sink.events if isinstance(event, UsageUpdated)
+    ]
+    assert usage_events == [
+        UsageUpdated(
+            AgentUsage(input_tokens=3, output_tokens=5),
+            last_turn_total_tokens=8,
+        ),
+        UsageUpdated(
+            AgentUsage(input_tokens=10, output_tokens=16),
+            last_turn_total_tokens=18,
+        ),
+    ]
+
+
+def test_native_session_stream_callback_failure_is_not_a_provider_failure(
+    tmp_path,
+) -> None:
+    class SdkSinkFailure(RuntimeError):
+        pass
+
+    failure = SdkSinkFailure("SDK stream callback failed")
+
+    def fail_stream_callback(_chunk: str) -> None:
+        raise failure
+
+    event_sink = RecordingSink()
+    session = NativeAgentSession(
+        provider=FakeNativeProvider(programmable_text_chunks=("chunk",)),
+        stream_sink=fail_stream_callback,
+    )
+
+    with pytest.raises(SdkSinkFailure) as captured:
+        session.run(
+            NativeRunInput(
+                goal="stream callback failure",
+                cwd=tmp_path,
+                provider_name="fake",
+                model_id="fake-native-bootstrap",
+                system_prompt_id=SYSTEM_PROMPT_ID,
+                system_prompt_version=SYSTEM_PROMPT_VERSION,
+            ),
+            event_sink,
+        )
+
+    assert captured.value is failure
+    assert all(
+        event_type != "native.provider.failed" for event_type, _, _ in event_sink.events
+    )
 
 
 def test_native_session_allocates_bounded_provider_turns_from_conversation_state(
@@ -735,8 +905,13 @@ def test_native_session_allocates_bounded_provider_turns_from_conversation_state
 
     assert output.status == HarnessStatus.SUCCEEDED
     assert provider.captured_requests is not None
-    assert provider.results and provider.results[0].final_text == "THIRD_MODEL_OUTPUT_SHOULD_NOT_BE_CALLED"
-    assert [(turn.turn_index, turn.provider_turn_label) for turn in allocated_turns] == [
+    assert (
+        provider.results
+        and provider.results[0].final_text == "THIRD_MODEL_OUTPUT_SHOULD_NOT_BE_CALLED"
+    )
+    assert [
+        (turn.turn_index, turn.provider_turn_label) for turn in allocated_turns
+    ] == [
         (0, "initial"),
         (1, "post_tool_observation"),
     ]
@@ -751,10 +926,14 @@ def test_native_session_allocates_bounded_provider_turns_from_conversation_state
     assert event_types.count("native.tool.completed") == 1
 
 
-def test_native_session_read_only_tool_context_reaches_follow_up_provider_only_in_memory(tmp_path):
+def test_native_session_read_only_tool_context_reaches_follow_up_provider_only_in_memory(
+    tmp_path,
+):
     source = tmp_path / "src" / "example.py"
     source.parent.mkdir()
-    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+    source.write_text(
+        "def visible_context():\n    return 'provider only context'\n", encoding="utf-8"
+    )
     provider = SequentialCapturingProvider(
         results=[
             provider_result(
@@ -816,12 +995,16 @@ def test_native_session_read_only_tool_context_reaches_follow_up_provider_only_i
         "native.provider.completed",
         "native.session.completed",
     ]
-    provider_completed = [event for event in sink.events if event[0] == "native.provider.completed"][0]
+    provider_completed = [
+        event for event in sink.events if event[0] == "native.provider.completed"
+    ][0]
     assert provider_completed[2]["provider_metadata"] == {
         "read_only_tool_fixture_metadata_present": True,
         "tool_intent_metadata_present": True,
     }
-    tool_completed = [event for event in sink.events if event[0] == "native.tool.completed"][0]
+    tool_completed = [
+        event for event in sink.events if event[0] == "native.tool.completed"
+    ][0]
     tool_payload = tool_completed[2]
     assert tool_payload is not None
     assert tool_payload["tool_name"] == "read_only_repo_inspection"
@@ -833,7 +1016,11 @@ def test_native_session_read_only_tool_context_reaches_follow_up_provider_only_i
     assert tool_payload["file_contents_stored"] is False
     assert tool_payload["tool_metadata"]["source_label"] == "example.py"
     assert tool_payload["tool_metadata"]["excerpt_count"] == 1
-    observation_payload = [event[2] for event in sink.events if event[0] == "native.tool.observation.recorded"][0]
+    observation_payload = [
+        event[2]
+        for event in sink.events
+        if event[0] == "native.tool.observation.recorded"
+    ][0]
     assert observation_payload is not None
     assert observation_payload["tool_name"] == "read_only_repo_inspection"
     assert observation_payload["tool_kind"] == "read_only_workspace"
@@ -846,10 +1033,14 @@ def test_native_session_read_only_tool_context_reaches_follow_up_provider_only_i
     assert "SAFE_GOAL_METADATA" not in serialized
 
 
-def test_native_session_records_patch_proposal_metadata_after_read_only_follow_up(tmp_path):
+def test_native_session_records_patch_proposal_metadata_after_read_only_follow_up(
+    tmp_path,
+):
     source = tmp_path / "src" / "example.py"
     source.parent.mkdir()
-    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+    source.write_text(
+        "def visible_context():\n    return 'provider only context'\n", encoding="utf-8"
+    )
     provider = SequentialCapturingProvider(
         results=[
             provider_result(
@@ -903,9 +1094,17 @@ def test_native_session_records_patch_proposal_metadata_after_read_only_follow_u
         NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
         "native.session.completed",
     ]
-    follow_up_completed = [event for event in sink.events if event[0] == "native.provider.completed"][1]
-    assert follow_up_completed[2]["provider_metadata"] == {"patch_proposal_metadata_present": True}
-    proposal_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT][0]
+    follow_up_completed = [
+        event for event in sink.events if event[0] == "native.provider.completed"
+    ][1]
+    assert follow_up_completed[2]["provider_metadata"] == {
+        "patch_proposal_metadata_present": True
+    }
+    proposal_payload = [
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT
+    ][0]
     assert proposal_payload == {
         "adapter": "pipy-native",
         "provider": "capturing-fake",
@@ -942,7 +1141,9 @@ def test_native_session_records_patch_proposal_metadata_after_read_only_follow_u
 def test_native_session_records_supported_patch_proposal_metadata_only(tmp_path):
     source = tmp_path / "src" / "example.py"
     source.parent.mkdir()
-    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+    source.write_text(
+        "def visible_context():\n    return 'provider only context'\n", encoding="utf-8"
+    )
     provider = SequentialCapturingProvider(
         results=[
             provider_result(
@@ -975,7 +1176,11 @@ def test_native_session_records_supported_patch_proposal_metadata_only(tmp_path)
     )
 
     assert output.status == HarnessStatus.SUCCEEDED
-    proposal_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT][0]
+    proposal_payload = [
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT
+    ][0]
     assert proposal_payload is not None
     assert proposal_payload["tool_request_id"] == "native-tool-0001"
     assert proposal_payload["turn_index"] == 0
@@ -1022,7 +1227,9 @@ def test_native_session_applies_human_reviewed_patch_after_supported_proposal(tm
 
     output = NativeAgentSession(
         provider=provider,
-        patch_apply_request=safe_patch_apply_request("src/example.py", old_text, new_text),
+        patch_apply_request=safe_patch_apply_request(
+            "src/example.py", old_text, new_text
+        ),
         patch_apply_gate=NativePatchApplyGateDecision(
             approval_decision=NativePatchApplyApprovalDecision.ALLOWED
         ),
@@ -1041,8 +1248,15 @@ def test_native_session_applies_human_reviewed_patch_after_supported_proposal(tm
     assert output.status == HarnessStatus.SUCCEEDED
     assert source.read_text(encoding="utf-8") == new_text
     event_types = [event[0] for event in sink.events]
-    assert event_types[-2:] == [NATIVE_PATCH_APPLY_RECORDED_EVENT, "native.session.completed"]
-    apply_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT][0]
+    assert event_types[-2:] == [
+        NATIVE_PATCH_APPLY_RECORDED_EVENT,
+        "native.session.completed",
+    ]
+    apply_payload = [
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT
+    ][0]
     assert apply_payload is not None
     assert apply_payload["tool_request_id"] == "native-tool-0001"
     assert apply_payload["turn_index"] == 0
@@ -1118,7 +1332,9 @@ def test_native_session_runs_verification_after_successful_patch_apply_metadata_
 
     output = NativeAgentSession(
         provider=provider,
-        patch_apply_request=safe_patch_apply_request("src/example.py", old_text, new_text),
+        patch_apply_request=safe_patch_apply_request(
+            "src/example.py", old_text, new_text
+        ),
         patch_apply_gate=NativePatchApplyGateDecision(
             approval_decision=NativePatchApplyApprovalDecision.ALLOWED
         ),
@@ -1147,7 +1363,9 @@ def test_native_session_runs_verification_after_successful_patch_apply_metadata_
         "native.session.completed",
     ]
     verification_payload = [
-        event[2] for event in sink.events if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
     ][0]
     assert verification_payload is not None
     assert verification_payload["tool_request_id"] == "native-tool-0001"
@@ -1209,7 +1427,10 @@ def test_native_session_supervised_self_bootstrap_trial_is_metadata_only(
 
     def verification_succeeds(self, request, gate_decision):
         now = datetime.now(UTC)
-        assert gate_decision.approval_decision == NativeVerificationApprovalDecision.ALLOWED
+        assert (
+            gate_decision.approval_decision
+            == NativeVerificationApprovalDecision.ALLOWED
+        )
         return NativeVerificationResult(
             status=NativeToolStatus.SUCCEEDED,
             reason_label=NativeVerificationReason.VERIFICATION_SUCCEEDED,
@@ -1236,7 +1457,9 @@ def test_native_session_supervised_self_bootstrap_trial_is_metadata_only(
 
     output = NativeAgentSession(
         provider=provider,
-        patch_apply_request=safe_patch_apply_request("docs/bootstrap-trial.md", old_text, new_text),
+        patch_apply_request=safe_patch_apply_request(
+            "docs/bootstrap-trial.md", old_text, new_text
+        ),
         patch_apply_gate=NativePatchApplyGateDecision(
             approval_decision=NativePatchApplyApprovalDecision.ALLOWED
         ),
@@ -1264,11 +1487,19 @@ def test_native_session_supervised_self_bootstrap_trial_is_metadata_only(
     assert NATIVE_PATCH_APPLY_RECORDED_EVENT in event_types
     assert NATIVE_VERIFICATION_RECORDED_EVENT in event_types
     proposal_payload = [
-        event[2] for event in sink.events if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT
     ][0]
-    apply_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT][0]
+    apply_payload = [
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT
+    ][0]
     verification_payload = [
-        event[2] for event in sink.events if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
     ][0]
     assert proposal_payload is not None
     assert proposal_payload["file_count"] == 1
@@ -1350,7 +1581,9 @@ def test_native_session_verification_failure_fails_run_after_patch_apply(
 
     output = NativeAgentSession(
         provider=provider,
-        patch_apply_request=safe_patch_apply_request("src/example.py", old_text, new_text),
+        patch_apply_request=safe_patch_apply_request(
+            "src/example.py", old_text, new_text
+        ),
         patch_apply_gate=NativePatchApplyGateDecision(
             approval_decision=NativePatchApplyApprovalDecision.ALLOWED
         ),
@@ -1377,7 +1610,9 @@ def test_native_session_verification_failure_fails_run_after_patch_apply(
     assert output.error_message == "command_failed"
     assert source.read_text(encoding="utf-8") == new_text
     verification_payload = [
-        event[2] for event in sink.events if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
     ][0]
     assert verification_payload is not None
     assert verification_payload["status"] == "failed"
@@ -1417,7 +1652,10 @@ def test_native_session_missing_verification_gate_skips_and_fails_without_execut
     sink = RecordingSink()
 
     def verification_skips(self, request, gate_decision):
-        assert gate_decision.approval_decision == NativeVerificationApprovalDecision.SKIPPED
+        assert (
+            gate_decision.approval_decision
+            == NativeVerificationApprovalDecision.SKIPPED
+        )
         now = datetime.now(UTC)
         return NativeVerificationResult(
             status=NativeToolStatus.SKIPPED,
@@ -1443,7 +1681,9 @@ def test_native_session_missing_verification_gate_skips_and_fails_without_execut
 
     output = NativeAgentSession(
         provider=provider,
-        patch_apply_request=safe_patch_apply_request("src/example.py", old_text, new_text),
+        patch_apply_request=safe_patch_apply_request(
+            "src/example.py", old_text, new_text
+        ),
         patch_apply_gate=NativePatchApplyGateDecision(
             approval_decision=NativePatchApplyApprovalDecision.ALLOWED
         ),
@@ -1465,7 +1705,9 @@ def test_native_session_missing_verification_gate_skips_and_fails_without_execut
     assert output.error_type == "NativeVerificationSkipped"
     assert output.error_message == "approval_not_allowed"
     verification_payload = [
-        event[2] for event in sink.events if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_VERIFICATION_RECORDED_EVENT
     ][0]
     assert verification_payload is not None
     assert verification_payload["approval_decision"] == "skipped"
@@ -1499,7 +1741,9 @@ def test_native_session_patch_apply_failure_fails_closed_before_mutation(tmp_pat
 
     output = NativeAgentSession(
         provider=provider,
-        patch_apply_request=safe_patch_apply_request("src/example.py", "stale\n", new_text),
+        patch_apply_request=safe_patch_apply_request(
+            "src/example.py", "stale\n", new_text
+        ),
         patch_apply_gate=NativePatchApplyGateDecision(
             approval_decision=NativePatchApplyApprovalDecision.ALLOWED
         ),
@@ -1519,7 +1763,11 @@ def test_native_session_patch_apply_failure_fails_closed_before_mutation(tmp_pat
     assert output.error_type == "NativePatchApplySkipped"
     assert output.error_message == "expected_hash_mismatch"
     assert source.read_text(encoding="utf-8") == old_text
-    apply_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT][0]
+    apply_payload = [
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT
+    ][0]
     assert apply_payload is not None
     assert apply_payload["status"] == "skipped"
     assert apply_payload["reason_label"] == "expected_hash_mismatch"
@@ -1560,11 +1808,15 @@ def test_native_session_patch_apply_unexpected_exception_keeps_request_metadata(
     def explode_invoke(self, request, gate_decision):
         raise RuntimeError("patch apply exploded token=SECRET123")
 
-    monkeypatch.setattr("pipy_harness.native.session.NativePatchApplyTool.invoke", explode_invoke)
+    monkeypatch.setattr(
+        "pipy_harness.native.session.NativePatchApplyTool.invoke", explode_invoke
+    )
 
     output = NativeAgentSession(
         provider=provider,
-        patch_apply_request=safe_patch_apply_request("src/example.py", old_text, new_text),
+        patch_apply_request=safe_patch_apply_request(
+            "src/example.py", old_text, new_text
+        ),
         patch_apply_gate=NativePatchApplyGateDecision(
             approval_decision=NativePatchApplyApprovalDecision.ALLOWED
         ),
@@ -1584,7 +1836,11 @@ def test_native_session_patch_apply_unexpected_exception_keeps_request_metadata(
     assert output.error_type == "NativePatchApplyFailed"
     assert output.error_message == "write_failed"
     assert source.read_text(encoding="utf-8") == old_text
-    apply_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT][0]
+    apply_payload = [
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_PATCH_APPLY_RECORDED_EVENT
+    ][0]
     assert apply_payload is not None
     assert apply_payload["status"] == "failed"
     assert apply_payload["reason_label"] == "write_failed"
@@ -1598,7 +1854,9 @@ def test_native_session_patch_apply_unexpected_exception_keeps_request_metadata(
     assert "provider only context" not in serialized
 
 
-def test_native_session_drops_initial_patch_proposal_metadata_without_presence_flag(tmp_path):
+def test_native_session_drops_initial_patch_proposal_metadata_without_presence_flag(
+    tmp_path,
+):
     provider = CapturingProvider(
         final_text="MODEL_OUTPUT_SHOULD_PRINT_ONLY",
         metadata={PROVIDER_PATCH_PROPOSAL_METADATA_KEY: safe_patch_proposal()},
@@ -1619,8 +1877,12 @@ def test_native_session_drops_initial_patch_proposal_metadata_without_presence_f
 
     assert output.status == HarnessStatus.SUCCEEDED
     assert provider.complete_calls == 1
-    assert NATIVE_PATCH_PROPOSAL_RECORDED_EVENT not in [event[0] for event in sink.events]
-    provider_completed = [event for event in sink.events if event[0] == "native.provider.completed"][0]
+    assert NATIVE_PATCH_PROPOSAL_RECORDED_EVENT not in [
+        event[0] for event in sink.events
+    ]
+    provider_completed = [
+        event for event in sink.events if event[0] == "native.provider.completed"
+    ][0]
     assert provider_completed[2]["provider_metadata"] == {}
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "pipy_native_patch_proposal" not in serialized
@@ -1629,7 +1891,9 @@ def test_native_session_drops_initial_patch_proposal_metadata_without_presence_f
     assert "SAFE_GOAL_METADATA" not in serialized
 
 
-def test_native_session_drops_synthetic_follow_up_patch_proposal_metadata_without_presence_flag(tmp_path):
+def test_native_session_drops_synthetic_follow_up_patch_proposal_metadata_without_presence_flag(
+    tmp_path,
+):
     provider = SequentialCapturingProvider(
         results=[
             provider_result(
@@ -1660,8 +1924,12 @@ def test_native_session_drops_synthetic_follow_up_patch_proposal_metadata_withou
     )
 
     assert output.status == HarnessStatus.SUCCEEDED
-    assert NATIVE_PATCH_PROPOSAL_RECORDED_EVENT not in [event[0] for event in sink.events]
-    follow_up_completed = [event for event in sink.events if event[0] == "native.provider.completed"][1]
+    assert NATIVE_PATCH_PROPOSAL_RECORDED_EVENT not in [
+        event[0] for event in sink.events
+    ]
+    follow_up_completed = [
+        event for event in sink.events if event[0] == "native.provider.completed"
+    ][1]
     assert follow_up_completed[2]["provider_metadata"] == {}
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "pipy_native_patch_proposal" not in serialized
@@ -1675,10 +1943,19 @@ def test_native_session_drops_synthetic_follow_up_patch_proposal_metadata_withou
     ("proposal", "expected_reason"),
     [
         ("not-a-mapping", "unsafe_proposal"),
-        ({**safe_patch_proposal(), "proposal_source": "provider_native_tool_call"}, "unsupported_proposal"),
+        (
+            {**safe_patch_proposal(), "proposal_source": "provider_native_tool_call"},
+            "unsupported_proposal",
+        ),
         ({**safe_patch_proposal(), "status": "raw_diff"}, "unsupported_proposal"),
-        ({**safe_patch_proposal(), "tool_request_id": "provider-owned-id"}, "unsafe_proposal"),
-        ({**safe_patch_proposal(), "operation_labels": ["modify", "shell"]}, "unsupported_proposal"),
+        (
+            {**safe_patch_proposal(), "tool_request_id": "provider-owned-id"},
+            "unsafe_proposal",
+        ),
+        (
+            {**safe_patch_proposal(), "operation_labels": ["modify", "shell"]},
+            "unsupported_proposal",
+        ),
         ({**safe_patch_proposal(), "patch_text_stored": True}, "unsafe_proposal"),
         ({**safe_patch_proposal(), "diffs_stored": True}, "unsafe_proposal"),
         ({**safe_patch_proposal(), "file_contents_stored": True}, "unsafe_proposal"),
@@ -1691,7 +1968,9 @@ def test_native_session_unsafe_or_unsupported_patch_proposal_records_skipped_met
 ):
     source = tmp_path / "src" / "example.py"
     source.parent.mkdir()
-    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+    source.write_text(
+        "def visible_context():\n    return 'provider only context'\n", encoding="utf-8"
+    )
     provider = SequentialCapturingProvider(
         results=[
             provider_result(
@@ -1724,7 +2003,11 @@ def test_native_session_unsafe_or_unsupported_patch_proposal_records_skipped_met
     )
 
     assert output.status == HarnessStatus.SUCCEEDED
-    proposal_payload = [event[2] for event in sink.events if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT][0]
+    proposal_payload = [
+        event[2]
+        for event in sink.events
+        if event[0] == NATIVE_PATCH_PROPOSAL_RECORDED_EVENT
+    ][0]
     assert proposal_payload is not None
     assert proposal_payload["status"] == "skipped"
     assert proposal_payload["reason_label"] == expected_reason
@@ -1742,10 +2025,14 @@ def test_native_session_unsafe_or_unsupported_patch_proposal_records_skipped_met
     assert "FOLLOW_UP_MODEL_OUTPUT_SHOULD_PRINT_ONLY" not in serialized
 
 
-def test_native_session_read_only_follow_up_provider_exception_does_not_archive_context(tmp_path):
+def test_native_session_read_only_follow_up_provider_exception_does_not_archive_context(
+    tmp_path,
+):
     source = tmp_path / "src" / "example.py"
     source.parent.mkdir()
-    source.write_text("def visible_context():\n    return 'provider only context'\n", encoding="utf-8")
+    source.write_text(
+        "def visible_context():\n    return 'provider only context'\n", encoding="utf-8"
+    )
     provider = FollowUpExplodingProvider(
         initial_result=provider_result(
             final_text="INITIAL_MODEL_OUTPUT_SHOULD_NOT_PRINT",
@@ -1779,7 +2066,9 @@ def test_native_session_read_only_follow_up_provider_exception_does_not_archive_
     assert provider.captured_requests is not None
     assert len(provider.captured_requests) == 2
     assert "provider only context" in provider.captured_requests[1].user_prompt
-    provider_failed = [event for event in sink.events if event[0] == "native.provider.failed"][0]
+    provider_failed = [
+        event for event in sink.events if event[0] == "native.provider.failed"
+    ][0]
     assert provider_failed[2] is not None
     assert provider_failed[2]["error_message"] == "RuntimeError"
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
@@ -1789,10 +2078,14 @@ def test_native_session_read_only_follow_up_provider_exception_does_not_archive_
     assert "SAFE_GOAL_METADATA" not in serialized
 
 
-def test_native_session_read_only_tool_skips_generated_target_before_provider_visibility(tmp_path):
+def test_native_session_read_only_tool_skips_generated_target_before_provider_visibility(
+    tmp_path,
+):
     generated = tmp_path / "node_modules" / "package" / "index.js"
     generated.parent.mkdir(parents=True)
-    generated.write_text("module.exports = 'SHOULD_NOT_REACH_PROVIDER';\n", encoding="utf-8")
+    generated.write_text(
+        "module.exports = 'SHOULD_NOT_REACH_PROVIDER';\n", encoding="utf-8"
+    )
     provider = CapturingProvider(
         final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_SKIPPED_READ",
         metadata={
@@ -1837,8 +2130,12 @@ def test_native_session_read_only_tool_skips_generated_target_before_provider_vi
     assert "SAFE_GOAL_METADATA" not in serialized
 
 
-def test_native_session_unsafe_read_only_fixture_skips_before_read_or_follow_up(tmp_path):
-    (tmp_path / "example.txt").write_text("SHOULD_NOT_REACH_PROVIDER\n", encoding="utf-8")
+def test_native_session_unsafe_read_only_fixture_skips_before_read_or_follow_up(
+    tmp_path,
+):
+    (tmp_path / "example.txt").write_text(
+        "SHOULD_NOT_REACH_PROVIDER\n", encoding="utf-8"
+    )
     provider = CapturingProvider(
         final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_UNSAFE_READ",
         metadata={
@@ -1884,8 +2181,12 @@ def test_native_session_unsafe_read_only_fixture_skips_before_read_or_follow_up(
     assert "SAFE_GOAL_METADATA" not in serialized
 
 
-def test_native_session_read_only_intent_without_fixture_skips_before_read_or_follow_up(tmp_path):
-    (tmp_path / "example.txt").write_text("SHOULD_NOT_REACH_PROVIDER\n", encoding="utf-8")
+def test_native_session_read_only_intent_without_fixture_skips_before_read_or_follow_up(
+    tmp_path,
+):
+    (tmp_path / "example.txt").write_text(
+        "SHOULD_NOT_REACH_PROVIDER\n", encoding="utf-8"
+    )
     provider = CapturingProvider(
         final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_MISSING_READ_FIXTURE",
         metadata={PROVIDER_TOOL_INTENT_METADATA_KEY: safe_read_only_intent()},
@@ -1926,7 +2227,10 @@ def test_native_session_read_only_intent_without_fixture_skips_before_read_or_fo
 @pytest.mark.parametrize(
     ("fixture", "expected_reason"),
     [
-        ({"fixture_source": "synthetic_safe_noop", "payload": "SHOULD_NOT_PERSIST"}, "unsafe_observation"),
+        (
+            {"fixture_source": "synthetic_safe_noop", "payload": "SHOULD_NOT_PERSIST"},
+            "unsafe_observation",
+        ),
         (
             {
                 **safe_synthetic_observation_fixture(),
@@ -2007,7 +2311,11 @@ def test_native_session_unsafe_or_unsupported_observation_fixture_skips_before_f
         "native.tool.observation.recorded",
         "native.session.completed",
     ]
-    observation_payload = [event[2] for event in sink.events if event[0] == "native.tool.observation.recorded"][0]
+    observation_payload = [
+        event[2]
+        for event in sink.events
+        if event[0] == "native.tool.observation.recorded"
+    ][0]
     assert observation_payload is not None
     assert observation_payload["tool_request_id"] == "native-tool-0001"
     assert observation_payload["turn_index"] == 0
@@ -2020,7 +2328,9 @@ def test_native_session_unsafe_or_unsupported_observation_fixture_skips_before_f
     assert "SAFE_GOAL_METADATA" not in serialized
 
 
-def test_native_session_unsafe_intent_skips_without_detected_or_started_events(tmp_path):
+def test_native_session_unsafe_intent_skips_without_detected_or_started_events(
+    tmp_path,
+):
     provider = FakeNativeProvider(
         final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_UNSAFE_INTENT",
         tool_intent={
@@ -2050,8 +2360,12 @@ def test_native_session_unsafe_intent_skips_without_detected_or_started_events(t
     assert output.final_text is None
     assert "native.tool.intent.detected" not in event_types
     assert "native.tool.started" not in event_types
-    assert [event for event in event_types if event.startswith("native.tool.")] == ["native.tool.skipped"]
-    tool_skipped = [event for event in sink.events if event[0] == "native.tool.skipped"][0]
+    assert [event for event in event_types if event.startswith("native.tool.")] == [
+        "native.tool.skipped"
+    ]
+    tool_skipped = [
+        event for event in sink.events if event[0] == "native.tool.skipped"
+    ][0]
     assert tool_skipped[2]["reason"] == "unsafe_tool_intent_keys"
     serialized = json.dumps([event[2] for event in sink.events], sort_keys=True)
     assert "SHOULD_NOT_PERSIST" not in serialized
@@ -2139,7 +2453,9 @@ def test_native_session_unsafe_intent_reasons_are_sanitized_and_skipped(
     assert output.final_text is None
     assert "native.tool.intent.detected" not in event_types
     assert "native.tool.started" not in event_types
-    tool_skipped = [event for event in sink.events if event[0] == "native.tool.skipped"][0]
+    tool_skipped = [
+        event for event in sink.events if event[0] == "native.tool.skipped"
+    ][0]
     tool_payload = tool_skipped[2]
     assert tool_payload is not None
     assert tool_payload["reason"] == reason
@@ -2152,7 +2468,9 @@ def test_native_session_unsafe_intent_reasons_are_sanitized_and_skipped(
     assert "raw_provider_tool_call" not in serialized
 
 
-def test_native_session_provider_request_like_id_is_not_archived_as_tool_request_id(tmp_path):
+def test_native_session_provider_request_like_id_is_not_archived_as_tool_request_id(
+    tmp_path,
+):
     provider_request_id = "provider-call-secret-like-9999"
     provider = FakeNativeProvider(
         final_text="MODEL_OUTPUT_SHOULD_NOT_PRINT_FOR_PROVIDER_ID",
@@ -2184,8 +2502,12 @@ def test_native_session_provider_request_like_id_is_not_archived_as_tool_request
     assert output.status == HarnessStatus.FAILED
     assert "native.tool.intent.detected" not in event_types
     assert "native.tool.started" not in event_types
-    assert [event for event in event_types if event.startswith("native.tool.")] == ["native.tool.skipped"]
-    tool_skipped = [event for event in sink.events if event[0] == "native.tool.skipped"][0]
+    assert [event for event in event_types if event.startswith("native.tool.")] == [
+        "native.tool.skipped"
+    ]
+    tool_skipped = [
+        event for event in sink.events if event[0] == "native.tool.skipped"
+    ][0]
     assert tool_skipped[2] is not None
     assert tool_skipped[2]["reason"] == "unsafe_tool_intent_request_id"
     assert tool_skipped[2]["tool_request_id"] == "native-tool-0001"
@@ -2221,7 +2543,9 @@ def test_native_session_unsupported_intent_skips_without_invoking_tool(tmp_path)
     assert output.status == HarnessStatus.FAILED
     assert "native.tool.intent.detected" not in event_types
     assert "native.tool.started" not in event_types
-    tool_skipped = [event for event in sink.events if event[0] == "native.tool.skipped"][0]
+    tool_skipped = [
+        event for event in sink.events if event[0] == "native.tool.skipped"
+    ][0]
     assert tool_skipped[2]["reason"] == "unsupported_tool_intent"
     assert tool_skipped[2]["tool_name"] == "unsupported"
     assert tool_skipped[2]["tool_kind"] == "unsupported_intent"
@@ -2246,22 +2570,31 @@ def test_native_runner_finalizes_failed_provider_record(tmp_path):
     assert result.exit_code == 1
     assert result.status == HarnessStatus.FAILED
     events = read_jsonl(result.record.jsonl_path)
-    provider_failed = [event for event in events if event["type"] == "native.provider.failed"][0]
+    provider_failed = [
+        event for event in events if event["type"] == "native.provider.failed"
+    ][0]
     assert provider_failed["payload"]["duration_seconds"] > 0
-    tool_skipped = [event for event in events if event["type"] == "native.tool.skipped"][0]
+    tool_skipped = [
+        event for event in events if event["type"] == "native.tool.skipped"
+    ][0]
     assert tool_skipped["payload"]["status"] == "skipped"
     assert tool_skipped["payload"]["reason"] == "provider_not_succeeded"
     assert "native.tool.started" not in [event["type"] for event in events]
-    assert [event["type"] for event in events[-2:]] == ["harness.run.adapter_failed", "session.finalized"]
-    combined = result.record.jsonl_path.read_text(encoding="utf-8") + result.record.markdown_path.read_text(
+    assert [event["type"] for event in events[-2:]] == [
+        "harness.run.adapter_failed",
+        "session.finalized",
+    ]
+    combined = result.record.jsonl_path.read_text(
         encoding="utf-8"
-    )
+    ) + result.record.markdown_path.read_text(encoding="utf-8")
     assert "You are the native pipy runtime bootstrap" not in combined
     assert "MODEL_OUTPUT" not in combined
     assert verify_session_archive(root=root).ok is True
 
 
-def test_native_runner_finalizes_failed_tool_record_without_printing_provider_text(tmp_path, capfd):
+def test_native_runner_finalizes_failed_tool_record_without_printing_provider_text(
+    tmp_path, capfd
+):
     root = tmp_path / "sessions"
     result = HarnessRunner(
         adapter=PipyNativeAdapter(
@@ -2294,13 +2627,18 @@ def test_native_runner_finalizes_failed_tool_record_without_printing_provider_te
     assert "MODEL_OUTPUT_SHOULD_NOT_PRINT_ON_TOOL_FAILURE" not in captured.out
     events = read_jsonl(result.record.jsonl_path)
     assert "native.provider.completed" in [event["type"] for event in events]
-    tool_failed = [event for event in events if event["type"] == "native.tool.failed"][0]
+    tool_failed = [event for event in events if event["type"] == "native.tool.failed"][
+        0
+    ]
     assert tool_failed["payload"]["error_type"] == "FakeToolError"
     assert tool_failed["payload"]["error_message"] == "tool failed safely"
-    assert tool_failed["payload"]["tool_metadata"] == {"api_token": "[REDACTED]", "safe_count": 1}
-    combined = result.record.jsonl_path.read_text(encoding="utf-8") + result.record.markdown_path.read_text(
+    assert tool_failed["payload"]["tool_metadata"] == {
+        "api_token": "[REDACTED]",
+        "safe_count": 1,
+    }
+    combined = result.record.jsonl_path.read_text(
         encoding="utf-8"
-    )
+    ) + result.record.markdown_path.read_text(encoding="utf-8")
     assert "MODEL_OUTPUT_SHOULD_NOT_PRINT_ON_TOOL_FAILURE" not in combined
     assert "SECRET123" not in combined
     assert verify_session_archive(root=root).ok is True
@@ -2331,17 +2669,23 @@ def test_native_runner_records_raising_tool_as_sanitized_failure(tmp_path):
     assert result.exit_code == 1
     assert result.status == HarnessStatus.FAILED
     events = read_jsonl(result.record.jsonl_path)
-    assert [event["type"] for event in events if str(event["type"]).startswith("native.tool.")] == [
+    assert [
+        event["type"]
+        for event in events
+        if str(event["type"]).startswith("native.tool.")
+    ] == [
         "native.tool.intent.detected",
         "native.tool.started",
         "native.tool.failed",
     ]
-    tool_failed = [event for event in events if event["type"] == "native.tool.failed"][0]
+    tool_failed = [event for event in events if event["type"] == "native.tool.failed"][
+        0
+    ]
     assert tool_failed["payload"]["error_type"] == "RuntimeError"
     assert tool_failed["payload"]["error_message"] == "[REDACTED]"
-    combined = result.record.jsonl_path.read_text(encoding="utf-8") + result.record.markdown_path.read_text(
+    combined = result.record.jsonl_path.read_text(
         encoding="utf-8"
-    )
+    ) + result.record.markdown_path.read_text(encoding="utf-8")
     assert "MODEL_OUTPUT_SHOULD_NOT_PRINT_AFTER_RAISE" not in combined
     assert "SECRET123" not in combined
     assert verify_session_archive(root=root).ok is True
@@ -2367,5 +2711,8 @@ def test_native_runner_finalizes_prepare_failure_for_missing_cwd(tmp_path):
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "ValueError"
     events = read_jsonl(result.record.jsonl_path)
-    assert [event["type"] for event in events[-2:]] == ["harness.run.exception", "session.finalized"]
+    assert [event["type"] for event in events[-2:]] == [
+        "harness.run.exception",
+        "session.finalized",
+    ]
     assert verify_session_archive(root=root).ok is True

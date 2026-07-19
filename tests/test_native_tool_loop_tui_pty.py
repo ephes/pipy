@@ -32,11 +32,11 @@ import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native.agent import AgentAssistantMessage, AgentToolResultMessage
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.models import ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import ProviderPort
-from pipy_harness.native.tools import AssistantMessage, ToolResultMessage
 from pipy_harness.native.repl_state import (
     NativeReplProviderState,
     StaticNativeReplProviderState,
@@ -101,9 +101,7 @@ def _wait_for(collected: list[bytes], needle: str, *, timeout: float = 8.0) -> b
     return False
 
 
-def _wait_for_predicate(
-    predicate: Callable[[], bool], *, timeout: float = 8.0
-) -> bool:
+def _wait_for_predicate(predicate: Callable[[], bool], *, timeout: float = 8.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
@@ -186,7 +184,7 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
     # A long answer that overflows the window once committed, so it must scroll
     # into native scrollback (proving full-height use, not an upper-half cap).
     # It is delivered as buffered final_text (not streamed) so it is appended
-    # only at end_provider_turn — after the active-turn Escape watcher has
+    # only at canonical assistant completion — after the active-turn Escape watcher has
     # stopped — which makes SCROLL_MARKER_DONE a safe point to send `/copy`.
     answer = "\n".join(f"answer line {index:02d}" for index in range(60))
     answer += "\nSCROLL_MARKER_DONE"
@@ -209,7 +207,9 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result_holder: list[object] = []
@@ -297,7 +297,9 @@ class _RecordingProvider:
     def name(self) -> str:
         return self._provider_name
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):
         from datetime import UTC, datetime
 
         from pipy_harness.native.models import ProviderResult
@@ -367,7 +369,9 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result_holder: list[object] = []
@@ -398,9 +402,9 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
         # openrouter, ... - current is openrouter, one step up is openai.)
         os.write(in_master, b"\x1b[A")  # up arrow
         os.write(in_master, b"\r")  # enter selects the highlighted available row
-        assert _wait_for(
-            err_chunks, "selected model openai/gpt-5.5"
-        ), "selection notice never shown"
+        assert _wait_for(err_chunks, "selected model openai/gpt-5.5"), (
+            "selection notice never shown"
+        )
         # No provider turn during selection.
         assert seen == [], "selection itself ran a provider turn"
         # The next prompt is constructed with the newly selected provider/model.
@@ -459,7 +463,9 @@ def test_pty_inline_tui_slash_menu_is_honest(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -514,7 +520,9 @@ class _PromptRecordingProvider:
         self._prompts = prompts
         self._turn = 0
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):
         from datetime import UTC, datetime
 
         from pipy_harness.native.models import ProviderResult
@@ -565,7 +573,9 @@ def _run_editor_pty(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -695,7 +705,9 @@ def test_pty_multiline_paste_keeps_frame_coherent_before_submit(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -790,19 +802,27 @@ def test_pty_long_input_soft_wraps_typing_paste_and_cursor_insert(
 
     def drive(in_master: int, chunks: list[bytes]) -> None:
         os.write(in_master, typed.encode("utf-8"))
-        assert _wait_for(chunks, typed[-24:]), f"{label}: typed long input never rendered"
+        assert _wait_for(chunks, typed[-24:]), (
+            f"{label}: typed long input never rendered"
+        )
         assert_wrapped_editor(chunks, typed[:40])
         # Move left inside the wrapped prompt, insert a marker, then submit. The
         # provider receiving that exact prompt proves cursor movement still maps
         # to the logical buffer rather than the visual rows.
         os.write(in_master, b"\x1b[D" * 5)
         os.write(in_master, b"X\n")
-        assert _wait_for(chunks, "TURN_1_DONE"), f"{label}: typed prompt never submitted"
+        assert _wait_for(chunks, "TURN_1_DONE"), (
+            f"{label}: typed prompt never submitted"
+        )
         os.write(in_master, f"\x1b[200~{pasted}\x1b[201~".encode("utf-8"))
-        assert _wait_for(chunks, pasted[-24:]), f"{label}: pasted long input never rendered"
+        assert _wait_for(chunks, pasted[-24:]), (
+            f"{label}: pasted long input never rendered"
+        )
         assert_wrapped_editor(chunks, pasted[:40])
         os.write(in_master, b"\n")
-        assert _wait_for(chunks, "TURN_2_DONE"), f"{label}: pasted prompt never submitted"
+        assert _wait_for(chunks, "TURN_2_DONE"), (
+            f"{label}: pasted prompt never submitted"
+        )
 
     captured = _run_editor_pty(
         monkeypatch,
@@ -944,7 +964,9 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -964,7 +986,9 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
         assert _wait_for(err_chunks, "login stored"), "/login notice never shown"
         assert codex_available() is True, "login did not refresh availability"
         os.write(in_master, b"/logout\n")
-        assert _wait_for(err_chunks, "credentials removed"), "/logout notice never shown"
+        assert _wait_for(err_chunks, "credentials removed"), (
+            "/logout notice never shown"
+        )
         assert codex_available() is False, "logout did not refresh availability"
         os.write(in_master, b"\x04")
         worker.join(timeout=8.0)
@@ -1035,7 +1059,9 @@ def test_pty_resize_repaints_inline_with_overlay_open(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -1164,7 +1190,9 @@ def test_pty_resize_after_multiline_paste_single_coherent_frame(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -1186,7 +1214,9 @@ def test_pty_resize_after_multiline_paste_single_coherent_frame(
         )
         viewport = snapshot.viewport
         rows_with_paste = [i for i, line in enumerate(viewport) if "line one" in line]
-        assert len(rows_with_paste) == 1, f"stale/duplicate paste rows: {rows_with_paste}"
+        assert len(rows_with_paste) == 1, (
+            f"stale/duplicate paste rows: {rows_with_paste}"
+        )
         input_index = rows_with_paste[0]
         # The whole paste sits on one physical row joined by the ⏎ glyph.
         assert needle in viewport[input_index]
@@ -1263,7 +1293,9 @@ def test_pty_resize_rewraps_long_input_and_keeps_footer_pinned(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -1353,7 +1385,9 @@ def _start_pty_repl_session(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
     result_holder: list[object] = []
 
@@ -1390,7 +1424,9 @@ def _finish_pty_repl_session(ctx: SimpleNamespace) -> str:
             os.write(ctx.in_master, byte)
         except OSError:
             pass
-    _close_pty_session(ctx.stdin, ctx.terminal, ctx.in_master, ctx.err_master, ctx.err_thread)
+    _close_pty_session(
+        ctx.stdin, ctx.terminal, ctx.in_master, ctx.err_master, ctx.err_thread
+    )
     return b"".join(ctx.err_chunks).decode("utf-8", errors="replace")
 
 
@@ -1498,17 +1534,19 @@ def test_pty_settings_dialog_live_navigate_toggle_clear_and_resize(
         os.write(ctx.in_master, b"\x1b[B")  # → toggle
         assert _wait_for(ctx.err_chunks, "→ persistent prompt history"), "nav failed"
         os.write(ctx.in_master, b" ")  # space activates the toggle
-        assert _wait_for(
-            ctx.err_chunks, "persistent prompt history: off"
-        ), "toggle did not flip live"
+        assert _wait_for(ctx.err_chunks, "persistent prompt history: off"), (
+            "toggle did not flip live"
+        )
 
         # Navigate to the clear row and clear with Enter.
         os.write(ctx.in_master, b"\x1b[B")  # → clear
-        assert _wait_for(ctx.err_chunks, "→ clear persisted history"), "nav to clear failed"
+        assert _wait_for(ctx.err_chunks, "→ clear persisted history"), (
+            "nav to clear failed"
+        )
         os.write(ctx.in_master, b"\r")  # enter clears
-        assert _wait_for(
-            ctx.err_chunks, "clear persisted history (0 saved)"
-        ), "clear did not update live"
+        assert _wait_for(ctx.err_chunks, "clear persisted history (0 saved)"), (
+            "clear did not update live"
+        )
 
         # Resize while the dialog is still open.
         _set_winsize(ctx.err_slave, end_rows, end_cols)
@@ -1522,7 +1560,9 @@ def test_pty_settings_dialog_live_navigate_toggle_clear_and_resize(
         # Close the dialog with Esc; the separator-framed input returns at the
         # new size.
         os.write(ctx.in_master, b"\x1b")
-        assert _wait_for(ctx.err_chunks, sep_end), "input frame did not return after esc"
+        assert _wait_for(ctx.err_chunks, sep_end), (
+            "input frame did not return after esc"
+        )
         # Let the resumed read_line re-enter raw mode before the exit keystroke
         # so the byte is read as ctrl-d rather than racing the mode transition.
         time.sleep(0.3)
@@ -1628,7 +1668,9 @@ def test_pty_settings_persistent_history_cross_session_recall(
         assert _wait_for(ctx2.err_chunks, "escape interrupt")
         # The fresh session seeded recall from disk; Up surfaces the prompt.
         os.write(ctx2.in_master, b"\x1b[A")
-        assert _wait_for(ctx2.err_chunks, token), "prompt was not recalled in a fresh session"
+        assert _wait_for(ctx2.err_chunks, token), (
+            "prompt was not recalled in a fresh session"
+        )
         # Clear the recalled text, then disable + clear persistence via /settings.
         os.write(ctx2.in_master, b"\x15")  # ctrl-u kills to line start
         os.write(ctx2.in_master, b"/settings\n")
@@ -1691,16 +1733,18 @@ class _TreeMarkProvider:
         self.requests: list[tuple[str, ...]] = []
         self._n = 0
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):
         from datetime import UTC, datetime
 
         from pipy_harness.native.models import ProviderResult
-        from pipy_harness.native.tools.messages import UserMessage
+        from pipy_harness.native.agent import AgentUserMessage
 
         del reasoning_sink
         self._n += 1
         users = tuple(
-            m.content for m in request.messages if isinstance(m, UserMessage)
+            m.content.value for m in request.messages if isinstance(m, AgentUserMessage)
         )
         self.requests.append(users)
         text = f"MARK{self._n}[{'|'.join(users)}]"
@@ -1771,9 +1815,9 @@ def test_pty_tree_selector_rehydrates_user_message_into_editor(
         os.write(ctx.in_master, b"\x1b[A")  # up -> beta user message
         time.sleep(0.15)
         os.write(ctx.in_master, b"\r")  # enter selects it
-        assert _wait_for(
-            ctx.err_chunks, "rehydrating editor"
-        ), "user selection did not rehydrate the editor"
+        assert _wait_for(ctx.err_chunks, "rehydrating editor"), (
+            "user selection did not rehydrate the editor"
+        )
         # The editor is pre-filled with the selected text; submit it as-is to
         # branch from beta's parent.
         time.sleep(0.2)
@@ -1797,7 +1841,7 @@ def test_pty_tree_selector_rehydrates_user_message_into_editor(
     # The native file now holds a sibling branch: beta's parent has two child
     # user messages with content 'beta'.
     from pipy_harness.native.session_tree import MessageEntry
-    from pipy_harness.native.tools.messages import UserMessage as _U
+    from pipy_harness.native.agent import AgentUserMessage
 
     assert tree.path is not None
     reopened = NativeSessionTree.open(tree.path)
@@ -1805,8 +1849,8 @@ def test_pty_tree_selector_rehydrates_user_message_into_editor(
         e
         for e in reopened.get_entries()
         if isinstance(e, MessageEntry)
-        and isinstance(e.message, _U)
-        and e.message.content == "beta"
+        and isinstance(e.message, AgentUserMessage)
+        and e.message.content.value == "beta"
     ]
     assert len(beta_users) == 2, "submitting did not create a sibling branch"
 
@@ -1851,9 +1895,9 @@ def test_pty_tree_selector_escape_label_and_filter(
         os.write(ctx.in_master, b"L")  # Shift-L toggles a label
         time.sleep(0.15)
         os.write(ctx.in_master, b"\x0f")  # Ctrl-O cycles filter -> no-tools
-        assert _wait_for(
-            ctx.err_chunks, "filter (no-tools)"
-        ), "filter cycle not reflected"
+        assert _wait_for(ctx.err_chunks, "filter (no-tools)"), (
+            "filter cycle not reflected"
+        )
         time.sleep(0.15)
         os.write(ctx.in_master, b"\x1b")  # Escape cancels
         assert _wait_for(ctx.err_chunks, "/tree cancelled"), "escape did not cancel"
@@ -1871,9 +1915,9 @@ def test_pty_tree_selector_escape_label_and_filter(
 
     assert tree.path is not None
     reopened = NativeSessionTree.open(tree.path)
-    assert any(
-        isinstance(e, LabelEntry) and e.label for e in reopened.get_entries()
-    ), "Shift-L did not persist a label"
+    assert any(isinstance(e, LabelEntry) and e.label for e in reopened.get_entries()), (
+        "Shift-L did not persist a label"
+    )
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
@@ -1926,7 +1970,9 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result_holder: list[object] = []
@@ -1954,9 +2000,9 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
             f"{label}: aborted state never rendered"
         )
         # The provider observed cancellation at its boundary, not a UI-only flag.
-        assert _wait_for_predicate(
-            lambda: provider.cancel_observed
-        ), f"{label}: provider never observed cancellation"
+        assert _wait_for_predicate(lambda: provider.cancel_observed), (
+            f"{label}: provider never observed cancellation"
+        )
         # The prompt is usable again: a follow-up turn completes normally.
         os.write(in_master, b"now answer me\n")
         assert _wait_for(err_chunks, "SECOND_TURN_ANSWER_DONE"), (
@@ -1994,7 +2040,9 @@ class _PromptCapturingProvider:
     def name(self) -> str:
         return "fake"
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):
         from datetime import UTC, datetime
 
         from pipy_harness.native.models import ProviderResult
@@ -2003,7 +2051,7 @@ class _PromptCapturingProvider:
         self.calls += 1
         text = request.user_prompt or ""
         for message in getattr(request, "messages", ()) or ():
-            text += "\n" + str(getattr(message, "content", ""))
+            text += "\n" + message.content.value
         self.user_prompts.append(text)
         self.attachment_counts.append(len(getattr(request, "attachments", ()) or ()))
         now = datetime.now(UTC)
@@ -2052,11 +2100,15 @@ def test_pty_at_file_picker_ranks_and_accepts(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=cast(ProviderPort, provider), tool_registry={})
+    session = NativeToolReplSession(
+        provider=cast(ProviderPort, provider), tool_registry={}
+    )
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     def _run() -> None:
@@ -2083,11 +2135,15 @@ def test_pty_at_file_picker_ranks_and_accepts(
         # Accept the highlighted candidate with Tab, then submit.
         os.write(in_master, b"\t")
         assert _wait_for_predicate(
-            lambda: provider.calls == 0
-            and "@src/config.py" in b"".join(err_chunks).decode("utf-8", "replace")
+            lambda: (
+                provider.calls == 0
+                and "@src/config.py" in b"".join(err_chunks).decode("utf-8", "replace")
+            )
         )
         os.write(in_master, b"\n")
-        assert _wait_for(err_chunks, "PICKER_TURN_DONE"), f"{label}: turn never completed"
+        assert _wait_for(err_chunks, "PICKER_TURN_DONE"), (
+            f"{label}: turn never completed"
+        )
         os.write(in_master, b"\x04")
         worker.join(timeout=8.0)
     finally:
@@ -2137,11 +2193,15 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=cast(ProviderPort, provider), tool_registry={})
+    session = NativeToolReplSession(
+        provider=cast(ProviderPort, provider), tool_registry={}
+    )
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     def _run() -> None:
@@ -2189,7 +2249,9 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
         )
         # Escape cancels a long-running ! command without ending the session.
         os.write(in_master, b"!sleep 30\n")
-        assert _wait_for(err_chunks, "$ sleep 30"), f"{label}: long command did not start"
+        assert _wait_for(err_chunks, "$ sleep 30"), (
+            f"{label}: long command did not start"
+        )
         time.sleep(0.5)
         os.write(in_master, b"\x1b")
         assert _wait_for(err_chunks, "cancelled by escape"), (
@@ -2240,7 +2302,9 @@ def test_pty_slash_quit_during_local_shell_output_exits(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -2331,7 +2395,9 @@ def test_pty_slash_quit_during_model_bash_tool_output_exits(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -2410,11 +2476,11 @@ def test_pty_local_command_during_multi_tool_call_balances_results(
             assistant_index = next(
                 index
                 for index, message in enumerate(request.messages)
-                if isinstance(message, AssistantMessage) and message.tool_calls
+                if isinstance(message, AgentAssistantMessage) and message.tool_calls
             )
             assistant = request.messages[assistant_index]
             result_count = sum(
-                isinstance(message, ToolResultMessage)
+                isinstance(message, AgentToolResultMessage)
                 for message in request.messages[assistant_index + 1 :]
             )
             if result_count == len(assistant.tool_calls):
@@ -2450,7 +2516,9 @@ def test_pty_local_command_during_multi_tool_call_balances_results(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -2542,7 +2610,9 @@ def test_pty_thinking_and_model_cycle_hotkeys(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     def _run() -> None:
@@ -2619,11 +2689,15 @@ def test_pty_folding_toggles_thinking_and_tool_output(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=cast(ProviderPort, provider), tool_registry={})
+    session = NativeToolReplSession(
+        provider=cast(ProviderPort, provider), tool_registry={}
+    )
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     def _run() -> None:
@@ -2699,11 +2773,15 @@ def test_pty_never_enables_mouse_tracking(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=cast(ProviderPort, provider), tool_registry={})
+    session = NativeToolReplSession(
+        provider=cast(ProviderPort, provider), tool_registry={}
+    )
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     def _run() -> None:
@@ -2719,11 +2797,15 @@ def test_pty_never_enables_mouse_tracking(
     try:
         assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
         os.write(in_master, b"/settings\n")  # open an overlay
-        assert _wait_for(err_chunks, "Settings"), f"{label}: settings overlay never opened"
+        assert _wait_for(err_chunks, "Settings"), (
+            f"{label}: settings overlay never opened"
+        )
         os.write(in_master, b"\x1b")  # close overlay
         time.sleep(0.2)
         os.write(in_master, b"ask something\n")  # active turn
-        assert _wait_for(err_chunks, "MOUSE_TURN_DONE"), f"{label}: turn never completed"
+        assert _wait_for(err_chunks, "MOUSE_TURN_DONE"), (
+            f"{label}: turn never completed"
+        )
         os.write(in_master, b"\x04")
         worker.join(timeout=8.0)
     finally:
@@ -2753,7 +2835,9 @@ class _SteeringProvider:
     def name(self) -> str:
         return "fake"
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):
         from datetime import UTC, datetime
 
         from pipy_harness.native.cancellation import ProviderCancelledError
@@ -2807,11 +2891,15 @@ def test_pty_steering_and_follow_up_queue_and_drain_order(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
-    session = NativeToolReplSession(provider=cast(ProviderPort, provider), tool_registry={})
+    session = NativeToolReplSession(
+        provider=cast(ProviderPort, provider), tool_registry={}
+    )
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     def _run() -> None:
@@ -2914,7 +3002,9 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     def _run() -> None:
@@ -2941,7 +3031,9 @@ def test_pty_clipboard_image_paste_attaches_on_submit(
         ), f"{label}: clipboard reference not visible in the editor"
         assert provider.calls == 0, f"{label}: clipboard paste ran a provider turn"
         os.write(in_master, b"\n")  # submit; the attachment resolves
-        assert _wait_for(err_chunks, "IMAGE_TURN_DONE"), f"{label}: turn never completed"
+        assert _wait_for(err_chunks, "IMAGE_TURN_DONE"), (
+            f"{label}: turn never completed"
+        )
         os.write(in_master, b"\x04")
         worker.join(timeout=8.0)
     finally:
@@ -3007,7 +3099,9 @@ def test_pty_scoped_models_overlay_saves_cycle_scope(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     def _run() -> None:
@@ -3078,7 +3172,9 @@ class _GatedRecordingProvider:
         self._release = release_event
         self._turn = 0
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):
         from datetime import UTC, datetime
 
         from pipy_harness.native.models import ProviderResult
@@ -3157,7 +3253,9 @@ class _CancelAwareRecordingProvider:
         self._active = active_event
         self._turn = 0
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):
         from datetime import UTC, datetime
 
         from pipy_harness.native.cancellation import ProviderCancelledError
