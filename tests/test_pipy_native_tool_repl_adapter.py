@@ -23,6 +23,10 @@ from pipy_harness.native import (
     ProviderToolCall,
 )
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.tool_capabilities import (
+    NativeToolCapabilities,
+    ToolFilterOptions,
+)
 
 
 class _NullEventSink:
@@ -493,8 +497,22 @@ def test_pipy_native_tool_repl_adapter_metadata_is_metadata_only(tmp_path: Path)
     assert forbidden.isdisjoint(metadata.keys())
 
 
-def test_system_prompt_omits_skill_block_when_read_filtered_out(tmp_path: Path, monkeypatch):
-    from pipy_harness.native.tool_loop_session import ToolFilterOptions
+@pytest.mark.parametrize(
+    "tool_filter_options",
+    [
+        ToolFilterOptions.empty(),
+        ToolFilterOptions(no_tools=True),
+        ToolFilterOptions(no_builtin_tools=True),
+        ToolFilterOptions(allow=("read",)),
+        ToolFilterOptions(allow=("other",)),
+        ToolFilterOptions(exclude=("read",)),
+    ],
+)
+def test_skill_advertisement_matches_canonical_read_visibility(
+    tmp_path: Path,
+    monkeypatch,
+    tool_filter_options: ToolFilterOptions,
+) -> None:
     from pipy_harness.native.tools.read import ReadTool
 
     skill_path = _write_skill(
@@ -509,12 +527,25 @@ def test_system_prompt_omits_skill_block_when_read_filtered_out(tmp_path: Path, 
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
         tool_registry={"read": ReadTool()},
-        tool_filter_options=ToolFilterOptions(no_builtin_tools=True),
+        tool_filter_options=tool_filter_options,
+        settings_manager=_trusted_settings(tmp_path),
     )
     prepared = _prepared_for(adapter, tmp_path)
 
     _init_kwargs, run_kwargs = _run_adapter_with_spy(adapter, prepared, monkeypatch)
 
     prompt = str(run_kwargs["system_prompt"])
-    assert "demo-skill" not in prompt
-    assert str(skill_path) not in prompt
+    capabilities = NativeToolCapabilities(
+        adapter.tool_registry,
+        {},
+        workspace_root=tmp_path,
+        reference_roots=(),
+        stderr_sink=lambda _text: None,
+        filter_options=tool_filter_options,
+        cancel_join_timeout_seconds=0.1,
+    )
+    canonical_read_visible = any(
+        definition.name == "read" for definition in capabilities.definitions()
+    )
+    assert ("demo-skill" in prompt) is canonical_read_visible
+    assert (str(skill_path) in prompt) is canonical_read_visible

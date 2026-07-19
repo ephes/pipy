@@ -68,7 +68,7 @@ check C3  "REPL mode"                small  "uv run pipy repl --help 2>&1 | grep
 check C4  "Session persistence"      small  "uv run pipy-session list --help 2>&1 | grep -q list"
 check C5  "Session catalog"          small  "uv run pipy-session search --help 2>&1 | grep -q search"
 check C6  "Provider port"            small  "test -f src/pipy_harness/native/provider.py"
-check C7  "Tool registry"            small  "grep -q production_tool_registry src/pipy_harness/native/tool_loop_session.py"
+check C7  "Tool port + registry"     small  "grep -q 'class AgentToolCapabilities' src/pipy_harness/native/agent/tools.py && grep -q 'class NativeToolCapabilities' src/pipy_harness/native/tool_capabilities.py && grep -q production_tool_registry src/pipy_harness/native/tool_loop_session.py"
 check C8  "Workspace context"        small  "test -f src/pipy_harness/native/workspace_context.py"
 check C9  "System prompt"            small  "grep -q system_prompt src/pipy_harness/native/workspace_context.py"
 check C10 "Tool budget"              small  "grep -q tool_budget src/pipy_harness/native/tool_loop_session.py"

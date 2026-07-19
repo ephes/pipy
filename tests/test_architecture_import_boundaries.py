@@ -180,6 +180,27 @@ _AGENT_HISTORY_FORBIDDEN_IMPORTS = (
     *_LEGACY_CONCRETE_PROVIDER_MODULES,
 )
 
+_CONCRETE_TOOL_MODULES = (
+    "pipy_harness.native.tools.bash",
+    "pipy_harness.native.tools.edit",
+    "pipy_harness.native.tools.edit_diff",
+    "pipy_harness.native.tools.find",
+    "pipy_harness.native.tools.grep",
+    "pipy_harness.native.tools.ls",
+    "pipy_harness.native.tools.read",
+    "pipy_harness.native.tools.truncate",
+    "pipy_harness.native.tools.write",
+)
+
+_AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS = (
+    "pipy_harness.cli",
+    "pipy_harness.adapters",
+    *_AGENT_HISTORY_FORBIDDEN_IMPORTS,
+    "pipy_harness.native.tool",
+    "pipy_harness.native.read_only_tool",
+    *_CONCRETE_TOOL_MODULES,
+)
+
 # Phase 2.2b.1 deliberately keeps canonical usage arithmetic smaller than the
 # broader agent-core boundary: it may use only these standard-library symbols
 # and the canonical immutable result contract.  Include both the ``from`` base
@@ -213,6 +234,69 @@ _AGENT_HISTORY_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.messages.AgentMessage",
         "pipy_harness.native.agent.messages.AgentToolResultMessage",
         "pipy_harness.native.agent.messages.AgentUserMessage",
+    }
+)
+
+_AGENT_TOOLS_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "collections.abc",
+        "collections.abc.Callable",
+        "collections.abc.Mapping",
+        "collections.abc.Sequence",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "dataclasses.replace",
+        "enum",
+        "enum.StrEnum",
+        "json",
+        "threading",
+        "typing",
+        "typing.Protocol",
+        "typing.runtime_checkable",
+        "pipy_harness.native.agent.content",
+        "pipy_harness.native.agent.content.ProductContent",
+        "pipy_harness.native.agent.messages",
+        "pipy_harness.native.agent.messages.AgentToolCall",
+        "pipy_harness.native.agent.messages.AgentToolResultMessage",
+        "pipy_harness.native.tools.base",
+        "pipy_harness.native.tools.base.ToolArgumentError",
+        "pipy_harness.native.tools.base.ToolContext",
+        "pipy_harness.native.tools.base.ToolDefinition",
+        "pipy_harness.native.tools.base.ToolExecutionResult",
+        "pipy_harness.native.tools.base.ToolPort",
+        "pipy_harness.native.tools.base.ToolRequest",
+        "pipy_harness.native.tools.base.make_tool_request_id",
+        "pipy_harness.native.tools.base.validate_arguments",
+    }
+)
+
+_TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "collections.abc",
+        "collections.abc.Callable",
+        "collections.abc.Collection",
+        "collections.abc.Mapping",
+        "collections.abc.Sequence",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "dataclasses.replace",
+        "pathlib",
+        "pathlib.Path",
+        "pipy_harness.native.agent.messages",
+        "pipy_harness.native.agent.messages.AgentToolCall",
+        "pipy_harness.native.agent.messages.AgentToolResultMessage",
+        "pipy_harness.native.agent.tools",
+        "pipy_harness.native.agent.tools.ToolExecutionOutcome",
+        "pipy_harness.native.agent.tools.ToolExecutor",
+        "pipy_harness.native.agent.tools.ToolInterruptWaiter",
+        "pipy_harness.native.tools",
+        "pipy_harness.native.tools.ToolContext",
+        "pipy_harness.native.tools.ToolDefinition",
+        "pipy_harness.native.tools.ToolPort",
     }
 )
 
@@ -287,6 +371,24 @@ ARCHITECTURE_RULES = (
             "canonical history compaction must remain a mechanical transform "
             "without UI, product-session policy or persistence, provider, "
             "catalog, capture, or workflow-archive dependencies"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.agent.tools",
+        forbidden_imports=_AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS,
+        reason=(
+            "the canonical tool-capability port and reusable executor must not "
+            "depend on product composition, UI, persistence, concrete tools or "
+            "providers, capture, or workflow-archive code"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.tool_capabilities",
+        forbidden_imports=_AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS,
+        reason=(
+            "the product tool-capability facade may compose injected tool ports "
+            "but must not construct concrete tools or depend on sessions, UI, "
+            "providers, capture, or workflow-archive code"
         ),
     ),
     *(
@@ -925,6 +1027,106 @@ def test_agent_history_direct_imports_match_explicit_allowlist() -> None:
 
 
 @pytest.mark.parametrize(
+    ("relative_path", "allowed_imports", "description"),
+    (
+        (
+            ("pipy_harness", "native", "agent", "tools.py"),
+            _AGENT_TOOLS_ALLOWED_DIRECT_IMPORTS,
+            "canonical agent tools",
+        ),
+        (
+            ("pipy_harness", "native", "tool_capabilities.py"),
+            _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS,
+            "product tool-capability facade",
+        ),
+    ),
+)
+def test_tool_capability_direct_imports_match_explicit_allowlists(
+    relative_path: tuple[str, ...],
+    allowed_imports: frozenset[str],
+    description: str,
+) -> None:
+    module_path = SOURCE_ROOT.joinpath(*relative_path)
+    references = _import_references(SOURCE_ROOT, module_path)
+
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT,
+        module_path,
+        allowed_imports=allowed_imports,
+    ), f"{description} gained a direct dependency outside its allowlist"
+    assert {reference.module for reference in references} == allowed_imports, (
+        f"remove stale allowances when {description} drops imports"
+    )
+
+
+@pytest.mark.parametrize(
+    ("module_name", "intermediate_name", "module_source", "forbidden_import"),
+    (
+        (
+            "pipy_harness.native.agent.tools",
+            "pipy_harness.native.agent.messages",
+            "from .messages import AgentToolCall\n",
+            "pipy_harness.native.session_tree",
+        ),
+        (
+            "pipy_harness.native.tool_capabilities",
+            "pipy_harness.native.agent.tools",
+            "from .agent.tools import AgentToolCapabilities\n",
+            "pipy_harness.native.tools.read",
+        ),
+    ),
+)
+def test_tool_capability_fresh_graph_detects_allowed_intermediate_laundering(
+    tmp_path: Path,
+    module_name: str,
+    intermediate_name: str,
+    module_source: str,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    for package in (
+        "pipy_harness.__init__",
+        "pipy_harness.native.__init__",
+        "pipy_harness.native.agent.__init__",
+    ):
+        _write_module(source_root, package, "")
+    _write_module(source_root, module_name, module_source)
+    _write_module(
+        source_root,
+        intermediate_name,
+        f"import {forbidden_import}\n\nclass AgentToolCall:\n    pass\n"
+        "class AgentToolCapabilities:\n    pass\n",
+    )
+    _write_module(source_root, forbidden_import, "")
+
+    script = f"""\
+import importlib
+import sys
+
+sys.path.insert(0, {str(source_root)!r})
+importlib.import_module({module_name!r})
+
+unexpected = sorted(
+    module_name
+    for module_name in sys.modules
+    if module_name == {forbidden_import!r}
+    or module_name.startswith({forbidden_import!r} + ".")
+)
+assert unexpected == [{forbidden_import!r}], unexpected
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize(
     "forbidden_import",
     (
         "pipy_harness.native.tool_renderers",
@@ -1122,14 +1324,26 @@ assert not hasattr(tools, "ReadTool")
     assert completed.returncode == 0, completed.stderr
 
 
-def test_isolated_agent_tool_executor_import_stays_contract_only() -> None:
-    # ``pipy_harness`` and ``pipy_harness.native`` are pre-existing composition
-    # roots whose initializers eagerly load capture, providers, and the product
-    # session. Namespace stubs keep normal filesystem discovery for their child
-    # packages while excluding those unrelated outer initializers, so this fresh
-    # process measures the executor and ``native.tools.base`` dependency graph.
+@pytest.mark.parametrize(
+    ("first_module", "second_module"),
+    (
+        (
+            "pipy_harness.native.agent.tools",
+            "pipy_harness.native.tool_capabilities",
+        ),
+        (
+            "pipy_harness.native.tool_capabilities",
+            "pipy_harness.native.agent.tools",
+        ),
+    ),
+)
+def test_isolated_tool_capability_imports_stay_bounded_in_either_order(
+    first_module: str,
+    second_module: str,
+) -> None:
     package_root = SOURCE_ROOT / "pipy_harness"
     native_root = package_root / "native"
+    forbidden_prefixes = _AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS
     script = f"""\
 import importlib
 import sys
@@ -1146,28 +1360,83 @@ pipy_package = namespace_package("pipy_harness", {str(package_root)!r})
 native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
 pipy_package.native = native_package
 
-executor = importlib.import_module("pipy_harness.native.agent.tools")
-assert executor.ToolExecutor.__module__ == "pipy_harness.native.agent.tools"
-assert "pipy_harness.native.tools.base" in sys.modules
+agent = importlib.import_module("pipy_harness.native.agent")
+assert not hasattr(agent, "AgentToolCapabilities")
+assert not hasattr(agent, "ToolExecutor")
 
-forbidden = {{
-    "pipy_harness.capture",
-    "pipy_harness.native.tools.bash",
-    "pipy_harness.native.tools.edit",
-    "pipy_harness.native.tools.edit_diff",
-    "pipy_harness.native.tools.find",
-    "pipy_harness.native.tools.grep",
-    "pipy_harness.native.tools.ls",
-    "pipy_harness.native.tools.read",
-    "pipy_harness.native.tools.truncate",
-    "pipy_harness.native.tools.write",
-}}
+importlib.import_module({first_module!r})
+importlib.import_module({second_module!r})
+
+agent_tools = importlib.import_module("pipy_harness.native.agent.tools")
+product_tools = importlib.import_module("pipy_harness.native.tool_capabilities")
+assert agent_tools.AgentToolCapabilities.__module__ == (
+    "pipy_harness.native.agent.tools"
+)
+assert product_tools.NativeToolCapabilities.__module__ == (
+    "pipy_harness.native.tool_capabilities"
+)
+assert product_tools.ToolFilterOptions.__module__ == (
+    "pipy_harness.native.tool_capabilities"
+)
+assert not hasattr(agent, "AgentToolCapabilities")
+assert not hasattr(agent, "ToolExecutor")
+
+forbidden_prefixes = {forbidden_prefixes!r}
 unexpected = sorted(
     module_name
     for module_name in sys.modules
-    if module_name in forbidden or module_name.startswith("pipy_harness.capture.")
+    if any(
+        module_name == prefix or module_name.startswith(prefix + ".")
+        for prefix in forbidden_prefixes
+    )
 )
 assert not unexpected, unexpected
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_product_tool_capability_facade_structurally_implements_agent_port(
+    tmp_path: Path,
+) -> None:
+    from pipy_harness.native.agent.tools import AgentToolCapabilities
+    from pipy_harness.native.tool_capabilities import (
+        NativeToolCapabilities,
+        ToolFilterOptions,
+    )
+
+    capabilities = NativeToolCapabilities(
+        {},
+        {},
+        workspace_root=tmp_path,
+        reference_roots=(),
+        stderr_sink=lambda _message: None,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.0,
+    )
+
+    assert isinstance(capabilities, AgentToolCapabilities)
+    capabilities_port: AgentToolCapabilities = capabilities
+    assert capabilities_port.definitions() == ()
+
+
+def test_tool_capability_types_are_not_eager_native_root_exports() -> None:
+    script = """\
+import pipy_harness.native as native
+import pipy_harness.native.agent as agent
+
+assert not hasattr(agent, "AgentToolCapabilities")
+assert not hasattr(agent, "ToolExecutor")
+assert not hasattr(native, "NativeToolCapabilities")
+assert not hasattr(native, "ToolFilterOptions")
 """
 
     completed = subprocess.run(

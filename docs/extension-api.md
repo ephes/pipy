@@ -1292,7 +1292,16 @@ and the live `scripts/tmux_answer_verify.sh`.
     rewrite, exclude, or synthesize a local `!`/`!!` shell result;
     `before_provider_request` hooks can transform bounded prompt fields and
     narrow tools for the current request; session-before hooks fail closed for
-    stateful session operations. Gate
+    stateful session operations. Phase 2.2b.3 routes definition lookup and
+    execution through the canonical `AgentToolCapabilities` port backed by the
+    product `NativeToolCapabilities` facade without changing extension callback
+    order or payloads. A characterized pre-existing defect remains until the
+    mandatory Phase 2.2b.4 closure: transformed `available_tools` names are
+    resolved against all registered tools rather than intersected with the
+    prior active/final request snapshot, and a provider-returned call outside
+    the exact advertised set can still reach hooks and execution. Phase 2.2b.4
+    must intersect the names and produce the normal budget-consuming policy
+    error before hooks, execution, or invocation counting. Gate
     `scripts/parity_checks/extension_live_session_conformance.py --json`.
 14. Dynamic extension CLI flags — **landed for `pipy repl` tool-loop runs**:
     `ExtensionFlag`/`RegisteredFlag`, `api.register_flag(...)`,

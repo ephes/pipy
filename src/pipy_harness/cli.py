@@ -51,7 +51,7 @@ from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.tools import ToolPort
-from pipy_harness.native.tool_loop_session import ToolFilterOptions
+from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.session_tree_commands import StartupSessionAborted
 from pipy_harness.native.repl_state import NativeProviderFactory

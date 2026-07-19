@@ -1521,6 +1521,48 @@ the active-input seam in 2.2b.4, replace absolute-index transient-context
 cleanup with identity-based removal or safe re-anchoring, then remove this
 automatic-compaction deferral without changing the context's one-run lifetime.
 
+### Canonical Agent Tool-Capability Port
+
+Phase 2.2b.3 adds the runtime-checkable, synchronous
+`native.agent.tools.AgentToolCapabilities` protocol. Its surface is limited to
+provider-visible detached definition tuples, one canonical tool-call
+execution, and canonical policy-error result construction. The existing
+`ToolExecutor` remains the one-call implementation and callers remain
+responsible for strictly sequential scheduling.
+
+The product `native.tool_capabilities.NativeToolCapabilities` facade implements
+that port structurally. It owns injected built-in/extension registry
+composition, Pi-shaped allow/exclude/no-tools/no-builtins filters through the
+frozen `ToolFilterOptions`, active-name replacement, extension-registry reload,
+workspace `ToolContext`, and executor reconstruction. Concrete production-tool
+construction remains at the product composition root; the facade never imports
+concrete tools. `NativeToolReplSession` continues to own tool budgets,
+malformed-call streaks, extension preflight/result hooks and their ordering,
+canonical event publication, persistence, provider-request construction, and
+terminal/RPC wait adaptation.
+
+This is an ownership extraction, not a scheduling, public-format, or privacy
+change. Execution and live callbacks stay synchronous and backpressured; calls
+remain sequential. JSON/RPC/SDK/extension/session shapes, callback order,
+dynamic-tool annotations, reload semantics, and the metadata-only archive
+allowlist remain unchanged. The canonical port and product facade are direct
+submodules, not eager package-root exports. Direct, recursive-synthetic, and
+isolated fresh-process dependency gates exclude CLI/adapters, capture/archive,
+automation, extensions, UI/render/theme/terminal, sessions/persistence,
+providers/catalogs/fakes/deferred adapters, the legacy native tool port and
+read-only tool, and every concrete model-driven tool.
+
+Two characterized defects are preserved mechanically and are mandatory
+correctness work in Slice 2.2b.4. A `before_provider_request` transform's
+`available_tools` names are currently resolved against the registry instead of
+intersected with the prior active/final request snapshot, so it can re-enable a
+hidden registered tool. A provider-returned call outside the exact advertised
+snapshot can likewise enter hooks and execution. Slice 2.2b.4 must intersect
+request-hook names with the prior snapshot and convert any returned
+out-of-snapshot call into the normal budget-consuming policy error before tool
+hooks, execution, or invocation counting. The unrelated June
+precedence/unknown-name conflict remains outside this extraction.
+
 ### Read-Only Tool Request Value Objects
 
 The bounded read-only path needs stable native data contracts before it can

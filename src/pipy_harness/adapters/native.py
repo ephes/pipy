@@ -38,9 +38,9 @@ from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
-    ToolFilterOptions,
     production_tool_registry,
 )
+from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
 from pipy_harness.native.workspace_context import (
     WorkspaceInstructionLoader,
@@ -307,15 +307,9 @@ class PipyNativeToolReplAdapter:
         # Inject the Pi-shaped skill advertisement only when the read tool is in
         # the active provider-visible tool set (mirrors Pi's customPromptHasRead
         # gate); the model loads a skill body with that tool.
-        read_tool_visible = (
-            "read" in self.tool_registry
-            and not self.tool_filter_options.no_tools
-            and not self.tool_filter_options.no_builtin_tools
-            and (
-                not self.tool_filter_options.allow
-                or "read" in self.tool_filter_options.allow
-            )
-            and "read" not in self.tool_filter_options.exclude
+        read_tool_visible = "read" in self.tool_filter_options.provider_visible_names(
+            builtin_names=self.tool_registry,
+            registered_names=self.tool_registry,
         )
         if read_tool_visible:
             composed_system_prompt = compose_system_prompt(

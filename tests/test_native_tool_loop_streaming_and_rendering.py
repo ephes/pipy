@@ -730,7 +730,7 @@ def test_delayed_tool_update_keeps_its_original_turn_and_call_identity(
                 updates.append(event)
 
     monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.ToolExecutor",
+        "pipy_harness.native.tool_capabilities.ToolExecutor",
         DelayedOutputExecutor,
     )
     first_call = ProviderToolCall("call-A", "noop", "{}")

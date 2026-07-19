@@ -1654,8 +1654,9 @@ formats, and archive privacy otherwise stay unchanged.
 
 The remaining ordered Phase 2.2 cuts are:
 
-1. **2.2b.3 — session tool-capability port seam:** inject tool capabilities
-   while preserving sequential scheduling, budgets, and extension ordering.
+1. **2.2b.3 — session tool-capability port seam (shipped):** inject tool
+   capabilities while preserving sequential scheduling, budgets, and extension
+   ordering.
 2. **2.2b.4 — provider-request, run-effect, usage, and active-input seams:**
    establish typed loop ports; Phase 3 retains queue/lifecycle ownership and
    Phase 3.3 retains persistence-write relocation. Replace absolute-index
@@ -1665,10 +1666,50 @@ The remaining ordered Phase 2.2 cuts are:
 3. **2.2b.5 — full headless `AgentLoop` ownership cutover:** move the remaining
    provider/tool cycle so `NativeToolReplSession.run()` becomes composition.
 
-All three remain pending; 2.2b.3 is next after the history slice clears its
-mandatory review gates. Parallel tools, richer termination, async
+Slice 2.2b.3 is shipped; 2.2b.4 and 2.2b.5 remain pending. Parallel tools,
+richer termination, async
 conversion, persistence relocation, UI/extension redesign, and provider catalog
-work are not part of Phase 2.2b.2.
+work are not part of Phase 2.2b.3.
+
+### Session tool-capability port seam — SHIPPED (2026-07-19)
+
+Phase 2.2b.3 defines the runtime-checkable
+`native.agent.tools.AgentToolCapabilities` port for detached definition tuples,
+synchronous one-call execution, and canonical error-result creation.
+The product `native.tool_capabilities.NativeToolCapabilities` facade owns
+injected built-in/extension registry composition, frozen `ToolFilterOptions`,
+active-tool selection, extension reload, workspace `ToolContext`, and reusable
+executor construction. Concrete production-tool construction stays in the
+product composition root. Neither runtime helper is eagerly exported.
+
+The session uses the port inside the provider/tool cycle while retaining
+strictly sequential scheduling, budgets and invocation counts, extension
+preflight/result dispatch and ordering, provider-request construction,
+canonical events, terminal/RPC waiting, dynamic-tool annotations, and durable
+writes. Public JSON/RPC/SDK/extension/session formats and the metadata-only
+archive allowlist do not change. Static exact allowlists, recursive synthetic
+laundering checks, isolated import-order checks, and structural protocol
+conformance cover the new ownership boundary.
+
+Characterization preserves two pre-existing defects for a mandatory 2.2b.4
+correctness closure: `before_provider_request.available_tools` can currently
+re-enable a registered name outside the prior active/final request snapshot,
+and a provider-returned call outside the exact advertised set can reach hooks
+and execution. The closure must intersect hook names with the prior snapshot
+and produce the normal budget-consuming policy error for any returned
+out-of-snapshot call before hooks, execution, or invocation counting. The
+unrelated June precedence/unknown-name conflict is not part of 2.2b.3.
+
+Candidate verification is green: `just check` reports Ruff and mypy clean
+across 342 source files with 3,433 tests passed and 2 skipped. Documentation,
+diff, 8 PTY smoke tests, extension and automation/RPC conformance gates, and
+the 49/49 parity score also pass. An independent integration audit fixed three
+warnings and two suggestions and then returned CLEAN. Pi round 1 found one
+warning and one suggestion; both were fixed, and Pi round 2 returned explicit
+CLEAN with no findings. Claude Fable returned valid unscoped CLEAN with no
+findings or relevant scope omissions. The first Fable attempt was invalidated
+by the harness before verdict after an out-of-scope path request; the fresh
+replacement is the recorded gate.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 

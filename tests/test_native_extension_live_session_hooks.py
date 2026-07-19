@@ -11,6 +11,8 @@ import io
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.extension_runtime import (
     ProviderRequestTransform,
@@ -23,6 +25,7 @@ from pipy_harness.native.extension_runtime import (
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import apply_provider_headers
+from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     production_tool_registry,
@@ -262,6 +265,39 @@ def test_before_provider_request_hook_transforms_product_request(
         message.content.value == "hello"
         for message in provider.requests[0].messages
     )
+
+
+def test_provider_request_tool_override_selects_filtered_registered_tool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pin the current override seam until Phase 2.2b.4 owns request policy."""
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    _write_ext(
+        tmp_path,
+        "request_tools",
+        "from pipy_harness.extensions import ProviderRequestTransform\n"
+        "def activate(api):\n"
+        "    @api.on('before_provider_request')\n"
+        "    def before(event, ctx):\n"
+        "        return ProviderRequestTransform(available_tools=('bash',))\n",
+    )
+    provider = _CapturingProvider()
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry=production_tool_registry(),
+        tool_filter_options=ToolFilterOptions(allow=("read",)),
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("hello\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert [tool.name for tool in provider.requests[0].available_tools] == ["bash"]
 
 
 def test_before_provider_headers_hook_mutates_product_http_headers(

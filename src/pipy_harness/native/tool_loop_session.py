@@ -36,7 +36,7 @@ import json
 import os
 import tempfile
 import threading
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -104,7 +104,6 @@ from pipy_harness.native.agent.history import (
 )
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
-    ToolExecutor,
 )
 from pipy_harness.native.agent.loop import (
     ProviderTurnExecutor,
@@ -316,6 +315,10 @@ from pipy_harness.native.tools import (
     ToolExecutionResult,
     ToolPort,
     ToolRequest,
+)
+from pipy_harness.native.tool_capabilities import (
+    NativeToolCapabilities,
+    ToolFilterOptions,
 )
 
 
@@ -1245,40 +1248,6 @@ def _parse_tool_input(arguments_json: str) -> dict[str, object]:
 
 
 @dataclass(frozen=True, slots=True)
-class ToolFilterOptions:
-    """Pi-style per-run tool visibility controls."""
-
-    allow: tuple[str, ...] = ()
-    exclude: tuple[str, ...] = ()
-    no_tools: bool = False
-    no_builtin_tools: bool = False
-
-    @classmethod
-    def empty(cls) -> "ToolFilterOptions":
-        return cls()
-
-
-def _filtered_tool_names(
-    *,
-    builtin_names: set[str],
-    all_names: set[str],
-    options: ToolFilterOptions,
-) -> set[str]:
-    """Return the provider-visible tool names after CLI filtering."""
-
-    if options.no_tools:
-        return set()
-    names = set(all_names)
-    if options.no_builtin_tools:
-        names.difference_update(builtin_names)
-    if options.allow:
-        names.intersection_update(options.allow)
-    if options.exclude:
-        names.difference_update(options.exclude)
-    return names
-
-
-@dataclass(frozen=True, slots=True)
 class _TreeCommandOutcome:
     """Result of handling a ``/tree`` command in the tool loop.
 
@@ -1711,14 +1680,12 @@ class NativeToolReplSession:
                 return None
             return _dispatch_extension_provider_headers
 
-        # Merge activated extension tools into this run's tool registry
-        # (the shared built-in registry is never mutated). Extension tools
-        # join the bounded tool loop with the same schema validation +
-        # output bounds as built-ins.
-        builtin_tool_names = set(self.tool_registry)
-        run_tool_registry: dict[str, ToolPort] = dict(self.tool_registry)
+        # Adapt activated extension tools at the product composition seam. The
+        # shared built-in registry is never mutated; the capability facade owns
+        # the run-local merged registry, visibility, and executor context.
         extension_render_details: dict[str, object] = {}
         extension_tool_renderers = _extension_tool_renderer_map(_ext_runtime.tools)
+        extension_tool_registry: dict[str, ToolPort] = {}
         for _registered_tool in _ext_runtime.tools:
             _port = _ExtensionToolPort(
                 _registered_tool,
@@ -1729,32 +1696,24 @@ class NativeToolReplSession:
                 render_details_sink=extension_render_details,
                 project_trusted=settings.project_trusted,
             )
-            run_tool_registry[_port.definition.name] = _port
-        tool_executor = ToolExecutor(
-            run_tool_registry,
+            extension_tool_registry[_port.definition.name] = _port
+        tool_capabilities = NativeToolCapabilities(
+            self.tool_registry,
+            extension_tool_registry,
+            workspace_root=cwd,
+            reference_roots=self.reference_roots,
+            stderr_sink=_stderr_sink,
+            filter_options=self.tool_filter_options,
             cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
         )
         provider_turn_executor = ProviderTurnExecutor(
             cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
         )
-        filter_names = set(self.tool_filter_options.allow) | set(
-            self.tool_filter_options.exclude
-        )
-        unknown_filter_names = filter_names.difference(run_tool_registry)
+        unknown_filter_names = tool_capabilities.unknown_filter_names
         if unknown_filter_names:
-            known = ", ".join(sorted(run_tool_registry)) or "<none>"
-            unknown = ", ".join(sorted(unknown_filter_names))
+            known = ", ".join(sorted(tool_capabilities.registered_names)) or "<none>"
+            unknown = ", ".join(unknown_filter_names)
             raise ValueError(f"unknown tool name(s): {unknown}. Known tools: {known}")
-        filter_configured = self.tool_filter_options != ToolFilterOptions.empty()
-        active_tool_names: set[str] | None = (
-            _filtered_tool_names(
-                builtin_names=builtin_tool_names,
-                all_names=set(run_tool_registry),
-                options=self.tool_filter_options,
-            )
-            if filter_configured
-            else None
-        )
         # Image attachments may reference an owner-only clipboard temp dir
         # (Ctrl+V paste); that dir is added to the image reference roots so a
         # pasted ``@image:<temp>`` resolves while the workspace path policy is
@@ -1838,12 +1797,6 @@ class NativeToolReplSession:
                     ProductContent(chunk),
                 )
             )
-
-        context = ToolContext(
-            workspace_root=cwd,
-            stderr_sink=_stderr_sink,
-            reference_roots=self.reference_roots,
-        )
 
         started_at = datetime.now(UTC)
         # Native product session tree: the durable source of truth. When not
@@ -2142,15 +2095,7 @@ class NativeToolReplSession:
         def extension_set_active_tools(tool_names: Sequence[str]) -> bool:
             """Restrict model-visible tools for future provider requests."""
 
-            nonlocal active_tool_names
-            normalized = {str(name) for name in tool_names if str(name)}
-            if not normalized:
-                active_tool_names = set()
-                return True
-            if any(name not in run_tool_registry for name in normalized):
-                return False
-            active_tool_names = normalized
-            return True
+            return tool_capabilities.set_active_tools(tool_names)
 
         def extension_set_model(reference: str) -> bool:
             ok, _message = apply_model_selection(reference)
@@ -2178,20 +2123,6 @@ class NativeToolReplSession:
             session_tree.append_thinking_level_change(normalized)
             refresh_footer_text()
             return True
-
-        def available_tool_definitions(
-            override_names: Sequence[str] | None = None,
-        ) -> tuple[ToolDefinition, ...]:
-            allowed = (
-                set(str(name) for name in override_names)
-                if override_names is not None
-                else active_tool_names
-            )
-            return tuple(
-                port.definition
-                for name, port in run_tool_registry.items()
-                if allowed is None or name in allowed
-            )
 
         def apply_model_selection(reference: str) -> tuple[bool, str]:
             """Select ``reference`` through the provider-state boundary.
@@ -3156,14 +3087,13 @@ class NativeToolReplSession:
                                         error_stream,
                                         f"pipy: {message}.",
                                     )
-                    # Rebuild this run's tool registry and custom renderer map
-                    # with the reloaded extension tools.
-                    run_tool_registry = dict(self.tool_registry)
-                    builtin_tool_names = set(self.tool_registry)
+                    # Replace the run's extension capability registry and
+                    # custom renderer map with the reloaded generation.
                     extension_tool_renderers = _extension_tool_renderer_map(
                         _ext_runtime.tools
                     )
                     renderer.refresh_tool_renderers(extension_tool_renderers)
+                    extension_tool_registry = {}
                     for _registered_tool in _ext_runtime.tools:
                         _port = _ExtensionToolPort(
                             _registered_tool,
@@ -3176,31 +3106,20 @@ class NativeToolReplSession:
                             render_details_sink=extension_render_details,
                             project_trusted=settings.project_trusted,
                         )
-                        run_tool_registry[_port.definition.name] = _port
-                    tool_executor = ToolExecutor(
-                        run_tool_registry,
-                        cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
-                    )
-                    if filter_configured:
-                        filter_names = set(self.tool_filter_options.allow) | set(
-                            self.tool_filter_options.exclude
+                        extension_tool_registry[_port.definition.name] = _port
+                    tool_capabilities.replace_extensions(extension_tool_registry)
+                    unknown_filter_names = tool_capabilities.unknown_filter_names
+                    if unknown_filter_names:
+                        known = (
+                            ", ".join(sorted(tool_capabilities.registered_names))
+                            or "<none>"
                         )
-                        unknown_filter_names = filter_names.difference(
-                            run_tool_registry
-                        )
-                        if unknown_filter_names:
-                            known = ", ".join(sorted(run_tool_registry)) or "<none>"
-                            unknown = ", ".join(sorted(unknown_filter_names))
-                            self._emit_diagnostic(
-                                terminal_ui,
-                                error_stream,
-                                f"pipy: unknown tool name(s): {unknown}. "
-                                f"Known tools: {known}",
-                            )
-                        active_tool_names = _filtered_tool_names(
-                            builtin_names=builtin_tool_names,
-                            all_names=set(run_tool_registry),
-                            options=self.tool_filter_options,
+                        unknown = ", ".join(unknown_filter_names)
+                        self._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            f"pipy: unknown tool name(s): {unknown}. "
+                            f"Known tools: {known}",
                         )
                     # Refresh the emitter's lifecycle hooks so reloaded
                     # extensions observe subsequent agent/turn events.
@@ -4193,7 +4112,7 @@ class NativeToolReplSession:
                 while inner_iterations < inner_iteration_cap:
                     inner_iterations += 1
                     turn_index = inner_iterations - 1
-                    available_tools = available_tool_definitions()
+                    available_tools = tool_capabilities.definitions()
                     # Automatic compaction: when the provider-visible history grows
                     # past the threshold, drop the oldest user-turn groups before
                     # building the next request. The cut is at a user-message
@@ -4244,7 +4163,7 @@ class NativeToolReplSession:
                             flags=extension_flag_values,
                             project_trusted=settings.project_trusted,
                         )
-                        filtered_tools = available_tool_definitions(
+                        filtered_tools = tool_capabilities.definitions(
                             provider_transform.available_tools
                         )
                         final_user_prompt = (
@@ -4447,7 +4366,7 @@ class NativeToolReplSession:
                     for call_index, call in enumerate(tool_calls):
                         if invocations_this_turn >= self.tool_budget:
                             budget_exhausted_count += 1
-                            budget_observation = tool_executor.error_result(
+                            budget_observation = tool_capabilities.error_result(
                                 call,
                                 f"tool budget exhausted (limit {self.tool_budget})",
                             )
@@ -4483,7 +4402,7 @@ class NativeToolReplSession:
                             project_trusted=settings.project_trusted,
                         )
                         if tool_block is not None:
-                            blocked_observation = tool_executor.error_result(
+                            blocked_observation = tool_capabilities.error_result(
                                 call,
                                 f"blocked by extension: {tool_block.reason}",
                             )
@@ -4504,17 +4423,9 @@ class NativeToolReplSession:
                             invocations_this_turn += 1
                             continue
                         tool_started_at = datetime.now(UTC)
-                        active_tools_before = tuple(
-                            definition.name
-                            for definition in available_tool_definitions()
-                        )
-                        call_context = replace(
-                            context,
-                            output_sink=partial(_tool_output_sink, turn_index, call),
-                        )
-                        execution_outcome = tool_executor.execute(
+                        execution_outcome = tool_capabilities.execute(
                             call,
-                            call_context,
+                            output_sink=partial(_tool_output_sink, turn_index, call),
                             wait_for_interrupt=(
                                 None
                                 if terminal_ui is None
@@ -4524,33 +4435,6 @@ class NativeToolReplSession:
                         observation = execution_outcome.result
                         tool_interrupt = execution_outcome.interruption
                         tool_call_malformed = execution_outcome.malformed_arguments
-                        active_tools_after = tuple(
-                            definition.name
-                            for definition in available_tool_definitions()
-                        )
-                        called_port = run_tool_registry.get(call.tool_name)
-                        if (
-                            isinstance(called_port, _ExtensionToolPort)
-                            and not observation.is_error
-                            and set(active_tools_before).issubset(active_tools_after)
-                        ):
-                            before_names = set(active_tools_before)
-                            added_tool_names = tuple(
-                                name
-                                for name in active_tools_after
-                                if name not in before_names
-                            )
-                            if added_tool_names:
-                                observation = AgentToolResultMessage(
-                                    tool_request_id=observation.tool_request_id,
-                                    tool_name=observation.tool_name,
-                                    content=observation.content,
-                                    is_error=observation.is_error,
-                                    provider_correlation_id=(
-                                        observation.provider_correlation_id
-                                    ),
-                                    added_tool_names=added_tool_names,
-                                )
                         # tool_result hooks may transform the finalized,
                         # bounded observation before the emitter, renderer,
                         # model, and session tree see it. AgentToolResultMessage is
@@ -4601,7 +4485,7 @@ class NativeToolReplSession:
                             messages.append(observation)
                             session_tree.append_message(observation)
                             for skipped_call in tool_calls[call_index + 1 :]:
-                                skipped = tool_executor.error_result(
+                                skipped = tool_capabilities.error_result(
                                     skipped_call,
                                     "tool skipped because the turn was interrupted",
                                 )

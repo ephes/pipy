@@ -160,7 +160,7 @@ row was dropped.
 | C4 | Session persistence | ✅ | `uv run pipy-session list --help \| grep -q list` |
 | C5 | Session catalog (list/search/inspect) | ✅ | `uv run pipy-session list && uv run pipy-session search --help` |
 | C6 | Provider port abstraction | ✅ | `test -f src/pipy_harness/native/provider.py` |
-| C7 | Tool port + registry | ✅ | `grep -q 'production_tool_registry' src/pipy_harness/native/tool_loop_session.py` |
+| C7 | Tool port + registry | ✅ | `grep -q 'class AgentToolCapabilities' src/pipy_harness/native/agent/tools.py && grep -q 'class NativeToolCapabilities' src/pipy_harness/native/tool_capabilities.py && grep -q 'production_tool_registry' src/pipy_harness/native/tool_loop_session.py` |
 | C8 | Workspace context (AGENTS.md/pipy.md) | ✅ | `test -f src/pipy_harness/native/workspace_context.py` |
 | C9 | System prompt composition | ✅ | `grep -q 'system_prompt' src/pipy_harness/native/workspace_context.py` |
 | C10 | Tool budget + malformed recovery | ✅ | `grep -q 'tool_budget' src/pipy_harness/native/tool_loop_session.py` |

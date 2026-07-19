@@ -59,6 +59,7 @@ from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tui import (
     TURN_ABORTED,
     TURN_LOCAL_COMMAND,
@@ -1998,8 +1999,6 @@ def test_tool_filter_options_filter_provider_visible_tools(tmp_path: Path):
                 tool_calls=(),
             )
 
-    from pipy_harness.native.tool_loop_session import ToolFilterOptions
-
     session = NativeToolReplSession(
         provider=RecordingProvider(),
         tool_registry={"echo": _FixtureEchoTool()},
@@ -2080,9 +2079,79 @@ def test_unfiltered_tool_visibility_includes_extension_tools_added_by_reload(
     assert seen == [("echo", "dynamic_tool")]
 
 
-def test_tool_filter_options_unknown_name_fails_early(tmp_path: Path):
-    from pipy_harness.native.tool_loop_session import ToolFilterOptions
+def test_reload_reports_configured_extension_tool_that_disappeared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    extension_file = extension_dir / "disappearing_tool.py"
+    extension_file.write_text(
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import ExtensionTool, ToolResult\n"
+        f"EXTENSION_FILE = Path({str(extension_file)!r})\n"
+        "def remove(ctx, args):\n"
+        "    EXTENSION_FILE.unlink()\n"
+        "def activate(api):\n"
+        "    api.register_command(\n"
+        "        'remove-filtered-tool', 'remove filtered tool', remove)\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='disappearing', description='temporary tool',\n"
+        "        input_schema={'type': 'object'},\n"
+        "        handler=lambda ctx, params: ToolResult(content='ok')))\n",
+        encoding="utf-8",
+    )
+    seen: list[tuple[str, ...]] = []
 
+    @dataclass(frozen=True, slots=True)
+    class RecordingProvider:
+        supports_tool_calls: bool = True
+        name: str = "recording"
+        model_id: str = "recording-model"
+
+        def complete(
+            self, request: ProviderRequest, **_kwargs: object
+        ) -> ProviderResult:
+            seen.append(tuple(tool.name for tool in request.available_tools))
+            now = datetime.now(UTC)
+            return ProviderResult(
+                status=HarnessStatus.SUCCEEDED,
+                provider_name=self.name,
+                model_id=self.model_id,
+                started_at=now,
+                ended_at=now,
+                final_text="continued",
+                usage={},
+                tool_calls=(),
+            )
+
+    error_stream = io.StringIO()
+    output_stream = io.StringIO()
+    session = NativeToolReplSession(
+        provider=RecordingProvider(),
+        tool_registry={"echo": _FixtureEchoTool()},
+        tool_filter_options=ToolFilterOptions(allow=("disappearing",)),
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(
+            "/remove-filtered-tool\n/reload\nhello\n/exit\n"
+        ),
+        output_stream=output_stream,
+        error_stream=error_stream,
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert seen == [()]
+    assert "continued" in output_stream.getvalue()
+    assert (
+        "pipy: unknown tool name(s): disappearing. Known tools: echo"
+        in error_stream.getvalue().splitlines()
+    )
+
+
+def test_tool_filter_options_unknown_name_fails_early(tmp_path: Path):
     session = NativeToolReplSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={"echo": _FixtureEchoTool()},
@@ -2098,25 +2167,69 @@ def test_tool_filter_options_unknown_name_fails_early(tmp_path: Path):
         )
 
 
-def test_no_builtin_tools_removes_builtin_but_keeps_extension_tool(tmp_path: Path):
-    from pipy_harness.native.tool_loop_session import (
-        ToolFilterOptions,
-        _filtered_tool_names,
+def test_filtered_out_registered_provider_call_still_executes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the current execution seam until Phase 2.2b.4 owns request policy."""
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    hook_marker = tmp_path / "hidden-tool-hook.txt"
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "hidden_tool_guard.py").write_text(
+        "from pathlib import Path\n"
+        f"MARKER = Path({str(hook_marker)!r})\n"
+        "def activate(api):\n"
+        "    @api.on('tool_call')\n"
+        "    def observe(event, ctx):\n"
+        "        MARKER.write_text(event.tool_name + ':' + "
+        "str(event.input.get('text')), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    invoked: list[str] = []
+
+    @dataclass(frozen=True, slots=True)
+    class RecordingTool:
+        @property
+        def definition(self) -> ToolDefinition:
+            return _FixtureEchoTool().definition
+
+        def invoke(
+            self, request: ToolRequest, context: ToolContext
+        ) -> ToolExecutionResult:
+            del context
+            text = str(request.arguments["text"])
+            assert hook_marker.read_text(encoding="utf-8") == f"echo:{text}"
+            invoked.append(text)
+            return ToolExecutionResult(
+                tool_request_id=request.tool_request_id,
+                output_text=text,
+                provider_correlation_id=request.provider_correlation_id,
+            )
+
+    provider = _UsageScriptProvider(
+        script=(
+            ({}, (_make_call("echo", '{"text":"hidden-call"}'),)),
+            ({}, ()),
+        )
+    )
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry={"echo": RecordingTool()},
+        tool_filter_options=ToolFilterOptions(no_tools=True),
     )
 
-    assert _filtered_tool_names(
-        builtin_names={"read", "bash"},
-        all_names={"read", "bash", "ext_tool"},
-        options=ToolFilterOptions(no_builtin_tools=True),
-    ) == {"ext_tool"}
-    assert (
-        _filtered_tool_names(
-            builtin_names={"read", "bash"},
-            all_names={"read", "bash", "ext_tool"},
-            options=ToolFilterOptions(no_tools=True),
-        )
-        == set()
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("go\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
     )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert hook_marker.read_text(encoding="utf-8") == "echo:hidden-call"
+    assert invoked == ["hidden-call"]
 
 
 def test_extension_command_persists_session_name_and_label(

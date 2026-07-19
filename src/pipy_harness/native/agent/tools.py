@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.tools.base import (
     ToolArgumentError,
     ToolContext,
+    ToolDefinition,
     ToolExecutionResult,
     ToolPort,
     ToolRequest,
@@ -60,6 +61,32 @@ class ToolInterruptWaiter(Protocol):
         cancel_event: threading.Event,
         /,
     ) -> ToolExecutionInterruption: ...
+
+
+@runtime_checkable
+class AgentToolCapabilities(Protocol):
+    """Canonical tool surface consumed by the reusable agent loop."""
+
+    def definitions(
+        self,
+        allowed_names: Sequence[str] | None = None,
+        /,
+    ) -> tuple[ToolDefinition, ...]: ...
+
+    def execute(
+        self,
+        call: AgentToolCall,
+        *,
+        output_sink: Callable[[str], None] | None = None,
+        wait_for_interrupt: ToolInterruptWaiter | None = None,
+    ) -> ToolExecutionOutcome: ...
+
+    def error_result(
+        self,
+        call: AgentToolCall,
+        output_text: str,
+        /,
+    ) -> AgentToolResultMessage: ...
 
 
 class _InvocationOutputGate:

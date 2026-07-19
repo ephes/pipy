@@ -135,6 +135,12 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Model-driven tool definition lookup, execution, and policy-error creation now
+  flow through the synchronous canonical `AgentToolCapabilities` port. Product
+  registry composition, CLI/run filters, active-tool changes, extension reload,
+  workspace context, and executor construction live behind
+  `NativeToolCapabilities`; scheduling remains sequential and public formats,
+  extension ordering, persistence, and archive privacy are unchanged.
 - Canonical agent-history compaction now lives in the dependency-neutral
   `native.agent.history` layer. The obsolete mixed
   `native.session_compaction` module and its unused no-tool compaction path are
