@@ -76,7 +76,7 @@ Pipy current state (the boundaries this track extends):
 - `src/pipy_harness/native/repl_input.py` — the stdlib raw-mode key reader and
   key tokens (`esc`, `tab`, `shift-enter`, `ctrl-c`, `ctrl-d`, `ctrl-u`,
   `ctrl-z`, `ctrl-y`, `paste`).
-- `src/pipy_harness/native/agent/loop.py` — `ProviderTurnExecutor` owns the
+- `src/pipy_harness/native/agent/provider_turn.py` — `ProviderTurnExecutor` owns the
   per-turn `CancelToken`, provider worker, cancellation/completion ordering,
   bounded cleanup, and late-delta admission gate.
 - `src/pipy_harness/native/tool_loop_session.py` — the composition-owned TUI
@@ -509,7 +509,7 @@ boundaries:
    SSE adapter, and the `fake` provider observe the token; adapters also
    `raise_if_cancelled()` before issuing the request, so a pre-flight cancel is
    honored too.
-3. `native.agent.loop.ProviderTurnExecutor` builds one `CancelToken` per
+3. `native.agent.provider_turn.ProviderTurnExecutor` builds one `CancelToken` per
    interruptible turn, gates late text/reasoning admissions, and passes the
    token into `provider.complete(...)`. The composition-owned TUI wait adapter
    translates an Escape return or active-turn Ctrl-C (`KeyboardInterrupt` from

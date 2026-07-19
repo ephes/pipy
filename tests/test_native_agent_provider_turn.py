@@ -17,7 +17,7 @@ from pipy_harness.native.agent.events import (
     AssistantReasoningDelta,
     AssistantTextDelta,
 )
-from pipy_harness.native.agent.loop import (
+from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
     ProviderTurnInterruption,
     ProviderTurnOutcome,
@@ -79,9 +79,7 @@ def test_provider_turn_outcome_enforces_exactly_one_typed_value() -> None:
     with pytest.raises(TypeError, match="result must be ProviderResult"):
         ProviderTurnOutcome(result=cast(ProviderResult, object()))
     with pytest.raises(TypeError, match="cancellation_reason must be"):
-        ProviderTurnOutcome(
-            cancellation_reason=cast(AgentCancellationReason, object())
-        )
+        ProviderTurnOutcome(cancellation_reason=cast(AgentCancellationReason, object()))
 
 
 @pytest.mark.parametrize("timeout", [True, "1"])
@@ -135,9 +133,7 @@ def test_complete_validates_inputs_before_invoking_provider(tmp_path: Path) -> N
             cast(_SynchronousProvider, object()), request, sink, turn_index=0
         )
     with pytest.raises(TypeError, match="request must be ProviderRequest"):
-        executor.complete(
-            provider, cast(ProviderRequest, object()), sink, turn_index=0
-        )
+        executor.complete(provider, cast(ProviderRequest, object()), sink, turn_index=0)
     with pytest.raises(TypeError, match="event_sink must implement AgentEventSink"):
         executor.complete(
             provider, request, cast(_CollectingSink, object()), turn_index=0
@@ -510,9 +506,7 @@ def test_cancellation_does_not_block_on_admitted_delta_and_drops_later_delta(
 
 
 @pytest.mark.parametrize("failure", ["keyboard", "base", "invalid"])
-def test_waiter_failures_cancel_and_reap_provider(
-    tmp_path: Path, failure: str
-) -> None:
+def test_waiter_failures_cancel_and_reap_provider(tmp_path: Path, failure: str) -> None:
     provider = _CancelObservingProvider()
 
     def waiter(

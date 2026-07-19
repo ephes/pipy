@@ -32,7 +32,7 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     UsageUpdated,
 )
-from pipy_harness.native.agent.loop import ProviderTurnInterruption
+from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
 from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
 from pipy_harness.native.automation.rpc import _AcceptedAbortSignal
 from pipy_harness.native.cancellation import CancelToken

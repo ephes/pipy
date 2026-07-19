@@ -107,7 +107,7 @@ from pipy_harness.native.agent.history import (
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
 )
-from pipy_harness.native.agent.loop import (
+from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
     ProviderTurnInterruption,
 )

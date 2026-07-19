@@ -243,7 +243,7 @@ not a promise to skip review when a smaller, safer slice appears.
    `ProviderPort.complete(...)` into the `urllib`/SSE HTTP boundary. The
    underlying connection registers on the token at `connect()` time. On abort,
    the composition-owned TUI wait adapter signals
-   `native.agent.loop.ProviderTurnExecutor`, which shuts the socket down —
+   `native.agent.provider_turn.ProviderTurnExecutor`, which shuts the socket down —
    interrupting both the header wait (non-streaming JSON blocks inside
    `urlopen()` until generation finishes) and any body/stream read — so the
    worker's blocking read raises `ProviderCancelledError`. The executor then
@@ -1667,13 +1667,19 @@ The remaining ordered Phase 2.2 cuts are:
 4. **2.2b.4c — run-effect, usage, and queue-facing ports (shipped):** establish the
    remaining typed loop seams while Phase 3 retains queue/lifecycle ownership
    and Phase 3.3 retains persistence-write relocation.
-5. **2.2b.5 — full headless `AgentLoop` ownership cutover:** move the remaining
-   provider/tool cycle so `NativeToolReplSession.run()` becomes composition.
+5. **2.2b.5 — full headless `AgentLoop` ownership cutover:** complete four
+   independently green cuts: (a) rename the already-shipped one-provider
+   executor to `native.agent.provider_turn` and reserve `native.agent.loop`,
+   (b) extract typed request/tool/status policy collaborators, (c) move the
+   single-run provider/tool cycle into the headless `AgentLoop`, and (d) close
+   the controller-owned queued-input handoff while preserving separate-run
+   semantics and the serialized RPC boundary.
 
-Slices 2.2b.3–2.2b.4c are shipped; 2.2b.5 remains pending. Parallel tools,
+Slices 2.2b.3–2.2b.5a are shipped; Slices 2.2b.5b–2.2b.5d remain pending.
+Parallel tools,
 richer termination, async
 conversion, persistence relocation, UI/extension redesign, and provider catalog
-work are not part of Phase 2.2b.4c.
+work are not part of the Phase 2.2b cutover.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

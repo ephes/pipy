@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+import importlib
 from pathlib import Path
 import re
 import subprocess
@@ -643,7 +644,7 @@ def test_import_parser_resolves_absolute_and_relative_imports(tmp_path: Path) ->
     source_root = tmp_path / "src"
     path = _write_module(
         source_root,
-        "pipy_harness.native.agent.loop",
+        "pipy_harness.native.agent.provider_turn",
         """\
 import pipy_harness.cli as cli
 from .. import tui
@@ -669,7 +670,7 @@ def test_import_parser_rejects_relative_import_beyond_top_level(
     source_root = tmp_path / "src"
     path = _write_module(
         source_root,
-        "pipy_harness.native.agent.loop",
+        "pipy_harness.native.agent.provider_turn",
         "from ....providers import Provider\n",
     )
 
@@ -782,9 +783,9 @@ def test_agent_rule_recursively_governs_provider_turn_executor_module(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "src"
-    loop_path = _write_module(
+    provider_turn_path = _write_module(
         source_root,
-        "pipy_harness.native.agent.loop",
+        "pipy_harness.native.agent.provider_turn",
         """\
 import pipy_harness.capture
 import pipy_harness.native.automation
@@ -808,14 +809,14 @@ import pipy_session
         (violation.path, violation.imported_module, violation.line)
         for violation in violations
     } == {
-        (loop_path, "pipy_harness.capture", 1),
-        (loop_path, "pipy_harness.native.automation", 2),
-        (loop_path, "pipy_harness.native.extension_runtime", 3),
-        (loop_path, "pipy_harness.native.tui", 4),
-        (loop_path, "pipy_harness.native.tool_loop_session", 5),
-        (loop_path, "pipy_harness.native.provider_construction", 6),
-        (loop_path, "pipy_harness.native.openai_provider", 7),
-        (loop_path, "pipy_session", 8),
+        (provider_turn_path, "pipy_harness.capture", 1),
+        (provider_turn_path, "pipy_harness.native.automation", 2),
+        (provider_turn_path, "pipy_harness.native.extension_runtime", 3),
+        (provider_turn_path, "pipy_harness.native.tui", 4),
+        (provider_turn_path, "pipy_harness.native.tool_loop_session", 5),
+        (provider_turn_path, "pipy_harness.native.provider_construction", 6),
+        (provider_turn_path, "pipy_harness.native.openai_provider", 7),
+        (provider_turn_path, "pipy_session", 8),
     }
 
 
@@ -1453,8 +1454,14 @@ assert not hasattr(native, "ToolFilterOptions")
 @pytest.mark.parametrize(
     ("first_module", "second_module"),
     (
-        ("pipy_harness.native.provider", "pipy_harness.native.agent.loop"),
-        ("pipy_harness.native.agent.loop", "pipy_harness.native.provider"),
+        (
+            "pipy_harness.native.provider",
+            "pipy_harness.native.agent.provider_turn",
+        ),
+        (
+            "pipy_harness.native.agent.provider_turn",
+            "pipy_harness.native.provider",
+        ),
     ),
 )
 def test_isolated_provider_turn_executor_import_stays_headless_in_either_order(
@@ -1504,9 +1511,11 @@ importlib.import_module({first_module!r})
 importlib.import_module({second_module!r})
 
 agent = importlib.import_module("pipy_harness.native.agent")
-loop = importlib.import_module("pipy_harness.native.agent.loop")
+provider_turn = importlib.import_module("pipy_harness.native.agent.provider_turn")
 provider = importlib.import_module("pipy_harness.native.provider")
-assert loop.ProviderTurnExecutor.__module__ == "pipy_harness.native.agent.loop"
+assert provider_turn.ProviderTurnExecutor.__module__ == (
+    "pipy_harness.native.agent.provider_turn"
+)
 assert provider.ProviderPort.__module__ == "pipy_harness.native.provider"
 assert not hasattr(agent, "ProviderTurnExecutor")
 
@@ -1531,6 +1540,11 @@ assert not unexpected, unexpected
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_superseded_agent_loop_module_is_deleted() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("pipy_harness.native.agent.loop")
 
 
 def test_isolated_agent_usage_import_stays_dependency_neutral() -> None:

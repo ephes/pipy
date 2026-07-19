@@ -1415,11 +1415,13 @@ extension, product-session, workflow-archive, or terminal representation.
 
 ### Reusable Provider-Turn Executor
 
-`pipy_harness.native.agent.loop.ProviderTurnExecutor` is the UI-free,
-synchronous boundary for one provider completion. It receives a `ProviderPort`,
-`ProviderRequest`, canonical `AgentEventSink`, turn index, and an optional
-caller-owned waiter. It publishes provider text and reasoning chunks as
-canonical deltas and returns exactly one `ProviderResult` or typed
+`pipy_harness.native.agent.provider_turn.ProviderTurnExecutor` is the current
+UI-free, synchronous boundary for one provider completion. It was introduced
+at `pipy_harness.native.agent.loop.ProviderTurnExecutor` before the provider-turn
+module received its ownership-specific name. The executor receives a
+`ProviderPort`, `ProviderRequest`, canonical `AgentEventSink`, turn index, and
+an optional caller-owned waiter. It publishes provider text and reasoning
+chunks as canonical deltas and returns exactly one `ProviderResult` or typed
 `AgentCancellationReason`. The interruptible path owns its worker,
 `CancelToken`, exact first-cancellation versus completion ordering, bounded
 cleanup, and a per-turn admission gate that rejects late deltas after
@@ -1554,6 +1556,11 @@ effects, usage publication, queues, or the complete provider/tool loop. The
 tool-capability, request-snapshot, and active-input seams now ship in ordered
 Slices 2.2b.3–2.2b.4b; effect/usage/queue-facing ports and complete loop
 ownership remain 2.2b.4c–2.2b.5.
+
+Phase 2.2b.5a renames that already-shipped one-provider executor module to
+`native.agent.provider_turn` and reserves `native.agent.loop` for the full
+headless provider/tool-cycle owner. The cut is internal and behavior-preserving:
+it adds no alias, public export, format change, queue transfer, or async path.
 
 ### Canonical Agent Tool-Capability Port
 
