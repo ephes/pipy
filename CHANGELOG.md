@@ -508,8 +508,9 @@ entries oldest-first, and a version bump shows the new entries at startup.
   dispatches through the normal local-command path instead of being steered to
   the model. Only ordinary prose becomes a steering message, so the queue lanes
   hold prompt text exclusively.
-- Queued steering/follow-up messages that begin with `/` or `!` (e.g. an
-  `Alt+Enter` follow-up) now reach the model verbatim when the queue drains.
+- Queued steering/follow-up messages that begin with `/` or `!` (including an
+  `Alt+Enter` follow-up or an RPC `steer`/`follow_up`) now reach the model
+  verbatim when the queue drains.
   Previously a queued line starting with a slash-command or `!`-shell prefix was
   re-interpreted as a local command on delivery and silently dropped from the
   conversation; drained messages are provider-visible prompt text and bypass

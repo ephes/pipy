@@ -37,6 +37,7 @@ from pipy_harness.native.automation.jsonl import (
     loads_strict,
 )
 from pipy_harness.native.automation.serialize import serialize_message
+from pipy_harness.native.agent.runtime_ports import AgentQueuedInputKind
 from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.command_sandbox import (
     CommandPolicy,
@@ -51,9 +52,7 @@ _OMIT: Any = object()
 
 def _dumps(value: Any) -> str:
     """Compact JSON encode with the exact ``serialize_json_line`` byte options."""
-    return json.dumps(
-        value, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-    )
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 
 
 def _js_since(value: Any) -> str:
@@ -117,6 +116,7 @@ def _encode_session_tree(roots: list[Any]) -> str:
             if i > 0:
                 stack.append(("lit", ","))
     return "".join(out)
+
 
 # The full Pi RPC command vocabulary (31 types). Every type is accepted; the
 # ones pipy has not fully implemented return a well-formed error response (never
@@ -238,10 +238,15 @@ class _PromptChannel:
         self._last_delivery_kind = item.kind
         return item.text
 
-    def take_delivery_kind(self) -> str | None:
+    def take_delivery_kind(self) -> AgentQueuedInputKind | None:
         kind = self._last_delivery_kind
         self._last_delivery_kind = None
-        return kind
+        if kind in {
+            AgentQueuedInputKind.STEERING.value,
+            AgentQueuedInputKind.FOLLOW_UP.value,
+        }:
+            return AgentQueuedInputKind(kind)
+        return None
 
     def read(self, *_args: Any) -> str:
         return self.readline()

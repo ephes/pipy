@@ -1473,6 +1473,41 @@ cuts move agent-history compaction (2.2b.2), add the tool-capability port
 queue/lifecycle ownership remains Phase 3 and persistence write relocation
 remains Phase 3.3.
 
+### Canonical Agent Runtime Ports
+
+Slice 2.2b.4c adds three narrow synchronous contracts in
+`native.agent.runtime_ports`. `AgentRunEffectSink` accepts the closed
+`AppendAgentMessage` effect; `AgentUsagePublisher` accepts one normalized
+provider sample together with the cumulative run snapshot and exact last-turn
+context total; and `AgentQueuedInputPort` takes at most one product-selected
+steering or follow-up value. The queued value is full-content `ProductContent`
+because it remains outside canonical conversation history until the next run
+accepts it as an `AgentUserMessage`.
+
+The product adapters are callback-composed and late-bound so `/new`, resume,
+model changes, and other session/usage resets cannot leave them pointing at a
+stale session tree or accumulator. Effects and publications are synchronous:
+an append finishes before the following canonical event; session usage absorbs
+before `UsageUpdated`; and callback failure propagates before later loop work.
+Provider telemetry is normalized once into `AgentProviderUsageSample`, retaining
+the established integer coercion, cache-counter classification, explicit-total
+fallback, cumulative totals, and footer/context behavior.
+
+These ports do not move product policy. Terminal and extension queues retain
+their storage and priority; positional seeds retain precedence over extension
+continuations; RPC retains its queue reservation, idle transition, abort clear,
+`agent_end`, and `agent_settled` serialization. The agent-facing queue contract
+has no enqueue, peek, count, mode, clear, reserve, settle, or lifecycle method.
+It can ask for one already eligible controller-selected item after a run
+settles, and `None` hands control back to the product input lifecycle. Durable
+session-tree writes still execute in the product callback until Phase 3.3.
+The closed queued-input kind remains attached through terminal, extension, and
+RPC delivery, so a queued value beginning with `/` or `!` bypasses local command
+and shell dispatch and reaches the provider verbatim.
+Public JSON/RPC/SDK/session/extension formats, extension hook order, and the
+metadata-only archive allowlist are unchanged. Full provider/tool-cycle
+ownership remains Slice 2.2b.5.
+
 ### Canonical Agent-History Compaction
 
 `pipy_harness.native.agent.history` owns the mechanical reduction of canonical

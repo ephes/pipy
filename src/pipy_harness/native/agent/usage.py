@@ -10,6 +10,53 @@ from pipy_harness.native.agent.results import AgentUsage
 
 
 @dataclass(frozen=True, slots=True)
+class AgentProviderUsageSample:
+    """One provider turn's normalized token counters."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    total_tokens: int = 0
+
+    def __post_init__(self) -> None:
+        for field_name in self.__dataclass_fields__:
+            value = getattr(self, field_name)
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise TypeError(
+                    f"AgentProviderUsageSample.{field_name} must be an integer"
+                )
+
+    @classmethod
+    def from_mapping(
+        cls, usage: Mapping[str, object] | None
+    ) -> AgentProviderUsageSample:
+        """Normalize provider telemetry using the established coercion rules."""
+
+        if usage is not None and not isinstance(usage, Mapping):
+            raise TypeError("usage must be a mapping or None")
+        if not usage:
+            return cls()
+        return cls(
+            input_tokens=_coerce_int(usage.get("input_tokens")),
+            output_tokens=_coerce_int(usage.get("output_tokens")),
+            reasoning_tokens=_coerce_int(usage.get("reasoning_tokens")),
+            cache_read_tokens=_coerce_int(usage.get("cached_tokens")),
+            cache_write_tokens=_coerce_int(usage.get("cache_write_tokens")),
+            total_tokens=_coerce_int(usage.get("total_tokens")),
+        )
+
+    @property
+    def effective_total_tokens(self) -> int:
+        """Return the explicit positive total or the established fallback."""
+
+        if self.total_tokens > 0:
+            return self.total_tokens
+        return self.input_tokens + self.output_tokens + self.reasoning_tokens
+
+
+@dataclass(frozen=True, slots=True)
 class AgentTokenPricing:
     """Per-million-token rates injected by the product composition layer."""
 
@@ -80,20 +127,17 @@ class AgentUsageAccumulator:
             return None
         return 100.0 * self.cache_read_tokens / denominator
 
-    def absorb(self, usage: Mapping[str, object] | None) -> None:
+    def absorb(self, sample: AgentProviderUsageSample) -> None:
         """Accumulate one provider turn without changing its telemetry heuristic."""
 
-        if usage is not None and not isinstance(usage, Mapping):
-            raise TypeError("usage must be a mapping or None")
-        if not usage:
-            self.last_total_tokens = 0
-            return
-        input_tokens = _coerce_int(usage.get("input_tokens"))
-        output_tokens = _coerce_int(usage.get("output_tokens"))
-        reasoning_tokens = _coerce_int(usage.get("reasoning_tokens"))
-        cache_read_tokens = _coerce_int(usage.get("cached_tokens"))
-        cache_write_tokens = _coerce_int(usage.get("cache_write_tokens"))
-        total_tokens = _coerce_int(usage.get("total_tokens"))
+        if not isinstance(sample, AgentProviderUsageSample):
+            raise TypeError("sample must be AgentProviderUsageSample")
+        input_tokens = sample.input_tokens
+        output_tokens = sample.output_tokens
+        reasoning_tokens = sample.reasoning_tokens
+        cache_read_tokens = sample.cache_read_tokens
+        cache_write_tokens = sample.cache_write_tokens
+        total_tokens = sample.total_tokens
         self.input_tokens += input_tokens
         self.output_tokens += output_tokens
         self.reasoning_tokens += reasoning_tokens
@@ -109,11 +153,7 @@ class AgentUsageAccumulator:
         ):
             self.separate_cache_read_tokens += cache_read_tokens
             self.separate_cache_write_tokens += cache_write_tokens
-        self.last_total_tokens = (
-            total_tokens
-            if total_tokens > 0
-            else input_tokens + output_tokens + reasoning_tokens
-        )
+        self.last_total_tokens = sample.effective_total_tokens
         if self._pricing is not None:
             self.cost_usd += _turn_cost(
                 self._pricing,

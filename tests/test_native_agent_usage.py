@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import FrozenInstanceError, replace
 from typing import cast
 
 import pytest
 
 from pipy_harness.native.agent.results import AgentUsage
-from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
+from pipy_harness.native.agent.usage import (
+    AgentProviderUsageSample,
+    AgentTokenPricing,
+    AgentUsageAccumulator,
+)
 
 
 def _pricing() -> AgentTokenPricing:
@@ -19,6 +24,44 @@ def _pricing() -> AgentTokenPricing:
         cache_read_per_million=4,
         cache_write_per_million=5,
     )
+
+
+def _sample(**usage: object) -> AgentProviderUsageSample:
+    return AgentProviderUsageSample.from_mapping(usage)
+
+
+def test_provider_usage_sample_is_frozen_slotted_and_runtime_validated() -> None:
+    sample = AgentProviderUsageSample(input_tokens=3, total_tokens=3)
+
+    assert not hasattr(sample, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        setattr(sample, "input_tokens", 4)
+    with pytest.raises(TypeError, match="input_tokens must be an integer"):
+        AgentProviderUsageSample(input_tokens=cast(int, True))
+
+
+def test_provider_usage_sample_preserves_mapping_coercion_and_effective_total() -> None:
+    sample = AgentProviderUsageSample.from_mapping(
+        {
+            "input_tokens": True,
+            "output_tokens": 7,
+            "reasoning_tokens": 3.9,
+            "cached_tokens": "4",
+            "cache_write_tokens": None,
+            "total_tokens": 9.8,
+        }
+    )
+
+    assert sample == AgentProviderUsageSample(
+        output_tokens=7,
+        reasoning_tokens=3,
+        total_tokens=9,
+    )
+    assert sample.effective_total_tokens == 9
+    assert AgentProviderUsageSample.from_mapping(None).effective_total_tokens == 0
+    assert _sample(input_tokens=4, output_tokens=2).effective_total_tokens == 6
+    with pytest.raises(TypeError, match="usage must be a mapping or None"):
+        AgentProviderUsageSample.from_mapping(cast(Mapping[str, object], []))
 
 
 def test_token_pricing_is_normalized_immutable_and_has_zero_cache_defaults() -> None:
@@ -65,14 +108,14 @@ def test_usage_coercion_accepts_int_and_float_but_not_bool_or_non_number() -> No
     usage = AgentUsageAccumulator()
 
     usage.absorb(
-        {
-            "input_tokens": True,
-            "output_tokens": 7,
-            "reasoning_tokens": 3.9,
-            "cached_tokens": "4",
-            "cache_write_tokens": None,
-            "total_tokens": 9.8,
-        }
+        _sample(
+            input_tokens=True,
+            output_tokens=7,
+            reasoning_tokens=3.9,
+            cached_tokens="4",
+            cache_write_tokens=None,
+            total_tokens=9.8,
+        )
     )
 
     assert usage.agent_usage() == AgentUsage(output_tokens=7, reasoning_tokens=3)
@@ -81,35 +124,46 @@ def test_usage_coercion_accepts_int_and_float_but_not_bool_or_non_number() -> No
 
 def test_empty_missing_and_unrecognized_usage_reset_only_last_total() -> None:
     usage = AgentUsageAccumulator()
-    usage.absorb({"input_tokens": 8, "output_tokens": 2})
+    usage.absorb(_sample(input_tokens=8, output_tokens=2))
     assert usage.last_total_tokens == 10
 
     for payload in (None, {}, {"provider_specific": 99}):
-        usage.absorb(payload)
+        usage.absorb(AgentProviderUsageSample.from_mapping(payload))
         assert usage.last_total_tokens == 0
         assert usage.agent_usage() == AgentUsage(input_tokens=8, output_tokens=2)
+
+
+def test_accumulator_accepts_only_typed_samples_without_partial_mutation() -> None:
+    usage = AgentUsageAccumulator()
+    usage.absorb(_sample(input_tokens=8, output_tokens=2))
+
+    with pytest.raises(TypeError, match="sample must be AgentProviderUsageSample"):
+        usage.absorb(cast(AgentProviderUsageSample, {"input_tokens": 99}))
+
+    assert usage.agent_usage() == AgentUsage(input_tokens=8, output_tokens=2)
+    assert usage.last_total_tokens == 10
 
 
 def test_usage_accumulates_canonical_counters_across_turns() -> None:
     usage = AgentUsageAccumulator()
 
     usage.absorb(
-        {
-            "input_tokens": 10,
-            "output_tokens": 2,
-            "reasoning_tokens": 1,
-            "cached_tokens": 3,
-            "cache_write_tokens": 4,
-        }
+        _sample(
+            input_tokens=10,
+            output_tokens=2,
+            reasoning_tokens=1,
+            cached_tokens=3,
+            cache_write_tokens=4,
+        )
     )
     usage.absorb(
-        {
-            "input_tokens": 7,
-            "output_tokens": 5,
-            "reasoning_tokens": 2,
-            "cached_tokens": 1,
-            "cache_write_tokens": 6,
-        }
+        _sample(
+            input_tokens=7,
+            output_tokens=5,
+            reasoning_tokens=2,
+            cached_tokens=1,
+            cache_write_tokens=6,
+        )
     )
 
     assert usage.agent_usage() == AgentUsage(
@@ -125,36 +179,26 @@ def test_last_total_prefers_positive_explicit_total_and_otherwise_falls_back() -
     usage = AgentUsageAccumulator()
 
     usage.absorb(
-        {
-            "input_tokens": 5,
-            "output_tokens": 3,
-            "reasoning_tokens": 2,
-            "total_tokens": 42,
-        }
+        _sample(input_tokens=5, output_tokens=3, reasoning_tokens=2, total_tokens=42)
     )
     assert usage.last_total_tokens == 42
     usage.absorb(
-        {
-            "input_tokens": 4,
-            "output_tokens": 2,
-            "reasoning_tokens": 1,
-            "total_tokens": 0,
-        }
+        _sample(input_tokens=4, output_tokens=2, reasoning_tokens=1, total_tokens=0)
     )
     assert usage.last_total_tokens == 7
-    usage.absorb({"input_tokens": 3, "output_tokens": 2})
+    usage.absorb(_sample(input_tokens=3, output_tokens=2))
     assert usage.last_total_tokens == 5
 
 
 def test_openai_subset_cache_uses_input_tokens_as_denominator() -> None:
     usage = AgentUsageAccumulator()
     usage.absorb(
-        {
-            "input_tokens": 100,
-            "output_tokens": 20,
-            "cached_tokens": 80,
-            "total_tokens": 120,
-        }
+        _sample(
+            input_tokens=100,
+            output_tokens=20,
+            cached_tokens=80,
+            total_tokens=120,
+        )
     )
 
     assert usage.cache_hit_percent == 80.0
@@ -186,7 +230,7 @@ def test_separate_cache_counters_use_anthropic_style_denominator(
     payload: dict[str, int], expected_percent: float
 ) -> None:
     usage = AgentUsageAccumulator()
-    usage.absorb(payload)
+    usage.absorb(AgentProviderUsageSample.from_mapping(payload))
 
     assert usage.cache_hit_percent == pytest.approx(expected_percent)
 
@@ -195,13 +239,13 @@ def test_injected_token_pricing_accumulates_each_counter_cost() -> None:
     usage = AgentUsageAccumulator(pricing=_pricing())
 
     usage.absorb(
-        {
-            "input_tokens": 1_000_000,
-            "output_tokens": 1_000_000,
-            "reasoning_tokens": 1_000_000,
-            "cached_tokens": 1_000_000,
-            "cache_write_tokens": 1_000_000,
-        }
+        _sample(
+            input_tokens=1_000_000,
+            output_tokens=1_000_000,
+            reasoning_tokens=1_000_000,
+            cached_tokens=1_000_000,
+            cache_write_tokens=1_000_000,
+        )
     )
 
     assert usage.cost_usd == 15.0
@@ -212,8 +256,8 @@ def test_run_accumulators_are_independent() -> None:
     first_run = AgentUsageAccumulator()
     second_run = AgentUsageAccumulator()
 
-    first_run.absorb({"input_tokens": 11, "output_tokens": 2})
-    second_run.absorb({"input_tokens": 3, "reasoning_tokens": 5})
+    first_run.absorb(_sample(input_tokens=11, output_tokens=2))
+    second_run.absorb(_sample(input_tokens=3, reasoning_tokens=5))
 
     assert first_run.agent_usage() == AgentUsage(input_tokens=11, output_tokens=2)
     assert second_run.agent_usage() == AgentUsage(input_tokens=3, reasoning_tokens=5)

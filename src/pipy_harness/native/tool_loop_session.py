@@ -97,7 +97,6 @@ from pipy_harness.native.agent import (
     ToolCallUpdated,
     TurnCompleted,
     TurnStarted,
-    UsageUpdated,
 )
 from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.history import (
@@ -112,12 +111,27 @@ from pipy_harness.native.agent.loop import (
     ProviderTurnExecutor,
     ProviderTurnInterruption,
 )
-from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
+from pipy_harness.native.agent.runtime_ports import (
+    AgentQueuedInput,
+    AgentQueuedInputKind,
+    AgentUsagePublication,
+    AppendAgentMessage,
+)
+from pipy_harness.native.agent.usage import (
+    AgentProviderUsageSample,
+    AgentTokenPricing,
+    AgentUsageAccumulator,
+)
 from pipy_harness.native.agent_adapters import (
     ProductSessionEventProjection,
     RenderingAgentEventAdapter,
     SynchronousAgentEventComposite,
     WorkflowArchiveAgentEventAdapter,
+)
+from pipy_harness.native.agent_runtime import (
+    NativeAgentQueuedInputPort,
+    NativeAgentRunEffectSink,
+    NativeAgentUsagePublisher,
 )
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native._provider_helpers import failed_provider_result
@@ -1305,7 +1319,7 @@ class NativeToolReplResult:
 class _QueuedDeliverySource(Protocol):
     """Optional input side channel classifying a delivered queued prompt."""
 
-    def take_delivery_kind(self) -> str | None: ...
+    def take_delivery_kind(self) -> AgentQueuedInputKind | None: ...
 
 
 @dataclass
@@ -1847,6 +1861,15 @@ class NativeToolReplSession:
             _pricing_for(effective_provider_name, effective_model_id)
         )
 
+        def append_agent_message(message: AgentMessage) -> object:
+            return session_tree.append_message(message)
+
+        def absorb_session_usage(sample: AgentProviderUsageSample) -> None:
+            usage_accumulator.absorb(sample)
+
+        run_effect_sink = NativeAgentRunEffectSink(append_agent_message)
+        usage_publisher = NativeAgentUsagePublisher(absorb_session_usage, emitter)
+
         def render_extension_custom_message(
             custom_type: str,
             data: object | None,
@@ -2075,6 +2098,41 @@ class NativeToolReplSession:
                     custom_message.options,
                     custom_message.details,
                 )
+
+        def take_next_agent_queued_input() -> AgentQueuedInput | None:
+            """Apply product queue priority and expose one eligible agent input."""
+
+            if terminal_ui is not None:
+                drained_content = terminal_ui.take_next_drain()
+                if drained_content is not None:
+                    raw_kind = terminal_ui.take_last_drain_kind()
+                    if raw_kind not in {
+                        AgentQueuedInputKind.STEERING.value,
+                        AgentQueuedInputKind.FOLLOW_UP.value,
+                    }:
+                        raise ValueError(
+                            "terminal queued input must have a closed delivery kind"
+                        )
+                    return AgentQueuedInput(
+                        ProductContent(drained_content),
+                        AgentQueuedInputKind(raw_kind),
+                    )
+            # Positional seeds retain priority over extension continuations.
+            if seed_pending_messages:
+                return None
+            if extension_pending_steering_messages:
+                return AgentQueuedInput(
+                    ProductContent(extension_pending_steering_messages.pop(0)),
+                    AgentQueuedInputKind.STEERING,
+                )
+            if extension_pending_follow_up_messages:
+                return AgentQueuedInput(
+                    ProductContent(extension_pending_follow_up_messages.pop(0)),
+                    AgentQueuedInputKind.FOLLOW_UP,
+                )
+            return None
+
+        queued_input_port = NativeAgentQueuedInputPort(take_next_agent_queued_input)
 
         def extension_set_session_name(name: str | None) -> object:
             return session_tree.append_session_info(name)
@@ -2597,11 +2655,13 @@ class NativeToolReplSession:
                 # follow-ups promotes them to a sequential drain, delivered in order
                 # (all steering, then all follow-up) as the next prompts.
                 drained: str | None = None
-                delivery_kind: str | None = None
-                if pending_command is None and terminal_ui is not None:
-                    drained = terminal_ui.take_next_drain()
-                    if drained is not None:
-                        delivery_kind = terminal_ui.take_last_drain_kind()
+                delivery_kind: AgentQueuedInputKind | None = None
+                queued_input = (
+                    queued_input_port.take_next() if pending_command is None else None
+                )
+                if queued_input is not None:
+                    drained = queued_input.content.value
+                    delivery_kind = queued_input.kind
                 # Positional-prompt seeds (`pipy "<prompt>"`) drain first, ahead
                 # of extension messages and fresh input, so a seeded prompt is the
                 # session's first user message. Like steering/extension prompts it
@@ -2619,20 +2679,6 @@ class NativeToolReplSession:
                 # parsed as a local command (so a queued "/hotkeys" is a
                 # prompt, not the hotkeys command). They come after user steering and
                 # before blocking on fresh input.
-                if (
-                    drained is None
-                    and pending_command is None
-                    and (
-                        extension_pending_steering_messages
-                        or extension_pending_follow_up_messages
-                    )
-                ):
-                    if extension_pending_steering_messages:
-                        drained = extension_pending_steering_messages.pop(0)
-                        delivery_kind = "steering"
-                    else:
-                        drained = extension_pending_follow_up_messages.pop(0)
-                        delivery_kind = "follow_up"
                 if (
                     drained is None
                     and pending_command is None
@@ -2655,16 +2701,10 @@ class NativeToolReplSession:
                     # next run instead of blocking on input; the new run gets its
                     # own later settled notification.
                     drain_extension_outboxes()
-                    if (
-                        extension_pending_steering_messages
-                        or extension_pending_follow_up_messages
-                    ):
-                        if extension_pending_steering_messages:
-                            drained = extension_pending_steering_messages.pop(0)
-                            delivery_kind = "steering"
-                        else:
-                            drained = extension_pending_follow_up_messages.pop(0)
-                            delivery_kind = "follow_up"
+                    queued_input = queued_input_port.take_next()
+                    if queued_input is not None:
+                        drained = queued_input.content.value
+                        delivery_kind = queued_input.kind
                     elif extension_pending_messages:
                         drained = extension_pending_messages.pop(0)
                 if pending_command is not None:
@@ -2693,10 +2733,13 @@ class NativeToolReplSession:
                 # must reach the model verbatim, not be intercepted and silently
                 # dropped from the conversation. ``command_text`` is the dispatch key
                 # for every local command/hotkey below; it is blank for a drained
-                # line so none match and it falls through to the provider-message
-                # path (which still resolves any @file/@image references). Typed
-                # input keeps ``command_text == stripped`` and is unaffected.
-                command_text = "" if drained is not None else stripped
+                # line or for RPC input carrying a closed delivery classification,
+                # so neither can match and both fall through to the provider-message
+                # path (which still resolves any @file/@image references). Ordinary
+                # typed input keeps ``command_text == stripped`` and is unaffected.
+                command_text = (
+                    "" if drained is not None or delivery_kind is not None else stripped
+                )
                 # In-editor hotkeys arrive as private sentinel "commands" from the
                 # TUI so they dispatch without rendering a user-message bubble.
                 # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
@@ -4075,9 +4118,9 @@ class NativeToolReplSession:
                     _pricing_for(effective_provider_name, effective_model_id)
                 )
                 emitter.emit(AgentRunStarted())
-                if delivery_kind == "steering":
+                if delivery_kind is AgentQueuedInputKind.STEERING:
                     emitter.emit(SteeringConsumed(ProductContent(user_input)))
-                elif delivery_kind == "follow_up":
+                elif delivery_kind is AgentQueuedInputKind.FOLLOW_UP:
                     emitter.emit(FollowUpConsumed(ProductContent(user_input)))
                 extension_in_agent_turn = True
                 run_failure: AgentFailure | None = None
@@ -4091,7 +4134,7 @@ class NativeToolReplSession:
                     ),
                 )
                 extension_pending_next_turn_custom_messages.clear()
-                session_tree.append_message(turn_user_message)
+                run_effect_sink.emit(AppendAgentMessage(turn_user_message))
                 user_turn_count += 1
                 # Persist the prompt for cross-session recall when the user has
                 # enabled it from /settings. record() is a no-op when disabled and
@@ -4235,10 +4278,13 @@ class NativeToolReplSession:
                     provider_result = provider_completion.result
                     if terminal_ui is not None and terminal_ui.has_pending_messages():
                         terminal_ui.promote_pending_to_drain()
-                    usage_accumulator.absorb(provider_result.usage)
-                    run_usage_accumulator.absorb(provider_result.usage)
-                    emitter.emit(
-                        UsageUpdated(
+                    usage_sample = AgentProviderUsageSample.from_mapping(
+                        provider_result.usage
+                    )
+                    run_usage_accumulator.absorb(usage_sample)
+                    usage_publisher.publish(
+                        AgentUsagePublication(
+                            usage_sample,
                             run_usage_accumulator.agent_usage(),
                             run_usage_accumulator.last_total_tokens,
                         )
@@ -4315,7 +4361,7 @@ class NativeToolReplSession:
                     emitter.emit(MessageCompleted(turn_index, turn_assistant_message))
                     turn_tool_results: list[AgentToolResultMessage] = []
                     messages.append(turn_assistant_message)
-                    session_tree.append_message(turn_assistant_message)
+                    run_effect_sink.emit(AppendAgentMessage(turn_assistant_message))
 
                     if not tool_calls:
                         if legacy_footer_enabled():
@@ -4357,7 +4403,7 @@ class NativeToolReplSession:
                             )
                             turn_tool_results.append(budget_observation)
                             messages.append(budget_observation)
-                            session_tree.append_message(budget_observation)
+                            run_effect_sink.emit(AppendAgentMessage(budget_observation))
                             continue
 
                         if not provider_request_snapshot.authorizes(call.tool_name):
@@ -4374,7 +4420,9 @@ class NativeToolReplSession:
                             )
                             turn_tool_results.append(unauthorized_observation)
                             messages.append(unauthorized_observation)
-                            session_tree.append_message(unauthorized_observation)
+                            run_effect_sink.emit(
+                                AppendAgentMessage(unauthorized_observation)
+                            )
                             invocations_this_turn += 1
                             continue
 
@@ -4410,7 +4458,9 @@ class NativeToolReplSession:
                             )
                             turn_tool_results.append(blocked_observation)
                             messages.append(blocked_observation)
-                            session_tree.append_message(blocked_observation)
+                            run_effect_sink.emit(
+                                AppendAgentMessage(blocked_observation)
+                            )
                             # A blocked call still consumes the per-turn tool
                             # budget, so a provider repeating a blocked call
                             # cannot drive the loop unbounded. It is not a real
@@ -4479,7 +4529,7 @@ class NativeToolReplSession:
                             ToolExecutionInterruption.LOCAL_COMMAND,
                         }:
                             messages.append(observation)
-                            session_tree.append_message(observation)
+                            run_effect_sink.emit(AppendAgentMessage(observation))
                             for skipped_call in tool_calls[call_index + 1 :]:
                                 skipped = tool_capabilities.error_result(
                                     skipped_call,
@@ -4487,7 +4537,7 @@ class NativeToolReplSession:
                                 )
                                 turn_tool_results.append(skipped)
                                 messages.append(skipped)
-                                session_tree.append_message(skipped)
+                                run_effect_sink.emit(AppendAgentMessage(skipped))
                             tool_interrupted_turn = True
                             tool_interruption_reason = (
                                 AgentCancellationReason.LOCAL_COMMAND
@@ -4500,7 +4550,7 @@ class NativeToolReplSession:
                             malformed_argument_count += 1
                             consecutive_malformed_streak += 1
                             messages.append(observation)
-                            session_tree.append_message(observation)
+                            run_effect_sink.emit(AppendAgentMessage(observation))
                             if (
                                 consecutive_malformed_streak
                                 >= self.MAX_MALFORMED_STREAK
@@ -4522,7 +4572,7 @@ class NativeToolReplSession:
                         tool_invocation_count += 1
                         consecutive_malformed_streak = 0
                         messages.append(observation)
-                        session_tree.append_message(observation)
+                        run_effect_sink.emit(AppendAgentMessage(observation))
 
                     turn_outcome = AgentTurnOutcome.SUCCEEDED
                     if tool_interrupted_turn:

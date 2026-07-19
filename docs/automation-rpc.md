@@ -504,6 +504,11 @@ queue) rather than being silently deferred, so it appears in `queue_update`/
 `pendingMessageCount`. True in-turn injection of a message into the
 already-running provider turn remains a follow-on.
 
+Reserved RPC steering/follow-up keeps its closed delivery classification through
+the input adapter. Consequently text beginning with `/` or `!` is still a
+provider-visible queued prompt when delivered; it never re-enters local slash
+command or shell-shortcut dispatch.
+
 ### Session switching, fork, clone
 
 `switch_session`, `fork`, `clone`, and `new_session` change the active session

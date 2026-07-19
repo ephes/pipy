@@ -21,13 +21,24 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+from pipy_harness.native.agent import (
+    AgentEvent,
+    AgentRunStarted,
+    FollowUpConsumed,
+    ProductContent,
+    SteeringConsumed,
+)
 from pipy_harness.native.auth_store import AuthStore
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.catalog_state import ProviderCatalogState
-from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.automation.jsonl import JsonlLineBuffer
 from pipy_harness.native.automation.rpc import NativeRpcServer
 from pipy_harness.native.fake import AutomationFakeProvider
+from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 class _PromptExitBarrierLock:
@@ -51,25 +62,85 @@ class _PromptExitBarrierLock:
 
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         self._lock.release()
-        if threading.current_thread().name == "racing-prompt" and not self._prompt_paused:
+        if (
+            threading.current_thread().name == "racing-prompt"
+            and not self._prompt_paused
+        ):
             self._prompt_paused = True
             self.prompt_first_hold_released.set()
             if not self.allow_prompt_to_continue.wait(timeout=5.0):
                 raise AssertionError("prompt barrier was not released")
 
 
+class _CanonicalCollectingSink:
+    def __init__(self) -> None:
+        self.events: list[AgentEvent] = []
+
+    def emit(self, event: AgentEvent) -> None:
+        self.events.append(event)
+
+
+class _BlockingFirstAutomationProvider:
+    """Hold the first provider call while the RPC reader queues continuations."""
+
+    def __init__(self) -> None:
+        self._delegate = AutomationFakeProvider()
+        self._release = threading.Event()
+        self.requests: list[ProviderRequest] = []
+
+    @property
+    def name(self) -> str:
+        return self._delegate.name
+
+    @property
+    def model_id(self) -> str:
+        return self._delegate.model_id
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return self._delegate.supports_tool_calls
+
+    def release(self) -> None:
+        self._release.set()
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        self.requests.append(request)
+        if len(self.requests) == 1 and not self._release.wait(timeout=5.0):
+            raise AssertionError("RPC queue harness did not release the provider")
+        return self._delegate.complete(
+            request,
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+            cancel_token=cancel_token,
+        )
+
+
 class _RpcClient:
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, *, provider: ProviderPort | None = None) -> None:
         self._cwd = tmp_path
         stdin_r, self._stdin_w = os.pipe()
         self._stdout_r, stdout_w = os.pipe()
         self._stdin_read = os.fdopen(stdin_r, "r")
         self._stdin_write = os.fdopen(self._stdin_w, "w")
         self._stdout_read = os.fdopen(self._stdout_r, "rb")
-        stdout_buffer = os.fdopen(stdout_w, "wb")
+        self._stdout_buffer = os.fdopen(stdout_w, "wb")
+        self._error_stream = open(os.devnull, "w")
 
+        self.canonical = _CanonicalCollectingSink()
         adapter = PipyNativeToolReplAdapter(
-            provider=AutomationFakeProvider(block_timeout_seconds=5.0)
+            provider=(
+                provider
+                if provider is not None
+                else AutomationFakeProvider(block_timeout_seconds=5.0)
+            ),
+            agent_event_sink=self.canonical,
         )
         tree = NativeSessionTree.create(tmp_path, persist=False)
         self._server = NativeRpcServer(
@@ -77,8 +148,8 @@ class _RpcClient:
             cwd=tmp_path,
             native_session=tree,
             stdin=self._stdin_read,
-            stdout_buffer=stdout_buffer,
-            error_stream=open(os.devnull, "w"),
+            stdout_buffer=self._stdout_buffer,
+            error_stream=self._error_stream,
         )
         self._records: "queue.Queue[dict]" = queue.Queue()
         self._reader = threading.Thread(target=self._read_stdout, daemon=True)
@@ -129,6 +200,15 @@ class _RpcClient:
     def close(self) -> int:
         self._stdin_write.close()
         self._server_thread.join(timeout=10.0)
+        if self._server_thread.is_alive():
+            raise AssertionError("RPC server did not stop after stdin EOF")
+        self._stdout_buffer.close()
+        self._reader.join(timeout=5.0)
+        if self._reader.is_alive():
+            raise AssertionError("RPC stdout reader did not stop after writer close")
+        self._stdout_read.close()
+        self._stdin_read.close()
+        self._error_stream.close()
         return 0
 
 
@@ -235,9 +315,7 @@ def test_batch_eof_drains_queued_followup(tmp_path: Path) -> None:
     assert len(agent_end_indices) == 2
     settled_index = types.index("agent_settled")
     assert settled_index > agent_end_indices[1]
-    assert not any(
-        t == "agent_settled" for t in types[: agent_end_indices[1]]
-    )
+    assert not any(t == "agent_settled" for t in types[: agent_end_indices[1]])
 
 
 def test_agent_settled_emitted_after_idle(client) -> None:
@@ -492,6 +570,79 @@ def test_steering_queue_is_consumed_not_stale(client) -> None:
     assert state["data"]["pendingMessageCount"] == 0
 
 
+def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    provider = _BlockingFirstAutomationProvider()
+    shell_calls: list[str] = []
+
+    def record_shell_dispatch(
+        _session: NativeToolReplSession,
+        command_text: str,
+        **_kwargs: object,
+    ) -> None:
+        shell_calls.append(command_text)
+
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_run_local_shell_shortcut",
+        record_shell_dispatch,
+    )
+    c = _RpcClient(tmp_path, provider=provider)
+    c._seen = []
+    try:
+        c.send({"id": "p", "type": "prompt", "message": "ROOT"})
+        c.wait_for(lambda record: record.get("type") == "agent_start")
+
+        # Enqueue follow-up first, then steering. RPC owns priority and must
+        # reserve steering first while retaining each closed delivery kind.
+        c.send(
+            {
+                "id": "f",
+                "type": "follow_up",
+                "message": "!rpc-queued-shell",
+            }
+        )
+        c.wait_for(lambda record: record.get("id") == "f")
+        c.send({"id": "s", "type": "steer", "message": "/hotkeys"})
+        c.wait_for(lambda record: record.get("id") == "s")
+        provider.release()
+
+        tail = c.collect_until(lambda record: record.get("type") == "agent_settled")
+        records = [*c._seen, *tail]
+    finally:
+        provider.release()
+        c.close()
+
+    assert [request.user_prompt for request in provider.requests] == [
+        "ROOT",
+        "/hotkeys",
+        "!rpc-queued-shell",
+    ]
+    user_messages = [
+        "".join(block.get("text", "") for block in record["message"]["content"])
+        for record in records
+        if record.get("type") == "message_start"
+        and record.get("message", {}).get("role") == "user"
+    ]
+    assert user_messages == ["ROOT", "/hotkeys", "!rpc-queued-shell"]
+    assert shell_calls == []
+
+    classified_events = [
+        event
+        for event in c.canonical.events
+        if isinstance(event, (AgentRunStarted, SteeringConsumed, FollowUpConsumed))
+    ]
+    assert classified_events == [
+        AgentRunStarted(),
+        AgentRunStarted(),
+        SteeringConsumed(ProductContent("/hotkeys")),
+        AgentRunStarted(),
+        FollowUpConsumed(ProductContent("!rpc-queued-shell")),
+    ]
+
+
 def test_get_state_after_agent_end_is_settled(client) -> None:
     # agent_end is the settled boundary: a get_state immediately after it must
     # show the run no longer streaming and the queue empty (no stale state).
@@ -594,9 +745,7 @@ def _seed_two(tmp_path: Path):
 
     tree = NativeSessionTree.create(tmp_path, persist=False)
     root = tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
-    reply = tree.append_message(
-        AgentAssistantMessage(content=ProductContent("REPLY"))
-    )
+    reply = tree.append_message(AgentAssistantMessage(content=ProductContent("REPLY")))
     return tree, root, reply
 
 

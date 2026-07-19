@@ -1664,16 +1664,16 @@ The remaining ordered Phase 2.2 cuts are:
 3. **2.2b.4b — identity-safe active-input overlay (shipped):** remove absolute-index
    transient cleanup and the temporary automatic-compaction deferral while
    preserving exactly one-run provider visibility and archive privacy.
-4. **2.2b.4c — run-effect, usage, and queue-facing ports:** establish the
+4. **2.2b.4c — run-effect, usage, and queue-facing ports (shipped):** establish the
    remaining typed loop seams while Phase 3 retains queue/lifecycle ownership
    and Phase 3.3 retains persistence-write relocation.
 5. **2.2b.5 — full headless `AgentLoop` ownership cutover:** move the remaining
    provider/tool cycle so `NativeToolReplSession.run()` becomes composition.
 
-Slices 2.2b.3–2.2b.4b are shipped; 2.2b.4c–2.2b.5 remain pending. Parallel tools,
+Slices 2.2b.3–2.2b.4c are shipped; 2.2b.5 remains pending. Parallel tools,
 richer termination, async
 conversion, persistence relocation, UI/extension redesign, and provider catalog
-work are not part of Phase 2.2b.3.
+work are not part of Phase 2.2b.4c.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
