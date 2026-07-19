@@ -27,10 +27,8 @@ from pipy_harness.native.openrouter_provider import (
     JsonResponse,
     OpenRouterChatCompletionsProvider,
 )
-from pipy_harness.native.tools import (
-    ReadTool,
-    make_tool_request_id,
-)
+from pipy_harness.native.tools import make_tool_request_id
+from pipy_harness.native.tools.read import ReadTool
 
 
 class FakeJsonHTTPClient:

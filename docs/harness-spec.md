@@ -1375,6 +1375,39 @@ with `zensical.toml`, `docs/index.md`, and local recipes is acceptable.
 
 ## Native Tool Boundaries
 
+### Reusable Model-Driven Tool Executor
+
+`pipy_harness.native.agent.tools.ToolExecutor` is the UI-free synchronous
+boundary for one model-selected tool call. It receives a canonical
+`AgentToolCall`, a `ToolContext`, and a registry of `ToolPort` implementations;
+it owns lookup, JSON/schema validation, pipy-owned request-id allocation,
+invocation, live output propagation, exact malformed/error observations, and
+normalization into `AgentToolResultMessage`. Unexpected exceptions and invalid
+tool return types still propagate. A caller may inject a wait port for the
+single worker used by interactive cancellation; its closed result distinguishes
+settled execution, operator abort, and local command without importing terminal
+code. Headless calls execute directly, and callers schedule one call at a time.
+An uncooperative cancelled worker may outlive the bounded join; its invocation
+output gate is closed before the caller receives the cancellation outcome.
+
+The product tool-loop composition root keeps per-turn budgets, extension
+preflight/result hooks, execution timing, canonical event ordering,
+malformed-fatal-after-three policy, provider history, session-tree writes, and
+run/turn termination. Budget exhaustion remains a nonterminal error tool result.
+The TUI translates its existing wait outcome into the closed executor signal at
+the composition seam. `ToolContext.output_sink` remains synchronous, so live
+update backpressure and failures propagate before execution completes. Each
+call receives an immutable correlation binding and a private output gate that
+stops admitting callbacks before return, so an abandoned worker cannot emit as
+a later call. Gate closure does not wait on an already admitted, backpressured
+synchronous callback; if that callback finishes later, it retains the original
+turn index and call identity. The executor orders the first cancellation signal against worker
+completion: a result or exception completed after cancellation cannot replace
+the balanced cancellation observation. The cancel event remains cooperative.
+The `pipy_harness.native.tools` package initializer exports contracts only and
+does not load concrete tools. This extraction changes no JSON/RPC/SDK,
+extension, product-session, workflow-archive, or terminal representation.
+
 ### Read-Only Tool Request Value Objects
 
 The bounded read-only path needs stable native data contracts before it can

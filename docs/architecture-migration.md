@@ -320,6 +320,27 @@ results, cancellation, failure mapping, and termination signaling into
 `native.agent.tools` (or an equivalently focused module). Preserve sequential
 execution first.
 
+Implementation evidence (2026-07-19): `native.agent.tools.ToolExecutor` now
+owns the synchronous per-call path: registry lookup, JSON/schema validation,
+pipy request-id allocation, `ToolPort` invocation, live `ToolContext` output,
+normalized canonical results, exact malformed/error mapping, and an optional
+worker plus cancel-event boundary. `ToolExecutionInterruption` closes the
+executor outcome to settled, operator abort, or local command without importing
+the TUI. Completion and cancellation are explicitly ordered so an earlier
+cancellation cannot be replaced by a racing late result, and each invocation's
+live-output sink stops admitting new callbacks before the executor returns.
+Closing the gate never waits on an already admitted, backpressured synchronous
+callback; that callback retains its original turn index and call identity if it
+finishes later. `NativeToolReplSession` binds both values immutably per call, adapts
+terminal wait strings at the composition seam, and retains budgets, extension
+policy/result hooks, timing, event order, malformed-streak policy, provider
+history, persistence, and run/turn outcomes. `native.tools` now exposes only
+contracts; concrete tools are imported from their defining modules. The
+superseded `_invoke`, `_invoke_interruptible`, and `_error_observation` methods
+are deleted. Caller scheduling remains sequential and no parallel-tool scheduler
+is introduced. A cancelled uncooperative worker may outlive its bounded join,
+but its invocation sink is already closed and its turn/call identity cannot change.
+
 ### Slice 2.2: Provider/tool turn loop
 
 Extract the pure turn loop from `NativeToolReplSession.run()` into
@@ -546,7 +567,8 @@ The default sequence is:
 | 0.1 | `e063e8d` | Cross-platform baseline; deterministic local/CI gates recorded above. |
 | 0.2 | `b122e37` | Architecture characterization, privacy, SDK, and import contracts. |
 | 1.1 | `804d6d7` | Canonical typed synchronous agent contracts. |
-| 1.2 | `refactor: route native consumers through canonical agent events` (this slice) | Canonical adapter, mode-trace, automation/RPC, SDK/archive privacy, extension-order, persistence, provider, and PTY contracts; full repository gates plus mandatory Pi and different-family CLEAN required before commit. |
+| 1.2 | `bd1f9b9` — `refactor: route native consumers through canonical agent events` | `just check` (3,268 passed, 2 skipped), docs, PTY, automation/RPC, extension, session-tree, TUI, SDK/archive privacy, provider, and export gates passed; Pi `openai-codex/gpt-5.6-sol` round 14 CLEAN after 23 fixed findings; Claude Fable CLEAN. Its two redacted secret-sentinel fixture diffs were verified as mechanical contract migrations by the dedicated 17-test export suite and 11-check export/privacy gate. |
+| 2.1 | `refactor: extract reusable tool executor` | Direct executor, tool-loop integration, cancellation, rendering, extension, bash, TUI, and import-boundary contracts passed. Final `just check`: Ruff and mypy clean, 3,300 tests passed, 2 skipped; docs, 8 PTY smoke tests, 15 automation/RPC checks, 4 extension live-session checks, 12 TUI workflow checks, and diff gate passed. Pi `openai-codex/gpt-5.6-sol` round 4 CLEAN after 5 accepted/fixed Pi findings across rounds; Claude Fable round 2 returned valid unscoped CLEAN after 2 fixed findings, with no skips, truncations, redactions, or forbidden tools. |
 
 The earlier code-quality audit remains evidence, with this mapping:
 

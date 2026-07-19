@@ -1522,7 +1522,32 @@ product-session subscriber. JSON/RPC/session/SDK formats and callback order stay
 stable; RPC still owns queue reservation and `agent_settled`, while direct
 product-session writes remain in place until Phase 3.3. The superseded
 `native.tools.messages` envelope, exports, and `AutomationEmitter` are deleted.
-The next active migration slice is Phase 2.1, the reusable tool executor.
+The next migration slice is Phase 2.1, the reusable tool executor.
+
+### Reusable tool executor — ACTIVE (2026-07-19)
+
+Phase 2.1 extracts the synchronous per-call tool path from
+`NativeToolReplSession` into UI-free `native.agent.tools`. The executor owns
+lookup, JSON/schema validation, pipy request identity, invocation, live
+`ToolContext` output, normalized canonical observations, exact malformed/error
+mapping, and a closed settled/operator-abort/local-command result. The session
+adapts terminal wait outcomes and retains budgets, extension hooks, timing,
+event ordering, malformed-fatal policy, provider history, persistence, and
+run/turn outcomes. Cancellation is ordered against worker completion, and a
+per-invocation live-output gate prevents an abandoned worker from emitting into
+the next call. `native.tools` is contract-only; concrete implementations are
+imported from their defining modules. Caller scheduling remains sequential and
+no parallel-tool scheduler is introduced; an uncooperative cancelled worker may
+outlive its bounded join with new output admissions closed. An already admitted
+backpressured callback may finish later, still bound to the original turn and call.
+Parallel tools, richer
+termination, provider-turn extraction, and async conversion stay deferred.
+
+The private `_invoke`, `_invoke_interruptible`, and `_error_observation` paths
+are removed in the same slice. Direct executor characterization, tool-loop,
+extension, rendering, bash, TUI, and explicit canonical import-boundary tests
+gate the cutover. The next ordered migration boundary after review and commit is
+Phase 2.2, the provider/tool turn loop.
 
 ### GPT-5.6 Sol plus model-aware `max` thinking — SHIPPED (2026-07-14)
 
@@ -1742,7 +1767,7 @@ through discovery (see the closing note below). Landed so far:
   `@api.on("tool_call")` (or `api.on("tool_call", handler)`) to inspect a
   model-selected tool call's live name + parsed input before execution and
   return `ToolBlock(reason=...)` to block it. Wired into the tool loop
-  (`dispatch_tool_call_hooks` before `_invoke`); first block wins; a crashing
+  (`dispatch_tool_call_hooks` before `ToolExecutor.execute()`); first block wins; a crashing
   hook fails closed; raw inputs are inspected live but not archived. Gate:
   `scripts/parity_checks/extension_tool_call_conformance.py --json`.
 - Slice 5 (lifecycle events): `session_start`, `session_shutdown`,

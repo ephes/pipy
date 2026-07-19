@@ -18,9 +18,9 @@ from pipy_harness.native.tools import (
     ToolContext,
     ToolPort,
     ToolRequest,
-    WriteTool,
     make_tool_request_id,
 )
+from pipy_harness.native.tools.write import WriteTool
 
 
 def _make_request(arguments: dict[str, object]) -> ToolRequest:

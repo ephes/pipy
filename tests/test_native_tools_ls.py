@@ -7,14 +7,13 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.tools import (
-    LsTool,
     ToolArgumentError,
     ToolContext,
     ToolPort,
     ToolRequest,
     make_tool_request_id,
 )
-from pipy_harness.native.tools.ls import TRUNCATION_MARKER
+from pipy_harness.native.tools.ls import LsTool, TRUNCATION_MARKER
 
 
 def _make_request(arguments: dict[str, object]) -> ToolRequest:

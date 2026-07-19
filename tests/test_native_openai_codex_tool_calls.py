@@ -34,11 +34,9 @@ from pipy_harness.native.openai_codex_provider import (
     OpenAICodexResponsesProvider,
     SseResponse,
 )
-from pipy_harness.native.tools import (
-    ReadTool,
-    make_tool_request_id,
-)
+from pipy_harness.native.tools import make_tool_request_id
 from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.tools.read import ReadTool
 
 
 class FakeSseHTTPClient:

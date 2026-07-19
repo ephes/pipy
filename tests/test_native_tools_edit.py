@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.tools import (
-    EditTool,
     ToolArgumentError,
     ToolContext,
     ToolPort,
     ToolRequest,
     make_tool_request_id,
 )
+from pipy_harness.native.tools.edit import EditTool
 
 
 def _make_request(arguments: dict[str, object]) -> ToolRequest:

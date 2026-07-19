@@ -38,6 +38,7 @@ import tempfile
 import threading
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
 from typing import Any, ClassVar, Protocol, TextIO, TypeAlias, runtime_checkable
@@ -98,6 +99,10 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     TurnStarted,
     UsageUpdated,
+)
+from pipy_harness.native.agent.tools import (
+    ToolExecutionInterruption,
+    ToolExecutor,
 )
 from pipy_harness.native.agent_adapters import (
     ProductSessionEventProjection,
@@ -304,15 +309,33 @@ from pipy_harness.native.image_attachment import (
     resolve_image_attachments,
 )
 from pipy_harness.native.tools import (
-    ToolArgumentError,
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
     ToolPort,
     ToolRequest,
-    make_tool_request_id,
-    validate_arguments,
 )
+
+
+def _wait_for_tool_interrupt(
+    terminal_ui: ToolLoopTerminalUi,
+    done_event: threading.Event,
+    cancel_event: threading.Event,
+) -> ToolExecutionInterruption:
+    """Translate the terminal driver's string outcome at the composition seam."""
+
+    outcome = terminal_ui.wait_for_active_turn_interrupt(
+        done_event,
+        cancel_event,
+        accept_commands=True,
+    )
+    if outcome == TURN_SETTLED:
+        return ToolExecutionInterruption.SETTLED
+    if outcome == TURN_ABORTED:
+        return ToolExecutionInterruption.OPERATOR_ABORT
+    if outcome == TURN_LOCAL_COMMAND:
+        return ToolExecutionInterruption.LOCAL_COMMAND
+    raise RuntimeError(f"unexpected tool interrupt outcome: {outcome!r}")
 
 
 def _custom_message_renderer_payload(entry: _CustomMessageEntry) -> dict[str, object]:
@@ -1748,6 +1771,10 @@ class NativeToolReplSession:
                 project_trusted=settings.project_trusted,
             )
             run_tool_registry[_port.definition.name] = _port
+        tool_executor = ToolExecutor(
+            run_tool_registry,
+            cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
+        )
         filter_names = set(self.tool_filter_options.allow) | set(
             self.tool_filter_options.exclude
         )
@@ -1827,31 +1854,33 @@ class NativeToolReplSession:
             flags=extension_flag_values,
             project_trusted=settings.project_trusted,
         )
+
         # `session_start` fires once the session is set up (reason "startup");
         # `session_shutdown` fires when the run ends.
         # Stream long-running tool output (e.g. pytest dots) into the live UI as
         # it is produced, matching Pi. Rebuilt here so the sink can target the
         # renderer that was just selected. For automation it also emits Pi's
-        # ``tool_execution_update`` (bounded progress) for the currently
-        # executing tool call; ``_active_tool_call`` carries that call.
-        active_tool_call: list["AgentToolCall | None"] = [None]
-
-        def _tool_output_sink(chunk: str) -> None:
-            call = active_tool_call[0]
-            if call is not None:
-                emitter.emit(
-                    ToolCallUpdated(
-                        turn_index,
-                        call,
-                        ProductContent(chunk),
-                    )
+        # ``tool_execution_update`` (bounded progress) for the executing call.
+        # The turn index and call are bound into a fresh context for each
+        # invocation so a late worker can never correlate output to a
+        # subsequent turn or call.
+        def _tool_output_sink(
+            call_turn_index: int,
+            call: AgentToolCall,
+            chunk: str,
+        ) -> None:
+            emitter.emit(
+                ToolCallUpdated(
+                    call_turn_index,
+                    call,
+                    ProductContent(chunk),
                 )
+            )
 
         context = ToolContext(
             workspace_root=cwd,
             stderr_sink=_stderr_sink,
             reference_roots=self.reference_roots,
-            output_sink=_tool_output_sink,
         )
 
         started_at = datetime.now(UTC)
@@ -3175,6 +3204,10 @@ class NativeToolReplSession:
                             project_trusted=settings.project_trusted,
                         )
                         run_tool_registry[_port.definition.name] = _port
+                    tool_executor = ToolExecutor(
+                        run_tool_registry,
+                        cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
+                    )
                     if filter_configured:
                         filter_names = set(self.tool_filter_options.allow) | set(
                             self.tool_filter_options.exclude
@@ -4409,11 +4442,9 @@ class NativeToolReplSession:
                     for call_index, call in enumerate(tool_calls):
                         if invocations_this_turn >= self.tool_budget:
                             budget_exhausted_count += 1
-                            budget_observation = self._error_observation(
-                                call=call,
-                                output_text=(
-                                    f"tool budget exhausted (limit {self.tool_budget})"
-                                ),
+                            budget_observation = tool_executor.error_result(
+                                call,
+                                f"tool budget exhausted (limit {self.tool_budget})",
                             )
                             emitter.emit(ToolCallStarted(turn_index, call))
                             emitter.emit(
@@ -4447,9 +4478,9 @@ class NativeToolReplSession:
                             project_trusted=settings.project_trusted,
                         )
                         if tool_block is not None:
-                            blocked_observation = self._error_observation(
-                                call=call,
-                                output_text=f"blocked by extension: {tool_block.reason}",
+                            blocked_observation = tool_executor.error_result(
+                                call,
+                                f"blocked by extension: {tool_block.reason}",
                             )
                             emitter.emit(
                                 ToolCallCompleted(
@@ -4467,25 +4498,27 @@ class NativeToolReplSession:
                             # left unchanged.
                             invocations_this_turn += 1
                             continue
-                        active_tool_call[0] = call
                         tool_started_at = datetime.now(UTC)
                         active_tools_before = tuple(
                             definition.name
                             for definition in available_tool_definitions()
                         )
-                        try:
-                            (
-                                observation,
-                                tool_interrupt,
-                                tool_call_malformed,
-                            ) = self._invoke_interruptible(
-                                call=call,
-                                context=context,
-                                registry=run_tool_registry,
-                                terminal_ui=terminal_ui,
-                            )
-                        finally:
-                            active_tool_call[0] = None
+                        call_context = replace(
+                            context,
+                            output_sink=partial(_tool_output_sink, turn_index, call),
+                        )
+                        execution_outcome = tool_executor.execute(
+                            call,
+                            call_context,
+                            wait_for_interrupt=(
+                                None
+                                if terminal_ui is None
+                                else partial(_wait_for_tool_interrupt, terminal_ui)
+                            ),
+                        )
+                        observation = execution_outcome.result
+                        tool_interrupt = execution_outcome.interruption
+                        tool_call_malformed = execution_outcome.malformed_arguments
                         active_tools_after = tuple(
                             definition.name
                             for definition in available_tool_definitions()
@@ -4556,15 +4589,16 @@ class NativeToolReplSession:
                             )
                         )
                         turn_tool_results.append(observation)
-                        if tool_interrupt in {TURN_ABORTED, TURN_LOCAL_COMMAND}:
+                        if tool_interrupt in {
+                            ToolExecutionInterruption.OPERATOR_ABORT,
+                            ToolExecutionInterruption.LOCAL_COMMAND,
+                        }:
                             messages.append(observation)
                             session_tree.append_message(observation)
                             for skipped_call in tool_calls[call_index + 1 :]:
-                                skipped = self._error_observation(
-                                    call=skipped_call,
-                                    output_text=(
-                                        "tool skipped because the turn was interrupted"
-                                    ),
+                                skipped = tool_executor.error_result(
+                                    skipped_call,
+                                    "tool skipped because the turn was interrupted",
                                 )
                                 turn_tool_results.append(skipped)
                                 messages.append(skipped)
@@ -4572,7 +4606,8 @@ class NativeToolReplSession:
                             tool_interrupted_turn = True
                             tool_interruption_reason = (
                                 AgentCancellationReason.LOCAL_COMMAND
-                                if tool_interrupt == TURN_LOCAL_COMMAND
+                                if tool_interrupt
+                                is ToolExecutionInterruption.LOCAL_COMMAND
                                 else AgentCancellationReason.OPERATOR_ABORT
                             )
                             break
@@ -6589,164 +6624,6 @@ class NativeToolReplSession:
                 if content:
                     return message.content.value
         return ""
-
-    def _invoke_interruptible(
-        self,
-        *,
-        call: AgentToolCall,
-        context: ToolContext,
-        registry: dict[str, ToolPort] | None = None,
-        terminal_ui: ToolLoopTerminalUi | None = None,
-    ) -> tuple[AgentToolResultMessage, str, bool]:
-        """Invoke a tool while the live TUI can submit local commands.
-
-        Model-driven bash tools run tests/builds on the tool loop's main path.
-        Run the tool on a worker while the foreground thread watches the
-        terminal, so `/quit`/`!…` submitted during live tool output can cancel
-        the tool and dispatch locally instead of waiting for the command to
-        finish. Tools receive a cancel event via ``ToolContext``; the bash tool
-        observes it by killing its process group.
-        """
-
-        if terminal_ui is None:
-            observation, malformed = self._invoke(
-                call=call, context=context, registry=registry
-            )
-            return observation, TURN_SETTLED, malformed
-
-        cancel_event = threading.Event()
-        done_event = threading.Event()
-        result_holder: list[tuple[AgentToolResultMessage, bool]] = []
-        error_holder: list[BaseException] = []
-        cancellable_context = replace(context, cancel_event=cancel_event)
-
-        def _worker() -> None:
-            try:
-                result_holder.append(
-                    self._invoke(
-                        call=call, context=cancellable_context, registry=registry
-                    )
-                )
-            except BaseException as exc:  # pragma: no cover - re-raised below
-                error_holder.append(exc)
-            finally:
-                done_event.set()
-
-        worker = threading.Thread(target=_worker, name="pipy-tool-call", daemon=True)
-        worker.start()
-        try:
-            outcome = terminal_ui.wait_for_active_turn_interrupt(
-                done_event, cancel_event, accept_commands=True
-            )
-        except KeyboardInterrupt:
-            cancel_event.set()
-            outcome = TURN_ABORTED
-        if outcome in {TURN_ABORTED, TURN_LOCAL_COMMAND}:
-            worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
-            if not result_holder:
-                label = "local command" if outcome == TURN_LOCAL_COMMAND else "escape"
-                # The user interrupted this tool; if the worker also raised at
-                # the same time, preserve the user-visible cancellation outcome
-                # and keep provider tool-result history balanced.
-                return (
-                    self._error_observation(
-                        call=call, output_text=f"tool cancelled by {label}"
-                    ),
-                    outcome,
-                    False,
-                )
-        worker.join()
-        if error_holder:
-            raise error_holder[0]
-        if result_holder:
-            observation, malformed = result_holder[0]
-            return observation, outcome, malformed
-        return (
-            self._error_observation(call=call, output_text="tool cancelled"),
-            outcome,
-            False,
-        )
-
-    def _invoke(
-        self,
-        *,
-        call: AgentToolCall,
-        context: ToolContext,
-        registry: dict[str, ToolPort] | None = None,
-    ) -> tuple[AgentToolResultMessage, bool]:
-        tool = (registry if registry is not None else self.tool_registry).get(
-            call.tool_name
-        )
-        if tool is None:
-            return (
-                self._error_observation(
-                    call=call,
-                    output_text=f"unknown tool: {call.tool_name}",
-                ),
-                True,
-            )
-        try:
-            raw_args = json.loads(call.arguments_json.value)
-        except json.JSONDecodeError as exc:
-            return (
-                self._error_observation(
-                    call=call,
-                    output_text=f"invalid arguments JSON: {exc.msg}",
-                ),
-                True,
-            )
-        try:
-            validated = validate_arguments(
-                tool_name=call.tool_name,
-                schema=tool.definition.input_schema,
-                arguments=raw_args,
-            )
-        except ToolArgumentError as exc:
-            return self._error_observation(call=call, output_text=str(exc)), True
-
-        request_id = make_tool_request_id()
-        tool_request = ToolRequest(
-            tool_request_id=request_id,
-            tool_name=call.tool_name,
-            arguments=validated,
-            provider_correlation_id=call.provider_correlation_id,
-        )
-        try:
-            execution_result = tool.invoke(tool_request, context)
-        except ToolArgumentError as exc:
-            return self._error_observation(call=call, output_text=str(exc)), True
-
-        if not isinstance(execution_result, ToolExecutionResult):
-            raise TypeError(
-                f"tool {call.tool_name!r} returned non-ToolExecutionResult value"
-            )
-        return (
-            AgentToolResultMessage(
-                tool_request_id=execution_result.tool_request_id,
-                tool_name=call.tool_name,
-                content=ProductContent(execution_result.output_text),
-                is_error=execution_result.is_error,
-                provider_correlation_id=(
-                    execution_result.provider_correlation_id
-                    or call.provider_correlation_id
-                ),
-            ),
-            False,
-        )
-
-    @staticmethod
-    def _error_observation(
-        *,
-        call: AgentToolCall,
-        output_text: str,
-    ) -> AgentToolResultMessage:
-        return AgentToolResultMessage(
-            tool_request_id=make_tool_request_id(),
-            tool_name=call.tool_name,
-            content=ProductContent(output_text),
-            is_error=True,
-            provider_correlation_id=call.provider_correlation_id,
-        )
 
 
 class _ToolLoopRenderer:

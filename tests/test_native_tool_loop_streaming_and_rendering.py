@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import io
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import TextIO, cast
@@ -42,12 +42,18 @@ from pipy_harness.native.agent import (
     AgentEvent,
     AgentFailure,
     AgentToolCall,
+    AgentToolResultMessage,
     AssistantReasoningDelta,
     AssistantTextDelta,
     MessageCompleted,
     MessageStarted,
     ProductContent,
     ProviderFailed,
+    ToolCallUpdated,
+)
+from pipy_harness.native.agent.tools import (
+    ToolExecutionOutcome,
+    ToolInterruptWaiter,
 )
 from pipy_harness.native.agent_adapters import RenderingAgentEventAdapter
 from pipy_harness.native.cancellation import CancelToken
@@ -59,6 +65,7 @@ from pipy_harness.native.tools import (
     ToolExecutionResult,
     ToolPort,
     ToolRequest,
+    make_tool_request_id,
 )
 
 
@@ -488,9 +495,7 @@ def test_renderer_clears_working_marker_before_streaming(
     # the cursor to the assistant-start row before streaming text.
     assert "\x1b7\x1b[1B\r\x1b[K\x1b8" in err.getvalue()
     assert "hello " in out.getvalue()
-    adapter.emit(
-        MessageCompleted(0, AgentAssistantMessage(ProductContent("hello ")))
-    )
+    adapter.emit(MessageCompleted(0, AgentAssistantMessage(ProductContent("hello "))))
 
 
 def test_renderer_clears_working_marker_without_streaming(
@@ -680,6 +685,84 @@ def test_tool_loop_renders_tool_block_on_error_stream(tmp_path: Path):
     # find are exercised by the focused renderer unit tests above.
     assert "noop(" in error
     assert "Took" in error
+
+
+def test_delayed_tool_update_keeps_its_original_turn_and_call_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    delayed_sinks: list[Callable[[str], None]] = []
+    updates: list[ToolCallUpdated] = []
+
+    class DelayedOutputExecutor:
+        def __init__(
+            self,
+            registry: Mapping[str, ToolPort],
+            cancel_join_timeout_seconds: float = 2.0,
+        ) -> None:
+            del registry, cancel_join_timeout_seconds
+
+        def execute(
+            self,
+            call: AgentToolCall,
+            context: ToolContext,
+            wait_for_interrupt: ToolInterruptWaiter | None = None,
+        ) -> ToolExecutionOutcome:
+            del wait_for_interrupt
+            assert context.output_sink is not None
+            if not delayed_sinks:
+                delayed_sinks.append(context.output_sink)
+            else:
+                delayed_sinks[0]("late A")
+                context.output_sink("live B")
+            return ToolExecutionOutcome(
+                AgentToolResultMessage(
+                    tool_request_id=make_tool_request_id(),
+                    tool_name=call.tool_name,
+                    content=ProductContent("ok"),
+                    provider_correlation_id=call.provider_correlation_id,
+                )
+            )
+
+    class UpdateSink:
+        def emit(self, event: AgentEvent) -> None:
+            if isinstance(event, ToolCallUpdated):
+                updates.append(event)
+
+    monkeypatch.setattr(
+        "pipy_harness.native.tool_loop_session.ToolExecutor",
+        DelayedOutputExecutor,
+    )
+    first_call = ProviderToolCall("call-A", "noop", "{}")
+    second_call = ProviderToolCall("call-B", "noop", "{}")
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(
+            supports_tool_calls=True,
+            programmable_tool_calls=((first_call,), (second_call,), ()),
+        ),
+        tool_registry={"noop": _NoOpTool()},
+        agent_event_sink=UpdateSink(),
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("run both\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert [
+        (
+            event.turn_index,
+            event.call.provider_correlation_id,
+            event.update.value,
+        )
+        for event in updates
+    ] == [
+        (0, "call-A", "late A"),
+        (1, "call-B", "live B"),
+    ]
 
 
 def test_tool_loop_does_not_answer_i_cannot_inspect_when_inspection_available(

@@ -20,6 +20,8 @@ import ast
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import subprocess
+import sys
 
 import pytest
 
@@ -461,6 +463,130 @@ from pipy_session.recorder import append_event
         (forbidden_path, "pipy_harness.adapters", 3),
         (forbidden_path, "pipy_session.recorder", 4),
     }
+
+
+def test_agent_rule_recursively_governs_tool_executor_module(tmp_path: Path) -> None:
+    source_root = tmp_path / "src"
+    executor_path = _write_module(
+        source_root,
+        "pipy_harness.native.agent.tools",
+        """\
+import pipy_harness.native.tui
+import pipy_harness.native.extension_runtime
+import pipy_harness.native.tool_loop_session
+""",
+    )
+    agent_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.agent"
+    )
+
+    violations = _evaluate_rule(source_root, agent_rule)
+
+    assert {
+        (violation.path, violation.imported_module, violation.line)
+        for violation in violations
+    } == {
+        (executor_path, "pipy_harness.native.tui", 1),
+        (executor_path, "pipy_harness.native.extension_runtime", 2),
+        (executor_path, "pipy_harness.native.tool_loop_session", 3),
+    }
+
+
+@pytest.mark.parametrize(
+    ("first_module", "second_module"),
+    (
+        ("pipy_harness.native.tools", "pipy_harness.native.agent"),
+        ("pipy_harness.native.agent", "pipy_harness.native.tools"),
+    ),
+)
+def test_agent_and_tool_contract_packages_import_in_either_order(
+    first_module: str,
+    second_module: str,
+) -> None:
+    script = f"""\
+import importlib
+
+importlib.import_module({first_module!r})
+importlib.import_module({second_module!r})
+
+agent = importlib.import_module("pipy_harness.native.agent")
+tools = importlib.import_module("pipy_harness.native.tools")
+assert hasattr(agent, "AgentEvent")
+assert not hasattr(agent, "ToolExecutor")
+assert hasattr(tools, "ToolContext")
+assert not hasattr(tools, "ReadTool")
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_isolated_agent_tool_executor_import_stays_contract_only() -> None:
+    # ``pipy_harness`` and ``pipy_harness.native`` are pre-existing composition
+    # roots whose initializers eagerly load capture, providers, and the product
+    # session. Namespace stubs keep normal filesystem discovery for their child
+    # packages while excluding those unrelated outer initializers, so this fresh
+    # process measures the executor and ``native.tools.base`` dependency graph.
+    package_root = SOURCE_ROOT / "pipy_harness"
+    native_root = package_root / "native"
+    script = f"""\
+import importlib
+import sys
+import types
+
+def namespace_package(name, path):
+    module = types.ModuleType(name)
+    module.__package__ = name
+    module.__path__ = [path]
+    sys.modules[name] = module
+    return module
+
+pipy_package = namespace_package("pipy_harness", {str(package_root)!r})
+native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
+pipy_package.native = native_package
+
+executor = importlib.import_module("pipy_harness.native.agent.tools")
+assert executor.ToolExecutor.__module__ == "pipy_harness.native.agent.tools"
+assert "pipy_harness.native.tools.base" in sys.modules
+
+forbidden = {{
+    "pipy_harness.capture",
+    "pipy_harness.native.tools.bash",
+    "pipy_harness.native.tools.edit",
+    "pipy_harness.native.tools.edit_diff",
+    "pipy_harness.native.tools.find",
+    "pipy_harness.native.tools.grep",
+    "pipy_harness.native.tools.ls",
+    "pipy_harness.native.tools.read",
+    "pipy_harness.native.tools.truncate",
+    "pipy_harness.native.tools.write",
+}}
+unexpected = sorted(
+    module_name
+    for module_name in sys.modules
+    if module_name in forbidden or module_name.startswith("pipy_harness.capture.")
+)
+assert not unexpected, unexpected
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 @pytest.mark.parametrize(

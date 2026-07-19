@@ -28,11 +28,9 @@ from pipy_harness.native.openai_provider import (
     JsonResponse,
     OpenAIResponsesProvider,
 )
-from pipy_harness.native.tools import (
-    ReadTool,
-    make_tool_request_id,
-)
+from pipy_harness.native.tools import make_tool_request_id
 from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.tools.read import ReadTool
 
 
 class FakeJsonHTTPClient:

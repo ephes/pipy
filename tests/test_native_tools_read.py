@@ -14,13 +14,13 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.tools import (
-    ReadTool,
     ToolArgumentError,
     ToolContext,
     ToolPort,
     ToolRequest,
     make_tool_request_id,
 )
+from pipy_harness.native.tools.read import ReadTool
 
 
 def _make_request(arguments: dict[str, object]) -> ToolRequest:
