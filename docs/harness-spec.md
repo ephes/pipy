@@ -1826,6 +1826,23 @@ dispatch, matching the characterized current path. It also adds no catalog
 refresh or auth-message correction. Those are separate behavior changes, not
 typed command ownership.
 
+Slice 3.1d.3a adds the exact payload-free `NEW_SESSION` action for `/new` with
+the standard footer. The direct classifier accepts only already-stripped
+lowercase `/new`; composition retains outer trimming, the submitted user
+bubble, and queued/RPC bypass. The interpreter keeps the concrete effects in
+their existing owners and order: `session_before_switch` for `switch`/`new`,
+current-store and persistence-policy derivation, private tree creation and
+selection, typed active-history rebuild, extension-only input clearing,
+sanitized diagnostic, then standard footer.
+
+Veto and ordinary hook-error fail-closed behavior, controlled-fatal
+propagation, create/rebuild partial-state timing, persistent/ephemeral policy,
+run-lifetime counters and usage, and the cleared compaction suffix remain
+unchanged. Local `/new` runs no provider/tool turn; the next real prompt sees
+only the fresh tree context. The extraction deletes the late branch but adds no
+post-switch lifecycle or completed tree hook, registry metadata, persistence-
+write relocation, serializer, SDK/RPC format, or workflow-archive content.
+
 Command/outcome values are full-content product-control data. They expose no
 serializer, SDK shape, persistence projection, or workflow-archive adapter.
 Exact direct-import allowlists plus recursive, fresh-process, and no-eager-

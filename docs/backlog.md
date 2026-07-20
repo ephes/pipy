@@ -1916,11 +1916,27 @@ workspace-default discovery became fail-closed. All 17 settings checks pass;
 production trust defaults, settings schema, and resource behavior did not
 change.
 
-**Next green slice — typed product-session navigation commands:** continue
-Phase 3.1d with the next ordered command family. Characterize session-tree,
-resume/switch, extension-veto, persistence, queued/RPC, and TUI behavior before
-moving one navigation family behind closed typed outcomes; do not pull Phase
-3.2 registry metadata or Phase 3.3 write ownership into the slice.
+### Typed New-Session Command — SHIPPED (2026-07-20)
+
+Phase 3.1d.3a adds an exact payload-free `NEW_SESSION` action for `/new` with
+the standard footer. The product interpreter preserves the existing switch
+veto, private-tree creation and persistence-policy inheritance, typed active-
+history rebuild, extension-input clearing, sanitized diagnostic, and footer
+order. The late branch is deleted; queued/RPC `/new` remains provider-visible,
+and no provider/tool turn runs for the local command.
+
+Failure and compatibility characterization pins veto, hook error,
+`KeyboardInterrupt`/`SystemExit`, create/rebuild partial-state cutoffs,
+persistent and ephemeral sessions, and exact fresh context on the next prompt.
+The slice adds no post-switch lifecycle or completed tree hook, registry
+metadata, write relocation, public format, or workflow-archive projection.
+
+**Next green slice — typed `/tree` command:** continue Phase 3.1d.3b with exact
+full-content tree arguments, mutating-form extension gates, selector/captured
+fallback behavior, filter/prefill transitions, branch-summary failure and
+cancellation, same-file leaf movement, queued/RPC bypass, and privacy coverage.
+Keep `/resume`, `/fork`, and `/clone` in their later ordered sub-slices, and do
+not pull Phase 3.2 registry metadata or Phase 3.3 write ownership forward.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

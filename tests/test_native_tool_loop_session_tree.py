@@ -8,8 +8,10 @@ reconstructs context when resumed from an existing native session file.
 from __future__ import annotations
 
 import io
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol, TextIO
 
 import pytest
 
@@ -26,12 +28,24 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.coding.input_queue import CodingInputQueue
+from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
+from pipy_harness.native.extension_runtime import (
+    ControlSetActiveToolsFn,
+    ControlSetModelFn,
+    ControlSetThinkingLevelFn,
+    ExtensionUiDriver,
+    HookHandler,
+    SessionDecision,
+)
 from pipy_harness.native.session_tree import (
     CompactionEntry,
     MessageEntry,
     NativeSessionTree,
+    SessionHeader,
     SessionInfoEntry,
 )
+from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
 class _SeenProvider:
@@ -94,6 +108,70 @@ def _run(
         error_stream=err,
     )
     return out.getvalue(), err.getvalue()
+
+
+class _SessionGate(Protocol):
+    def __call__(
+        self,
+        hooks: Sequence[HookHandler],
+        *,
+        operation: str,
+        cwd: str,
+        has_ui: bool,
+        target: str | None = None,
+        trigger: str | None = None,
+        notify_sink: Callable[[str, str], None] | None = None,
+        ui_driver: ExtensionUiDriver | None = None,
+        set_active_tools_fn: ControlSetActiveToolsFn | None = None,
+        set_model_fn: ControlSetModelFn | None = None,
+        set_thinking_level_fn: ControlSetThinkingLevelFn | None = None,
+        flags: Mapping[str, object] | None = None,
+        project_trusted: bool = False,
+    ) -> SessionDecision: ...
+
+
+class _TracingSessionGate:
+    def __init__(
+        self, trace: list[str], delegate: _SessionGate, *, include_details: bool
+    ) -> None:
+        self._trace = trace
+        self._delegate = delegate
+        self._include_details = include_details
+
+    def __call__(
+        self,
+        hooks: Sequence[HookHandler],
+        *,
+        operation: str,
+        cwd: str,
+        has_ui: bool,
+        target: str | None = None,
+        trigger: str | None = None,
+        notify_sink: Callable[[str, str], None] | None = None,
+        ui_driver: ExtensionUiDriver | None = None,
+        set_active_tools_fn: ControlSetActiveToolsFn | None = None,
+        set_model_fn: ControlSetModelFn | None = None,
+        set_thinking_level_fn: ControlSetThinkingLevelFn | None = None,
+        flags: Mapping[str, object] | None = None,
+        project_trusted: bool = False,
+    ) -> SessionDecision:
+        event = f"hook:{operation}:{target}" if self._include_details else "hook"
+        self._trace.append(event)
+        return self._delegate(
+            hooks,
+            operation=operation,
+            cwd=cwd,
+            has_ui=has_ui,
+            target=target,
+            trigger=trigger,
+            notify_sink=notify_sink,
+            ui_driver=ui_driver,
+            set_active_tools_fn=set_active_tools_fn,
+            set_model_fn=set_model_fn,
+            set_thinking_level_fn=set_thinking_level_fn,
+            flags=flags,
+            project_trusted=project_trusted,
+        )
 
 
 def test_tool_loop_persists_raw_turns_to_native_session_file(
@@ -240,6 +318,304 @@ def test_name_session_new_and_resume_roundtrip(tmp_path: Path) -> None:
     )
     assert "first-session" in err  # /session status line reports the name
     assert tree.name == "first-session"
+
+
+def test_new_command_preserves_switch_order_store_and_fresh_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    cwd = _workspace(tmp_path)
+    session_dir = tmp_path / "sessions"
+    active = NativeSessionTree.create(cwd, session_dir=session_dir)
+    active.append_message(AgentUserMessage(content=ProductContent("OLD")))
+    trace: list[str] = []
+
+    class TracingProvider(_SeenProvider):
+        def complete(self, request: ProviderRequest, **kwargs: object) -> ProviderResult:
+            trace.append("provider")
+            return super().complete(request, **kwargs)
+
+    original_gate = loop_module.dispatch_session_before_hooks
+    original_create = NativeSessionTree.create
+    original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
+    original_clear = CodingInputQueue.clear_extension_inputs
+    original_diag = NativeToolReplSession._emit_diagnostic
+
+    def create(
+        path: Path,
+        *,
+        session_dir: Path | None = None,
+        state_root: Path | None = None,
+        persist: bool = True,
+        session_id: str | None = None,
+        parent_session: str | None = None,
+        timestamp: str | None = None,
+    ) -> NativeSessionTree:
+        trace.append(f"create:{session_dir}:{persist}")
+        tree = original_create(
+            path,
+            session_dir=session_dir,
+            state_root=state_root,
+            persist=persist,
+            session_id=session_id,
+            parent_session=parent_session,
+            timestamp=timestamp,
+        )
+        tree.header = SessionHeader("EV\x1bIL\x07X", tree.header.timestamp, tree.header.cwd)
+        return tree
+
+    def rebuild(self: CodingProductSessionCoordinator) -> None:
+        trace.append("rebuild")
+        original_rebuild(self)
+
+    def clear(self: CodingInputQueue) -> None:
+        trace.append("clear-extension")
+        original_clear(self)
+
+    def diagnostic(
+        ui: ToolLoopTerminalUi | None, stream: TextIO, message: str
+    ) -> None:
+        trace.append("diagnostic")
+        original_diag(ui, stream, message)
+
+    monkeypatch.setattr(
+        loop_module,
+        "dispatch_session_before_hooks",
+        _TracingSessionGate(trace, original_gate, include_details=True),
+    )
+    monkeypatch.setattr(NativeSessionTree, "create", staticmethod(create))
+    monkeypatch.setattr(CodingProductSessionCoordinator, "rebuild_active_history", rebuild)
+    monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
+    monkeypatch.setattr(NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic))
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", lambda *_a, **_k: trace.append("footer"))
+
+    provider = TracingProvider()
+    _out, err = _run(
+        NativeToolReplSession(provider=provider, native_session=active),
+        cwd,
+        "/new\nFRESH\n/exit\n",
+    )
+
+    assert trace[:2] == ["rebuild", "footer"]
+    assert trace[2:8] == [
+        "hook:switch:new",
+        f"create:{session_dir}:True",
+        "rebuild",
+        "clear-extension",
+        "diagnostic",
+        "footer",
+    ]
+    assert trace[8:] == ["provider", "footer"]
+    assert _request_users(provider.requests[0]) == ["FRESH"]
+    assert len(list(session_dir.glob("*.jsonl"))) == 2
+    assert "\x1b" not in err and "\x07" not in err and "EV IL X" in err
+
+
+def test_new_command_preserves_ephemeral_session_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = _workspace(tmp_path)
+    active = NativeSessionTree.create(cwd, persist=False)
+    calls: list[tuple[Path | None, bool]] = []
+    original_create = NativeSessionTree.create
+
+    def create(
+        path: Path,
+        *,
+        session_dir: Path | None = None,
+        state_root: Path | None = None,
+        persist: bool = True,
+        session_id: str | None = None,
+        parent_session: str | None = None,
+        timestamp: str | None = None,
+    ) -> NativeSessionTree:
+        calls.append((session_dir, persist))
+        return original_create(
+            path,
+            session_dir=session_dir,
+            state_root=state_root,
+            persist=persist,
+            session_id=session_id,
+            parent_session=parent_session,
+            timestamp=timestamp,
+        )
+
+    monkeypatch.setattr(NativeSessionTree, "create", staticmethod(create))
+    provider = _SeenProvider()
+    _run(
+        NativeToolReplSession(provider=provider, native_session=active),
+        cwd,
+        "/new\n/exit\n",
+    )
+
+    assert calls == [(None, False)]
+    assert provider.requests == []
+    assert list(tmp_path.rglob("*.jsonl")) == []
+
+
+def _write_new_switch_gate(cwd: Path, body: str) -> None:
+    extension = cwd / ".pipy" / "extensions" / "new_gate.py"
+    extension.parent.mkdir(parents=True)
+    extension.write_text(
+        "from pipy_harness.extensions import SessionDecision\n"
+        "def activate(api):\n"
+        "    @api.on('session_before_switch')\n"
+        "    def gate(event, ctx):\n"
+        "        assert event.operation == 'switch'\n"
+        "        assert event.target == 'new'\n"
+        f"{body}",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_reason"),
+    [
+        ("        return SessionDecision(allow=False, reason='stay')\n", "stay"),
+        ("        raise RuntimeError('private body')\n", "extension switch hook error"),
+    ],
+)
+def test_new_switch_gate_blocks_before_create_and_applies_footer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    body: str,
+    expected_reason: str,
+) -> None:
+    cwd = _workspace(tmp_path)
+    _write_new_switch_gate(cwd, body)
+    session_dir = tmp_path / "sessions"
+    active = NativeSessionTree.create(cwd, session_dir=session_dir)
+    footer_calls: list[None] = []
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_print_footer",
+        lambda *_args, **_kwargs: footer_calls.append(None),
+    )
+    provider = _SeenProvider()
+
+    _out, err = _run(
+        NativeToolReplSession(provider=provider, native_session=active),
+        cwd,
+        "/new\n/exit\n",
+    )
+
+    assert f"switch blocked by extension: {expected_reason}" in err
+    assert len(list(session_dir.glob("*.jsonl"))) == 1
+    assert footer_calls == [None, None]
+    assert provider.requests == []
+
+
+@pytest.mark.parametrize("fatal", ["KeyboardInterrupt", "SystemExit"])
+def test_new_switch_gate_controlled_fatal_cuts_off_create_and_footer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fatal: str
+) -> None:
+    cwd = _workspace(tmp_path)
+    _write_new_switch_gate(cwd, f"        raise {fatal}()\n")
+    session_dir = tmp_path / "sessions"
+    active = NativeSessionTree.create(cwd, session_dir=session_dir)
+    footer_calls: list[None] = []
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_print_footer",
+        lambda *_args, **_kwargs: footer_calls.append(None),
+    )
+
+    with pytest.raises(KeyboardInterrupt if fatal == "KeyboardInterrupt" else SystemExit):
+        _run(
+            NativeToolReplSession(provider=_SeenProvider(), native_session=active),
+            cwd,
+            "/new\n",
+        )
+
+    assert len(list(session_dir.glob("*.jsonl"))) == 1
+    assert footer_calls == [None]
+
+
+@pytest.mark.parametrize("failure_stage", ["create", "rebuild"])
+def test_new_storage_failure_cuts_off_later_effects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    cwd = _workspace(tmp_path)
+    session_dir = tmp_path / "sessions"
+    active = NativeSessionTree.create(cwd, session_dir=session_dir)
+    active.append_message(AgentUserMessage(content=ProductContent("OLD")))
+    trace: list[str] = []
+    original_gate = loop_module.dispatch_session_before_hooks
+    original_create = NativeSessionTree.create
+    original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
+    rebuild_calls = 0
+
+    def create(
+        path: Path,
+        *,
+        session_dir: Path | None = None,
+        state_root: Path | None = None,
+        persist: bool = True,
+        session_id: str | None = None,
+        parent_session: str | None = None,
+        timestamp: str | None = None,
+    ) -> NativeSessionTree:
+        trace.append("create")
+        if failure_stage == "create":
+            raise RuntimeError("create failed")
+        return original_create(
+            path,
+            session_dir=session_dir,
+            state_root=state_root,
+            persist=persist,
+            session_id=session_id,
+            parent_session=parent_session,
+            timestamp=timestamp,
+        )
+
+    def rebuild(self: CodingProductSessionCoordinator) -> None:
+        nonlocal rebuild_calls
+        rebuild_calls += 1
+        if rebuild_calls == 2:
+            trace.append("rebuild")
+            raise RuntimeError("rebuild failed")
+        original_rebuild(self)
+
+    monkeypatch.setattr(
+        loop_module,
+        "dispatch_session_before_hooks",
+        _TracingSessionGate(trace, original_gate, include_details=False),
+    )
+    monkeypatch.setattr(NativeSessionTree, "create", staticmethod(create))
+    monkeypatch.setattr(CodingProductSessionCoordinator, "rebuild_active_history", rebuild)
+    monkeypatch.setattr(
+        CodingInputQueue,
+        "clear_extension_inputs",
+        lambda _self: trace.append("clear-extension"),
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_emit_diagnostic",
+        staticmethod(lambda *_args: trace.append("diagnostic")),
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_print_footer",
+        lambda *_args, **_kwargs: trace.append("footer"),
+    )
+
+    with pytest.raises(RuntimeError, match=f"{failure_stage} failed"):
+        _run(
+            NativeToolReplSession(provider=_SeenProvider(), native_session=active),
+            cwd,
+            "/new\n",
+        )
+
+    assert trace == ["footer", "hook", "create"] + (
+        ["rebuild"] if failure_stage == "rebuild" else []
+    )
+    expected_files = 2 if failure_stage == "rebuild" else 1
+    assert len(list(session_dir.glob("*.jsonl"))) == expected_files
 
 
 def test_name_command_queries_sets_and_persists_without_provider_turn(

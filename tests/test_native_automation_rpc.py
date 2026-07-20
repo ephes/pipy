@@ -26,6 +26,7 @@ from pipy_harness.adapters.native import PipyNativeToolReplAdapter
 from pipy_harness.native.agent import (
     AgentEvent,
     AgentRunStarted,
+    AgentUserMessage,
     FollowUpConsumed,
     ProductContent,
     SteeringConsumed,
@@ -149,6 +150,7 @@ class _RpcClient:
             agent_event_sink=self.canonical,
         )
         tree = NativeSessionTree.create(tmp_path, persist=False)
+        self.tree = tree
         self._server = NativeRpcServer(
             adapter=adapter,
             cwd=tmp_path,
@@ -644,7 +646,7 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
             }
         )
         c.wait_for(lambda record: record.get("id") == "f")
-        c.send({"id": "s", "type": "steer", "message": "/hotkeys"})
+        c.send({"id": "s", "type": "steer", "message": "/new"})
         c.wait_for(lambda record: record.get("id") == "s")
         provider.release()
 
@@ -656,7 +658,7 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
 
     assert [request.user_prompt for request in provider.requests] == [
         "ROOT",
-        "/hotkeys",
+        "/new",
         "!rpc-queued-shell",
     ]
     user_messages = [
@@ -665,10 +667,10 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
         if record.get("type") == "message_start"
         and record.get("message", {}).get("role") == "user"
     ]
-    assert user_messages == ["ROOT", "/hotkeys", "!rpc-queued-shell"]
+    assert user_messages == ["ROOT", "/new", "!rpc-queued-shell"]
     assert shell_calls == []
     assert taken == [
-        AgentQueuedInput(ProductContent("/hotkeys"), AgentQueuedInputKind.STEERING),
+        AgentQueuedInput(ProductContent("/new"), AgentQueuedInputKind.STEERING),
         AgentQueuedInput(
             ProductContent("!rpc-queued-shell"), AgentQueuedInputKind.FOLLOW_UP
         ),
@@ -682,10 +684,15 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
     assert classified_events == [
         AgentRunStarted(),
         AgentRunStarted(),
-        SteeringConsumed(ProductContent("/hotkeys")),
+        SteeringConsumed(ProductContent("/new")),
         AgentRunStarted(),
         FollowUpConsumed(ProductContent("!rpc-queued-shell")),
     ]
+    assert [
+        message.content.value
+        for message in c.tree.build_context().messages
+        if isinstance(message, AgentUserMessage)
+    ] == ["ROOT", "/new", "!rpc-queued-shell"]
 
 
 @pytest.mark.parametrize("trailing_newlines", ["\n", "\n\n"])

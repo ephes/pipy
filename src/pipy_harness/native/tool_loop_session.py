@@ -3124,6 +3124,28 @@ class NativeToolReplSession:
                                     "pipy: session named "
                                     f"{session_name_argument.value!r}."
                                 )
+                        elif command_outcome.action is CodingCommandAction.NEW_SESSION:
+                            # Start a fresh native product session in the same store.
+                            if extension_session_allows(
+                                extension_session_before_switch_hooks,
+                                operation="switch",
+                                target="new",
+                            ):
+                                session_dir = (
+                                    session_tree.path.parent
+                                    if session_tree.path is not None
+                                    else None
+                                )
+                                session_tree = NativeSessionTree.create(
+                                    cwd,
+                                    session_dir=session_dir,
+                                    persist=session_tree.persist,
+                                )
+                                rebuild_messages_from_tree()
+                                diag(
+                                    "pipy: started a new native session "
+                                    f"({sanitize_label_text(session_tree.session_id[:8])})."
+                                )
                         elif command_outcome.action in {
                             CodingCommandAction.MODEL,
                             CodingCommandAction.SCOPED_MODELS,
@@ -3779,32 +3801,6 @@ class NativeToolReplSession:
                             provider=coding_state.provider,
                         ):
                             print(overlay_line, file=error_stream)
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/new":
-                    # Start a fresh native product session in the same store.
-                    if not extension_session_allows(
-                        extension_session_before_switch_hooks,
-                        operation="switch",
-                        target="new",
-                    ):
-                        refresh_legacy_footer()
-                        continue
-                    session_dir = (
-                        session_tree.path.parent
-                        if session_tree.path is not None
-                        else None
-                    )
-                    session_tree = NativeSessionTree.create(
-                        cwd,
-                        session_dir=session_dir,
-                        persist=session_tree.persist,
-                    )
-                    rebuild_messages_from_tree()
-                    diag(
-                        "pipy: started a new native session "
-                        f"({sanitize_label_text(session_tree.session_id[:8])})."
-                    )
                     refresh_legacy_footer()
                     continue
                 if command_text == "/tree" or command_text.startswith("/tree "):

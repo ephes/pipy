@@ -34,6 +34,7 @@ def test_exit_commands_return_the_exact_terminal_outcome(command: str) -> None:
         ("/copy", CodingCommandAction.COPY_LAST_ANSWER),
         ("/session", CodingCommandAction.SHOW_SESSION_STATUS),
         ("/compact", CodingCommandAction.COMPACT),
+        ("/new", CodingCommandAction.NEW_SESSION),
     ],
 )
 def test_action_commands_return_standard_continuing_outcomes(
@@ -144,6 +145,10 @@ def test_usage_aware_classification_returns_fresh_deterministic_outcomes(
         "/Compact",
         "/compact x",
         "/compact ",
+        "/new ",
+        "/new session",
+        "/new\tsession",
+        "/NEW",
         "/NAME",
         "/name ",
         "/name    ",
@@ -307,6 +312,7 @@ def test_usage_aware_actions_require_the_usage_aware_footer(
         CodingCommandAction.COPY_LAST_ANSWER,
         CodingCommandAction.SHOW_SESSION_STATUS,
         CodingCommandAction.COMPACT,
+        CodingCommandAction.NEW_SESSION,
         CodingCommandAction.SESSION_NAME,
     ],
 )
@@ -336,6 +342,7 @@ def test_standard_actions_reject_the_usage_aware_footer(
         CodingCommandAction.COPY_LAST_ANSWER,
         CodingCommandAction.SHOW_SESSION_STATUS,
         CodingCommandAction.COMPACT,
+        CodingCommandAction.NEW_SESSION,
     ],
 )
 def test_only_argument_actions_may_carry_an_argument(

@@ -18,8 +18,12 @@ Implementation map:
   `resolve_session_ref` (local-first then global cross-project lookup),
   `list_all_native_sessions`, and the pure picker helpers
   `build_session_picker_rows`/`format_session_picker_label`/`sanitize_label_text`).
-- Runtime wiring + `/session`, `/name`, `/new`, `/tree`, `/resume`, `/fork`,
-  `/clone`, durable `/compact`, branch summaries:
+- Typed classification for `/session`, `/name`, `/new`, and `/compact`:
+  `src/pipy_harness/native/coding/commands.py`. Concrete private-tree writes,
+  navigation, extension gates, rendering, and diagnostics remain composition
+  concerns.
+- Runtime wiring + concrete effects for `/session`, `/name`, `/new`, `/tree`,
+  `/resume`, `/fork`, `/clone`, durable `/compact`, and branch summaries:
   `src/pipy_harness/native/tool_loop_session.py`.
 - Live-TTY `/tree` selector and the interactive session picker overlay
   (`ToolLoopTerminalUi.run_tree_selector`, `run_session_picker`, and the

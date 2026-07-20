@@ -29,6 +29,7 @@ class CodingCommandAction(StrEnum):
     SCOPED_MODELS = "scoped_models"
     LOGIN = "login"
     LOGOUT = "logout"
+    NEW_SESSION = "new_session"
 
 
 class CodingCommandFooterPolicy(StrEnum):
@@ -72,6 +73,8 @@ def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
         return _continue_outcome(CodingCommandAction.SHOW_SESSION_STATUS)
     if value == "/compact":
         return _continue_outcome(CodingCommandAction.COMPACT)
+    if value == "/new":
+        return _continue_outcome(CodingCommandAction.NEW_SESSION)
     if value == "/name" or (value == value.strip() and value.startswith("/name ")):
         return _continue_outcome(
             CodingCommandAction.SESSION_NAME,

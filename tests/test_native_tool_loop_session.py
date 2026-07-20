@@ -2460,7 +2460,7 @@ def test_headless_command_kernel_classifies_supported_local_commands(
             "\n/hotkeys\n/changelog\n/copy\n/session\n"
             "/compact\n/name\n/name classified value\n"
             "/model openai/gpt-5.5\n/scoped-models clear\n"
-            "/login openai-codex\n/logout openai-codex\n/exit\n"
+            "/login openai-codex\n/logout openai-codex\n/new\n/exit\n"
         ),
         output_stream=io.StringIO(),
         error_stream=error_stream,
@@ -2479,6 +2479,7 @@ def test_headless_command_kernel_classifies_supported_local_commands(
         "/scoped-models clear",
         "/login openai-codex",
         "/logout openai-codex",
+        "/new",
         "/exit",
     ]
     assert "What's New" in error_stream.getvalue()
@@ -2493,6 +2494,39 @@ def test_provider_control_commands_use_only_typed_interpreter_dispatch() -> None
     source = Path(module_path).read_text(encoding="utf-8")
     for command in ("/model", "/scoped-models", "/login", "/logout"):
         assert f'if command_text == "{command}"' not in source
+
+
+def test_new_command_uses_only_typed_interpreter_dispatch() -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    module_path = loop_module.__file__
+    assert module_path is not None
+    source = Path(module_path).read_text(encoding="utf-8")
+    assert 'if command_text == "/new"' not in source
+
+
+def test_new_command_applies_standard_footer_without_provider_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    footer_kwargs: list[dict[str, object]] = []
+
+    def record_footer(*_args: object, **kwargs: object) -> None:
+        footer_kwargs.append(kwargs)
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
+
+    NativeToolReplSession(provider=provider).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/new\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert len(footer_kwargs) == 2
+    assert footer_kwargs[0].get("usage_snapshot") is not None
+    assert footer_kwargs[1].get("usage_snapshot") is None
+    assert provider._call_counter[0] == 0
 
 
 def test_provider_control_commands_apply_usage_aware_footer(
