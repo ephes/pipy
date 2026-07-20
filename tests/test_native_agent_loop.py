@@ -20,6 +20,7 @@ from pipy_harness.native.agent.events import (
     MessageCompleted,
     ProviderFailed,
     RunCancelled,
+    SteeringConsumed,
     ToolCallCompleted,
     TurnCompleted,
     TurnStarted,
@@ -56,7 +57,9 @@ from pipy_harness.native.agent.results import (
     AgentUsage,
 )
 from pipy_harness.native.agent.runtime_ports import (
+    AgentQueuedInput,
     AgentQueuedInputKind,
+    AgentQueuedInputPort,
     AgentRunEffect,
     AgentUsagePublication,
     AppendAgentMessage,
@@ -85,6 +88,24 @@ _TOOL = ToolDefinition(
 
 class _StringSubclass(str):
     """Construct invalid provider/product values without unchecked typing."""
+
+
+class _QueuedInputs:
+    def __init__(
+        self,
+        values: Sequence[AgentQueuedInput] = (),
+        *,
+        order: list[str] | None = None,
+    ) -> None:
+        self._values = list(values)
+        self._order = order
+        self.calls = 0
+
+    def take_next(self) -> AgentQueuedInput | None:
+        self.calls += 1
+        if self._order is not None:
+            self._order.append("queue:take_next")
+        return self._values.pop(0) if self._values else None
 
 
 class _DatetimeSubclass(datetime):
@@ -411,6 +432,7 @@ def _make_loop(
     event_sink: _EventSink | None = None,
     effect_sink: _EffectSink | None = None,
     usage_publisher: _UsagePublisher | None = None,
+    queued_input_port: AgentQueuedInputPort | None = None,
     emit_delta: bool = False,
 ) -> tuple[AgentLoop, _ProviderTurn, _EventSink, _EffectSink, _UsagePublisher]:
     provider_turn = _ProviderTurn(order, outcomes, emit_delta=emit_delta)
@@ -425,6 +447,7 @@ def _make_loop(
         event_sink=events,
         run_effect_sink=effects,
         usage_publisher=usage,
+        queued_input_port=queued_input_port or _QueuedInputs(),
         status_policy=status_policy or _StatusPolicy(order),
     )
     return loop, provider_turn, events, effects, usage
@@ -436,6 +459,7 @@ def _run_input(
     malformed_count: int = 0,
     malformed_streak: int = 0,
     delivery_kind: AgentQueuedInputKind | None = None,
+    queued_content: str = "hello",
 ) -> AgentLoopRunInput:
     user = AgentUserMessage(ProductContent("hello"))
     return AgentLoopRunInput(
@@ -447,7 +471,11 @@ def _run_input(
             consecutive_malformed_streak=malformed_streak,
         ),
         pricing=AgentTokenPricing(1.0, 2.0, 3.0),
-        delivery_kind=delivery_kind,
+        accepted_queued_input=(
+            AgentQueuedInput(ProductContent(queued_content), delivery_kind)
+            if delivery_kind is not None
+            else None
+        ),
     )
 
 
@@ -471,7 +499,12 @@ def test_no_tool_success_is_headless_typed_and_strictly_ordered() -> None:
         emit_delta=True,
     )
 
-    outcome = loop.run(_run_input(delivery_kind=AgentQueuedInputKind.STEERING))
+    outcome = loop.run(
+        _run_input(
+            delivery_kind=AgentQueuedInputKind.STEERING,
+            queued_content="original queued input",
+        )
+    )
 
     assert type(outcome) is AgentLoopOutcome
     assert outcome.result.outcome is AgentRunOutcome.SUCCEEDED
@@ -499,6 +532,10 @@ def test_no_tool_success_is_headless_typed_and_strictly_ordered() -> None:
         "TurnCompleted",
         "AgentRunCompleted",
     ]
+    consumed = next(
+        event for event in events.events if isinstance(event, SteeringConsumed)
+    )
+    assert consumed.content == ProductContent("original queued input")
     assert [
         effect.message
         for effect in effects.effects
@@ -521,6 +558,26 @@ def test_no_tool_success_is_headless_typed_and_strictly_ordered() -> None:
     assert order.index("status:final_assistant") < order.index("event:TurnCompleted")
     assert status.tool_states == [outcome.final_tool_state]
     assert order[-2:] == ["status:tool_state", "event:AgentRunCompleted"]
+
+
+def test_completed_run_takes_exactly_one_next_input_after_terminal_event() -> None:
+    order: list[str] = []
+    next_input = AgentQueuedInput(
+        ProductContent("next run"),
+        AgentQueuedInputKind.FOLLOW_UP,
+    )
+    queued_inputs = _QueuedInputs((next_input,), order=order)
+    loop, _provider, _events, _effects, _usage = _make_loop(
+        order,
+        [ProviderTurnOutcome(result=_provider_result())],
+        queued_input_port=queued_inputs,
+    )
+
+    outcome = loop.run(_run_input())
+
+    assert outcome.next_input is next_input
+    assert queued_inputs.calls == 1
+    assert order[-2:] == ["event:AgentRunCompleted", "queue:take_next"]
 
 
 def test_tool_cycle_runs_sequentially_and_carries_results_to_next_request() -> None:
@@ -676,6 +733,14 @@ def test_third_malformed_call_is_a_typed_fatal_loop_failure() -> None:
     )
     tools = _Tools(order, [malformed])
     status = _StatusPolicy(order)
+    queued_inputs = _QueuedInputs(
+        (
+            AgentQueuedInput(
+                ProductContent("must not run"),
+                AgentQueuedInputKind.STEERING,
+            ),
+        )
+    )
     loop, provider, events, _effects, _usage = _make_loop(
         order,
         [
@@ -687,6 +752,7 @@ def test_third_malformed_call_is_a_typed_fatal_loop_failure() -> None:
         ],
         tools=tools,
         status_policy=status,
+        queued_input_port=queued_inputs,
     )
 
     outcome = loop.run(_run_input(tool_budget=2, malformed_count=2, malformed_streak=2))
@@ -698,6 +764,8 @@ def test_third_malformed_call_is_a_typed_fatal_loop_failure() -> None:
         ProductContent("3 consecutive malformed tool calls"),
     )
     assert outcome.terminate_session is True
+    assert outcome.next_input is None
+    assert queued_inputs.calls == 0
     assert outcome.final_tool_state.malformed_argument_count == 3
     assert outcome.final_tool_state.consecutive_malformed_streak == 3
     turn = next(event for event in events.events if isinstance(event, TurnCompleted))
@@ -765,8 +833,24 @@ def test_malformed_streak_spans_iterations_and_a_settled_call_resets_it() -> Non
     assert outcome.final_tool_state.invocations_this_turn == 1
 
 
-def test_provider_cancellation_balances_lifecycle_and_returns_typed_reason() -> None:
+@pytest.mark.parametrize(
+    "next_input",
+    [
+        None,
+        AgentQueuedInput(
+            ProductContent("retained follow-up"),
+            AgentQueuedInputKind.FOLLOW_UP,
+        ),
+    ],
+)
+def test_provider_cancellation_polls_once_after_terminal_event(
+    next_input: AgentQueuedInput | None,
+) -> None:
     order: list[str] = []
+    queued_inputs = _QueuedInputs(
+        (next_input,) if next_input is not None else (),
+        order=order,
+    )
     loop, provider, events, _effects, usage = _make_loop(
         order,
         [
@@ -774,6 +858,7 @@ def test_provider_cancellation_balances_lifecycle_and_returns_typed_reason() -> 
                 cancellation_reason=AgentCancellationReason.PROVIDER_CANCELLED
             )
         ],
+        queued_input_port=queued_inputs,
     )
 
     outcome = loop.run(_run_input())
@@ -783,12 +868,16 @@ def test_provider_cancellation_balances_lifecycle_and_returns_typed_reason() -> 
     assert (
         outcome.result.cancellation_reason is AgentCancellationReason.PROVIDER_CANCELLED
     )
+    assert outcome.terminate_session is False
+    assert outcome.next_input is next_input
+    assert queued_inputs.calls == 1
     assert usage.publications == []
     assert any(isinstance(event, RunCancelled) for event in events.events)
     assert isinstance(events.events[-3], MessageCompleted)
     assert isinstance(events.events[-2], TurnCompleted)
     assert events.events[-2].outcome is AgentTurnOutcome.CANCELLED
     assert isinstance(events.events[-1], AgentRunCompleted)
+    assert order[-2:] == ["event:AgentRunCompleted", "queue:take_next"]
     assert order.index("event:RunCancelled") < order.index("status:provider_cancelled")
     assert order.index("status:provider_cancelled") < max(
         index for index, label in enumerate(order) if label == "event:MessageCompleted"
@@ -1103,10 +1192,12 @@ def test_recursive_invalid_run_input_is_rejected_before_side_effects(
     else:
         object.__setattr__(
             run_input,
-            "delivery_kind",
-            AgentQueuedInputKind.FOLLOW_UP,
+            "accepted_queued_input",
+            AgentQueuedInput(
+                invalid_message.content,
+                AgentQueuedInputKind.FOLLOW_UP,
+            ),
         )
-        object.__setattr__(run_input, "delivery_content", invalid_message.content)
 
     with pytest.raises((TypeError, ValueError)):
         loop.run(run_input)

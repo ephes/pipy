@@ -37,7 +37,11 @@ from pipy_harness.native.automation.jsonl import (
     loads_strict,
 )
 from pipy_harness.native.automation.serialize import serialize_message
-from pipy_harness.native.agent.runtime_ports import AgentQueuedInputKind
+from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.runtime_ports import (
+    AgentQueuedInput,
+    AgentQueuedInputKind,
+)
 from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.command_sandbox import (
     CommandPolicy,
@@ -160,8 +164,19 @@ _KNOWN_COMMANDS = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class _QueuedPrompt:
+    """Controller reservation passed from queue policy into channel delivery."""
+
     text: str
-    kind: str
+    kind: AgentQueuedInputKind | None
+
+
+@dataclass(frozen=True, slots=True)
+class _PromptChannelItem:
+    """One raw prompt paired with its text-stream line framing."""
+
+    content: str
+    line: str
+    kind: AgentQueuedInputKind | None
 
 
 class _AcceptedAbortSignal:
@@ -217,13 +232,20 @@ class _PromptChannel:
     """
 
     def __init__(self) -> None:
-        self._q: "queue.Queue[_QueuedPrompt | None]" = queue.Queue()
+        self._q: "queue.Queue[_PromptChannelItem | None]" = queue.Queue()
         self._eof = False
-        self._last_delivery_kind: str | None = None
+        self._delivery_pending = False
+        self._delivered_queued_input: AgentQueuedInput | None = None
+        self._prefetched_prompt: _PromptChannelItem | None = None
 
-    def push(self, text: str, *, kind: str = "prompt") -> None:
+    def push(
+        self,
+        text: str,
+        *,
+        kind: AgentQueuedInputKind | None = None,
+    ) -> None:
         line = text if text.endswith("\n") else text + "\n"
-        self._q.put(_QueuedPrompt(line, kind))
+        self._q.put(_PromptChannelItem(text, line, kind))
 
     def signal_eof(self) -> None:
         if not self._eof:
@@ -231,22 +253,46 @@ class _PromptChannel:
             self._q.put(None)
 
     def readline(self, *_args: Any) -> str:
-        item = self._q.get()
+        item = self._prefetched_prompt
         if item is None:
+            item = self._q.get()
+        else:
+            self._prefetched_prompt = None
+        if item is None:
+            self._delivery_pending = False
+            self._delivered_queued_input = None
             self._q.put(None)  # re-arm EOF for any later readline
             return ""
-        self._last_delivery_kind = item.kind
-        return item.text
+        self._delivery_pending = True
+        self._delivered_queued_input = (
+            AgentQueuedInput(ProductContent(item.content), item.kind)
+            if item.kind is not None
+            else None
+        )
+        return item.line
 
-    def take_delivery_kind(self) -> AgentQueuedInputKind | None:
-        kind = self._last_delivery_kind
-        self._last_delivery_kind = None
-        if kind in {
-            AgentQueuedInputKind.STEERING.value,
-            AgentQueuedInputKind.FOLLOW_UP.value,
-        }:
-            return AgentQueuedInputKind(kind)
-        return None
+    def take_next(self) -> AgentQueuedInput | None:
+        if self._delivery_pending:
+            self._delivery_pending = False
+            queued_input = self._delivered_queued_input
+            self._delivered_queued_input = None
+            return queued_input
+        if self._prefetched_prompt is not None:
+            return None
+        try:
+            item = self._q.get_nowait()
+        except queue.Empty:
+            return None
+        if item is None:
+            self._q.put(None)
+            return None
+        if item.kind is None:
+            self._prefetched_prompt = item
+            return None
+        return AgentQueuedInput(
+            ProductContent(item.content),
+            item.kind,
+        )
 
     def read(self, *_args: Any) -> str:
         return self.readline()
@@ -413,10 +459,10 @@ class NativeRpcServer:
             return None
         if self._steering:
             message = self._steering.pop(0)
-            kind = "steering"
+            kind = AgentQueuedInputKind.STEERING
         elif self._follow_up:
             message = self._follow_up.pop(0)
-            kind = "follow_up"
+            kind = AgentQueuedInputKind.FOLLOW_UP
         else:
             return None
         # The reserved run is active from this moment (accept time), not only

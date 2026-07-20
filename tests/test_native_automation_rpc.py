@@ -16,10 +16,12 @@ import os
 import queue
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
+import pipy_harness.native.tool_loop_session as loop_module
 from pipy_harness.adapters.native import PipyNativeToolReplAdapter
 from pipy_harness.native.agent import (
     AgentEvent,
@@ -28,11 +30,15 @@ from pipy_harness.native.agent import (
     ProductContent,
     SteeringConsumed,
 )
+from pipy_harness.native.agent.runtime_ports import (
+    AgentQueuedInput,
+    AgentQueuedInputKind,
+)
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.automation.jsonl import JsonlLineBuffer
-from pipy_harness.native.automation.rpc import NativeRpcServer
+from pipy_harness.native.automation.rpc import NativeRpcServer, _PromptChannel
 from pipy_harness.native.fake import AutomationFakeProvider
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
@@ -393,8 +399,24 @@ def test_prompt_racing_agent_end_is_reserved_not_stranded(
         assert server._follow_up == []
     queued = server._channel._q.get_nowait()
     assert queued is not None
-    assert queued.text == "NEXT\n"
+    assert queued.line == "NEXT\n"
+    assert queued.content == "NEXT"
     assert queued.kind == "follow_up"
+
+
+def test_prompt_channel_classifies_only_the_just_delivered_line() -> None:
+    channel = _PromptChannel()
+    channel.push("ordinary prompt")
+
+    assert channel.readline() == "ordinary prompt\n"
+    classified = AgentQueuedInput(
+        ProductContent("classified\n\n"),
+        AgentQueuedInputKind.FOLLOW_UP,
+    )
+    channel.push(classified.content.value, kind=classified.kind)
+
+    assert channel.take_next() is None
+    assert channel.take_next() == classified
 
 
 def test_prompt_emits_correlated_success_then_event_sequence(client) -> None:
@@ -576,6 +598,18 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
 ) -> None:
     provider = _BlockingFirstAutomationProvider()
     shell_calls: list[str] = []
+    taken: list[AgentQueuedInput] = []
+    original_queued_input_port = loop_module.NativeAgentQueuedInputPort
+
+    class RecordingQueuedInputPort:
+        def __init__(self, take_next: Callable[[], AgentQueuedInput | None]) -> None:
+            self._delegate = original_queued_input_port(take_next)
+
+        def take_next(self) -> AgentQueuedInput | None:
+            queued_input = self._delegate.take_next()
+            if queued_input is not None:
+                taken.append(queued_input)
+            return queued_input
 
     def record_shell_dispatch(
         _session: NativeToolReplSession,
@@ -588,6 +622,11 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
         NativeToolReplSession,
         "_run_local_shell_shortcut",
         record_shell_dispatch,
+    )
+    monkeypatch.setattr(
+        loop_module,
+        "NativeAgentQueuedInputPort",
+        RecordingQueuedInputPort,
     )
     c = _RpcClient(tmp_path, provider=provider)
     c._seen = []
@@ -628,6 +667,12 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
     ]
     assert user_messages == ["ROOT", "/hotkeys", "!rpc-queued-shell"]
     assert shell_calls == []
+    assert taken == [
+        AgentQueuedInput(ProductContent("/hotkeys"), AgentQueuedInputKind.STEERING),
+        AgentQueuedInput(
+            ProductContent("!rpc-queued-shell"), AgentQueuedInputKind.FOLLOW_UP
+        ),
+    ]
 
     classified_events = [
         event
@@ -641,6 +686,67 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
         AgentRunStarted(),
         FollowUpConsumed(ProductContent("!rpc-queued-shell")),
     ]
+
+
+@pytest.mark.parametrize("trailing_newlines", ["\n", "\n\n"])
+def test_post_run_rpc_queue_preserves_trailing_newlines(
+    trailing_newlines: str,
+    tmp_path: Path,
+) -> None:
+    provider = _BlockingFirstAutomationProvider()
+    queued_content = f"queued steering{trailing_newlines}"
+    c = _RpcClient(tmp_path, provider=provider)
+    c._seen = []
+    try:
+        c.send({"id": "p", "type": "prompt", "message": "ROOT"})
+        c.wait_for(lambda record: record.get("type") == "agent_start")
+        c.send({"id": "s", "type": "steer", "message": queued_content})
+        c.wait_for(lambda record: record.get("id") == "s")
+        provider.release()
+        c.collect_until(lambda record: record.get("type") == "agent_settled")
+    finally:
+        provider.release()
+        c.close()
+
+    assert [request.user_prompt for request in provider.requests] == [
+        "ROOT",
+        queued_content,
+    ]
+    assert [
+        event.content.value
+        for event in c.canonical.events
+        if isinstance(event, SteeringConsumed)
+    ] == [queued_content]
+
+
+@pytest.mark.parametrize("trailing_newlines", ["\n", "\n\n"])
+def test_idle_wake_rpc_queue_preserves_trailing_newlines(
+    trailing_newlines: str,
+    tmp_path: Path,
+) -> None:
+    provider = _BlockingFirstAutomationProvider()
+    provider.release()
+    queued_content = f"idle follow-up{trailing_newlines}"
+    c = _RpcClient(tmp_path, provider=provider)
+    c._seen = []
+    try:
+        c.send({"id": "p", "type": "prompt", "message": "ROOT"})
+        c.collect_until(lambda record: record.get("type") == "agent_settled")
+        c.send({"id": "f", "type": "follow_up", "message": queued_content})
+        c.wait_for(lambda record: record.get("id") == "f")
+        c.collect_until(lambda record: record.get("type") == "agent_settled")
+    finally:
+        c.close()
+
+    assert [request.user_prompt for request in provider.requests] == [
+        "ROOT",
+        queued_content,
+    ]
+    assert [
+        event.content.value
+        for event in c.canonical.events
+        if isinstance(event, FollowUpConsumed)
+    ] == [queued_content]
 
 
 def test_get_state_after_agent_end_is_settled(client) -> None:

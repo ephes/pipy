@@ -1559,7 +1559,7 @@ ordered migration boundary is Phase 2.2a, one provider-turn completion.
 ### Provider-turn executor — SHIPPED (2026-07-19)
 
 Phase 2.2a extracts one synchronous provider completion into UI-free
-`native.agent.loop.ProviderTurnExecutor`. It owns canonical text/reasoning delta
+`native.agent.provider_turn.ProviderTurnExecutor`. It owns canonical text/reasoning delta
 publication, the optional worker and `CancelToken`, exact cancellation versus
 completion ordering, bounded cleanup, a late-delta admission gate, and a typed
 provider-result or closed cancellation-reason outcome. `NativeToolReplSession`
@@ -1653,7 +1653,7 @@ an equal-text accepted prompt during hook transformation. Manual `/compact`,
 the original bounded `CustomMessageEntry`, public formats, and archive privacy
 stay unchanged.
 
-The remaining ordered Phase 2.2 cuts are:
+The completed ordered Phase 2.2 cuts are:
 
 1. **2.2b.3 — session tool-capability port seam (shipped):** inject tool
    capabilities while preserving sequential scheduling, budgets, and extension
@@ -1667,7 +1667,7 @@ The remaining ordered Phase 2.2 cuts are:
 4. **2.2b.4c — run-effect, usage, and queue-facing ports (shipped):** establish the
    remaining typed loop seams while Phase 3 retains queue/lifecycle ownership
    and Phase 3.3 retains persistence-write relocation.
-5. **2.2b.5 — full headless `AgentLoop` ownership cutover:** complete four
+5. **2.2b.5 — full headless `AgentLoop` ownership cutover (shipped):** complete four
    independently green cuts: (a) rename the already-shipped one-provider
    executor to `native.agent.provider_turn` and reserve `native.agent.loop`,
    (b) extract typed request/tool/status policy collaborators, (c) move the
@@ -1675,7 +1675,8 @@ The remaining ordered Phase 2.2 cuts are:
    the controller-owned queued-input handoff while preserving separate-run
    semantics and the serialized RPC boundary.
 
-Slices 2.2b.3–2.2b.5c are shipped; Slice 2.2b.5d remains pending.
+Slices 2.2b.3–2.2b.5d are shipped. The next ordered migration target is Phase
+3.1, the headless coding-session state machine.
 Parallel tools,
 richer termination, async
 conversion, persistence relocation, UI/extension redesign, and provider catalog
@@ -1706,9 +1707,10 @@ immutable snapshot.
 
 `NativeToolReplSession` still owns queue storage and RPC settlement,
 diagnostics/rendering, compaction, accepted-input preparation, and persistence.
-Slice 2.2b.5c now owns the single-run cycle in `native.agent.loop`; 2.2b.5d
-closes the controller-owned separate-run queued-input handoff. Public formats,
-extension callback order, persistence data, and archive privacy do not change.
+The single-run cycle and its one-item typed queue-port poll now live in
+`native.agent.loop`; the product controller starts any returned item as a
+separate run. Public formats, extension callback order, persistence data, and
+archive privacy do not change.
 
 ### Single-run headless AgentLoop — SHIPPED (2026-07-20)
 
@@ -1733,8 +1735,26 @@ effects update the live product message mirror before the durable write. Direct
 fake-port tests require no terminal, filesystem, concrete
 provider/tool, extension runtime, or product session, and static/recursive/
 fresh-process gates keep those dependencies out of the canonical layer. The old
-inline cycle and its session-local live-tool-output helper are deleted. Slice
-2.2b.5d remains the separate-run steering/follow-up handoff closure.
+inline cycle and its session-local live-tool-output helper are deleted.
+
+### Typed queued-input handoff — SHIPPED (2026-07-20)
+
+Phase 2.2b.5d closes the controller-owned steering/follow-up seam. One accepted
+queued prompt enters `AgentLoopRunInput` as an atomic `AgentQueuedInput`; after
+the synchronous `AgentRunCompleted` event, a non-terminating loop asks the
+controller port for at most one next item and returns it as
+`AgentLoopOutcome.next_input`. The product starts that value as a distinct next
+run, preserving steering-before-follow-up priority and the existing local-command
+boundary.
+
+RPC uses the same whole DTO for a post-run reservation and for an idle blocking
+input wake. Queue storage, reservation, active/idle transitions, abort clearing,
+`queue_update`, and protocol `agent_settled` remain at the serialized RPC
+boundary. The split `_QueuedDeliverySource`, `_PromptChannel._last_delivery_kind`,
+and `take_delivery_kind` path is deleted without an alias. Queued `/...` and
+`!...` content remains provider-visible rather than re-entering local dispatch;
+JSON/RPC/session/extension formats, callback order, persistence, and archive
+privacy are unchanged. Phase 3.1 is the next ownership move.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

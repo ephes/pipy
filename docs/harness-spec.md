@@ -1593,8 +1593,8 @@ Static, recursive, import-order, and fresh-process gates keep both the canonical
 policy and product adapters free of terminal/UI, session/persistence,
 extension-runtime, concrete provider/tool, automation, capture, and
 metadata-archive dependencies. Queue/RPC lifecycle, persistence, rendering,
-and compaction remain in `NativeToolReplSession`; the single-run cycle moves in
-2.2b.5c and the queued-input handoff closes in 2.2b.5d.
+and compaction remain in `NativeToolReplSession`; the single-run cycle moved in
+2.2b.5c and the queued-input handoff closed in 2.2b.5d.
 
 Phase 2.2b.5c moves that actual single-run cycle into
 `native.agent.loop.AgentLoop`. The loop accepts pre-existing canonical history,
@@ -1620,7 +1620,20 @@ canonical module imports no terminal/UI, extension runtime, automation/archive,
 session/persistence, provider construction, concrete provider/tool, or product
 adapter, and it is not eagerly exported. Queue storage, priority, reservation,
 idle/settled lifecycle, and separate-run steering/follow-up selection remain at
-the serialized product boundary for 2.2b.5d.
+the serialized product boundary.
+
+Phase 2.2b.5d replaces the parallel delivery-content/delivery-kind fields with
+one `AgentLoopRunInput.accepted_queued_input`. The loop emits the consumed event
+from that original atomic DTO, so product input hooks may still transform the
+accepted provider-visible message independently. After synchronous
+`AgentRunCompleted`, a non-terminating loop calls `AgentQueuedInputPort.take_next`
+exactly once and returns the result as `AgentLoopOutcome.next_input`; the product
+controller invokes a distinct next run. RPC carries the same full DTO through
+both post-run reservation and idle blocking-input wake paths. Queue storage,
+steering-first priority, reservation, idle transitions, abort clearing,
+`queue_update`, and protocol `agent_settled` remain in the serialized RPC/product
+owners. `_QueuedDeliverySource`, `_PromptChannel._last_delivery_kind`, and
+`take_delivery_kind` are deleted without aliases or a second handoff path.
 
 ### Canonical Agent Tool-Capability Port
 

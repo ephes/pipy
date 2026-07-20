@@ -63,7 +63,9 @@ from pipy_harness.native.agent.results import (
     AgentTurnOutcome,
 )
 from pipy_harness.native.agent.runtime_ports import (
+    AgentQueuedInput,
     AgentQueuedInputKind,
+    AgentQueuedInputPort,
     AgentRunEffectSink,
     AgentUsagePublication,
     AgentUsagePublisher,
@@ -91,15 +93,10 @@ class AgentLoopRunInput:
     active_input: AgentActiveInput
     tool_policy_state: AgentToolPolicyState
     pricing: AgentTokenPricing | None = None
-    delivery_kind: AgentQueuedInputKind | None = None
-    delivery_content: ProductContent | None = None
+    accepted_queued_input: AgentQueuedInput | None = None
 
     def __post_init__(self) -> None:
         _validate_loop_run_input(self)
-
-    @property
-    def consumed_content(self) -> ProductContent:
-        return self.delivery_content or self.active_input.accepted_message.content
 
 
 def _validate_loop_run_input(run_input: AgentLoopRunInput) -> None:
@@ -123,15 +120,10 @@ def _validate_loop_run_input(run_input: AgentLoopRunInput) -> None:
         raise TypeError("pricing must be an exact AgentTokenPricing or None")
     if run_input.pricing is not None:
         _revalidate_pricing(run_input.pricing)
-    if (
-        run_input.delivery_kind is not None
-        and type(run_input.delivery_kind) is not AgentQueuedInputKind
-    ):
-        raise TypeError("delivery_kind must be AgentQueuedInputKind or None")
-    if run_input.delivery_content is not None:
-        validate_product_content(run_input.delivery_content, "delivery_content")
-    if run_input.delivery_kind is None and run_input.delivery_content is not None:
-        raise ValueError("delivery_content requires a delivery_kind")
+    _validate_queued_input(
+        run_input.accepted_queued_input,
+        "accepted_queued_input",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +226,7 @@ class AgentLoopOutcome:
     result: AgentRunResult
     final_history: tuple[AgentMessage, ...]
     final_tool_state: AgentToolPolicyState
+    next_input: AgentQueuedInput | None = None
     terminate_session: bool = False
     provider_status: AgentProviderStatusDecision | None = None
 
@@ -243,6 +236,7 @@ class AgentLoopOutcome:
         _validate_history(self.final_history)
         if type(self.final_tool_state) is not AgentToolPolicyState:
             raise TypeError("final_tool_state must be AgentToolPolicyState")
+        _validate_queued_input(self.next_input, "next_input")
         require_bool(self.terminate_session, "terminate_session")
         if (
             self.provider_status is not None
@@ -291,6 +285,7 @@ class AgentLoop:
         event_sink: AgentEventSink,
         run_effect_sink: AgentRunEffectSink,
         usage_publisher: AgentUsagePublisher,
+        queued_input_port: AgentQueuedInputPort,
         status_policy: AgentLoopStatusPolicy,
         tool_waiter: ToolInterruptWaiter | None = None,
     ) -> None:
@@ -301,6 +296,11 @@ class AgentLoop:
         _require_protocol(event_sink, AgentEventSink, "event_sink")
         _require_protocol(run_effect_sink, AgentRunEffectSink, "run_effect_sink")
         _require_protocol(usage_publisher, AgentUsagePublisher, "usage_publisher")
+        _require_protocol(
+            queued_input_port,
+            AgentQueuedInputPort,
+            "queued_input_port",
+        )
         _require_protocol(status_policy, AgentLoopStatusPolicy, "status_policy")
         if tool_waiter is not None and not callable(tool_waiter):
             raise TypeError("tool_waiter must be callable or None")
@@ -311,6 +311,7 @@ class AgentLoop:
         self._events = event_sink
         self._effects = run_effect_sink
         self._usage_publisher = usage_publisher
+        self._queued_inputs = queued_input_port
         self._status = status_policy
         self._tool_waiter = tool_waiter
 
@@ -335,19 +336,27 @@ class AgentLoop:
         result = self._build_result(state, run_input.active_input)
         self._status.tool_policy_state_changed(state.tool_state)
         self._events.emit(AgentRunCompleted(result))
+        next_input = None
+        if not state.terminate_session:
+            next_input = self._queued_inputs.take_next()
+            _validate_queued_input(next_input, "next_input")
         return AgentLoopOutcome(
             result,
             state.history,
             state.tool_state,
+            next_input=next_input,
             terminate_session=state.terminate_session,
             provider_status=state.provider_status,
         )
 
     def _emit_consumed_input(self, run_input: AgentLoopRunInput) -> None:
-        if run_input.delivery_kind is AgentQueuedInputKind.STEERING:
-            self._events.emit(SteeringConsumed(run_input.consumed_content))
-        elif run_input.delivery_kind is AgentQueuedInputKind.FOLLOW_UP:
-            self._events.emit(FollowUpConsumed(run_input.consumed_content))
+        queued_input = run_input.accepted_queued_input
+        if queued_input is None:
+            return
+        if queued_input.kind is AgentQueuedInputKind.STEERING:
+            self._events.emit(SteeringConsumed(queued_input.content))
+        elif queued_input.kind is AgentQueuedInputKind.FOLLOW_UP:
+            self._events.emit(FollowUpConsumed(queued_input.content))
 
     def _run_iteration(
         self,
@@ -777,6 +786,16 @@ def _validate_active_input(active_input: object) -> None:
         AgentUserMessage.__post_init__(message)
         if message is active_input.accepted_message:
             raise ValueError("accepted_message must not occur in request_overlay")
+
+
+def _validate_queued_input(queued_input: object, field_name: str) -> None:
+    if queued_input is None:
+        return
+    if type(queued_input) is not AgentQueuedInput:
+        raise TypeError(f"{field_name} must be an exact AgentQueuedInput or None")
+    validate_product_content(queued_input.content, f"{field_name}.content")
+    if type(queued_input.kind) is not AgentQueuedInputKind:
+        raise TypeError(f"{field_name}.kind must be an exact AgentQueuedInputKind")
 
 
 def _validate_accepted_message_anchor(

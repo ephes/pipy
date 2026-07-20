@@ -344,7 +344,7 @@ but its invocation sink is already closed and its turn/call identity cannot chan
 ### Slice 2.2a: Provider-turn boundary — SHIPPED
 
 Extract one synchronous provider completion into
-`native.agent.loop.ProviderTurnExecutor`. The boundary owns text and reasoning
+`native.agent.provider_turn.ProviderTurnExecutor`. The boundary owns text and reasoning
 delta publication as canonical events, the optional worker and `CancelToken`,
 exact first-cancellation versus worker-completion ordering, bounded cleanup,
 late-delta admission gating, and a typed result-or-cancellation outcome. It is
@@ -542,7 +542,7 @@ message. Persistence still executes through the injected product callback and
 does not move until Phase 3.3. Public JSON/RPC/SDK/session/extension formats and
 the metadata-only archive allowlist do not change.
 
-### Slice 2.2b.5: Full headless `AgentLoop` ownership cutover — IN PROGRESS
+### Slice 2.2b.5: Full headless `AgentLoop` ownership cutover — SHIPPED
 
 The cutover is split into four independently green ownership cuts so the name
 reserved for the full loop is not occupied by the already-shipped one-provider
@@ -569,7 +569,7 @@ executor:
    cycle. **SHIPPED.**
 4. **2.2b.5d — queued-input handoff closure:** complete the controller-owned
    steering/follow-up handoff while preserving separate-run semantics and the
-   serialized RPC boundary. **PENDING.**
+   serialized RPC boundary. **SHIPPED.**
 
 The pure single-run turn loop now lives in `native.agent.loop`. It owns provider
 streaming, assistant-message assembly, tool-call cycles, the existing zero-retry
@@ -579,10 +579,16 @@ callbacks retain compaction and request construction, fresh provider/waiter
 binding, terminal pending-input effects, diagnostics, rendering, and durable
 writes. Typed callbacks preserve the prior per-transition counter-mirror timing
 and a final pre-`AgentRunCompleted` synchronization, while append effects update
-the live product message mirror before durable persistence. Slice 2.2b.5d closes
-the separate-run steering/follow-up handoff without
-moving queue storage, ordering, reservation, or lifecycle into the loop; Slice
-3.1 later moves that controller policy without changing the loop contract.
+the live product message mirror before durable persistence. After the
+synchronous `AgentRunCompleted` emission, the loop asks the controller-owned
+`AgentQueuedInputPort` for at most one eligible value and returns that intact
+`AgentQueuedInput` as `AgentLoopOutcome.next_input`; the product controller
+starts it as a separate next run. Queue storage, ordering, reservation, idle
+transitions, and lifecycle remain outside the loop. The superseded
+`_QueuedDeliverySource`, `_PromptChannel._last_delivery_kind`, and
+`take_delivery_kind` text/kind split are deleted without a compatibility path.
+Slice 3.1 later moves the same controller policy without changing the loop
+contract.
 
 The loop receives model/provider and tool capabilities through protocols. It
 does not know about terminal rendering, slash commands, menus, session paths,
@@ -809,7 +815,8 @@ The default sequence is:
 | 2.2b.4c | `49b8871` — `refactor: add agent runtime ports` | Direct runtime-value/port, callback-adapter, product-session identity/order/failure, queue-priority/classification, usage-scope, and static/recursive/fresh-process import contracts passed. Final `just check`: Ruff and mypy clean across 357 files, 3,518 tests passed, 2 skipped; docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, 4 extension-live checks, 11 export/privacy checks, 12 TUI workflow checks, and the 49/49 parity score passed. Pi `openai-codex/gpt-5.6-sol` reached explicit CLEAN in the user-authorized round 4 after 3 accepted/fixed warnings: stale verification docs, classified RPC queued slash/shell input reaching local dispatch, and the resulting stale test count. The RPC fix added serialized-boundary regression coverage; deterministic test-client stream cleanup fixed the post-review test-only close/read deadlock exposed by the new client. Claude Fable returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors. No finding was rejected or deferred. |
 | 2.2b.5a | `cff215d` — `refactor: name provider-turn boundary` | Atomic alias-free module and test renames, deleted-path regression, documentation history, and static/recursive/fresh-process import contracts passed. Final `just check`: Ruff and mypy clean across 357 files, 3,519 tests passed, 2 skipped; docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, 140 extension/export/privacy/TUI tests, 12 TUI workflow checks, and parity 49/49 passed. One unrelated PTY timing miss passed three isolated repeats without code changes before the fresh green full run. Pi `openai-codex/gpt-5.6-sol` reached explicit CLEAN after all findings and post-Fable fixes; final Claude Fable returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors. All 5 findings were accepted/fixed; none was rejected or deferred. |
 | 2.2b.5b | `f5ac582` — `refactor: extract agent loop policy` | Immutable request/tool/status collaborators, product callback adapters, provider-facing JSON-schema materialization, shared budget limits, and static/recursive/fresh-process import-boundary contracts passed. Final `just check`: Ruff and mypy clean across 363 files, 3,610 tests passed, 2 skipped; docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, extension lifecycle/tool/result/provider gates, 11 export/privacy checks, 23 session-tree checks, 12 TUI workflow checks, and parity 49/49 passed. The final Pi `openai-codex/gpt-5.6-sol` review returned explicit CLEAN with zero findings after 7 accepted/fixed findings covering recursive immutability and exact validation, provider projection, callback-result validation, canonical budget use, and invariant documentation. The final Claude Fable re-review returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors after 2 accepted/fixed suggestions; its first attempt was fail-closed INVALID after an out-of-scope path request and was not accepted. All 9 findings were accepted/fixed; none was rejected or deferred. |
-| 2.2b.5c | This commit — `refactor: extract single-run agent loop` | Headless single-run loop, product composition adapters, inline-cycle deletion, recursive exact port/identity validation, and static/recursive/fresh-process/no-eager/import-owner contracts passed. Final `just check`: Ruff and mypy clean across 366 files, 3,675 tests passed, 2 skipped; focused integration/architecture 336 passed and direct headless/import validation 65 passed; docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, extension lifecycle/tool/result/provider gates, 11 export/privacy checks, 23 session-tree checks, 12 TUI workflow checks, and parity 49/49 passed. Pi `openai-codex/gpt-5.6-sol` reached explicit CLEAN in round 5 after 6 accepted/fixed findings covering recursive semantic validation, callback cutoffs, tool-result identity, and exact product-mirror synchronization. Claude Fable's first valid pass found 1 aligned synchronization suggestion, which was accepted/fixed and received post-fix Pi CLEAN; the final Fable pass returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors. One intermediate Fable attempt was fail-closed INVALID after an out-of-scope raw-repository Glob and was not accepted. All 7 findings were accepted/fixed; none was rejected or deferred. |
+| 2.2b.5c | `c98b785` — `refactor: extract single-run agent loop` | Headless single-run loop, product composition adapters, inline-cycle deletion, recursive exact port/identity validation, and static/recursive/fresh-process/no-eager/import-owner contracts passed. Final `just check`: Ruff and mypy clean across 366 files, 3,675 tests passed, 2 skipped; focused integration/architecture 336 passed and direct headless/import validation 65 passed; docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, extension lifecycle/tool/result/provider gates, 11 export/privacy checks, 23 session-tree checks, 12 TUI workflow checks, and parity 49/49 passed. Pi `openai-codex/gpt-5.6-sol` reached explicit CLEAN in round 5 after 6 accepted/fixed findings covering recursive semantic validation, callback cutoffs, tool-result identity, and exact product-mirror synchronization. Claude Fable's first valid pass found 1 aligned synchronization suggestion, which was accepted/fixed and received post-fix Pi CLEAN; the final Fable pass returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors. One intermediate Fable attempt was fail-closed INVALID after an out-of-scope raw-repository Glob and was not accepted. All 7 findings were accepted/fixed; none was rejected or deferred. |
+| 2.2b.5d | This commit — `refactor: close queued-input handoff` | Atomic accepted/next queued-input DTOs, exact post-`AgentRunCompleted` port polling, separate-run product handoff, RPC idle/post-run typed delivery, local-command priority, transformed-input identity, cancellation policy, and deleted split-side-channel contracts passed. Final `just check`: Ruff and mypy clean across 366 files, 3,683 tests passed, 2 skipped; focused loop/runtime-port/session/RPC/import validation passed 213 tests plus exact trailing-newline, just-delivered classification, and cancelled-run polling cases. Docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, 5 extension-input checks, 3 lifecycle checks, 4 live-session checks, 6 full extension/privacy checks, 11 export/privacy checks, 23 session-tree checks, 12 TUI workflow checks, and parity 49/49 passed. One unrelated test-owned TUI PTY buffer-detach failure passed the exact case, both parameters, the PTY gate, and a fresh full suite without code changes. Pi `openai-codex/gpt-5.6-sol` round 1 found 1 trailing-newline Warning, which was accepted/fixed; round 2 returned CLEAN. Claude Fable's first valid unscoped pass found 3 Suggestions covering post-read dequeue isolation, cancelled-run polling, and suspected reservation-DTO liveness; two received code/test fixes, while the live `_QueuedPrompt` reservation-to-delivery path was retained with concrete evidence and a clarifying docstring. Final Pi round 3 returned CLEAN with zero findings, and final Fable round 2 returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors. All 4 findings were accepted and resolved; none was rejected or deferred. |
 
 The earlier code-quality audit remains evidence, with this mapping:
 

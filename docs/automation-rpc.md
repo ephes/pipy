@@ -504,10 +504,12 @@ queue) rather than being silently deferred, so it appears in `queue_update`/
 `pendingMessageCount`. True in-turn injection of a message into the
 already-running provider turn remains a follow-on.
 
-Reserved RPC steering/follow-up keeps its closed delivery classification through
-the input adapter. Consequently text beginning with `/` or `!` is still a
-provider-visible queued prompt when delivered; it never re-enters local slash
-command or shell-shortcut dispatch.
+Reserved RPC steering/follow-up travels through the canonical queued-input port
+as one `AgentQueuedInput` containing both full content and its closed delivery
+kind. Both post-run reservation and an idle blocking-input wake preserve that
+whole value; there is no separate last-kind side channel. Consequently text
+beginning with `/` or `!` is still a provider-visible queued prompt when
+delivered; it never re-enters local slash-command or shell-shortcut dispatch.
 
 ### Session switching, fork, clone
 

@@ -13,6 +13,7 @@ SOURCE_ROOT = REPO_ROOT / "src"
 LOOP_MODULE = "pipy_harness.native.agent.loop"
 LOOP_PATH = SOURCE_ROOT / "pipy_harness/native/agent/loop.py"
 TOOL_LOOP_SESSION_PATH = SOURCE_ROOT / "pipy_harness/native/tool_loop_session.py"
+RPC_PATH = SOURCE_ROOT / "pipy_harness/native/automation/rpc.py"
 
 _FORBIDDEN_PREFIXES = (
     "pipy_harness.capture",
@@ -332,3 +333,17 @@ def test_product_session_composes_agent_loop_without_inline_policy_cycle() -> No
         and node.func.id == "AgentLoop"
         for node in ast.walk(tree)
     )
+
+
+def test_queued_input_handoff_has_no_split_kind_side_channel() -> None:
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (LOOP_PATH, TOOL_LOOP_SESSION_PATH, RPC_PATH)
+    )
+    for obsolete_symbol in (
+        "_QueuedDeliverySource",
+        "_last_delivery_kind",
+        "take_delivery_kind",
+        "delivery_content",
+    ):
+        assert obsolete_symbol not in source

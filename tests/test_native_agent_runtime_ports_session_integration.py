@@ -410,7 +410,11 @@ def _write_queue_extension(tmp_path: Path) -> None:
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     (extension_dir / "runtime_queue.py").write_text(
+        "from pipy_harness.extensions import InputTransform\n"
         "def activate(api):\n"
+        "    @api.on('input')\n"
+        "    def tag(event, ctx):\n"
+        "        return InputTransform(text='[TAGGED] ' + event.text)\n"
         "    def queue(ctx, args):\n"
         "        ctx.send_message(\n"
         "            {'customType': 'note', 'content': '/not-a-command'},\n"
@@ -425,7 +429,7 @@ def _write_queue_extension(tmp_path: Path) -> None:
     )
 
 
-def test_product_queue_port_preserves_seed_priority_kind_and_verbatim_content(
+def test_product_queue_port_preserves_priority_kind_and_original_hooked_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.tool_loop_session as loop_module
@@ -461,9 +465,9 @@ def test_product_queue_port_preserves_seed_priority_kind_and_verbatim_content(
     )
 
     assert [request.user_prompt for request in provider.requests] == [
-        "seed-first",
-        "!not-a-shell",
-        "/not-a-command",
+        "[TAGGED] seed-first",
+        "[TAGGED] !not-a-shell",
+        "[TAGGED] /not-a-command",
     ]
     assert taken == [
         AgentQueuedInput(ProductContent("!not-a-shell"), AgentQueuedInputKind.STEERING),
