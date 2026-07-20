@@ -192,6 +192,30 @@ _CONCRETE_TOOL_MODULES = (
     "pipy_harness.native.tools.write",
 )
 
+_CODING_FORBIDDEN_IMPORTS = (
+    "pipy_harness.capture",
+    "pipy_session",
+    "pipy_harness.native.agent_adapters",
+    "pipy_harness.native.automation",
+    "pipy_harness.native.extension_runtime",
+    "pipy_harness.native.extensions",
+    "pipy_harness.native.ui",
+    "pipy_harness.native.tui",
+    "pipy_harness.native.terminal_compare",
+    "pipy_harness.native.terminal_input",
+    "pipy_harness.native.terminal_screen",
+    "pipy_harness.native.tool_renderers",
+    "pipy_harness.native.tool_loop_session",
+    "pipy_harness.native.provider_construction",
+    "pipy_harness.native.providers",
+    "pipy_harness.native.session",
+    "pipy_harness.native.session_resume",
+    "pipy_harness.native.session_tree",
+    "pipy_harness.native.session_tree_commands",
+    *_CONCRETE_TOOL_MODULES,
+    *_LEGACY_CONCRETE_PROVIDER_MODULES,
+)
+
 _AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS = (
     "pipy_harness.cli",
     "pipy_harness.adapters",
@@ -440,15 +464,12 @@ ARCHITECTURE_RULES = (
     ),
     BoundaryRule(
         source_package="pipy_harness.native.coding",
-        forbidden_imports=(
-            "pipy_harness.native.ui",
-            "pipy_harness.native.tui",
-            "pipy_harness.native.terminal_compare",
-            "pipy_harness.native.terminal_input",
-            "pipy_harness.native.terminal_screen",
-            "pipy_harness.native.tool_renderers",
+        forbidden_imports=_CODING_FORBIDDEN_IMPORTS,
+        reason=(
+            "the headless coding-session controller must depend on injected "
+            "ports rather than UI/ANSI, archive, extension implementation, "
+            "persistence, concrete providers/tools, or the old composition monolith"
         ),
-        reason="the headless coding-session controller must not depend on UI/ANSI",
     ),
     BoundaryRule(
         source_package="pipy_harness.native.ui",
@@ -1785,6 +1806,59 @@ def test_future_provider_package_ui_boundary_rule_activates(
     assert len(violations) == 1
     assert violations[0].path == provider_path
     assert violations[0].imported_module == forbidden_import
+
+
+def test_coding_rule_recursively_governs_input_policy_modules() -> None:
+    coding_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding"
+    )
+
+    assert _package_directory(SOURCE_ROOT, coding_rule.source_package).is_dir()
+    assert _evaluate_rule(SOURCE_ROOT, coding_rule) == []
+
+
+def test_coding_input_policy_import_stays_headless_in_a_fresh_process() -> None:
+    package_root = SOURCE_ROOT / "pipy_harness"
+    native_root = package_root / "native"
+    forbidden_prefixes = _CODING_FORBIDDEN_IMPORTS
+    script = f"""\
+import importlib
+import sys
+import types
+
+def namespace_package(name, path):
+    module = types.ModuleType(name)
+    module.__package__ = name
+    module.__path__ = [path]
+    sys.modules[name] = module
+    return module
+
+pipy_package = namespace_package("pipy_harness", {str(package_root)!r})
+native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
+pipy_package.native = native_package
+
+module = importlib.import_module("pipy_harness.native.coding.input_queue")
+assert hasattr(module, "CodingInputQueue")
+forbidden = {forbidden_prefixes!r}
+loaded = sorted(
+    name
+    for name in sys.modules
+    if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
+)
+assert loaded == [], loaded
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 @pytest.mark.parametrize(

@@ -1756,6 +1756,33 @@ and `take_delivery_kind` path is deleted without an alias. Queued `/...` and
 JSON/RPC/session/extension formats, callback order, persistence, and archive
 privacy are unchanged. Phase 3.1 is the next ownership move.
 
+### Headless coding-session input policy — SHIPPED (2026-07-20)
+
+Phase 3.1a introduces `native.coding.input_queue` as the synchronous, UI-free
+owner of product input priority. It stores retained `AgentLoopOutcome.next_input`
+handoffs, positional seeds, extension steering/follow-up/trigger delivery, and
+one-shot `deliverAs=nextTurn` context; polls injected RPC/input-stream and
+terminal queue ports in order; and defers local commands without consuming a
+queued prompt. Retained post-run handoffs are FIFO, so a higher-priority local
+resource command may run first without overwriting an older handoff or rejecting
+a new one returned by the command's provider run. A command that appears during
+a registered blocking wake remains first while the already-read ordinary line
+and any newer mismatching queued DTO are retained in their existing order and
+delivered exactly once. The exact full-content `AgentQueuedInput` remains
+attached so queued slash and shell-looking content cannot re-enter local
+dispatch.
+
+The product composition root now adapts terminal/RPC sources and delegates both
+outer selection and the active-loop queue port to that policy. The superseded
+four extension lists, seed/retained/deferred-command locals, selection closures,
+and queue-clear helper are deleted. Direct fake-source tests require no
+terminal, filesystem, extension runtime, provider transport, tool, or session
+tree; strengthened static and fresh-process import gates enforce that boundary.
+RPC reservation, idle transitions, `agent_settled`, lifecycle, commands,
+provider/model/settings/resource coordination, rendering, and persistence write
+ownership remain for later Phase 3 slices. The next target is Phase 3.1b,
+coding-session state and transitions.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable

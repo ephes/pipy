@@ -617,6 +617,47 @@ The controller owns product policy; the agent loop remains reusable. Commands
 return typed outcomes rather than printing, repainting, or writing session files
 directly.
 
+The controller cutover is split into independently green ownership cuts:
+
+1. **3.1a — headless queued-input policy (shipped):** move retained loop
+   handoffs, ordered injected queue sources, positional seeds, extension
+   steering/follow-up/trigger queues, request-only next-turn context, and local
+   command precedence into `native.coding.input_queue`; delete the parallel
+   session-local lists and selection closures.
+2. **3.1b — coding-session state and transitions:** move current
+   provider/model labels and port, canonical message/counter state, compaction
+   metadata, and explicit state transitions behind headless product contracts.
+3. **3.1c — persistence coordination seam:** inject typed append/switch/
+   compaction callbacks while preserving synchronous write timing; actual write
+   ownership relocation remains Slice 3.3.
+4. **3.1d — typed imperative command outcomes:** move command families behind
+   closed semantic outcomes without introducing the declarative registry owned
+   by Slice 3.2.
+5. **3.1e — accepted-input and agent-run coordinator:** move accepted-input
+   preparation and reusable-loop invocation behind injected product ports.
+6. **3.1f — lifecycle state machine and composition cutover:** move the outer
+   synchronous start/input/command/run/true-idle/shutdown transitions and leave
+   `NativeToolReplSession.run()` as a sub-800-line composition shell.
+
+Slice 3.1a preserves the exact product priority: local command, retained fresh
+input from a blocking wake, FIFO retained post-run handoffs, injected
+RPC/input-stream then terminal queues, positional seed, extension steering,
+extension follow-up, ordinary extension trigger, and only then newly read fresh
+input. A higher-priority local resource command may run before a retained
+handoff, but any handoff returned by that command's run appends behind the older
+one rather than overwriting it or raising. Seeds block extension continuations
+from the active-loop port but never overtake an injected queue. Whole typed
+queued inputs retain exact content and kind; `/...` and `!...` queued prompts
+bypass local dispatch.
+If a local command becomes pending while a registered source wakes the blocking
+read, the command still wins; an already-read ordinary line is retained for
+normal command parsing ahead of any newer mismatching queued DTO, and neither
+value is polled or delivered twice.
+`deliverAs=nextTurn` remains one-shot request-only context consumed only when a
+provider run is accepted. RPC reservation/idle/settlement, lifecycle,
+commands, rendering, provider construction, and persistence writes do not move
+in this cut.
+
 ### Slice 3.2: Declarative command registry
 
 Replace the large command dispatcher with one registry containing command name,
@@ -656,7 +697,11 @@ events to display state. The reducer performs no terminal I/O.
 
 Move ANSI output, layout, input, scrollback, resize handling, cursor state, and
 terminal restoration behind a terminal driver. Preserve the current
-normal-buffer inline-scrollback behavior and captured-stream fallback.
+normal-buffer inline-scrollback behavior and captured-stream fallback. This
+slice must also characterize and decide raw-mode transition typeahead policy:
+the current `tty.setraw` transition flushes bytes submitted before the prompt
+is ready, so earlier migration tests synchronize on a fresh prompt rather than
+silently changing terminal semantics in a control-plane extraction.
 
 Acceptance for Phase 4:
 
@@ -816,7 +861,8 @@ The default sequence is:
 | 2.2b.5a | `cff215d` — `refactor: name provider-turn boundary` | Atomic alias-free module and test renames, deleted-path regression, documentation history, and static/recursive/fresh-process import contracts passed. Final `just check`: Ruff and mypy clean across 357 files, 3,519 tests passed, 2 skipped; docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, 140 extension/export/privacy/TUI tests, 12 TUI workflow checks, and parity 49/49 passed. One unrelated PTY timing miss passed three isolated repeats without code changes before the fresh green full run. Pi `openai-codex/gpt-5.6-sol` reached explicit CLEAN after all findings and post-Fable fixes; final Claude Fable returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors. All 5 findings were accepted/fixed; none was rejected or deferred. |
 | 2.2b.5b | `f5ac582` — `refactor: extract agent loop policy` | Immutable request/tool/status collaborators, product callback adapters, provider-facing JSON-schema materialization, shared budget limits, and static/recursive/fresh-process import-boundary contracts passed. Final `just check`: Ruff and mypy clean across 363 files, 3,610 tests passed, 2 skipped; docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, extension lifecycle/tool/result/provider gates, 11 export/privacy checks, 23 session-tree checks, 12 TUI workflow checks, and parity 49/49 passed. The final Pi `openai-codex/gpt-5.6-sol` review returned explicit CLEAN with zero findings after 7 accepted/fixed findings covering recursive immutability and exact validation, provider projection, callback-result validation, canonical budget use, and invariant documentation. The final Claude Fable re-review returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors after 2 accepted/fixed suggestions; its first attempt was fail-closed INVALID after an out-of-scope path request and was not accepted. All 9 findings were accepted/fixed; none was rejected or deferred. |
 | 2.2b.5c | `c98b785` — `refactor: extract single-run agent loop` | Headless single-run loop, product composition adapters, inline-cycle deletion, recursive exact port/identity validation, and static/recursive/fresh-process/no-eager/import-owner contracts passed. Final `just check`: Ruff and mypy clean across 366 files, 3,675 tests passed, 2 skipped; focused integration/architecture 336 passed and direct headless/import validation 65 passed; docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, extension lifecycle/tool/result/provider gates, 11 export/privacy checks, 23 session-tree checks, 12 TUI workflow checks, and parity 49/49 passed. Pi `openai-codex/gpt-5.6-sol` reached explicit CLEAN in round 5 after 6 accepted/fixed findings covering recursive semantic validation, callback cutoffs, tool-result identity, and exact product-mirror synchronization. Claude Fable's first valid pass found 1 aligned synchronization suggestion, which was accepted/fixed and received post-fix Pi CLEAN; the final Fable pass returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors. One intermediate Fable attempt was fail-closed INVALID after an out-of-scope raw-repository Glob and was not accepted. All 7 findings were accepted/fixed; none was rejected or deferred. |
-| 2.2b.5d | This commit — `refactor: close queued-input handoff` | Atomic accepted/next queued-input DTOs, exact post-`AgentRunCompleted` port polling, separate-run product handoff, RPC idle/post-run typed delivery, local-command priority, transformed-input identity, cancellation policy, and deleted split-side-channel contracts passed. Final `just check`: Ruff and mypy clean across 366 files, 3,683 tests passed, 2 skipped; focused loop/runtime-port/session/RPC/import validation passed 213 tests plus exact trailing-newline, just-delivered classification, and cancelled-run polling cases. Docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, 5 extension-input checks, 3 lifecycle checks, 4 live-session checks, 6 full extension/privacy checks, 11 export/privacy checks, 23 session-tree checks, 12 TUI workflow checks, and parity 49/49 passed. One unrelated test-owned TUI PTY buffer-detach failure passed the exact case, both parameters, the PTY gate, and a fresh full suite without code changes. Pi `openai-codex/gpt-5.6-sol` round 1 found 1 trailing-newline Warning, which was accepted/fixed; round 2 returned CLEAN. Claude Fable's first valid unscoped pass found 3 Suggestions covering post-read dequeue isolation, cancelled-run polling, and suspected reservation-DTO liveness; two received code/test fixes, while the live `_QueuedPrompt` reservation-to-delivery path was retained with concrete evidence and a clarifying docstring. Final Pi round 3 returned CLEAN with zero findings, and final Fable round 2 returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors. All 4 findings were accepted and resolved; none was rejected or deferred. |
+| 2.2b.5d | `2e69968` — `refactor: close queued-input handoff` | Atomic accepted/next queued-input DTOs, exact post-`AgentRunCompleted` port polling, separate-run product handoff, RPC idle/post-run typed delivery, local-command priority, transformed-input identity, cancellation policy, and deleted split-side-channel contracts passed. Final `just check`: Ruff and mypy clean across 366 files, 3,683 tests passed, 2 skipped; focused loop/runtime-port/session/RPC/import validation passed 213 tests plus exact trailing-newline, just-delivered classification, and cancelled-run polling cases. Docs, diff, 8 PTY smoke tests, 15 automation/RPC checks, 5 extension-input checks, 3 lifecycle checks, 4 live-session checks, 6 full extension/privacy checks, 11 export/privacy checks, 23 session-tree checks, 12 TUI workflow checks, and parity 49/49 passed. One unrelated test-owned TUI PTY buffer-detach failure passed the exact case, both parameters, the PTY gate, and a fresh full suite without code changes. Pi `openai-codex/gpt-5.6-sol` round 1 found 1 trailing-newline Warning, which was accepted/fixed; round 2 returned CLEAN. Claude Fable's first valid unscoped pass found 3 Suggestions covering post-read dequeue isolation, cancelled-run polling, and suspected reservation-DTO liveness; two received code/test fixes, while the live `_QueuedPrompt` reservation-to-delivery path was retained with concrete evidence and a clarifying docstring. Final Pi round 3 returned CLEAN with zero findings, and final Fable round 2 returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors. All 4 findings were accepted and resolved; none was rejected or deferred. |
+| 3.1a | This commit — `refactor: extract coding input policy` | Headless queue policy, exact FIFO handoffs, blocking-wake/EOF classification, durable original-content identity, direct fake-source contracts, product-session/resource-command/RPC/extension/mode integration, strict static/recursive/fresh-process import boundaries, and deleted monolith queue paths passed. Final `just check`: Ruff and mypy clean across 369 files, 3,723 tests passed, 2 skipped; focused validation passed 226 tests. Docs, diff, 8 PTY smoke tests, the 49-test PTY file, 15 automation/RPC checks, the 205-test SDK/archive/privacy/session/TUI matrix, and parity 49/49 passed. A full-suite-only PTY race was traced against a green detached pre-slice baseline to unchanged `tty.setraw` flush semantics; the test now waits for prompt readiness, while typeahead policy remains explicit Phase 4.2 scope. Pi `openai-codex/gpt-5.6-sol` reached final round-7 CLEAN with zero findings after all 7 Pi findings and the post-Fable fix were accepted, fixed, and reverified. Claude Fable round 1 found 1 retained-handoff interleaving Warning, fixed with FIFO ownership and end-to-end resource-run coverage; round 2 returned valid unscoped CLEAN with no findings, skips, truncations, redactions, forbidden tools, or errors. All 8 findings were accepted/fixed; none was rejected or deferred. |
 
 The earlier code-quality audit remains evidence, with this mapping:
 

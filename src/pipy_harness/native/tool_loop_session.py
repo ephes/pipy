@@ -135,6 +135,7 @@ from pipy_harness.native.agent_runtime import (
     NativeAgentUsagePublisher,
 )
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.coding import CodingInputQueue, CodingInputSource
 from pipy_harness.native._provider_helpers import failed_provider_result
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_input import (
@@ -1700,26 +1701,12 @@ class NativeToolReplSession:
                         f"{fallback.reference}.",
                         file=error_stream,
                     )
-        # Prompts an extension enqueues via send_user_message become the
-        # next prompts processed by the loop (deterministic turns). Custom
-        # messages delivered as "nextTurn" are provider-visible context for the
-        # next accepted turn but do not start a standalone turn.
-        extension_pending_messages: list[str] = []
-        extension_pending_next_turn_custom_messages: list[str] = []
-        extension_pending_steering_messages: list[str] = []
-        extension_pending_follow_up_messages: list[str] = []
         extension_in_agent_turn = False
         # Set immediately before an accepted agent run starts and cleared only
         # when its extension-surface true-idle notification has fired. Keeping
         # this independent of `agent_end` lets the session finally settle a run
         # that exits through an unexpected provider/tool/lifecycle exception.
         agent_settled_pending = False
-        # Positional prompts from ``pipy "<prompt>"`` seed the first user turn(s)
-        # before the loop blocks on stdin. They drain ahead of everything else so
-        # the seeded message is the session's first user message.
-        seed_pending_messages: list[str] = [
-            message for message in self.initial_messages if message
-        ]
         terminal_ui = self._build_terminal_ui(
             input_stream=input_stream,
             error_stream=error_stream,
@@ -2249,35 +2236,25 @@ class NativeToolReplSession:
             if deliver_as is None:
                 deliver_as = options.get("deliver_as")
             if deliver_as == "nextTurn":
-                extension_pending_next_turn_custom_messages.append(content)
+                coding_input_queue.enqueue_next_turn_context(ProductContent(content))
             elif deliver_as == "steer":
-                extension_pending_steering_messages.append(content)
+                coding_input_queue.enqueue_extension_steering(ProductContent(content))
             elif deliver_as in {"followUp", "follow_up"}:
-                extension_pending_follow_up_messages.append(content)
+                coding_input_queue.enqueue_extension_follow_up(ProductContent(content))
             elif not extension_in_agent_turn and (
                 options.get("triggerTurn") is True
                 or options.get("trigger_turn") is True
             ):
-                extension_pending_messages.append(content)
+                coding_input_queue.enqueue_extension_prompt(ProductContent(content))
             return appended.id
-
-        for custom_message in extension_activation_custom_messages:
-            extension_send_message(
-                custom_message.custom_type,
-                custom_message.content,
-                custom_message.display,
-                custom_message.options,
-                custom_message.details,
-            )
-        extension_activation_custom_messages = ()
 
         def drain_extension_outboxes() -> None:
             """Move newly scheduled extension messages into session queues."""
 
-            extension_pending_messages.extend(
-                message.content
-                for message in drain_user_messages(extension_message_outbox)
-            )
+            for message in drain_user_messages(extension_message_outbox):
+                coding_input_queue.enqueue_extension_prompt(
+                    ProductContent(message.content)
+                )
             for custom_message in drain_custom_messages(
                 extension_custom_message_outbox
             ):
@@ -2300,13 +2277,7 @@ class NativeToolReplSession:
             else None
         )
 
-        def take_next_agent_queued_input() -> AgentQueuedInput | None:
-            """Apply product queue priority and expose one eligible agent input."""
-
-            if input_queued_input_source is not None:
-                queued_input = input_queued_input_source()
-                if queued_input is not None:
-                    return queued_input
+        def take_terminal_queued_input() -> AgentQueuedInput | None:
             if terminal_ui is not None:
                 drained_content = terminal_ui.take_next_drain()
                 if drained_content is not None:
@@ -2322,38 +2293,41 @@ class NativeToolReplSession:
                         ProductContent(drained_content),
                         AgentQueuedInputKind(raw_kind),
                     )
-            # Positional seeds retain priority over extension continuations.
-            if seed_pending_messages:
-                return None
-            if extension_pending_steering_messages:
-                return AgentQueuedInput(
-                    ProductContent(extension_pending_steering_messages.pop(0)),
-                    AgentQueuedInputKind.STEERING,
-                )
-            if extension_pending_follow_up_messages:
-                return AgentQueuedInput(
-                    ProductContent(extension_pending_follow_up_messages.pop(0)),
-                    AgentQueuedInputKind.FOLLOW_UP,
-                )
             return None
 
-        queued_input_port = NativeAgentQueuedInputPort(take_next_agent_queued_input)
-        deferred_pending_command: str | None = None
-
-        def take_next_agent_loop_queued_input() -> AgentQueuedInput | None:
-            """Select after a run without overtaking a pending local command."""
-
-            nonlocal deferred_pending_command
-            if terminal_ui is not None:
-                pending_command = terminal_ui.take_pending_command()
-                if pending_command is not None:
-                    deferred_pending_command = pending_command
-                    return None
-            return take_next_agent_queued_input()
-
-        agent_loop_queued_input_port = NativeAgentQueuedInputPort(
-            take_next_agent_loop_queued_input
+        terminal_queued_input_port = NativeAgentQueuedInputPort(
+            take_terminal_queued_input
         )
+
+        def take_pending_local_command() -> ProductContent | None:
+            if terminal_ui is None:
+                return None
+            command = terminal_ui.take_pending_command()
+            return None if command is None else ProductContent(command)
+
+        coding_input_queue = CodingInputQueue(
+            external_inputs=tuple(
+                port
+                for port in (input_queued_input_port, terminal_queued_input_port)
+                if port is not None
+            ),
+            pending_local_command_source=take_pending_local_command,
+            seeds=(
+                ProductContent(message)
+                for message in self.initial_messages
+                if message
+            ),
+        )
+
+        for custom_message in extension_activation_custom_messages:
+            extension_send_message(
+                custom_message.custom_type,
+                custom_message.content,
+                custom_message.display,
+                custom_message.options,
+                custom_message.details,
+            )
+        extension_activation_custom_messages = ()
 
         def extension_set_session_name(name: str | None) -> object:
             return session_tree.append_session_info(name)
@@ -2737,16 +2711,6 @@ class NativeToolReplSession:
             diag(f"pipy: {operation} blocked by extension: {reason}")
             return False
 
-        def clear_extension_delivery_queues() -> None:
-            # Delivery queues are bound to the active native session/branch. A
-            # session rebuild means /new, /resume, /fork, /import, or an
-            # interactive picker changed that boundary, so queued extension
-            # provider context must not leak into the replacement session.
-            extension_pending_messages.clear()
-            extension_pending_next_turn_custom_messages.clear()
-            extension_pending_steering_messages.clear()
-            extension_pending_follow_up_messages.clear()
-
         def rebuild_messages_from_tree() -> None:
             """Rebuild the live provider-visible list from the active branch.
 
@@ -2759,7 +2723,11 @@ class NativeToolReplSession:
             nonlocal messages, compaction_summary
             messages = list(session_tree.build_context().messages)
             compaction_summary = ""
-            clear_extension_delivery_queues()
+            # Extension delivery is bound to the active native session/branch
+            # and must not leak into its replacement. Positional seeds, a local
+            # command, a retained loop handoff, and externally owned RPC
+            # reservations preserve their existing independent lifetimes.
+            coding_input_queue.clear_extension_inputs()
 
         def summarize_branch(
             branch_messages: list[AgentMessage], focus: str | None
@@ -2826,7 +2794,6 @@ class NativeToolReplSession:
         # is fired from the finally below so it runs on EVERY exit path
         # (normal return, fatal return, or a propagated exception).
         emitter.fire_lifecycle(EVENT_SESSION_START, reason="startup")
-        controller_pending_queued_input: AgentQueuedInput | None = None
         try:
             while True:
                 if terminal_ui is None:
@@ -2867,47 +2834,22 @@ class NativeToolReplSession:
                 # always scheduled as deterministic prompts regardless of
                 # which callback queued them.
                 drain_extension_outboxes()
-                pending_command = deferred_pending_command
-                deferred_pending_command = None
-                if pending_command is None and terminal_ui is not None:
-                    pending_command = terminal_ui.take_pending_command()
-                # Deliver any queued steering/follow-up messages (Pi) before reading
-                # fresh input: a steering interrupt or a turn that settled with
-                # follow-ups promotes them to a sequential drain, delivered in order
-                # (all steering, then all follow-up) as the next prompts.
-                drained: str | None = None
-                queued_input = None
-                if pending_command is None:
-                    if controller_pending_queued_input is not None:
-                        queued_input = controller_pending_queued_input
-                        controller_pending_queued_input = None
+                selected_input = coding_input_queue.take_next()
+                pending_command: str | None = None
+                retained_fresh_line: str | None = None
+                selected_provider_content: ProductContent | None = None
+                queued_input: AgentQueuedInput | None = None
+                if selected_input is not None:
+                    if selected_input.source is CodingInputSource.LOCAL_COMMAND:
+                        pending_command = selected_input.content.value
+                    elif (
+                        selected_input.source
+                        is CodingInputSource.RETAINED_FRESH_INPUT
+                    ):
+                        retained_fresh_line = selected_input.content.value
                     else:
-                        queued_input = queued_input_port.take_next()
-                if queued_input is not None:
-                    drained = queued_input.content.value
-                # Positional-prompt seeds (`pipy "<prompt>"`) drain first, ahead
-                # of extension messages and fresh input, so a seeded prompt is the
-                # session's first user message. Like steering/extension prompts it
-                # travels the `drained` path (provider-visible text, never parsed
-                # as a local command).
-                if (
-                    drained is None
-                    and pending_command is None
-                    and seed_pending_messages
-                ):
-                    drained = seed_pending_messages.pop(0)
-                # Prompts an extension enqueued via send_user_message are
-                # delivered through the same `drained` path as Pi
-                # steering/follow-ups: provider-visible prompt text, never
-                # parsed as a local command (so a queued "/hotkeys" is a
-                # prompt, not the hotkeys command). They come after user steering and
-                # before blocking on fresh input.
-                if (
-                    drained is None
-                    and pending_command is None
-                    and extension_pending_messages
-                ):
-                    drained = extension_pending_messages.pop(0)
+                        selected_provider_content = selected_input.content
+                        queued_input = selected_input.queued_input
                 # Pi's extension `agent_settled` is later than `agent_end`: it
                 # waits until retry/compaction work and every queued continuation
                 # have drained. This outer-loop boundary is shared by TUI,
@@ -2916,7 +2858,8 @@ class NativeToolReplSession:
                 if (
                     agent_settled_pending
                     and pending_command is None
-                    and drained is None
+                    and retained_fresh_line is None
+                    and selected_provider_content is None
                 ):
                     agent_settled_pending = False
                     emitter.agent_settled()
@@ -2924,15 +2867,24 @@ class NativeToolReplSession:
                     # next run instead of blocking on input; the new run gets its
                     # own later settled notification.
                     drain_extension_outboxes()
-                    queued_input = queued_input_port.take_next()
-                    if queued_input is not None:
-                        drained = queued_input.content.value
-                    elif extension_pending_messages:
-                        drained = extension_pending_messages.pop(0)
+                    selected_input = coding_input_queue.take_next()
+                    if selected_input is not None:
+                        if selected_input.source is CodingInputSource.LOCAL_COMMAND:
+                            pending_command = selected_input.content.value
+                        elif (
+                            selected_input.source
+                            is CodingInputSource.RETAINED_FRESH_INPUT
+                        ):
+                            retained_fresh_line = selected_input.content.value
+                        else:
+                            selected_provider_content = selected_input.content
+                            queued_input = selected_input.queued_input
                 if pending_command is not None:
                     line = f"{pending_command}\n"
-                elif drained is not None:
-                    line = f"{drained}\n"
+                elif retained_fresh_line is not None:
+                    line = retained_fresh_line
+                elif selected_provider_content is not None:
+                    line = f"{selected_provider_content.value}\n"
                 else:
                     try:
                         # Pi's input cursor has no leading `> ` glyph; the
@@ -2941,17 +2893,29 @@ class NativeToolReplSession:
                         # readline / slash-menu adapter renders just the cursor.
                         line = repl_input.read_line("", footer=footer_text)
                         if input_queued_input_port is not None:
-                            queued_input = input_queued_input_port.take_next()
-                            if queued_input is not None:
-                                line = f"{queued_input.content.value}\n"
+                            selected_input = coding_input_queue.classify_external_wake(
+                                input_queued_input_port,
+                                line,
+                            )
+                            if selected_input is not None:
+                                if (
+                                    selected_input.source
+                                    is CodingInputSource.LOCAL_COMMAND
+                                ):
+                                    pending_command = selected_input.content.value
+                                    line = f"{pending_command}\n"
+                                else:
+                                    selected_provider_content = selected_input.content
+                                    queued_input = selected_input.queued_input
+                                    line = f"{selected_provider_content.value}\n"
                     except KeyboardInterrupt:
                         print(file=error_stream)
                         break
                 if not line:
                     break
                 user_input = (
-                    queued_input.content.value
-                    if queued_input is not None
+                    selected_provider_content.value
+                    if selected_provider_content is not None
                     else line.rstrip("\n")
                 )
                 stripped = user_input.strip()
@@ -2966,7 +2930,7 @@ class NativeToolReplSession:
                 # path (which still resolves any @file/@image references). Ordinary
                 # typed input keeps ``command_text == stripped`` and is unaffected.
                 command_text = (
-                    "" if drained is not None or queued_input is not None else stripped
+                    "" if selected_provider_content is not None else stripped
                 )
                 # In-editor hotkeys arrive as private sentinel "commands" from the
                 # TUI so they dispatch without rendering a user-message bubble.
@@ -4262,6 +4226,7 @@ class NativeToolReplSession:
                     # skipped so the literal resource text never leaks past the
                     # provider or into the metadata-only workflow archive.
                     provider_user_input = resource_provider_text
+                    accepted_user_content = ProductContent(provider_user_input)
                 else:
                     # `input` hooks may transform the submitted prompt before
                     # the provider turn. The original `user_input` still goes
@@ -4269,6 +4234,11 @@ class NativeToolReplSession:
                     # rendered panel (never the metadata-only workflow archive);
                     # only the provider-visible text and @file resolution use the
                     # transformed value.
+                    accepted_user_content = (
+                        selected_provider_content
+                        if selected_provider_content is not None
+                        else ProductContent(user_input)
+                    )
                     transformed_input = dispatch_input_hooks(
                         extension_input_hooks,
                         user_input,
@@ -4315,7 +4285,7 @@ class NativeToolReplSession:
                             self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
                         turn_attachments = image_attachments.attachments()
                 turn_user_message = AgentUserMessage(
-                    content=ProductContent(provider_user_input)
+                    content=accepted_user_content
                 )
                 # `before_agent_start` hooks may inject bounded context into
                 # this agent run's system prompt. Computed once per accepted
@@ -4344,11 +4314,10 @@ class NativeToolReplSession:
                 active_input = AgentActiveInput(
                     turn_user_message,
                     tuple(
-                        AgentUserMessage(content=ProductContent(content))
-                        for content in extension_pending_next_turn_custom_messages
+                        AgentUserMessage(content=content)
+                        for content in coding_input_queue.take_next_turn_context()
                     ),
                 )
-                extension_pending_next_turn_custom_messages.clear()
 
                 initial_tool_state = AgentToolPolicyState(
                     tool_budget=self.tool_budget,
@@ -4577,7 +4546,7 @@ class NativeToolReplSession:
                     event_sink=emitter,
                     run_effect_sink=run_effect_sink,
                     usage_publisher=usage_publisher,
-                    queued_input_port=agent_loop_queued_input_port,
+                    queued_input_port=coding_input_queue.agent_loop_port,
                     status_policy=status_policy,
                     tool_waiter=tool_waiter,
                 )
@@ -4595,7 +4564,7 @@ class NativeToolReplSession:
                     )
                 )
                 messages = list(loop_outcome.final_history)
-                controller_pending_queued_input = loop_outcome.next_input
+                coding_input_queue.retain_agent_input(loop_outcome.next_input)
                 extension_in_agent_turn = False
 
                 if loop_outcome.terminate_session:

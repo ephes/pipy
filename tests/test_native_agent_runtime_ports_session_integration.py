@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TextIO
+from typing import TextIO, cast
 
 import pytest
 
@@ -42,13 +42,18 @@ from pipy_harness.native.agent.usage import (
     AgentUsageAccumulator,
 )
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.coding import (
+    CodingInputQueue,
+    CodingInputSelection,
+    CodingInputSource,
+)
 from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
 )
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tools import (
     ToolContext,
@@ -167,6 +172,112 @@ def _run(
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
     )
+
+
+def test_positional_seed_preserves_exact_trailing_newlines(tmp_path: Path) -> None:
+    provider = _ScriptProvider((_result("done"),))
+
+    _run(
+        NativeToolReplSession(
+            provider=provider,
+            initial_messages=("seed\n\n",),
+        ),
+        tmp_path,
+        "",
+    )
+
+    assert [request.user_prompt for request in provider.requests] == ["seed\n\n"]
+
+
+def test_registered_input_wake_uses_controller_classification(
+    tmp_path: Path,
+) -> None:
+    queued_input = AgentQueuedInput(
+        ProductContent("queued wake\n\n"),
+        AgentQueuedInputKind.STEERING,
+    )
+
+    class WakeInput:
+        def __init__(self) -> None:
+            self.read_completed = False
+            self.classified = False
+            self.delivered = False
+
+        def readline(self, size: int = -1, /) -> str:
+            del size
+            line = "" if self.delivered else "queued wake\n\n"
+            self.delivered = True
+            self.read_completed = True
+            return line
+
+        def take_next(self) -> AgentQueuedInput | None:
+            if not self.read_completed or self.classified:
+                return None
+            self.classified = True
+            return queued_input
+
+        def isatty(self) -> bool:
+            return False
+
+    input_stream = WakeInput()
+    provider = _ScriptProvider((_result("done"),))
+    session = NativeToolReplSession(provider=provider)
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, input_stream),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert [request.user_prompt for request in provider.requests] == [
+        "queued wake\n\n"
+    ]
+    assert input_stream.classified
+
+
+def test_registered_eof_wake_runs_exact_queued_input_before_shutdown(
+    tmp_path: Path,
+) -> None:
+    queued_input = AgentQueuedInput(
+        ProductContent("queued at eof\n\n"),
+        AgentQueuedInputKind.FOLLOW_UP,
+    )
+
+    class EofWakeInput:
+        def __init__(self) -> None:
+            self.read_completed = False
+            self.classified = False
+
+        def readline(self, size: int = -1, /) -> str:
+            del size
+            self.read_completed = True
+            return ""
+
+        def take_next(self) -> AgentQueuedInput | None:
+            if not self.read_completed or self.classified:
+                return None
+            self.classified = True
+            return queued_input
+
+        def isatty(self) -> bool:
+            return False
+
+    input_stream = EofWakeInput()
+    provider = _ScriptProvider((_result("done"),))
+    session = NativeToolReplSession(provider=provider)
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, input_stream),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert [request.user_prompt for request in provider.requests] == [
+        "queued at eof\n\n"
+    ]
+    assert input_stream.classified
 
 
 def _message_event_index(trace: list[tuple[str, object]], message: AgentMessage) -> int:
@@ -417,11 +528,11 @@ def _write_queue_extension(tmp_path: Path) -> None:
         "        return InputTransform(text='[TAGGED] ' + event.text)\n"
         "    def queue(ctx, args):\n"
         "        ctx.send_message(\n"
-        "            {'customType': 'note', 'content': '/not-a-command'},\n"
+        "            {'customType': 'note', 'content': '/not-a-command\\n\\n'},\n"
         "            {'deliverAs': 'followUp'},\n"
         "        )\n"
         "        ctx.send_message(\n"
-        "            {'customType': 'note', 'content': '!not-a-shell'},\n"
+        "            {'customType': 'note', 'content': '!not-a-shell\\n\\n'},\n"
         "            {'deliverAs': 'steer'},\n"
         "        )\n"
         "    api.register_command('queue-runtime', 'queue runtime input', queue)\n",
@@ -437,42 +548,56 @@ def test_product_queue_port_preserves_priority_kind_and_original_hooked_content(
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     _write_queue_extension(tmp_path)
     taken: list[AgentQueuedInput] = []
-    original = loop_module.NativeAgentQueuedInputPort
+    selected_contents: list[ProductContent] = []
 
-    class RecordingQueuedInputPort:
-        def __init__(self, take_next: Callable[[], AgentQueuedInput | None]) -> None:
-            self._delegate = original(take_next)
+    class RecordingCodingInputQueue(CodingInputQueue):
+        def take_next(self) -> CodingInputSelection | None:
+            selection = super().take_next()
+            if (
+                selection is not None
+                and selection.source is not CodingInputSource.LOCAL_COMMAND
+            ):
+                selected_contents.append(selection.content)
+            if (
+                selection is not None
+                and selection.queued_input is not None
+                and selection.source is not CodingInputSource.RETAINED_AGENT_INPUT
+            ):
+                taken.append(selection.queued_input)
+            return selection
 
-        def take_next(self) -> AgentQueuedInput | None:
-            queued_input = self._delegate.take_next()
+        def take_next_for_agent_loop(self) -> AgentQueuedInput | None:
+            queued_input = super().take_next_for_agent_loop()
             if queued_input is not None:
                 taken.append(queued_input)
             return queued_input
 
-    monkeypatch.setattr(
-        loop_module, "NativeAgentQueuedInputPort", RecordingQueuedInputPort
-    )
+    monkeypatch.setattr(loop_module, "CodingInputQueue", RecordingCodingInputQueue)
     provider = _ScriptProvider((_result("seed"), _result("steer"), _result("follow")))
     canonical = _CollectingSink()
+    session_tree = NativeSessionTree.create(tmp_path, persist=False)
     _run(
         NativeToolReplSession(
             provider=provider,
-            initial_messages=("seed-first",),
+            initial_messages=("seed-first\n\n",),
             agent_event_sink=canonical,
+            native_session=session_tree,
         ),
         tmp_path,
         "/queue-runtime\n",
     )
 
     assert [request.user_prompt for request in provider.requests] == [
-        "[TAGGED] seed-first",
-        "[TAGGED] !not-a-shell",
-        "[TAGGED] /not-a-command",
+        "[TAGGED] seed-first\n\n",
+        "[TAGGED] !not-a-shell\n\n",
+        "[TAGGED] /not-a-command\n\n",
     ]
     assert taken == [
-        AgentQueuedInput(ProductContent("!not-a-shell"), AgentQueuedInputKind.STEERING),
         AgentQueuedInput(
-            ProductContent("/not-a-command"), AgentQueuedInputKind.FOLLOW_UP
+            ProductContent("!not-a-shell\n\n"), AgentQueuedInputKind.STEERING
+        ),
+        AgentQueuedInput(
+            ProductContent("/not-a-command\n\n"), AgentQueuedInputKind.FOLLOW_UP
         ),
     ]
     consumed = [
@@ -481,9 +606,136 @@ def test_product_queue_port_preserves_priority_kind_and_original_hooked_content(
         if isinstance(event, (SteeringConsumed, FollowUpConsumed))
     ]
     assert consumed == [
-        SteeringConsumed(ProductContent("!not-a-shell")),
-        FollowUpConsumed(ProductContent("/not-a-command")),
+        SteeringConsumed(ProductContent("!not-a-shell\n\n")),
+        FollowUpConsumed(ProductContent("/not-a-command\n\n")),
     ]
+    accepted_messages = [
+        event.message
+        for event in canonical.events
+        if isinstance(event, MessageCompleted)
+        and isinstance(event.message, AgentUserMessage)
+    ]
+    originals = [
+        "seed-first\n\n",
+        "!not-a-shell\n\n",
+        "/not-a-command\n\n",
+    ]
+    assert [message.content.value for message in accepted_messages] == originals
+    durable_messages = [
+        entry.message
+        for entry in session_tree.entries
+        if isinstance(entry, MessageEntry)
+        and isinstance(entry.message, AgentUserMessage)
+    ]
+    assert [message.content.value for message in durable_messages] == originals
+    assert all(
+        durable is accepted
+        for durable, accepted in zip(
+            durable_messages, accepted_messages, strict=True
+        )
+    )
+    assert len(selected_contents) == 3
+    assert all(
+        message.content is selected_content
+        for message, selected_content in zip(
+            accepted_messages, selected_contents, strict=True
+        )
+    )
+    assert selected_contents[1] is taken[0].content
+    assert selected_contents[2] is taken[1].content
+
+
+def test_retained_handoffs_survive_higher_priority_resource_run_fifo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    commands_dir = tmp_path / ".pipy" / "commands"
+    commands_dir.mkdir(parents=True)
+    (commands_dir / "handoff-resource.md").write_text(
+        "RESOURCE_HANDOFF\n",
+        encoding="utf-8",
+    )
+    first = AgentQueuedInput(
+        ProductContent("first handoff\n"),
+        AgentQueuedInputKind.STEERING,
+    )
+    second = AgentQueuedInput(
+        ProductContent("second handoff\n\n"),
+        AgentQueuedInputKind.FOLLOW_UP,
+    )
+    provider = _ScriptProvider(
+        (_result("seed"), _result("resource"), _result("first"), _result("second"))
+    )
+    retained: list[AgentQueuedInput] = []
+
+    class ThresholdInput:
+        def __init__(self) -> None:
+            self.items = (first, second)
+            self.delivered = 0
+
+        def readline(self, size: int = -1, /) -> str:
+            del size
+            return ""
+
+        def take_next(self) -> AgentQueuedInput | None:
+            if self.delivered >= len(self.items):
+                return None
+            if len(provider.requests) <= self.delivered:
+                return None
+            item = self.items[self.delivered]
+            self.delivered += 1
+            return item
+
+        def isatty(self) -> bool:
+            return False
+
+    class ResourceInjectingQueue(CodingInputQueue):
+        def retain_agent_input(self, queued_input: AgentQueuedInput | None) -> None:
+            super().retain_agent_input(queued_input)
+            if queued_input is None:
+                return
+            retained.append(queued_input)
+            if queued_input is first:
+                self.defer_local_command(ProductContent("/handoff-resource"))
+
+    monkeypatch.setattr(loop_module, "CodingInputQueue", ResourceInjectingQueue)
+    canonical = _CollectingSink()
+    input_stream = ThresholdInput()
+    session = NativeToolReplSession(
+        provider=provider,
+        initial_messages=("seed",),
+        agent_event_sink=canonical,
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, input_stream),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert [request.user_prompt for request in provider.requests] == [
+        "seed",
+        "RESOURCE_HANDOFF\n",
+        "first handoff\n",
+        "second handoff\n\n",
+    ]
+    assert retained == [first, second]
+    assert retained[0] is first
+    assert retained[1] is second
+    consumed = [
+        event
+        for event in canonical.events
+        if isinstance(event, (SteeringConsumed, FollowUpConsumed))
+    ]
+    assert len(consumed) == 2
+    assert isinstance(consumed[0], SteeringConsumed)
+    assert consumed[0].content is first.content
+    assert isinstance(consumed[1], FollowUpConsumed)
+    assert consumed[1].content is second.content
 
 
 def test_run_effect_failure_prevents_turn_start_and_provider_call(

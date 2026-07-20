@@ -929,6 +929,35 @@ def test_extension_send_message_trigger_turn_runs_provider_turn(
     assert result.user_turn_count == 1
 
 
+def test_extension_trigger_turn_preserves_exact_trailing_newlines(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    ext = tmp_path / ".pipy" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "activation_prompt.py").write_text(
+        "def activate(api):\n"
+        "    api.send_message(\n"
+        "        {'customType': 'note', 'content': 'provider-visible\\n\\n'},\n"
+        "        {'triggerTurn': True},\n"
+        "    )\n",
+        encoding="utf-8",
+    )
+    provider = _CapturingProvider()
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=StringIO(""),
+        output_stream=StringIO(),
+        error_stream=StringIO(),
+    )
+
+    assert [request.user_prompt for request in provider.requests] == [
+        "provider-visible\n\n"
+    ]
+
+
 def test_extension_send_message_steer_and_follow_up_queue_provider_prompts(
     tmp_path, monkeypatch
 ) -> None:

@@ -1635,6 +1635,39 @@ steering-first priority, reservation, idle transitions, abort clearing,
 owners. `_QueuedDeliverySource`, `_PromptChannel._last_delivery_kind`, and
 `take_delivery_kind` are deleted without aliases or a second handoff path.
 
+### Headless Coding-Session Input Policy
+
+Phase 3.1a moves product queue storage and selection policy into the synchronous
+`native.coding.input_queue.CodingInputQueue`. Its closed selection value records
+whether the chosen content is a local command or a provider-visible prompt, and
+retains the original `AgentQueuedInput` for typed steering/follow-up deliveries.
+The stable `agent_loop_port` is the only queued-input surface offered to the
+reusable loop.
+
+Priority remains local command, retained fresh input from a blocking wake,
+FIFO retained loop handoffs, injected RPC/input-stream then terminal queue,
+positional seed, extension steering, extension follow-up, and ordinary
+extension-triggered prompt. A higher-priority local resource command may run
+before a retained handoff; any handoff returned by that command's run appends
+behind the older value. A seed blocks extension continuations from the
+active-loop port without overtaking injected queue sources. Local commands defer
+post-run polling without discarding a retained value. Queue content is never
+reconstructed from line framing, so trailing newlines and the closed delivery
+kind survive; queued `/...` and `!...` values bypass local dispatch. A local
+command discovered after a registered source wakes the blocking read also
+remains first: the already-read ordinary line is retained for normal command
+parsing ahead of any newer mismatching queued DTO, with both values delivered
+exactly once. Request-only `deliverAs=nextTurn` values are consumed once when
+any provider run is accepted, including fresh input and resource-expanded
+commands.
+
+Terminal and RPC mechanisms remain injected adapters. RPC still owns
+reservation, active/idle transitions, abort clearing, `queue_update`, and
+protocol `agent_settled`; extension activation, lifecycle, rendering, provider
+construction, commands, and product-session writes remain in their existing
+owners. The coding package imports none of those implementation layers and is
+covered by static, recursive, and fresh-process dependency gates.
+
 ### Canonical Agent Tool-Capability Port
 
 Phase 2.2b.3 adds the runtime-checkable, synchronous

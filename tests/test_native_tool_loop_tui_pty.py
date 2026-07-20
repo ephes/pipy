@@ -2193,6 +2193,19 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
     )
+    post_cancel_raw_mode_ready = threading.Event()
+    original_enter_raw_mode = ToolLoopTerminalUi._enter_raw_mode
+
+    def _enter_raw_mode_with_readiness(active_ui: ToolLoopTerminalUi) -> None:
+        original_enter_raw_mode(active_ui)
+        if active_ui is ui:
+            post_cancel_raw_mode_ready.set()
+
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "_enter_raw_mode",
+        _enter_raw_mode_with_readiness,
+    )
     session = NativeToolReplSession(
         provider=cast(ProviderPort, provider), tool_registry={}
     )
@@ -2253,9 +2266,13 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
             f"{label}: long command did not start"
         )
         time.sleep(0.5)
+        post_cancel_raw_mode_ready.clear()
         os.write(in_master, b"\x1b")
         assert _wait_for(err_chunks, "cancelled by escape"), (
             f"{label}: escape did not cancel the running command"
+        )
+        assert post_cancel_raw_mode_ready.wait(timeout=8.0), (
+            f"{label}: post-cancel input did not re-enter raw mode"
         )
         # Session is still usable.
         os.write(in_master, b"still here\n")
