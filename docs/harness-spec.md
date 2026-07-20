@@ -1881,6 +1881,27 @@ run-lifetime provider/counter/filter state, ordinary scrollback, captured
 active-rename staleness, explicit-path deletion policy, post-switch lifecycle
 hooks, registry metadata, and write relocation remain deferred.
 
+Slice 3.1d.3d adds full-content `SESSION_FORK` and payload-free
+`SESSION_CLONE`, both with the standard footer. The direct kernel accepts bare
+or already-edge-stripped literal-space `/fork` and exact `/clone`; composition
+retains outer trimming, the submitted user bubble, and queued/RPC bypass.
+
+Composition rejects ephemeral trees before resolution or hooks. Explicit fork
+references retain current-filter any-entry resolution; bare fork and clone use
+the active leaf, including `None`. Both dispatch `session_before_fork` with
+operation `fork`, then call the unchanged native `fork_from` path in the same
+private store, assign the complete child with `parentSession` lineage, rebuild
+typed history, clear extension input, emit the sanitized command-specific
+diagnostic, and apply one standard footer. Veto/error/fatal and copy/write/
+rebuild/clear failure timing remains exact. Neither command makes a provider or
+tool call.
+
+The typed kernel gains no tree, persistence, extension, UI, provider,
+automation/RPC, SDK, capture, or archive implementation. Any-entry selection,
+empty clone, copied names/labels/compaction records, absent custom/ordinary TUI
+redraw, absent post-fork lifecycle hooks, write relocation, registry metadata,
+aliases, and async behavior remain deliberately unchanged.
+
 Command/outcome values are full-content product-control data. They expose no
 serializer, SDK shape, persistence projection, or workflow-archive adapter.
 Exact direct-import allowlists plus recursive, fresh-process, and no-eager-

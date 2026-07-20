@@ -205,6 +205,9 @@ def test_positional_seed_preserves_exact_trailing_newlines(tmp_path: Path) -> No
         "/tree select 1",
         "/resume",
         "/resume delete victim --yes",
+        "/fork",
+        "/fork 1",
+        "/clone",
     ),
 )
 def test_registered_input_wake_bypasses_local_command_kernel(

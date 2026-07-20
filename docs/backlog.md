@@ -1961,11 +1961,26 @@ run-lifetime provider/counter/filter state, captured active-rename staleness,
 explicit-path deletion policy, ordinary TUI scrollback, and absent post-switch
 lifecycle hooks. Those are separate behavior decisions, not typed ownership.
 
-**Next green slice — typed `/fork` and `/clone` commands:** continue Phase
-3.1d.3d with exact full-content navigation arguments, native persistence and
-parent lineage, extension gates, rebuild/redraw ordering, queued/RPC bypass,
-and archive privacy. Do not pull Phase 3.2 registry metadata or Phase 3.3 write
-ownership forward.
+### Typed Fork and Clone Commands — SHIPPED (2026-07-20)
+
+Phase 3.1d.3d adds exact full-content `SESSION_FORK` and payload-free
+`SESSION_CLONE` outcomes with standard footers. Composition preserves the
+persistent-store precondition, filtered explicit/current-leaf resolution,
+`session_before_fork` gate, same-store `parentSession` lineage, fresh copied
+entry IDs, typed history rebuild, extension-input clearing, sanitized
+diagnostics, and failure cutoffs. The two late branches are deleted; queued/RPC
+forms remain provider-visible and full content remains native-store-only.
+
+The extraction deliberately preserves any-entry fork targets, empty persistent
+clone, copied names/labels/compaction entries, absent custom/ordinary TUI
+redraw, and absent post-fork lifecycle hooks. Those gaps require dedicated
+behavior decisions.
+
+**Next green slice — typed external/UI-effect commands:** continue Phase 3.1d
+with a bounded command family selected by ownership audit, preserving external-
+I/O suspension, terminal behavior, public formats, and command precedence. Do
+not pull reload, resource/extension closure, Phase 3.2 registry metadata, or
+Phase 3.3 write ownership into that first external-effects cut.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

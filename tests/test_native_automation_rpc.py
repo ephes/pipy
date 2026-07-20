@@ -601,6 +601,9 @@ def test_steering_queue_is_consumed_not_stale(client) -> None:
         "/tree select 1",
         "/resume",
         "/resume delete victim --yes",
+        "/fork",
+        "/fork 1",
+        "/clone",
     ],
 )
 def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(

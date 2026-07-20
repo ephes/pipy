@@ -2727,10 +2727,10 @@ class NativeToolReplSession:
         def rebuild_messages_from_tree() -> None:
             """Rebuild the live provider-visible list from the active branch.
 
-            Used after ``/tree`` navigation, ``/new``, and ``/resume``: the
-            native tree is the source of truth, so the provider list and the
-            system-prompt compaction suffix are reset to match the (possibly
-            compacted) active branch.
+            Used after ``/tree`` navigation, ``/new``, ``/resume``, ``/fork``,
+            and ``/clone``: the native tree is the source of truth, so the
+            provider list and the system-prompt compaction suffix are reset to
+            match the (possibly compacted) active branch.
             """
 
             product_session.rebuild_active_history()
@@ -3185,7 +3185,9 @@ class NativeToolReplSession:
                                     tree_filter_mode = tree_outcome.filter_mode
                                 if tree_outcome.prefill is not None:
                                     pending_prefill = tree_outcome.prefill
-                        elif command_outcome.action is CodingCommandAction.SESSION_RESUME:
+                        elif (
+                            command_outcome.action is CodingCommandAction.SESSION_RESUME
+                        ):
                             resume_argument = command_outcome.argument
                             if type(resume_argument) is not ProductContent:
                                 raise TypeError(
@@ -3227,8 +3229,7 @@ class NativeToolReplSession:
                                         f"file={sanitize_label_text(entry.path.name)}"
                                     )
                                 diag(
-                                    "pipy: use '/resume <number|id>' to open a "
-                                    "session."
+                                    "pipy: use '/resume <number|id>' to open a session."
                                 )
 
                             if (
@@ -3254,7 +3255,9 @@ class NativeToolReplSession:
                                     operation="switch",
                                     target=str(picked_session),
                                 ):
-                                    session_tree = NativeSessionTree.open(picked_session)
+                                    session_tree = NativeSessionTree.open(
+                                        picked_session
+                                    )
                                     rebuild_messages_from_tree()
                                     redraw_custom_entries_for_active_branch()
                                     diag(
@@ -3269,8 +3272,7 @@ class NativeToolReplSession:
                             elif resume_sub == "rename":
                                 if len(resume_tokens) < 3:
                                     diag(
-                                        "pipy: usage: /resume rename <number|id> "
-                                        "<name>"
+                                        "pipy: usage: /resume rename <number|id> <name>"
                                     )
                                 else:
                                     target = resolve_session_file(resume_tokens[1])
@@ -3297,8 +3299,7 @@ class NativeToolReplSession:
                                 ]
                                 if not refs:
                                     diag(
-                                        "pipy: usage: /resume delete <number|id> "
-                                        "--yes"
+                                        "pipy: usage: /resume delete <number|id> --yes"
                                     )
                                 else:
                                     target = resolve_session_file(refs[0])
@@ -3344,6 +3345,76 @@ class NativeToolReplSession:
                                         "pipy: resumed native session "
                                         f"{sanitize_label_text(session_tree.session_id[:8])} "
                                         f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
+                                    )
+                        elif command_outcome.action in {
+                            CodingCommandAction.SESSION_FORK,
+                            CodingCommandAction.SESSION_CLONE,
+                        }:
+                            if (
+                                command_outcome.action
+                                is CodingCommandAction.SESSION_FORK
+                            ):
+                                fork_argument = command_outcome.argument
+                                if type(fork_argument) is not ProductContent:
+                                    raise TypeError(
+                                        "SESSION_FORK requires an exact ProductContent "
+                                        "argument"
+                                    )
+                                argument = fork_argument.value
+                            else:
+                                argument = ""
+                            if session_tree.path is None:
+                                command_name = {
+                                    CodingCommandAction.SESSION_FORK: "/fork",
+                                    CodingCommandAction.SESSION_CLONE: "/clone",
+                                }[command_outcome.action]
+                                diag(
+                                    f"pipy: {command_name} requires a persistent "
+                                    "native session."
+                                )
+                            else:
+                                fork_leaf: str | None = None
+                                fork_target_resolved = True
+                                if argument:
+                                    target_entry = resolve_entry_ref(
+                                        session_tree,
+                                        argument,
+                                        filter_mode=tree_filter_mode,
+                                    )
+                                    if target_entry is None:
+                                        diag(
+                                            f"pipy: no tree entry matched {argument!r}."
+                                        )
+                                        fork_target_resolved = False
+                                    else:
+                                        fork_leaf = target_entry.id
+                                else:
+                                    fork_leaf = session_tree.get_leaf_id()
+                                if fork_target_resolved and extension_session_allows(
+                                    extension_session_before_fork_hooks,
+                                    operation="fork",
+                                    target=fork_leaf,
+                                ):
+                                    forked_tree = NativeSessionTree.fork_from(
+                                        session_tree.path,
+                                        cwd,
+                                        leaf_id=fork_leaf,
+                                        session_dir=session_tree.path.parent,
+                                    )
+                                    session_tree = forked_tree
+                                    rebuild_messages_from_tree()
+                                    success_text = {
+                                        CodingCommandAction.SESSION_FORK: (
+                                            "forked into new native session "
+                                        ),
+                                        CodingCommandAction.SESSION_CLONE: (
+                                            "cloned active branch into new native "
+                                            "session "
+                                        ),
+                                    }[command_outcome.action]
+                                    diag(
+                                        f"pipy: {success_text}"
+                                        f"{sanitize_label_text(session_tree.session_id[:8])}."
                                     )
                         elif command_outcome.action in {
                             CodingCommandAction.MODEL,
@@ -4000,68 +4071,6 @@ class NativeToolReplSession:
                             provider=coding_state.provider,
                         ):
                             print(overlay_line, file=error_stream)
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/fork" or command_text.startswith("/fork "):
-                    argument = stripped[len("/fork") :].strip()
-                    if session_tree.path is None:
-                        diag("pipy: /fork requires a persistent native session.")
-                        refresh_legacy_footer()
-                        continue
-                    if argument:
-                        target_entry = resolve_entry_ref(
-                            session_tree, argument, filter_mode=tree_filter_mode
-                        )
-                        if target_entry is None:
-                            diag(f"pipy: no tree entry matched {argument!r}.")
-                            refresh_legacy_footer()
-                            continue
-                        fork_leaf: str | None = target_entry.id
-                    else:
-                        fork_leaf = session_tree.get_leaf_id()
-                    if not extension_session_allows(
-                        extension_session_before_fork_hooks,
-                        operation="fork",
-                        target=fork_leaf,
-                    ):
-                        refresh_legacy_footer()
-                        continue
-                    session_tree = NativeSessionTree.fork_from(
-                        session_tree.path,
-                        cwd,
-                        leaf_id=fork_leaf,
-                        session_dir=session_tree.path.parent,
-                    )
-                    rebuild_messages_from_tree()
-                    diag(
-                        "pipy: forked into new native session "
-                        f"{sanitize_label_text(session_tree.session_id[:8])}."
-                    )
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/clone":
-                    if session_tree.path is None:
-                        diag("pipy: /clone requires a persistent native session.")
-                        refresh_legacy_footer()
-                        continue
-                    if not extension_session_allows(
-                        extension_session_before_fork_hooks,
-                        operation="fork",
-                        target=session_tree.get_leaf_id(),
-                    ):
-                        refresh_legacy_footer()
-                        continue
-                    session_tree = NativeSessionTree.fork_from(
-                        session_tree.path,
-                        cwd,
-                        leaf_id=session_tree.get_leaf_id(),
-                        session_dir=session_tree.path.parent,
-                    )
-                    rebuild_messages_from_tree()
-                    diag(
-                        "pipy: cloned active branch into new native session "
-                        f"{sanitize_label_text(session_tree.session_id[:8])}."
-                    )
                     refresh_legacy_footer()
                     continue
                 # Resource dispatch (skills, prompt templates, custom commands)

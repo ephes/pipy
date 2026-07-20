@@ -32,6 +32,8 @@ class CodingCommandAction(StrEnum):
     NEW_SESSION = "new_session"
     SESSION_TREE = "session_tree"
     SESSION_RESUME = "session_resume"
+    SESSION_FORK = "session_fork"
+    SESSION_CLONE = "session_clone"
 
 
 class CodingCommandFooterPolicy(StrEnum):
@@ -65,35 +67,30 @@ def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
         return CodingCommandOutcome(CodingCommandOutcomeKind.EXIT)
     if value == "/quit":
         return CodingCommandOutcome(CodingCommandOutcomeKind.EXIT)
-    if value == "/hotkeys":
-        return _continue_outcome(CodingCommandAction.SHOW_HOTKEYS)
-    if value == "/changelog":
-        return _continue_outcome(CodingCommandAction.SHOW_CHANGELOG)
-    if value == "/copy":
-        return _continue_outcome(CodingCommandAction.COPY_LAST_ANSWER)
-    if value == "/session":
-        return _continue_outcome(CodingCommandAction.SHOW_SESSION_STATUS)
-    if value == "/compact":
-        return _continue_outcome(CodingCommandAction.COMPACT)
-    if value == "/new":
-        return _continue_outcome(CodingCommandAction.NEW_SESSION)
-    if value == "/tree" or (value == value.strip() and value.startswith("/tree ")):
-        return _continue_outcome(
-            CodingCommandAction.SESSION_TREE,
-            ProductContent(value[len("/tree") :].strip()),
-        )
-    if value == "/resume" or (
-        value == value.strip() and value.startswith("/resume ")
+    for command, action in (
+        ("/hotkeys", CodingCommandAction.SHOW_HOTKEYS),
+        ("/changelog", CodingCommandAction.SHOW_CHANGELOG),
+        ("/copy", CodingCommandAction.COPY_LAST_ANSWER),
+        ("/session", CodingCommandAction.SHOW_SESSION_STATUS),
+        ("/compact", CodingCommandAction.COMPACT),
+        ("/new", CodingCommandAction.NEW_SESSION),
+        ("/clone", CodingCommandAction.SESSION_CLONE),
     ):
-        return _continue_outcome(
-            CodingCommandAction.SESSION_RESUME,
-            ProductContent(value[len("/resume") :].strip()),
-        )
-    if value == "/name" or (value == value.strip() and value.startswith("/name ")):
-        return _continue_outcome(
-            CodingCommandAction.SESSION_NAME,
-            ProductContent(value[len("/name") :].strip()),
-        )
+        if value == command:
+            return _continue_outcome(action)
+    for command, action in (
+        ("/tree", CodingCommandAction.SESSION_TREE),
+        ("/resume", CodingCommandAction.SESSION_RESUME),
+        ("/name", CodingCommandAction.SESSION_NAME),
+        ("/fork", CodingCommandAction.SESSION_FORK),
+    ):
+        if value == command or (
+            value == value.strip() and value.startswith(f"{command} ")
+        ):
+            return _continue_outcome(
+                action,
+                ProductContent(value[len(command) :].strip()),
+            )
     for command, action in (
         ("/model", CodingCommandAction.MODEL),
         ("/scoped-models", CodingCommandAction.SCOPED_MODELS),
@@ -155,6 +152,7 @@ def require_exact_coding_command_outcome(outcome: object) -> None:
             CodingCommandAction.SESSION_NAME,
             CodingCommandAction.SESSION_RESUME,
             CodingCommandAction.SESSION_TREE,
+            CodingCommandAction.SESSION_FORK,
         }
         if outcome.action in argument_actions:
             if outcome.argument is None:

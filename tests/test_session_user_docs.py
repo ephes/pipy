@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pipy_harness.native.agent import ProductContent
+from pipy_harness.native.coding.commands import (
+    CodingCommandAction,
+    CodingCommandOutcomeKind,
+    classify_coding_command,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -15,11 +22,12 @@ def test_session_user_docs_match_current_slash_dispatcher_arguments() -> None:
 
     usage = _read("docs/usage.md")
     sessions = _read("docs/sessions.md")
-    classifier = _read("src/pipy_harness/native/coding/commands.py")
     dispatcher = _read("src/pipy_harness/native/tool_loop_session.py")
 
-    assert 'if value == "/compact":' in classifier
-    assert 'value.startswith("/compact ")' not in classifier
+    compact = classify_coding_command(ProductContent("/compact"))
+    compact_with_argument = classify_coding_command(ProductContent("/compact prompt"))
+    assert compact.action is CodingCommandAction.COMPACT
+    assert compact_with_argument.kind is CodingCommandOutcomeKind.UNHANDLED
     assert "`/compact [prompt]`" not in usage
     assert "`/compact` | Compact context when enough history exists" in usage
 
