@@ -33,6 +33,10 @@ class AgentHistoryCompaction:
     def __post_init__(self) -> None:
         if not isinstance(self.messages, tuple):
             raise TypeError("AgentHistoryCompaction.messages must be a tuple")
+        if self.changed and self.dropped_group_count < 1:
+            raise ValueError(
+                "changed AgentHistoryCompaction must drop at least one group"
+            )
 
 
 def compact_agent_history(

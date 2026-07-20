@@ -216,6 +216,100 @@ _CODING_FORBIDDEN_IMPORTS = (
     *_LEGACY_CONCRETE_PROVIDER_MODULES,
 )
 
+_CODING_STATE_FORBIDDEN_IMPORTS = (
+    "pipy_harness.cli",
+    "pipy_harness.adapters",
+    "pipy_harness.runner",
+    *_CODING_FORBIDDEN_IMPORTS,
+    "pipy_harness.native._provider_helpers",
+    "pipy_harness.native.agent_adapters",
+    "pipy_harness.native.agent_loop_policy",
+    "pipy_harness.native.agent_request",
+    "pipy_harness.native.agent_runtime",
+    "pipy_harness.native.catalog",
+    "pipy_harness.native.catalog_data",
+    "pipy_harness.native.catalog_state",
+    "pipy_harness.native.changelog",
+    "pipy_harness.native.chrome",
+    "pipy_harness.native.clipboard",
+    "pipy_harness.native.conversation",
+    "pipy_harness.native.deferred_tools",
+    "pipy_harness.native.extension_provider_catalog",
+    "pipy_harness.native.fake",
+    "pipy_harness.native.keybindings",
+    "pipy_harness.native.model_resolver",
+    "pipy_harness.native.models_json",
+    "pipy_harness.native.package_manager",
+    "pipy_harness.native.package_resources",
+    "pipy_harness.native.package_runtime",
+    "pipy_harness.native.project_trust",
+    "pipy_harness.native.prompt_history",
+    "pipy_harness.native.provider_registry",
+    "pipy_harness.native.repl_state",
+    "pipy_harness.native.resource_loading",
+    "pipy_harness.native.resources",
+    "pipy_harness.native.routing",
+    "pipy_harness.native.scoped_models",
+    "pipy_harness.native.settings",
+    "pipy_harness.native.theme_files",
+    "pipy_harness.native.themes",
+    "pipy_harness.native.tool_capabilities",
+    "pipy_harness.native.usage",
+    "pipy_harness.native.workspace_context",
+)
+
+_CODING_STATE_ALLOWED_RUNTIME_PREFIXES = (
+    "pipy_harness.native.agent",
+    "pipy_harness.native.coding.input_queue",
+    "pipy_harness.native.coding.state",
+    "pipy_harness.native.tools.base",
+)
+
+_CODING_STATE_ALLOWED_RUNTIME_EXACT = frozenset(
+    {
+        "pipy_harness",
+        "pipy_harness.status",
+        "pipy_harness.native",
+        "pipy_harness.native.cancellation",
+        "pipy_harness.native.coding",
+        "pipy_harness.native.models",
+        "pipy_harness.native.provider",
+        "pipy_harness.native.tools",
+    }
+)
+
+_CODING_STATE_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "math",
+        "math.isfinite",
+        "pipy_harness.native.agent.content",
+        "pipy_harness.native.agent.content.ProductContent",
+        "pipy_harness.native.agent.identity",
+        "pipy_harness.native.agent.identity.AGENT_TOOL_REQUEST_ID_PREFIX",
+        "pipy_harness.native.agent.messages",
+        "pipy_harness.native.agent.messages.AgentAssistantMessage",
+        "pipy_harness.native.agent.messages.AgentMessage",
+        "pipy_harness.native.agent.messages.AgentToolCall",
+        "pipy_harness.native.agent.messages.AgentToolResultMessage",
+        "pipy_harness.native.agent.messages.AgentUserMessage",
+        "pipy_harness.native.agent.loop_policy",
+        "pipy_harness.native.agent.loop_policy.AgentToolPolicyState",
+        "pipy_harness.native.agent.loop_policy.MAX_AGENT_TOOL_BUDGET",
+        "pipy_harness.native.agent.results",
+        "pipy_harness.native.agent.results.AgentFailure",
+        "pipy_harness.native.agent.results.AgentUsage",
+        "pipy_harness.native.agent.usage",
+        "pipy_harness.native.agent.usage.AgentProviderUsageSample",
+        "pipy_harness.native.agent.usage.AgentUsageAccumulator",
+        "pipy_harness.native.provider",
+        "pipy_harness.native.provider.ProviderPort",
+    }
+)
+
 _AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS = (
     "pipy_harness.cli",
     "pipy_harness.adapters",
@@ -472,8 +566,17 @@ ARCHITECTURE_RULES = (
         ),
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.coding.state",
+        forbidden_imports=_CODING_STATE_FORBIDDEN_IMPORTS,
+        reason=(
+            "coding-session state may depend only on canonical agent contracts "
+            "and the injected provider port, never composition implementations"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.ui",
         forbidden_imports=(
+            "pipy_harness.native.coding.state",
             "pipy_harness.native.coding.session",
             "pipy_harness.native.tool_loop_session",
         ),
@@ -483,6 +586,7 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.extensions",
         forbidden_imports=(
             "pipy_harness.native.tui",
+            "pipy_harness.native.coding.state",
             "pipy_harness.native.coding.session",
             "pipy_harness.native.tool_loop_session",
         ),
@@ -1808,7 +1912,7 @@ def test_future_provider_package_ui_boundary_rule_activates(
     assert violations[0].imported_module == forbidden_import
 
 
-def test_coding_rule_recursively_governs_input_policy_modules() -> None:
+def test_coding_rule_recursively_governs_headless_modules() -> None:
     coding_rule = next(
         rule
         for rule in ARCHITECTURE_RULES
@@ -1817,6 +1921,139 @@ def test_coding_rule_recursively_governs_input_policy_modules() -> None:
 
     assert _package_directory(SOURCE_ROOT, coding_rule.source_package).is_dir()
     assert _evaluate_rule(SOURCE_ROOT, coding_rule) == []
+
+
+def test_coding_state_direct_imports_match_explicit_allowlist() -> None:
+    state_path = SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "state.py"
+    references = _import_references(SOURCE_ROOT, state_path)
+
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT,
+        state_path,
+        allowed_imports=_CODING_STATE_ALLOWED_DIRECT_IMPORTS,
+    ), "coding-session state gained a direct dependency outside its allowlist"
+    assert {reference.module for reference in references} == (
+        _CODING_STATE_ALLOWED_DIRECT_IMPORTS
+    ), "remove stale allowances when coding-session state drops imports"
+
+
+def test_coding_state_rule_recursively_blocks_composition_laundering(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    state_path = _write_module(
+        source_root,
+        "pipy_harness.native.coding.state",
+        """\
+import pipy_harness.native.agent.messages
+import pipy_harness.native.provider
+import pipy_harness.native.repl_state
+import pipy_harness.native.session_tree
+import pipy_harness.native.tool_capabilities
+import pipy_harness.native.tui
+""",
+    )
+    state_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.state"
+    )
+
+    assert {
+        (violation.path, violation.imported_module, violation.line)
+        for violation in _evaluate_rule(source_root, state_rule)
+    } == {
+        (state_path, "pipy_harness.native.repl_state", 3),
+        (state_path, "pipy_harness.native.session_tree", 4),
+        (state_path, "pipy_harness.native.tool_capabilities", 5),
+        (state_path, "pipy_harness.native.tui", 6),
+    }
+
+
+@pytest.mark.parametrize(
+    ("intermediate_name", "state_source", "intermediate_symbol", "forbidden_import"),
+    (
+        (
+            "pipy_harness.native.provider",
+            "from pipy_harness.native.provider import ProviderPort\n",
+            "ProviderPort",
+            "pipy_harness.native._provider_helpers",
+        ),
+        (
+            "pipy_harness.native.agent.messages",
+            "from pipy_harness.native.agent.messages import AgentMessage\n",
+            "AgentMessage",
+            "pipy_harness.native.session_tree",
+        ),
+        (
+            "pipy_harness.native.provider",
+            "from pipy_harness.native.provider import ProviderPort\n",
+            "ProviderPort",
+            "pipy_harness.native.chrome",
+        ),
+    ),
+)
+def test_coding_state_fresh_graph_detects_allowed_intermediate_laundering(
+    tmp_path: Path,
+    intermediate_name: str,
+    state_source: str,
+    intermediate_symbol: str,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    for package in (
+        "pipy_harness.__init__",
+        "pipy_harness.native.__init__",
+        "pipy_harness.native.agent.__init__",
+        "pipy_harness.native.coding.__init__",
+    ):
+        _write_module(source_root, package, "")
+    state_path = _write_module(
+        source_root,
+        "pipy_harness.native.coding.state",
+        state_source,
+    )
+    _write_module(
+        source_root,
+        intermediate_name,
+        f"import {forbidden_import}\n\nclass {intermediate_symbol}:\n    pass\n",
+    )
+    _write_module(source_root, forbidden_import, "")
+
+    assert not _unallowlisted_direct_imports(
+        source_root,
+        state_path,
+        allowed_imports=_CODING_STATE_ALLOWED_DIRECT_IMPORTS,
+    )
+
+    script = f"""\
+import importlib
+import sys
+
+sys.path.insert(0, {str(source_root)!r})
+importlib.import_module("pipy_harness.native.coding.state")
+
+forbidden_prefixes = {_CODING_STATE_FORBIDDEN_IMPORTS!r}
+unexpected = sorted(
+    module_name
+    for module_name in sys.modules
+    if any(
+        module_name == prefix or module_name.startswith(prefix + ".")
+        for prefix in forbidden_prefixes
+    )
+)
+assert unexpected == [{forbidden_import!r}], unexpected
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_coding_input_policy_import_stays_headless_in_a_fresh_process() -> None:
@@ -1859,6 +2096,123 @@ assert loaded == [], loaded
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_coding_state_import_stays_headless_in_a_fresh_process() -> None:
+    package_root = SOURCE_ROOT / "pipy_harness"
+    native_root = package_root / "native"
+    forbidden_prefixes = _CODING_STATE_FORBIDDEN_IMPORTS
+    allowed_prefixes = _CODING_STATE_ALLOWED_RUNTIME_PREFIXES
+    allowed_exact = _CODING_STATE_ALLOWED_RUNTIME_EXACT
+    script = f"""\
+import importlib
+import sys
+import types
+
+def namespace_package(name, path):
+    module = types.ModuleType(name)
+    module.__package__ = name
+    module.__path__ = [path]
+    sys.modules[name] = module
+    return module
+
+pipy_package = namespace_package("pipy_harness", {str(package_root)!r})
+native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
+pipy_package.native = native_package
+
+module = importlib.import_module("pipy_harness.native.coding.state")
+assert hasattr(module, "CodingSessionState")
+forbidden = {forbidden_prefixes!r}
+loaded = sorted(
+    name
+    for name in sys.modules
+    if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
+)
+assert loaded == [], loaded
+allowed_prefixes = {allowed_prefixes!r}
+allowed_exact = {allowed_exact!r}
+unexpected = sorted(
+    name
+    for name in sys.modules
+    if name.startswith("pipy_harness")
+    and name not in allowed_exact
+    and not any(
+        name == prefix or name.startswith(prefix + ".")
+        for prefix in allowed_prefixes
+    )
+)
+assert unexpected == [], unexpected
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_coding_package_does_not_eagerly_export_state() -> None:
+    package_root = SOURCE_ROOT / "pipy_harness"
+    native_root = package_root / "native"
+    script = f"""\
+import types
+import sys
+
+def namespace_package(name, path):
+    module = types.ModuleType(name)
+    module.__package__ = name
+    module.__path__ = [path]
+    sys.modules[name] = module
+    return module
+
+pipy_package = namespace_package("pipy_harness", {str(package_root)!r})
+native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
+pipy_package.native = native_package
+
+import pipy_harness.native.coding
+
+assert "pipy_harness.native.coding.state" not in sys.modules
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_tool_loop_provider_access_is_state_backed_across_run_and_settings() -> None:
+    session_path = SOURCE_ROOT / "pipy_harness" / "native" / "tool_loop_session.py"
+    tree = ast.parse(session_path.read_text(encoding="utf-8"))
+    session_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "NativeToolReplSession"
+    )
+    governed_methods = {
+        "run",
+        "_settings_overlay_lines",
+        "_drive_settings_dialog",
+    }
+    provider_field_accesses = [
+        (method.name, node.lineno)
+        for method in session_class.body
+        if isinstance(method, ast.FunctionDef) and method.name in governed_methods
+        for node in ast.walk(method)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+        and node.attr == "provider"
+    ]
+
+    assert provider_field_accesses == []
 
 
 @pytest.mark.parametrize(

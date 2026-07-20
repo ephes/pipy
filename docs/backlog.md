@@ -1783,6 +1783,33 @@ provider/model/settings/resource coordination, rendering, and persistence write
 ownership remain for later Phase 3 slices. The next target is Phase 3.1b,
 coding-session state and transitions.
 
+### Headless coding-session state — SHIPPED (2026-07-20)
+
+Phase 3.1b introduces `native.coding.state` as the synchronous, UI-free owner of
+the active provider binding, canonical live history, usage and result counters,
+compaction suffix/metrics, and unresolved provider failure. The product
+composition root now applies named transitions instead of maintaining parallel
+run-local integers and lists. Provider selection/construction, pricing lookup,
+durable session-tree writes, commands, extension hooks, rendering, RPC
+settlement, and reusable-loop invocation stay in their existing owners.
+
+Direct fake-provider tests cover atomic binding, immutable message snapshots,
+exact message identity, counter synchronization, compaction and rebuild
+lifetime, usage reset, and provider-failure state without a terminal,
+filesystem, concrete provider, extension runtime, or session tree. Stricter
+static, recursive, and fresh-process import gates protect the new layer. The
+current behavior in which provider/model/auth rebinds preserve an in-memory
+compaction suffix is explicitly characterized; any correction is a separate
+behavior slice. The next target is Phase 3.1c, the typed persistence
+coordination seam without moving write ownership.
+
+**Deferred compatibility correction — fatal image-result metadata:** after a
+valid image reaches the first provider request, malformed-tool fatal results
+currently retain zero-default image counters. Correct this only in a dedicated
+public-metadata slice with JSON, adapter, and workflow-archive compatibility and
+privacy contracts; Phase 3.1b deliberately characterizes rather than changes
+the behavior.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable

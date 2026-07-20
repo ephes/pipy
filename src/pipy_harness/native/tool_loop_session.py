@@ -38,7 +38,7 @@ import json
 import os
 import tempfile
 import threading
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
@@ -136,6 +136,10 @@ from pipy_harness.native.agent_runtime import (
 )
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding import CodingInputQueue, CodingInputSource
+from pipy_harness.native.coding.state import (
+    CodingSessionState,
+    CodingSessionUsageSnapshot,
+)
 from pipy_harness.native._provider_helpers import failed_provider_result
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_input import (
@@ -1464,7 +1468,7 @@ class NativeToolReplSession:
     string (EOF) or the malformed-tool-call streak reaches three.
     """
 
-    provider: ProviderPort
+    provider: InitVar[ProviderPort]
     tool_registry: dict[str, ToolPort] = field(default_factory=production_tool_registry)
     tool_budget: int = 50
     workspace_root: Path | None = None
@@ -1527,21 +1531,27 @@ class NativeToolReplSession:
     # Finalized startup activation shared with catalog construction. Only the
     # initial run consumes it; explicit /reload performs a fresh activation.
     initial_extension_batch: ExtensionActivationBatch | None = None
+    _coding_state: CodingSessionState = field(init=False, repr=False)
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = MAX_AGENT_TOOL_BUDGET
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, provider: ProviderPort) -> None:
         if self.auto_trust_on_reload_cwd is not None:
             self.auto_trust_on_reload_cwd = (
                 self.auto_trust_on_reload_cwd.expanduser().resolve()
             )
-        if not self.provider.supports_tool_calls:
+        if not provider.supports_tool_calls:
             raise ValueError(
-                f"provider {self.provider.name!r} does not advertise "
+                f"provider {provider.name!r} does not advertise "
                 "supports_tool_calls=True; the pipy repl requires a "
                 "tool-capable provider"
             )
+        self._coding_state = CodingSessionState(
+            provider=provider,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+        )
         if isinstance(self.tool_budget, bool) or not isinstance(self.tool_budget, int):
             raise TypeError("tool_budget must be an int")
         if self.tool_budget < 1 or self.tool_budget > self.MAX_TOOL_BUDGET:
@@ -1549,6 +1559,12 @@ class NativeToolReplSession:
                 "tool_budget must be in "
                 f"[1, {self.MAX_TOOL_BUDGET}]; got {self.tool_budget}"
             )
+
+    @property
+    def provider_port(self) -> ProviderPort:
+        """Return the state-owned provider port outside an active run."""
+
+        return self._coding_state.provider
 
     def run(
         self,
@@ -1571,15 +1587,25 @@ class NativeToolReplSession:
         def _stderr_sink(text: str) -> None:
             error_stream.write(text)
 
-        effective_provider_name = provider_name or self.provider.name
-        effective_model_id = model_id or self.provider.model_id
+        coding_state = self._coding_state
+        seed_provider = coding_state.provider
+        initial_provider_name = provider_name or seed_provider.name
+        initial_model_id = model_id or seed_provider.model_id
+        coding_state.begin_run(
+            provider_name=initial_provider_name,
+            model_id=initial_model_id,
+            usage_accumulator=AgentUsageAccumulator(
+                _pricing_for(initial_provider_name, initial_model_id)
+            ),
+        )
 
         def _bind_unavailable_after_reload(message: str) -> None:
-            self.provider = _UnavailableAfterReloadProvider(
-                name=effective_provider_name,
-                model_id=effective_model_id,
+            unavailable_provider = _UnavailableAfterReloadProvider(
+                name=coding_state.provider_name,
+                model_id=coding_state.model_id,
                 error_message=message,
             )
+            coding_state.mark_provider_unavailable(unavailable_provider)
 
         keybindings = self.keybindings_manager or KeybindingsManager.create()
         settings = self.settings_manager or SettingsManager.for_workspace(cwd)
@@ -1665,8 +1691,8 @@ class NativeToolReplSession:
                 exit_code=2,
                 started_at=now,
                 ended_at=now,
-                provider_name=effective_provider_name,
-                model_id=effective_model_id,
+                provider_name=coding_state.provider_name,
+                model_id=coding_state.model_id,
                 error_type="ExtensionFlagError",
                 error_message=extension_flag_error,
             )
@@ -1693,9 +1719,15 @@ class NativeToolReplSession:
                             "activation, and no available tool-capable fallback "
                             "was found"
                         )
-                    self.provider = self.provider_state.current_provider()
-                    effective_provider_name = fallback.provider_name
-                    effective_model_id = fallback.model_id
+                    fallback_provider = self.provider_state.current_provider()
+                    coding_state.rebind_provider(
+                        fallback_provider,
+                        provider_name=fallback.provider_name,
+                        model_id=fallback.model_id,
+                        usage_accumulator=AgentUsageAccumulator(
+                            _pricing_for(fallback.provider_name, fallback.model_id)
+                        ),
+                    )
                     print(
                         "pipy: active model disappeared on startup; selected "
                         f"{fallback.reference}.",
@@ -1766,13 +1798,13 @@ class NativeToolReplSession:
             request = ProviderRequest(
                 system_prompt=str(system_prompt)[:_EXTENSION_COMPLETE_MAX_CHARS],
                 user_prompt=str(user_text)[:_EXTENSION_COMPLETE_MAX_CHARS],
-                provider_name=effective_provider_name,
-                model_id=effective_model_id,
+                provider_name=coding_state.provider_name,
+                model_id=coding_state.model_id,
                 cwd=cwd,
                 available_tools=(),
                 provider_header_callback=_active_provider_header_callback(),
             )
-            result = self.provider.complete(request)
+            result = coding_state.provider.complete(request)
             if result.status != HarnessStatus.SUCCEEDED:
                 raise ExtensionCapabilityError(
                     f"completion failed ({result.error_type or result.status})"
@@ -1987,41 +2019,19 @@ class NativeToolReplSession:
         started_at = datetime.now(UTC)
         # Native product session tree: the durable source of truth. When not
         # injected we run on an ephemeral in-memory tree (no file). The live
-        # ``messages`` list mirrors the tree's active branch and remains the
-        # provider-visible list (carrying any in-memory compaction); every
-        # append is mirrored to the tree so /tree navigation, resume, fork,
-        # clone, and durable compaction read the same conversation.
+        # Coding state mirrors the tree's active branch as immutable snapshots
+        # while retaining exact canonical message identities. Every append is
+        # applied to live state before the existing synchronous tree write so
+        # /tree navigation, resume, fork, clone, and durable compaction observe
+        # the established ordering.
         session_tree = self.native_session or NativeSessionTree.create(
             cwd, persist=False
         )
-        messages: list[AgentMessage] = list(session_tree.build_context().messages)
-        resource_invocation_count = 0
-        user_turn_count = 0
-        tool_invocation_count = 0
-        malformed_argument_count = 0
-        consecutive_malformed_streak = 0
-        budget_exhausted_count = 0
+        coding_state.rebuild_history(tuple(session_tree.build_context().messages))
 
         def _sync_tool_policy_counters(state: AgentToolPolicyState) -> None:
-            nonlocal tool_invocation_count
-            nonlocal malformed_argument_count
-            nonlocal consecutive_malformed_streak
-            nonlocal budget_exhausted_count
-            tool_invocation_count = state.tool_invocation_count
-            malformed_argument_count = state.malformed_argument_count
-            consecutive_malformed_streak = state.consecutive_malformed_streak
-            budget_exhausted_count = state.budget_exhausted_count
+            coding_state.sync_tool_policy(state)
 
-        file_reference_count = 0
-        file_reference_loaded_count = 0
-        file_reference_failed_count = 0
-        image_attachment_count = 0
-        image_attachment_loaded_count = 0
-        image_attachment_failed_count = 0
-        compaction_count = 0
-        compaction_dropped_group_count_total = 0
-        unresolved_provider_error_type: str | None = None
-        unresolved_provider_error_message: str | None = None
         # Native session-tree command state. ``pending_prefill`` carries text
         # from a ``/tree`` user-message selection back into the next prompt
         # (rehydrated editor in the live TUI). ``tree_filter_mode`` is the
@@ -2032,17 +2042,13 @@ class NativeToolReplSession:
         # /compact or auto-compaction; the base system prompt itself is never
         # mutated. base_system_prompt already carries any resume seed block.
         base_system_prompt = system_prompt
-        compaction_summary = ""
-        usage_accumulator = AgentUsageAccumulator(
-            _pricing_for(effective_provider_name, effective_model_id)
-        )
 
         def append_agent_message(message: AgentMessage) -> object:
-            messages.append(message)
+            coding_state.append_message(message)
             return session_tree.append_message(message)
 
         def absorb_session_usage(sample: AgentProviderUsageSample) -> None:
-            usage_accumulator.absorb(sample)
+            coding_state.absorb_usage(sample)
 
         run_effect_sink = NativeAgentRunEffectSink(append_agent_message)
         usage_publisher = NativeAgentUsagePublisher(absorb_session_usage, emitter)
@@ -2313,9 +2319,7 @@ class NativeToolReplSession:
             ),
             pending_local_command_source=take_pending_local_command,
             seeds=(
-                ProductContent(message)
-                for message in self.initial_messages
-                if message
+                ProductContent(message) for message in self.initial_messages if message
             ),
         )
 
@@ -2338,19 +2342,20 @@ class NativeToolReplSession:
         def extension_set_label(entry_id: str, label: str | None) -> object:
             return session_tree.append_label_change(entry_id, label)
 
+        def coding_footer_text() -> str:
+            return self._footer_text(
+                cwd=cwd,
+                provider_name=coding_state.provider_name,
+                model_id=coding_state.model_id,
+                user_turn_count=coding_state.user_turn_count,
+                tool_invocation_count=coding_state.tool_invocation_count,
+                error_stream=error_stream,
+                usage_snapshot=coding_state.usage_snapshot(),
+            )
+
         def refresh_footer_text() -> None:
             if terminal_ui is not None:
-                terminal_ui.set_footer_text(
-                    self._footer_text(
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        error_stream=error_stream,
-                        usage_accumulator=usage_accumulator,
-                    )
-                )
+                terminal_ui.set_footer_text(coding_footer_text())
 
         def extension_set_active_tools(tool_names: Sequence[str]) -> bool:
             """Restrict model-visible tools for future provider requests."""
@@ -2396,8 +2401,6 @@ class NativeToolReplSession:
             REPL requires. No provider turn happens here.
             """
 
-            nonlocal effective_provider_name, effective_model_id
-            nonlocal usage_accumulator, messages
             state = self.provider_state
             if not isinstance(state, NativeReplProviderState):
                 return False, (
@@ -2421,26 +2424,16 @@ class NativeToolReplSession:
                     f"pipy: {reference} does not support tool calls in "
                     "tool-loop mode; selection unchanged."
                 )
-            self.provider = new_provider
             selection = state.current_selection()
-            effective_provider_name = selection.provider_name
-            effective_model_id = selection.model_id
-            messages = []
-            usage_accumulator = AgentUsageAccumulator(
-                _pricing_for(effective_provider_name, effective_model_id)
+            coding_state.rebind_provider(
+                new_provider,
+                provider_name=selection.provider_name,
+                model_id=selection.model_id,
+                usage_accumulator=AgentUsageAccumulator(
+                    _pricing_for(selection.provider_name, selection.model_id)
+                ),
             )
-            if terminal_ui is not None:
-                terminal_ui.set_footer_text(
-                    self._footer_text(
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        error_stream=error_stream,
-                        usage_accumulator=usage_accumulator,
-                    )
-                )
+            refresh_footer_text()
             return True, message
 
         def apply_auth_change(action: str, argument: str) -> str:
@@ -2457,8 +2450,6 @@ class NativeToolReplSession:
             afterward.
             """
 
-            nonlocal effective_provider_name, effective_model_id
-            nonlocal usage_accumulator, messages
             state = self.provider_state
             if not isinstance(state, NativeReplProviderState):
                 return f"pipy: /{action} is unavailable for this REPL provider state."
@@ -2492,26 +2483,17 @@ class NativeToolReplSession:
             # the product REPL upgrades the *live* fake selection to the
             # tool-capable ``fake-tools`` here so the next turn has tool support.
             state.selection = normalize_repl_fake_selection(state.current_selection())
-            self.provider = state.current_provider()
+            rebound_provider = state.current_provider()
             selection = state.current_selection()
-            effective_provider_name = selection.provider_name
-            effective_model_id = selection.model_id
-            messages = []
-            usage_accumulator = AgentUsageAccumulator(
-                _pricing_for(effective_provider_name, effective_model_id)
+            coding_state.rebind_provider(
+                rebound_provider,
+                provider_name=selection.provider_name,
+                model_id=selection.model_id,
+                usage_accumulator=AgentUsageAccumulator(
+                    _pricing_for(selection.provider_name, selection.model_id)
+                ),
             )
-            if terminal_ui is not None:
-                terminal_ui.set_footer_text(
-                    self._footer_text(
-                        cwd=cwd,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        error_stream=error_stream,
-                        usage_accumulator=usage_accumulator,
-                    )
-                )
+            refresh_footer_text()
             return message
 
         def apply_compaction(trigger: str) -> str:
@@ -2524,8 +2506,6 @@ class NativeToolReplSession:
             result is orphaned because the cut is at a user-message boundary.
             """
 
-            nonlocal messages, compaction_summary, compaction_count
-            nonlocal compaction_dropped_group_count_total
             decision = dispatch_session_before_hooks(
                 extension_session_before_compact_hooks,
                 operation="compact",
@@ -2544,16 +2524,17 @@ class NativeToolReplSession:
                 reason = decision.reason or "blocked by extension"
                 return f"pipy: compact blocked by extension: {reason}"
             result = compact_agent_history(
-                messages,
+                coding_state.messages,
                 keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
             )
             if not result.changed:
                 return "pipy: nothing to compact yet."
-            messages = list(result.messages)
             summary_block = _agent_history_summary(result)
-            compaction_summary = f"\n\n{summary_block}"
-            compaction_count += 1
-            compaction_dropped_group_count_total += result.dropped_group_count
+            coding_state.apply_compaction(
+                result.messages,
+                summary_suffix=f"\n\n{summary_block}",
+                dropped_group_count=result.dropped_group_count,
+            )
             # Durable compaction: append a real ``compaction`` entry to the
             # native session tree so resumed and /tree-navigated sessions
             # rebuild the same reduced context. The boundary is the first
@@ -2620,17 +2601,7 @@ class NativeToolReplSession:
                     file=error_stream,
                 )
         else:
-            terminal_ui.set_footer_text(
-                self._footer_text(
-                    cwd=cwd,
-                    provider_name=effective_provider_name,
-                    model_id=effective_model_id,
-                    user_turn_count=user_turn_count,
-                    tool_invocation_count=tool_invocation_count,
-                    error_stream=error_stream,
-                    usage_accumulator=usage_accumulator,
-                )
-            )
+            terminal_ui.set_footer_text(coding_footer_text())
             terminal_ui.start()
             if self.resume_context is not None:
                 # Safe resumed-state notice committed to scrollback at startup:
@@ -2674,10 +2645,22 @@ class NativeToolReplSession:
                 self._print_footer(
                     error_stream,
                     cwd=cwd,
-                    provider_name=effective_provider_name,
-                    model_id=effective_model_id,
-                    user_turn_count=user_turn_count,
-                    tool_invocation_count=tool_invocation_count,
+                    provider_name=coding_state.provider_name,
+                    model_id=coding_state.model_id,
+                    user_turn_count=coding_state.user_turn_count,
+                    tool_invocation_count=coding_state.tool_invocation_count,
+                )
+
+        def refresh_legacy_footer_with_usage() -> None:
+            if legacy_footer_enabled():
+                self._print_footer(
+                    error_stream,
+                    cwd=cwd,
+                    provider_name=coding_state.provider_name,
+                    model_id=coding_state.model_id,
+                    user_turn_count=coding_state.user_turn_count,
+                    tool_invocation_count=coding_state.tool_invocation_count,
+                    usage_snapshot=coding_state.usage_snapshot(),
                 )
 
         def diag(message: str) -> None:
@@ -2720,9 +2703,7 @@ class NativeToolReplSession:
             compacted) active branch.
             """
 
-            nonlocal messages, compaction_summary
-            messages = list(session_tree.build_context().messages)
-            compaction_summary = ""
+            coding_state.rebuild_history(tuple(session_tree.build_context().messages))
             # Extension delivery is bound to the active native session/branch
             # and must not leak into its replacement. Positional seeds, a local
             # command, a retained loop handoff, and externally owned RPC
@@ -2750,15 +2731,15 @@ class NativeToolReplSession:
             request = ProviderRequest(
                 system_prompt=instruction,
                 user_prompt="Provide the branch summary now.",
-                provider_name=effective_provider_name,
-                model_id=effective_model_id,
+                provider_name=coding_state.provider_name,
+                model_id=coding_state.model_id,
                 cwd=cwd,
                 messages=tuple(branch_messages),
                 available_tools=(),
                 provider_header_callback=_active_provider_header_callback(),
             )
             try:
-                result = self.provider.complete(request)
+                result = coding_state.provider.complete(request)
             except Exception:  # noqa: BLE001 - never crash the REPL
                 return None
             if result.status != HarnessStatus.SUCCEEDED:
@@ -2783,11 +2764,11 @@ class NativeToolReplSession:
             self._print_footer(
                 error_stream,
                 cwd=cwd,
-                provider_name=effective_provider_name,
-                model_id=effective_model_id,
-                user_turn_count=user_turn_count,
-                tool_invocation_count=tool_invocation_count,
-                usage_accumulator=usage_accumulator,
+                provider_name=coding_state.provider_name,
+                model_id=coding_state.model_id,
+                user_turn_count=coding_state.user_turn_count,
+                tool_invocation_count=coding_state.tool_invocation_count,
+                usage_snapshot=coding_state.usage_snapshot(),
             )
 
         # session_start fires once the session is set up; session_shutdown
@@ -2798,15 +2779,7 @@ class NativeToolReplSession:
             while True:
                 if terminal_ui is None:
                     print_input_separator(error_stream)
-                footer_text = self._footer_text(
-                    cwd=cwd,
-                    provider_name=effective_provider_name,
-                    model_id=effective_model_id,
-                    user_turn_count=user_turn_count,
-                    tool_invocation_count=tool_invocation_count,
-                    error_stream=error_stream,
-                    usage_accumulator=usage_accumulator,
-                )
+                footer_text = coding_footer_text()
                 if pending_prefill is not None:
                     # A ``/tree`` user-message selection puts the chosen text back
                     # into the editor. The live TUI rehydrates the editor directly;
@@ -2843,8 +2816,7 @@ class NativeToolReplSession:
                     if selected_input.source is CodingInputSource.LOCAL_COMMAND:
                         pending_command = selected_input.content.value
                     elif (
-                        selected_input.source
-                        is CodingInputSource.RETAINED_FRESH_INPUT
+                        selected_input.source is CodingInputSource.RETAINED_FRESH_INPUT
                     ):
                         retained_fresh_line = selected_input.content.value
                     else:
@@ -2929,9 +2901,7 @@ class NativeToolReplSession:
                 # so neither can match and both fall through to the provider-message
                 # path (which still resolves any @file/@image references). Ordinary
                 # typed input keeps ``command_text == stripped`` and is unaffected.
-                command_text = (
-                    "" if selected_provider_content is not None else stripped
-                )
+                command_text = "" if selected_provider_content is not None else stripped
                 # In-editor hotkeys arrive as private sentinel "commands" from the
                 # TUI so they dispatch without rendering a user-message bubble.
                 # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
@@ -2950,16 +2920,7 @@ class NativeToolReplSession:
                         error_stream=error_stream,
                         session_tree=session_tree,
                     )
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
-                        )
+                    refresh_legacy_footer_with_usage()
                     continue
                 if command_text.startswith(HOTKEY_EXTENSION_SHORTCUT_PREFIX):
                     # An activated extension's registered keyboard shortcut
@@ -2978,7 +2939,7 @@ class NativeToolReplSession:
                         _ext_runtime.shortcuts,
                         cwd=str(cwd),
                         has_ui=terminal_ui is not None,
-                        messages=messages,
+                        messages=coding_state.messages,
                         complete_fn=_extension_complete,
                         notify_sink=_extension_notify,
                         ui_custom_driver=_extension_custom_driver,
@@ -3055,18 +3016,8 @@ class NativeToolReplSession:
                         shell_message = AgentUserMessage(
                             content=ProductContent(shell_context_text)
                         )
-                        messages.append(shell_message)
-                        session_tree.append_message(shell_message)
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
-                        )
+                        append_agent_message(shell_message)
+                    refresh_legacy_footer_with_usage()
                     continue
                 # Pi paints the submitted user message back on a muted
                 # `userMessageBg` panel — distinct from the green tool
@@ -3076,15 +3027,7 @@ class NativeToolReplSession:
                 if stripped and not from_hotkey:
                     renderer.render_user_message(user_input)
                 if not stripped:
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 if command_text in {"/exit", "/quit"}:
                     break
@@ -3097,15 +3040,7 @@ class NativeToolReplSession:
                         terminal_ui.add_notice(hotkeys_text)
                     else:
                         print(hotkeys_text, file=error_stream)
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 if command_text == "/trust":
                     self._handle_trust_command(
@@ -3114,15 +3049,7 @@ class NativeToolReplSession:
                         cwd=cwd,
                         settings=settings,
                     )
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 if command_text == "/reload":
                     # Local-only: re-read settings (both scopes), keybindings, and
@@ -3257,23 +3184,27 @@ class NativeToolReplSession:
                                     if getattr(
                                         refreshed_provider, "supports_tool_calls", False
                                     ):
-                                        self.provider = refreshed_provider
+                                        coding_state.refresh_provider(
+                                            refreshed_provider
+                                        )
                                     else:
                                         fallback = state.reset_to_first_available_model(
                                             require_tool_calls=True
                                         )
                                         if fallback is not None:
-                                            self.provider = state.current_provider()
-                                            effective_provider_name = (
-                                                fallback.provider_name
-                                            )
-                                            effective_model_id = fallback.model_id
-                                            messages = []
-                                            usage_accumulator = AgentUsageAccumulator(
-                                                _pricing_for(
-                                                    effective_provider_name,
-                                                    effective_model_id,
-                                                )
+                                            fallback_provider = state.current_provider()
+                                            coding_state.rebind_provider(
+                                                fallback_provider,
+                                                provider_name=fallback.provider_name,
+                                                model_id=fallback.model_id,
+                                                usage_accumulator=(
+                                                    AgentUsageAccumulator(
+                                                        _pricing_for(
+                                                            fallback.provider_name,
+                                                            fallback.model_id,
+                                                        )
+                                                    )
+                                                ),
                                             )
                                             self._emit_diagnostic(
                                                 terminal_ui,
@@ -3300,15 +3231,17 @@ class NativeToolReplSession:
                                     require_tool_calls=True
                                 )
                                 if fallback is not None:
-                                    self.provider = state.current_provider()
-                                    effective_provider_name = fallback.provider_name
-                                    effective_model_id = fallback.model_id
-                                    messages = []
-                                    usage_accumulator = AgentUsageAccumulator(
-                                        _pricing_for(
-                                            effective_provider_name,
-                                            effective_model_id,
-                                        )
+                                    fallback_provider = state.current_provider()
+                                    coding_state.rebind_provider(
+                                        fallback_provider,
+                                        provider_name=fallback.provider_name,
+                                        model_id=fallback.model_id,
+                                        usage_accumulator=AgentUsageAccumulator(
+                                            _pricing_for(
+                                                fallback.provider_name,
+                                                fallback.model_id,
+                                            )
+                                        ),
                                     )
                                     self._emit_diagnostic(
                                         terminal_ui,
@@ -3419,15 +3352,7 @@ class NativeToolReplSession:
                             else "pipy: reloaded settings, keybindings, and resources."
                         ),
                     )
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 if command_text == "/changelog":
                     # Local-only: render the full changelog (oldest-first) under a
@@ -3437,15 +3362,7 @@ class NativeToolReplSession:
                         terminal_ui.add_notice(changelog_text)
                     else:
                         print(changelog_text, file=error_stream)
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 if command_text == "/export" or command_text.startswith("/export "):
                     argument = stripped[len("/export") :]
@@ -3589,6 +3506,7 @@ class NativeToolReplSession:
                         self._drive_settings_dialog(
                             terminal_ui,
                             prompt_history_store,
+                            provider=coding_state.provider,
                             apply_model_selection=apply_model_selection,
                             apply_auth_change=apply_auth_change,
                             settings=settings,
@@ -3596,17 +3514,12 @@ class NativeToolReplSession:
                             error_stream=error_stream,
                         )
                     else:
-                        for overlay_line in self._settings_overlay_lines(settings):
+                        for overlay_line in self._settings_overlay_lines(
+                            settings,
+                            provider=coding_state.provider,
+                        ):
                             print(overlay_line, file=error_stream)
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 if command_text == "/copy":
                     # Local-only command: copies the most recent assistant answer
@@ -3615,17 +3528,11 @@ class NativeToolReplSession:
                     self._emit_diagnostic(
                         terminal_ui,
                         error_stream,
-                        self._copy_last_answer(messages, error_stream=error_stream),
+                        self._copy_last_answer(
+                            coding_state.messages, error_stream=error_stream
+                        ),
                     )
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 if command_text == "/compact":
                     # Local-only command: reduce the provider-visible history while
@@ -3634,15 +3541,7 @@ class NativeToolReplSession:
                     self._emit_diagnostic(
                         terminal_ui, error_stream, apply_compaction("manual")
                     )
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 if command_text == "/session":
                     # Local-only: report safe current native-session status. No
@@ -3946,18 +3845,12 @@ class NativeToolReplSession:
                             )
                             terminal_ui.add_notice(message)
                     else:
-                        for overlay_line in self._settings_overlay_lines(settings):
+                        for overlay_line in self._settings_overlay_lines(
+                            settings,
+                            provider=coding_state.provider,
+                        ):
                             print(overlay_line, file=error_stream)
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
-                        )
+                    refresh_legacy_footer_with_usage()
                     continue
                 if command_text == "/scoped-models" or command_text.startswith(
                     "/scoped-models "
@@ -4035,16 +3928,7 @@ class NativeToolReplSession:
                         except RuntimeError as exc:
                             msg = f"pipy: could not update scoped models: {exc}"
                         self._emit_diagnostic(terminal_ui, error_stream, msg)
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
-                        )
+                    refresh_legacy_footer_with_usage()
                     continue
                 if command_text == "/login" or command_text.startswith("/login "):
                     # Auth-only command: no provider turn, no tool call. Runs the
@@ -4053,16 +3937,7 @@ class NativeToolReplSession:
                     argument = stripped[len("/login") :].strip()
                     message = apply_auth_change("login", argument)
                     self._emit_diagnostic(terminal_ui, error_stream, message)
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
-                        )
+                    refresh_legacy_footer_with_usage()
                     continue
                 if command_text == "/logout" or command_text.startswith("/logout "):
                     # Auth-only command: no provider turn, no tool call. Removes the
@@ -4071,16 +3946,7 @@ class NativeToolReplSession:
                     argument = stripped[len("/logout") :].strip()
                     message = apply_auth_change("logout", argument)
                     self._emit_diagnostic(terminal_ui, error_stream, message)
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
-                        )
+                    refresh_legacy_footer_with_usage()
                     continue
                 # Resource dispatch (skills, prompt templates, custom commands)
                 # runs through the same local-command boundary as the built-ins,
@@ -4096,15 +3962,7 @@ class NativeToolReplSession:
                     self._emit_diagnostic(
                         terminal_ui, error_stream, resource_dispatch.message
                     )
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 if resource_dispatch is not None and resource_dispatch.is_reject:
                     # Fail closed: diagnostic only, no provider turn, native
@@ -4113,22 +3971,14 @@ class NativeToolReplSession:
                     self._emit_diagnostic(
                         terminal_ui, error_stream, resource_dispatch.message
                     )
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 if resource_dispatch is not None and resource_dispatch.is_run:
                     # The expanded/instruction text becomes the bounded
                     # provider-visible message; it never reaches prompt history,
                     # the native product session tree, or the metadata-only
                     # workflow archive. Only the invocation counter is surfaced.
-                    resource_invocation_count += 1
+                    coding_state.record_resource_invocation()
                     resource_provider_text = resource_dispatch.provider_text or ""
                     self._emit_diagnostic(
                         terminal_ui, error_stream, resource_dispatch.message
@@ -4143,7 +3993,7 @@ class NativeToolReplSession:
                         extension_commands,
                         cwd=str(cwd),
                         has_ui=terminal_ui is not None,
-                        messages=messages,
+                        messages=coding_state.messages,
                         complete_fn=_extension_complete,
                         notify_sink=_extension_notify,
                         ui_custom_driver=_extension_custom_driver,
@@ -4174,15 +4024,7 @@ class NativeToolReplSession:
                             )
                         # Messages a command enqueued via send_user_message
                         # are drained at the top of the next iteration.
-                        if legacy_footer_enabled():
-                            self._print_footer(
-                                error_stream,
-                                cwd=cwd,
-                                provider_name=effective_provider_name,
-                                model_id=effective_model_id,
-                                user_turn_count=user_turn_count,
-                                tool_invocation_count=tool_invocation_count,
-                            )
+                        refresh_legacy_footer()
                         continue
                 if command_text.startswith("/") and resource_provider_text is None:
                     self._emit_diagnostic(
@@ -4201,15 +4043,7 @@ class NativeToolReplSession:
                             "commands). Other prompts are sent to the model."
                         ),
                     )
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                        )
+                    refresh_legacy_footer()
                     continue
                 # User-directed file context: a genuine prompt may name workspace
                 # files with ``@path``. Resolve them through the shared bounded
@@ -4258,9 +4092,11 @@ class NativeToolReplSession:
                         reference_roots=self.reference_roots,
                     )
                     if file_references.reference_count:
-                        file_reference_count += file_references.reference_count
-                        file_reference_loaded_count += file_references.loaded_count
-                        file_reference_failed_count += file_references.failed_count
+                        coding_state.record_file_references(
+                            reference_count=file_references.reference_count,
+                            loaded_count=file_references.loaded_count,
+                            failed_count=file_references.failed_count,
+                        )
                         for diagnostic in file_references.diagnostics():
                             self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
                         if file_references.used:
@@ -4278,15 +4114,15 @@ class NativeToolReplSession:
                         reference_roots=image_reference_roots,
                     )
                     if image_attachments.reference_count:
-                        image_attachment_count += image_attachments.reference_count
-                        image_attachment_loaded_count += image_attachments.loaded_count
-                        image_attachment_failed_count += image_attachments.failed_count
+                        coding_state.record_image_attachments(
+                            attachment_count=image_attachments.reference_count,
+                            loaded_count=image_attachments.loaded_count,
+                            failed_count=image_attachments.failed_count,
+                        )
                         for diagnostic in image_attachments.diagnostics():
                             self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
                         turn_attachments = image_attachments.attachments()
-                turn_user_message = AgentUserMessage(
-                    content=accepted_user_content
-                )
+                turn_user_message = AgentUserMessage(content=accepted_user_content)
                 # `before_agent_start` hooks may inject bounded context into
                 # this agent run's system prompt. Computed once per accepted
                 # prompt; the injected text is provider-visible but not added
@@ -4321,10 +4157,12 @@ class NativeToolReplSession:
 
                 initial_tool_state = AgentToolPolicyState(
                     tool_budget=self.tool_budget,
-                    tool_invocation_count=tool_invocation_count,
-                    malformed_argument_count=malformed_argument_count,
-                    consecutive_malformed_streak=consecutive_malformed_streak,
-                    budget_exhausted_count=budget_exhausted_count,
+                    tool_invocation_count=coding_state.tool_invocation_count,
+                    malformed_argument_count=coding_state.malformed_argument_count,
+                    consecutive_malformed_streak=(
+                        coding_state.consecutive_malformed_streak
+                    ),
+                    budget_exhausted_count=coding_state.budget_exhausted_count,
                 )
 
                 def _prepare_loop_request(
@@ -4333,8 +4171,7 @@ class NativeToolReplSession:
                     turn_index: int,
                     available_tools: tuple[ToolDefinition, ...],
                 ) -> AgentLoopRequestPreparation:
-                    nonlocal messages
-                    messages = list(history)
+                    coding_state.mirror_history(history)
                     # Automatic compaction: when the provider-visible history grows
                     # past the threshold, drop the oldest user-turn groups before
                     # building the next request. The cut is at a user-message
@@ -4343,7 +4180,7 @@ class NativeToolReplSession:
                     if (
                         settings.get_compaction_enabled()
                         and should_compact_agent_history(
-                            messages,
+                            coding_state.messages,
                             max_messages=_AGENT_HISTORY_MAX_MESSAGES,
                             max_bytes=_AGENT_HISTORY_MAX_BYTES,
                             keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
@@ -4355,13 +4192,15 @@ class NativeToolReplSession:
                         AgentProviderRequestPolicyInput(
                             baseline=ProviderRequest(
                                 system_prompt=(
-                                    agent_system_prompt + compaction_summary
+                                    agent_system_prompt + coding_state.compaction_suffix
                                 ),
                                 user_prompt=provider_user_input,
-                                provider_name=effective_provider_name,
-                                model_id=effective_model_id,
+                                provider_name=coding_state.provider_name,
+                                model_id=coding_state.model_id,
                                 cwd=cwd,
-                                messages=loop_active_input.request_messages(messages),
+                                messages=loop_active_input.request_messages(
+                                    coding_state.messages
+                                ),
                                 available_tools=available_tools,
                                 # Image attachments belong to the current user
                                 # message, so they ride only the first provider
@@ -4385,7 +4224,7 @@ class NativeToolReplSession:
                             if name in extension_tool_renderers
                         }
                     )
-                    return AgentLoopRequestPreparation(tuple(messages), snapshot)
+                    return AgentLoopRequestPreparation(coding_state.messages, snapshot)
 
                 def _complete_loop_provider_turn(
                     snapshot: AgentProviderRequestSnapshot,
@@ -4394,7 +4233,7 @@ class NativeToolReplSession:
                 ) -> ProviderTurnOutcome:
                     provider_request = materialize_provider_request(snapshot)
                     provider_waiter = None
-                    provider_for_turn: ProviderPort = self.provider
+                    provider_for_turn: ProviderPort = coding_state.provider
                     if terminal_ui is not None:
                         provider_waiter = partial(
                             _wait_for_provider_interrupt, terminal_ui
@@ -4404,7 +4243,7 @@ class NativeToolReplSession:
                         if isinstance(self.abort_event, _AbortCallbackSignal):
                             provider_start_event = threading.Event()
                             provider_for_turn = _StartGatedProvider(
-                                self.provider, provider_start_event
+                                coding_state.provider, provider_start_event
                             )
                         provider_waiter = partial(
                             _wait_for_external_abort,
@@ -4424,8 +4263,7 @@ class NativeToolReplSession:
                     extension_in_agent_turn = True
 
                 def _agent_input_accepted() -> None:
-                    nonlocal user_turn_count
-                    user_turn_count += 1
+                    coding_state.record_input_accepted()
                     # Only genuine literal prompts enter the local recall store.
                     if resource_provider_text is None:
                         prompt_history_store.record(user_input)
@@ -4439,12 +4277,9 @@ class NativeToolReplSession:
                     status: AgentProviderStatusDecision,
                     tool_state: AgentToolPolicyState,
                 ) -> None:
-                    nonlocal unresolved_provider_error_type
-                    nonlocal unresolved_provider_error_message
                     del status
                     del tool_state
-                    unresolved_provider_error_type = None
-                    unresolved_provider_error_message = None
+                    coding_state.clear_provider_failure()
 
                 def _agent_cancellation_observed(
                     reason: AgentCancellationReason,
@@ -4463,13 +4298,10 @@ class NativeToolReplSession:
                     status: AgentProviderStatusDecision,
                     tool_state: AgentToolPolicyState,
                 ) -> None:
-                    nonlocal unresolved_provider_error_type
-                    nonlocal unresolved_provider_error_message
                     failure = status.failure
                     assert failure is not None
                     del tool_state
-                    unresolved_provider_error_type = failure.error_type
-                    unresolved_provider_error_message = failure.message.value
+                    coding_state.record_provider_failure(failure)
                     suffix = (
                         f" (response_status={status.response_status})"
                         if status.response_status is not None
@@ -4481,31 +4313,13 @@ class NativeToolReplSession:
                         "pipy: provider failure during turn: "
                         f"{failure.error_type}: {failure.message.value}{suffix}",
                     )
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
-                        )
+                    refresh_legacy_footer_with_usage()
 
                 def _agent_no_tool_assistant(
                     tool_state: AgentToolPolicyState,
                 ) -> None:
                     del tool_state
-                    if legacy_footer_enabled():
-                        self._print_footer(
-                            error_stream,
-                            cwd=cwd,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            user_turn_count=user_turn_count,
-                            tool_invocation_count=tool_invocation_count,
-                            usage_accumulator=usage_accumulator,
-                        )
+                    refresh_legacy_footer_with_usage()
 
                 def _agent_malformed_fatal(
                     failure: AgentFailure,
@@ -4553,23 +4367,24 @@ class NativeToolReplSession:
                 agent_settled_pending = True
                 loop_outcome = agent_loop.run(
                     AgentLoopRunInput(
-                        tuple(messages),
+                        coding_state.messages,
                         active_input,
                         initial_tool_state,
                         pricing=_pricing_for(
-                            effective_provider_name,
-                            effective_model_id,
+                            coding_state.provider_name,
+                            coding_state.model_id,
                         ),
                         accepted_queued_input=queued_input,
                     )
                 )
-                messages = list(loop_outcome.final_history)
+                coding_state.mirror_history(loop_outcome.final_history)
                 coding_input_queue.retain_agent_input(loop_outcome.next_input)
                 extension_in_agent_turn = False
 
                 if loop_outcome.terminate_session:
                     run_failure = loop_outcome.result.failure
                     assert run_failure is not None
+                    result_snapshot = coding_state.result_snapshot()
                     ended_at = datetime.now(UTC)
                     try:
                         repl_input.close()
@@ -4580,19 +4395,31 @@ class NativeToolReplSession:
                         exit_code=1,
                         started_at=started_at,
                         ended_at=ended_at,
-                        provider_name=effective_provider_name,
-                        model_id=effective_model_id,
-                        user_turn_count=user_turn_count,
-                        tool_invocation_count=tool_invocation_count,
-                        resource_invocation_count=resource_invocation_count,
-                        malformed_argument_count=malformed_argument_count,
-                        consecutive_malformed_streak=consecutive_malformed_streak,
-                        budget_exhausted_count=budget_exhausted_count,
-                        file_reference_count=file_reference_count,
-                        file_reference_loaded_count=file_reference_loaded_count,
-                        file_reference_failed_count=file_reference_failed_count,
-                        compaction_count=compaction_count,
-                        compaction_dropped_group_count=compaction_dropped_group_count_total,
+                        provider_name=result_snapshot.provider_name,
+                        model_id=result_snapshot.model_id,
+                        user_turn_count=result_snapshot.user_turn_count,
+                        tool_invocation_count=result_snapshot.tool_invocation_count,
+                        resource_invocation_count=(
+                            result_snapshot.resource_invocation_count
+                        ),
+                        malformed_argument_count=(
+                            result_snapshot.malformed_argument_count
+                        ),
+                        consecutive_malformed_streak=(
+                            result_snapshot.consecutive_malformed_streak
+                        ),
+                        budget_exhausted_count=(result_snapshot.budget_exhausted_count),
+                        file_reference_count=result_snapshot.file_reference_count,
+                        file_reference_loaded_count=(
+                            result_snapshot.file_reference_loaded_count
+                        ),
+                        file_reference_failed_count=(
+                            result_snapshot.file_reference_failed_count
+                        ),
+                        compaction_count=result_snapshot.compaction_count,
+                        compaction_dropped_group_count=(
+                            result_snapshot.compaction_dropped_group_count
+                        ),
                         error_type=run_failure.error_type,
                         error_message=run_failure.message.value,
                     )
@@ -4602,29 +4429,47 @@ class NativeToolReplSession:
             except Exception:
                 pass
             ended_at = datetime.now(UTC)
+            result_snapshot = coding_state.result_snapshot()
+            provider_failure = result_snapshot.provider_failure
             return NativeToolReplResult(
                 status=HarnessStatus.SUCCEEDED,
                 exit_code=0,
                 started_at=started_at,
                 ended_at=ended_at,
-                provider_name=effective_provider_name,
-                model_id=effective_model_id,
-                user_turn_count=user_turn_count,
-                tool_invocation_count=tool_invocation_count,
-                resource_invocation_count=resource_invocation_count,
-                malformed_argument_count=malformed_argument_count,
-                consecutive_malformed_streak=consecutive_malformed_streak,
-                budget_exhausted_count=budget_exhausted_count,
-                file_reference_count=file_reference_count,
-                file_reference_loaded_count=file_reference_loaded_count,
-                file_reference_failed_count=file_reference_failed_count,
-                image_attachment_count=image_attachment_count,
-                image_attachment_loaded_count=image_attachment_loaded_count,
-                image_attachment_failed_count=image_attachment_failed_count,
-                compaction_count=compaction_count,
-                compaction_dropped_group_count=compaction_dropped_group_count_total,
-                provider_failure_type=unresolved_provider_error_type,
-                provider_failure_message=unresolved_provider_error_message,
+                provider_name=result_snapshot.provider_name,
+                model_id=result_snapshot.model_id,
+                user_turn_count=result_snapshot.user_turn_count,
+                tool_invocation_count=result_snapshot.tool_invocation_count,
+                resource_invocation_count=result_snapshot.resource_invocation_count,
+                malformed_argument_count=result_snapshot.malformed_argument_count,
+                consecutive_malformed_streak=(
+                    result_snapshot.consecutive_malformed_streak
+                ),
+                budget_exhausted_count=result_snapshot.budget_exhausted_count,
+                file_reference_count=result_snapshot.file_reference_count,
+                file_reference_loaded_count=(
+                    result_snapshot.file_reference_loaded_count
+                ),
+                file_reference_failed_count=(
+                    result_snapshot.file_reference_failed_count
+                ),
+                image_attachment_count=result_snapshot.image_attachment_count,
+                image_attachment_loaded_count=(
+                    result_snapshot.image_attachment_loaded_count
+                ),
+                image_attachment_failed_count=(
+                    result_snapshot.image_attachment_failed_count
+                ),
+                compaction_count=result_snapshot.compaction_count,
+                compaction_dropped_group_count=(
+                    result_snapshot.compaction_dropped_group_count
+                ),
+                provider_failure_type=(
+                    provider_failure.error_type if provider_failure else None
+                ),
+                provider_failure_message=(
+                    provider_failure.message.value if provider_failure else None
+                ),
             )
         finally:
             if agent_settled_pending:
@@ -5101,19 +4946,16 @@ class NativeToolReplSession:
         user_turn_count: int,
         tool_invocation_count: int,
         error_stream: TextIO | None = None,
-        usage_accumulator: AgentUsageAccumulator | None = None,
+        usage_snapshot: CodingSessionUsageSnapshot | None = None,
     ) -> str:
         plan_label = "sub" if provider_name == "openai-codex" else "api"
         budget = _context_budget_for(provider_name, model_id)
         used_pct = 0.0
         if budget.token_budget > 0:
-            if (
-                usage_accumulator is not None
-                and usage_accumulator.last_total_tokens > 0
-            ):
+            if usage_snapshot is not None and usage_snapshot.last_total_tokens > 0:
                 used_pct = (
                     100.0
-                    * usage_accumulator.last_total_tokens
+                    * usage_snapshot.last_total_tokens
                     / float(budget.token_budget)
                 )
             else:
@@ -5124,15 +4966,14 @@ class NativeToolReplSession:
                 used_pct = 100.0 * estimated_tokens / float(budget.token_budget)
             used_pct = min(used_pct, 999.9)
         cost_label = (
-            f"${usage_accumulator.cost_usd:.3f}"
-            if usage_accumulator is not None
+            f"${usage_snapshot.usage.cost_usd:.3f}"
+            if usage_snapshot is not None
             else "$0.000"
         )
         cache_hit_percent = (
-            usage_accumulator.cache_hit_percent
-            if usage_accumulator is not None
-            else None
+            usage_snapshot.cache_hit_percent if usage_snapshot is not None else None
         )
+        usage = usage_snapshot.usage if usage_snapshot is not None else None
         fields = BottomStatusFields(
             cwd_label="",
             cost_label=cost_label,
@@ -5143,17 +4984,11 @@ class NativeToolReplSession:
             provider_name=provider_name,
             model_id=model_id,
             effort_label=self._effort_label(provider_name, model_id),
-            tokens_in=(usage_accumulator.input_tokens if usage_accumulator else 0),
-            tokens_out=(usage_accumulator.output_tokens if usage_accumulator else 0),
-            tokens_reasoning=(
-                usage_accumulator.reasoning_tokens if usage_accumulator else 0
-            ),
-            tokens_cache_read=(
-                usage_accumulator.cache_read_tokens if usage_accumulator else 0
-            ),
-            tokens_cache_write=(
-                usage_accumulator.cache_write_tokens if usage_accumulator else 0
-            ),
+            tokens_in=(usage.input_tokens if usage else 0),
+            tokens_out=(usage.output_tokens if usage else 0),
+            tokens_reasoning=(usage.reasoning_tokens if usage else 0),
+            tokens_cache_read=(usage.cache_read_tokens if usage else 0),
+            tokens_cache_write=(usage.cache_write_tokens if usage else 0),
             cache_hit_percent=cache_hit_percent,
         )
         status_width = max(20, chrome_width(error_stream))
@@ -5187,7 +5022,7 @@ class NativeToolReplSession:
         model_id: str,
         user_turn_count: int,
         tool_invocation_count: int,
-        usage_accumulator: AgentUsageAccumulator | None = None,
+        usage_snapshot: CodingSessionUsageSnapshot | None = None,
     ) -> None:
         print_input_separator(error_stream)
         footer = self._footer_text(
@@ -5197,7 +5032,7 @@ class NativeToolReplSession:
             user_turn_count=user_turn_count,
             tool_invocation_count=tool_invocation_count,
             error_stream=error_stream,
-            usage_accumulator=usage_accumulator,
+            usage_snapshot=usage_snapshot,
         )
         cwd_label, _, status_line = footer.partition("\n")
         print_bottom_status_block(
@@ -5282,7 +5117,10 @@ class NativeToolReplSession:
         return True
 
     def _settings_overlay_lines(
-        self, settings_manager: "SettingsManager | None" = None
+        self,
+        settings_manager: "SettingsManager | None" = None,
+        *,
+        provider: ProviderPort,
     ) -> list[str]:
         """Build the read-only settings/status overlay content.
 
@@ -5294,7 +5132,7 @@ class NativeToolReplSession:
         footer says those commands are unavailable for that state.
         """
 
-        state = self.provider_state or StaticNativeReplProviderState(self.provider)
+        state = self.provider_state or StaticNativeReplProviderState(provider)
         lines = settings_overlay_lines(state, settings_manager)
         if isinstance(state, NativeReplProviderState):
             lines.append(
@@ -5313,6 +5151,7 @@ class NativeToolReplSession:
         terminal_ui: ToolLoopTerminalUi,
         prompt_history_store: PromptHistoryStore,
         *,
+        provider: ProviderPort,
         apply_model_selection: Callable[[str], tuple[bool, str]],
         apply_auth_change: Callable[[str, str], str],
         settings: "SettingsManager",
@@ -5330,7 +5169,7 @@ class NativeToolReplSession:
         closes on Esc/Ctrl-C/Ctrl-D.
         """
 
-        state = self.provider_state or StaticNativeReplProviderState(self.provider)
+        state = self.provider_state or StaticNativeReplProviderState(provider)
         is_native = isinstance(state, NativeReplProviderState)
         # Actions that need the terminal themselves (an interactive selector or
         # auth flow) close the dialog and are returned for the caller's
@@ -5830,7 +5669,7 @@ class NativeToolReplSession:
         print(safe_message, file=error_stream)
 
     def _copy_last_answer(
-        self, messages: list[AgentMessage], *, error_stream: TextIO
+        self, messages: Sequence[AgentMessage], *, error_stream: TextIO
     ) -> str:
         """Copy the most recent assistant answer; return a local status line.
 
@@ -6163,7 +6002,7 @@ class NativeToolReplSession:
         return _TreeCommandOutcome()
 
     @staticmethod
-    def _last_assistant_answer(messages: list[AgentMessage]) -> str:
+    def _last_assistant_answer(messages: Sequence[AgentMessage]) -> str:
         for message in reversed(messages):
             if isinstance(message, AgentAssistantMessage):
                 content = message.content.value.strip()

@@ -39,9 +39,9 @@ from pipy_harness.native.agent.runtime_ports import (
 )
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
-    AgentUsageAccumulator,
 )
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
 from pipy_harness.native.coding import (
     CodingInputQueue,
     CodingInputSelection,
@@ -230,9 +230,7 @@ def test_registered_input_wake_uses_controller_classification(
         error_stream=io.StringIO(),
     )
 
-    assert [request.user_prompt for request in provider.requests] == [
-        "queued wake\n\n"
-    ]
+    assert [request.user_prompt for request in provider.requests] == ["queued wake\n\n"]
     assert input_stream.classified
 
 
@@ -454,13 +452,11 @@ def test_product_session_usage_port_preserves_run_and_session_scopes(
         model_id: str,
         user_turn_count: int,
         tool_invocation_count: int,
-        usage_accumulator: AgentUsageAccumulator | None = None,
+        usage_snapshot: CodingSessionUsageSnapshot | None = None,
     ) -> None:
         del cwd, provider_name, model_id, user_turn_count, tool_invocation_count
-        assert usage_accumulator is not None
-        footers.append(
-            (usage_accumulator.agent_usage(), usage_accumulator.last_total_tokens)
-        )
+        assert usage_snapshot is not None
+        footers.append((usage_snapshot.usage, usage_snapshot.last_total_tokens))
 
     monkeypatch.setattr(
         loop_module, "NativeAgentUsagePublisher", RecordingUsagePublisher
@@ -630,9 +626,7 @@ def test_product_queue_port_preserves_priority_kind_and_original_hooked_content(
     assert [message.content.value for message in durable_messages] == originals
     assert all(
         durable is accepted
-        for durable, accepted in zip(
-            durable_messages, accepted_messages, strict=True
-        )
+        for durable, accepted in zip(durable_messages, accepted_messages, strict=True)
     )
     assert len(selected_contents) == 3
     assert all(

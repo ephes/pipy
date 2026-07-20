@@ -1368,6 +1368,13 @@ Boundaries (`pipy_harness.native.image_attachment`):
   separate metadata-only workflow archive/catalog; raw image content never
   crosses that boundary.
 
+Phase 3.1b preserves one characterized fatal-result exception: when three
+malformed tool calls terminate a turn after an image was successfully attached
+to its first provider request, `NativeToolReplResult` retains zero-default image
+counters. Correcting those public adapter/archive metadata values requires a
+dedicated compatibility slice with JSON, adapter, and archive contract coverage;
+the coding-session state extraction does not change them.
+
 ### Native Explicit Multi-File Context Budget
 
 The boundary raises the successful explicit file-excerpt budget from one to two
@@ -1667,6 +1674,37 @@ protocol `agent_settled`; extension activation, lifecycle, rendering, provider
 construction, commands, and product-session writes remain in their existing
 owners. The coding package imports none of those implementation layers and is
 covered by static, recursive, and fresh-process dependency gates.
+
+### Headless Coding-Session State
+
+Phase 3.1b moves the active provider binding, live canonical history, usage and
+result counters, compaction suffix/metrics, and unresolved provider-failure
+metadata into `native.coding.state.CodingSessionState`. The provider port and
+the explicit provider/model labels form one atomic binding: product selection
+and construction stay outside, while footer, requests, extension completion,
+and final result projections observe the same state. History snapshots are
+immutable tuples and append/replace transitions retain the exact canonical
+message objects. The `NativeToolReplSession(provider=...)` argument is consumed
+once to seed the persistent coding state and is not retained as a parallel
+field. Later runs reuse the state-owned port directly, including after a setup
+exception; the read-only `provider_port` projection observes that same owner.
+
+Provider/model/auth and reload-fallback rebinds clear provider-visible history
+and install a newly priced usage accumulator without clearing the durable native
+session tree. A same-context extension-provider refresh replaces only the port.
+Session/tree rebuilds replace live history and clear the branch-local compaction
+suffix while preserving run-lifetime counters and cumulative compaction
+metrics. For behavioral compatibility, a provider-context rebind continues to
+preserve the current in-memory compaction suffix; deciding whether that suffix
+should also reset is a separately characterized behavior change, not part of
+this ownership extraction.
+
+Provider selection/catalog policy, pricing lookup, session-tree and compaction
+writes, command dispatch, extension hooks, rendering, RPC settlement, and
+`AgentLoop` invocation remain in the product composition layer. Static,
+recursive, and fresh-process gates keep the state owner free of those
+implementations and of terminal, automation/archive, concrete-provider, and
+concrete-tool dependencies.
 
 ### Canonical Agent Tool-Capability Port
 

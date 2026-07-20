@@ -147,6 +147,11 @@ def test_compact_agent_history_returns_frozen_detached_noop() -> None:
             result,
             messages=cast(tuple[AgentMessage, ...], list(result.messages)),
         )
+    with pytest.raises(
+        ValueError,
+        match="changed AgentHistoryCompaction must drop at least one group",
+    ):
+        replace(result, changed=True)
 
 
 @pytest.mark.parametrize("keep_recent_groups", [0, -1])
@@ -176,6 +181,60 @@ def test_should_compact_agent_history_uses_strict_thresholds() -> None:
     assert not should_compact_agent_history(
         messages[-2:], max_messages=0, max_bytes=0, keep_recent_groups=2
     )
+
+
+@pytest.mark.parametrize(
+    ("messages", "max_messages", "max_bytes", "keep_recent_groups"),
+    [
+        ([*_plain_group(1), *_plain_group(2), *_plain_group(3)], 5, 10_000, 2),
+        ([*_plain_group(1), *_plain_group(2)], 100, 1, 1),
+        (
+            [
+                AgentAssistantMessage(ProductContent("preamble")),
+                *_plain_group(1),
+                *_plain_group(2),
+            ],
+            4,
+            10_000,
+            1,
+        ),
+        (
+            [
+                AgentUserMessage(ProductContent("old")),
+                AgentAssistantMessage(
+                    ProductContent(""), tool_calls=(_tool_call("corr-old"),)
+                ),
+                _tool_result("corr-old", request_suffix="old1"),
+                *_plain_group(2),
+            ],
+            4,
+            10_000,
+            1,
+        ),
+    ],
+    ids=("message-threshold", "byte-threshold", "preamble", "tool-exchange"),
+)
+def test_threshold_triggered_changed_compaction_always_drops_a_group(
+    messages: list[AgentMessage],
+    max_messages: int,
+    max_bytes: int,
+    keep_recent_groups: int,
+) -> None:
+    assert should_compact_agent_history(
+        messages,
+        max_messages=max_messages,
+        max_bytes=max_bytes,
+        keep_recent_groups=keep_recent_groups,
+    )
+
+    result = compact_agent_history(
+        messages,
+        keep_recent_groups=keep_recent_groups,
+    )
+
+    assert result.changed
+    assert result.dropped_group_count >= 1
+    assert result.dropped_message_count >= result.dropped_group_count
 
 
 def test_compact_agent_history_treats_projected_custom_users_as_groups() -> None:

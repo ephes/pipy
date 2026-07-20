@@ -10,6 +10,7 @@ script.
 
 from __future__ import annotations
 
+import ast
 import io
 import json
 import threading
@@ -34,11 +35,13 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     UsageUpdated,
 )
+from pipy_harness.native.agent.history import AgentHistoryCompaction
 from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
 from pipy_harness.native.agent.loop_policy import MAX_AGENT_TOOL_BUDGET
 from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
 from pipy_harness.native.automation.rpc import _AcceptedAbortSignal
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
 from pipy_harness.native import (
     FakeNativeProvider,
     NativeToolReplResult,
@@ -55,6 +58,7 @@ from pipy_harness.native.extension_provider_catalog import (
     load_extension_provider_contributions,
 )
 from pipy_harness.native.tool_loop_session import (
+    _agent_history_summary,
     _wait_for_external_abort,
     _wait_for_provider_interrupt,
 )
@@ -157,6 +161,7 @@ class _UsageScriptProvider:
     model_id: str = "usage-script-model"
     statuses: tuple[HarnessStatus, ...] = ()
     call_index: int = 0
+    requests: list[ProviderRequest] = field(default_factory=list)
 
     def complete(
         self,
@@ -166,7 +171,8 @@ class _UsageScriptProvider:
         reasoning_sink: StreamChunkSink | None = None,
         cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
-        del request, stream_sink, reasoning_sink, cancel_token
+        self.requests.append(request)
+        del stream_sink, reasoning_sink, cancel_token
         usage, tool_calls = self.script[self.call_index]
         status = (
             self.statuses[self.call_index]
@@ -258,16 +264,16 @@ def _record_footer_in_trace(
         model_id: str,
         user_turn_count: int,
         tool_invocation_count: int,
-        usage_accumulator: AgentUsageAccumulator | None = None,
+        usage_snapshot: CodingSessionUsageSnapshot | None = None,
     ) -> None:
         del self, error_stream, cwd, provider_name, model_id
         del user_turn_count, tool_invocation_count
-        assert usage_accumulator is not None
+        assert usage_snapshot is not None
         trace.append(
             (
                 "footer",
-                usage_accumulator.agent_usage(),
-                usage_accumulator.last_total_tokens,
+                usage_snapshot.usage,
+                usage_snapshot.last_total_tokens,
             )
         )
 
@@ -351,6 +357,95 @@ def _run_session(
         error_stream=error_stream,
     )
     return result, output_stream.getvalue(), error_stream.getvalue()
+
+
+def test_footer_paths_read_constant_time_state_scalars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pipy_harness.native.tool_loop_session as tool_loop_session
+
+    module_path = tool_loop_session.__file__
+    assert module_path is not None
+    syntax = ast.parse(Path(module_path).read_text())
+    session_class = next(
+        node
+        for node in syntax.body
+        if isinstance(node, ast.ClassDef) and node.name == "NativeToolReplSession"
+    )
+    run_method = next(
+        node
+        for node in session_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "run"
+    )
+    footer_calls = [
+        node
+        for node in ast.walk(run_method)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"_footer_text", "_print_footer"}
+    ]
+    assert len(footer_calls) == 4
+    for call in footer_calls:
+        keywords = {keyword.arg: keyword.value for keyword in call.keywords}
+        for keyword_name in (
+            "provider_name",
+            "model_id",
+            "user_turn_count",
+            "tool_invocation_count",
+        ):
+            value = keywords[keyword_name]
+            assert isinstance(value, ast.Attribute)
+            assert value.attr == keyword_name
+            assert isinstance(value.value, ast.Name)
+            assert value.value.id == "coding_state"
+
+    result_snapshot_calls = [
+        node
+        for node in ast.walk(run_method)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "result_snapshot"
+    ]
+    assert len(result_snapshot_calls) == 2
+
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True)
+    )
+    state = session._coding_state
+    monkeypatch.setattr(tool_loop_session, "chrome_width", lambda _stream: 120)
+    footer = session._footer_text(
+        cwd=tmp_path,
+        provider_name=state.provider_name,
+        model_id=state.model_id,
+        user_turn_count=state.user_turn_count,
+        tool_invocation_count=state.tool_invocation_count,
+    )
+
+    assert footer.startswith(f"{tmp_path}\n$0.000 (api)")
+    assert "(fake) fake-native-bootstrap • default" in footer
+
+
+def test_changed_agent_history_compaction_has_nonempty_product_summary() -> None:
+    result = AgentHistoryCompaction(
+        messages=(),
+        changed=True,
+        dropped_group_count=1,
+        dropped_message_count=3,
+        dropped_user_count=1,
+        dropped_assistant_count=1,
+        dropped_tool_call_count=1,
+        dropped_tool_result_count=1,
+        retained_group_count=2,
+        retained_message_count=4,
+        bytes_before=100,
+        bytes_after=40,
+    )
+
+    summary = _agent_history_summary(result)
+
+    assert summary
+    assert "1 earlier exchange(s)" in summary
+    assert "1 assistant turn(s), 1 tool call(s)" in summary
 
 
 def test_composition_keeps_callback_counters_and_rebinds_final_history(
@@ -911,6 +1006,44 @@ def test_three_malformed_in_one_response_are_fatal(tmp_path: Path):
     assert "3 consecutive malformed tool calls" in stderr
 
 
+def test_malformed_fatal_result_keeps_legacy_zero_image_counters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    image_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+    (tmp_path / "shot.png").write_bytes(image_bytes)
+    provider = _UsageScriptProvider(
+        (
+            (
+                None,
+                tuple(
+                    _make_call("echo", "{}", correlation_id=f"malformed-{index}")
+                    for index in range(1, 4)
+                ),
+            ),
+        )
+    )
+
+    result = NativeToolReplSession(
+        provider=provider,
+        tool_registry={"echo": _FixtureEchoTool()},
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("describe @image:shot.png\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert len(provider.requests) == 1
+    assert len(provider.requests[0].attachments) == 1
+    assert provider.requests[0].attachments[0].byte_count == len(image_bytes)
+    assert result.status is HarnessStatus.FAILED
+    assert result.malformed_argument_count == 3
+    assert result.image_attachment_count == 0
+    assert result.image_attachment_loaded_count == 0
+    assert result.image_attachment_failed_count == 0
+
+
 def test_malformed_streak_persists_across_accepted_runs_until_fatal(
     tmp_path: Path,
 ) -> None:
@@ -1367,6 +1500,64 @@ def test_model_change_constructs_a_distinct_usage_accumulator(
     assert len(constructed) == 2
     assert constructed[0] is not constructed[1]
     assert seen == []
+
+
+def test_state_owned_provider_survives_setup_failure_for_the_next_run(
+    tmp_path: Path,
+) -> None:
+    seen: list[tuple[str, str]] = []
+    state = _scoped_models_state(tmp_path, seen)
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        provider_state=state,
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/model anthropic/custom-sonnet\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+    assert session.provider_port.name == "anthropic"
+    assert "provider" not in vars(session)
+
+    session.tool_filter_options = ToolFilterOptions(exclude=("missing",))
+    with pytest.raises(ValueError, match="unknown tool name"):
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=io.StringIO("ignored\n"),
+            output_stream=io.StringIO(),
+            error_stream=io.StringIO(),
+        )
+
+    session.tool_filter_options = ToolFilterOptions.empty()
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("after failure\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert seen == [("anthropic", "custom-sonnet")]
+
+
+def test_static_settings_projection_uses_the_state_owned_provider(
+    tmp_path: Path,
+) -> None:
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    session = NativeToolReplSession(provider=provider)
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/settings\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert session.provider_port is provider
+    assert "provider" not in vars(session)
 
 
 def test_auth_change_constructs_a_distinct_usage_accumulator(
@@ -1991,7 +2182,7 @@ def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
 
     assert result.status == HarnessStatus.SUCCEEDED
     assert state.current_selection().reference != "openai/ext"
-    assert session.provider.name == state.current_selection().provider_name
+    assert session.provider_port.name == state.current_selection().provider_name
     assert "active model disappeared on reload" in error_stream.getvalue()
     assert "removed extension provider was used" not in output_stream.getvalue()
     assert [
