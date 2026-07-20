@@ -117,6 +117,36 @@ def test_session_tree_commands_return_exact_standard_product_arguments(
 
 
 @pytest.mark.parametrize(
+    ("command", "expected_argument"),
+    [
+        ("/resume", ""),
+        ("/resume named", "named"),
+        ("/resume   rename  3  focused work", "rename  3  focused work"),
+    ],
+)
+def test_session_resume_commands_return_exact_standard_product_arguments(
+    command: str,
+    expected_argument: str,
+) -> None:
+    first = classify_coding_command(ProductContent(command))
+    second = classify_coding_command(ProductContent(command))
+
+    action = CodingCommandAction["SESSION_RESUME"]
+    expected = CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        action,
+        CodingCommandFooterPolicy.STANDARD,
+        ProductContent(expected_argument),
+    )
+    assert first == expected
+    assert type(first.argument) is ProductContent
+    assert first.argument.value == expected_argument
+    assert second == first
+    assert second is not first
+    assert second.argument is not first.argument
+
+
+@pytest.mark.parametrize(
     ("command", "action", "expected_argument"),
     [
         ("/model", CodingCommandAction.MODEL, ""),
@@ -189,6 +219,13 @@ def test_usage_aware_classification_returns_fresh_deterministic_outcomes(
         "/TREE",
         "/trees",
         "/tree/select 1",
+        " /resume",
+        "/resume ",
+        "/resume named ",
+        "/resume\tnamed",
+        "/RESUME",
+        "/resumes",
+        "/resume/delete victim",
         "/NAME",
         "/name ",
         "/name    ",
@@ -437,6 +474,37 @@ def test_session_tree_action_requires_an_exact_product_argument() -> None:
     with pytest.raises(TypeError, match="outcome.argument"):
         require_exact_coding_command_outcome(outcome)
 
+
+def test_session_resume_action_requires_an_exact_product_argument() -> None:
+    action = CodingCommandAction["SESSION_RESUME"]
+    with pytest.raises(ValueError, match="require an argument"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            action,
+            CodingCommandFooterPolicy.STANDARD,
+        )
+    with pytest.raises(ValueError, match="require the STANDARD footer"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            action,
+            CodingCommandFooterPolicy.USAGE_AWARE,
+            ProductContent("named"),
+        )
+
+    outcome = CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        action,
+        CodingCommandFooterPolicy.STANDARD,
+        ProductContent("named"),
+    )
+    object.__setattr__(outcome, "argument", _ProductContentSubclass("named"))
+    with pytest.raises(TypeError, match="outcome.argument"):
+        require_exact_coding_command_outcome(outcome)
+
+    object.__setattr__(outcome, "argument", ProductContent("named"))
+    object.__setattr__(outcome.argument, "value", cast(str, []))
+    with pytest.raises(TypeError, match="outcome.argument"):
+        require_exact_coding_command_outcome(outcome)
 
 @pytest.mark.parametrize(
     "action",

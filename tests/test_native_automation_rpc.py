@@ -594,7 +594,15 @@ def test_steering_queue_is_consumed_not_stale(client) -> None:
     assert state["data"]["pendingMessageCount"] == 0
 
 
-@pytest.mark.parametrize("queued_slash", ["/new", "/tree select 1"])
+@pytest.mark.parametrize(
+    "queued_slash",
+    [
+        "/new",
+        "/tree select 1",
+        "/resume",
+        "/resume delete victim --yes",
+    ],
+)
 def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -3185,6 +3185,166 @@ class NativeToolReplSession:
                                     tree_filter_mode = tree_outcome.filter_mode
                                 if tree_outcome.prefill is not None:
                                     pending_prefill = tree_outcome.prefill
+                        elif command_outcome.action is CodingCommandAction.SESSION_RESUME:
+                            resume_argument = command_outcome.argument
+                            if type(resume_argument) is not ProductContent:
+                                raise TypeError(
+                                    "SESSION_RESUME requires an exact ProductContent "
+                                    "argument"
+                                )
+                            argument = resume_argument.value
+                            resume_tokens = argument.split()
+                            resume_sub = (
+                                resume_tokens[0].lower() if resume_tokens else ""
+                            )
+
+                            def _list_sessions(named_only: bool = False) -> None:
+                                sessions = list_native_sessions(current_session_dir())
+                                sessions = (
+                                    [session for session in sessions if session.name]
+                                    if named_only
+                                    else sessions
+                                )
+                                if not sessions:
+                                    diag(
+                                        "pipy: no native sessions found for this "
+                                        "workspace."
+                                    )
+                                    return
+                                scope = "named " if named_only else ""
+                                diag(f"pipy: {scope}native sessions (newest first):")
+                                for index, entry in enumerate(sessions, start=1):
+                                    label = (
+                                        sanitize_label_text(entry.name)
+                                        if entry.name
+                                        else "(unnamed)"
+                                    )
+                                    diag(
+                                        f"  {index}. "
+                                        f"{sanitize_label_text(entry.session_id[:8])} "
+                                        f"{label} "
+                                        f"messages={entry.message_count} "
+                                        f"file={sanitize_label_text(entry.path.name)}"
+                                    )
+                                diag(
+                                    "pipy: use '/resume <number|id>' to open a "
+                                    "session."
+                                )
+
+                            if (
+                                not argument
+                                and terminal_ui is not None
+                                and hasattr(terminal_ui, "run_session_picker")
+                            ):
+                                picked_session = self._run_interactive_session_picker(
+                                    session_tree=session_tree,
+                                    terminal_ui=terminal_ui,
+                                )
+                                if picked_session is None:
+                                    diag("pipy: /resume cancelled.")
+                                elif (
+                                    session_tree.path is not None
+                                    and picked_session == session_tree.path
+                                ):
+                                    diag(
+                                        "pipy: already on the selected native session."
+                                    )
+                                elif extension_session_allows(
+                                    extension_session_before_switch_hooks,
+                                    operation="switch",
+                                    target=str(picked_session),
+                                ):
+                                    session_tree = NativeSessionTree.open(picked_session)
+                                    rebuild_messages_from_tree()
+                                    redraw_custom_entries_for_active_branch()
+                                    diag(
+                                        "pipy: resumed native session "
+                                        f"{sanitize_label_text(session_tree.session_id[:8])} "
+                                        f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
+                                    )
+                            elif not argument:
+                                _list_sessions()
+                            elif resume_sub == "named":
+                                _list_sessions(named_only=True)
+                            elif resume_sub == "rename":
+                                if len(resume_tokens) < 3:
+                                    diag(
+                                        "pipy: usage: /resume rename <number|id> "
+                                        "<name>"
+                                    )
+                                else:
+                                    target = resolve_session_file(resume_tokens[1])
+                                    if target is None:
+                                        diag(
+                                            "pipy: no native session matched "
+                                            f"{resume_tokens[1]!r}."
+                                        )
+                                    else:
+                                        renamed = NativeSessionTree.open(target)
+                                        new_name = " ".join(resume_tokens[2:])
+                                        renamed.append_session_info(new_name)
+                                        diag(
+                                            "pipy: renamed session "
+                                            f"{sanitize_label_text(renamed.session_id[:8])} "
+                                            f"to {new_name!r}."
+                                        )
+                            elif resume_sub == "delete":
+                                confirm = "--yes" in resume_tokens[1:]
+                                refs = [
+                                    token
+                                    for token in resume_tokens[1:]
+                                    if token != "--yes"
+                                ]
+                                if not refs:
+                                    diag(
+                                        "pipy: usage: /resume delete <number|id> "
+                                        "--yes"
+                                    )
+                                else:
+                                    target = resolve_session_file(refs[0])
+                                    if target is None:
+                                        diag(
+                                            "pipy: no native session matched "
+                                            f"{refs[0]!r}."
+                                        )
+                                    elif (
+                                        session_tree.path is not None
+                                        and target == session_tree.path
+                                    ):
+                                        diag(
+                                            "pipy: cannot delete the active native "
+                                            "session."
+                                        )
+                                    elif not confirm:
+                                        diag(
+                                            "pipy: deletion needs confirmation; "
+                                            "re-run "
+                                            f"'/resume delete {refs[0]} --yes'. This "
+                                            "removes only the native session file, "
+                                            "never pipy-session archive records."
+                                        )
+                                    else:
+                                        _ok, detail = delete_native_session(target)
+                                        diag(f"pipy: {detail}")
+                            else:
+                                target = resolve_session_file(argument)
+                                if target is None:
+                                    diag(
+                                        f"pipy: no native session matched {argument!r}."
+                                    )
+                                elif extension_session_allows(
+                                    extension_session_before_switch_hooks,
+                                    operation="switch",
+                                    target=str(target),
+                                ):
+                                    session_tree = NativeSessionTree.open(target)
+                                    rebuild_messages_from_tree()
+                                    redraw_custom_entries_for_active_branch()
+                                    diag(
+                                        "pipy: resumed native session "
+                                        f"{sanitize_label_text(session_tree.session_id[:8])} "
+                                        f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
+                                    )
                         elif command_outcome.action in {
                             CodingCommandAction.MODEL,
                             CodingCommandAction.SCOPED_MODELS,
@@ -3840,134 +4000,6 @@ class NativeToolReplSession:
                             provider=coding_state.provider,
                         ):
                             print(overlay_line, file=error_stream)
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/resume" or command_text.startswith("/resume "):
-                    argument = stripped[len("/resume") :].strip()
-                    resume_tokens = argument.split()
-                    resume_sub = resume_tokens[0].lower() if resume_tokens else ""
-
-                    def _list_sessions(named_only: bool = False) -> None:
-                        sessions = list_native_sessions(current_session_dir())
-                        if named_only:
-                            sessions = [s for s in sessions if s.name]
-                        if not sessions:
-                            diag("pipy: no native sessions found for this workspace.")
-                            return
-                        scope = "named " if named_only else ""
-                        diag(f"pipy: {scope}native sessions (newest first):")
-                        for index, entry in enumerate(sessions, start=1):
-                            label = (
-                                sanitize_label_text(entry.name)
-                                if entry.name
-                                else "(unnamed)"
-                            )
-                            diag(
-                                f"  {index}. "
-                                f"{sanitize_label_text(entry.session_id[:8])} "
-                                f"{label} "
-                                f"messages={entry.message_count} "
-                                f"file={sanitize_label_text(entry.path.name)}"
-                            )
-                        diag("pipy: use '/resume <number|id>' to open a session.")
-
-                    if (
-                        not argument
-                        and terminal_ui is not None
-                        and hasattr(terminal_ui, "run_session_picker")
-                    ):
-                        picked_session = self._run_interactive_session_picker(
-                            session_tree=session_tree,
-                            terminal_ui=terminal_ui,
-                        )
-                        if picked_session is None:
-                            diag("pipy: /resume cancelled.")
-                        elif (
-                            session_tree.path is not None
-                            and picked_session == session_tree.path
-                        ):
-                            diag("pipy: already on the selected native session.")
-                        else:
-                            if not extension_session_allows(
-                                extension_session_before_switch_hooks,
-                                operation="switch",
-                                target=str(picked_session),
-                            ):
-                                refresh_legacy_footer()
-                                continue
-                            session_tree = NativeSessionTree.open(picked_session)
-                            rebuild_messages_from_tree()
-                            redraw_custom_entries_for_active_branch()
-                            diag(
-                                "pipy: resumed native session "
-                                f"{sanitize_label_text(session_tree.session_id[:8])} "
-                                f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
-                            )
-                    elif not argument:
-                        _list_sessions()
-                    elif resume_sub == "named":
-                        _list_sessions(named_only=True)
-                    elif resume_sub == "rename":
-                        if len(resume_tokens) < 3:
-                            diag("pipy: usage: /resume rename <number|id> <name>")
-                        else:
-                            target = resolve_session_file(resume_tokens[1])
-                            if target is None:
-                                diag(
-                                    f"pipy: no native session matched {resume_tokens[1]!r}."
-                                )
-                            else:
-                                renamed = NativeSessionTree.open(target)
-                                new_name = " ".join(resume_tokens[2:])
-                                renamed.append_session_info(new_name)
-                                diag(
-                                    f"pipy: renamed session {sanitize_label_text(renamed.session_id[:8])} "
-                                    f"to {new_name!r}."
-                                )
-                    elif resume_sub == "delete":
-                        confirm = "--yes" in resume_tokens[1:]
-                        refs = [t for t in resume_tokens[1:] if t != "--yes"]
-                        if not refs:
-                            diag("pipy: usage: /resume delete <number|id> --yes")
-                        else:
-                            target = resolve_session_file(refs[0])
-                            if target is None:
-                                diag(f"pipy: no native session matched {refs[0]!r}.")
-                            elif (
-                                session_tree.path is not None
-                                and target == session_tree.path
-                            ):
-                                diag("pipy: cannot delete the active native session.")
-                            elif not confirm:
-                                diag(
-                                    "pipy: deletion needs confirmation; re-run "
-                                    f"'/resume delete {refs[0]} --yes'. This removes "
-                                    "only the native session file, never pipy-session "
-                                    "archive records."
-                                )
-                            else:
-                                ok, detail = delete_native_session(target)
-                                diag(f"pipy: {detail}" if ok else f"pipy: {detail}")
-                    else:
-                        target = resolve_session_file(argument)
-                        if target is None:
-                            diag(f"pipy: no native session matched {argument!r}.")
-                        else:
-                            if not extension_session_allows(
-                                extension_session_before_switch_hooks,
-                                operation="switch",
-                                target=str(target),
-                            ):
-                                refresh_legacy_footer()
-                                continue
-                            session_tree = NativeSessionTree.open(target)
-                            rebuild_messages_from_tree()
-                            redraw_custom_entries_for_active_branch()
-                            diag(
-                                "pipy: resumed native session "
-                                f"{sanitize_label_text(session_tree.session_id[:8])} "
-                                f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
-                            )
                     refresh_legacy_footer()
                     continue
                 if command_text == "/fork" or command_text.startswith("/fork "):

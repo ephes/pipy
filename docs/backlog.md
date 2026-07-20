@@ -1946,12 +1946,26 @@ hook, persist `treeFilterMode`, wire summary cancellation/usage/reserve settings
 or correct empty custom-message selection. These are behavior changes, not
 typed-command ownership.
 
-**Next green slice — typed `/resume` command:** continue Phase 3.1d.3c with
-exact full-content resume arguments, picker cancel/current selection, captured
-list/named/rename/delete forms, switch-only extension gates, open→rebuild→
-extension-clear→custom-redraw ordering, failure cutoffs, queued/RPC bypass, and
-native-store/archive privacy. Keep `/fork` and `/clone` in the later navigation
-sub-slice; do not pull Phase 3.2 registry metadata or Phase 3.3 writes forward.
+### Typed Resume Command — SHIPPED (2026-07-20)
+
+Phase 3.1d.3c adds exact full-content `SESSION_RESUME` outcomes for bare and
+literal-space `/resume` forms with the standard footer. Composition preserves
+captured all/named listings, native rename/delete actions, live picker cancel
+and current-session no-ops, switch-only extension gates, and successful
+open→history rebuild→extension-input clear→custom redraw→diagnostic→footer
+ordering. The late branch is deleted; queued/RPC forms remain provider-visible,
+and the metadata-only workflow archive remains untouched.
+
+The extraction deliberately preserves current direct-active reopen behavior,
+run-lifetime provider/counter/filter state, captured active-rename staleness,
+explicit-path deletion policy, ordinary TUI scrollback, and absent post-switch
+lifecycle hooks. Those are separate behavior decisions, not typed ownership.
+
+**Next green slice — typed `/fork` and `/clone` commands:** continue Phase
+3.1d.3d with exact full-content navigation arguments, native persistence and
+parent lineage, extension gates, rebuild/redraw ordering, queued/RPC bypass,
+and archive privacy. Do not pull Phase 3.2 registry metadata or Phase 3.3 write
+ownership forward.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

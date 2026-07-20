@@ -31,6 +31,7 @@ class CodingCommandAction(StrEnum):
     LOGOUT = "logout"
     NEW_SESSION = "new_session"
     SESSION_TREE = "session_tree"
+    SESSION_RESUME = "session_resume"
 
 
 class CodingCommandFooterPolicy(StrEnum):
@@ -80,6 +81,13 @@ def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
         return _continue_outcome(
             CodingCommandAction.SESSION_TREE,
             ProductContent(value[len("/tree") :].strip()),
+        )
+    if value == "/resume" or (
+        value == value.strip() and value.startswith("/resume ")
+    ):
+        return _continue_outcome(
+            CodingCommandAction.SESSION_RESUME,
+            ProductContent(value[len("/resume") :].strip()),
         )
     if value == "/name" or (value == value.strip() and value.startswith("/name ")):
         return _continue_outcome(
@@ -145,6 +153,7 @@ def require_exact_coding_command_outcome(outcome: object) -> None:
             )
         argument_actions = usage_aware_actions | {
             CodingCommandAction.SESSION_NAME,
+            CodingCommandAction.SESSION_RESUME,
             CodingCommandAction.SESSION_TREE,
         }
         if outcome.action in argument_actions:

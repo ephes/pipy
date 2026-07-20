@@ -1095,6 +1095,471 @@ def test_resume_rename_and_delete_with_confirmation(tmp_path: Path) -> None:
     assert all(first_id not in name for name in remaining)
 
 
+def _resume_fixture(
+    tmp_path: Path,
+) -> tuple[Path, Path, NativeSessionTree, NativeSessionTree]:
+    cwd = _workspace(tmp_path)
+    session_dir = tmp_path / "native-sessions"
+    active = NativeSessionTree.create(cwd, session_dir=session_dir)
+    active.append_message(AgentUserMessage(content=ProductContent("ACTIVE")))
+    selected = NativeSessionTree.create(cwd, session_dir=session_dir)
+    selected.append_session_info("selected")
+    selected.append_message(AgentUserMessage(content=ProductContent("SELECTED")))
+    assert active.path is not None and selected.path is not None
+    return cwd, session_dir, active, selected
+
+
+def _install_resume_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    cwd: Path,
+    commands: Sequence[str],
+) -> ToolLoopTerminalUi:
+    terminal_ui = ToolLoopTerminalUi(
+        input_stream=io.StringIO(),
+        terminal_stream=io.StringIO(),
+        cwd=cwd,
+    )
+    scripted = iter(commands)
+
+    def build_terminal_ui(
+        self: NativeToolReplSession, **_kwargs: object
+    ) -> ToolLoopTerminalUi:
+        del self
+        return terminal_ui
+
+    def read_line(
+        self: ToolLoopTerminalUi, prompt_label: str, *, footer: object = None
+    ) -> str:
+        del self, prompt_label, footer
+        return next(scripted)
+
+    def wait_for_turn(
+        self: ToolLoopTerminalUi,
+        done_event: object,
+        abort_event: object,
+        *,
+        poll_seconds: float = 0.05,
+        accept_queue: bool = False,
+        accept_commands: bool = False,
+    ) -> str:
+        del self, done_event, abort_event, poll_seconds
+        del accept_queue, accept_commands
+        return "settled"
+
+    monkeypatch.setattr(NativeToolReplSession, "_build_terminal_ui", build_terminal_ui)
+    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "wait_for_active_turn_interrupt", wait_for_turn
+    )
+    return terminal_ui
+
+
+def _write_resume_switch_gate(cwd: Path, body: str, *, target: Path) -> None:
+    extension = cwd / ".pipy" / "extensions" / "resume_gate.py"
+    extension.parent.mkdir(parents=True, exist_ok=True)
+    extension.write_text(
+        "from pipy_harness.extensions import SessionDecision\n"
+        "def activate(api):\n"
+        "    @api.on('session_before_switch')\n"
+        "    def gate(event, ctx):\n"
+        "        assert event.operation == 'switch'\n"
+        f"        assert event.target == {str(target)!r}\n"
+        f"{body}",
+        encoding="utf-8",
+    )
+
+
+def test_resume_local_management_is_ungated_and_archive_safe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    cwd, session_dir, active, selected = _resume_fixture(tmp_path)
+    deleted = NativeSessionTree.create(cwd, session_dir=session_dir)
+    deleted.append_message(AgentUserMessage(content=ProductContent("DELETE")))
+    assert selected.path is not None and deleted.path is not None
+    archive = tmp_path / "metadata-archive" / "record.jsonl"
+    archive.parent.mkdir()
+    archive.write_bytes(b'{"safe":"sentinel"}\n')
+    before = archive.read_bytes()
+    trace: list[str] = []
+    original_gate = loop_module.dispatch_session_before_hooks
+    monkeypatch.setattr(
+        loop_module,
+        "dispatch_session_before_hooks",
+        _TracingSessionGate(trace, original_gate, include_details=True),
+    )
+    provider = _SeenProvider()
+
+    _run(
+        NativeToolReplSession(provider=provider, native_session=active),
+        cwd,
+        "\n".join(
+            [
+                "/resume",
+                "/resume NaMeD",
+                f"/resume rename {selected.session_id[:8]} renamed locally",
+                f"/resume delete {deleted.session_id[:8]} --yes",
+                "/exit",
+                "",
+            ]
+        ),
+    )
+
+    assert trace == []
+    assert NativeSessionTree.open(selected.path).name == "renamed locally"
+    assert not deleted.path.exists()
+    assert archive.read_bytes() == before
+    assert provider.requests == []
+
+
+@pytest.mark.parametrize("picker_result", ["cancel", "current"])
+def test_live_resume_cancel_and_current_selection_are_ungated_noops(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    picker_result: str,
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    cwd, _session_dir, active, _selected = _resume_fixture(tmp_path)
+    _install_resume_terminal(monkeypatch, cwd=cwd, commands=("/resume", "/exit"))
+    trace: list[str] = []
+    open_calls: list[Path] = []
+    original_gate = loop_module.dispatch_session_before_hooks
+    original_open = NativeSessionTree.open
+
+    def pick(
+        self: NativeToolReplSession,
+        *,
+        session_tree: NativeSessionTree,
+        terminal_ui: ToolLoopTerminalUi,
+    ) -> Path | None:
+        del self, terminal_ui
+        return None if picker_result == "cancel" else session_tree.path
+
+    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+        open_calls.append(path)
+        return original_open(path, persist=persist)
+
+    monkeypatch.setattr(
+        loop_module,
+        "dispatch_session_before_hooks",
+        _TracingSessionGate(trace, original_gate, include_details=True),
+    )
+    monkeypatch.setattr(NativeToolReplSession, "_run_interactive_session_picker", pick)
+    monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
+    provider = _SeenProvider()
+
+    _run(NativeToolReplSession(provider=provider, native_session=active), cwd, "")
+
+    assert trace == []
+    assert open_calls == []
+    assert provider.requests == []
+
+
+@pytest.mark.parametrize("selection_mode", ["picker", "direct"])
+def test_resume_switch_order_gate_and_fresh_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    selection_mode: str,
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
+    assert selected.path is not None
+    command = "/resume" if selection_mode == "picker" else f"/resume {selected.path}"
+    _install_resume_terminal(
+        monkeypatch, cwd=cwd, commands=(command, "FRESH", "/exit")
+    )
+    trace: list[str] = []
+    original_gate = loop_module.dispatch_session_before_hooks
+    original_open = NativeSessionTree.open
+    original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
+    original_clear = CodingInputQueue.clear_extension_inputs
+    original_diag = NativeToolReplSession._emit_diagnostic
+
+    def pick(
+        self: NativeToolReplSession,
+        *,
+        session_tree: NativeSessionTree,
+        terminal_ui: ToolLoopTerminalUi,
+    ) -> Path | None:
+        del self, session_tree, terminal_ui
+        return selected.path
+
+    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+        trace.append("open")
+        return original_open(path, persist=persist)
+
+    def rebuild(self: CodingProductSessionCoordinator) -> None:
+        trace.append("rebuild")
+        original_rebuild(self)
+
+    def clear(self: CodingInputQueue) -> None:
+        trace.append("clear-extension")
+        original_clear(self)
+
+    def redraw(self: ToolLoopTerminalUi, entries: object) -> None:
+        del self, entries
+        trace.append("redraw")
+
+    def diagnostic(ui: ToolLoopTerminalUi | None, stream: TextIO, message: str) -> None:
+        if message.startswith("pipy: resumed native session"):
+            trace.append("diagnostic")
+        original_diag(ui, stream, message)
+
+    monkeypatch.setattr(
+        loop_module,
+        "dispatch_session_before_hooks",
+        _TracingSessionGate(trace, original_gate, include_details=True),
+    )
+    monkeypatch.setattr(NativeToolReplSession, "_run_interactive_session_picker", pick)
+    monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
+    monkeypatch.setattr(
+        CodingProductSessionCoordinator, "rebuild_active_history", rebuild
+    )
+    monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
+    monkeypatch.setattr(ToolLoopTerminalUi, "redraw_custom_entries", redraw)
+    monkeypatch.setattr(
+        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_print_footer",
+        lambda *_args, **_kwargs: trace.append("footer"),
+    )
+    provider = _SeenProvider()
+
+    _run(NativeToolReplSession(provider=provider, native_session=active), cwd, "")
+
+    expected_switch = [
+        f"hook:switch:{selected.path}",
+        "open",
+        "rebuild",
+        "clear-extension",
+        "redraw",
+        "diagnostic",
+    ]
+    assert trace == ["rebuild", *expected_switch]
+    assert _request_users(provider.requests[0]) == ["SELECTED", "FRESH"]
+
+
+def test_direct_resume_of_active_path_still_gates_and_reopens(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    cwd, _session_dir, active, _selected = _resume_fixture(tmp_path)
+    assert active.path is not None
+    trace: list[str] = []
+    footer_calls: list[None] = []
+    original_gate = loop_module.dispatch_session_before_hooks
+    original_open = NativeSessionTree.open
+
+    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+        trace.append(f"open:{path}")
+        return original_open(path, persist=persist)
+
+    monkeypatch.setattr(
+        loop_module,
+        "dispatch_session_before_hooks",
+        _TracingSessionGate(trace, original_gate, include_details=True),
+    )
+    monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_print_footer",
+        lambda *_args, **_kwargs: footer_calls.append(None),
+    )
+    provider = _SeenProvider()
+
+    _run(
+        NativeToolReplSession(provider=provider, native_session=active),
+        cwd,
+        f"/resume {active.path}\n/exit\n",
+    )
+
+    assert trace == [f"hook:switch:{active.path}", f"open:{active.path}"]
+    assert footer_calls == [None, None]
+    assert provider.requests == []
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_reason"),
+    [
+        ("        return SessionDecision(allow=False, reason='stay')\n", "stay"),
+        ("        raise RuntimeError('private body')\n", "extension switch hook error"),
+    ],
+)
+def test_resume_switch_gate_denial_or_error_cuts_off_open_with_footer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    body: str,
+    expected_reason: str,
+) -> None:
+    cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
+    assert selected.path is not None
+    _write_resume_switch_gate(cwd, body, target=selected.path)
+    open_calls: list[Path] = []
+    footer_calls: list[None] = []
+    original_open = NativeSessionTree.open
+
+    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+        open_calls.append(path)
+        return original_open(path, persist=persist)
+
+    monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_print_footer",
+        lambda *_args, **_kwargs: footer_calls.append(None),
+    )
+    provider = _SeenProvider()
+
+    _out, err = _run(
+        NativeToolReplSession(provider=provider, native_session=active),
+        cwd,
+        f"/resume {selected.path}\n/exit\n",
+    )
+
+    assert f"switch blocked by extension: {expected_reason}" in err
+    assert open_calls == []
+    assert footer_calls == [None, None]
+    assert provider.requests == []
+
+
+@pytest.mark.parametrize("fatal", [KeyboardInterrupt, SystemExit])
+def test_resume_switch_gate_fatal_cuts_off_open_and_footer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fatal: type[BaseException],
+) -> None:
+    cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
+    assert selected.path is not None
+    _write_resume_switch_gate(
+        cwd, f"        raise {fatal.__name__}()\n", target=selected.path
+    )
+    open_calls: list[Path] = []
+    footer_calls: list[None] = []
+    original_open = NativeSessionTree.open
+
+    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+        open_calls.append(path)
+        return original_open(path, persist=persist)
+
+    monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_print_footer",
+        lambda *_args, **_kwargs: footer_calls.append(None),
+    )
+
+    with pytest.raises(fatal):
+        _run(
+            NativeToolReplSession(provider=_SeenProvider(), native_session=active),
+            cwd,
+            f"/resume {selected.path}\n",
+        )
+
+    assert open_calls == []
+    assert footer_calls == [None]
+
+
+@pytest.mark.parametrize("failure_stage", ["open", "rebuild", "clear", "redraw"])
+def test_resume_switch_failure_timing_cuts_off_later_effects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
+    assert selected.path is not None
+    _install_resume_terminal(
+        monkeypatch, cwd=cwd, commands=(f"/resume {selected.path}",)
+    )
+    trace: list[str] = []
+    rebuild_calls = 0
+    original_gate = loop_module.dispatch_session_before_hooks
+    original_open = NativeSessionTree.open
+    original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
+
+    def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
+        trace.append("open")
+        if failure_stage == "open":
+            raise RuntimeError("open failed")
+        return original_open(path, persist=persist)
+
+    def rebuild(self: CodingProductSessionCoordinator) -> None:
+        nonlocal rebuild_calls
+        rebuild_calls += 1
+        if rebuild_calls == 2:
+            trace.append("rebuild")
+            if failure_stage == "rebuild":
+                raise RuntimeError("rebuild failed")
+        original_rebuild(self)
+
+    def clear(self: CodingInputQueue) -> None:
+        trace.append("clear")
+        if failure_stage == "clear":
+            raise RuntimeError("clear failed")
+
+    def redraw(self: ToolLoopTerminalUi, entries: object) -> None:
+        del self, entries
+        trace.append("redraw")
+        if failure_stage == "redraw":
+            raise RuntimeError("redraw failed")
+
+    monkeypatch.setattr(
+        loop_module,
+        "dispatch_session_before_hooks",
+        _TracingSessionGate(trace, original_gate, include_details=False),
+    )
+    monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
+    monkeypatch.setattr(
+        CodingProductSessionCoordinator, "rebuild_active_history", rebuild
+    )
+    monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
+    monkeypatch.setattr(ToolLoopTerminalUi, "redraw_custom_entries", redraw)
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_print_footer",
+        lambda *_args, **_kwargs: trace.append("footer"),
+    )
+
+    with pytest.raises(RuntimeError, match=f"{failure_stage} failed"):
+        _run(NativeToolReplSession(provider=_SeenProvider(), native_session=active), cwd, "")
+
+    expected = ["hook", "open"]
+    if failure_stage != "open":
+        expected.append("rebuild")
+    if failure_stage in {"clear", "redraw"}:
+        expected.append("clear")
+    if failure_stage == "redraw":
+        expected.append("redraw")
+    assert trace == expected
+
+
+def test_resume_success_diagnostic_is_sanitized_and_local(
+    tmp_path: Path,
+) -> None:
+    cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
+    assert selected.path is not None
+    selected.append_session_info("nm\x1b[31mEVIL\x07")
+    provider = _SeenProvider()
+
+    _out, err = _run(
+        NativeToolReplSession(provider=provider, native_session=active),
+        cwd,
+        f"/resume {selected.path}\n/exit\n",
+    )
+
+    assert "resumed native session" in err and "EVIL" in err
+    assert "\x1b" not in err and "\x07" not in err
+    assert provider.requests == []
+
+
 def test_durable_compaction_entry_survives_reload(tmp_path: Path) -> None:
     cwd = _workspace(tmp_path)
     session_dir = tmp_path / "sessions"

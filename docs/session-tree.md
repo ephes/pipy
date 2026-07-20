@@ -18,7 +18,8 @@ Implementation map:
   `resolve_session_ref` (local-first then global cross-project lookup),
   `list_all_native_sessions`, and the pure picker helpers
   `build_session_picker_rows`/`format_session_picker_label`/`sanitize_label_text`).
-- Typed classification for `/session`, `/name`, `/new`, `/tree`, and `/compact`:
+- Typed classification for `/session`, `/name`, `/new`, `/tree`, `/resume`, and
+  `/compact`:
   `src/pipy_harness/native/coding/commands.py`. Concrete private-tree writes,
   navigation, extension gates, rendering, and diagnostics remain composition
   concerns.

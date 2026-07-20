@@ -1861,6 +1861,26 @@ The typed kernel adds no tree/UI/provider/persistence dependency or serializer.
 Completed tree hooks, filter persistence, summary cancellation/accounting
 settings, and empty custom-message behavior remain separate deferred changes.
 
+Slice 3.1d.3c adds `SESSION_RESUME` with one exact full-content argument,
+including empty, and the standard footer. The direct kernel recognizes bare
+`/resume` or an already-edge-stripped literal-space argument form; composition
+retains outer trimming, the submitted user bubble, and queued/RPC bypass.
+
+Captured bare and `named` forms continue listing native product sessions, and
+`rename`/confirmed `delete` continue mutating only that private store. Live bare
+input uses the existing inline picker. Picker cancel/current selection and all
+management forms remain ungated; only resolved direct targets and different
+picker targets invoke `session_before_switch` with the exact path. Successful
+switches retain open/assignment, typed history rebuild, extension-input clear,
+custom-entry redraw, sanitized diagnostic, and one standard footer in order.
+Veto/error/fatal and open/rebuild/clear/redraw failure timing remains exact.
+
+The kernel gains no picker, terminal, provider, persistence, extension,
+automation/RPC, SDK, capture, or archive implementation. Direct-active reopen,
+run-lifetime provider/counter/filter state, ordinary scrollback, captured
+active-rename staleness, explicit-path deletion policy, post-switch lifecycle
+hooks, registry metadata, and write relocation remain deferred.
+
 Command/outcome values are full-content product-control data. They expose no
 serializer, SDK shape, persistence projection, or workflow-archive adapter.
 Exact direct-import allowlists plus recursive, fresh-process, and no-eager-

@@ -2461,7 +2461,7 @@ def test_headless_command_kernel_classifies_supported_local_commands(
             "/compact\n/name\n/name classified value\n"
             "/model openai/gpt-5.5\n/scoped-models clear\n"
             "/login openai-codex\n/logout openai-codex\n/new\n"
-            "/tree\n/tree select 1\n/exit\n"
+            "/tree\n/tree select 1\n/resume\n/resume named\n/exit\n"
         ),
         output_stream=io.StringIO(),
         error_stream=error_stream,
@@ -2483,6 +2483,8 @@ def test_headless_command_kernel_classifies_supported_local_commands(
         "/new",
         "/tree",
         "/tree select 1",
+        "/resume",
+        "/resume named",
         "/exit",
     ]
     assert "What's New" in error_stream.getvalue()
@@ -2516,6 +2518,16 @@ def test_session_tree_command_uses_only_typed_interpreter_dispatch() -> None:
     source = Path(module_path).read_text(encoding="utf-8")
     assert 'if command_text == "/tree"' not in source
     assert 'command_text.startswith("/tree ")' not in source
+
+
+def test_session_resume_command_uses_only_typed_interpreter_dispatch() -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    module_path = loop_module.__file__
+    assert module_path is not None
+    source = Path(module_path).read_text(encoding="utf-8")
+    assert 'if command_text == "/resume"' not in source
+    assert 'command_text.startswith("/resume ")' not in source
 
 
 def test_new_command_applies_standard_footer_without_provider_turn(
@@ -2556,6 +2568,32 @@ def test_tree_commands_apply_standard_footer_without_provider_turn(
     NativeToolReplSession(provider=provider).run(
         workspace_root=tmp_path,
         input_stream=io.StringIO("/tree\n/tree filter user-only\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert len(footer_kwargs) == 3
+    assert footer_kwargs[0].get("usage_snapshot") is not None
+    assert all(
+        kwargs.get("usage_snapshot") is None for kwargs in footer_kwargs[1:]
+    )
+    assert provider._call_counter[0] == 0
+
+
+def test_resume_commands_apply_standard_footer_without_provider_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    footer_kwargs: list[dict[str, object]] = []
+
+    def record_footer(*_args: object, **kwargs: object) -> None:
+        footer_kwargs.append(kwargs)
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
+
+    NativeToolReplSession(provider=provider).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/resume\n/resume named\n/exit\n"),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
     )
