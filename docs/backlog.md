@@ -1908,13 +1908,19 @@ extracting command ownership. Correct it only in a dedicated behavior slice
 with native-session JSON/reload/resume, provider-state, extension, and TUI
 compatibility coverage; do not smuggle it into a command-family refactor.
 
-**Next green slice — repair the settings resource-enablement fixture
-(test-only):** `scripts/parity_checks/settings_config_conformance.py` check 13
-predates fail-closed project-trust discovery, so its resource fixture must
-explicitly opt into trusted workspace defaults. The same failure reproduces on
-detached clean `f6907f3`, while scoped-model check 9 passes. Land this fixture
-repair immediately after Phase 3.1d.2b as a dedicated test-only slice; it is not
-a permanent conformance waiver and requires no production behavior change.
+**Settings resource-enablement fixture repair — SHIPPED (2026-07-20):**
+`scripts/parity_checks/settings_config_conformance.py` check 13 now explicitly
+models a trusted workspace at all three direct resource-discovery calls. This
+restores its intended disable, re-enable, and command-gating assertions after
+workspace-default discovery became fail-closed. All 17 settings checks pass;
+production trust defaults, settings schema, and resource behavior did not
+change.
+
+**Next green slice — typed product-session navigation commands:** continue
+Phase 3.1d with the next ordered command family. Characterize session-tree,
+resume/switch, extension-veto, persistence, queued/RPC, and TUI behavior before
+moving one navigation family behind closed typed outcomes; do not pull Phase
+3.2 registry metadata or Phase 3.3 write ownership into the slice.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

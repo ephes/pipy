@@ -1001,7 +1001,9 @@ surface works. It must verify:
     persists a `-pattern` entry (not a path removal) into the right settings
     array and removes it from what `resources.py` registers; re-enabling writes a
     `+pattern` and restores it; `enableSkillCommands=false` stops `/skill:<name>`
-    registration.
+    registration. The conformance fixture explicitly enables workspace-default
+    discovery because it models a trusted synthetic workspace; production
+    discovery remains fail-closed until the product trust boundary opts in.
 14. `/reload` re-reads settings + keybindings + resources + theme, re-applies
     derived UI settings, runs no provider turn, refuses while streaming, and
     isolates a load error to its scope.

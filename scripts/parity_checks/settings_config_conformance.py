@@ -378,7 +378,9 @@ def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
             cli.main(["config", "disable", "skill", "review", "--cwd", str(ws)])
         persisted = json.loads(settings_path.read_text(encoding="utf-8")).get("skills") == ["-review"]
         mgr = SettingsManager(global_path=settings_path, project_path=ws / ".pipy" / "settings.json")
-        registered = WorkspaceResources.discover(ws).with_enablement(
+        registered = WorkspaceResources.discover(
+            ws, include_workspace_defaults=True
+        ).with_enablement(
             skills_patterns=mgr.get_skills_patterns(),
             prompts_patterns=mgr.get_prompts_patterns(),
             enable_skill_commands=mgr.get_enable_skill_commands(),
@@ -387,12 +389,16 @@ def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
         with contextlib.redirect_stdout(io.StringIO()):
             cli.main(["config", "enable", "skill", "review", "--cwd", str(ws)])
         mgr2 = SettingsManager(global_path=settings_path, project_path=ws / ".pipy" / "settings.json")
-        restored = "review" in WorkspaceResources.discover(ws).with_enablement(
+        restored = "review" in WorkspaceResources.discover(
+            ws, include_workspace_defaults=True
+        ).with_enablement(
             skills_patterns=mgr2.get_skills_patterns(),
             prompts_patterns=mgr2.get_prompts_patterns(),
             enable_skill_commands=mgr2.get_enable_skill_commands(),
         ).skill_names()
-        gated = WorkspaceResources.discover(ws).with_enablement(
+        gated = WorkspaceResources.discover(
+            ws, include_workspace_defaults=True
+        ).with_enablement(
             enable_skill_commands=False
         ).skill_names() == ()
     finally:
