@@ -1847,17 +1847,35 @@ classification, performs dynamic keybinding/changelog/clipboard/session-status
 effects, and paints the footer. Exit remains footer-free. Every unmigrated
 command returns the exact unhandled outcome to the one residual precedence
 skeleton; no command registry or parallel dispatcher was introduced. The
-Non-empty queued/RPC `/...` and `!...` content bypasses the kernel and remains
+non-empty queued/RPC `/...` and `!...` content bypasses the kernel and remains
 provider-visible. Classified empty or whitespace-only content still takes the
 unconditional blank outcome and is consumed locally, matching the prior branch.
 Static exact-allowlist, recursive, fresh-process, and no-eager-export gates
 exclude all outer implementations and the full-content outcome values never
 enter the metadata workflow archive.
 
-The remaining Phase 3.1d order is provider/auth/compaction/name, product-session
+### Typed Compact and Session-Name Commands — SHIPPED (2026-07-20)
+
+Phase 3.1d.2a adds exact `COMPACT` and `SESSION_NAME` actions to the same closed
+outcome. `/compact` carries no payload. `/name` carries one exact full-content
+argument: empty reports the current private session name, while non-empty
+appends a private `session_info` entry. The direct classifier remains strict
+about its already-stripped input contract; composition retains the existing
+outer strip and exact internal name spacing.
+
+Composition reuses the one manual/automatic compaction adapter, preserving the
+extension gate, live-state-first product-session coordination, concrete durable
+tree write, diagnostic, and footer sequence. Automatic compaction is not a
+command and remains a separate caller of that adapter. Name query/set, escaped
+legacy repr diagnostics, persistence and write-failure timing remain unchanged.
+The old `/compact` and `/name` branches are deleted. Non-empty classified queued
+forms still bypass local effects, and neither name/compaction content nor
+dropped transcript bodies enter the metadata workflow archive.
+
+The remaining Phase 3.1d order is provider/auth/scoped models, product-session
 navigation, external/UI effects, reload, then resource/extension precedence
-closure. Phase 3.2 still owns command names, aliases, descriptions, availability,
-help, completion, menus, and the final declarative registry.
+closure. Phase 3.2 still owns command names, aliases, descriptions,
+availability, help, completion, menus, and the final declarative registry.
 
 **Deferred compatibility correction — model-change native-tree entries:** the
 product specs describe `/model` and model cycling as appending a durable

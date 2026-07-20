@@ -20,6 +20,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.session_resume import ResumeContext
+from pipy_harness.native.session_tree import NativeSessionTree
 
 
 class _RecordingToolProvider:
@@ -160,6 +161,51 @@ def test_tool_loop_manual_compact_reduces_history_and_keeps_protocol(
                 seen.add(call.provider_correlation_id)
         if isinstance(message, AgentToolResultMessage):
             assert message.provider_correlation_id in seen
+
+
+def test_manual_compaction_persistence_failure_precedes_diagnostic_and_footer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = _RecordingToolProvider()
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    session = NativeToolReplSession(provider=provider, native_session=tree)
+    error_stream = io.StringIO()
+    footer_calls: list[None] = []
+    error_before_failure: list[str] = []
+    footer_count_before_failure: list[int] = []
+
+    def record_footer(*_args: object, **_kwargs: object) -> None:
+        footer_calls.append(None)
+
+    def fail_compaction_write(
+        *, summary: str, first_kept_entry_id: str, tokens_before: int
+    ) -> None:
+        del summary, first_kept_entry_id, tokens_before
+        error_before_failure.append(error_stream.getvalue())
+        footer_count_before_failure.append(len(footer_calls))
+        raise RuntimeError("compaction persistence failed")
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(tree, "append_compaction", fail_compaction_write)
+
+    with pytest.raises(RuntimeError, match="compaction persistence failed"):
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=io.StringIO("a\nb\nc\nd\n/compact\n"),
+            output_stream=io.StringIO(),
+            error_stream=error_stream,
+        )
+
+    assert len(provider.requests) == 4
+    assert session._coding_state.compaction_count == 1
+    assert [
+        message.content.value
+        for message in session._coding_state.messages
+        if isinstance(message, AgentUserMessage)
+    ] == ["c", "d"]
+    assert error_before_failure == [error_stream.getvalue()]
+    assert footer_count_before_failure == [len(footer_calls)]
+    assert "compacted conversation context" not in error_stream.getvalue()
 
 
 def test_tool_loop_auto_compaction_changes_the_same_provider_request(

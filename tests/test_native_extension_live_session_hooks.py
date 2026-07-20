@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.agent import AgentUserMessage
 from pipy_harness.native.extension_runtime import (
     ProviderRequestTransform,
     SessionDecision,
@@ -601,13 +602,20 @@ def test_session_before_compact_hook_blocks_product_command(
 
     result = session.run(
         workspace_root=tmp_path,
-        input_stream=io.StringIO("/compact\n"),
+        input_stream=io.StringIO("a\nb\nc\nd\n/compact\n/exit\n"),
         output_stream=io.StringIO(),
         error_stream=err,
     )
 
     assert result.status is HarnessStatus.SUCCEEDED
     assert "compact blocked by extension: no compact" in err.getvalue()
+    assert len(provider.requests) == 4
+    assert session._coding_state.compaction_count == 0
+    assert [
+        message.content.value
+        for message in session._coding_state.messages
+        if isinstance(message, AgentUserMessage)
+    ] == ["a", "b", "c", "d"]
 
 
 class _FakeUiDriver:

@@ -23,6 +23,8 @@ class CodingCommandAction(StrEnum):
     SHOW_CHANGELOG = "show_changelog"
     COPY_LAST_ANSWER = "copy_last_answer"
     SHOW_SESSION_STATUS = "show_session_status"
+    COMPACT = "compact"
+    SESSION_NAME = "session_name"
 
 
 class CodingCommandFooterPolicy(StrEnum):
@@ -38,6 +40,7 @@ class CodingCommandOutcome:
     kind: CodingCommandOutcomeKind
     action: CodingCommandAction | None = None
     footer_policy: CodingCommandFooterPolicy | None = None
+    argument: ProductContent | None = None
 
     def __post_init__(self) -> None:
         require_exact_coding_command_outcome(self)
@@ -62,6 +65,13 @@ def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
         return _continue_outcome(CodingCommandAction.COPY_LAST_ANSWER)
     if value == "/session":
         return _continue_outcome(CodingCommandAction.SHOW_SESSION_STATUS)
+    if value == "/compact":
+        return _continue_outcome(CodingCommandAction.COMPACT)
+    if value == "/name" or (value == value.strip() and value.startswith("/name ")):
+        return _continue_outcome(
+            CodingCommandAction.SESSION_NAME,
+            ProductContent(value[len("/name") :].strip()),
+        )
     return CodingCommandOutcome(CodingCommandOutcomeKind.UNHANDLED)
 
 
@@ -81,23 +91,39 @@ def require_exact_coding_command_outcome(outcome: object) -> None:
         raise TypeError(
             "outcome.footer_policy must be an exact CodingCommandFooterPolicy or None"
         )
+    if outcome.argument is not None:
+        try:
+            _require_exact_product_content(outcome.argument)
+        except TypeError as exc:
+            raise TypeError(
+                "outcome.argument must be an exact ProductContent or None"
+            ) from exc
     if outcome.kind is CodingCommandOutcomeKind.CONTINUE:
         if outcome.footer_policy is not CodingCommandFooterPolicy.STANDARD:
             raise ValueError("CONTINUE outcomes require the STANDARD footer policy")
+        if outcome.action is CodingCommandAction.SESSION_NAME:
+            if outcome.argument is None:
+                raise ValueError("SESSION_NAME outcomes require an argument")
+        elif outcome.argument is not None:
+            raise ValueError("only SESSION_NAME outcomes may carry an argument")
         return
     if outcome.action is not None:
         raise ValueError("only CONTINUE outcomes may carry an action")
     if outcome.footer_policy is not None:
         raise ValueError("only CONTINUE outcomes may carry a footer policy")
+    if outcome.argument is not None:
+        raise ValueError("only CONTINUE outcomes may carry an argument")
 
 
 def _continue_outcome(
     action: CodingCommandAction | None = None,
+    argument: ProductContent | None = None,
 ) -> CodingCommandOutcome:
     return CodingCommandOutcome(
         CodingCommandOutcomeKind.CONTINUE,
         action,
         CodingCommandFooterPolicy.STANDARD,
+        argument,
     )
 
 

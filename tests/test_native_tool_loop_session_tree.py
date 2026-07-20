@@ -11,6 +11,8 @@ import io
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
     NativeToolReplSession,
@@ -28,6 +30,7 @@ from pipy_harness.native.session_tree import (
     CompactionEntry,
     MessageEntry,
     NativeSessionTree,
+    SessionInfoEntry,
 )
 
 
@@ -237,6 +240,49 @@ def test_name_session_new_and_resume_roundtrip(tmp_path: Path) -> None:
     )
     assert "first-session" in err  # /session status line reports the name
     assert tree.name == "first-session"
+
+
+def test_name_command_queries_sets_and_persists_without_provider_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
+    provider = _SeenProvider()
+    footer_calls: list[None] = []
+
+    def record_footer(*_args: object, **_kwargs: object) -> None:
+        footer_calls.append(None)
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    unsafe_name = "nm\x1b[31mEVIL\x07"
+    _out, err = _run(
+        NativeToolReplSession(provider=provider, native_session=tree),
+        cwd,
+        f"/name\n/name alpha   beta\n/name\n/name {unsafe_name}\n/exit\n",
+    )
+
+    name_diagnostics = [
+        line
+        for line in err.splitlines()
+        if line.startswith("pipy: current session name:")
+        or line.startswith("pipy: session named ")
+    ]
+    assert name_diagnostics == [
+        "pipy: current session name: (unnamed)",
+        "pipy: session named 'alpha   beta'.",
+        "pipy: current session name: alpha   beta",
+        "pipy: session named 'nm\\x1b[31mEVIL\\x07'.",
+    ]
+    rendered_diagnostics = "\n".join(name_diagnostics)
+    assert "\x1b" not in rendered_diagnostics
+    assert "\x07" not in rendered_diagnostics
+    assert provider.requests == []
+    assert footer_calls == [None, None, None, None, None]
+    assert [
+        entry.name for entry in tree.get_branch() if isinstance(entry, SessionInfoEntry)
+    ] == ["alpha   beta", unsafe_name]
+    assert tree.path is not None
+    assert NativeSessionTree.open(tree.path).name == unsafe_name
 
 
 def test_fork_creates_new_session_file_with_parent(tmp_path: Path) -> None:

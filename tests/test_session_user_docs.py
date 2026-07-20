@@ -15,10 +15,11 @@ def test_session_user_docs_match_current_slash_dispatcher_arguments() -> None:
 
     usage = _read("docs/usage.md")
     sessions = _read("docs/sessions.md")
+    classifier = _read("src/pipy_harness/native/coding/commands.py")
     dispatcher = _read("src/pipy_harness/native/tool_loop_session.py")
 
-    assert 'if command_text == "/compact":' in dispatcher
-    assert 'command_text.startswith("/compact ")' not in dispatcher
+    assert 'if value == "/compact":' in classifier
+    assert 'value.startswith("/compact ")' not in classifier
     assert "`/compact [prompt]`" not in usage
     assert "`/compact` | Compact context when enough history exists" in usage
 

@@ -1779,6 +1779,30 @@ matching the unconditional pre-extraction blank branch. There is no agent event,
 product-session write, prompt-history entry, or workflow event for a handled
 state-free command.
 
+Slice 3.1d.2a adds exact compact and session-name actions. `COMPACT` carries no
+argument. `SESSION_NAME` carries one exact `ProductContent`: empty requests the
+current name and non-empty requests a durable name append. The classifier
+accepts the same already-stripped shapes as the old composition branches;
+outer trimming still belongs to composition, and spaces inside a name remain
+unchanged.
+
+Manual compaction preserves the synchronous order: submitted user bubble,
+classification, serial `session_before_compact` gate, pure reduction, live
+`CodingSessionState` transition, durable private-tree callback, diagnostic,
+then standard footer. A denial or unchanged reduction still returns its exact
+diagnostic and footer without mutation. A durable callback failure propagates
+after the live transition and before the success diagnostic/footer. Automatic
+compaction continues to call the same composition adapter and is not routed
+through command classification.
+
+An empty session-name argument reads and sanitizes the current label for the
+existing diagnostic. A non-empty argument appends `session_info` before the
+legacy repr diagnostic. Write failure propagates before that diagnostic/footer;
+there is no rollback or provider turn. Non-empty classified queued `/compact`
+and `/name ...` content bypasses these local actions. Session names, compaction
+summaries, and dropped transcript content stay in the private product session;
+the workflow archive retains only its existing allowlisted aggregate counters.
+
 Command/outcome values are full-content product-control data. They expose no
 serializer, SDK shape, persistence projection, or workflow-archive adapter.
 Exact direct-import allowlists plus recursive, fresh-process, and no-eager-

@@ -189,7 +189,9 @@ def test_positional_seed_preserves_exact_trailing_newlines(tmp_path: Path) -> No
     assert [request.user_prompt for request in provider.requests] == ["seed\n\n"]
 
 
-@pytest.mark.parametrize("queued_command", ("/copy", "/exit"))
+@pytest.mark.parametrize(
+    "queued_command", ("/copy", "/exit", "/compact", "/name queued")
+)
 def test_registered_input_wake_bypasses_local_command_kernel(
     tmp_path: Path, queued_command: str
 ) -> None:

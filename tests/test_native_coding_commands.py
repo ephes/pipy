@@ -33,6 +33,7 @@ def test_exit_commands_return_the_exact_terminal_outcome(command: str) -> None:
         ("/changelog", CodingCommandAction.SHOW_CHANGELOG),
         ("/copy", CodingCommandAction.COPY_LAST_ANSWER),
         ("/session", CodingCommandAction.SHOW_SESSION_STATUS),
+        ("/compact", CodingCommandAction.COMPACT),
     ],
 )
 def test_action_commands_return_standard_continuing_outcomes(
@@ -56,12 +57,49 @@ def test_blank_input_continues_with_no_action_and_standard_footer() -> None:
 
 
 @pytest.mark.parametrize(
+    ("command", "expected_argument"),
+    [
+        ("/name", ""),
+        ("/name session", "session"),
+        ("/name   session name", "session name"),
+        ("/name   session  name", "session  name"),
+        ("/name \t session name", "session name"),
+    ],
+)
+def test_name_command_returns_exact_stripped_product_argument(
+    command: str,
+    expected_argument: str,
+) -> None:
+    outcome = classify_coding_command(ProductContent(command))
+
+    assert outcome == CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        CodingCommandAction.SESSION_NAME,
+        CodingCommandFooterPolicy.STANDARD,
+        ProductContent(expected_argument),
+    )
+    assert type(outcome.argument) is ProductContent
+    assert outcome.argument.value == expected_argument
+
+
+@pytest.mark.parametrize(
     "value",
     [
         " ",
         " /exit",
         "/exit ",
         "/EXIT",
+        "/Compact",
+        "/compact x",
+        "/compact ",
+        "/NAME",
+        "/name ",
+        "/name    ",
+        "/name session ",
+        "/name session\t",
+        "/name\tvalue",
+        "/names",
+        "/name:value",
         "/unknown",
         "/model gpt",
         "/extension:command",
@@ -109,6 +147,8 @@ def test_validator_rejects_outcome_subclasses() -> None:
         ("action", [], "outcome.action"),
         ("footer_policy", "standard", "outcome.footer_policy"),
         ("footer_policy", [], "outcome.footer_policy"),
+        ("argument", "session", "outcome.argument"),
+        ("argument", [], "outcome.argument"),
     ],
 )
 def test_validator_rejects_corrupted_exact_field_values(
@@ -139,6 +179,7 @@ def test_validator_rejects_corrupted_exact_field_values(
     [
         ("action", CodingCommandAction.SHOW_HOTKEYS, "only CONTINUE"),
         ("footer_policy", CodingCommandFooterPolicy.STANDARD, "only CONTINUE"),
+        ("argument", ProductContent("session"), "only CONTINUE"),
     ],
 )
 def test_validator_rejects_corrupted_non_continuing_outcomes(
@@ -162,6 +203,57 @@ def test_validator_rejects_continue_without_standard_footer() -> None:
     object.__setattr__(outcome, "footer_policy", None)
 
     with pytest.raises(ValueError, match="require the STANDARD footer"):
+        require_exact_coding_command_outcome(outcome)
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        None,
+        CodingCommandAction.SHOW_HOTKEYS,
+        CodingCommandAction.SHOW_CHANGELOG,
+        CodingCommandAction.COPY_LAST_ANSWER,
+        CodingCommandAction.SHOW_SESSION_STATUS,
+        CodingCommandAction.COMPACT,
+    ],
+)
+def test_only_session_name_action_may_carry_an_argument(
+    action: CodingCommandAction | None,
+) -> None:
+    with pytest.raises(ValueError, match="only SESSION_NAME"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            action,
+            CodingCommandFooterPolicy.STANDARD,
+            ProductContent("session"),
+        )
+
+
+def test_session_name_action_requires_an_argument_even_for_status_read() -> None:
+    with pytest.raises(ValueError, match="require an argument"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            CodingCommandAction.SESSION_NAME,
+            CodingCommandFooterPolicy.STANDARD,
+        )
+
+
+def test_validator_rejects_mutated_or_subclassed_argument_content() -> None:
+    outcome = CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        CodingCommandAction.SESSION_NAME,
+        CodingCommandFooterPolicy.STANDARD,
+        ProductContent("session"),
+    )
+    object.__setattr__(outcome, "argument", _ProductContentSubclass("session"))
+
+    with pytest.raises(TypeError, match="outcome.argument"):
+        require_exact_coding_command_outcome(outcome)
+
+    object.__setattr__(outcome, "argument", ProductContent("session"))
+    object.__setattr__(outcome.argument, "value", cast(str, []))
+
+    with pytest.raises(TypeError, match="outcome.argument"):
         require_exact_coding_command_outcome(outcome)
 
 

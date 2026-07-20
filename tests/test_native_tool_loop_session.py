@@ -2308,7 +2308,10 @@ def test_headless_command_kernel_classifies_supported_local_commands(
 
     NativeToolReplSession(provider=provider).run(
         workspace_root=tmp_path,
-        input_stream=io.StringIO("\n/hotkeys\n/changelog\n/copy\n/session\n/exit\n"),
+        input_stream=io.StringIO(
+            "\n/hotkeys\n/changelog\n/copy\n/session\n"
+            "/compact\n/name\n/name classified value\n/exit\n"
+        ),
         output_stream=io.StringIO(),
         error_stream=error_stream,
     )
@@ -2319,6 +2322,9 @@ def test_headless_command_kernel_classifies_supported_local_commands(
         "/changelog",
         "/copy",
         "/session",
+        "/compact",
+        "/name",
+        "/name classified value",
         "/exit",
     ]
     assert "What's New" in error_stream.getvalue()

@@ -3096,6 +3096,34 @@ class NativeToolReplSession:
                             is CodingCommandAction.SHOW_SESSION_STATUS
                         ):
                             diag(format_session_status(session_tree))
+                        elif command_outcome.action is CodingCommandAction.COMPACT:
+                            # Local-only: reduce provider-visible history while
+                            # preserving the shared manual/automatic compaction
+                            # policy, extension gate, and durable write ordering.
+                            diag(apply_compaction("manual"))
+                        elif command_outcome.action is CodingCommandAction.SESSION_NAME:
+                            session_name_argument = command_outcome.argument
+                            if type(session_name_argument) is not ProductContent:
+                                raise TypeError(
+                                    "SESSION_NAME requires an exact ProductContent argument"
+                                )
+                            if not session_name_argument.value:
+                                diag(
+                                    "pipy: current session name: "
+                                    + (
+                                        sanitize_label_text(session_tree.name)
+                                        if session_tree.name
+                                        else "(unnamed)"
+                                    )
+                                )
+                            else:
+                                session_tree.append_session_info(
+                                    session_name_argument.value
+                                )
+                                diag(
+                                    "pipy: session named "
+                                    f"{session_name_argument.value!r}."
+                                )
                         if (
                             command_outcome.footer_policy
                             is CodingCommandFooterPolicy.STANDARD
@@ -3569,31 +3597,6 @@ class NativeToolReplSession:
                             provider=coding_state.provider,
                         ):
                             print(overlay_line, file=error_stream)
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/compact":
-                    # Local-only command: reduce the provider-visible history while
-                    # keeping recent turns plus a safe metadata-only summary. No
-                    # provider turn, tool call, or auth change.
-                    self._emit_diagnostic(
-                        terminal_ui, error_stream, apply_compaction("manual")
-                    )
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/name" or command_text.startswith("/name "):
-                    argument = stripped[len("/name") :].strip()
-                    if not argument:
-                        diag(
-                            "pipy: current session name: "
-                            + (
-                                sanitize_label_text(session_tree.name)
-                                if session_tree.name
-                                else "(unnamed)"
-                            )
-                        )
-                    else:
-                        session_tree.append_session_info(argument)
-                        diag(f"pipy: session named {argument!r}.")
                     refresh_legacy_footer()
                     continue
                 if command_text == "/new":
