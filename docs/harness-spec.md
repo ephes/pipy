@@ -1706,6 +1706,46 @@ recursive, and fresh-process gates keep the state owner free of those
 implementations and of terminal, automation/archive, concrete-provider, and
 concrete-tool dependencies.
 
+### Headless Product-Session Persistence Coordination
+
+Phase 3.1c adds `native.coding.product_session` as a synchronous coordination
+seam over the state owner. `CodingProductSessionContext` is an exact immutable
+tuple of canonical full-content messages. `CodingProductSessionCompaction`
+contains the retained canonical history, the exact in-memory prompt suffix, the
+durable private summary, the dropped-group count, and the pre-compaction
+measure. These are product-session values by classification; they are never
+metadata-safe archive DTOs and are not exposed through generic serializers or
+the workflow projection.
+
+The coordinator preserves the existing blocking order:
+
+1. A canonical message is validated and appended to `CodingSessionState`, then
+   the exact same object is passed to the durable callback.
+2. A compaction action is validated completely, its live retained history,
+   suffix, and counters are applied, then the exact action is passed to the
+   durable callback.
+3. A session command performs its concrete tree create/open/move/fork/import
+   operation first. The load callback then returns one exact immutable active
+   context, live history rebuilds only after validation, and composition clears
+   extension-scoped pending input immediately afterward.
+
+Callbacks are synchronous and backpressured. Their exceptions propagate before
+the next event or lifecycle step. Append or compaction callback failure retains
+the already-applied live transition, matching the characterized pre-extraction
+partial-state behavior; there is no rollback, retry, or async conversion in
+this slice. A callback or structural port returning an awaitable or any other
+non-`None` value fails closed. Invalid load contexts are rejected before live
+history changes.
+
+The coordinator owns no `NativeSessionTree`, filesystem, compaction-summary
+formatting, command policy, extension implementation, RPC lifecycle, rendering,
+provider construction, concrete provider/tool, SDK, capture, or archive code.
+The composition root supplies named callbacks closing over its active concrete
+tree. The Phase 1.2 `ProductSessionEventProjection` remains inactive as a writer
+until Phase 3.3 relocates write ownership, preventing duplicate or earlier
+writes. Static exact-allowlist, recursive, fresh-process, and no-eager-export
+tests enforce the boundary.
+
 ### Canonical Agent Tool-Capability Port
 
 Phase 2.2b.3 adds the runtime-checkable, synchronous

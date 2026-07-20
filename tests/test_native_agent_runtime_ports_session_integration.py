@@ -759,6 +759,31 @@ def test_run_effect_failure_prevents_turn_start_and_provider_call(
     assert [type(event) for event in canonical.events] == [AgentRunStarted]
 
 
+def test_product_persistence_failure_observes_state_first_append(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = _ScriptProvider((_result("unused"),))
+    tree = NativeSessionTree.create(tmp_path, persist=False)
+    session = NativeToolReplSession(provider=provider, native_session=tree)
+    observed: list[AgentMessage] = []
+
+    def fail_persistence(message: AgentMessage) -> None:
+        observed.append(message)
+        assert session._coding_state.messages[-1] is message
+        assert tree.build_context().messages == ()
+        raise RuntimeError("product persistence refused append")
+
+    monkeypatch.setattr(tree, "append_message", fail_persistence)
+
+    with pytest.raises(RuntimeError, match="product persistence refused append"):
+        _run(session, tmp_path, "prompt\n")
+
+    assert len(observed) == 1
+    assert session._coding_state.messages == tuple(observed)
+    assert tree.build_context().messages == ()
+    assert provider.requests == []
+
+
 @pytest.mark.parametrize("status", [HarnessStatus.SUCCEEDED, HarnessStatus.FAILED])
 def test_usage_publisher_failure_stops_before_completion_failure_or_next_request(
     status: HarnessStatus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

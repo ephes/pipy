@@ -169,12 +169,16 @@ storage split, command behavior, and the deterministic conformance gate
 [`session-tree.md`](session-tree.md).
 
 The architecture migration defines a canonical agent-event projection for the
-native product session, but direct append ownership intentionally remains in
-the session loop until migration Slice 3.3. The separate workflow projection is
-counts-only and never dereferences canonical full-content payloads. Historical
-tool results whose tool name cannot be inferred from their own branch ancestry
-remain private storage records: they preserve JSON and tree ancestry but are
-not supplied to providers.
+native product session and a Phase 3.1c typed synchronous coordination seam for
+full-content append, active-history load, and compaction transitions. Concrete
+`NativeSessionTree` callbacks and direct write ownership intentionally remain in
+the session composition root until migration Slice 3.3; the event projection is
+not yet a second writer. The coordinator's exact product-content DTOs are
+private session values and must never cross into the separate counts-only
+workflow projection, which never dereferences canonical full-content payloads.
+Historical tool results whose tool name cannot be inferred from their own
+branch ancestry remain private storage records: they preserve JSON and tree
+ancestry but are not supplied to providers.
 
 Follow-up filenames should keep the original slug and add a suffix:
 

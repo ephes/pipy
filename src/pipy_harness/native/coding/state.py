@@ -93,7 +93,7 @@ class CodingSessionResultSnapshot:
     def __post_init__(self) -> None:
         _require_non_empty_string(self.provider_name, "provider_name")
         _require_non_empty_string(self.model_id, "model_id")
-        _require_messages(self.messages)
+        require_exact_agent_messages(self.messages)
         _require_agent_usage(self.usage, "usage")
         for field_name in _COUNTER_FIELD_NAMES:
             _require_non_negative_int(getattr(self, field_name), field_name)
@@ -182,7 +182,7 @@ class CodingSessionState:
             if usage_accumulator is None
             else _require_usage_accumulator(usage_accumulator)
         )
-        _require_messages(messages)
+        require_exact_agent_messages(messages)
         self._messages = list(messages)
         self._user_turn_count = 0
         self._tool_invocation_count = 0
@@ -374,13 +374,13 @@ class CodingSessionState:
     def append_message(self, message: AgentMessage) -> None:
         """Append the exact canonical message object to live history."""
 
-        _require_message(message, "message")
+        require_exact_agent_message(message, "message")
         self._messages.append(message)
 
     def mirror_history(self, messages: tuple[AgentMessage, ...]) -> None:
         """Mirror an agent-loop history without changing compaction metadata."""
 
-        _require_messages(messages)
+        require_exact_agent_messages(messages)
         self._messages = list(messages)
 
     def clear_history(self) -> None:
@@ -391,7 +391,7 @@ class CodingSessionState:
     def rebuild_history(self, messages: tuple[AgentMessage, ...]) -> None:
         """Replace history from product persistence and clear its live suffix."""
 
-        _require_messages(messages)
+        require_exact_agent_messages(messages)
         self._messages = list(messages)
         self._compaction_suffix = ""
 
@@ -483,7 +483,7 @@ class CodingSessionState:
     ) -> None:
         """Apply one changed compaction result as a single state transition."""
 
-        _require_messages(messages)
+        require_exact_agent_messages(messages)
         if type(summary_suffix) is not str:
             raise TypeError("summary_suffix must be an exact string")
         if not summary_suffix:
@@ -602,7 +602,9 @@ def _validated_tool_policy_counters(
     )
 
 
-def _require_message(message: object, field_name: str) -> None:
+def require_exact_agent_message(message: object, field_name: str) -> None:
+    """Reject noncanonical or recursively mutable product messages."""
+
     if type(message) not in _EXACT_AGENT_MESSAGE_TYPES:
         raise TypeError(f"{field_name} must be an exact canonical AgentMessage")
     if type(message) is AgentUserMessage:
@@ -687,11 +689,16 @@ def _require_agent_failure(failure: object, field_name: str) -> None:
         raise TypeError(f"{field_name}.retryable must be an exact bool")
 
 
-def _require_messages(messages: object) -> None:
+def require_exact_agent_messages(
+    messages: object,
+    field_name: str = "messages",
+) -> None:
+    """Reject non-tuple or recursively invalid canonical history."""
+
     if type(messages) is not tuple:
-        raise TypeError("messages must be an exact tuple")
+        raise TypeError(f"{field_name} must be an exact tuple")
     for index, message in enumerate(messages):
-        _require_message(message, f"messages[{index}]")
+        require_exact_agent_message(message, f"{field_name}[{index}]")
 
 
 def _validate_resolution_counts(

@@ -136,6 +136,12 @@ from pipy_harness.native.agent_runtime import (
 )
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding import CodingInputQueue, CodingInputSource
+from pipy_harness.native.coding.product_session import (
+    CodingProductSessionCallbacks,
+    CodingProductSessionCompaction,
+    CodingProductSessionContext,
+    CodingProductSessionCoordinator,
+)
 from pipy_harness.native.coding.state import (
     CodingSessionState,
     CodingSessionUsageSnapshot,
@@ -2027,7 +2033,30 @@ class NativeToolReplSession:
         session_tree = self.native_session or NativeSessionTree.create(
             cwd, persist=False
         )
-        coding_state.rebuild_history(tuple(session_tree.build_context().messages))
+
+        def _load_product_session_history() -> CodingProductSessionContext:
+            return CodingProductSessionContext(
+                messages=tuple(session_tree.build_context().messages)
+            )
+
+        def _persist_agent_message(message: AgentMessage) -> None:
+            session_tree.append_message(message)
+
+        def _persist_compaction(action: CodingProductSessionCompaction) -> None:
+            _append_durable_compaction(
+                action.durable_summary.value,
+                action.measure_before,
+            )
+
+        product_session = CodingProductSessionCoordinator(
+            state=coding_state,
+            port=CodingProductSessionCallbacks(
+                load_active_history_callback=_load_product_session_history,
+                append_message_callback=_persist_agent_message,
+                apply_compaction_callback=_persist_compaction,
+            ),
+        )
+        product_session.rebuild_active_history()
 
         def _sync_tool_policy_counters(state: AgentToolPolicyState) -> None:
             coding_state.sync_tool_policy(state)
@@ -2043,9 +2072,7 @@ class NativeToolReplSession:
         # mutated. base_system_prompt already carries any resume seed block.
         base_system_prompt = system_prompt
 
-        def append_agent_message(message: AgentMessage) -> object:
-            coding_state.append_message(message)
-            return session_tree.append_message(message)
+        append_agent_message = product_session.append_message
 
         def absorb_session_usage(sample: AgentProviderUsageSample) -> None:
             coding_state.absorb_usage(sample)
@@ -2530,18 +2557,15 @@ class NativeToolReplSession:
             if not result.changed:
                 return "pipy: nothing to compact yet."
             summary_block = _agent_history_summary(result)
-            coding_state.apply_compaction(
-                result.messages,
-                summary_suffix=f"\n\n{summary_block}",
-                dropped_group_count=result.dropped_group_count,
+            product_session.apply_compaction(
+                CodingProductSessionCompaction(
+                    retained_messages=result.messages,
+                    summary_suffix=ProductContent(f"\n\n{summary_block}"),
+                    durable_summary=ProductContent(summary_block),
+                    dropped_group_count=result.dropped_group_count,
+                    measure_before=result.bytes_before,
+                )
             )
-            # Durable compaction: append a real ``compaction`` entry to the
-            # native session tree so resumed and /tree-navigated sessions
-            # rebuild the same reduced context. The boundary is the first
-            # retained user-turn on the active branch (after any prior
-            # compaction); the live in-memory reduction above keeps the
-            # provider request small for this session.
-            _append_durable_compaction(summary_block, result.bytes_before)
             return (
                 f"pipy: compacted conversation context ({trigger}; dropped "
                 f"{result.dropped_group_count} earlier exchange(s), kept "
@@ -2703,7 +2727,7 @@ class NativeToolReplSession:
             compacted) active branch.
             """
 
-            coding_state.rebuild_history(tuple(session_tree.build_context().messages))
+            product_session.rebuild_active_history()
             # Extension delivery is bound to the active native session/branch
             # and must not leak into its replacement. Positional seeds, a local
             # command, a retained loop handoff, and externally owned RPC

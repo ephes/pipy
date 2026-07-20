@@ -1810,6 +1810,28 @@ public-metadata slice with JSON, adapter, and workflow-archive compatibility and
 privacy contracts; Phase 3.1b deliberately characterizes rather than changes
 the behavior.
 
+### Product-Session Persistence Coordination — SHIPPED (2026-07-20)
+
+Phase 3.1c introduces `native.coding.product_session` as the synchronous,
+headless boundary between live `CodingSessionState` transitions and the current
+private native-tree callbacks. Exact frozen/slotted DTOs carry canonical
+full-content histories and compaction data. Message append and compaction apply
+live state first and invoke the durable callback second; callback failures and
+invalid asynchronous/non-`None` returns propagate before any later lifecycle
+work. Session commands still replace or move the concrete tree first, then load
+and validate its active history through the coordinator, rebuild live state,
+and finally clear extension-scoped pending input.
+
+Concrete `NativeSessionTree` and filesystem write ownership, summary formatting,
+tree create/open/fork/import policy, command dispatch, rendering, extensions,
+and RPC settlement remain in the product composition root. The Phase 1.2
+product-session event projection is not activated as a second writer; actual
+write relocation remains Phase 3.3. Exact import allowlists plus recursive,
+fresh-process, and no-eager-export gates keep the coordination module free of
+those outer implementations. Its full-content values never cross the separate
+counts-only workflow archive. The next target is Phase 3.1d, typed imperative
+command outcomes without introducing the Phase 3.2 declarative registry.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable
