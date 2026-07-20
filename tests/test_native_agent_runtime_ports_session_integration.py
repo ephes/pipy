@@ -190,7 +190,17 @@ def test_positional_seed_preserves_exact_trailing_newlines(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(
-    "queued_command", ("/copy", "/exit", "/compact", "/name queued")
+    "queued_command",
+    (
+        "/copy",
+        "/exit",
+        "/compact",
+        "/name queued",
+        "/model openai/gpt-5.5",
+        "/scoped-models clear",
+        "/login openai-codex",
+        "/logout openai-codex",
+    ),
 )
 def test_registered_input_wake_bypasses_local_command_kernel(
     tmp_path: Path, queued_command: str

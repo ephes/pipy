@@ -1427,6 +1427,67 @@ def test_model_select_hotkey_opens_selector_and_rebinds_next_turn(
     assert result.provider_name == "openai"
     assert result.model_id == "gpt-5.5"
     assert result.user_turn_count == 1
+    assert not any(
+        kind == "user" and lines == ("/model",) for kind, lines in ui._history_blocks
+    )
+
+
+def test_bare_model_selector_cancel_preserves_selection_without_provider_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[tuple[str, str]] = []
+    provider_state = _recording_provider_state(
+        tmp_path,
+        seen,
+        provider_name="openrouter",
+        model_id="openai/gpt",
+        env={"OPENROUTER_API_KEY": "k", "OPENAI_API_KEY": "k2"},
+    )
+    initial_reference = provider_state.current_selection().reference
+    session = NativeToolReplSession(
+        provider=provider_state.current_provider(),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    ui = _ui(tmp_path)
+    scripted = iter(("/model\n", ""))
+    selector_calls: list[None] = []
+
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+
+    def _cancel_selector(self, options, *, current_index=0, title=None):
+        del self, options, current_index, title
+        selector_calls.append(None)
+        return None
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "run_model_selector", _cancel_selector)
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status == HarnessStatus.SUCCEEDED
+    assert selector_calls == [None]
+    assert provider_state.current_selection().reference == initial_reference
+    assert result.user_turn_count == 0
+    assert seen == []
+    assert any(
+        kind == "user" and lines == ("/model",) for kind, lines in ui._history_blocks
+    )
 
 
 def test_model_command_refuses_non_tool_capable_selection(
@@ -1503,6 +1564,52 @@ def test_model_command_refusal_restores_unavailable_previous_selection(
     # The turn still ran on the original provider/model.
     assert seen == [("openai", "gpt-5.5")]
     assert result.provider_name == "openai"
+
+
+def test_model_command_refusal_preserves_resolved_thinking_level_mutation(
+    tmp_path: Path,
+) -> None:
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+
+    seen: list[tuple[str, str]] = []
+    provider_state = _recording_provider_state(
+        tmp_path,
+        seen,
+        provider_name="openrouter",
+        model_id="openai/gpt",
+        env={"OPENROUTER_API_KEY": "k"},
+    )
+    provider_state.catalog_state = ProviderCatalogState(
+        models_json_path=tmp_path / "absent-models.json",
+        env={"OPENROUTER_API_KEY": "k"},
+    )
+    provider_state.thinking_level = "low"
+    previous_selection = provider_state.current_selection()
+    session = NativeToolReplSession(
+        provider=provider_state.current_provider(),
+        provider_state=provider_state,
+        tool_registry={},
+    )
+    error_stream = io.StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(
+            "/model fake/fake-native-bootstrap:high\n/exit\n"
+        ),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert "does not support tool calls" in error_stream.getvalue()
+    assert provider_state.current_selection() == previous_selection
+    # Catalog resolution mutates the thinking level before the capability gate;
+    # the current compatibility path restores only provider/model selection.
+    assert provider_state.thinking_level == "high"
+    assert seen == []
+    assert result.user_turn_count == 0
+    assert result.tool_invocation_count == 0
 
 
 def test_model_selector_rows_mark_current_non_default_model(tmp_path: Path):
@@ -3025,6 +3132,23 @@ class _FakeOpenAICodexAuthManager:
         return False
 
 
+class _RaisingOpenAICodexAuthManager:
+    """Raises one injected failure after recording the selected auth callback."""
+
+    def __init__(self, trace: list[str], failure: BaseException) -> None:
+        self._trace = trace
+        self._failure = failure
+
+    def login_interactive(self, *, input_stream, output_stream, open_browser=True):
+        del input_stream, output_stream, open_browser
+        self._trace.append("auth-callback")
+        raise self._failure
+
+    def logout(self) -> bool:
+        self._trace.append("auth-callback")
+        raise self._failure
+
+
 def _auth_provider_state(tmp_path: Path, provider: ProviderPort, auth_path: Path):
     from pipy_harness.native import NativeModelSelection, NativeReplProviderState
     from pipy_harness.native.openai_codex_provider import OpenAICodexAuthManager
@@ -3039,6 +3163,100 @@ def _auth_provider_state(tmp_path: Path, provider: ProviderPort, auth_path: Path
         persist_defaults=False,
     )
     return state, manager
+
+
+def _raising_auth_session(
+    tmp_path: Path,
+    trace: list[str],
+    failure: BaseException,
+) -> tuple[NativeToolReplSession, _CountingProvider, ToolLoopTerminalUi]:
+    from pipy_harness.native.openai_codex_provider import OpenAICodexAuthManager
+    from pipy_harness.native.repl_state import (
+        NativeModelSelection,
+        NativeReplProviderState,
+    )
+
+    provider = _CountingProvider()
+    manager = _RaisingOpenAICodexAuthManager(trace, failure)
+    provider_state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        provider_factory=lambda selection: provider,
+        auth_manager_factory=lambda: cast(OpenAICodexAuthManager, manager),
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+        persist_defaults=False,
+    )
+    return (
+        NativeToolReplSession(
+            provider=provider,
+            provider_state=provider_state,
+            tool_registry={},
+        ),
+        provider,
+        _ui(tmp_path),
+    )
+
+
+def _install_auth_trace(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    ui: ToolLoopTerminalUi,
+    trace: list[str],
+    diagnostics: list[str],
+    rebinds: list[tuple[str, str]],
+) -> None:
+    from pipy_harness.native.agent import AgentUsage
+    from pipy_harness.native.agent.usage import AgentUsageAccumulator
+    from pipy_harness.native.coding.state import CodingSessionState
+
+    original_rebind = CodingSessionState.rebind_provider
+
+    def record_footer(self: ToolLoopTerminalUi, text: str) -> None:
+        del self
+        assert "$" in text
+        trace.append("usage-footer")
+
+    def record_suspend(self: ToolLoopTerminalUi) -> None:
+        del self
+        trace.append("external-io-suspend")
+
+    def record_notice(self: ToolLoopTerminalUi, text: str) -> None:
+        del self
+        trace.append("diagnostic")
+        diagnostics.append(text)
+
+    def record_rebind(
+        self: CodingSessionState,
+        rebound_provider: ProviderPort,
+        *,
+        provider_name: str,
+        model_id: str,
+        usage_accumulator: AgentUsageAccumulator,
+    ) -> None:
+        assert usage_accumulator.agent_usage() == AgentUsage()
+        trace.append("provider-usage-rebind")
+        rebinds.append((provider_name, model_id))
+        original_rebind(
+            self,
+            rebound_provider,
+            provider_name=provider_name,
+            model_id=model_id,
+            usage_accumulator=usage_accumulator,
+        )
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "set_footer_text", record_footer)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "suspend_for_external_io", record_suspend
+    )
+    monkeypatch.setattr(ToolLoopTerminalUi, "add_notice", record_notice)
+    monkeypatch.setattr(CodingSessionState, "rebind_provider", record_rebind)
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
+    )
 
 
 def _codex_option(state: object) -> NativeModelOption:
@@ -3141,6 +3359,109 @@ def test_tui_logout_removes_credentials_without_provider_turn(
     assert _codex_option(provider_state).available is False
     notices = [lines for kind, lines in ui._history_blocks if kind == "notice"]
     assert any("removed" in " ".join(lines).lower() for lines in notices)
+
+
+@pytest.mark.parametrize("action", ["login", "logout"])
+def test_tui_auth_failure_rebinds_before_safe_diagnostic_and_usage_footer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+) -> None:
+    trace: list[str] = []
+    diagnostics: list[str] = []
+    rebinds: list[tuple[str, str]] = []
+    session, provider, ui = _raising_auth_session(
+        tmp_path,
+        trace,
+        RuntimeError("token=sk-auth-secret\x1b[31mDO-NOT-RENDER"),
+    )
+    scripted = iter([f"/{action}\n", ""])
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: next(scripted),
+    )
+    _install_auth_trace(
+        monkeypatch,
+        ui=ui,
+        trace=trace,
+        diagnostics=diagnostics,
+        rebinds=rebinds,
+    )
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    expected = ["usage-footer"]
+    if action == "login":
+        expected.append("external-io-suspend")
+    expected.extend(
+        [
+            "auth-callback",
+            "provider-usage-rebind",
+            "usage-footer",
+            "diagnostic",
+        ]
+    )
+    assert trace == expected
+    assert diagnostics == [
+        f"pipy: openai-codex {action} failed with RuntimeError: [REDACTED]"
+    ]
+    assert "sk-auth-secret" not in diagnostics[0]
+    assert "\x1b" not in diagnostics[0]
+    assert rebinds == [("fake", "fake-tools")]
+    assert provider.completions == 0
+    assert result.user_turn_count == 0
+    assert result.tool_invocation_count == 0
+
+
+@pytest.mark.parametrize("action", ["login", "logout"])
+@pytest.mark.parametrize("failure_type", [KeyboardInterrupt, SystemExit])
+def test_tui_auth_process_interrupt_propagates_before_rebind_diagnostic_or_footer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    failure_type: type[BaseException],
+) -> None:
+    trace: list[str] = []
+    diagnostics: list[str] = []
+    rebinds: list[tuple[str, str]] = []
+    session, provider, ui = _raising_auth_session(
+        tmp_path, trace, failure_type("stop auth")
+    )
+    monkeypatch.setattr(
+        ToolLoopTerminalUi,
+        "read_line",
+        lambda self, prompt_label, *, footer=None: f"/{action}\n",
+    )
+    _install_auth_trace(
+        monkeypatch,
+        ui=ui,
+        trace=trace,
+        diagnostics=diagnostics,
+        rebinds=rebinds,
+    )
+
+    with pytest.raises(failure_type, match="stop auth"):
+        session.run(
+            workspace_root=tmp_path,
+            input_stream=io.StringIO(),
+            output_stream=io.StringIO(),
+            error_stream=io.StringIO(),
+        )
+
+    expected = ["usage-footer"]
+    if action == "login":
+        expected.append("external-io-suspend")
+    expected.append("auth-callback")
+    assert trace == expected
+    assert diagnostics == []
+    assert rebinds == []
+    assert provider.completions == 0
 
 
 def test_aborted_turn_appends_no_assistant_observation_to_context(

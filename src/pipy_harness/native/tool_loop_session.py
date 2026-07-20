@@ -3124,11 +3124,193 @@ class NativeToolReplSession:
                                     "pipy: session named "
                                     f"{session_name_argument.value!r}."
                                 )
+                        elif command_outcome.action in {
+                            CodingCommandAction.MODEL,
+                            CodingCommandAction.SCOPED_MODELS,
+                            CodingCommandAction.LOGIN,
+                            CodingCommandAction.LOGOUT,
+                        }:
+                            command_argument = command_outcome.argument
+                            if type(command_argument) is not ProductContent:
+                                raise TypeError(
+                                    f"{command_outcome.action.name} requires an exact "
+                                    "ProductContent argument"
+                                )
+                            argument = command_argument.value
+                            if command_outcome.action is CodingCommandAction.MODEL:
+                                state = self.provider_state
+                                if not isinstance(state, NativeReplProviderState):
+                                    self._emit_diagnostic(
+                                        terminal_ui,
+                                        error_stream,
+                                        "pipy: /model is unavailable for this REPL "
+                                        "provider state.",
+                                    )
+                                elif argument:
+                                    _ok, message = apply_model_selection(argument)
+                                    self._emit_diagnostic(
+                                        terminal_ui, error_stream, message
+                                    )
+                                elif terminal_ui is not None:
+                                    ui_options, selections = self._model_selector_rows(
+                                        state
+                                    )
+                                    current = state.current_selection()
+                                    current_index = next(
+                                        (
+                                            index
+                                            for index, selection in enumerate(
+                                                selections
+                                            )
+                                            if selection.provider_name
+                                            == current.provider_name
+                                            and selection.model_id == current.model_id
+                                        ),
+                                        0,
+                                    )
+                                    chosen = terminal_ui.run_model_selector(
+                                        ui_options, current_index=current_index
+                                    )
+                                    if chosen is not None:
+                                        _ok, message = apply_model_selection(
+                                            selections[chosen].reference
+                                        )
+                                        terminal_ui.add_notice(message)
+                                else:
+                                    for overlay_line in self._settings_overlay_lines(
+                                        settings,
+                                        provider=coding_state.provider,
+                                    ):
+                                        print(overlay_line, file=error_stream)
+                            elif (
+                                command_outcome.action
+                                is CodingCommandAction.SCOPED_MODELS
+                            ):
+                                # Local-only: view/set/clear the enabledModels
+                                # patterns constraining model cycling, or cycle over
+                                # the scoped set without a provider/tool turn.
+                                state = self.provider_state
+                                available_refs = (
+                                    [
+                                        option.selection.reference
+                                        for option in state.model_options()
+                                        if option.available
+                                    ]
+                                    if isinstance(state, NativeReplProviderState)
+                                    else []
+                                )
+                                patterns = settings.get_enabled_models()
+                                scoped = filter_scoped_references(
+                                    available_refs, patterns
+                                )
+                                if (
+                                    not argument
+                                    and terminal_ui is not None
+                                    and isinstance(state, NativeReplProviderState)
+                                    and available_refs
+                                ):
+                                    self._open_scoped_models_overlay(
+                                        terminal_ui, state=state, settings=settings
+                                    )
+                                elif not argument:
+                                    pattern_text = (
+                                        ", ".join(patterns)
+                                        if patterns
+                                        else "(none — full catalog)"
+                                    )
+                                    cycle_text = (
+                                        ", ".join(scoped)
+                                        if scoped
+                                        else "(none available)"
+                                    )
+                                    for line in (
+                                        "pipy: scoped models:",
+                                        f"  patterns: {pattern_text}",
+                                        f"  cycle set: {cycle_text}",
+                                    ):
+                                        self._emit_diagnostic(
+                                            terminal_ui, error_stream, line
+                                        )
+                                elif argument == "clear":
+                                    try:
+                                        settings.set_enabled_models([])
+                                        message = (
+                                            "pipy: scoped models cleared (cycle uses "
+                                            "the full catalog)."
+                                        )
+                                    except RuntimeError as exc:
+                                        message = (
+                                            "pipy: could not update scoped models: "
+                                            f"{exc}"
+                                        )
+                                    self._emit_diagnostic(
+                                        terminal_ui, error_stream, message
+                                    )
+                                elif argument in {"next", "prev"}:
+                                    current_ref = (
+                                        state.current_selection().reference
+                                        if isinstance(state, NativeReplProviderState)
+                                        else ""
+                                    )
+                                    cycle_target = next_reference(
+                                        scoped,
+                                        current_ref,
+                                        forward=argument == "next",
+                                    )
+                                    if cycle_target is None:
+                                        self._emit_diagnostic(
+                                            terminal_ui,
+                                            error_stream,
+                                            "pipy: no models available to cycle.",
+                                        )
+                                    else:
+                                        _ok, message = apply_model_selection(
+                                            cycle_target
+                                        )
+                                        self._emit_diagnostic(
+                                            terminal_ui, error_stream, message
+                                        )
+                                else:
+                                    new_patterns = argument.split()
+                                    try:
+                                        settings.set_enabled_models(new_patterns)
+                                        message = (
+                                            "pipy: scoped models set: "
+                                            + ", ".join(new_patterns)
+                                        )
+                                    except RuntimeError as exc:
+                                        message = (
+                                            "pipy: could not update scoped models: "
+                                            f"{exc}"
+                                        )
+                                    self._emit_diagnostic(
+                                        terminal_ui, error_stream, message
+                                    )
+                            else:
+                                auth_action = (
+                                    "login"
+                                    if command_outcome.action
+                                    is CodingCommandAction.LOGIN
+                                    else "logout"
+                                )
+                                message = apply_auth_change(auth_action, argument)
+                                self._emit_diagnostic(
+                                    terminal_ui, error_stream, message
+                                )
                         if (
                             command_outcome.footer_policy
                             is CodingCommandFooterPolicy.STANDARD
                         ):
                             refresh_legacy_footer()
+                        elif (
+                            command_outcome.footer_policy
+                            is CodingCommandFooterPolicy.USAGE_AWARE
+                        ):
+                            refresh_legacy_footer_with_usage()
+                        else:
+                            raise AssertionError(
+                                "handled command requires a closed footer policy"
+                            )
                         continue
                 if command_text == "/trust":
                     self._handle_trust_command(
@@ -3844,142 +4026,6 @@ class NativeToolReplSession:
                         f"{sanitize_label_text(session_tree.session_id[:8])}."
                     )
                     refresh_legacy_footer()
-                    continue
-                if command_text == "/model" or command_text.startswith("/model "):
-                    argument = stripped[len("/model") :].strip()
-                    state = self.provider_state
-                    if not isinstance(state, NativeReplProviderState):
-                        self._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            "pipy: /model is unavailable for this REPL provider state.",
-                        )
-                    elif argument:
-                        _ok, message = apply_model_selection(argument)
-                        self._emit_diagnostic(terminal_ui, error_stream, message)
-                    elif terminal_ui is not None:
-                        ui_options, selections = self._model_selector_rows(state)
-                        current = state.current_selection()
-                        current_index = next(
-                            (
-                                index
-                                for index, selection in enumerate(selections)
-                                if selection.provider_name == current.provider_name
-                                and selection.model_id == current.model_id
-                            ),
-                            0,
-                        )
-                        chosen = terminal_ui.run_model_selector(
-                            ui_options, current_index=current_index
-                        )
-                        if chosen is not None:
-                            _ok, message = apply_model_selection(
-                                selections[chosen].reference
-                            )
-                            terminal_ui.add_notice(message)
-                    else:
-                        for overlay_line in self._settings_overlay_lines(
-                            settings,
-                            provider=coding_state.provider,
-                        ):
-                            print(overlay_line, file=error_stream)
-                    refresh_legacy_footer_with_usage()
-                    continue
-                if command_text == "/scoped-models" or command_text.startswith(
-                    "/scoped-models "
-                ):
-                    # Local-only: view/set/clear the enabledModels patterns that
-                    # constrain the model cycle, or cycle (next/prev) over the scoped
-                    # set (or full available catalog when empty). Cycling rebinds the
-                    # live provider through the same select_model boundary as /model;
-                    # no command here runs a provider turn or a tool call.
-                    argument = stripped[len("/scoped-models") :].strip()
-                    state = self.provider_state
-                    available_refs = (
-                        [
-                            o.selection.reference
-                            for o in state.model_options()
-                            if o.available
-                        ]
-                        if isinstance(state, NativeReplProviderState)
-                        else []
-                    )
-                    patterns = settings.get_enabled_models()
-                    scoped = filter_scoped_references(available_refs, patterns)
-                    if (
-                        not argument
-                        and terminal_ui is not None
-                        and isinstance(state, NativeReplProviderState)
-                        and available_refs
-                    ):
-                        # Interactive multi-select overlay defining the Ctrl+P cycle
-                        # scope (saved back as the enabledModels patterns).
-                        self._open_scoped_models_overlay(
-                            terminal_ui, state=state, settings=settings
-                        )
-                    elif not argument:
-                        pattern_text = (
-                            ", ".join(patterns) if patterns else "(none — full catalog)"
-                        )
-                        cycle_text = ", ".join(scoped) if scoped else "(none available)"
-                        for line in (
-                            "pipy: scoped models:",
-                            f"  patterns: {pattern_text}",
-                            f"  cycle set: {cycle_text}",
-                        ):
-                            self._emit_diagnostic(terminal_ui, error_stream, line)
-                    elif argument == "clear":
-                        try:
-                            settings.set_enabled_models([])
-                            msg = "pipy: scoped models cleared (cycle uses the full catalog)."
-                        except RuntimeError as exc:
-                            msg = f"pipy: could not update scoped models: {exc}"
-                        self._emit_diagnostic(terminal_ui, error_stream, msg)
-                    elif argument in {"next", "prev"}:
-                        current_ref = (
-                            state.current_selection().reference
-                            if isinstance(state, NativeReplProviderState)
-                            else ""
-                        )
-                        cycle_target = next_reference(
-                            scoped, current_ref, forward=argument == "next"
-                        )
-                        if cycle_target is None:
-                            self._emit_diagnostic(
-                                terminal_ui,
-                                error_stream,
-                                "pipy: no models available to cycle.",
-                            )
-                        else:
-                            _ok, message = apply_model_selection(cycle_target)
-                            self._emit_diagnostic(terminal_ui, error_stream, message)
-                    else:
-                        new_patterns = argument.split()
-                        try:
-                            settings.set_enabled_models(new_patterns)
-                            msg = "pipy: scoped models set: " + ", ".join(new_patterns)
-                        except RuntimeError as exc:
-                            msg = f"pipy: could not update scoped models: {exc}"
-                        self._emit_diagnostic(terminal_ui, error_stream, msg)
-                    refresh_legacy_footer_with_usage()
-                    continue
-                if command_text == "/login" or command_text.startswith("/login "):
-                    # Auth-only command: no provider turn, no tool call. Runs the
-                    # OAuth login through the provider-state boundary, refreshes
-                    # model-option availability, and clears conversation context.
-                    argument = stripped[len("/login") :].strip()
-                    message = apply_auth_change("login", argument)
-                    self._emit_diagnostic(terminal_ui, error_stream, message)
-                    refresh_legacy_footer_with_usage()
-                    continue
-                if command_text == "/logout" or command_text.startswith("/logout "):
-                    # Auth-only command: no provider turn, no tool call. Removes the
-                    # stored OAuth credentials, resets the selection to the local
-                    # default, refreshes availability, and clears context.
-                    argument = stripped[len("/logout") :].strip()
-                    message = apply_auth_change("logout", argument)
-                    self._emit_diagnostic(terminal_ui, error_stream, message)
-                    refresh_legacy_footer_with_usage()
                     continue
                 # Resource dispatch (skills, prompt templates, custom commands)
                 # runs through the same local-command boundary as the built-ins,

@@ -467,6 +467,14 @@ final override of `enabledModels` for the session (CLI wins over the settings
 file), constraining the scoped set / Ctrl+P cycle; an optional per-pattern
 `:level` suffix is parsed but not yet applied as an initial preference.
 
+Architecture ownership note (2026-07-20): `/scoped-models` classification now
+uses the exact typed coding-command outcome kernel and its usage-aware footer
+policy. The product composition layer still resolves available references,
+opens the selector, calls `SettingsManager.set_enabled_models`, handles
+write-error diagnostics, cycles through the shared model-selection adapter, and
+renders the footer. The ownership extraction does not change settings schema,
+precedence, persistence, or model-cycle behavior.
+
 ## Message Delivery and Transport
 
 - `steeringMode` (`all` | `one-at-a-time`): how queued steering messages are

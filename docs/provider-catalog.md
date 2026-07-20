@@ -934,6 +934,15 @@ Pipy target:
 - `NativeModelOption` carries enough capability metadata (context window,
   reasoning, image input) to render Pi-equivalent rows.
 
+Architecture ownership note (2026-07-20): the local `/model`,
+`/scoped-models`, `/login`, and `/logout` grammar now enters the product through
+exact typed outcomes in `native.coding.commands`, including a usage-aware footer
+policy and full-content control argument. Catalog resolution, availability,
+OAuth/auth stores, provider construction, scoped settings, selector UI, live
+provider/usage rebinding, and diagnostics remain in their existing product
+owners. This extraction changes no catalog/auth behavior and adds no credential
+or command-content archive projection.
+
 ## `--models` Scoped-Model Cycling
 
 Pi's `--models <patterns>` takes a comma-separated list of patterns (globs and

@@ -25,12 +25,17 @@ class CodingCommandAction(StrEnum):
     SHOW_SESSION_STATUS = "show_session_status"
     COMPACT = "compact"
     SESSION_NAME = "session_name"
+    MODEL = "model"
+    SCOPED_MODELS = "scoped_models"
+    LOGIN = "login"
+    LOGOUT = "logout"
 
 
 class CodingCommandFooterPolicy(StrEnum):
     """Closed footer policy applied after a handled continuing command."""
 
     STANDARD = "standard"
+    USAGE_AWARE = "usage_aware"
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +77,20 @@ def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
             CodingCommandAction.SESSION_NAME,
             ProductContent(value[len("/name") :].strip()),
         )
+    for command, action in (
+        ("/model", CodingCommandAction.MODEL),
+        ("/scoped-models", CodingCommandAction.SCOPED_MODELS),
+        ("/login", CodingCommandAction.LOGIN),
+        ("/logout", CodingCommandAction.LOGOUT),
+    ):
+        if value == command or (
+            value == value.strip() and value.startswith(f"{command} ")
+        ):
+            return _continue_outcome(
+                action,
+                ProductContent(value[len(command) :].strip()),
+                footer_policy=CodingCommandFooterPolicy.USAGE_AWARE,
+            )
     return CodingCommandOutcome(CodingCommandOutcomeKind.UNHANDLED)
 
 
@@ -99,13 +118,28 @@ def require_exact_coding_command_outcome(outcome: object) -> None:
                 "outcome.argument must be an exact ProductContent or None"
             ) from exc
     if outcome.kind is CodingCommandOutcomeKind.CONTINUE:
-        if outcome.footer_policy is not CodingCommandFooterPolicy.STANDARD:
-            raise ValueError("CONTINUE outcomes require the STANDARD footer policy")
-        if outcome.action is CodingCommandAction.SESSION_NAME:
+        usage_aware_actions = {
+            CodingCommandAction.MODEL,
+            CodingCommandAction.SCOPED_MODELS,
+            CodingCommandAction.LOGIN,
+            CodingCommandAction.LOGOUT,
+        }
+        expected_footer_policy = (
+            CodingCommandFooterPolicy.USAGE_AWARE
+            if outcome.action in usage_aware_actions
+            else CodingCommandFooterPolicy.STANDARD
+        )
+        if outcome.footer_policy is not expected_footer_policy:
+            raise ValueError(
+                f"{outcome.action or 'actionless'} CONTINUE outcomes require the "
+                f"{expected_footer_policy.name} footer policy"
+            )
+        argument_actions = usage_aware_actions | {CodingCommandAction.SESSION_NAME}
+        if outcome.action in argument_actions:
             if outcome.argument is None:
-                raise ValueError("SESSION_NAME outcomes require an argument")
+                raise ValueError(f"{outcome.action} outcomes require an argument")
         elif outcome.argument is not None:
-            raise ValueError("only SESSION_NAME outcomes may carry an argument")
+            raise ValueError("only argument actions may carry an argument")
         return
     if outcome.action is not None:
         raise ValueError("only CONTINUE outcomes may carry an action")
@@ -118,11 +152,13 @@ def require_exact_coding_command_outcome(outcome: object) -> None:
 def _continue_outcome(
     action: CodingCommandAction | None = None,
     argument: ProductContent | None = None,
+    *,
+    footer_policy: CodingCommandFooterPolicy = CodingCommandFooterPolicy.STANDARD,
 ) -> CodingCommandOutcome:
     return CodingCommandOutcome(
         CodingCommandOutcomeKind.CONTINUE,
         action,
-        CodingCommandFooterPolicy.STANDARD,
+        footer_policy,
         argument,
     )
 

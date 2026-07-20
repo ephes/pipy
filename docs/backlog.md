@@ -1872,9 +1872,32 @@ The old `/compact` and `/name` branches are deleted. Non-empty classified queued
 forms still bypass local effects, and neither name/compaction content nor
 dropped transcript bodies enter the metadata workflow archive.
 
-The remaining Phase 3.1d order is provider/auth/scoped models, product-session
-navigation, external/UI effects, reload, then resource/extension precedence
-closure. Phase 3.2 still owns command names, aliases, descriptions,
+### Typed Provider-Control Commands — SHIPPED (2026-07-20)
+
+Phase 3.1d.2b adds exact typed `MODEL`, `SCOPED_MODELS`, `LOGIN`, and `LOGOUT`
+actions to `native.coding.commands`. Bare and literal-space argument forms carry
+an exact full-content control argument, and a second closed footer policy
+preserves the usage-aware footer used by all four command families. Direct
+classification stays strict about already-stripped input; local composition
+continues to own outer trimming and model hotkey translation.
+
+The product interpreter reuses the existing selector, catalog/provider state,
+scoped settings, OAuth/auth store, provider reconstruction, fresh usage
+accumulator, external-I/O suspension, diagnostic, and footer adapters. The four
+late monolith branches are deleted, while selector cancellation, unavailable or
+non-tool-capable refusal, scoped persistence failures, auth failure rebinding,
+queued/RPC provider delivery, and credential privacy retain their current
+behavior and order.
+
+This extraction explicitly characterizes, rather than fixes, the current lack
+of native-tree `model_change` writes and extension `model_select` hook dispatch
+for selection/cycling. Those behavior corrections require dedicated persistence,
+extension, resume, and TUI coverage; catalog refresh and auth diagnostic cleanup
+also remain outside this ownership cut.
+
+The remaining Phase 3.1d order is product-session navigation, external/UI
+effects, reload, then resource/extension precedence closure. Phase 3.2 still
+owns command names, aliases, descriptions,
 availability, help, completion, menus, and the final declarative registry.
 
 **Deferred compatibility correction — model-change native-tree entries:** the
@@ -1884,6 +1907,14 @@ Phase 3.1d must characterize and preserve that pre-existing behavior while
 extracting command ownership. Correct it only in a dedicated behavior slice
 with native-session JSON/reload/resume, provider-state, extension, and TUI
 compatibility coverage; do not smuggle it into a command-family refactor.
+
+**Next green slice — repair the settings resource-enablement fixture
+(test-only):** `scripts/parity_checks/settings_config_conformance.py` check 13
+predates fail-closed project-trust discovery, so its resource fixture must
+explicitly opt into trusted workspace defaults. The same failure reproduces on
+detached clean `f6907f3`, while scoped-model check 9 passes. Land this fixture
+repair immediately after Phase 3.1d.2b as a dedicated test-only slice; it is not
+a permanent conformance waiver and requires no production behavior change.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

@@ -1803,6 +1803,29 @@ and `/name ...` content bypasses these local actions. Session names, compaction
 summaries, and dropped transcript content stay in the private product session;
 the workflow archive retains only its existing allowlisted aggregate counters.
 
+Slice 3.1d.2b adds exact model, scoped-model, login, and logout actions. Every
+action carries an exact `ProductContent` argument, including an empty value for
+bare selector/status/default-provider behavior. Their closed `USAGE_AWARE`
+footer policy preserves the existing usage snapshot refresh; earlier actions
+retain `STANDARD`. The classifier accepts only an already-stripped bare name or
+literal-space argument form, and the product layer retains outer stripping plus
+the model selector/cycle hotkey translations.
+
+The interpreter calls the existing provider-selection, selector, scoped
+settings, auth, provider-reconstruction, pricing, live-state rebind, diagnostic,
+and footer adapters in their characterized order. It does not move credentials,
+OAuth prompts, settings writes, provider construction, or UI effects into the
+headless kernel. Auth attempts that ordinarily fail still rebuild the current
+provider/usage binding before their diagnostic; cancellation/process
+termination still propagates first. Non-empty queued/RPC command-shaped content
+continues to bypass local interpretation.
+
+The extraction deletes the four superseded late branches but intentionally
+adds neither a native-tree `model_change` write nor an extension `model_select`
+dispatch, matching the characterized current path. It also adds no catalog
+refresh or auth-message correction. Those are separate behavior changes, not
+typed command ownership.
+
 Command/outcome values are full-content product-control data. They expose no
 serializer, SDK shape, persistence projection, or workflow-archive adapter.
 Exact direct-import allowlists plus recursive, fresh-process, and no-eager-

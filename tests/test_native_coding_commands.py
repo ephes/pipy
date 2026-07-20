@@ -83,6 +83,58 @@ def test_name_command_returns_exact_stripped_product_argument(
 
 
 @pytest.mark.parametrize(
+    ("command", "action", "expected_argument"),
+    [
+        ("/model", CodingCommandAction.MODEL, ""),
+        ("/model openai/gpt-5", CodingCommandAction.MODEL, "openai/gpt-5"),
+        (
+            "/model   openai/model  label",
+            CodingCommandAction.MODEL,
+            "openai/model  label",
+        ),
+        ("/scoped-models", CodingCommandAction.SCOPED_MODELS, ""),
+        (
+            "/scoped-models openai/*  anthropic/*",
+            CodingCommandAction.SCOPED_MODELS,
+            "openai/*  anthropic/*",
+        ),
+        ("/login", CodingCommandAction.LOGIN, ""),
+        ("/login openai-codex", CodingCommandAction.LOGIN, "openai-codex"),
+        ("/logout", CodingCommandAction.LOGOUT, ""),
+        ("/logout openai-codex", CodingCommandAction.LOGOUT, "openai-codex"),
+    ],
+)
+def test_usage_aware_commands_return_exact_stripped_product_arguments(
+    command: str,
+    action: CodingCommandAction,
+    expected_argument: str,
+) -> None:
+    outcome = classify_coding_command(ProductContent(command))
+
+    assert outcome == CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        action,
+        CodingCommandFooterPolicy.USAGE_AWARE,
+        ProductContent(expected_argument),
+    )
+    assert type(outcome.argument) is ProductContent
+
+
+@pytest.mark.parametrize(
+    "command", ["/model x", "/scoped-models x", "/login x", "/logout x"]
+)
+def test_usage_aware_classification_returns_fresh_deterministic_outcomes(
+    command: str,
+) -> None:
+    first = classify_coding_command(ProductContent(command))
+    second = classify_coding_command(ProductContent(command))
+
+    assert first == second
+    assert first is not second
+    assert first.argument is not second.argument
+
+
+@pytest.mark.parametrize(
     "value",
     [
         " ",
@@ -101,7 +153,26 @@ def test_name_command_returns_exact_stripped_product_argument(
         "/names",
         "/name:value",
         "/unknown",
-        "/model gpt",
+        "/model ",
+        "/model gpt ",
+        "/model\tgpt",
+        "/models gpt",
+        "/MODEL gpt",
+        "/scoped-models ",
+        "/scoped-models next ",
+        "/scoped-models\tnext",
+        "/scoped-models-next",
+        "/SCOPED-MODELS next",
+        "/login ",
+        "/login openai ",
+        "/login\topenai",
+        "/logins openai",
+        "/LOGIN openai",
+        "/logout ",
+        "/logout openai ",
+        "/logout\topenai",
+        "/logouts openai",
+        "/LOGOUT openai",
         "/extension:command",
         "!pwd",
         "ctrl-x",
@@ -195,7 +266,7 @@ def test_validator_rejects_corrupted_non_continuing_outcomes(
         require_exact_coding_command_outcome(outcome)
 
 
-def test_validator_rejects_continue_without_standard_footer() -> None:
+def test_validator_rejects_standard_continue_without_standard_footer() -> None:
     outcome = CodingCommandOutcome(
         CodingCommandOutcomeKind.CONTINUE,
         footer_policy=CodingCommandFooterPolicy.STANDARD,
@@ -209,6 +280,56 @@ def test_validator_rejects_continue_without_standard_footer() -> None:
 @pytest.mark.parametrize(
     "action",
     [
+        CodingCommandAction.MODEL,
+        CodingCommandAction.SCOPED_MODELS,
+        CodingCommandAction.LOGIN,
+        CodingCommandAction.LOGOUT,
+    ],
+)
+def test_usage_aware_actions_require_the_usage_aware_footer(
+    action: CodingCommandAction,
+) -> None:
+    with pytest.raises(ValueError, match="require the USAGE_AWARE footer"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            action,
+            CodingCommandFooterPolicy.STANDARD,
+            ProductContent("value"),
+        )
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        None,
+        CodingCommandAction.SHOW_HOTKEYS,
+        CodingCommandAction.SHOW_CHANGELOG,
+        CodingCommandAction.COPY_LAST_ANSWER,
+        CodingCommandAction.SHOW_SESSION_STATUS,
+        CodingCommandAction.COMPACT,
+        CodingCommandAction.SESSION_NAME,
+    ],
+)
+def test_standard_actions_reject_the_usage_aware_footer(
+    action: CodingCommandAction | None,
+) -> None:
+    argument = (
+        ProductContent("session")
+        if action is CodingCommandAction.SESSION_NAME
+        else None
+    )
+    with pytest.raises(ValueError, match="require the STANDARD footer"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            action,
+            CodingCommandFooterPolicy.USAGE_AWARE,
+            argument,
+        )
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
         None,
         CodingCommandAction.SHOW_HOTKEYS,
         CodingCommandAction.SHOW_CHANGELOG,
@@ -217,10 +338,10 @@ def test_validator_rejects_continue_without_standard_footer() -> None:
         CodingCommandAction.COMPACT,
     ],
 )
-def test_only_session_name_action_may_carry_an_argument(
+def test_only_argument_actions_may_carry_an_argument(
     action: CodingCommandAction | None,
 ) -> None:
-    with pytest.raises(ValueError, match="only SESSION_NAME"):
+    with pytest.raises(ValueError, match="only argument actions"):
         CodingCommandOutcome(
             CodingCommandOutcomeKind.CONTINUE,
             action,
@@ -236,6 +357,35 @@ def test_session_name_action_requires_an_argument_even_for_status_read() -> None
             CodingCommandAction.SESSION_NAME,
             CodingCommandFooterPolicy.STANDARD,
         )
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        CodingCommandAction.MODEL,
+        CodingCommandAction.SCOPED_MODELS,
+        CodingCommandAction.LOGIN,
+        CodingCommandAction.LOGOUT,
+    ],
+)
+def test_usage_aware_argument_actions_require_an_argument_even_for_status_read(
+    action: CodingCommandAction,
+) -> None:
+    with pytest.raises(ValueError, match="require an argument"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            action,
+            CodingCommandFooterPolicy.USAGE_AWARE,
+        )
+
+
+def test_validator_rejects_deep_mutation_of_usage_aware_argument() -> None:
+    outcome = classify_coding_command(ProductContent("/model openai/model"))
+    assert outcome.argument is not None
+    object.__setattr__(outcome.argument, "value", cast(str, []))
+
+    with pytest.raises(TypeError, match="outcome.argument"):
+        require_exact_coding_command_outcome(outcome)
 
 
 def test_validator_rejects_mutated_or_subclassed_argument_content() -> None:

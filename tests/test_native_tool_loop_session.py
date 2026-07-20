@@ -65,7 +65,7 @@ from pipy_harness.native.tool_loop_session import (
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.session_resume import ResumeContext
-from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tui import (
     TURN_ABORTED,
@@ -1474,6 +1474,86 @@ def test_scoped_models_next_cycles_and_rebinds_without_provider_turn(
     assert seen == []  # cycling ran no provider turn
 
 
+def test_scoped_models_write_failure_preserves_settings_and_usage_footer_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pipy_harness.native.settings import SettingsManager
+
+    settings_path = tmp_path / "cfg" / "settings.json"
+    settings_path.parent.mkdir()
+    settings_path.write_text(
+        json.dumps(
+            {
+                "enabledModels": ["openai/*"],
+                "lastChangelogVersion": "0.1.0",
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = SettingsManager(
+        global_path=settings_path,
+        project_path=tmp_path / ".pipy" / "settings.json",
+    )
+    trace: list[str] = []
+    footer_usage_flags: list[bool] = []
+    diagnostics: list[str] = []
+
+    def fail_write(models: list[str], *, scope: str = "global") -> None:
+        del scope
+        assert models == ["anthropic/*"]
+        trace.append("settings-write")
+        raise RuntimeError("disk is read-only")
+
+    def record_diagnostic(
+        terminal_ui: ToolLoopTerminalUi | None,
+        error_stream: TextIO,
+        message: str,
+    ) -> None:
+        del terminal_ui, error_stream
+        trace.append("diagnostic")
+        diagnostics.append(message)
+
+    def record_footer(
+        self: NativeToolReplSession,
+        error_stream: TextIO,
+        **kwargs: object,
+    ) -> None:
+        del self, error_stream
+        trace.append("footer")
+        footer_usage_flags.append(kwargs.get("usage_snapshot") is not None)
+
+    monkeypatch.setattr(manager, "set_enabled_models", fail_write)
+    monkeypatch.setattr(
+        NativeToolReplSession, "_emit_diagnostic", staticmethod(record_diagnostic)
+    )
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
+
+    result = NativeToolReplSession(
+        provider=provider, settings_manager=manager, tool_registry={}
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/scoped-models anthropic/*\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert trace == ["footer", "settings-write", "diagnostic", "footer"]
+    assert footer_usage_flags == [True, True]
+    assert diagnostics == [
+        "pipy: could not update scoped models: disk is read-only"
+    ]
+    assert manager.get_enabled_models() == ["openai/*"]
+    assert json.loads(settings_path.read_text(encoding="utf-8")) == {
+        "enabledModels": ["openai/*"],
+        "lastChangelogVersion": "0.1.0",
+    }
+    assert provider._call_counter[0] == 0
+    assert result.user_turn_count == 0
+    assert result.tool_invocation_count == 0
+
+
 def test_model_change_constructs_a_distinct_usage_accumulator(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1500,6 +1580,74 @@ def test_model_change_constructs_a_distinct_usage_accumulator(
     assert len(constructed) == 2
     assert constructed[0] is not constructed[1]
     assert seen == []
+
+
+def test_model_command_does_not_append_deferred_model_change_entry(
+    tmp_path: Path,
+) -> None:
+    seen: list[tuple[str, str]] = []
+    state = _scoped_models_state(tmp_path, seen)
+    tree = NativeSessionTree.create(tmp_path, session_dir=tmp_path / "sessions")
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        provider_state=state,
+        native_session=tree,
+    )
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/model anthropic/custom-sonnet\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert state.current_selection().reference == "anthropic/custom-sonnet"
+    assert not any(isinstance(entry, ModelChangeEntry) for entry in tree.get_branch())
+
+
+def test_model_command_does_not_dispatch_deferred_extension_model_select(
+    tmp_path: Path,
+) -> None:
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    proof = tmp_path / "model-select-events.txt"
+    (extension_dir / "model_select_observer.py").write_text(
+        "from pathlib import Path\n"
+        f"PROOF = Path({str(proof)!r})\n"
+        "def activate(api):\n"
+        "    @api.on('session_start')\n"
+        "    def started(event, ctx):\n"
+        "        del event, ctx\n"
+        "        PROOF.write_text('session-start\\n', encoding='utf-8')\n"
+        "    @api.on('model_select')\n"
+        "    def selected(event, ctx):\n"
+        "        del event, ctx\n"
+        "        with PROOF.open('a', encoding='utf-8') as fh:\n"
+        "            fh.write('model-select\\n')\n",
+        encoding="utf-8",
+    )
+    seen: list[tuple[str, str]] = []
+    state = _scoped_models_state(tmp_path, seen)
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
+
+    result = NativeToolReplSession(
+        provider=provider,
+        provider_state=state,
+        tool_registry={},
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/model anthropic/custom-sonnet\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    # session_start proves the extension activated and its hooks were live.
+    # The successful selection deliberately has no model_select dispatch yet.
+    assert proof.read_text(encoding="utf-8").splitlines() == ["session-start"]
+    assert state.current_selection().reference == "anthropic/custom-sonnet"
+    assert seen == []
+    assert provider._call_counter[0] == 0
 
 
 def test_state_owned_provider_survives_setup_failure_for_the_next_run(
@@ -2310,7 +2458,9 @@ def test_headless_command_kernel_classifies_supported_local_commands(
         workspace_root=tmp_path,
         input_stream=io.StringIO(
             "\n/hotkeys\n/changelog\n/copy\n/session\n"
-            "/compact\n/name\n/name classified value\n/exit\n"
+            "/compact\n/name\n/name classified value\n"
+            "/model openai/gpt-5.5\n/scoped-models clear\n"
+            "/login openai-codex\n/logout openai-codex\n/exit\n"
         ),
         output_stream=io.StringIO(),
         error_stream=error_stream,
@@ -2325,9 +2475,47 @@ def test_headless_command_kernel_classifies_supported_local_commands(
         "/compact",
         "/name",
         "/name classified value",
+        "/model openai/gpt-5.5",
+        "/scoped-models clear",
+        "/login openai-codex",
+        "/logout openai-codex",
         "/exit",
     ]
     assert "What's New" in error_stream.getvalue()
+    assert provider._call_counter[0] == 0
+
+
+def test_provider_control_commands_use_only_typed_interpreter_dispatch() -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    module_path = loop_module.__file__
+    assert module_path is not None
+    source = Path(module_path).read_text(encoding="utf-8")
+    for command in ("/model", "/scoped-models", "/login", "/logout"):
+        assert f'if command_text == "{command}"' not in source
+
+
+def test_provider_control_commands_apply_usage_aware_footer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    footer_kwargs: list[dict[str, object]] = []
+
+    def record_footer(*_args: object, **kwargs: object) -> None:
+        footer_kwargs.append(kwargs)
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
+
+    NativeToolReplSession(provider=provider).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/model\n/scoped-models\n/login\n/logout\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    # The initial frame and all four command refreshes carry the usage snapshot.
+    assert len(footer_kwargs) == 5
+    assert all(kwargs.get("usage_snapshot") is not None for kwargs in footer_kwargs)
     assert provider._call_counter[0] == 0
 
 

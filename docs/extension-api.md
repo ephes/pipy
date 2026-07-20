@@ -441,7 +441,7 @@ target vocabulary includes:
 | `before_provider_request` | Inspect or transform the live in-memory provider request before the provider call. | None or `ProviderRequestTransform` |
 | `before_provider_headers` | Mutate assembled live request headers once per provider request; strings add/override and `None` deletes before transport. **Shipped.** | None (return values ignored) |
 | `after_provider_response` | Observe safe provider response metadata after the provider call. | None |
-| `model_select` | Observe model/provider changes. | None |
+| `model_select` | **Target; not yet shipped.** Observe model/provider changes. | None |
 | `thinking_level_select` | Observe thinking/reasoning level changes where the selected provider supports them. | None |
 | `session_before_switch` | Observe or block a session switch before the current session is replaced. | None or `SessionDecision` |
 | `session_before_fork` | Observe or block a fork/branch operation before it starts. | None or `SessionDecision` |
