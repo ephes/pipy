@@ -78,23 +78,11 @@ from pipy_harness.native.agent import (
     AgentFailure,
     AgentMessage,
     AgentRunCompleted,
-    AgentRunOutcome,
-    AgentRunResult,
     AgentRunStarted,
     AgentToolCall,
     AgentToolResultMessage,
-    AgentTurnOutcome,
     AgentUserMessage,
-    FollowUpConsumed,
-    MessageCompleted,
-    MessageStarted,
     ProductContent,
-    ProviderFailed,
-    RunCancelled,
-    SteeringConsumed,
-    ToolCallCompleted,
-    ToolCallStarted,
-    ToolCallUpdated,
     TurnCompleted,
     TurnStarted,
 )
@@ -104,17 +92,17 @@ from pipy_harness.native.agent.history import (
     compact_agent_history,
     should_compact_agent_history,
 )
+from pipy_harness.native.agent.loop import (
+    AgentLoop,
+    AgentLoopRequestPreparation,
+    AgentLoopRunInput,
+)
 from pipy_harness.native.agent.loop_policy import (
     MAX_AGENT_TOOL_BUDGET,
     AgentProviderRequestPolicyInput,
-    AgentProviderStatusAction,
-    AgentToolPolicyAction,
+    AgentProviderStatusDecision,
     AgentToolPolicyDecision,
     AgentToolPolicyState,
-    apply_tool_policy_decision,
-    decide_tool_admission,
-    normalize_provider_status,
-    settle_tool_execution,
 )
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
@@ -122,13 +110,12 @@ from pipy_harness.native.agent.tools import (
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
     ProviderTurnInterruption,
+    ProviderTurnOutcome,
 )
 from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputKind,
-    AgentUsagePublication,
-    AppendAgentMessage,
 )
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
@@ -1339,6 +1326,137 @@ class _QueuedDeliverySource(Protocol):
     def take_delivery_kind(self) -> AgentQueuedInputKind | None: ...
 
 
+class _AgentLoopRequestSourceAdapter:
+    """Bind product request preparation to the canonical loop port."""
+
+    def __init__(
+        self,
+        prepare: Callable[
+            [
+                tuple[AgentMessage, ...],
+                AgentActiveInput,
+                int,
+                tuple[ToolDefinition, ...],
+            ],
+            AgentLoopRequestPreparation,
+        ],
+    ) -> None:
+        self._prepare = prepare
+
+    def prepare(
+        self,
+        history: tuple[AgentMessage, ...],
+        active_input: AgentActiveInput,
+        turn_index: int,
+        available_tools: tuple[ToolDefinition, ...],
+        /,
+    ) -> AgentLoopRequestPreparation:
+        return self._prepare(history, active_input, turn_index, available_tools)
+
+
+class _AgentLoopProviderTurnAdapter:
+    """Bind a freshly materialized product provider turn to the agent loop."""
+
+    def __init__(
+        self,
+        complete: Callable[
+            [AgentProviderRequestSnapshot, AgentEventSink, int],
+            ProviderTurnOutcome,
+        ],
+    ) -> None:
+        self._complete = complete
+
+    def complete(
+        self,
+        snapshot: AgentProviderRequestSnapshot,
+        event_sink: AgentEventSink,
+        turn_index: int,
+        /,
+    ) -> ProviderTurnOutcome:
+        return self._complete(snapshot, event_sink, turn_index)
+
+
+class _AgentLoopStatusPolicyAdapter:
+    """Apply product status callbacks at exact canonical loop seams."""
+
+    def __init__(
+        self,
+        *,
+        run_entered: Callable[[], None],
+        input_accepted: Callable[[], None],
+        provider_result_observed: Callable[[ProviderResult], None],
+        provider_cancellation_observed: Callable[[AgentCancellationReason], None],
+        tool_policy_state_changed: Callable[[AgentToolPolicyState], None],
+        provider_succeeded: Callable[
+            [AgentProviderStatusDecision, AgentToolPolicyState], None
+        ],
+        provider_failed: Callable[
+            [AgentProviderStatusDecision, AgentToolPolicyState], None
+        ],
+        no_tool_assistant: Callable[[AgentToolPolicyState], None],
+        malformed_fatal: Callable[[AgentFailure, AgentToolPolicyState], None],
+    ) -> None:
+        self._run_entered = run_entered
+        self._input_accepted = input_accepted
+        self._provider_result_observed = provider_result_observed
+        self._provider_cancellation_observed = provider_cancellation_observed
+        self._tool_policy_state_changed = tool_policy_state_changed
+        self._provider_succeeded = provider_succeeded
+        self._provider_failed = provider_failed
+        self._no_tool_assistant = no_tool_assistant
+        self._malformed_fatal = malformed_fatal
+
+    def run_entered(self) -> None:
+        self._run_entered()
+
+    def input_accepted(self) -> None:
+        self._input_accepted()
+
+    def provider_result_observed(self, result: ProviderResult, /) -> None:
+        self._provider_result_observed(result)
+
+    def provider_cancellation_observed(
+        self,
+        reason: AgentCancellationReason,
+        /,
+    ) -> None:
+        self._provider_cancellation_observed(reason)
+
+    def tool_policy_state_changed(
+        self,
+        state: AgentToolPolicyState,
+        /,
+    ) -> None:
+        self._tool_policy_state_changed(state)
+
+    def provider_succeeded(
+        self,
+        status: AgentProviderStatusDecision,
+        tool_state: AgentToolPolicyState,
+        /,
+    ) -> None:
+        self._provider_succeeded(status, tool_state)
+
+    def provider_failed(
+        self,
+        status: AgentProviderStatusDecision,
+        tool_state: AgentToolPolicyState,
+        /,
+    ) -> None:
+        self._provider_failed(status, tool_state)
+
+    def no_tool_assistant(self, tool_state: AgentToolPolicyState, /) -> None:
+        self._no_tool_assistant(tool_state)
+
+    def malformed_fatal(
+        self,
+        failure: AgentFailure,
+        tool_state: AgentToolPolicyState,
+        /,
+    ) -> None:
+        self._malformed_fatal(failure, tool_state)
+
+
 @dataclass
 class NativeToolReplSession:
     """Bounded model-driven tool loop, slice 4 skeleton.
@@ -1885,26 +2003,6 @@ class NativeToolReplSession:
 
         # `session_start` fires once the session is set up (reason "startup");
         # `session_shutdown` fires when the run ends.
-        # Stream long-running tool output (e.g. pytest dots) into the live UI as
-        # it is produced, matching Pi. Rebuilt here so the sink can target the
-        # renderer that was just selected. For automation it also emits Pi's
-        # ``tool_execution_update`` (bounded progress) for the executing call.
-        # The turn index and call are bound into a fresh context for each
-        # invocation so a late worker can never correlate output to a
-        # subsequent turn or call.
-        def _tool_output_sink(
-            call_turn_index: int,
-            call: AgentToolCall,
-            chunk: str,
-        ) -> None:
-            emitter.emit(
-                ToolCallUpdated(
-                    call_turn_index,
-                    call,
-                    ProductContent(chunk),
-                )
-            )
-
         started_at = datetime.now(UTC)
         # Native product session tree: the durable source of truth. When not
         # injected we run on an ephemeral in-memory tree (no file). The live
@@ -1959,6 +2057,7 @@ class NativeToolReplSession:
         )
 
         def append_agent_message(message: AgentMessage) -> object:
+            messages.append(message)
             return session_tree.append_message(message)
 
         def absorb_session_usage(sample: AgentProviderUsageSample) -> None:
@@ -4210,19 +4309,6 @@ class NativeToolReplSession:
                         + "\n"
                         + before_agent_result.append_system_prompt
                     )
-                agent_settled_pending = True
-                run_usage_accumulator = AgentUsageAccumulator(
-                    _pricing_for(effective_provider_name, effective_model_id)
-                )
-                emitter.emit(AgentRunStarted())
-                if delivery_kind is AgentQueuedInputKind.STEERING:
-                    emitter.emit(SteeringConsumed(ProductContent(user_input)))
-                elif delivery_kind is AgentQueuedInputKind.FOLLOW_UP:
-                    emitter.emit(FollowUpConsumed(ProductContent(user_input)))
-                extension_in_agent_turn = True
-                run_failure: AgentFailure | None = None
-                run_cancellation_reason: AgentCancellationReason | None = None
-                messages.append(turn_user_message)
                 active_input = AgentActiveInput(
                     turn_user_message,
                     tuple(
@@ -4231,32 +4317,23 @@ class NativeToolReplSession:
                     ),
                 )
                 extension_pending_next_turn_custom_messages.clear()
-                run_effect_sink.emit(AppendAgentMessage(turn_user_message))
-                user_turn_count += 1
-                # Persist the prompt for cross-session recall when the user has
-                # enabled it from /settings. record() is a no-op when disabled and
-                # writes only to the local prompt-history file — never the
-                # metadata-first session archive. Slash commands and resource
-                # invocations never reach here, so only genuine prompts are
-                # persisted. The literal prompt (not the @file-augmented variant)
-                # is recorded so history stays user text.
-                if resource_provider_text is None:
-                    prompt_history_store.record(user_input)
 
-                tool_policy_state = AgentToolPolicyState(
+                initial_tool_state = AgentToolPolicyState(
                     tool_budget=self.tool_budget,
                     tool_invocation_count=tool_invocation_count,
                     malformed_argument_count=malformed_argument_count,
                     consecutive_malformed_streak=consecutive_malformed_streak,
                     budget_exhausted_count=budget_exhausted_count,
                 )
-                inner_iteration_cap = self.tool_budget + 2
-                inner_iterations = 0
 
-                while inner_iterations < inner_iteration_cap:
-                    inner_iterations += 1
-                    turn_index = inner_iterations - 1
-                    available_tools = tool_capabilities.definitions()
+                def _prepare_loop_request(
+                    history: tuple[AgentMessage, ...],
+                    loop_active_input: AgentActiveInput,
+                    turn_index: int,
+                    available_tools: tuple[ToolDefinition, ...],
+                ) -> AgentLoopRequestPreparation:
+                    nonlocal messages
+                    messages = list(history)
                     # Automatic compaction: when the provider-visible history grows
                     # past the threshold, drop the oldest user-turn groups before
                     # building the next request. The cut is at a user-message
@@ -4273,7 +4350,7 @@ class NativeToolReplSession:
                     ):
                         notice = apply_compaction("auto")
                         self._emit_diagnostic(terminal_ui, error_stream, notice)
-                    provider_request_snapshot = provider_request_policy.prepare(
+                    snapshot = provider_request_policy.prepare(
                         AgentProviderRequestPolicyInput(
                             baseline=ProviderRequest(
                                 system_prompt=(
@@ -4283,7 +4360,7 @@ class NativeToolReplSession:
                                 provider_name=effective_provider_name,
                                 model_id=effective_model_id,
                                 cwd=cwd,
-                                messages=active_input.request_messages(messages),
+                                messages=loop_active_input.request_messages(messages),
                                 available_tools=available_tools,
                                 # Image attachments belong to the current user
                                 # message, so they ride only the first provider
@@ -4291,33 +4368,30 @@ class NativeToolReplSession:
                                 # append tool results (also user-role), and
                                 # re-sending would mis-attach the image.
                                 attachments=(
-                                    turn_attachments if inner_iterations == 1 else ()
+                                    turn_attachments if turn_index == 0 else ()
                                 ),
                                 provider_header_callback=(
                                     _active_provider_header_callback()
                                 ),
                             ),
-                            active_input=active_input,
+                            active_input=loop_active_input,
                         ),
-                    )
-                    provider_request = materialize_provider_request(
-                        provider_request_snapshot
                     )
                     renderer.refresh_tool_renderers(
                         {
                             name: extension_tool_renderers[name]
-                            for name in provider_request_snapshot.advertised_tool_names
+                            for name in snapshot.advertised_tool_names
                             if name in extension_tool_renderers
                         }
                     )
-                    emitter.emit(TurnStarted(turn_index))
-                    if inner_iterations == 1:
-                        # Pi emits the user message_start/message_end pair after
-                        # turn_start and before the assistant message begins.
-                        emitter.emit(MessageStarted(turn_index, turn_user_message))
-                        emitter.emit(MessageCompleted(turn_index, turn_user_message))
-                    empty_assistant = AgentAssistantMessage(ProductContent(""))
-                    emitter.emit(MessageStarted(turn_index, empty_assistant))
+                    return AgentLoopRequestPreparation(tuple(messages), snapshot)
+
+                def _complete_loop_provider_turn(
+                    snapshot: AgentProviderRequestSnapshot,
+                    event_sink: AgentEventSink,
+                    turn_index: int,
+                ) -> ProviderTurnOutcome:
+                    provider_request = materialize_provider_request(snapshot)
                     provider_waiter = None
                     provider_for_turn: ProviderPort = self.provider
                     if terminal_ui is not None:
@@ -4336,414 +4410,194 @@ class NativeToolReplSession:
                             self.abort_event,
                             provider_start_event,
                         )
-                    provider_completion = provider_turn_executor.complete(
+                    return provider_turn_executor.complete(
                         provider_for_turn,
                         provider_request,
-                        emitter,
+                        event_sink,
                         turn_index=turn_index,
                         waiter=provider_waiter,
                     )
-                    if provider_completion.result is None:
-                        # Aborted/steered turn (RPC abort, or TUI Escape/steer).
-                        # Close the assistant message and the turn so the automation
-                        # lifecycle stays balanced (message_start has a matching
-                        # message_end, turn_start a matching turn_end) before the
-                        # agent_end emitted after the inner loop.
-                        cancellation_reason = provider_completion.cancellation_reason
-                        assert cancellation_reason is not None
-                        run_cancellation_reason = cancellation_reason
-                        emitter.emit(RunCancelled(cancellation_reason))
-                        if terminal_ui is not None:
-                            if (
-                                cancellation_reason
-                                is AgentCancellationReason.OPERATOR_ABORT
-                            ):
-                                terminal_ui.restore_pending_to_editor()
-                            elif cancellation_reason in (
-                                AgentCancellationReason.STEERING,
-                                AgentCancellationReason.LOCAL_COMMAND,
-                            ):
-                                terminal_ui.promote_pending_to_drain()
-                        emitter.emit(MessageCompleted(turn_index, empty_assistant))
-                        emitter.emit(
-                            TurnCompleted(
-                                turn_index,
-                                AgentTurnOutcome.CANCELLED,
-                                empty_assistant,
-                            )
-                        )
-                        break
-                    provider_result = provider_completion.result
+
+                def _agent_loop_entered() -> None:
+                    nonlocal extension_in_agent_turn
+                    extension_in_agent_turn = True
+
+                def _agent_input_accepted() -> None:
+                    nonlocal user_turn_count
+                    user_turn_count += 1
+                    # Only genuine literal prompts enter the local recall store.
+                    if resource_provider_text is None:
+                        prompt_history_store.record(user_input)
+
+                def _provider_result_observed(result: ProviderResult) -> None:
+                    del result
                     if terminal_ui is not None and terminal_ui.has_pending_messages():
                         terminal_ui.promote_pending_to_drain()
-                    usage_sample = AgentProviderUsageSample.from_mapping(
-                        provider_result.usage
-                    )
-                    run_usage_accumulator.absorb(usage_sample)
-                    usage_publisher.publish(
-                        AgentUsagePublication(
-                            usage_sample,
-                            run_usage_accumulator.agent_usage(),
-                            run_usage_accumulator.last_total_tokens,
-                        )
-                    )
-                    provider_status = normalize_provider_status(
-                        provider_result,
-                        provider_name=effective_provider_name,
-                    )
-                    if provider_status.action is AgentProviderStatusAction.FAILED:
-                        run_failure = provider_status.failure
-                        assert run_failure is not None
-                        error_type = run_failure.error_type
-                        error_message = run_failure.message.value
-                        unresolved_provider_error_type = error_type
-                        unresolved_provider_error_message = error_message
-                        diagnostic_suffix = ""
-                        if provider_status.response_status is not None:
-                            diagnostic_suffix = (
-                                f" (response_status={provider_status.response_status})"
-                            )
-                        emitter.emit(
-                            ProviderFailed(
-                                run_failure,
-                                will_retry=provider_status.will_retry,
-                            )
-                        )
-                        # Surface the failure on the error stream but keep the
-                        # REPL alive: a transient HTTP error from a single
-                        # provider turn (e.g. a 503 the retry helper exhausted
-                        # against, or a brief network hiccup) should not tear
-                        # the whole session down. The user can ask again at
-                        # the next prompt.
-                        self._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            (
-                                "pipy: provider failure during turn: "
-                                f"{error_type}: {error_message}{diagnostic_suffix}"
-                            ),
-                        )
-                        if legacy_footer_enabled():
-                            self._print_footer(
-                                error_stream,
-                                cwd=cwd,
-                                provider_name=effective_provider_name,
-                                model_id=effective_model_id,
-                                user_turn_count=user_turn_count,
-                                tool_invocation_count=tool_invocation_count,
-                                usage_accumulator=usage_accumulator,
-                            )
-                        # Balance the assistant message_start emitted above and close
-                        # the turn so the automation stream stays well-formed even on
-                        # a failed provider turn.
-                        emitter.emit(MessageCompleted(turn_index, empty_assistant))
-                        emitter.emit(
-                            TurnCompleted(
-                                turn_index,
-                                AgentTurnOutcome.FAILED,
-                                empty_assistant,
-                            )
-                        )
-                        break
+
+                def _agent_provider_succeeded(
+                    status: AgentProviderStatusDecision,
+                    tool_state: AgentToolPolicyState,
+                ) -> None:
+                    nonlocal unresolved_provider_error_type
+                    nonlocal unresolved_provider_error_message
+                    del status
+                    del tool_state
                     unresolved_provider_error_type = None
                     unresolved_provider_error_message = None
-                    tool_calls = tuple(
-                        AgentToolCall(
-                            call.provider_correlation_id,
-                            call.tool_name,
-                            ProductContent(call.arguments_json),
-                        )
-                        for call in provider_result.tool_calls
+
+                def _agent_cancellation_observed(
+                    reason: AgentCancellationReason,
+                ) -> None:
+                    if terminal_ui is None:
+                        return
+                    if reason is AgentCancellationReason.OPERATOR_ABORT:
+                        terminal_ui.restore_pending_to_editor()
+                    elif reason in (
+                        AgentCancellationReason.STEERING,
+                        AgentCancellationReason.LOCAL_COMMAND,
+                    ):
+                        terminal_ui.promote_pending_to_drain()
+
+                def _agent_provider_failed(
+                    status: AgentProviderStatusDecision,
+                    tool_state: AgentToolPolicyState,
+                ) -> None:
+                    nonlocal unresolved_provider_error_type
+                    nonlocal unresolved_provider_error_message
+                    failure = status.failure
+                    assert failure is not None
+                    del tool_state
+                    unresolved_provider_error_type = failure.error_type
+                    unresolved_provider_error_message = failure.message.value
+                    suffix = (
+                        f" (response_status={status.response_status})"
+                        if status.response_status is not None
+                        else ""
                     )
-                    turn_assistant_message = AgentAssistantMessage(
-                        content=ProductContent(provider_result.final_text or ""),
-                        tool_calls=tool_calls,
+                    self._emit_diagnostic(
+                        terminal_ui,
+                        error_stream,
+                        "pipy: provider failure during turn: "
+                        f"{failure.error_type}: {failure.message.value}{suffix}",
                     )
-                    emitter.emit(MessageCompleted(turn_index, turn_assistant_message))
-                    turn_tool_results: list[AgentToolResultMessage] = []
-                    messages.append(turn_assistant_message)
-                    run_effect_sink.emit(AppendAgentMessage(turn_assistant_message))
-
-                    if not tool_calls:
-                        if legacy_footer_enabled():
-                            self._print_footer(
-                                error_stream,
-                                cwd=cwd,
-                                provider_name=effective_provider_name,
-                                model_id=effective_model_id,
-                                user_turn_count=user_turn_count,
-                                tool_invocation_count=tool_invocation_count,
-                                usage_accumulator=usage_accumulator,
-                            )
-                        emitter.emit(
-                            TurnCompleted(
-                                turn_index,
-                                AgentTurnOutcome.SUCCEEDED,
-                                turn_assistant_message,
-                                tuple(turn_tool_results),
-                            )
-                        )
-                        break
-
-                    fatal = False
-                    tool_interrupted_turn = False
-                    tool_interruption_reason: AgentCancellationReason | None = None
-                    for call_index, call in enumerate(tool_calls):
-                        admission = decide_tool_admission(
-                            tool_policy_state,
-                            provider_request_snapshot,
-                            call,
-                        )
-                        if admission.action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
-                            tool_policy_state = admission.state
-                            _sync_tool_policy_counters(tool_policy_state)
-                            budget_observation = tool_capabilities.error_result(
-                                call,
-                                f"tool budget exhausted (limit {self.tool_budget})",
-                            )
-                            emitter.emit(ToolCallStarted(turn_index, call))
-                            emitter.emit(
-                                ToolCallCompleted(
-                                    turn_index,
-                                    budget_observation,
-                                )
-                            )
-                            turn_tool_results.append(budget_observation)
-                            messages.append(budget_observation)
-                            run_effect_sink.emit(AppendAgentMessage(budget_observation))
-                            continue
-
-                        if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
-                            unauthorized_observation = tool_capabilities.error_result(
-                                call,
-                                f"unknown tool: {call.tool_name}",
-                            )
-                            emitter.emit(ToolCallStarted(turn_index, call))
-                            emitter.emit(
-                                ToolCallCompleted(
-                                    turn_index,
-                                    unauthorized_observation,
-                                )
-                            )
-                            turn_tool_results.append(unauthorized_observation)
-                            messages.append(unauthorized_observation)
-                            run_effect_sink.emit(
-                                AppendAgentMessage(unauthorized_observation)
-                            )
-                            tool_policy_state = admission.state
-                            _sync_tool_policy_counters(tool_policy_state)
-                            continue
-
-                        assert admission.action is AgentToolPolicyAction.EXECUTE
-                        emitter.emit(ToolCallStarted(turn_index, call))
-                        # Extension `tool_call` policy gate: a registered hook
-                        # may inspect the live tool name + parsed input and
-                        # return a ToolBlock to block the call. The raw input
-                        # is inspected live but never archived.
-                        policy_decision = agent_tool_policy.before_execute(call)
-                        policy_transition = apply_tool_policy_decision(
-                            admission.state,
-                            policy_decision,
-                        )
-                        if policy_transition.action is AgentToolPolicyAction.BLOCKED:
-                            assert policy_decision.blocked_reason is not None
-                            blocked_observation = tool_capabilities.error_result(
-                                call,
-                                "blocked by extension: "
-                                f"{policy_decision.blocked_reason.value}",
-                            )
-                            emitter.emit(
-                                ToolCallCompleted(
-                                    turn_index,
-                                    blocked_observation,
-                                )
-                            )
-                            turn_tool_results.append(blocked_observation)
-                            messages.append(blocked_observation)
-                            run_effect_sink.emit(
-                                AppendAgentMessage(blocked_observation)
-                            )
-                            # A blocked call still consumes the per-turn tool
-                            # budget, so a provider repeating a blocked call
-                            # cannot drive the loop unbounded. It is not a real
-                            # tool invocation, so `tool_invocation_count` is
-                            # left unchanged.
-                            tool_policy_state = policy_transition.state
-                            _sync_tool_policy_counters(tool_policy_state)
-                            continue
-                        assert policy_transition.action is AgentToolPolicyAction.EXECUTE
-                        tool_started_at = datetime.now(UTC)
-                        execution_outcome = tool_capabilities.execute(
-                            call,
-                            output_sink=partial(_tool_output_sink, turn_index, call),
-                            wait_for_interrupt=(
-                                None
-                                if terminal_ui is None
-                                else partial(_wait_for_tool_interrupt, terminal_ui)
-                            ),
-                        )
-                        observation = execution_outcome.result
-                        # tool_result hooks may transform the finalized,
-                        # bounded observation before the emitter, renderer,
-                        # model, and session tree see it. AgentToolResultMessage is
-                        # frozen, so a changed result is rebuilt.
-                        transformed_content = agent_tool_policy.transform_result(
-                            call,
-                            observation,
-                        )
-                        if transformed_content != observation.content:
-                            observation = AgentToolResultMessage(
-                                tool_request_id=observation.tool_request_id,
-                                tool_name=observation.tool_name,
-                                content=transformed_content,
-                                is_error=observation.is_error,
-                                provider_correlation_id=(
-                                    observation.provider_correlation_id
-                                ),
-                                added_tool_names=observation.added_tool_names,
-                            )
-                        tool_ended_at = datetime.now(UTC)
-                        tool_duration = (
-                            tool_ended_at - tool_started_at
-                        ).total_seconds()
-                        emitter.emit(
-                            ToolCallCompleted(
-                                turn_index,
-                                observation,
-                                duration_seconds=tool_duration,
-                            )
-                        )
-                        turn_tool_results.append(observation)
-                        settlement = settle_tool_execution(
-                            tool_policy_state,
-                            execution_outcome,
-                        )
-                        if settlement.action is AgentToolPolicyAction.INTERRUPTED:
-                            messages.append(observation)
-                            run_effect_sink.emit(AppendAgentMessage(observation))
-                            for skipped_call in tool_calls[call_index + 1 :]:
-                                skipped = tool_capabilities.error_result(
-                                    skipped_call,
-                                    "tool skipped because the turn was interrupted",
-                                )
-                                turn_tool_results.append(skipped)
-                                messages.append(skipped)
-                                run_effect_sink.emit(AppendAgentMessage(skipped))
-                            tool_interrupted_turn = True
-                            tool_interruption_reason = (
-                                AgentCancellationReason.LOCAL_COMMAND
-                                if settlement.interruption
-                                is ToolExecutionInterruption.LOCAL_COMMAND
-                                else AgentCancellationReason.OPERATOR_ABORT
-                            )
-                            break
-                        tool_policy_state = settlement.state
-                        _sync_tool_policy_counters(tool_policy_state)
-                        if settlement.action is AgentToolPolicyAction.MALFORMED:
-                            messages.append(observation)
-                            run_effect_sink.emit(AppendAgentMessage(observation))
-                            if settlement.failure is not None:
-                                self._emit_diagnostic(
-                                    terminal_ui,
-                                    error_stream,
-                                    "pipy: tool-loop ended after "
-                                    f"{settlement.failure.message.value}",
-                                )
-                                run_failure = settlement.failure
-                                fatal = True
-                                break
-                            continue
-
-                        assert settlement.action is AgentToolPolicyAction.SETTLED
-                        messages.append(observation)
-                        run_effect_sink.emit(AppendAgentMessage(observation))
-
-                    turn_outcome = AgentTurnOutcome.SUCCEEDED
-                    if tool_interrupted_turn:
-                        assert tool_interruption_reason is not None
-                        run_cancellation_reason = tool_interruption_reason
-                        emitter.emit(RunCancelled(tool_interruption_reason))
-                        turn_outcome = AgentTurnOutcome.CANCELLED
-                    elif fatal:
-                        assert run_failure is not None
-                        turn_outcome = AgentTurnOutcome.FAILED
-                    emitter.emit(
-                        TurnCompleted(
-                            turn_index,
-                            turn_outcome,
-                            turn_assistant_message,
-                            tuple(turn_tool_results),
-                        )
-                    )
-                    if tool_interrupted_turn:
-                        break
-                    if fatal:
-                        agent_run_messages = active_input.result_messages(messages)
-                        assert run_failure is not None
-                        emitter.emit(
-                            AgentRunCompleted(
-                                AgentRunResult(
-                                    AgentRunOutcome.FAILED,
-                                    agent_run_messages,
-                                    run_usage_accumulator.agent_usage(),
-                                    failure=run_failure,
-                                )
-                            )
-                        )
-                        extension_in_agent_turn = False
-                        ended_at = datetime.now(UTC)
-                        try:
-                            repl_input.close()
-                        except Exception:
-                            pass
-                        return NativeToolReplResult(
-                            status=HarnessStatus.FAILED,
-                            exit_code=1,
-                            started_at=started_at,
-                            ended_at=ended_at,
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
                             provider_name=effective_provider_name,
                             model_id=effective_model_id,
                             user_turn_count=user_turn_count,
                             tool_invocation_count=tool_invocation_count,
-                            resource_invocation_count=resource_invocation_count,
-                            malformed_argument_count=malformed_argument_count,
-                            consecutive_malformed_streak=consecutive_malformed_streak,
-                            budget_exhausted_count=budget_exhausted_count,
-                            file_reference_count=file_reference_count,
-                            file_reference_loaded_count=file_reference_loaded_count,
-                            file_reference_failed_count=file_reference_failed_count,
-                            compaction_count=compaction_count,
-                            compaction_dropped_group_count=compaction_dropped_group_count_total,
-                            error_type=run_failure.error_type,
-                            error_message=run_failure.message.value,
+                            usage_accumulator=usage_accumulator,
                         )
 
-                # The inner loop settled this accepted prompt's agent run (no tool
-                # calls left, the budget cap, or a provider failure). Close it on the
-                # automation stream before the outer loop reads the next prompt.
-                agent_run_messages = active_input.result_messages(messages)
-                if run_failure is not None:
-                    run_result = AgentRunResult(
-                        AgentRunOutcome.FAILED,
-                        agent_run_messages,
-                        run_usage_accumulator.agent_usage(),
-                        failure=run_failure,
+                def _agent_no_tool_assistant(
+                    tool_state: AgentToolPolicyState,
+                ) -> None:
+                    del tool_state
+                    if legacy_footer_enabled():
+                        self._print_footer(
+                            error_stream,
+                            cwd=cwd,
+                            provider_name=effective_provider_name,
+                            model_id=effective_model_id,
+                            user_turn_count=user_turn_count,
+                            tool_invocation_count=tool_invocation_count,
+                            usage_accumulator=usage_accumulator,
+                        )
+
+                def _agent_malformed_fatal(
+                    failure: AgentFailure,
+                    tool_state: AgentToolPolicyState,
+                ) -> None:
+                    del tool_state
+                    self._emit_diagnostic(
+                        terminal_ui,
+                        error_stream,
+                        f"pipy: tool-loop ended after {failure.message.value}",
                     )
-                elif run_cancellation_reason is not None:
-                    run_result = AgentRunResult(
-                        AgentRunOutcome.CANCELLED,
-                        agent_run_messages,
-                        run_usage_accumulator.agent_usage(),
-                        cancellation_reason=run_cancellation_reason,
+
+                status_policy = _AgentLoopStatusPolicyAdapter(
+                    run_entered=_agent_loop_entered,
+                    input_accepted=_agent_input_accepted,
+                    provider_result_observed=_provider_result_observed,
+                    provider_cancellation_observed=(_agent_cancellation_observed),
+                    tool_policy_state_changed=_sync_tool_policy_counters,
+                    provider_succeeded=_agent_provider_succeeded,
+                    provider_failed=_agent_provider_failed,
+                    no_tool_assistant=_agent_no_tool_assistant,
+                    malformed_fatal=_agent_malformed_fatal,
+                )
+                tool_waiter = (
+                    None
+                    if terminal_ui is None
+                    else partial(_wait_for_tool_interrupt, terminal_ui)
+                )
+                agent_loop = AgentLoop(
+                    request_source=_AgentLoopRequestSourceAdapter(
+                        _prepare_loop_request
+                    ),
+                    provider_turn=_AgentLoopProviderTurnAdapter(
+                        _complete_loop_provider_turn
+                    ),
+                    tool_capabilities=tool_capabilities,
+                    tool_policy=agent_tool_policy,
+                    event_sink=emitter,
+                    run_effect_sink=run_effect_sink,
+                    usage_publisher=usage_publisher,
+                    status_policy=status_policy,
+                    tool_waiter=tool_waiter,
+                )
+                agent_settled_pending = True
+                loop_outcome = agent_loop.run(
+                    AgentLoopRunInput(
+                        tuple(messages),
+                        active_input,
+                        initial_tool_state,
+                        pricing=_pricing_for(
+                            effective_provider_name,
+                            effective_model_id,
+                        ),
+                        delivery_kind=delivery_kind,
+                        delivery_content=(
+                            ProductContent(user_input)
+                            if delivery_kind is not None
+                            else None
+                        ),
                     )
-                else:
-                    run_result = AgentRunResult(
-                        AgentRunOutcome.SUCCEEDED,
-                        agent_run_messages,
-                        run_usage_accumulator.agent_usage(),
-                    )
-                emitter.emit(AgentRunCompleted(run_result))
+                )
+                messages = list(loop_outcome.final_history)
                 extension_in_agent_turn = False
+
+                if loop_outcome.terminate_session:
+                    run_failure = loop_outcome.result.failure
+                    assert run_failure is not None
+                    ended_at = datetime.now(UTC)
+                    try:
+                        repl_input.close()
+                    except Exception:
+                        pass
+                    return NativeToolReplResult(
+                        status=HarnessStatus.FAILED,
+                        exit_code=1,
+                        started_at=started_at,
+                        ended_at=ended_at,
+                        provider_name=effective_provider_name,
+                        model_id=effective_model_id,
+                        user_turn_count=user_turn_count,
+                        tool_invocation_count=tool_invocation_count,
+                        resource_invocation_count=resource_invocation_count,
+                        malformed_argument_count=malformed_argument_count,
+                        consecutive_malformed_streak=consecutive_malformed_streak,
+                        budget_exhausted_count=budget_exhausted_count,
+                        file_reference_count=file_reference_count,
+                        file_reference_loaded_count=file_reference_loaded_count,
+                        file_reference_failed_count=file_reference_failed_count,
+                        compaction_count=compaction_count,
+                        compaction_dropped_group_count=compaction_dropped_group_count_total,
+                        error_type=run_failure.error_type,
+                        error_message=run_failure.message.value,
+                    )
 
             try:
                 repl_input.close()

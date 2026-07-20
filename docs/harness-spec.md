@@ -1593,8 +1593,34 @@ Static, recursive, import-order, and fresh-process gates keep both the canonical
 policy and product adapters free of terminal/UI, session/persistence,
 extension-runtime, concrete provider/tool, automation, capture, and
 metadata-archive dependencies. Queue/RPC lifecycle, persistence, rendering,
-compaction, and the actual cycle remain in `NativeToolReplSession` for the
-ordered 2.2b.5c–d cuts.
+and compaction remain in `NativeToolReplSession`; the single-run cycle moves in
+2.2b.5c and the queued-input handoff closes in 2.2b.5d.
+
+Phase 2.2b.5c moves that actual single-run cycle into
+`native.agent.loop.AgentLoop`. The loop accepts pre-existing canonical history,
+the identity-safe active input, session-carried immutable tool-policy state,
+optional product-injected pricing, and an optional already selected queued-input
+classification. It synchronously owns `AgentRunStarted` through
+`AgentRunCompleted`, provider/tool iterations, assistant and tool-result
+assembly, normalized run usage, budget/authorization/preflight/postflight
+ordering, cancellation, malformed-fatal settlement, and the existing
+`tool_budget + 2` success fallthrough. Its outcome returns the canonical run
+result, final durable history projection, final tool counters, provider status,
+and the existing malformed-fatal-only product-termination signal.
+
+Request preparation and compaction, immutable-to-ordinary provider projection,
+fresh terminal/RPC provider wait binding, renderer refresh, diagnostics/footer,
+prompt history, durable writes, and counter synchronization remain callback-
+composed product responsibilities. Typed state callbacks preserve the historical
+budget/unauthorized/blocked/settled/malformed counter-update points and publish
+the final state before `AgentRunCompleted`; append effects update the live product
+message mirror before the durable session-tree append. `NativeToolReplSession.run()` now invokes
+the canonical loop instead of containing a second provider/tool cycle. The
+canonical module imports no terminal/UI, extension runtime, automation/archive,
+session/persistence, provider construction, concrete provider/tool, or product
+adapter, and it is not eagerly exported. Queue storage, priority, reservation,
+idle/settled lifecycle, and separate-run steering/follow-up selection remain at
+the serialized product boundary for 2.2b.5d.
 
 ### Canonical Agent Tool-Capability Port
 

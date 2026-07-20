@@ -220,6 +220,7 @@ def _capture_usage_construction(
 ]:
     """Spy on the product composition sites without replacing accumulator logic."""
 
+    import pipy_harness.native.agent.loop as agent_loop
     import pipy_harness.native.tool_loop_session as tool_loop_session
 
     constructed: list[AgentUsageAccumulator] = []
@@ -239,6 +240,7 @@ def _capture_usage_construction(
     monkeypatch.setattr(
         tool_loop_session, "AgentUsageAccumulator", _RecordingUsageAccumulator
     )
+    monkeypatch.setattr(agent_loop, "AgentUsageAccumulator", _RecordingUsageAccumulator)
     monkeypatch.setattr(tool_loop_session, "_pricing_for", record_pricing)
     return constructed, pricing_lookups
 
@@ -349,6 +351,97 @@ def _run_session(
         error_stream=error_stream,
     )
     return result, output_stream.getvalue(), error_stream.getvalue()
+
+
+def test_composition_keeps_callback_counters_and_rebinds_final_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pipy_harness.native.tool_loop_session as tool_loop_session
+    from pipy_harness.native.agent import (
+        AgentAssistantMessage,
+        AgentRunResult,
+        ProductContent,
+    )
+    from pipy_harness.native.agent.loop import (
+        AgentLoopOutcome,
+        AgentLoopRunInput,
+        AgentLoopStatusPolicy,
+    )
+    from pipy_harness.native.agent.loop_policy import AgentToolPolicyState
+    from pipy_harness.native.agent.ports import AgentEventSink
+    from pipy_harness.native.clipboard import ClipboardResult
+
+    callback_state = AgentToolPolicyState(
+        tool_budget=10,
+        invocations_this_turn=2,
+        tool_invocation_count=7,
+        malformed_argument_count=4,
+        consecutive_malformed_streak=2,
+        budget_exhausted_count=3,
+    )
+    distinct_outcome_state = AgentToolPolicyState(
+        tool_budget=10,
+        invocations_this_turn=1,
+        tool_invocation_count=71,
+        malformed_argument_count=41,
+        consecutive_malformed_streak=21,
+        budget_exhausted_count=31,
+    )
+
+    class _ComposedAgentLoop:
+        def __init__(self, **ports: object) -> None:
+            self._status = cast(AgentLoopStatusPolicy, ports["status_policy"])
+            self._events = cast(AgentEventSink, ports["event_sink"])
+
+        def run(self, run_input: AgentLoopRunInput) -> AgentLoopOutcome:
+            self._status.run_entered()
+            accepted = run_input.active_input.accepted_message
+            assistant = AgentAssistantMessage(ProductContent("rebound answer"))
+            final_history = (*run_input.history, accepted, assistant)
+            self._status.input_accepted()
+            self._status.tool_policy_state_changed(callback_state)
+            result = AgentRunResult(
+                AgentRunOutcome.SUCCEEDED,
+                final_history,
+                AgentUsage(),
+            )
+            self._events.emit(AgentRunCompleted(result))
+            return AgentLoopOutcome(
+                result,
+                final_history,
+                distinct_outcome_state,
+            )
+
+    copied: list[str] = []
+
+    def copy_answer(text: str, *, terminal_stream: TextIO) -> ClipboardResult:
+        del terminal_stream
+        copied.append(text)
+        return ClipboardResult(True, "test", len(text.encode()), "test clipboard")
+
+    monkeypatch.setattr(tool_loop_session, "AgentLoop", _ComposedAgentLoop)
+    result = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True),
+        clipboard_copy=copy_answer,
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("go\n/copy\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert result.user_turn_count == 1
+    assert result.tool_invocation_count == callback_state.tool_invocation_count
+    assert result.malformed_argument_count == callback_state.malformed_argument_count
+    assert (
+        result.consecutive_malformed_streak
+        == callback_state.consecutive_malformed_streak
+    )
+    assert result.budget_exhausted_count == callback_state.budget_exhausted_count
+    assert result.tool_invocation_count != distinct_outcome_state.tool_invocation_count
+    assert copied == ["rebound answer"]
 
 
 def test_canonical_usage_order_and_scope_cover_success_and_provider_failure(

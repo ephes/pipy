@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
-import importlib
 from pathlib import Path
 import re
 import subprocess
@@ -1570,11 +1569,6 @@ assert not unexpected, unexpected
     )
 
     assert completed.returncode == 0, completed.stderr
-
-
-def test_superseded_agent_loop_module_is_deleted() -> None:
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("pipy_harness.native.agent.loop")
 
 
 def test_isolated_agent_usage_import_stays_dependency_neutral() -> None:

@@ -1675,7 +1675,7 @@ The remaining ordered Phase 2.2 cuts are:
    the controller-owned queued-input handoff while preserving separate-run
    semantics and the serialized RPC boundary.
 
-Slices 2.2b.3–2.2b.5b are shipped; Slices 2.2b.5c–2.2b.5d remain pending.
+Slices 2.2b.3–2.2b.5c are shipped; Slice 2.2b.5d remains pending.
 Parallel tools,
 richer termination, async
 conversion, persistence relocation, UI/extension redesign, and provider catalog
@@ -1704,11 +1704,37 @@ provider-bound projection rematerializes ordinary JSON containers before any
 built-in or extension provider invocation while authorization retains the
 immutable snapshot.
 
-`NativeToolReplSession` still owns and contains the provider/tool cycle, queue
-storage and RPC settlement, diagnostics/rendering, compaction, and persistence.
-Slice 2.2b.5c moves the single-run cycle to `native.agent.loop`; 2.2b.5d closes
-the controller-owned separate-run queued-input handoff. Public formats,
+`NativeToolReplSession` still owns queue storage and RPC settlement,
+diagnostics/rendering, compaction, accepted-input preparation, and persistence.
+Slice 2.2b.5c now owns the single-run cycle in `native.agent.loop`; 2.2b.5d
+closes the controller-owned separate-run queued-input handoff. Public formats,
 extension callback order, persistence data, and archive privacy do not change.
+
+### Single-run headless AgentLoop — SHIPPED (2026-07-20)
+
+Phase 2.2b.5c moves one already accepted prompt's complete synchronous
+provider/tool cycle into `native.agent.loop.AgentLoop`. The canonical loop owns
+the run/turn/message/tool lifecycle, streamed assistant assembly, normalized
+usage, sequential tool scheduling, budget/authorization/extension-policy
+ordering, session-carried malformed state, cancellation, the existing
+`tool_budget + 2` fallthrough guard, and the typed final result/history/tool
+state. Budget exhaustion remains a normal error tool result; provider failures
+retain zero retry and do not terminate the REPL; only the existing third
+consecutive malformed call requests product-session termination.
+
+The product session now composes that loop through synchronous request,
+provider-turn, status, event/effect, usage, and tool-policy adapters. It retains
+compaction/summary injection, ordinary provider-request materialization, fresh
+terminal/RPC abort binding, renderer refresh, diagnostics/footer behavior,
+prompt history, durable writes, queue storage/priority/reservation, and RPC
+settlement. Typed state callbacks keep the product counter mirrors current at
+the historical per-transition points and before `AgentRunCompleted`; append
+effects update the live product message mirror before the durable write. Direct
+fake-port tests require no terminal, filesystem, concrete
+provider/tool, extension runtime, or product session, and static/recursive/
+fresh-process gates keep those dependencies out of the canonical layer. The old
+inline cycle and its session-local live-tool-output helper are deleted. Slice
+2.2b.5d remains the separate-run steering/follow-up handoff closure.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
