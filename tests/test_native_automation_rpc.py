@@ -594,15 +594,16 @@ def test_steering_queue_is_consumed_not_stale(client) -> None:
     assert state["data"]["pendingMessageCount"] == 0
 
 
+@pytest.mark.parametrize("queued_slash", ["/new", "/tree select 1"])
 def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    queued_slash: str,
 ) -> None:
     provider = _BlockingFirstAutomationProvider()
     shell_calls: list[str] = []
     taken: list[AgentQueuedInput] = []
     original_queued_input_port = loop_module.NativeAgentQueuedInputPort
-
     class RecordingQueuedInputPort:
         def __init__(self, take_next: Callable[[], AgentQueuedInput | None]) -> None:
             self._delegate = original_queued_input_port(take_next)
@@ -646,7 +647,7 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
             }
         )
         c.wait_for(lambda record: record.get("id") == "f")
-        c.send({"id": "s", "type": "steer", "message": "/new"})
+        c.send({"id": "s", "type": "steer", "message": queued_slash})
         c.wait_for(lambda record: record.get("id") == "s")
         provider.release()
 
@@ -658,7 +659,7 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
 
     assert [request.user_prompt for request in provider.requests] == [
         "ROOT",
-        "/new",
+        queued_slash,
         "!rpc-queued-shell",
     ]
     user_messages = [
@@ -667,10 +668,10 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
         if record.get("type") == "message_start"
         and record.get("message", {}).get("role") == "user"
     ]
-    assert user_messages == ["ROOT", "/new", "!rpc-queued-shell"]
+    assert user_messages == ["ROOT", queued_slash, "!rpc-queued-shell"]
     assert shell_calls == []
     assert taken == [
-        AgentQueuedInput(ProductContent("/new"), AgentQueuedInputKind.STEERING),
+        AgentQueuedInput(ProductContent(queued_slash), AgentQueuedInputKind.STEERING),
         AgentQueuedInput(
             ProductContent("!rpc-queued-shell"), AgentQueuedInputKind.FOLLOW_UP
         ),
@@ -684,7 +685,7 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
     assert classified_events == [
         AgentRunStarted(),
         AgentRunStarted(),
-        SteeringConsumed(ProductContent("/new")),
+        SteeringConsumed(ProductContent(queued_slash)),
         AgentRunStarted(),
         FollowUpConsumed(ProductContent("!rpc-queued-shell")),
     ]
@@ -692,7 +693,7 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
         message.content.value
         for message in c.tree.build_context().messages
         if isinstance(message, AgentUserMessage)
-    ] == ["ROOT", "/new", "!rpc-queued-shell"]
+    ] == ["ROOT", queued_slash, "!rpc-queued-shell"]
 
 
 @pytest.mark.parametrize("trailing_newlines", ["\n", "\n\n"])

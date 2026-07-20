@@ -1931,12 +1931,27 @@ persistent and ephemeral sessions, and exact fresh context on the next prompt.
 The slice adds no post-switch lifecycle or completed tree hook, registry
 metadata, write relocation, public format, or workflow-archive projection.
 
-**Next green slice — typed `/tree` command:** continue Phase 3.1d.3b with exact
-full-content tree arguments, mutating-form extension gates, selector/captured
-fallback behavior, filter/prefill transitions, branch-summary failure and
-cancellation, same-file leaf movement, queued/RPC bypass, and privacy coverage.
-Keep `/resume`, `/fork`, and `/clone` in their later ordered sub-slices, and do
-not pull Phase 3.2 registry metadata or Phase 3.3 write ownership forward.
+### Typed Session-Tree Command — SHIPPED (2026-07-20)
+
+Phase 3.1d.3b adds exact full-content `SESSION_TREE` outcomes for bare and
+literal-space `/tree` forms with the standard footer. Composition preserves the
+mutating-form `session_before_tree` gate, captured rendering and inline
+selector, run-local filter and next-iteration prefill, same-file leaf movement,
+label writes, optional branch summaries, history rebuild, extension-input
+clearing, diagnostics, and partial-state failure timing. The late branch is
+deleted; queued/RPC forms remain provider-visible.
+
+The extraction deliberately does not add the target completed `session_tree`
+hook, persist `treeFilterMode`, wire summary cancellation/usage/reserve settings,
+or correct empty custom-message selection. These are behavior changes, not
+typed-command ownership.
+
+**Next green slice — typed `/resume` command:** continue Phase 3.1d.3c with
+exact full-content resume arguments, picker cancel/current selection, captured
+list/named/rename/delete forms, switch-only extension gates, open→rebuild→
+extension-clear→custom-redraw ordering, failure cutoffs, queued/RPC bypass, and
+native-store/archive privacy. Keep `/fork` and `/clone` in the later navigation
+sub-slice; do not pull Phase 3.2 registry metadata or Phase 3.3 writes forward.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

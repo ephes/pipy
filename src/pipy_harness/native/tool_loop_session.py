@@ -3146,6 +3146,45 @@ class NativeToolReplSession:
                                     "pipy: started a new native session "
                                     f"({sanitize_label_text(session_tree.session_id[:8])})."
                                 )
+                        elif command_outcome.action is CodingCommandAction.SESSION_TREE:
+                            tree_argument = command_outcome.argument
+                            if type(tree_argument) is not ProductContent:
+                                raise TypeError(
+                                    "SESSION_TREE requires an exact ProductContent "
+                                    "argument"
+                                )
+                            argument = tree_argument.value
+                            tree_sub = (
+                                argument.split(maxsplit=1)[0].lower()
+                                if argument
+                                else ""
+                            )
+                            tree_may_change = (
+                                not argument and terminal_ui is not None
+                            ) or tree_sub in {"select", "label", "filter"}
+                            tree_allowed = (
+                                not tree_may_change
+                                or extension_session_allows(
+                                    extension_session_before_tree_hooks,
+                                    operation="tree",
+                                    target=argument or None,
+                                )
+                            )
+                            if tree_allowed:
+                                tree_outcome = self._handle_tree_command(
+                                    argument,
+                                    session_tree=session_tree,
+                                    terminal_ui=terminal_ui,
+                                    error_stream=error_stream,
+                                    repl_input=repl_input,
+                                    filter_mode=tree_filter_mode,
+                                    rebuild_messages=rebuild_messages_from_tree,
+                                    summarizer=summarize_branch,
+                                )
+                                if tree_outcome.filter_mode is not None:
+                                    tree_filter_mode = tree_outcome.filter_mode
+                                if tree_outcome.prefill is not None:
+                                    pending_prefill = tree_outcome.prefill
                         elif command_outcome.action in {
                             CodingCommandAction.MODEL,
                             CodingCommandAction.SCOPED_MODELS,
@@ -3801,36 +3840,6 @@ class NativeToolReplSession:
                             provider=coding_state.provider,
                         ):
                             print(overlay_line, file=error_stream)
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/tree" or command_text.startswith("/tree "):
-                    argument = stripped[len("/tree") :].strip()
-                    tree_sub = argument.split(maxsplit=1)[0].lower() if argument else ""
-                    tree_may_change = (
-                        not argument and terminal_ui is not None
-                    ) or tree_sub in {"select", "label", "filter"}
-                    if tree_may_change:
-                        if not extension_session_allows(
-                            extension_session_before_tree_hooks,
-                            operation="tree",
-                            target=argument or None,
-                        ):
-                            refresh_legacy_footer()
-                            continue
-                    outcome = self._handle_tree_command(
-                        argument,
-                        session_tree=session_tree,
-                        terminal_ui=terminal_ui,
-                        error_stream=error_stream,
-                        repl_input=repl_input,
-                        filter_mode=tree_filter_mode,
-                        rebuild_messages=rebuild_messages_from_tree,
-                        summarizer=summarize_branch,
-                    )
-                    if outcome.filter_mode is not None:
-                        tree_filter_mode = outcome.filter_mode
-                    if outcome.prefill is not None:
-                        pending_prefill = outcome.prefill
                     refresh_legacy_footer()
                     continue
                 if command_text == "/resume" or command_text.startswith("/resume "):

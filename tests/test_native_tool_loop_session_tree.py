@@ -110,6 +110,21 @@ def _run(
     return out.getvalue(), err.getvalue()
 
 
+def _write_tree_gate(cwd: Path, body: str, *, target: str) -> None:
+    extension = cwd / ".pipy" / "extensions" / "tree_gate.py"
+    extension.parent.mkdir(parents=True)
+    extension.write_text(
+        "from pipy_harness.extensions import SessionDecision\n"
+        "def activate(api):\n"
+        "    @api.on('session_before_tree')\n"
+        "    def gate(event, ctx):\n"
+        "        assert event.operation == 'tree'\n"
+        f"        assert event.target == {target!r}\n"
+        f"{body}",
+        encoding="utf-8",
+    )
+
+
 class _SessionGate(Protocol):
     def __call__(
         self,
@@ -304,6 +319,333 @@ def test_canonical_tree_branch_scenario(tmp_path: Path) -> None:
         assert "ALT" not in users
 
 
+def test_tree_outer_dispatch_gate_matrix_preserves_full_argument_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, persist=False)
+    trace: list[str] = []
+    original_gate = loop_module.dispatch_session_before_hooks
+    monkeypatch.setattr(
+        loop_module,
+        "dispatch_session_before_hooks",
+        _TracingSessionGate(trace, original_gate, include_details=True),
+    )
+
+    provider = _SeenProvider()
+    _run(
+        NativeToolReplSession(provider=provider, native_session=tree),
+        cwd,
+        "\n".join(
+            [
+                "/tree",
+                "/tree mystery alpha",
+                "/tree select   missing",
+                "/tree LABEL missing",
+                "/tree filter nonsense",
+                "/exit",
+                "",
+            ]
+        ),
+    )
+
+    assert trace == [
+        "hook:tree:select   missing",
+        "hook:tree:LABEL missing",
+        "hook:tree:filter nonsense",
+    ]
+    assert provider.requests == []
+
+
+def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, persist=False)
+    terminal_ui = ToolLoopTerminalUi(
+        input_stream=io.StringIO(),
+        terminal_stream=io.StringIO(),
+        cwd=cwd,
+    )
+    trace: list[str] = []
+    handled_arguments: list[str] = []
+    scripted = iter(("/tree", "/exit"))
+    original_gate = loop_module.dispatch_session_before_hooks
+
+    def build_terminal_ui(
+        self: NativeToolReplSession, **_kwargs: object
+    ) -> ToolLoopTerminalUi:
+        del self
+        return terminal_ui
+
+    def read_line(
+        self: ToolLoopTerminalUi, prompt_label: str, *, footer: object = None
+    ) -> str:
+        del self, prompt_label, footer
+        return next(scripted)
+
+    def handle_tree(
+        self: NativeToolReplSession, argument: str, **_kwargs: object
+    ) -> loop_module._TreeCommandOutcome:
+        del self
+        handled_arguments.append(argument)
+        return loop_module._TreeCommandOutcome()
+
+    monkeypatch.setattr(
+        loop_module,
+        "dispatch_session_before_hooks",
+        _TracingSessionGate(trace, original_gate, include_details=True),
+    )
+    monkeypatch.setattr(NativeToolReplSession, "_build_terminal_ui", build_terminal_ui)
+    monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
+    monkeypatch.setattr(NativeToolReplSession, "_handle_tree_command", handle_tree)
+
+    provider = _SeenProvider()
+    _run(NativeToolReplSession(provider=provider, native_session=tree), cwd, "")
+
+    assert trace == ["hook:tree:None"]
+    assert handled_arguments == [""]
+    assert provider.requests == []
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_reason"),
+    [
+        ("        return SessionDecision(allow=False, reason='stay')\n", "stay"),
+        ("        raise RuntimeError('private body')\n", "extension tree hook error"),
+    ],
+)
+def test_tree_gate_denial_or_error_cuts_off_mutation_with_standard_footer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    body: str,
+    expected_reason: str,
+) -> None:
+    cwd = _workspace(tmp_path)
+    _write_tree_gate(cwd, body, target="label 1 changed")
+    tree = NativeSessionTree.create(cwd, persist=False)
+    entry = tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
+    footer_calls: list[None] = []
+
+    def record_footer(*_args: object, **_kwargs: object) -> None:
+        footer_calls.append(None)
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    provider = _SeenProvider()
+    _out, err = _run(
+        NativeToolReplSession(provider=provider, native_session=tree),
+        cwd,
+        "/tree label 1 changed\n/exit\n",
+    )
+
+    assert f"tree blocked by extension: {expected_reason}" in err
+    assert tree.get_label(entry.id) is None
+    assert len(tree.get_entries()) == 1
+    assert footer_calls == [None, None]
+    assert provider.requests == []
+
+
+@pytest.mark.parametrize("fatal", [KeyboardInterrupt, SystemExit])
+def test_tree_gate_controlled_fatal_cuts_off_handler_and_footer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fatal: type[BaseException],
+) -> None:
+    cwd = _workspace(tmp_path)
+    _write_tree_gate(
+        cwd, f"        raise {fatal.__name__}()\n", target="label 1 changed"
+    )
+    tree = NativeSessionTree.create(cwd, persist=False)
+    entry = tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
+    footer_calls: list[None] = []
+
+    def record_footer(*_args: object, **_kwargs: object) -> None:
+        footer_calls.append(None)
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+
+    with pytest.raises(fatal):
+        _run(
+            NativeToolReplSession(provider=_SeenProvider(), native_session=tree),
+            cwd,
+            "/tree label 1 changed\n",
+        )
+
+    assert tree.get_label(entry.id) is None
+    assert len(tree.get_entries()) == 1
+    assert footer_calls == [None]
+
+
+def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, persist=False)
+    trace: list[str] = []
+    original_diag = NativeToolReplSession._emit_diagnostic
+
+    def handle_tree(
+        self: NativeToolReplSession,
+        argument: str,
+        *,
+        session_tree: NativeSessionTree,
+        terminal_ui: ToolLoopTerminalUi | None,
+        error_stream: TextIO,
+        repl_input: object,
+        filter_mode: str,
+        rebuild_messages: Callable[[], None],
+        summarizer: Callable[[list[AgentMessage], str | None], str | None]
+        | None = None,
+    ) -> loop_module._TreeCommandOutcome:
+        del self, session_tree, terminal_ui, error_stream, repl_input
+        del rebuild_messages, summarizer
+        trace.append(f"handler:{argument}:{filter_mode}")
+        if argument == "filter default":
+            return loop_module._TreeCommandOutcome(
+                prefill="RESTORED", filter_mode="all"
+            )
+        return loop_module._TreeCommandOutcome()
+
+    def diagnostic(ui: ToolLoopTerminalUi | None, stream: TextIO, message: str) -> None:
+        if "editor rehydrated" in message:
+            trace.append("prefill")
+        original_diag(ui, stream, message)
+
+    def record_footer(*_args: object, **_kwargs: object) -> None:
+        trace.append("footer")
+
+    monkeypatch.setattr(NativeToolReplSession, "_handle_tree_command", handle_tree)
+    monkeypatch.setattr(
+        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+    )
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+
+    _out, err = _run(
+        NativeToolReplSession(provider=_SeenProvider(), native_session=tree),
+        cwd,
+        "/tree filter default\n/tree mystery\n/exit\n",
+    )
+
+    assert trace == [
+        "footer",
+        "handler:filter default:default",
+        "footer",
+        "prefill",
+        "handler:mystery:all",
+        "footer",
+    ]
+    assert "  > RESTORED" in err
+
+
+def test_tree_noop_selection_still_rebuilds_then_clears_extension_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, persist=False)
+    tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
+    leaf = tree.append_message(AgentAssistantMessage(content=ProductContent("ANSWER")))
+    trace: list[str] = []
+    original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
+    original_clear = CodingInputQueue.clear_extension_inputs
+    original_diag = NativeToolReplSession._emit_diagnostic
+
+    def rebuild(self: CodingProductSessionCoordinator) -> None:
+        trace.append("rebuild")
+        original_rebuild(self)
+
+    def clear(self: CodingInputQueue) -> None:
+        trace.append("clear-extension")
+        original_clear(self)
+
+    def diagnostic(ui: ToolLoopTerminalUi | None, stream: TextIO, message: str) -> None:
+        trace.append("diagnostic")
+        original_diag(ui, stream, message)
+
+    def record_footer(*_args: object, **_kwargs: object) -> None:
+        trace.append("footer")
+
+    monkeypatch.setattr(
+        CodingProductSessionCoordinator, "rebuild_active_history", rebuild
+    )
+    monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
+    monkeypatch.setattr(
+        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+    )
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+
+    _run(
+        NativeToolReplSession(provider=_SeenProvider(), native_session=tree),
+        cwd,
+        f"/tree select {leaf.id}\n/exit\n",
+    )
+
+    assert tree.get_leaf_id() == leaf.id
+    assert trace == [
+        "rebuild",
+        "footer",
+        "rebuild",
+        "clear-extension",
+        "diagnostic",
+        "footer",
+    ]
+
+
+def test_tree_rebuild_failure_preserves_leaf_and_cuts_off_later_effects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cwd = _workspace(tmp_path)
+    tree = NativeSessionTree.create(cwd, persist=False)
+    selected = tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
+    tree.append_message(AgentAssistantMessage(content=ProductContent("ANSWER")))
+    trace: list[str] = []
+    original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
+    rebuild_calls = 0
+
+    def rebuild(self: CodingProductSessionCoordinator) -> None:
+        nonlocal rebuild_calls
+        rebuild_calls += 1
+        trace.append("rebuild")
+        if rebuild_calls == 2:
+            raise RuntimeError("rebuild failed")
+        original_rebuild(self)
+
+    def clear(self: CodingInputQueue) -> None:
+        trace.append("clear-extension")
+
+    def diagnostic(
+        _ui: ToolLoopTerminalUi | None, _stream: TextIO, _message: str
+    ) -> None:
+        trace.append("diagnostic")
+
+    def record_footer(*_args: object, **_kwargs: object) -> None:
+        trace.append("footer")
+
+    monkeypatch.setattr(
+        CodingProductSessionCoordinator, "rebuild_active_history", rebuild
+    )
+    monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
+    monkeypatch.setattr(
+        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+    )
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+
+    with pytest.raises(RuntimeError, match="rebuild failed"):
+        _run(
+            NativeToolReplSession(provider=_SeenProvider(), native_session=tree),
+            cwd,
+            f"/tree select {selected.id}\n",
+        )
+
+    assert tree.get_leaf_id() is None
+    assert trace == ["rebuild", "footer", "rebuild"]
+
+
 def test_name_session_new_and_resume_roundtrip(tmp_path: Path) -> None:
     cwd = _workspace(tmp_path)
     session_dir = tmp_path / "sessions"
@@ -332,7 +674,9 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
     trace: list[str] = []
 
     class TracingProvider(_SeenProvider):
-        def complete(self, request: ProviderRequest, **kwargs: object) -> ProviderResult:
+        def complete(
+            self, request: ProviderRequest, **kwargs: object
+        ) -> ProviderResult:
             trace.append("provider")
             return super().complete(request, **kwargs)
 
@@ -362,7 +706,9 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
             parent_session=parent_session,
             timestamp=timestamp,
         )
-        tree.header = SessionHeader("EV\x1bIL\x07X", tree.header.timestamp, tree.header.cwd)
+        tree.header = SessionHeader(
+            "EV\x1bIL\x07X", tree.header.timestamp, tree.header.cwd
+        )
         return tree
 
     def rebuild(self: CodingProductSessionCoordinator) -> None:
@@ -373,9 +719,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
         trace.append("clear-extension")
         original_clear(self)
 
-    def diagnostic(
-        ui: ToolLoopTerminalUi | None, stream: TextIO, message: str
-    ) -> None:
+    def diagnostic(ui: ToolLoopTerminalUi | None, stream: TextIO, message: str) -> None:
         trace.append("diagnostic")
         original_diag(ui, stream, message)
 
@@ -385,10 +729,16 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
     monkeypatch.setattr(NativeSessionTree, "create", staticmethod(create))
-    monkeypatch.setattr(CodingProductSessionCoordinator, "rebuild_active_history", rebuild)
+    monkeypatch.setattr(
+        CodingProductSessionCoordinator, "rebuild_active_history", rebuild
+    )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
-    monkeypatch.setattr(NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic))
-    monkeypatch.setattr(NativeToolReplSession, "_print_footer", lambda *_a, **_k: trace.append("footer"))
+    monkeypatch.setattr(
+        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession, "_print_footer", lambda *_a, **_k: trace.append("footer")
+    )
 
     provider = TracingProvider()
     _out, err = _run(
@@ -521,7 +871,9 @@ def test_new_switch_gate_controlled_fatal_cuts_off_create_and_footer(
         lambda *_args, **_kwargs: footer_calls.append(None),
     )
 
-    with pytest.raises(KeyboardInterrupt if fatal == "KeyboardInterrupt" else SystemExit):
+    with pytest.raises(
+        KeyboardInterrupt if fatal == "KeyboardInterrupt" else SystemExit
+    ):
         _run(
             NativeToolReplSession(provider=_SeenProvider(), native_session=active),
             cwd,
@@ -587,7 +939,9 @@ def test_new_storage_failure_cuts_off_later_effects(
         _TracingSessionGate(trace, original_gate, include_details=False),
     )
     monkeypatch.setattr(NativeSessionTree, "create", staticmethod(create))
-    monkeypatch.setattr(CodingProductSessionCoordinator, "rebuild_active_history", rebuild)
+    monkeypatch.setattr(
+        CodingProductSessionCoordinator, "rebuild_active_history", rebuild
+    )
     monkeypatch.setattr(
         CodingInputQueue,
         "clear_extension_inputs",

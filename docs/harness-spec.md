@@ -1843,6 +1843,24 @@ only the fresh tree context. The extraction deletes the late branch but adds no
 post-switch lifecycle or completed tree hook, registry metadata, persistence-
 write relocation, serializer, SDK/RPC format, or workflow-archive content.
 
+Slice 3.1d.3b adds `SESSION_TREE` with one exact full-content argument,
+including empty, and the standard footer. The direct kernel recognizes bare
+`/tree` or an already-edge-stripped literal-space argument form; composition
+retains outer trimming and queued/RPC bypass. Bare live-TUI and `select`,
+`label`, or `filter` forms retain the serial fail-closed
+`session_before_tree` gate with the exact live target, while captured bare
+rendering and unknown local forms remain ungated.
+
+The unchanged product handler owns inline selection, captured rendering,
+same-file leaf and label mutations, run-local filter results, next-iteration
+prefill, optional no-tool provider summaries, private persistence, typed history
+rebuild, extension-input clearing, sanitization, and diagnostics. Composition
+applies filter then prefill before the standard footer. Veto, controlled-fatal,
+current-leaf rebuild, and rebuild-failure partial-state timing remain exact.
+The typed kernel adds no tree/UI/provider/persistence dependency or serializer.
+Completed tree hooks, filter persistence, summary cancellation/accounting
+settings, and empty custom-message behavior remain separate deferred changes.
+
 Command/outcome values are full-content product-control data. They expose no
 serializer, SDK shape, persistence projection, or workflow-archive adapter.
 Exact direct-import allowlists plus recursive, fresh-process, and no-eager-

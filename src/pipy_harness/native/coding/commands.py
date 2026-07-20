@@ -30,6 +30,7 @@ class CodingCommandAction(StrEnum):
     LOGIN = "login"
     LOGOUT = "logout"
     NEW_SESSION = "new_session"
+    SESSION_TREE = "session_tree"
 
 
 class CodingCommandFooterPolicy(StrEnum):
@@ -75,6 +76,11 @@ def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
         return _continue_outcome(CodingCommandAction.COMPACT)
     if value == "/new":
         return _continue_outcome(CodingCommandAction.NEW_SESSION)
+    if value == "/tree" or (value == value.strip() and value.startswith("/tree ")):
+        return _continue_outcome(
+            CodingCommandAction.SESSION_TREE,
+            ProductContent(value[len("/tree") :].strip()),
+        )
     if value == "/name" or (value == value.strip() and value.startswith("/name ")):
         return _continue_outcome(
             CodingCommandAction.SESSION_NAME,
@@ -137,7 +143,10 @@ def require_exact_coding_command_outcome(outcome: object) -> None:
                 f"{outcome.action or 'actionless'} CONTINUE outcomes require the "
                 f"{expected_footer_policy.name} footer policy"
             )
-        argument_actions = usage_aware_actions | {CodingCommandAction.SESSION_NAME}
+        argument_actions = usage_aware_actions | {
+            CodingCommandAction.SESSION_NAME,
+            CodingCommandAction.SESSION_TREE,
+        }
         if outcome.action in argument_actions:
             if outcome.argument is None:
                 raise ValueError(f"{outcome.action} outcomes require an argument")

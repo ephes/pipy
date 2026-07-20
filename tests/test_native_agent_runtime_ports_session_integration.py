@@ -201,6 +201,8 @@ def test_positional_seed_preserves_exact_trailing_newlines(tmp_path: Path) -> No
         "/login openai-codex",
         "/logout openai-codex",
         "/new",
+        "/tree",
+        "/tree select 1",
     ),
 )
 def test_registered_input_wake_bypasses_local_command_kernel(
