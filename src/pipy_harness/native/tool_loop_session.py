@@ -3416,6 +3416,16 @@ class NativeToolReplSession:
                                         f"pipy: {success_text}"
                                         f"{sanitize_label_text(session_tree.session_id[:8])}."
                                     )
+                        elif (
+                            command_outcome.action
+                            is CodingCommandAction.TRUST_PROJECT
+                        ):
+                            self._handle_trust_command(
+                                terminal_ui=terminal_ui,
+                                error_stream=error_stream,
+                                cwd=cwd,
+                                settings=settings,
+                            )
                         elif command_outcome.action in {
                             CodingCommandAction.MODEL,
                             CodingCommandAction.SCOPED_MODELS,
@@ -3604,15 +3614,6 @@ class NativeToolReplSession:
                                 "handled command requires a closed footer policy"
                             )
                         continue
-                if command_text == "/trust":
-                    self._handle_trust_command(
-                        terminal_ui=terminal_ui,
-                        error_stream=error_stream,
-                        cwd=cwd,
-                        settings=settings,
-                    )
-                    refresh_legacy_footer()
-                    continue
                 if command_text == "/reload":
                     # Local-only: re-read settings (both scopes), keybindings, and
                     # workspace resources, then re-apply derived UI settings. Runs

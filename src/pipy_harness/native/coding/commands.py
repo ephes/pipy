@@ -34,6 +34,7 @@ class CodingCommandAction(StrEnum):
     SESSION_RESUME = "session_resume"
     SESSION_FORK = "session_fork"
     SESSION_CLONE = "session_clone"
+    TRUST_PROJECT = "trust_project"
 
 
 class CodingCommandFooterPolicy(StrEnum):
@@ -75,6 +76,7 @@ def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
         ("/compact", CodingCommandAction.COMPACT),
         ("/new", CodingCommandAction.NEW_SESSION),
         ("/clone", CodingCommandAction.SESSION_CLONE),
+        ("/trust", CodingCommandAction.TRUST_PROJECT),
     ):
         if value == command:
             return _continue_outcome(action)

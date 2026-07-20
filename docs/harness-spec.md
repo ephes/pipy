@@ -1902,6 +1902,28 @@ empty clone, copied names/labels/compaction records, absent custom/ordinary TUI
 redraw, absent post-fork lifecycle hooks, write relocation, registry metadata,
 aliases, and async behavior remain deliberately unchanged.
 
+Slice 3.1d.4a adds the exact payload-free `TRUST_PROJECT` action for `/trust` with the
+standard footer. The direct kernel recognizes only the already-edge-stripped
+exact command; composition retains outer trimming, the submitted user bubble,
+and non-empty queued/RPC bypass.
+
+Captured execution emits the sanitized interactive-product-TUI requirement and
+does not construct/read the trust store or consume captured stdin. Live
+execution reads the closest exact or inherited saved entry, passes it and the
+immutable current-run `project_trusted` value to the existing selector, applies
+the selected option's atomic updates, emits the fixed restart-required notice,
+and refreshes one standard footer. Cancel skips the write and still refreshes
+the footer. Handled store-read failures stop before selector/write; handled
+store-write failures stop before the success notice. Both render through the
+sanitizing notice path before the footer, while selector and uncontrolled
+failures retain their pre-footer propagation cutoff.
+
+The superseded late branch is deleted. The action does not change current-run
+trust, hot-load/unload protected sources, call the provider/tools, serialize a
+public format, or add session/archive content. `/settings`, export/import/share,
+`/reload`, resource/custom-command and extension precedence, Phase 3.2 registry
+metadata, and Phase 3.3 persistence ownership are explicit non-goals.
+
 Command/outcome values are full-content product-control data. They expose no
 serializer, SDK shape, persistence projection, or workflow-archive adapter.
 Exact direct-import allowlists plus recursive, fresh-process, and no-eager-

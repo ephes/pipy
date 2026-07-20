@@ -2088,6 +2088,7 @@ def test_coding_commands_rule_blocks_outer_runtime_imports(tmp_path: Path) -> No
 import pipy_harness.native.agent.content
 import pipy_harness.native.coding.state
 import pipy_harness.native.extension_runtime
+import pipy_harness.native.project_trust
 import pipy_harness.native.session_tree
 import pipy_harness.native.tui
 """,
@@ -2104,8 +2105,9 @@ import pipy_harness.native.tui
     } == {
         (commands_path, "pipy_harness.native.coding.state", 2),
         (commands_path, "pipy_harness.native.extension_runtime", 3),
-        (commands_path, "pipy_harness.native.session_tree", 4),
-        (commands_path, "pipy_harness.native.tui", 5),
+        (commands_path, "pipy_harness.native.project_trust", 4),
+        (commands_path, "pipy_harness.native.session_tree", 5),
+        (commands_path, "pipy_harness.native.tui", 6),
     }
 
 

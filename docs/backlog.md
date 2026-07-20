@@ -1976,11 +1976,29 @@ clone, copied names/labels/compaction entries, absent custom/ordinary TUI
 redraw, and absent post-fork lifecycle hooks. Those gaps require dedicated
 behavior decisions.
 
+### Typed Trust Command — SHIPPED (2026-07-20)
+
+Phase 3.1d.4a adds the exact payload-free `TRUST_PROJECT` outcome for `/trust` with the
+standard footer. Captured execution keeps the sanitized interactive-TUI
+diagnostic and never opens the trust store or reads captured stdin. Live
+execution keeps closest exact/inherited saved-decision read, selector display,
+atomic selected-option write, fixed restart-required notice, and footer order.
+Cancel performs no write; handled read/write errors cut off the later effects
+but retain a sanitized notice and footer. The late path is deleted, and
+non-empty queued/RPC `/trust` remains provider-visible.
+
+This extraction does not mutate the current run's trust, hot-load or unload
+protected inputs, or cross session/archive privacy boundaries. `/settings`,
+export/import/share, `/reload`, resource/custom-command and extension
+precedence, Phase 3.2 registry metadata, and Phase 3.3 write ownership remain
+outside this slice.
+
 **Next green slice — typed external/UI-effect commands:** continue Phase 3.1d
 with a bounded command family selected by ownership audit, preserving external-
 I/O suspension, terminal behavior, public formats, and command precedence. Do
-not pull reload, resource/extension closure, Phase 3.2 registry metadata, or
-Phase 3.3 write ownership into that first external-effects cut.
+not pull `/settings`, reload, resource/extension closure, Phase 3.2 registry
+metadata, or Phase 3.3 write ownership into the next cut without its own bounded
+contract.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

@@ -208,6 +208,7 @@ def test_positional_seed_preserves_exact_trailing_newlines(tmp_path: Path) -> No
         "/fork",
         "/fork 1",
         "/clone",
+        "/trust",
     ),
 )
 def test_registered_input_wake_bypasses_local_command_kernel(

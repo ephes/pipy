@@ -326,6 +326,18 @@ unloads resources. If a trusted run started with no protected inputs and the
 user later creates one, an explicit `/reload` saves exact trust only under the
 reviewed no-saved-decision guards before the next restart can surprise-prompt.
 
+The Phase 3.1d.4a ownership cut classifies only exact, payload-free `/trust`
+through the headless typed command kernel; concrete store and TUI effects remain
+in product composition. Captured runs emit the sanitized interactive-TUI
+requirement without reading the store or stdin. Live runs preserve saved-entry
+read, selector, atomic selected-option write, restart-required notice, and
+standard-footer order. Cancel writes nothing. Read failure stops before the
+selector/write, write failure stops before the success notice, and both retain
+a sanitized notice before the footer. The current run's `project_trusted` value
+is never changed by `/trust`; queued/RPC command-shaped content remains provider-
+visible. This ownership-only cut does not change `/settings`, export/import/
+share, `/reload`, resource/extension precedence, or public/persistence formats.
+
 `/settings` exposes the global `Ask`/`Trust`/`Do not trust` fallback. Package and
 resource-config management commands accept command-local
 `--approve`/`--no-approve`; untrusted list/config views omit project entries,

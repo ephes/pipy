@@ -604,6 +604,7 @@ def test_steering_queue_is_consumed_not_stale(client) -> None:
         "/fork",
         "/fork 1",
         "/clone",
+        "/trust",
     ],
 )
 def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(

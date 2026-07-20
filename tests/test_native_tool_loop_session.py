@@ -2462,7 +2462,7 @@ def test_headless_command_kernel_classifies_supported_local_commands(
             "/model openai/gpt-5.5\n/scoped-models clear\n"
             "/login openai-codex\n/logout openai-codex\n/new\n"
             "/tree\n/tree select 1\n/resume\n/resume named\n"
-            "/fork\n/fork 1\n/clone\n/exit\n"
+            "/fork\n/fork 1\n/clone\n/trust   \n/exit\n"
         ),
         output_stream=io.StringIO(),
         error_stream=error_stream,
@@ -2489,6 +2489,7 @@ def test_headless_command_kernel_classifies_supported_local_commands(
         "/fork",
         "/fork 1",
         "/clone",
+        "/trust",
         "/exit",
     ]
     assert "What's New" in error_stream.getvalue()
@@ -2543,6 +2544,15 @@ def test_session_fork_and_clone_commands_use_only_typed_interpreter_dispatch() -
     assert 'if command_text == "/fork"' not in source
     assert 'command_text.startswith("/fork ")' not in source
     assert 'if command_text == "/clone"' not in source
+
+
+def test_trust_command_uses_only_typed_interpreter_dispatch() -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    module_path = loop_module.__file__
+    assert module_path is not None
+    source = Path(module_path).read_text(encoding="utf-8")
+    assert 'if command_text == "/trust"' not in source
 
 
 def test_new_command_applies_standard_footer_without_provider_turn(
@@ -2642,6 +2652,44 @@ def test_fork_and_clone_commands_apply_standard_footer_without_provider_turn(
     assert len(footer_kwargs) == 4
     assert footer_kwargs[0].get("usage_snapshot") is not None
     assert all(kwargs.get("usage_snapshot") is None for kwargs in footer_kwargs[1:])
+    assert provider._call_counter[0] == 0
+
+
+def test_trust_command_preserves_outer_trim_bubble_and_standard_footer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    footer_kwargs: list[dict[str, object]] = []
+    rendered_user_messages: list[str] = []
+
+    def record_footer(*_args: object, **kwargs: object) -> None:
+        footer_kwargs.append(kwargs)
+
+    def record_user_message(_renderer: object, text: str) -> None:
+        rendered_user_messages.append(text)
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    monkeypatch.setattr(
+        loop_module._ToolLoopRenderer,
+        "render_user_message",
+        record_user_message,
+    )
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
+    error_stream = io.StringIO()
+
+    NativeToolReplSession(provider=provider).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/trust   \n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert rendered_user_messages == ["/trust   ", "/exit"]
+    assert "/trust requires the interactive product TUI" in error_stream.getvalue()
+    assert len(footer_kwargs) == 2
+    assert footer_kwargs[0].get("usage_snapshot") is not None
+    assert footer_kwargs[1].get("usage_snapshot") is None
     assert provider._call_counter[0] == 0
 
 
