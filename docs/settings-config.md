@@ -338,6 +338,37 @@ is never changed by `/trust`; queued/RPC command-shaped content remains provider
 visible. This ownership-only cut does not change `/settings`, export/import/
 share, `/reload`, resource/extension precedence, or public/persistence formats.
 
+The Phase 3.1d.4b ownership cut classifies only exact, payload-free
+`/settings` as the typed `SETTINGS` action. Outer trimming, the submitted user
+bubble, and non-empty queued/RPC bypass remain composition policy. Live runs
+continue through `_drive_settings_dialog`, preserving cancel, in-place toggles,
+and in-place `cycle_thinking`, which rebuilds the current rows and may append
+one private `thinking_level_change` entry without entering the outer close/
+subflow/reopen loop. Model, login/logout auth, scoped-model, theme, and default-
+project-trust actions retain nested close/subflow/reopen behavior, including
+selector cancellation returning to the dialog; interactive OAuth retains
+cooked-mode suspension. Captured runs continue emitting the safe
+`_settings_overlay_lines` status view. One standard footer follows only after
+the surface closes; partial local effects and fatal pre-footer cutoffs are
+unchanged. The command runs no provider or tool turn.
+
+The command itself writes no native-product entry, although the existing in-place
+thinking-level action may append a private `thinking_level_change`. Prompt-
+history bodies remain in `PromptHistoryStore`, auth material remains in the
+terminal and dedicated auth store, and ordinary non-secret preferences remain
+in settings; none crosses into the metadata-only workflow archive. The late
+imperative `/settings` branch is removed by the ownership cut, but the dialog
+and overlay stay in product/UI composition until Phase 4.
+
+**Known pre-existing prompt-history mismatch:** this document describes
+`promptHistory.enabled` as the `/settings` toggle's source of truth, but the
+current dialog toggles `PromptHistoryStore.enabled` directly and does not write
+the setting. Startup only promotes a true `promptHistory.enabled` value into
+the store; false does not disable a store that is already enabled. Phase
+3.1d.4b records and preserves this behavior rather than correcting it. Any
+reconciliation requires a dedicated behavior slice with startup, toggle,
+restart, local-store, settings-precedence, and privacy coverage.
+
 `/settings` exposes the global `Ask`/`Trust`/`Do not trust` fallback. Package and
 resource-config management commands accept command-local
 `--approve`/`--no-approve`; untrusted list/config views omit project entries,

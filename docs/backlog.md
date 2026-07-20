@@ -1993,12 +1993,42 @@ export/import/share, `/reload`, resource/custom-command and extension
 precedence, Phase 3.2 registry metadata, and Phase 3.3 write ownership remain
 outside this slice.
 
-**Next green slice — typed external/UI-effect commands:** continue Phase 3.1d
-with a bounded command family selected by ownership audit, preserving external-
-I/O suspension, terminal behavior, public formats, and command precedence. Do
-not pull `/settings`, reload, resource/extension closure, Phase 3.2 registry
-metadata, or Phase 3.3 write ownership into the next cut without its own bounded
-contract.
+### Typed Settings Command — SHIPPED (2026-07-20)
+
+Phase 3.1d.4b adds the exact payload-free `SETTINGS` outcome for `/settings`
+with the standard footer. Composition retains outer trimming, the submitted
+user bubble, and non-empty queued/RPC bypass. Live execution still drives
+`_drive_settings_dialog`; captured execution still prints the safe
+`_settings_overlay_lines` view. The live dialog keeps cancel, in-place local
+toggles, and in-place thinking-level cycling, which rebuilds the current rows
+and may append one private entry. It does not enter the outer close/subflow/
+reopen loop. Model, login/logout auth, scoped-model, theme, and default-project-
+trust actions retain their nested close/subflow/reopen behavior, including
+selector cancellation returning to the dialog; OAuth retains cooked-mode
+suspension. One standard footer is painted only after the surface finally
+closes. No provider or tool turn runs.
+
+The old late branch is deleted. The command itself adds no native-session
+entry; the existing in-place thinking-level action may still append its private
+`thinking_level_change` entry. Already-applied local effects remain applied if
+a later nested effect fails, and fatal propagation retains its pre-footer
+cutoff. Prompt-history bodies stay in `PromptHistoryStore`, OAuth material in
+the terminal/auth store, non-secret preferences in settings, and none enters
+the metadata workflow archive.
+
+This ownership slice records but does not correct a pre-existing mismatch:
+the settings documentation describes `promptHistory.enabled` as the dialog
+toggle's source of truth, while the actual dialog toggles the private
+`PromptHistoryStore` and startup only applies `promptHistory.enabled` as a one-
+way enable. A dedicated behavior slice must reconcile that contract.
+
+**Next green slice — remaining typed external/UI-effect commands:** continue
+Phase 3.1d with a bounded export/import/share family selected by ownership
+audit, preserving external-I/O suspension, terminal behavior, public formats,
+privacy, and command precedence. Keep `/reload`, resource/custom-command and
+extension precedence, the model-change/tree and extension-hook gap, Phase 3.2
+registry metadata, Phase 3.3 write ownership, and Phase 4 UI movement outside
+that cut.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

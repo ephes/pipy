@@ -3416,9 +3416,26 @@ class NativeToolReplSession:
                                         f"pipy: {success_text}"
                                         f"{sanitize_label_text(session_tree.session_id[:8])}."
                                     )
+                        elif command_outcome.action is CodingCommandAction.SETTINGS:
+                            if terminal_ui is not None:
+                                self._drive_settings_dialog(
+                                    terminal_ui,
+                                    prompt_history_store,
+                                    provider=coding_state.provider,
+                                    apply_model_selection=apply_model_selection,
+                                    apply_auth_change=apply_auth_change,
+                                    settings=settings,
+                                    session_tree=session_tree,
+                                    error_stream=error_stream,
+                                )
+                            else:
+                                for overlay_line in self._settings_overlay_lines(
+                                    settings,
+                                    provider=coding_state.provider,
+                                ):
+                                    print(overlay_line, file=error_stream)
                         elif (
-                            command_outcome.action
-                            is CodingCommandAction.TRUST_PROJECT
+                            command_outcome.action is CodingCommandAction.TRUST_PROJECT
                         ):
                             self._handle_trust_command(
                                 terminal_ui=terminal_ui,
@@ -4052,26 +4069,6 @@ class NativeToolReplSession:
                         )
                     else:
                         diag(f"pipy: gist URL: {result.gist_url}")
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/settings":
-                    if terminal_ui is not None:
-                        self._drive_settings_dialog(
-                            terminal_ui,
-                            prompt_history_store,
-                            provider=coding_state.provider,
-                            apply_model_selection=apply_model_selection,
-                            apply_auth_change=apply_auth_change,
-                            settings=settings,
-                            session_tree=session_tree,
-                            error_stream=error_stream,
-                        )
-                    else:
-                        for overlay_line in self._settings_overlay_lines(
-                            settings,
-                            provider=coding_state.provider,
-                        ):
-                            print(overlay_line, file=error_stream)
                     refresh_legacy_footer()
                     continue
                 # Resource dispatch (skills, prompt templates, custom commands)

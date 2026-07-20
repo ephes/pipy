@@ -456,6 +456,31 @@ cancel, no provider turn):
 Captured-stream (non-TTY) fallbacks print a concise read-only diagnostic for
 each overlay and never fall through as a provider prompt.
 
+Phase 3.1d.4b moves only `/settings` command recognition into the headless typed
+kernel as the exact payload-free `SETTINGS` action. The live UI remains the
+existing `_drive_settings_dialog`, and the captured fallback remains
+`_settings_overlay_lines`; moving either belongs to Phase 4. Outer trimming,
+the submitted user bubble, and non-empty queued/RPC bypass stay in composition.
+In-place actions keep the dialog open. In particular, `cycle_thinking` rebuilds
+the rows in the current dialog and may append one private
+`thinking_level_change` entry; it does not enter the outer close/subflow/reopen
+loop. Model, login/logout auth, scoped-model, theme, and default-project-trust
+actions close into their nested flow and reopen the dialog, including after
+selector cancellation. Cancel at the settings surface returns to input, OAuth
+retains cooked-mode external-I/O suspension, and the standard footer is painted
+only after the settings surface closes. The command runs no provider or tool
+turn and creates no native entry itself. Prompt-history bodies and OAuth
+material remain outside the metadata workflow archive.
+
+This ownership cut deliberately preserves the existing prompt-history
+configuration mismatch: documentation names `promptHistory.enabled` as the
+toggle source of truth, but the live row currently toggles
+`PromptHistoryStore` directly and startup applies a true setting only as a one-
+way enable. Reconciliation is a separate behavior slice. Export/import/share,
+`/reload`, resource/custom-command and extension precedence, the model-change/
+tree and extension-hook gap, Phase 3.2/3.3, and Phase 4 UI movement are not part
+of this cut.
+
 ## Mouse Selection
 
 **Pi behavior**: in the interactive editor the user can select and copy text

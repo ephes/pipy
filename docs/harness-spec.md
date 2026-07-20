@@ -1924,6 +1924,37 @@ public format, or add session/archive content. `/settings`, export/import/share,
 `/reload`, resource/custom-command and extension precedence, Phase 3.2 registry
 metadata, and Phase 3.3 persistence ownership are explicit non-goals.
 
+Slice 3.1d.4b adds the exact payload-free `SETTINGS` action for `/settings`
+with the standard footer. The direct kernel accepts only the already-stripped
+exact command; composition retains outer trimming, the submitted user bubble,
+and non-empty queued/RPC bypass.
+
+Live composition calls the existing `_drive_settings_dialog`; captured
+composition prints the existing safe `_settings_overlay_lines` view. The live
+surface preserves cancel and in-place prompt-history, folding, and thinking-
+level actions. `cycle_thinking` rebuilds the rows in the current dialog and may
+append one private `thinking_level_change` entry; it does not enter the outer
+close/subflow/reopen loop. Model, login/logout auth, scoped-model, theme, and
+default-project-trust actions retain their nested close/subflow/reopen behavior,
+including dialog reopen after selector cancellation. Interactive OAuth keeps
+its existing cooked-mode external-I/O suspension. Composition applies the
+standard footer only after the surface finally closes. Already-applied local or
+nested mutations are not rolled back if a later effect fails, and uncontrolled
+or controlled-fatal failures retain their existing cutoff before the footer.
+The local command starts no provider or tool turn.
+
+The superseded late branch is deleted. `/settings` itself appends no native-
+product entry, while the in-place thinking-level action remains allowed to append
+its private `thinking_level_change` entry. Prompt-history bodies stay solely in
+`PromptHistoryStore`, OAuth material stays in the live terminal/auth store, and
+non-secret configuration stays in settings; no full content crosses into the
+metadata-only archive. This slice only records the existing mismatch between
+the documented `promptHistory.enabled` source-of-truth claim and the actual
+dialog's direct `PromptHistoryStore` toggle plus startup's one-way settings
+enable. It does not correct it or move UI ownership. Export/import/share,
+`/reload`, resource/custom-command and extension precedence, the model-change/
+tree and extension-hook gap, Phase 3.2, Phase 3.3, and Phase 4 remain deferred.
+
 Command/outcome values are full-content product-control data. They expose no
 serializer, SDK shape, persistence projection, or workflow-archive adapter.
 Exact direct-import allowlists plus recursive, fresh-process, and no-eager-
