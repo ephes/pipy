@@ -1,6 +1,7 @@
 """Provider-neutral dynamic-tool split and Pi hash parity tests."""
 
 from pathlib import Path
+from types import MappingProxyType
 
 from pipy_harness.native import ProviderRequest
 from pipy_harness.native.agent import (
@@ -12,6 +13,7 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native.deferred_tools import (
+    responses_tool_search_items,
     short_hash,
     split_deferred_tools,
 )
@@ -105,3 +107,54 @@ def test_split_keeps_prior_used_tool_immediate_and_allows_all_deferred() -> None
     )
     assert immediate == ()
     assert [tool.name for tool in deferred] == ["late_tool", "later_tool"]
+
+
+def test_deferred_tool_payload_materializes_immutable_nested_schema() -> None:
+    tool = _tool("late_tool")
+    object.__setattr__(
+        tool,
+        "input_schema",
+        MappingProxyType(
+            {
+                "type": "object",
+                "properties": MappingProxyType(
+                    {
+                        "path": MappingProxyType(
+                            {"type": "string", "enum": ("a", "b")}
+                        )
+                    }
+                ),
+                "required": ("path",),
+            }
+        ),
+    )
+    message = AgentToolResultMessage(
+        tool_request_id="pipy-tool-load",
+        tool_name="loader",
+        content=ProductContent("loaded"),
+        provider_correlation_id="call_loader",
+        added_tool_names=("late_tool",),
+    )
+
+    items = responses_tool_search_items(
+        message,
+        deferred_tools={"late_tool": tool},
+        loaded_tool_names=set(),
+    )
+
+    assert items[1]["tools"] == [
+        {
+            "type": "function",
+            "name": "late_tool",
+            "description": "late_tool description",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "enum": ["a", "b"]}
+                },
+                "required": ["path"],
+            },
+            "strict": False,
+            "defer_loading": True,
+        }
+    ]

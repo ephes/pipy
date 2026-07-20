@@ -37,6 +37,7 @@ Anything outside this subset raises a clear error at definition time.
 
 from __future__ import annotations
 
+import math
 import threading
 import uuid
 from collections.abc import Callable, Mapping
@@ -86,6 +87,65 @@ class ToolArgumentError(ValueError):
             "." + ".".join(self.field_path) if self.field_path else ""
         )
         super().__init__(f"{tool_name}{path_label}: {message}")
+
+
+def materialize_tool_input_schema(
+    schema: Mapping[str, object],
+) -> dict[str, object]:
+    """Detach a validated tool schema into ordinary JSON containers.
+
+    Canonical agent policy freezes schema mappings and sequences before handing
+    them back to product adapters. Provider encoders require mutable ``dict`` /
+    ``list`` containers, so this boundary recursively copies either form while
+    rejecting cycles and values that JSON cannot represent.
+    """
+
+    active_containers: set[int] = set()
+    materialized = _materialize_tool_schema_value(schema, active_containers)
+    if not isinstance(materialized, dict):
+        raise TypeError("tool input schema must materialize to an object")
+    return materialized
+
+
+def _materialize_tool_schema_value(
+    value: object,
+    active_containers: set[int],
+) -> object:
+    if isinstance(value, Mapping):
+        identity = id(value)
+        if identity in active_containers:
+            raise TypeError("tool input schema must not contain cycles")
+        active_containers.add(identity)
+        try:
+            result: dict[str, object] = {}
+            for key, child in value.items():
+                if type(key) is not str:
+                    raise TypeError("tool input schema keys must be exact strings")
+                result[key] = _materialize_tool_schema_value(
+                    child, active_containers
+                )
+            return result
+        finally:
+            active_containers.remove(identity)
+    if isinstance(value, (list, tuple)) and type(value) in {list, tuple}:
+        identity = id(value)
+        if identity in active_containers:
+            raise TypeError("tool input schema must not contain cycles")
+        active_containers.add(identity)
+        try:
+            return [
+                _materialize_tool_schema_value(child, active_containers)
+                for child in value
+            ]
+        finally:
+            active_containers.remove(identity)
+    if value is None or type(value) in {bool, int, str}:
+        return value
+    if type(value) is float and math.isfinite(value):
+        return value
+    raise TypeError(
+        "tool input schema values must be JSON mappings, sequences, or primitives"
+    )
 
 
 @dataclass(frozen=True, slots=True)

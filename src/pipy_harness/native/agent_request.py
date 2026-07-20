@@ -5,16 +5,13 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 import inspect
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from pipy_harness.native.agent.active_input import AgentActiveInput
-from pipy_harness.native.agent.messages import AgentMessage
+from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.agent.request import (
     AgentProviderRequestSnapshot,
     snapshot_provider_request,
 )
-from pipy_harness.native.models import ProviderHeaderCallback, ProviderRequest
 from pipy_harness.native.tools.base import ToolDefinition
 
 if TYPE_CHECKING:
@@ -25,23 +22,6 @@ if TYPE_CHECKING:
         ExtensionUiDriver,
         HookHandler,
     )
-    from pipy_harness.native.image_attachment import ProviderImageAttachment
-
-
-@dataclass(slots=True)
-class NativeProviderRequestInput:
-    """Product-owned inputs used to compose one provider request snapshot."""
-
-    system_prompt: str
-    user_prompt: str
-    provider_name: str
-    model_id: str
-    cwd: Path
-    messages: tuple[AgentMessage, ...]
-    active_input: AgentActiveInput
-    available_tools: tuple[ToolDefinition, ...]
-    attachments: tuple[ProviderImageAttachment, ...]
-    provider_header_callback: ProviderHeaderCallback | None
 
 
 @dataclass(slots=True)
@@ -93,7 +73,7 @@ class _MonotonicToolHookPolicy:
 
 
 def prepare_provider_request(
-    request_input: NativeProviderRequestInput,
+    request_input: AgentProviderRequestPolicyInput,
     hooks: Sequence[HookHandler],
     context: NativeProviderRequestHookContext,
 ) -> AgentProviderRequestSnapshot:
@@ -103,17 +83,7 @@ def prepare_provider_request(
         dispatch_before_provider_request_hooks,
     )
 
-    request = ProviderRequest(
-        system_prompt=request_input.system_prompt,
-        user_prompt=request_input.user_prompt,
-        provider_name=request_input.provider_name,
-        model_id=request_input.model_id,
-        cwd=request_input.cwd,
-        messages=request_input.messages,
-        available_tools=request_input.available_tools,
-        attachments=request_input.attachments,
-        provider_header_callback=request_input.provider_header_callback,
-    )
+    request = request_input.baseline
     policy = _MonotonicToolHookPolicy(request.available_tools)
     transform = dispatch_before_provider_request_hooks(
         tuple(policy.guard(hook) for hook in hooks),

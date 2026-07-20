@@ -341,6 +341,36 @@ ARCHITECTURE_RULES = (
         ),
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.agent_loop_policy",
+        forbidden_imports=(
+            "pipy_harness.cli",
+            "pipy_harness.capture",
+            "pipy_harness.adapters",
+            "pipy_harness.runner",
+            "pipy_session",
+            "pipy_harness.native.automation",
+            "pipy_harness.native.extension_runtime",
+            "pipy_harness.native.extensions",
+            "pipy_harness.native.ui",
+            "pipy_harness.native.tui",
+            "pipy_harness.native.coding",
+            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.session",
+            "pipy_harness.native.session_resume",
+            "pipy_harness.native.session_tree",
+            "pipy_harness.native.session_tree_commands",
+            "pipy_harness.native.providers",
+            *_LEGACY_CONCRETE_PROVIDER_MODULES,
+            "pipy_harness.native.provider_construction",
+            *_CONCRETE_TOOL_MODULES,
+        ),
+        reason=(
+            "the product agent-loop policy adapter must remain a narrow callback "
+            "bridge without UI, extension-host, session, provider, tool, or "
+            "capture/archive ownership"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.agent_adapters",
         forbidden_imports=(
             "pipy_harness.cli",

@@ -1675,11 +1675,40 @@ The remaining ordered Phase 2.2 cuts are:
    the controller-owned queued-input handoff while preserving separate-run
    semantics and the serialized RPC boundary.
 
-Slices 2.2b.3–2.2b.5a are shipped; Slices 2.2b.5b–2.2b.5d remain pending.
+Slices 2.2b.3–2.2b.5b are shipped; Slices 2.2b.5c–2.2b.5d remain pending.
 Parallel tools,
 richer termination, async
 conversion, persistence relocation, UI/extension redesign, and provider catalog
 work are not part of the Phase 2.2b cutover.
+
+### Typed agent-loop policy collaborators — SHIPPED (2026-07-19)
+
+Phase 2.2b.5b moves the remaining request, tool-admission/counter, and provider
+status decisions behind `native.agent.loop_policy`. Its frozen state preserves
+the existing budget-before-authorization-before-extension ordering, makes
+budget exhaustion a nonterminal error-result condition, carries the
+session-wide malformed streak across accepted runs, resets that streak only
+after a valid settled execution, and normalizes provider failures with no
+agent-loop retry. The canonical named 200-call maximum is reused by the product
+session cap. There is no token-budget policy in this extraction.
+
+The callback-composed `native.agent_loop_policy` adapters bind product request
+construction and extension tool hooks without importing extension, session,
+terminal, persistence, concrete-provider, or concrete-tool implementations.
+Tool-result hooks can replace only `ProductContent`; provider and pipy request
+identity, error status, and added-tool metadata remain canonical. All calls are
+synchronous and callback failures propagate before subsequent events or work.
+Because `ProviderRequest` itself is only shallowly frozen, the canonical input
+detaches and recursively freezes tool-schema dictionaries/lists; a separate
+provider-bound projection rematerializes ordinary JSON containers before any
+built-in or extension provider invocation while authorization retains the
+immutable snapshot.
+
+`NativeToolReplSession` still owns and contains the provider/tool cycle, queue
+storage and RPC settlement, diagnostics/rendering, compaction, and persistence.
+Slice 2.2b.5c moves the single-run cycle to `native.agent.loop`; 2.2b.5d closes
+the controller-owned separate-run queued-input handoff. Public formats,
+extension callback order, persistence data, and archive privacy do not change.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

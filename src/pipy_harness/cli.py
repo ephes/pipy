@@ -42,6 +42,7 @@ from pipy_harness.native import (
     validate_native_repl_input_runtime,
 )
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.agent.loop_policy import MAX_AGENT_TOOL_BUDGET
 from pipy_harness.native.provider_registry import (
     native_provider_spec,
 )
@@ -1215,9 +1216,10 @@ def main(argv: list[str] | None = None) -> int:
                 extension_batch=extension_batch,
             )
             # The product REPL is always the bounded model-driven tool loop.
-            if args.tool_budget < 1 or args.tool_budget > 200:
+            if args.tool_budget < 1 or args.tool_budget > MAX_AGENT_TOOL_BUDGET:
                 raise ValueError(
-                    f"--tool-budget must be in [1, 200]; got {args.tool_budget}"
+                    "--tool-budget must be in "
+                    f"[1, {MAX_AGENT_TOOL_BUDGET}]; got {args.tool_budget}"
                 )
             reference_roots = _resolve_reference_roots(
                 args.read_root,

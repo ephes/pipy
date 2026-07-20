@@ -170,7 +170,8 @@ def test_each_provider_iteration_freezes_a_fresh_authorization_policy(
 def test_snapshot_runtime_validation_rejects_mutable_or_inconsistent_state(
     tmp_path: Path,
 ) -> None:
-    request = _request(tmp_path, tool_names=("first",))
+    mutable_request = _request(tmp_path, tool_names=("first",))
+    request = snapshot_provider_request(mutable_request).request
 
     with pytest.raises(TypeError, match="request must be ProviderRequest"):
         AgentProviderRequestSnapshot(cast(ProviderRequest, object()), ("first",))
@@ -186,6 +187,19 @@ def test_snapshot_runtime_validation_rejects_mutable_or_inconsistent_state(
         AgentProviderRequestSnapshot(request, ())
     with pytest.raises(TypeError, match="request must be ProviderRequest"):
         snapshot_provider_request(cast(ProviderRequest, object()))
+
+    class RequestSubclass(ProviderRequest):
+        pass
+
+    class SnapshotSubclass(AgentProviderRequestSnapshot):
+        pass
+
+    with pytest.raises(TypeError, match="request must be ProviderRequest"):
+        snapshot_provider_request(
+            RequestSubclass("system", "user", "fake", "fake-model", tmp_path)
+        )
+    with pytest.raises(TypeError, match="snapshot"):
+        SnapshotSubclass(request, ("first",))
 
 
 def test_headless_request_snapshot_needs_only_value_objects(tmp_path: Path) -> None:

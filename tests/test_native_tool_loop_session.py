@@ -26,13 +26,16 @@ from pipy_harness.native.agent import (
     AgentEvent,
     AgentRunCompleted,
     AgentRunOutcome,
+    AgentTurnOutcome,
     AgentUsage,
     MessageCompleted,
     ProviderFailed,
+    ToolCallCompleted,
     TurnCompleted,
     UsageUpdated,
 )
 from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
+from pipy_harness.native.agent.loop_policy import MAX_AGENT_TOOL_BUDGET
 from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
 from pipy_harness.native.automation.rpc import _AcceptedAbortSignal
 from pipy_harness.native.cancellation import CancelToken
@@ -515,6 +518,11 @@ def test_session_rejects_tool_budget_outside_supported_range():
         NativeToolReplSession(provider=provider, tool_budget=201)
 
 
+def test_session_tool_budget_cap_is_the_canonical_agent_maximum() -> None:
+    assert NativeToolReplSession.MAX_TOOL_BUDGET is MAX_AGENT_TOOL_BUDGET
+    assert MAX_AGENT_TOOL_BUDGET == 200
+
+
 def test_session_rejects_non_int_tool_budget():
     provider = FakeNativeProvider(supports_tool_calls=True)
 
@@ -810,6 +818,55 @@ def test_three_malformed_in_one_response_are_fatal(tmp_path: Path):
     assert "3 consecutive malformed tool calls" in stderr
 
 
+def test_malformed_streak_persists_across_accepted_runs_until_fatal(
+    tmp_path: Path,
+) -> None:
+    malformed_calls = tuple(
+        _make_call("echo", "{}", correlation_id=f"malformed-{index}")
+        for index in range(1, 4)
+    )
+    provider = _UsageScriptProvider(
+        (
+            (None, (malformed_calls[0],)),
+            (None, ()),
+            (None, (malformed_calls[1],)),
+            (None, ()),
+            (None, (malformed_calls[2],)),
+        )
+    )
+    canonical = _CollectingAgentEventSink()
+
+    result = NativeToolReplSession(
+        provider=provider,
+        tool_registry={"echo": _FixtureEchoTool()},
+        agent_event_sink=canonical,
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("first\nsecond\nthird\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert provider.call_index == 5
+    assert result.status is HarnessStatus.FAILED
+    assert result.exit_code == 1
+    assert result.user_turn_count == 3
+    assert result.tool_invocation_count == 0
+    assert result.malformed_argument_count == 3
+    assert result.consecutive_malformed_streak == 3
+    assert result.error_type == "NativeToolLoopMalformedFatal"
+    assert result.error_message == "3 consecutive malformed tool calls"
+    assert [
+        event.result.outcome
+        for event in canonical.events
+        if isinstance(event, AgentRunCompleted)
+    ] == [
+        AgentRunOutcome.SUCCEEDED,
+        AgentRunOutcome.SUCCEEDED,
+        AgentRunOutcome.FAILED,
+    ]
+
+
 # ---------------------- one success resets the streak -----------------------
 
 
@@ -885,6 +942,65 @@ def test_budget_exhausted_emits_observation_without_invoking(tmp_path: Path):
     assert result.tool_invocation_count == 2
     assert result.budget_exhausted_count == 1
     assert "pipy v" in stderr  # chrome present
+
+
+def test_inner_iteration_cap_is_tool_budget_plus_two_and_exhaustion_is_nonterminal(
+    tmp_path: Path,
+) -> None:
+    provider = _UsageScriptProvider(
+        tuple(
+            (
+                None,
+                (
+                    _make_call(
+                        "echo",
+                        f'{{"text":"{index}"}}',
+                        correlation_id=f"budget-{index}",
+                    ),
+                ),
+            )
+            for index in range(1, 4)
+        )
+    )
+    canonical = _CollectingAgentEventSink()
+
+    result = NativeToolReplSession(
+        provider=provider,
+        tool_registry={"echo": _FixtureEchoTool()},
+        tool_budget=1,
+        agent_event_sink=canonical,
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("go\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert provider.call_index == 3
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert result.tool_invocation_count == 1
+    assert result.budget_exhausted_count == 2
+    assert [
+        event.result.content.value
+        for event in canonical.events
+        if isinstance(event, ToolCallCompleted)
+    ] == [
+        "1",
+        "tool budget exhausted (limit 1)",
+        "tool budget exhausted (limit 1)",
+    ]
+    assert [
+        event.outcome for event in canonical.events if isinstance(event, TurnCompleted)
+    ] == [
+        AgentTurnOutcome.SUCCEEDED,
+        AgentTurnOutcome.SUCCEEDED,
+        AgentTurnOutcome.SUCCEEDED,
+    ]
+    assert [
+        event.result.outcome
+        for event in canonical.events
+        if isinstance(event, AgentRunCompleted)
+    ] == [AgentRunOutcome.SUCCEEDED]
 
 
 # ---------------------- final text printed on stdout -----------------------
@@ -1546,16 +1662,19 @@ def test_rich_message_renderer_styles_scrollback_and_does_not_leak(
 
 def test_reload_rebinds_active_extension_provider_factory(tmp_path):
     marker = tmp_path / "marker.txt"
+    schema_marker = tmp_path / "schemas.json"
     marker.write_text("before", encoding="utf-8")
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     (extension_dir / "reload_provider.py").write_text(
+        "import json\n"
         "from datetime import datetime, timezone\n"
         "from pathlib import Path\n"
         "from pipy_harness.extensions import ExtensionProvider\n"
         "from pipy_harness.models import HarnessStatus\n"
         "from pipy_harness.native.models import ProviderResult\n"
         f"MARKER = Path({str(marker)!r})\n"
+        f"SCHEMA_MARKER = Path({str(schema_marker)!r})\n"
         "class _Port:\n"
         "    name = 'reloadext'\n"
         "    supports_tool_calls = True\n"
@@ -1563,6 +1682,9 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
         "        self.model_id = ctx.model_id\n"
         "        self.final_text = MARKER.read_text(encoding='utf-8')\n"
         "    def complete(self, request, **kwargs):\n"
+        "        SCHEMA_MARKER.write_text(json.dumps([\n"
+        "            tool.input_schema for tool in request.available_tools\n"
+        "        ]), encoding='utf-8')\n"
         "        now = datetime(2026, 6, 18, tzinfo=timezone.utc)\n"
         "        return ProviderResult(status=HarnessStatus.SUCCEEDED,\n"
         "            provider_name=self.name, model_id=self.model_id,\n"
@@ -1593,7 +1715,11 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
         persist_defaults=False,
     )
     provider = state.current_provider()
-    session = NativeToolReplSession(provider=provider, provider_state=state)
+    session = NativeToolReplSession(
+        provider=provider,
+        provider_state=state,
+        tool_registry={"echo": _FixtureEchoTool()},
+    )
     output_stream = io.StringIO()
 
     result = session.run(
@@ -1606,6 +1732,17 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
     assert result.status == HarnessStatus.SUCCEEDED
     assert "after" in output_stream.getvalue()
     assert "before" not in output_stream.getvalue()
+    schemas = json.loads(schema_marker.read_text(encoding="utf-8"))
+    assert schemas == [
+        {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "maxLength": 1024},
+            },
+            "required": ["text"],
+            "additionalProperties": False,
+        }
+    ]
 
 
 def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator(

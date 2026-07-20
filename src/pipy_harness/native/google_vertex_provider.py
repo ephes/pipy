@@ -50,6 +50,7 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.tools.base import materialize_tool_input_schema
 
 GOOGLE_VERTEX_ENDPOINT_TEMPLATE = (
     "https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/"
@@ -609,7 +610,7 @@ def _serialize_tool_for_gemini(tool: Any) -> dict[str, Any]:
     return {
         "name": tool.name,
         "description": tool.description,
-        "parameters": dict(tool.input_schema),
+        "parameters": materialize_tool_input_schema(tool.input_schema),
     }
 
 

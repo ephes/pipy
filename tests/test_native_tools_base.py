@@ -10,6 +10,7 @@ archive-safe `NativeToolResult` metadata.
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from pipy_harness.native.tools import (
     make_tool_request_id,
     validate_arguments,
 )
+from pipy_harness.native.tools.base import materialize_tool_input_schema
 
 
 SIMPLE_OBJECT_SCHEMA = {
@@ -43,6 +45,23 @@ SIMPLE_OBJECT_SCHEMA = {
 }
 
 
+class _TupleBackedMapping(Mapping[str, object]):
+    def __init__(self, items: tuple[tuple[str, object], ...]) -> None:
+        self._items = items
+
+    def __getitem__(self, key: str) -> object:
+        for candidate, value in self._items:
+            if candidate == key:
+                return value
+        raise KeyError(key)
+
+    def __iter__(self) -> Iterator[str]:
+        return (key for key, _value in self._items)
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+
 # ----------------------------- ToolDefinition -----------------------------
 
 
@@ -56,6 +75,85 @@ def test_tool_definition_accepts_minimal_object_schema():
     assert definition.name == "read"
     assert definition.description == "Read a workspace file."
     assert definition.input_schema["type"] == "object"
+
+
+def test_materialize_tool_input_schema_detaches_mutable_containers() -> None:
+    enum_values = ["text", "binary"]
+    path_schema: dict[str, object] = {
+        "type": "string",
+        "enum": enum_values,
+    }
+    properties: dict[str, object] = {"path": path_schema}
+    schema: dict[str, object] = {
+        "type": "object",
+        "properties": properties,
+        "required": ["path"],
+    }
+
+    materialized = materialize_tool_input_schema(schema)
+
+    assert materialized == schema
+    assert materialized is not schema
+    assert materialized["properties"] is not properties
+    materialized_properties = materialized["properties"]
+    assert isinstance(materialized_properties, dict)
+    materialized_path = materialized_properties["path"]
+    assert isinstance(materialized_path, dict)
+    assert materialized_path is not path_schema
+    assert materialized_path["enum"] is not enum_values
+
+    enum_values.append("changed")
+    assert materialized_path["enum"] == ["text", "binary"]
+    materialized_enum = materialized_path["enum"]
+    assert isinstance(materialized_enum, list)
+    materialized_enum.append("detached")
+    assert enum_values == ["text", "binary", "changed"]
+
+
+def test_materialize_tool_input_schema_thaws_tuple_backed_graph() -> None:
+    schema = _TupleBackedMapping(
+        (
+            ("type", "object"),
+            (
+                "properties",
+                _TupleBackedMapping(
+                    (
+                        (
+                            "path",
+                            _TupleBackedMapping(
+                                (("type", "string"), ("enum", ("a", "b")))
+                            ),
+                        ),
+                    )
+                ),
+            ),
+            ("required", ("path",)),
+            ("additionalProperties", False),
+        )
+    )
+
+    assert materialize_tool_input_schema(schema) == {
+        "type": "object",
+        "properties": {"path": {"type": "string", "enum": ["a", "b"]}},
+        "required": ["path"],
+        "additionalProperties": False,
+    }
+
+
+@pytest.mark.parametrize("unsupported", [object(), {"value"}, float("nan")])
+def test_materialize_tool_input_schema_rejects_non_json_values(
+    unsupported: object,
+) -> None:
+    with pytest.raises(TypeError, match="JSON"):
+        materialize_tool_input_schema({"type": "object", "invalid": unsupported})
+
+
+def test_materialize_tool_input_schema_rejects_cycles() -> None:
+    cyclic: list[object] = []
+    cyclic.append(cyclic)
+
+    with pytest.raises(TypeError, match="cycles"):
+        materialize_tool_input_schema({"type": "object", "invalid": cyclic})
 
 
 def test_tool_definition_rejects_empty_or_oversized_name():

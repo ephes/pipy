@@ -6,7 +6,10 @@ from collections.abc import Mapping
 
 from pipy_harness.native.agent import AgentAssistantMessage, AgentToolResultMessage
 from pipy_harness.native.models import ProviderRequest
-from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.tools.base import (
+    ToolDefinition,
+    materialize_tool_input_schema,
+)
 
 
 def split_deferred_tools(
@@ -94,7 +97,7 @@ def responses_tool_search_items(
                     "type": "function",
                     "name": tool.name,
                     "description": tool.description,
-                    "parameters": dict(tool.input_schema),
+                    "parameters": materialize_tool_input_schema(tool.input_schema),
                     "strict": False,
                     "defer_loading": True,
                 }

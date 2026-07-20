@@ -20,6 +20,7 @@ from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
 from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.tools.base import materialize_tool_input_schema
 
 # Exceptions that a concurrent :meth:`CancelToken.cancel` can surface from a
 # blocked ``http.client`` read once it shuts the socket down. The expected
@@ -378,7 +379,7 @@ def serialize_tool_for_chat_completions(tool: Any) -> dict[str, Any]:
         "function": {
             "name": tool.name,
             "description": tool.description,
-            "parameters": dict(tool.input_schema),
+            "parameters": materialize_tool_input_schema(tool.input_schema),
         },
     }
 
@@ -389,7 +390,7 @@ def serialize_tool_for_anthropic(tool: Any) -> dict[str, Any]:
     return {
         "name": tool.name,
         "description": tool.description,
-        "input_schema": dict(tool.input_schema),
+        "input_schema": materialize_tool_input_schema(tool.input_schema),
     }
 
 
@@ -400,7 +401,7 @@ def serialize_tool_for_responses(tool: Any) -> dict[str, Any]:
         "type": "function",
         "name": tool.name,
         "description": tool.description,
-        "parameters": dict(tool.input_schema),
+        "parameters": materialize_tool_input_schema(tool.input_schema),
     }
 
 

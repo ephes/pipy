@@ -1302,10 +1302,16 @@ and the live `scripts/tmux_answer_verify.sh`.
     snapshot, serial hooks cannot re-enable a removed name, and a provider call
     outside the exact final advertised set becomes the normal budget-consuming
     policy error before semantic hooks, execution, result hooks, or invocation
-    counting. `ctx.set_active_tools(...)` still mutates the active set for later
+    counting. Phase 2.2b.5b routes the same ordering through the canonical
+    loop-policy transition plus a synchronous product adapter; `tool_result`
+    hooks can transform content but cannot replace request identities, error
+    status, or added-tool metadata. `ctx.set_active_tools(...)` still mutates the active set for later
     provider iterations; it does not retroactively alter the already-built
     current request without an explicit narrowing transform. Gate
     `scripts/parity_checks/extension_live_session_conformance.py --json`.
+    Extension-registered provider ports continue to receive ordinary recursively
+    JSON-serializable tool-schema dictionaries/lists; the immutable authorization
+    snapshot remains internal to the agent loop.
 14. Dynamic extension CLI flags — **landed for `pipy repl` tool-loop runs**:
     `ExtensionFlag`/`RegisteredFlag`, `api.register_flag(...)`,
     `api.get_flag(...)`, `extension_flags(...)`, and

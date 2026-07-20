@@ -22,15 +22,25 @@ _REQUEST_ALLOWED_DIRECT_IMPORTS = frozenset(
         "__future__.annotations",
         "collections.abc",
         "collections.abc.Iterable",
+        "collections.abc.Mapping",
         "dataclasses",
         "dataclasses.dataclass",
         "dataclasses.replace",
+        "pathlib",
+        "pathlib.Path",
+        "pipy_harness.native.agent.content",
+        "pipy_harness.native.agent.content.ProductContent",
         "pipy_harness.native.agent.messages",
+        "pipy_harness.native.agent.messages.AgentAssistantMessage",
         "pipy_harness.native.agent.messages.AgentMessage",
+        "pipy_harness.native.agent.messages.AgentToolCall",
+        "pipy_harness.native.agent.messages.AgentToolResultMessage",
+        "pipy_harness.native.agent.messages.AgentUserMessage",
         "pipy_harness.native.models",
         "pipy_harness.native.models.ProviderRequest",
         "pipy_harness.native.tools.base",
         "pipy_harness.native.tools.base.ToolDefinition",
+        "sys",
     }
 )
 
@@ -47,12 +57,8 @@ _PRODUCT_REQUEST_ALLOWED_DIRECT_IMPORTS = frozenset(
         "dataclasses.dataclass",
         "dataclasses.replace",
         "inspect",
-        "pathlib",
-        "pathlib.Path",
-        "pipy_harness.native.agent.active_input",
-        "pipy_harness.native.agent.active_input.AgentActiveInput",
-        "pipy_harness.native.agent.messages",
-        "pipy_harness.native.agent.messages.AgentMessage",
+        "pipy_harness.native.agent.loop_policy",
+        "pipy_harness.native.agent.loop_policy.AgentProviderRequestPolicyInput",
         "pipy_harness.native.agent.request",
         "pipy_harness.native.agent.request.AgentProviderRequestSnapshot",
         "pipy_harness.native.agent.request.snapshot_provider_request",
@@ -64,11 +70,6 @@ _PRODUCT_REQUEST_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.extension_runtime.HookHandler",
         "pipy_harness.native.extension_runtime.ProviderRequestTransform",
         "pipy_harness.native.extension_runtime.dispatch_before_provider_request_hooks",
-        "pipy_harness.native.image_attachment",
-        "pipy_harness.native.image_attachment.ProviderImageAttachment",
-        "pipy_harness.native.models",
-        "pipy_harness.native.models.ProviderHeaderCallback",
-        "pipy_harness.native.models.ProviderRequest",
         "pipy_harness.native.tools.base",
         "pipy_harness.native.tools.base.ToolDefinition",
         "typing",
@@ -456,9 +457,13 @@ pipy_package.native = native_package
 first = importlib.import_module({first!r})
 second = importlib.import_module({second!r})
 request = importlib.import_module({REQUEST_MODULE!r})
+loop_policy = importlib.import_module("pipy_harness.native.agent.loop_policy")
 product = importlib.import_module({PRODUCT_REQUEST_MODULE!r})
 assert request.AgentProviderRequestSnapshot.__module__ == {REQUEST_MODULE!r}
-assert product.NativeProviderRequestInput.__module__ == {PRODUCT_REQUEST_MODULE!r}
+assert loop_policy.AgentProviderRequestPolicyInput.__module__ == (
+    "pipy_harness.native.agent.loop_policy"
+)
+assert not hasattr(product, "NativeProviderRequestInput")
 assert product.prepare_provider_request.__module__ == {PRODUCT_REQUEST_MODULE!r}
 """
         completed = subprocess.run(
@@ -595,7 +600,7 @@ class BlockForbidden(importlib.abc.MetaPathFinder):
 
 sys.meta_path.insert(0, BlockForbidden())
 product = importlib.import_module({PRODUCT_REQUEST_MODULE!r})
-assert product.NativeProviderRequestInput.__module__ == {PRODUCT_REQUEST_MODULE!r}
+assert not hasattr(product, "NativeProviderRequestInput")
 assert product.prepare_provider_request.__module__ == {PRODUCT_REQUEST_MODULE!r}
 assert all(sys.modules[name] is None for name in PRESEEDED)
 """

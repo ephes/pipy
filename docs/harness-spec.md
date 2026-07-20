@@ -1562,6 +1562,40 @@ Phase 2.2b.5a renames that already-shipped one-provider executor module to
 headless provider/tool-cycle owner. The cut is internal and behavior-preserving:
 it adds no alias, public export, format change, queue transfer, or async path.
 
+Phase 2.2b.5b adds canonical typed collaborators without moving the cycle. The
+frozen `AgentToolPolicyState` and pure transitions own tool-budget precedence,
+request-snapshot authorization, product-policy admission, session-wide
+malformed accounting/fatal-after-three, settled invocation accounting, and
+interruption precedence. Tool-budget exhaustion remains an ordinary error tool
+result and never becomes a terminal run or turn outcome. There is no separate
+agent token-budget policy. The canonical named 200-call maximum is also the
+product session/CLI maximum, preventing the two validation layers from drifting.
+Provider status normalization preserves usage-before-
+failure publication, the optional diagnostic response status, effective
+provider naming, and zero retry.
+
+`AgentProviderRequestPolicyInput` explicitly rebuilds the shallowly frozen
+`ProviderRequest` with detached tuple-backed immutable tool-schema mappings and
+sequences. Wrong scalar, canonical-value, nested-schema, and subclass
+substitutions fail closed, including callback-returned snapshots before provider
+execution. A distinct provider-bound request recursively materializes those
+schemas back into ordinary JSON dictionaries and lists before every built-in or
+extension `ProviderPort` invocation, preserving existing wire shapes without
+retaining a mutable reference. The immutable snapshot remains separate and
+authoritative for response-tool authorization.
+
+`NativeAgentProviderRequestPolicy` and `NativeAgentToolPolicy` bind exact
+synchronous product callbacks at the composition seam. Extension `tool_call`
+preflight runs only after budget and authorization; `tool_result` postflight can
+replace only canonical `ProductContent`, so identities, error status, and
+added-tool metadata cannot be substituted. Callback failures propagate immediately.
+Static, recursive, import-order, and fresh-process gates keep both the canonical
+policy and product adapters free of terminal/UI, session/persistence,
+extension-runtime, concrete provider/tool, automation, capture, and
+metadata-archive dependencies. Queue/RPC lifecycle, persistence, rendering,
+compaction, and the actual cycle remain in `NativeToolReplSession` for the
+ordered 2.2b.5c–d cuts.
+
 ### Canonical Agent Tool-Capability Port
 
 Phase 2.2b.3 adds the runtime-checkable, synchronous

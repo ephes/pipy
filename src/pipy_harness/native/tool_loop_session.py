@@ -15,7 +15,7 @@ Invariants pinned by the focused tests:
 
 - The session refuses providers that do not advertise
   `supports_tool_calls=True`.
-- `--tool-budget` is bounded to `[1, 25]`; the constructor validates the
+- `--tool-budget` is bounded to `[1, 200]`; the constructor validates the
   value.
 - Each user turn allows at most `tool_budget` tool invocations; subsequent
   model-emitted calls receive a deterministic "tool budget exhausted"
@@ -104,6 +104,18 @@ from pipy_harness.native.agent.history import (
     compact_agent_history,
     should_compact_agent_history,
 )
+from pipy_harness.native.agent.loop_policy import (
+    MAX_AGENT_TOOL_BUDGET,
+    AgentProviderRequestPolicyInput,
+    AgentProviderStatusAction,
+    AgentToolPolicyAction,
+    AgentToolPolicyDecision,
+    AgentToolPolicyState,
+    apply_tool_policy_decision,
+    decide_tool_admission,
+    normalize_provider_status,
+    settle_tool_execution,
+)
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
 )
@@ -111,6 +123,7 @@ from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
     ProviderTurnInterruption,
 )
+from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputKind,
@@ -337,9 +350,13 @@ from pipy_harness.native.tool_capabilities import (
     ToolFilterOptions,
 )
 from pipy_harness.native.agent_request import (
-    NativeProviderRequestInput,
     NativeProviderRequestHookContext,
     prepare_provider_request,
+)
+from pipy_harness.native.agent_loop_policy import (
+    NativeAgentProviderRequestPolicy,
+    NativeAgentToolPolicy,
+    materialize_provider_request,
 )
 
 
@@ -1331,8 +1348,7 @@ class NativeToolReplSession:
     the loop. `tool_budget` is per-user-turn and capped at
     `MAX_TOOL_BUDGET`. The session reads one user turn per `readline()`
     call from `input_stream` and stops when the stream returns an empty
-    string (EOF) or the malformed-tool-call streak reaches
-    `MAX_MALFORMED_STREAK`.
+    string (EOF) or the malformed-tool-call streak reaches three.
     """
 
     provider: ProviderPort
@@ -1400,8 +1416,7 @@ class NativeToolReplSession:
     initial_extension_batch: ExtensionActivationBatch | None = None
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
-    MAX_TOOL_BUDGET: ClassVar[int] = 200
-    MAX_MALFORMED_STREAK: ClassVar[int] = 3
+    MAX_TOOL_BUDGET: ClassVar[int] = MAX_AGENT_TOOL_BUDGET
 
     def __post_init__(self) -> None:
         if self.auto_trust_on_reload_cwd is not None:
@@ -1701,6 +1716,77 @@ class NativeToolReplSession:
                 return None
             return _dispatch_extension_provider_headers
 
+        def _prepare_agent_provider_request(
+            policy_input: AgentProviderRequestPolicyInput,
+        ) -> AgentProviderRequestSnapshot:
+            return prepare_provider_request(
+                policy_input,
+                extension_before_provider_request_hooks,
+                NativeProviderRequestHookContext(
+                    cwd=str(cwd),
+                    has_ui=terminal_ui is not None,
+                    notify_sink=_extension_notify,
+                    ui_driver=extension_ui_driver,
+                    set_active_tools_fn=extension_set_active_tools,
+                    set_model_fn=lambda _reference: False,
+                    set_thinking_level_fn=extension_set_thinking_level,
+                    flags=extension_flag_values,
+                    project_trusted=settings.project_trusted,
+                ),
+            )
+
+        def _apply_extension_tool_policy(
+            call: AgentToolCall,
+        ) -> AgentToolPolicyDecision:
+            tool_block = dispatch_tool_call_hooks(
+                extension_tool_call_hooks_,
+                tool_name=call.tool_name,
+                tool_input=_parse_tool_input(call.arguments_json.value),
+                cwd=str(cwd),
+                has_ui=terminal_ui is not None,
+                notify_sink=_extension_notify,
+                ui_driver=extension_ui_driver,
+                set_active_tools_fn=extension_set_active_tools,
+                set_model_fn=lambda _reference: False,
+                set_thinking_level_fn=extension_set_thinking_level,
+                flags=extension_flag_values,
+                project_trusted=settings.project_trusted,
+            )
+            if tool_block is None:
+                return AgentToolPolicyDecision()
+            return AgentToolPolicyDecision(ProductContent(tool_block.reason))
+
+        def _transform_extension_tool_result(
+            call: AgentToolCall,
+            result: AgentToolResultMessage,
+        ) -> ProductContent:
+            if not extension_tool_result_hooks:
+                return result.content
+            transformed = dispatch_tool_result_hooks(
+                extension_tool_result_hooks,
+                tool_name=call.tool_name,
+                content=result.content.value,
+                is_error=result.is_error,
+                cwd=str(cwd),
+                has_ui=terminal_ui is not None,
+                notify_sink=_extension_notify,
+                ui_driver=extension_ui_driver,
+                set_active_tools_fn=extension_set_active_tools,
+                set_model_fn=lambda _reference: False,
+                set_thinking_level_fn=extension_set_thinking_level,
+                flags=extension_flag_values,
+                project_trusted=settings.project_trusted,
+            )
+            return ProductContent(transformed)
+
+        provider_request_policy = NativeAgentProviderRequestPolicy(
+            _prepare_agent_provider_request
+        )
+        agent_tool_policy = NativeAgentToolPolicy(
+            _apply_extension_tool_policy,
+            _transform_extension_tool_result,
+        )
+
         # Adapt activated extension tools at the product composition seam. The
         # shared built-in registry is never mutated; the capability facade owns
         # the run-local merged registry, visibility, and executor context.
@@ -1836,6 +1922,17 @@ class NativeToolReplSession:
         malformed_argument_count = 0
         consecutive_malformed_streak = 0
         budget_exhausted_count = 0
+
+        def _sync_tool_policy_counters(state: AgentToolPolicyState) -> None:
+            nonlocal tool_invocation_count
+            nonlocal malformed_argument_count
+            nonlocal consecutive_malformed_streak
+            nonlocal budget_exhausted_count
+            tool_invocation_count = state.tool_invocation_count
+            malformed_argument_count = state.malformed_argument_count
+            consecutive_malformed_streak = state.consecutive_malformed_streak
+            budget_exhausted_count = state.budget_exhausted_count
+
         file_reference_count = 0
         file_reference_loaded_count = 0
         file_reference_failed_count = 0
@@ -4146,7 +4243,13 @@ class NativeToolReplSession:
                 if resource_provider_text is None:
                     prompt_history_store.record(user_input)
 
-                invocations_this_turn = 0
+                tool_policy_state = AgentToolPolicyState(
+                    tool_budget=self.tool_budget,
+                    tool_invocation_count=tool_invocation_count,
+                    malformed_argument_count=malformed_argument_count,
+                    consecutive_malformed_streak=consecutive_malformed_streak,
+                    budget_exhausted_count=budget_exhausted_count,
+                )
                 inner_iteration_cap = self.tool_budget + 2
                 inner_iterations = 0
 
@@ -4170,41 +4273,36 @@ class NativeToolReplSession:
                     ):
                         notice = apply_compaction("auto")
                         self._emit_diagnostic(terminal_ui, error_stream, notice)
-                    provider_request_snapshot = prepare_provider_request(
-                        NativeProviderRequestInput(
-                            system_prompt=agent_system_prompt + compaction_summary,
-                            user_prompt=provider_user_input,
-                            provider_name=effective_provider_name,
-                            model_id=effective_model_id,
-                            cwd=cwd,
-                            messages=active_input.request_messages(messages),
+                    provider_request_snapshot = provider_request_policy.prepare(
+                        AgentProviderRequestPolicyInput(
+                            baseline=ProviderRequest(
+                                system_prompt=(
+                                    agent_system_prompt + compaction_summary
+                                ),
+                                user_prompt=provider_user_input,
+                                provider_name=effective_provider_name,
+                                model_id=effective_model_id,
+                                cwd=cwd,
+                                messages=active_input.request_messages(messages),
+                                available_tools=available_tools,
+                                # Image attachments belong to the current user
+                                # message, so they ride only the first provider
+                                # call of this turn; later tool-loop iterations
+                                # append tool results (also user-role), and
+                                # re-sending would mis-attach the image.
+                                attachments=(
+                                    turn_attachments if inner_iterations == 1 else ()
+                                ),
+                                provider_header_callback=(
+                                    _active_provider_header_callback()
+                                ),
+                            ),
                             active_input=active_input,
-                            available_tools=available_tools,
-                            # Image attachments belong to the current user message,
-                            # so they ride only the first provider call of this turn;
-                            # later tool-loop iterations append tool results (also
-                            # user-role), and re-sending would mis-attach the image.
-                            attachments=(
-                                turn_attachments if inner_iterations == 1 else ()
-                            ),
-                            provider_header_callback=(
-                                _active_provider_header_callback()
-                            ),
-                        ),
-                        extension_before_provider_request_hooks,
-                        NativeProviderRequestHookContext(
-                            cwd=str(cwd),
-                            has_ui=terminal_ui is not None,
-                            notify_sink=_extension_notify,
-                            ui_driver=extension_ui_driver,
-                            set_active_tools_fn=extension_set_active_tools,
-                            set_model_fn=lambda _reference: False,
-                            set_thinking_level_fn=extension_set_thinking_level,
-                            flags=extension_flag_values,
-                            project_trusted=settings.project_trusted,
                         ),
                     )
-                    provider_request = provider_request_snapshot.request
+                    provider_request = materialize_provider_request(
+                        provider_request_snapshot
+                    )
                     renderer.refresh_tool_renderers(
                         {
                             name: extension_tool_renderers[name]
@@ -4289,25 +4387,28 @@ class NativeToolReplSession:
                             run_usage_accumulator.last_total_tokens,
                         )
                     )
-                    if provider_result.status != HarnessStatus.SUCCEEDED:
-                        error_type = provider_result.error_type or "ProviderFailed"
-                        error_message = (
-                            provider_result.error_message
-                            or f"provider {effective_provider_name!r} returned status "
-                            f"{provider_result.status.value!r} without a final response"
-                        )
+                    provider_status = normalize_provider_status(
+                        provider_result,
+                        provider_name=effective_provider_name,
+                    )
+                    if provider_status.action is AgentProviderStatusAction.FAILED:
+                        run_failure = provider_status.failure
+                        assert run_failure is not None
+                        error_type = run_failure.error_type
+                        error_message = run_failure.message.value
                         unresolved_provider_error_type = error_type
                         unresolved_provider_error_message = error_message
-                        safe_metadata = provider_result.metadata or {}
                         diagnostic_suffix = ""
-                        response_status = safe_metadata.get("response_status")
-                        if isinstance(response_status, str) and response_status:
-                            diagnostic_suffix = f" (response_status={response_status})"
-                        run_failure = AgentFailure(
-                            error_type,
-                            ProductContent(error_message),
+                        if provider_status.response_status is not None:
+                            diagnostic_suffix = (
+                                f" (response_status={provider_status.response_status})"
+                            )
+                        emitter.emit(
+                            ProviderFailed(
+                                run_failure,
+                                will_retry=provider_status.will_retry,
+                            )
                         )
-                        emitter.emit(ProviderFailed(run_failure, will_retry=False))
                         # Surface the failure on the error stream but keep the
                         # REPL alive: a transient HTTP error from a single
                         # provider turn (e.g. a 503 the retry helper exhausted
@@ -4388,8 +4489,14 @@ class NativeToolReplSession:
                     tool_interrupted_turn = False
                     tool_interruption_reason: AgentCancellationReason | None = None
                     for call_index, call in enumerate(tool_calls):
-                        if invocations_this_turn >= self.tool_budget:
-                            budget_exhausted_count += 1
+                        admission = decide_tool_admission(
+                            tool_policy_state,
+                            provider_request_snapshot,
+                            call,
+                        )
+                        if admission.action is AgentToolPolicyAction.BUDGET_EXHAUSTED:
+                            tool_policy_state = admission.state
+                            _sync_tool_policy_counters(tool_policy_state)
                             budget_observation = tool_capabilities.error_result(
                                 call,
                                 f"tool budget exhausted (limit {self.tool_budget})",
@@ -4406,7 +4513,7 @@ class NativeToolReplSession:
                             run_effect_sink.emit(AppendAgentMessage(budget_observation))
                             continue
 
-                        if not provider_request_snapshot.authorizes(call.tool_name):
+                        if admission.action is AgentToolPolicyAction.UNAUTHORIZED:
                             unauthorized_observation = tool_capabilities.error_result(
                                 call,
                                 f"unknown tool: {call.tool_name}",
@@ -4423,32 +4530,27 @@ class NativeToolReplSession:
                             run_effect_sink.emit(
                                 AppendAgentMessage(unauthorized_observation)
                             )
-                            invocations_this_turn += 1
+                            tool_policy_state = admission.state
+                            _sync_tool_policy_counters(tool_policy_state)
                             continue
 
+                        assert admission.action is AgentToolPolicyAction.EXECUTE
                         emitter.emit(ToolCallStarted(turn_index, call))
                         # Extension `tool_call` policy gate: a registered hook
                         # may inspect the live tool name + parsed input and
                         # return a ToolBlock to block the call. The raw input
                         # is inspected live but never archived.
-                        tool_block = dispatch_tool_call_hooks(
-                            extension_tool_call_hooks_,
-                            tool_name=call.tool_name,
-                            tool_input=_parse_tool_input(call.arguments_json.value),
-                            cwd=str(cwd),
-                            has_ui=terminal_ui is not None,
-                            notify_sink=_extension_notify,
-                            ui_driver=extension_ui_driver,
-                            set_active_tools_fn=extension_set_active_tools,
-                            set_model_fn=lambda _reference: False,
-                            set_thinking_level_fn=extension_set_thinking_level,
-                            flags=extension_flag_values,
-                            project_trusted=settings.project_trusted,
+                        policy_decision = agent_tool_policy.before_execute(call)
+                        policy_transition = apply_tool_policy_decision(
+                            admission.state,
+                            policy_decision,
                         )
-                        if tool_block is not None:
+                        if policy_transition.action is AgentToolPolicyAction.BLOCKED:
+                            assert policy_decision.blocked_reason is not None
                             blocked_observation = tool_capabilities.error_result(
                                 call,
-                                f"blocked by extension: {tool_block.reason}",
+                                "blocked by extension: "
+                                f"{policy_decision.blocked_reason.value}",
                             )
                             emitter.emit(
                                 ToolCallCompleted(
@@ -4466,8 +4568,10 @@ class NativeToolReplSession:
                             # cannot drive the loop unbounded. It is not a real
                             # tool invocation, so `tool_invocation_count` is
                             # left unchanged.
-                            invocations_this_turn += 1
+                            tool_policy_state = policy_transition.state
+                            _sync_tool_policy_counters(tool_policy_state)
                             continue
+                        assert policy_transition.action is AgentToolPolicyAction.EXECUTE
                         tool_started_at = datetime.now(UTC)
                         execution_outcome = tool_capabilities.execute(
                             call,
@@ -4479,39 +4583,25 @@ class NativeToolReplSession:
                             ),
                         )
                         observation = execution_outcome.result
-                        tool_interrupt = execution_outcome.interruption
-                        tool_call_malformed = execution_outcome.malformed_arguments
                         # tool_result hooks may transform the finalized,
                         # bounded observation before the emitter, renderer,
                         # model, and session tree see it. AgentToolResultMessage is
                         # frozen, so a changed result is rebuilt.
-                        if extension_tool_result_hooks:
-                            _transformed = dispatch_tool_result_hooks(
-                                extension_tool_result_hooks,
-                                tool_name=call.tool_name,
-                                content=observation.content.value,
+                        transformed_content = agent_tool_policy.transform_result(
+                            call,
+                            observation,
+                        )
+                        if transformed_content != observation.content:
+                            observation = AgentToolResultMessage(
+                                tool_request_id=observation.tool_request_id,
+                                tool_name=observation.tool_name,
+                                content=transformed_content,
                                 is_error=observation.is_error,
-                                cwd=str(cwd),
-                                has_ui=terminal_ui is not None,
-                                notify_sink=_extension_notify,
-                                ui_driver=extension_ui_driver,
-                                set_active_tools_fn=extension_set_active_tools,
-                                set_model_fn=lambda _reference: False,
-                                set_thinking_level_fn=extension_set_thinking_level,
-                                flags=extension_flag_values,
-                                project_trusted=settings.project_trusted,
+                                provider_correlation_id=(
+                                    observation.provider_correlation_id
+                                ),
+                                added_tool_names=observation.added_tool_names,
                             )
-                            if _transformed != observation.content.value:
-                                observation = AgentToolResultMessage(
-                                    tool_request_id=observation.tool_request_id,
-                                    tool_name=observation.tool_name,
-                                    content=ProductContent(_transformed),
-                                    is_error=observation.is_error,
-                                    provider_correlation_id=(
-                                        observation.provider_correlation_id
-                                    ),
-                                    added_tool_names=observation.added_tool_names,
-                                )
                         tool_ended_at = datetime.now(UTC)
                         tool_duration = (
                             tool_ended_at - tool_started_at
@@ -4524,10 +4614,11 @@ class NativeToolReplSession:
                             )
                         )
                         turn_tool_results.append(observation)
-                        if tool_interrupt in {
-                            ToolExecutionInterruption.OPERATOR_ABORT,
-                            ToolExecutionInterruption.LOCAL_COMMAND,
-                        }:
+                        settlement = settle_tool_execution(
+                            tool_policy_state,
+                            execution_outcome,
+                        )
+                        if settlement.action is AgentToolPolicyAction.INTERRUPTED:
                             messages.append(observation)
                             run_effect_sink.emit(AppendAgentMessage(observation))
                             for skipped_call in tool_calls[call_index + 1 :]:
@@ -4541,36 +4632,29 @@ class NativeToolReplSession:
                             tool_interrupted_turn = True
                             tool_interruption_reason = (
                                 AgentCancellationReason.LOCAL_COMMAND
-                                if tool_interrupt
+                                if settlement.interruption
                                 is ToolExecutionInterruption.LOCAL_COMMAND
                                 else AgentCancellationReason.OPERATOR_ABORT
                             )
                             break
-                        if tool_call_malformed:
-                            malformed_argument_count += 1
-                            consecutive_malformed_streak += 1
+                        tool_policy_state = settlement.state
+                        _sync_tool_policy_counters(tool_policy_state)
+                        if settlement.action is AgentToolPolicyAction.MALFORMED:
                             messages.append(observation)
                             run_effect_sink.emit(AppendAgentMessage(observation))
-                            if (
-                                consecutive_malformed_streak
-                                >= self.MAX_MALFORMED_STREAK
-                            ):
+                            if settlement.failure is not None:
                                 self._emit_diagnostic(
                                     terminal_ui,
                                     error_stream,
-                                    (
-                                        "pipy: tool-loop ended after "
-                                        f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
-                                        "tool calls"
-                                    ),
+                                    "pipy: tool-loop ended after "
+                                    f"{settlement.failure.message.value}",
                                 )
+                                run_failure = settlement.failure
                                 fatal = True
                                 break
                             continue
 
-                        invocations_this_turn += 1
-                        tool_invocation_count += 1
-                        consecutive_malformed_streak = 0
+                        assert settlement.action is AgentToolPolicyAction.SETTLED
                         messages.append(observation)
                         run_effect_sink.emit(AppendAgentMessage(observation))
 
@@ -4581,13 +4665,7 @@ class NativeToolReplSession:
                         emitter.emit(RunCancelled(tool_interruption_reason))
                         turn_outcome = AgentTurnOutcome.CANCELLED
                     elif fatal:
-                        run_failure = AgentFailure(
-                            "NativeToolLoopMalformedFatal",
-                            ProductContent(
-                                f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
-                                "tool calls"
-                            ),
-                        )
+                        assert run_failure is not None
                         turn_outcome = AgentTurnOutcome.FAILED
                     emitter.emit(
                         TurnCompleted(
@@ -4636,11 +4714,8 @@ class NativeToolReplSession:
                             file_reference_failed_count=file_reference_failed_count,
                             compaction_count=compaction_count,
                             compaction_dropped_group_count=compaction_dropped_group_count_total,
-                            error_type="NativeToolLoopMalformedFatal",
-                            error_message=(
-                                f"{self.MAX_MALFORMED_STREAK} consecutive malformed "
-                                "tool calls"
-                            ),
+                            error_type=run_failure.error_type,
+                            error_message=run_failure.message.value,
                         )
 
                 # The inner loop settled this accepted prompt's agent run (no tool

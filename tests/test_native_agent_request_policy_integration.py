@@ -22,9 +22,9 @@ from pipy_harness.native.agent import (
     TurnCompleted,
 )
 from pipy_harness.native.agent.active_input import AgentActiveInput
+from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.agent_request import (
     NativeProviderRequestHookContext,
-    NativeProviderRequestInput,
     prepare_provider_request,
 )
 from pipy_harness.native.extension_runtime import ProviderRequestTransform
@@ -117,31 +117,31 @@ def _completed_results(sink: _EventSink) -> list[AgentToolResultMessage]:
     ]
 
 
-def _request_input(tmp_path: Path) -> NativeProviderRequestInput:
+def _request_input(tmp_path: Path) -> AgentProviderRequestPolicyInput:
     active_user_message = AgentUserMessage(ProductContent("user"))
-    return NativeProviderRequestInput(
-        system_prompt="system",
-        user_prompt="user",
-        provider_name="fake",
-        model_id="fake-model",
-        cwd=tmp_path,
-        messages=(active_user_message,),
-        active_input=AgentActiveInput(active_user_message),
-        available_tools=tuple(
-            ToolDefinition(
-                name=name,
-                description=f"Fixture {name} tool.",
-                input_schema={
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                    "additionalProperties": False,
-                },
-            )
-            for name in ("first", "second", "third")
+    return AgentProviderRequestPolicyInput(
+        baseline=ProviderRequest(
+            system_prompt="system",
+            user_prompt="user",
+            provider_name="fake",
+            model_id="fake-model",
+            cwd=tmp_path,
+            messages=(active_user_message,),
+            available_tools=tuple(
+                ToolDefinition(
+                    name=name,
+                    description=f"Fixture {name} tool.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": False,
+                    },
+                )
+                for name in ("first", "second", "third")
+            ),
         ),
-        attachments=(),
-        provider_header_callback=None,
+        active_input=AgentActiveInput(active_user_message),
     )
 
 
@@ -170,7 +170,7 @@ def test_serial_hooks_share_context_and_cumulative_fields_but_original_messages(
         assert event.system_prompt == "system"
         assert event.user_prompt == "user"
         assert event.available_tools == ("first", "second", "third")
-        assert event.messages is request_input.messages
+        assert event.messages is request_input.baseline.messages
         return ProviderRequestTransform(
             system_prompt="system::first",
             user_prompt="user::first",
@@ -182,7 +182,7 @@ def test_serial_hooks_share_context_and_cumulative_fields_but_original_messages(
         assert event.system_prompt == "system::first::prompt-only"
         assert event.user_prompt == "user::first::prompt-only"
         assert event.available_tools == ("second",)
-        assert event.messages is request_input.messages
+        assert event.messages is request_input.baseline.messages
         assert event.messages[0].content.value == "user"
         return ProviderRequestTransform(
             system_prompt="system::first::prompt-only::second",
@@ -235,7 +235,7 @@ def test_async_hooks_preserve_monotonic_narrowing(tmp_path: Path) -> None:
     async def second(event, _context):
         assert event.user_prompt == "async::first"
         assert event.available_tools == ("first", "third")
-        assert event.messages is request_input.messages
+        assert event.messages is request_input.baseline.messages
         return ProviderRequestTransform(
             user_prompt="async::second",
             available_tools=("second", "third"),
