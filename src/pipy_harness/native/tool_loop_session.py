@@ -1578,6 +1578,46 @@ class NativeToolReplSession:
 
         return self._coding_state.provider
 
+    @staticmethod
+    def _export_session(
+        argument: ProductContent | None,
+        *,
+        session_tree: NativeSessionTree,
+        cwd: Path,
+        system_prompt: str,
+        diagnostic: Callable[[str], None],
+    ) -> None:
+        """Export the active product session through the typed command effect."""
+
+        if type(argument) is not ProductContent:
+            raise TypeError(
+                "SESSION_EXPORT requires an exact ProductContent argument"
+            )
+        path_arg = parse_command_path_argument(argument.value)
+        try:
+            if path_arg and Path(path_arg).suffix.lower() == ".jsonl":
+                output_path = Path(path_arg).expanduser()
+                if not output_path.is_absolute():
+                    output_path = cwd / output_path
+                exported = export_native_branch_to_jsonl(session_tree, output_path)
+                diagnostic(f"pipy: exported native session JSONL to {exported}.")
+            else:
+                output_path = (
+                    Path(path_arg).expanduser()
+                    if path_arg
+                    else default_html_export_path(session_tree, cwd=cwd)
+                )
+                if not output_path.is_absolute():
+                    output_path = cwd / output_path
+                exported = export_native_session_to_html(
+                    session_tree,
+                    output_path,
+                    system_prompt=system_prompt,
+                )
+                diagnostic(f"pipy: exported native session HTML to {exported}.")
+        except NativeExportError as exc:
+            diagnostic(f"pipy: {exc}")
+
     def run(
         self,
         *,
@@ -3416,6 +3456,17 @@ class NativeToolReplSession:
                                         f"pipy: {success_text}"
                                         f"{sanitize_label_text(session_tree.session_id[:8])}."
                                     )
+                        elif (
+                            command_outcome.action
+                            is CodingCommandAction.SESSION_EXPORT
+                        ):
+                            self._export_session(
+                                command_outcome.argument,
+                                session_tree=session_tree,
+                                cwd=cwd,
+                                system_prompt=system_prompt,
+                                diagnostic=diag,
+                            )
                         elif command_outcome.action is CodingCommandAction.SETTINGS:
                             if terminal_ui is not None:
                                 self._drive_settings_dialog(
@@ -3932,34 +3983,6 @@ class NativeToolReplSession:
                             else "pipy: reloaded settings, keybindings, and resources."
                         ),
                     )
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/export" or command_text.startswith("/export "):
-                    argument = stripped[len("/export") :]
-                    path_arg = parse_command_path_argument(argument)
-                    try:
-                        if path_arg and Path(path_arg).suffix.lower() == ".jsonl":
-                            output_path = Path(path_arg).expanduser()
-                            if not output_path.is_absolute():
-                                output_path = cwd / output_path
-                            exported = export_native_branch_to_jsonl(
-                                session_tree, output_path
-                            )
-                            diag(f"pipy: exported native session JSONL to {exported}.")
-                        else:
-                            output_path = (
-                                Path(path_arg).expanduser()
-                                if path_arg
-                                else default_html_export_path(session_tree, cwd=cwd)
-                            )
-                            if not output_path.is_absolute():
-                                output_path = cwd / output_path
-                            exported = export_native_session_to_html(
-                                session_tree, output_path, system_prompt=system_prompt
-                            )
-                            diag(f"pipy: exported native session HTML to {exported}.")
-                    except NativeExportError as exc:
-                        diag(f"pipy: {exc}")
                     refresh_legacy_footer()
                     continue
                 if command_text == "/import" or command_text.startswith("/import "):

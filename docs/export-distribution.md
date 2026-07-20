@@ -45,6 +45,25 @@ Shipped user-facing surfaces:
 - Startup "newer version available" notices remain future polish; explicit
   `pipy update` version checks and opt-out handling are shipped.
 
+Phase 3.1d.4c is an ownership-only migration of the shipped `/export` surface.
+The headless command kernel classifies bare and literal-space forms into one
+exact full-content `SESSION_EXPORT` action carrying an exact `ProductContent`
+argument substring after `/export`, including empty, with the standard footer
+policy.
+The product composition interpreter remains responsible for path parsing and
+resolution, HTML/JSONL routing, the existing native-session export side effect,
+controlled `NativeExportError` diagnostics, and footer timing. Non-empty
+queued/RPC input still bypasses local command handling at the serialized RPC
+boundary.
+
+This extraction does not change export behavior. Bare `/export` still chooses
+the default HTML path; an explicit case-insensitive `.jsonl` suffix still
+selects active-branch JSONL; every other explicit path still selects full-tree
+HTML. Both formats retain the existing full-content credential-redaction
+boundary and remain separate from the metadata-only workflow archive. Top-
+level `--export`, `/import`, `/share`, formats, redaction, default paths, and
+filesystem semantics are outside this ownership slice.
+
 The first HTML template is an inline stdlib template in the Python module rather
 than a separate packaged data directory. It is still a single self-contained
 artifact with inlined CSS/JS and base64 session-data embedding; splitting it
@@ -585,7 +604,9 @@ passing and update this section when behavior changes.
 3. **`/export` command.** Wire the tool-loop product TUI `/export [path]` with
    Pi-style argument parsing (`.jsonl` vs HTML routing, quoted paths),
    in-memory/empty-session errors, and captured-stream diagnostics in
-   non-interactive mode.
+   non-interactive mode. Phase 3.1d.4c moves only its exact command
+   classification into the typed headless command kernel; composition keeps
+   argument parsing, routing, export effects, error mapping, and footer timing.
 4. **`--export` CLI.** Non-interactive export-and-exit on a native session file
    with optional output path, `Exported to:`/exit-code behavior, and `--help`
    text.

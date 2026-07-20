@@ -210,6 +210,7 @@ def test_positional_seed_preserves_exact_trailing_newlines(tmp_path: Path) -> No
         "/clone",
         "/trust",
         "/settings",
+        "/export full-session.html",
     ),
 )
 def test_registered_input_wake_bypasses_local_command_kernel(

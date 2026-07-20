@@ -1955,6 +1955,31 @@ enable. It does not correct it or move UI ownership. Export/import/share,
 `/reload`, resource/custom-command and extension precedence, the model-change/
 tree and extension-hook gap, Phase 3.2, Phase 3.3, and Phase 4 remain deferred.
 
+Slice 3.1d.4c adds exact full-content `SESSION_EXPORT` outcomes for bare and
+literal-space `/export` forms with the standard footer. The direct kernel
+carries the exact `ProductContent` argument, including empty, and remains an
+already-stripped classifier. Composition retains outer trimming, the submitted
+user bubble, and non-empty queued/RPC bypass at the existing serialized
+boundary.
+
+The composition interpreter retains Pi-shaped quoted/unquoted path parsing,
+home and cwd resolution, default HTML naming, and case-insensitive `.jsonl`
+routing. Bare `/export` remains a full-tree HTML export; explicit `.jsonl`
+paths remain re-chained active-branch exports; every other path remains HTML.
+The existing native export adapters own the filesystem side effect and
+credential redaction. Composition maps only `NativeExportError` through the
+sanitized diagnostic path, then applies the standard footer; successful writes
+also precede one standard footer. Uncontrolled failures keep their pre-
+diagnostic, pre-footer propagation cutoff. The superseded late branch is
+deleted.
+
+The action and argument are full-content product-control values, but no export
+path or transcript body is projected into the metadata-only workflow archive.
+This cut does not change HTML/JSONL or CLI formats, export redaction/defaults,
+queue reservation, idle settlement, terminal behavior, or persistence
+ownership. `/import`, `/share`, `/reload`, resource/custom-command and
+extension precedence, Phase 3.2, Phase 3.3, and Phase 4 remain deferred.
+
 Command/outcome values are full-content product-control data. They expose no
 serializer, SDK shape, persistence projection, or workflow-archive adapter.
 Exact direct-import allowlists plus recursive, fresh-process, and no-eager-

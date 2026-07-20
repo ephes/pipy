@@ -2022,13 +2022,44 @@ toggle's source of truth, while the actual dialog toggles the private
 `PromptHistoryStore` and startup only applies `promptHistory.enabled` as a one-
 way enable. A dedicated behavior slice must reconcile that contract.
 
+### Typed Export Command — SHIPPED (2026-07-20)
+
+Phase 3.1d.4c adds the exact full-content `SESSION_EXPORT` outcome for bare and
+literal-space `/export` forms with the standard footer. The action carries the
+exact `ProductContent` argument, including empty. Composition retains outer
+trimming, the submitted user bubble, and non-empty queued/RPC bypass at the
+existing serialized boundary.
+
+The composition interpreter continues to own Pi-shaped quoted/unquoted path
+parsing, home and cwd resolution, default HTML naming, format routing, export
+side effects, and controlled `NativeExportError` diagnostics. Bare `/export`
+remains full-tree HTML; an explicit case-insensitive `.jsonl` path remains a
+re-chained active-branch export; every other explicit path remains HTML. One
+standard footer follows success or a controlled export error. Uncontrolled
+write failures retain their earlier pre-diagnostic, pre-footer cutoff. The old
+late `/export` branch is deleted.
+
+HTML and JSONL remain full-content product exports behind the existing
+credential-redaction boundary. Their native-session bodies and the exact
+command path never enter the metadata-only workflow archive. This extraction
+does not change top-level CLI export behavior, formats, redaction, defaults,
+filesystem semantics, terminal behavior, or queue/RPC ownership.
+
+Focused and full verification passed, including export and automation/RPC
+conformance plus the PTY smoke gate. Mandatory Pi review returned explicit
+CLEAN with no findings, and the different-family Claude Fable review returned
+direct unscoped CLEAN with no omissions. `/import`, `/share`, `/reload`,
+resource/custom-command and extension precedence, the model-change/tree and
+extension-hook gap, Phase 3.2 registry metadata, Phase 3.3 write ownership, and
+Phase 4 UI movement remain outside this slice.
+
 **Next green slice — remaining typed external/UI-effect commands:** continue
-Phase 3.1d with a bounded export/import/share family selected by ownership
-audit, preserving external-I/O suspension, terminal behavior, public formats,
-privacy, and command precedence. Keep `/reload`, resource/custom-command and
-extension precedence, the model-change/tree and extension-hook gap, Phase 3.2
-registry metadata, Phase 3.3 write ownership, and Phase 4 UI movement outside
-that cut.
+Phase 3.1d with a separately bounded `/import` or `/share` ownership cut after
+3.1d.4c is green and reviewed. Preserve external-I/O suspension, terminal
+behavior, public formats, privacy, and command precedence. Keep `/reload`,
+resource/custom-command and extension precedence, the model-change/tree and
+extension-hook gap, Phase 3.2 registry metadata, Phase 3.3 write ownership, and
+Phase 4 UI movement outside that cut.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

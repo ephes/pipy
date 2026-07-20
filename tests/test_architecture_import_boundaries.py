@@ -349,6 +349,7 @@ _CODING_COMMANDS_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.coding.product_session",
     "pipy_harness.native.coding.session",
     "pipy_harness.native.coding.state",
+    "pipy_harness.native.export_distribution",
     "pipy_harness.native.models",
     "pipy_harness.native.provider",
     "pipy_harness.native.tools",
@@ -2087,6 +2088,7 @@ def test_coding_commands_rule_blocks_outer_runtime_imports(tmp_path: Path) -> No
         """\
 import pipy_harness.native.agent.content
 import pipy_harness.native.coding.state
+import pipy_harness.native.export_distribution
 import pipy_harness.native.extension_runtime
 import pipy_harness.native.project_trust
 import pipy_harness.native.settings
@@ -2105,11 +2107,12 @@ import pipy_harness.native.tui
         for violation in _evaluate_rule(source_root, commands_rule)
     } == {
         (commands_path, "pipy_harness.native.coding.state", 2),
-        (commands_path, "pipy_harness.native.extension_runtime", 3),
-        (commands_path, "pipy_harness.native.project_trust", 4),
-        (commands_path, "pipy_harness.native.settings", 5),
-        (commands_path, "pipy_harness.native.session_tree", 6),
-        (commands_path, "pipy_harness.native.tui", 7),
+        (commands_path, "pipy_harness.native.export_distribution", 3),
+        (commands_path, "pipy_harness.native.extension_runtime", 4),
+        (commands_path, "pipy_harness.native.project_trust", 5),
+        (commands_path, "pipy_harness.native.settings", 6),
+        (commands_path, "pipy_harness.native.session_tree", 7),
+        (commands_path, "pipy_harness.native.tui", 8),
     }
 
 
@@ -2403,6 +2406,7 @@ def test_coding_commands_import_stays_headless_in_a_fresh_process() -> None:
         "pipy_harness.native.coding.product_session",
         "pipy_harness.native.coding.session",
         "pipy_harness.native.coding.state",
+        "pipy_harness.native.export_distribution",
         "pipy_harness.native.models",
         "pipy_harness.native.provider",
         "pipy_harness.native.tools",
