@@ -1746,6 +1746,46 @@ until Phase 3.3 relocates write ownership, preventing duplicate or earlier
 writes. Static exact-allowlist, recursive, fresh-process, and no-eager-export
 tests enforce the boundary.
 
+### Headless Coding-Command Outcomes
+
+Phase 3.1d moves the imperative product command families behind closed typed
+outcomes in sequential monolith-touching cuts. It does not create the Phase 3.2
+registry: command names, aliases, descriptions, availability, menu/help data,
+and completion metadata remain in their existing owners until that atomic
+replacement.
+
+Slice 3.1d.1 introduces `native.coding.commands` with exact frozen/slotted
+command outcomes and closed kind, composition-action, and footer-policy enums.
+The headless kernel classifies only already-stripped, locally eligible product
+input. It owns blank input, `/exit`, `/quit`, `/hotkeys`, `/changelog`, `/copy`,
+and `/session`; all other input returns the exact unhandled outcome to the one
+remaining imperative precedence skeleton. No migrated command retains a second
+branch in `NativeToolReplSession.run()`.
+
+The composition interpreter preserves the characterized presentation order.
+An ordinary non-empty local command is rendered as the submitted user bubble
+before classification. Exit terminates the loop without a command footer.
+Continuing actions reuse the existing dynamic keybinding/changelog rendering,
+clipboard adapter, or sanitized native-session formatter and then apply one
+standard footer. Blank input applies only that footer. Private hotkey sentinels
+and `!` shell commands remain in their earlier paths and do not gain a user
+bubble.
+
+Non-empty `AgentQueuedInput` or other content carrying the closed provider-
+delivery classification bypasses the kernel: queued/RPC `/copy`, `/exit`, or
+`!` text still reaches the provider verbatim. Empty or whitespace-only
+classified content continues through the blank outcome and is consumed locally,
+matching the unconditional pre-extraction blank branch. There is no agent event,
+product-session write, prompt-history entry, or workflow event for a handled
+state-free command.
+
+Command/outcome values are full-content product-control data. They expose no
+serializer, SDK shape, persistence projection, or workflow-archive adapter.
+Exact direct-import allowlists plus recursive, fresh-process, and no-eager-
+export gates keep the kernel free of UI/terminal, session persistence,
+provider/tool, settings/resources, extensions, automation/RPC, SDK, capture,
+and archive implementations.
+
 ### Canonical Agent Tool-Capability Port
 
 Phase 2.2b.3 adds the runtime-checkable, synchronous

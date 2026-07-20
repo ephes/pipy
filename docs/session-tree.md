@@ -257,6 +257,12 @@ Minimum entry types:
   `packages/coding-agent/src/core/agent-session.ts:511-516`). pipy should
   support them once its extension API lands.
 
+The schema and parser support `model_change`, but the current product `/model`
+and model-cycle composition path does not append that entry. This pre-existing
+implementation/specification gap is tracked as a dedicated compatibility
+correction in `docs/backlog.md`; the Phase 3.1d command-ownership extraction
+preserves it rather than silently changing persisted JSONL or resume behavior.
+
 The in-memory session manager keeps:
 
 - all entries in append order,

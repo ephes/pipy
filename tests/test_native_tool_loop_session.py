@@ -2288,6 +2288,66 @@ def test_changelog_command_renders_without_provider_turn(tmp_path):
     assert provider._call_counter[0] == 0
 
 
+def test_headless_command_kernel_classifies_supported_local_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+    from pipy_harness.native.agent import ProductContent
+    from pipy_harness.native.coding.commands import CodingCommandOutcome
+
+    original_classifier = loop_module.classify_coding_command
+    classified: list[ProductContent] = []
+
+    def record_classification(content: ProductContent) -> CodingCommandOutcome:
+        classified.append(content)
+        return original_classifier(content)
+
+    monkeypatch.setattr(loop_module, "classify_coding_command", record_classification)
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
+    error_stream = io.StringIO()
+
+    NativeToolReplSession(provider=provider).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("\n/hotkeys\n/changelog\n/copy\n/session\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert [content.value for content in classified] == [
+        "",
+        "/hotkeys",
+        "/changelog",
+        "/copy",
+        "/session",
+        "/exit",
+    ]
+    assert "What's New" in error_stream.getvalue()
+    assert provider._call_counter[0] == 0
+
+
+def test_headless_command_kernel_exit_emits_no_command_footer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    footer_calls: list[None] = []
+
+    def record_footer(*_args: object, **_kwargs: object) -> None:
+        footer_calls.append(None)
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
+
+    NativeToolReplSession(provider=provider).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    # The sole call is the pre-loop frame; EXIT does not apply STANDARD footer.
+    assert footer_calls == [None]
+    assert provider._call_counter[0] == 0
+
+
 def test_startup_changelog_shows_new_entries_on_version_bump(tmp_path):
     from pipy_harness.native.settings import SettingsManager
 

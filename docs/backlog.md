@@ -1832,6 +1832,41 @@ those outer implementations. Its full-content values never cross the separate
 counts-only workflow archive. The next target is Phase 3.1d, typed imperative
 command outcomes without introducing the Phase 3.2 declarative registry.
 
+### Typed Coding-Command Outcomes, Control Kernel — SHIPPED (2026-07-20)
+
+Phase 3.1d is split into independently green command-family cuts because the
+current imperative region combines presentation, persistence, provider/auth,
+session navigation, external I/O, reload, resources, and extensions. Slice
+3.1d.1 adds direct-import-only `native.coding.commands` with exact frozen/
+slotted outcome, action, and footer-policy values. It atomically migrates blank
+input, `/exit`, `/quit`, `/hotkeys`, `/changelog`, `/copy`, and `/session` and
+deletes their superseded monolith branches.
+
+Composition still renders the submitted user bubble before ordinary command
+classification, performs dynamic keybinding/changelog/clipboard/session-status
+effects, and paints the footer. Exit remains footer-free. Every unmigrated
+command returns the exact unhandled outcome to the one residual precedence
+skeleton; no command registry or parallel dispatcher was introduced. The
+Non-empty queued/RPC `/...` and `!...` content bypasses the kernel and remains
+provider-visible. Classified empty or whitespace-only content still takes the
+unconditional blank outcome and is consumed locally, matching the prior branch.
+Static exact-allowlist, recursive, fresh-process, and no-eager-export gates
+exclude all outer implementations and the full-content outcome values never
+enter the metadata workflow archive.
+
+The remaining Phase 3.1d order is provider/auth/compaction/name, product-session
+navigation, external/UI effects, reload, then resource/extension precedence
+closure. Phase 3.2 still owns command names, aliases, descriptions, availability,
+help, completion, menus, and the final declarative registry.
+
+**Deferred compatibility correction — model-change native-tree entries:** the
+product specs describe `/model` and model cycling as appending a durable
+`model_change` entry, but the current tool-loop selection path does not do so.
+Phase 3.1d must characterize and preserve that pre-existing behavior while
+extracting command ownership. Correct it only in a dedicated behavior slice
+with native-session JSON/reload/resume, provider-state, extension, and TUI
+compatibility coverage; do not smuggle it into a command-family refactor.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable

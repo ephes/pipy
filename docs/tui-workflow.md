@@ -312,11 +312,14 @@ Add a pipy-owned scoped-model set, backed by the non-secret local settings store
 so cycling can be narrowed to a curated subset; when no scope is configured,
 cycle the full available list. On each cycle pipy reuses `select_model` (rebind
 provider, clear in-memory context, rebind usage meter, refresh footer/status
-label, persist the non-secret default) and appends a `model_change` native-tree
-entry, exactly as `/model` does. A single-entry scope or single-available list
-shows the corresponding status and does nothing else. Cycling runs no provider
-turn. A full `/scoped-models` selector overlay is part of the richer-overlays
-subsection; cycling works against the configured scope without it.
+label, persist the non-secret default). The native-tree schema supports
+`model_change`, but the current `/model` and cycling composition path does not
+append that entry; the compatibility correction is tracked explicitly in
+`docs/backlog.md` and is not folded into the Phase 3.1d ownership extraction. A
+single-entry scope or single-available list shows the corresponding status and
+does nothing else. Cycling runs no provider turn. A full `/scoped-models`
+selector overlay is part of the richer-overlays subsection; cycling works
+against the configured scope without it.
 
 ## Thinking-Level Hotkeys
 

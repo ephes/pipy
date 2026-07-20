@@ -342,6 +342,31 @@ _CODING_PRODUCT_SESSION_ALLOWED_DIRECT_IMPORTS = frozenset(
     }
 )
 
+_CODING_COMMANDS_FORBIDDEN_IMPORTS = (
+    *_CODING_STATE_FORBIDDEN_IMPORTS,
+    "pipy_harness.native.cancellation",
+    "pipy_harness.native.coding.input_queue",
+    "pipy_harness.native.coding.product_session",
+    "pipy_harness.native.coding.session",
+    "pipy_harness.native.coding.state",
+    "pipy_harness.native.models",
+    "pipy_harness.native.provider",
+    "pipy_harness.native.tools",
+)
+
+_CODING_COMMANDS_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "enum",
+        "enum.StrEnum",
+        "pipy_harness.native.agent.content",
+        "pipy_harness.native.agent.content.ProductContent",
+    }
+)
+
 _AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS = (
     "pipy_harness.cli",
     "pipy_harness.adapters",
@@ -612,6 +637,15 @@ ARCHITECTURE_RULES = (
             "product-session coordination may depend only on canonical content "
             "and coding state, never concrete persistence, UI, providers, tools, "
             "extensions, automation, SDK, capture, or workflow-archive code"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.coding.commands",
+        forbidden_imports=_CODING_COMMANDS_FORBIDDEN_IMPORTS,
+        reason=(
+            "headless imperative command outcomes may depend only on canonical "
+            "product content, never composition, UI, persistence, providers, "
+            "tools, extensions, automation, capture, or archive implementations"
         ),
     ),
     BoundaryRule(
@@ -1998,6 +2032,22 @@ def test_coding_product_session_direct_imports_match_explicit_allowlist() -> Non
     ), "remove stale allowances when product-session coordination drops imports"
 
 
+def test_coding_commands_direct_imports_match_explicit_allowlist() -> None:
+    commands_path = (
+        SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "commands.py"
+    )
+    references = _import_references(SOURCE_ROOT, commands_path)
+
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT,
+        commands_path,
+        allowed_imports=_CODING_COMMANDS_ALLOWED_DIRECT_IMPORTS,
+    ), "headless command outcomes gained a dependency outside their allowlist"
+    assert {reference.module for reference in references} == (
+        _CODING_COMMANDS_ALLOWED_DIRECT_IMPORTS
+    ), "remove stale allowances when headless command outcomes drop imports"
+
+
 def test_coding_product_session_rule_blocks_outer_runtime_imports(
     tmp_path: Path,
 ) -> None:
@@ -2026,6 +2076,36 @@ import pipy_harness.native.tui
         (product_session_path, "pipy_harness.native.provider", 3),
         (product_session_path, "pipy_harness.native.session_tree", 4),
         (product_session_path, "pipy_harness.native.tui", 5),
+    }
+
+
+def test_coding_commands_rule_blocks_outer_runtime_imports(tmp_path: Path) -> None:
+    source_root = tmp_path / "src"
+    commands_path = _write_module(
+        source_root,
+        "pipy_harness.native.coding.commands",
+        """\
+import pipy_harness.native.agent.content
+import pipy_harness.native.coding.state
+import pipy_harness.native.extension_runtime
+import pipy_harness.native.session_tree
+import pipy_harness.native.tui
+""",
+    )
+    commands_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.commands"
+    )
+
+    assert {
+        (violation.path, violation.imported_module, violation.line)
+        for violation in _evaluate_rule(source_root, commands_rule)
+    } == {
+        (commands_path, "pipy_harness.native.coding.state", 2),
+        (commands_path, "pipy_harness.native.extension_runtime", 3),
+        (commands_path, "pipy_harness.native.session_tree", 4),
+        (commands_path, "pipy_harness.native.tui", 5),
     }
 
 
@@ -2310,6 +2390,82 @@ assert unexpected == [], unexpected
     assert completed.returncode == 0, completed.stderr
 
 
+def test_coding_commands_import_stays_headless_in_a_fresh_process() -> None:
+    package_root = SOURCE_ROOT / "pipy_harness"
+    native_root = package_root / "native"
+    forbidden_prefixes = (
+        *_CODING_STATE_FORBIDDEN_IMPORTS,
+        "pipy_harness.native.cancellation",
+        "pipy_harness.native.coding.product_session",
+        "pipy_harness.native.coding.session",
+        "pipy_harness.native.coding.state",
+        "pipy_harness.native.models",
+        "pipy_harness.native.provider",
+        "pipy_harness.native.tools",
+    )
+    allowed_prefixes = (
+        "pipy_harness.native.agent",
+        "pipy_harness.native.coding.commands",
+        "pipy_harness.native.coding.input_queue",
+    )
+    allowed_exact = frozenset(
+        {
+            "pipy_harness",
+            "pipy_harness.native",
+            "pipy_harness.native.coding",
+        }
+    )
+    script = f"""\
+import importlib
+import sys
+import types
+
+def namespace_package(name, path):
+    module = types.ModuleType(name)
+    module.__package__ = name
+    module.__path__ = [path]
+    sys.modules[name] = module
+    return module
+
+pipy_package = namespace_package("pipy_harness", {str(package_root)!r})
+native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
+pipy_package.native = native_package
+
+module = importlib.import_module("pipy_harness.native.coding.commands")
+assert hasattr(module, "classify_coding_command")
+forbidden = {forbidden_prefixes!r}
+loaded = sorted(
+    name
+    for name in sys.modules
+    if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
+)
+assert loaded == [], loaded
+allowed_prefixes = {allowed_prefixes!r}
+allowed_exact = {allowed_exact!r}
+unexpected = sorted(
+    name
+    for name in sys.modules
+    if name.startswith("pipy_harness")
+    and name not in allowed_exact
+    and not any(
+        name == prefix or name.startswith(prefix + ".")
+        for prefix in allowed_prefixes
+    )
+)
+assert unexpected == [], unexpected
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_coding_package_does_not_eagerly_export_headless_layers() -> None:
     package_root = SOURCE_ROOT / "pipy_harness"
     native_root = package_root / "native"
@@ -2332,6 +2488,7 @@ import pipy_harness.native.coding
 
 assert "pipy_harness.native.coding.state" not in sys.modules
 assert "pipy_harness.native.coding.product_session" not in sys.modules
+assert "pipy_harness.native.coding.commands" not in sys.modules
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],

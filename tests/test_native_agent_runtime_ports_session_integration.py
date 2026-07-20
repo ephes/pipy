@@ -189,11 +189,12 @@ def test_positional_seed_preserves_exact_trailing_newlines(tmp_path: Path) -> No
     assert [request.user_prompt for request in provider.requests] == ["seed\n\n"]
 
 
-def test_registered_input_wake_uses_controller_classification(
-    tmp_path: Path,
+@pytest.mark.parametrize("queued_command", ("/copy", "/exit"))
+def test_registered_input_wake_bypasses_local_command_kernel(
+    tmp_path: Path, queued_command: str
 ) -> None:
     queued_input = AgentQueuedInput(
-        ProductContent("queued wake\n\n"),
+        ProductContent(f"{queued_command}\n\n"),
         AgentQueuedInputKind.STEERING,
     )
 
@@ -205,7 +206,7 @@ def test_registered_input_wake_uses_controller_classification(
 
         def readline(self, size: int = -1, /) -> str:
             del size
-            line = "" if self.delivered else "queued wake\n\n"
+            line = "" if self.delivered else f"{queued_command}\n\n"
             self.delivered = True
             self.read_completed = True
             return line
@@ -230,8 +231,63 @@ def test_registered_input_wake_uses_controller_classification(
         error_stream=io.StringIO(),
     )
 
-    assert [request.user_prompt for request in provider.requests] == ["queued wake\n\n"]
+    assert [request.user_prompt for request in provider.requests] == [
+        f"{queued_command}\n\n"
+    ]
     assert input_stream.classified
+
+
+def test_registered_whitespace_wake_keeps_blank_local_behavior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queued_input = AgentQueuedInput(
+        ProductContent(" \n\n"),
+        AgentQueuedInputKind.FOLLOW_UP,
+    )
+
+    class WhitespaceWakeInput:
+        def __init__(self) -> None:
+            self.read_completed = False
+            self.classified = False
+            self.delivered = False
+
+        def readline(self, size: int = -1, /) -> str:
+            del size
+            line = "" if self.delivered else " \n\n"
+            self.delivered = True
+            self.read_completed = True
+            return line
+
+        def take_next(self) -> AgentQueuedInput | None:
+            if not self.read_completed or self.classified:
+                return None
+            self.classified = True
+            return queued_input
+
+        def isatty(self) -> bool:
+            return False
+
+    footer_calls: list[None] = []
+
+    def record_footer(*_args: object, **_kwargs: object) -> None:
+        footer_calls.append(None)
+
+    monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
+    input_stream = WhitespaceWakeInput()
+    provider = _ScriptProvider((_result("unused"),))
+
+    result = NativeToolReplSession(provider=provider).run(
+        workspace_root=tmp_path,
+        input_stream=cast(TextIO, input_stream),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert provider.requests == []
+    assert input_stream.classified
+    # Initial frame plus the blank command's STANDARD footer.
+    assert footer_calls == [None, None]
 
 
 def test_registered_eof_wake_runs_exact_queued_input_before_shutdown(

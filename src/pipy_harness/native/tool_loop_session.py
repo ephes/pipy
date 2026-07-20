@@ -136,6 +136,12 @@ from pipy_harness.native.agent_runtime import (
 )
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding import CodingInputQueue, CodingInputSource
+from pipy_harness.native.coding.commands import (
+    CodingCommandAction,
+    CodingCommandFooterPolicy,
+    CodingCommandOutcomeKind,
+    classify_coding_command,
+)
 from pipy_harness.native.coding.product_session import (
     CodingProductSessionCallbacks,
     CodingProductSessionCompaction,
@@ -3050,22 +3056,52 @@ class NativeToolReplSession:
                 # the renderer can drive ANSI cursor controls.
                 if stripped and not from_hotkey:
                     renderer.render_user_message(user_input)
-                if not stripped:
-                    refresh_legacy_footer()
-                    continue
-                if command_text in {"/exit", "/quit"}:
-                    break
-                if command_text == "/hotkeys":
-                    # ``/hotkeys`` renders the grouped keyboard-shortcut table
-                    # from the resolved keybinding manager (reflecting any user
-                    # keybindings.json overrides). Runs no provider turn.
-                    hotkeys_text = render_hotkeys(keybindings)
-                    if terminal_ui is not None:
-                        terminal_ui.add_notice(hotkeys_text)
-                    else:
-                        print(hotkeys_text, file=error_stream)
-                    refresh_legacy_footer()
-                    continue
+                if selected_provider_content is None or not stripped:
+                    command_outcome = classify_coding_command(
+                        ProductContent(command_text)
+                    )
+                    if command_outcome.kind is CodingCommandOutcomeKind.EXIT:
+                        break
+                    if command_outcome.kind is CodingCommandOutcomeKind.CONTINUE:
+                        if command_outcome.action is CodingCommandAction.SHOW_HOTKEYS:
+                            # Render from the resolved keybinding manager so user
+                            # keybindings.json overrides remain reflected.
+                            hotkeys_text = render_hotkeys(keybindings)
+                            if terminal_ui is not None:
+                                terminal_ui.add_notice(hotkeys_text)
+                            else:
+                                print(hotkeys_text, file=error_stream)
+                        elif (
+                            command_outcome.action is CodingCommandAction.SHOW_CHANGELOG
+                        ):
+                            changelog_text = render_changelog(read_changelog_entries())
+                            if terminal_ui is not None:
+                                terminal_ui.add_notice(changelog_text)
+                            else:
+                                print(changelog_text, file=error_stream)
+                        elif (
+                            command_outcome.action
+                            is CodingCommandAction.COPY_LAST_ANSWER
+                        ):
+                            self._emit_diagnostic(
+                                terminal_ui,
+                                error_stream,
+                                self._copy_last_answer(
+                                    coding_state.messages,
+                                    error_stream=error_stream,
+                                ),
+                            )
+                        elif (
+                            command_outcome.action
+                            is CodingCommandAction.SHOW_SESSION_STATUS
+                        ):
+                            diag(format_session_status(session_tree))
+                        if (
+                            command_outcome.footer_policy
+                            is CodingCommandFooterPolicy.STANDARD
+                        ):
+                            refresh_legacy_footer()
+                        continue
                 if command_text == "/trust":
                     self._handle_trust_command(
                         terminal_ui=terminal_ui,
@@ -3378,16 +3414,6 @@ class NativeToolReplSession:
                     )
                     refresh_legacy_footer()
                     continue
-                if command_text == "/changelog":
-                    # Local-only: render the full changelog (oldest-first) under a
-                    # "What's New" header. Runs no provider turn.
-                    changelog_text = render_changelog(read_changelog_entries())
-                    if terminal_ui is not None:
-                        terminal_ui.add_notice(changelog_text)
-                    else:
-                        print(changelog_text, file=error_stream)
-                    refresh_legacy_footer()
-                    continue
                 if command_text == "/export" or command_text.startswith("/export "):
                     argument = stripped[len("/export") :]
                     path_arg = parse_command_path_argument(argument)
@@ -3545,19 +3571,6 @@ class NativeToolReplSession:
                             print(overlay_line, file=error_stream)
                     refresh_legacy_footer()
                     continue
-                if command_text == "/copy":
-                    # Local-only command: copies the most recent assistant answer
-                    # through a safe OS/terminal clipboard path. It never invokes
-                    # the provider, tools, login/logout, or model switching.
-                    self._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        self._copy_last_answer(
-                            coding_state.messages, error_stream=error_stream
-                        ),
-                    )
-                    refresh_legacy_footer()
-                    continue
                 if command_text == "/compact":
                     # Local-only command: reduce the provider-visible history while
                     # keeping recent turns plus a safe metadata-only summary. No
@@ -3565,13 +3578,6 @@ class NativeToolReplSession:
                     self._emit_diagnostic(
                         terminal_ui, error_stream, apply_compaction("manual")
                     )
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/session":
-                    # Local-only: report safe current native-session status. No
-                    # provider turn, tool call, native product-session content,
-                    # or product content in the metadata-only workflow archive.
-                    diag(format_session_status(session_tree))
                     refresh_legacy_footer()
                     continue
                 if command_text == "/name" or command_text.startswith("/name "):
