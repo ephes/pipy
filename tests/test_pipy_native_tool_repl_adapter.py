@@ -151,7 +151,7 @@ class _RecordingSession:
         from datetime import UTC, datetime
 
         from pipy_harness.models import HarnessStatus
-        from pipy_harness.native.tool_loop_session import NativeToolReplResult
+        from pipy_harness.native.coding.result import NativeToolReplResult
 
         type(self).last_run_kwargs = dict(kwargs)
         now = datetime.now(UTC)

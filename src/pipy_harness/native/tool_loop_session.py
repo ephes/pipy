@@ -156,6 +156,10 @@ from pipy_harness.native.coding.product_session import (
     CodingProductSessionContext,
     CodingProductSessionCoordinator,
 )
+from pipy_harness.native.coding.result import (
+    NativeToolReplResult,
+    build_repl_result,
+)
 from pipy_harness.native.coding.state import (
     CodingSessionState,
     CodingSessionUsageSnapshot,
@@ -1312,40 +1316,6 @@ class _TreeCommandOutcome:
 
     prefill: str | None = None
     filter_mode: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class NativeToolReplResult:
-    """Bounded result returned by `NativeToolReplSession.run`.
-
-    The fields are deliberately small and metadata-only. No prompts, model
-    text, tool payloads, file contents, or diffs cross this boundary.
-    """
-
-    status: HarnessStatus
-    exit_code: int
-    started_at: datetime
-    ended_at: datetime
-    provider_name: str
-    model_id: str
-    user_turn_count: int = 0
-    tool_invocation_count: int = 0
-    resource_invocation_count: int = 0
-    malformed_argument_count: int = 0
-    consecutive_malformed_streak: int = 0
-    budget_exhausted_count: int = 0
-    file_reference_count: int = 0
-    file_reference_loaded_count: int = 0
-    file_reference_failed_count: int = 0
-    image_attachment_count: int = 0
-    image_attachment_loaded_count: int = 0
-    image_attachment_failed_count: int = 0
-    compaction_count: int = 0
-    compaction_dropped_group_count: int = 0
-    error_type: str | None = None
-    error_message: str | None = None
-    provider_failure_type: str | None = None
-    provider_failure_message: str | None = None
 
 
 @dataclass
@@ -4413,36 +4383,12 @@ class NativeToolReplSession:
                         repl_input.close()
                     except Exception:
                         pass
-                    return NativeToolReplResult(
+                    return build_repl_result(
+                        result_snapshot,
                         status=HarnessStatus.FAILED,
                         exit_code=1,
                         started_at=started_at,
                         ended_at=ended_at,
-                        provider_name=result_snapshot.provider_name,
-                        model_id=result_snapshot.model_id,
-                        user_turn_count=result_snapshot.user_turn_count,
-                        tool_invocation_count=result_snapshot.tool_invocation_count,
-                        resource_invocation_count=(
-                            result_snapshot.resource_invocation_count
-                        ),
-                        malformed_argument_count=(
-                            result_snapshot.malformed_argument_count
-                        ),
-                        consecutive_malformed_streak=(
-                            result_snapshot.consecutive_malformed_streak
-                        ),
-                        budget_exhausted_count=(result_snapshot.budget_exhausted_count),
-                        file_reference_count=result_snapshot.file_reference_count,
-                        file_reference_loaded_count=(
-                            result_snapshot.file_reference_loaded_count
-                        ),
-                        file_reference_failed_count=(
-                            result_snapshot.file_reference_failed_count
-                        ),
-                        compaction_count=result_snapshot.compaction_count,
-                        compaction_dropped_group_count=(
-                            result_snapshot.compaction_dropped_group_count
-                        ),
                         error_type=run_failure.error_type,
                         error_message=run_failure.message.value,
                     )
@@ -4453,46 +4399,12 @@ class NativeToolReplSession:
                 pass
             ended_at = datetime.now(UTC)
             result_snapshot = coding_state.result_snapshot()
-            provider_failure = result_snapshot.provider_failure
-            return NativeToolReplResult(
+            return build_repl_result(
+                result_snapshot,
                 status=HarnessStatus.SUCCEEDED,
                 exit_code=0,
                 started_at=started_at,
                 ended_at=ended_at,
-                provider_name=result_snapshot.provider_name,
-                model_id=result_snapshot.model_id,
-                user_turn_count=result_snapshot.user_turn_count,
-                tool_invocation_count=result_snapshot.tool_invocation_count,
-                resource_invocation_count=result_snapshot.resource_invocation_count,
-                malformed_argument_count=result_snapshot.malformed_argument_count,
-                consecutive_malformed_streak=(
-                    result_snapshot.consecutive_malformed_streak
-                ),
-                budget_exhausted_count=result_snapshot.budget_exhausted_count,
-                file_reference_count=result_snapshot.file_reference_count,
-                file_reference_loaded_count=(
-                    result_snapshot.file_reference_loaded_count
-                ),
-                file_reference_failed_count=(
-                    result_snapshot.file_reference_failed_count
-                ),
-                image_attachment_count=result_snapshot.image_attachment_count,
-                image_attachment_loaded_count=(
-                    result_snapshot.image_attachment_loaded_count
-                ),
-                image_attachment_failed_count=(
-                    result_snapshot.image_attachment_failed_count
-                ),
-                compaction_count=result_snapshot.compaction_count,
-                compaction_dropped_group_count=(
-                    result_snapshot.compaction_dropped_group_count
-                ),
-                provider_failure_type=(
-                    provider_failure.error_type if provider_failure else None
-                ),
-                provider_failure_message=(
-                    provider_failure.message.value if provider_failure else None
-                ),
             )
         finally:
             if agent_settled_pending:
@@ -7214,7 +7126,6 @@ def _argument_preview(data: Mapping[str, Any]) -> str:
 
 
 __all__ = [
-    "NativeToolReplResult",
     "NativeToolReplSession",
     "production_tool_registry",
 ]

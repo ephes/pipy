@@ -2256,6 +2256,37 @@ admit only canonical `native.agent` contracts (`active_input`/`content`/
 Phase 3.1e is complete; the outer lifecycle/composition-shell cutover remains
 Phase 3.1f.
 
+Sub-slice 3.1f.1 (2026-07-21) establishes the shutdown transition's ownership
+boundary. The bounded metadata-only `NativeToolReplResult` dataclass moved
+verbatim from `native.tool_loop_session` into the new strict-typed headless
+module `native.coding.result` (imports only stdlib +
+`pipy_harness.models.HarnessStatus` +
+`native.coding.state.CodingSessionResultSnapshot`), which adds the pure
+projection `build_repl_result(snapshot, *, status, exit_code, started_at,
+ended_at, error_type=None, error_message=None)`. It reproduces the two prior
+inline builders byte-identically: the terminate `FAILED` non-image counter
+subset carrying the unpacked loop failure through plain error strings (kept out
+of the projection's imports because a malformed-fatal terminate's failure is not
+the recorded `snapshot.provider_failure`), and the `SUCCEEDED` full subset
+including image counters plus the projected
+`provider_failure_type`/`provider_failure_message`.
+`NativeToolReplSession.run()` calls the projection at both shutdown returns; the
+in-monolith class body and both duplicated field-mapping blocks are deleted, and
+`NativeToolReplResult` leaves the monolith's `__all__`. The public surface is
+preserved as a legitimate public re-export — `native/__init__` re-exports
+`NativeToolReplResult` from `native.coding.result` — and the two direct-import
+test files were repointed. No `NativeToolReplResult` field name/default/type/value
+changed, so CLI exit codes and JSON/RPC/SDK final-result payloads are unchanged;
+the while-loop, input selection, true-idle firing, command dispatch,
+run-transition wiring, and the `session_shutdown`/`agent_settled`/
+`clear_extension_chrome` `try/finally` stay inline. The import-boundary gate adds
+a `native.coding.result` `BoundaryRule` (agent-run forbidden categories) plus an
+exact direct-import allowlist admitting only stdlib,
+`pipy_harness.models.HarnessStatus`, and
+`native.coding.state.CodingSessionResultSnapshot`. The controller class begins in
+Phase 3.1f.2; the while-loop/composition-shell cutover remains the rest of
+Phase 3.1f.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable

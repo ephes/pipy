@@ -461,6 +461,28 @@ _CODING_ACCEPTED_INPUT_ALLOWED_DIRECT_IMPORTS = frozenset(
     }
 )
 
+# The shutdown result projection depends on the same forbidden categories as the
+# agent-run collaborators: it maps a coding-session result snapshot into the
+# bounded metadata-only run result and may not reach composition, UI/terminal,
+# extensions, concrete providers/tools, persistence coordination, automation/RPC,
+# the SDK, capture, or the metadata-only workflow archive.
+_CODING_RESULT_FORBIDDEN_IMPORTS = _CODING_AGENT_RUN_FORBIDDEN_IMPORTS
+
+_CODING_RESULT_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "datetime",
+        "datetime.datetime",
+        "pipy_harness.models",
+        "pipy_harness.models.HarnessStatus",
+        "pipy_harness.native.coding.state",
+        "pipy_harness.native.coding.state.CodingSessionResultSnapshot",
+    }
+)
+
 _AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS = (
     "pipy_harness.cli",
     "pipy_harness.adapters",
@@ -760,6 +782,17 @@ ARCHITECTURE_RULES = (
             "accepted-input preparation may depend only on canonical native.agent "
             "contracts, injected coding state/input queues, and the @file/image "
             "resolution data contracts, never UI/terminal, extensions, concrete "
+            "providers/tools, persistence coordination, automation/RPC, the SDK, "
+            "capture, or the metadata-only workflow archive"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.coding.result",
+        forbidden_imports=_CODING_RESULT_FORBIDDEN_IMPORTS,
+        reason=(
+            "the shutdown result projection may depend only on the standard "
+            "library, the shared harness status enum, and the coding-session "
+            "result snapshot, never UI/terminal, extensions, concrete "
             "providers/tools, persistence coordination, automation/RPC, the SDK, "
             "capture, or the metadata-only workflow archive"
         ),
@@ -2324,6 +2357,83 @@ from pipy_harness.native.image_attachment import ImageAttachmentResolution
         rule
         for rule in ARCHITECTURE_RULES
         if rule.source_package == "pipy_harness.native.coding.accepted_input"
+    )
+
+    assert _evaluate_rule(source_root, rule) == []
+
+
+def test_coding_result_direct_imports_match_explicit_allowlist() -> None:
+    result_path = SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "result.py"
+    references = _import_references(SOURCE_ROOT, result_path)
+
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT,
+        result_path,
+        allowed_imports=_CODING_RESULT_ALLOWED_DIRECT_IMPORTS,
+    ), "shutdown result projection gained a dependency outside its allowlist"
+    assert {reference.module for reference in references} == (
+        _CODING_RESULT_ALLOWED_DIRECT_IMPORTS
+    ), "remove stale allowances when the result projection drops imports"
+
+
+@pytest.mark.parametrize(
+    "forbidden_import",
+    (
+        "pipy_harness.native.ui",
+        "pipy_harness.native.tui",
+        "pipy_harness.native.extensions",
+        "pipy_harness.native.extension_runtime",
+        "pipy_harness.native.automation",
+        "pipy_harness.native.coding.commands",
+        "pipy_harness.native.coding.product_session",
+        "pipy_harness.native.coding.session",
+        "pipy_harness.native.provider",
+        "pipy_harness.native.tools.bash",
+        "pipy_harness.native.openai_provider",
+        "pipy_harness.capture",
+        "pipy_session",
+    ),
+)
+def test_coding_result_rule_blocks_outer_runtime_imports(
+    tmp_path: Path,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    result_path = _write_module(
+        source_root,
+        "pipy_harness.native.coding.result",
+        f"import {forbidden_import}\n",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.result"
+    )
+
+    violations = _evaluate_rule(source_root, rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == result_path
+    assert violations[0].imported_module == forbidden_import
+
+
+def test_coding_result_rule_allows_canonical_contracts(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    _write_module(
+        source_root,
+        "pipy_harness.native.coding.result",
+        """\
+from datetime import datetime
+from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.state import CodingSessionResultSnapshot
+""",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.result"
     )
 
     assert _evaluate_rule(source_root, rule) == []

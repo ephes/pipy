@@ -130,8 +130,8 @@ from pipy_harness.native.repl_input import (
 )
 from pipy_harness.native.session import NativeAgentSession
 from pipy_harness.native.tool import ToolPort
+from pipy_harness.native.coding.result import NativeToolReplResult
 from pipy_harness.native.tool_loop_session import (
-    NativeToolReplResult,
     NativeToolReplSession,
     production_tool_registry,
 )
