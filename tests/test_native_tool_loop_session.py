@@ -2439,18 +2439,22 @@ def test_changelog_command_renders_without_provider_turn(tmp_path):
 def test_headless_command_kernel_classifies_supported_local_commands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.coding.session_controller as controller_module
     from pipy_harness.native.agent import ProductContent
     from pipy_harness.native.coding.commands import CodingCommandOutcome
 
-    original_classifier = loop_module.classify_coding_command
+    # Built-in classification now lives in the headless controller, so intercept
+    # it there rather than at the (superseded) monolith import site.
+    original_classifier = controller_module.classify_coding_command
     classified: list[ProductContent] = []
 
     def record_classification(content: ProductContent) -> CodingCommandOutcome:
         classified.append(content)
         return original_classifier(content)
 
-    monkeypatch.setattr(loop_module, "classify_coding_command", record_classification)
+    monkeypatch.setattr(
+        controller_module, "classify_coding_command", record_classification
+    )
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
     error_stream = io.StringIO()
 

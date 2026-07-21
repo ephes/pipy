@@ -45,10 +45,12 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputPort,
 )
 from pipy_harness.native.coding.commands import (
+    CodingCommandOutcomeKind,
     CommandDispatchResolution,
     ExtensionDispatchResolution,
     ResourceDispatchKind,
     ResourceDispatchResolution,
+    classify_coding_command,
 )
 from pipy_harness.native.coding.input_queue import (
     CodingInputQueue,
@@ -316,9 +318,7 @@ class CodingSessionController:
             raise TypeError("read_fresh_line must be callable")
 
         drain_outbox()
-        step = self._step_from_selection(
-            self._input_queue.take_next(), settle_pending
-        )
+        step = self._step_from_selection(self._input_queue.take_next(), settle_pending)
         if step is not None:
             return step
 
@@ -373,7 +373,9 @@ class CodingSessionController:
                 f"{selection.content.value}\n", settle_pending
             )
         if selection.source is CodingInputSource.RETAINED_FRESH_INPUT:
-            return CodingLoopStep.retained_fresh(selection.content.value, settle_pending)
+            return CodingLoopStep.retained_fresh(
+                selection.content.value, settle_pending
+            )
         return CodingLoopStep.provider_content(
             f"{selection.content.value}\n",
             selection.content,
@@ -385,27 +387,46 @@ class CodingSessionController:
         self,
         *,
         command_text: str,
+        stripped: str,
         user_input: str,
         selected_provider_content: ProductContent | None,
         effects: CodingCommandEffects,
     ) -> CommandDispatchResolution:
-        """Resolve the built-in>resource>extension command precedence tail.
+        """Resolve the built-in>resource>extension command precedence.
 
-        This owns only the ordering/precedence and outcome routing for the
-        non-built-in portion of the dispatch: the built-in ``/exit``/``/quit``
-        and continuing-command interpretation is resolved by the composition
-        loop before this call, and ``command_text`` is blank for queued/provider
-        content, which therefore falls straight through to ``PROCEED_TO_RUN``.
+        The controller owns the full ordering/precedence and outcome routing.
+        Built-in commands are classified FIRST so a resource or extension can
+        never shadow them: ``/exit``/``/quit`` resolve to ``EXIT_LOOP`` (the
+        composition loop breaks), and every other continuing built-in resolves
+        to ``INTERPRET_BUILTIN`` carrying the ``CodingCommandOutcome`` the
+        composition loop still interprets inline (the imperative per-action
+        effect chain has not yet been relocated behind ports). The classification
+        runs only when the composition loop would have run it inline — for typed
+        input, or an empty submission — never for non-empty provider/queued
+        content, whose blank ``command_text`` must reach the provider verbatim
+        and therefore falls straight through to ``PROCEED_TO_RUN``.
 
-        Resource commands run first (a list/reject is consumed locally; a run
-        records the invocation counter and carries the bounded provider text),
-        then extension commands (so a custom command can never shadow a built-in
-        or a resource), then the unhandled ``/…`` fallback; every effect is
-        performed through the injected :class:`CodingCommandEffects` port.
+        A non-built-in ``/…`` (or plain prompt) then runs resource dispatch
+        (a list/reject is consumed locally; a run records the invocation counter
+        and carries the bounded provider text), then extension dispatch (so a
+        custom command can never shadow a built-in or a resource), then the
+        unhandled ``/…`` fallback; every effect is performed through the injected
+        :class:`CodingCommandEffects` port.
         """
 
         if not isinstance(effects, CodingCommandEffects):
             raise TypeError("effects must implement CodingCommandEffects")
+
+        # Built-in commands classify first, gated by the exact inline condition
+        # (``selected_provider_content is None or not stripped``) so non-empty
+        # provider/queued content — which carries a blank ``command_text`` — is
+        # never intercepted as an empty built-in.
+        if selected_provider_content is None or not stripped:
+            outcome = classify_coding_command(ProductContent(command_text))
+            if outcome.kind is CodingCommandOutcomeKind.EXIT:
+                return CommandDispatchResolution.exit_loop()
+            if outcome.kind is CodingCommandOutcomeKind.CONTINUE:
+                return CommandDispatchResolution.interpret_builtin(outcome)
 
         # Resource dispatch (skills, prompt templates, custom commands) runs
         # through the same local-command boundary as the built-ins, after them so
@@ -414,7 +435,9 @@ class CodingSessionController:
         resource_provider_text: str | None = None
         if resource is not None:
             if type(resource) is not ResourceDispatchResolution:
-                raise TypeError("dispatch_resource must return a ResourceDispatchResolution")
+                raise TypeError(
+                    "dispatch_resource must return a ResourceDispatchResolution"
+                )
             if resource.kind is ResourceDispatchKind.LIST:
                 effects.emit_diagnostic(resource.message)
                 effects.refresh_footer()

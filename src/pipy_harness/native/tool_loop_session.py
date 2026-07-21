@@ -152,7 +152,6 @@ from pipy_harness.native.coding.commands import (
     ExtensionDispatchResolution,
     ResourceDispatchKind,
     ResourceDispatchResolution,
-    classify_coding_command,
 )
 from pipy_harness.native.coding.product_session import (
     CodingProductSessionCallbacks,
@@ -3142,12 +3141,31 @@ class NativeToolReplSession:
                 # the renderer can drive ANSI cursor controls.
                 if stripped and not from_hotkey:
                     renderer.render_user_message(user_input)
-                if selected_provider_content is None or not stripped:
-                    command_outcome = classify_coding_command(
-                        ProductContent(command_text)
-                    )
-                    if command_outcome.kind is CodingCommandOutcomeKind.EXIT:
-                        break
+                # The built-in>resource>extension command-dispatch precedence is
+                # owned by the headless controller: it classifies built-ins first
+                # (`/exit`/`/quit` -> EXIT_LOOP; every other continuing built-in ->
+                # INTERPRET_BUILTIN carrying the outcome interpreted inline below),
+                # then resource dispatch (list/reject consumed locally; run records
+                # the invocation counter and carries the bounded provider text),
+                # then extension dispatch (never shadowing a built-in or resource),
+                # then the unhandled `/…` fallback — each effect performed through
+                # the injected `command_effects` port. Queued/provider content has
+                # a blank `command_text` and falls straight through to
+                # PROCEED_TO_RUN. The imperative per-action effect chain below is
+                # still interpreted inline (it reassigns run()-local control state).
+                resolution = loop_controller.dispatch_command(
+                    command_text=command_text,
+                    stripped=stripped,
+                    user_input=user_input,
+                    selected_provider_content=selected_provider_content,
+                    effects=command_effects,
+                )
+                if resolution.kind is CommandDispatchResolutionKind.EXIT_LOOP:
+                    break
+                if resolution.kind is CommandDispatchResolutionKind.INTERPRET_BUILTIN:
+                    command_outcome = resolution.interpret_outcome
+                    # INTERPRET_BUILTIN always carries a CONTINUE outcome.
+                    assert command_outcome is not None
                     if command_outcome.kind is CodingCommandOutcomeKind.CONTINUE:
                         if command_outcome.action is CodingCommandAction.SHOW_HOTKEYS:
                             # Render from the resolved keybinding manager so user
@@ -4080,26 +4098,7 @@ class NativeToolReplSession:
                                 "handled command requires a closed footer policy"
                             )
                         continue
-                # The built-in>resource>extension command-dispatch precedence
-                # tail is owned by the headless controller. The built-in `/exit`/
-                # `/quit` and continuing-command interpretation is resolved inline
-                # above; this call runs resource dispatch (list/reject consumed
-                # locally; run records the invocation counter and carries the
-                # bounded provider text), then extension dispatch (never shadowing
-                # a built-in or resource), then the unhandled `/…` fallback — each
-                # effect performed through the injected `command_effects` port.
-                # Queued/provider content has a blank `command_text` and therefore
-                # falls straight through to `PROCEED_TO_RUN`.
-                resolution = loop_controller.dispatch_command(
-                    command_text=command_text,
-                    user_input=user_input,
-                    selected_provider_content=selected_provider_content,
-                    effects=command_effects,
-                )
-                if (
-                    resolution.kind
-                    is CommandDispatchResolutionKind.CONTINUE_LOOP
-                ):
+                if resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:
                     continue
                 resource_provider_text: str | None = resolution.resource_provider_text
                 # User-directed file context: a genuine prompt may name workspace

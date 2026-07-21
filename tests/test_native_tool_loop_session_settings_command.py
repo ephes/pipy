@@ -129,6 +129,7 @@ def test_captured_settings_projects_current_provider_in_sanitized_order(
 def test_composition_trims_for_classification_but_preserves_user_bubble(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import pipy_harness.native.coding.session_controller as controller_module
     import pipy_harness.native.tool_loop_session as loop_module
 
     cwd = _workspace(tmp_path)
@@ -136,7 +137,8 @@ def test_composition_trims_for_classification_but_preserves_user_bubble(
     bubbles: list[str] = []
     footer_usage: list[bool] = []
     overlays: list[object] = []
-    original_classifier = loop_module.classify_coding_command
+    # Built-in classification now lives in the headless controller.
+    original_classifier = controller_module.classify_coding_command
 
     def classify(content: ProductContent) -> CodingCommandOutcome:
         classified.append(content)
@@ -161,7 +163,7 @@ def test_composition_trims_for_classification_but_preserves_user_bubble(
     ) -> None:
         footer_usage.append(kwargs.get("usage_snapshot") is not None)
 
-    monkeypatch.setattr(loop_module, "classify_coding_command", classify)
+    monkeypatch.setattr(controller_module, "classify_coding_command", classify)
     monkeypatch.setattr(
         loop_module._ToolLoopRenderer, "render_user_message", render_user_message
     )

@@ -24,6 +24,10 @@ from pipy_harness.native.agent.runtime_ports import (
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.commands import (
+    CodingCommandAction,
+    CodingCommandFooterPolicy,
+    CodingCommandOutcome,
+    CodingCommandOutcomeKind,
     CommandDispatchResolution,
     CommandDispatchResolutionKind,
     ExtensionDispatchResolution,
@@ -587,12 +591,14 @@ def _dispatch(
     *,
     command_text: str,
     user_input: str,
+    stripped: str | None = None,
     selected_provider_content: ProductContent | None = None,
     effects: _FakeCommandEffects,
 ) -> CommandDispatchResolution:
     controller, _ = _controller(CodingInputQueue())
     return controller.dispatch_command(
         command_text=command_text,
+        stripped=command_text if stripped is None else stripped,
         user_input=user_input,
         selected_provider_content=selected_provider_content,
         effects=effects,
@@ -626,6 +632,7 @@ def test_provider_content_falls_straight_through_to_run() -> None:
     resolution = _dispatch(
         command_text="",
         user_input="queued turn",
+        stripped="queued turn",
         selected_provider_content=content,
         effects=effects,
     )
@@ -750,12 +757,110 @@ def test_precedence_resource_run_beats_extension() -> None:
     assert effects.extension_dispatches == []
 
 
+def test_exit_command_resolves_to_exit_loop() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "ran", "t"),
+        extension=ExtensionDispatchResolution(name="exit", ran=True, error=None),
+    )
+
+    resolution = _dispatch(command_text="/exit", user_input="/exit", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.EXIT_LOOP
+    # A built-in classifies FIRST: no resource/extension port is consulted and no
+    # diagnostic/footer effect runs.
+    assert effects.resource_dispatches == []
+    assert effects.extension_dispatches == []
+    assert effects.diagnostics == []
+    assert effects.footer_calls == 0
+    assert effects.resource_invocations == 0
+
+
+def test_quit_command_resolves_to_exit_loop() -> None:
+    effects = _FakeCommandEffects()
+
+    resolution = _dispatch(command_text="/quit", user_input="/quit", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.EXIT_LOOP
+    assert effects.resource_dispatches == []
+
+
+def test_continuing_builtin_resolves_to_interpret_builtin() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "ran", "t"),
+        extension=ExtensionDispatchResolution(name="hotkeys", ran=True, error=None),
+    )
+
+    resolution = _dispatch(
+        command_text="/hotkeys", user_input="/hotkeys", effects=effects
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.INTERPRET_BUILTIN
+    assert resolution.interpret_outcome is not None
+    assert resolution.interpret_outcome.kind is CodingCommandOutcomeKind.CONTINUE
+    assert resolution.interpret_outcome.action is CodingCommandAction.SHOW_HOTKEYS
+    # A built-in classifies before resource/extension, so neither port is consulted.
+    assert effects.resource_dispatches == []
+    assert effects.extension_dispatches == []
+    assert effects.diagnostics == []
+    assert effects.footer_calls == 0
+
+
+def test_continuing_builtin_with_argument_carries_the_argument() -> None:
+    effects = _FakeCommandEffects()
+
+    resolution = _dispatch(
+        command_text="/fork my label", user_input="/fork my label", effects=effects
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.INTERPRET_BUILTIN
+    assert resolution.interpret_outcome is not None
+    assert resolution.interpret_outcome.action is CodingCommandAction.SESSION_FORK
+    assert resolution.interpret_outcome.argument == ProductContent("my label")
+    assert effects.resource_dispatches == []
+
+
+def test_empty_typed_submission_resolves_to_actionless_interpret_builtin() -> None:
+    # An empty typed line (selected_provider_content is None, stripped == "")
+    # satisfies the classify guard and classifies as an actionless CONTINUE, just
+    # as the deleted inline block did — never reaching resource/extension dispatch.
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "ran", "t")
+    )
+
+    resolution = _dispatch(
+        command_text="", user_input="", stripped="", effects=effects
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.INTERPRET_BUILTIN
+    assert resolution.interpret_outcome is not None
+    assert resolution.interpret_outcome.action is None
+    assert effects.resource_dispatches == []
+
+
+def test_empty_provider_content_classifies_when_stripped_is_empty() -> None:
+    # Empty provider/queued content (blank command_text, empty stripped) still
+    # satisfies the guard's `not stripped` disjunct and classifies inline.
+    effects = _FakeCommandEffects()
+
+    resolution = _dispatch(
+        command_text="",
+        user_input="",
+        stripped="",
+        selected_provider_content=ProductContent(""),
+        effects=effects,
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.INTERPRET_BUILTIN
+    assert effects.resource_dispatches == []
+
+
 def test_dispatch_command_rejects_non_effects_port() -> None:
     controller, _ = _controller(CodingInputQueue())
 
     with pytest.raises(TypeError, match="effects must implement CodingCommandEffects"):
         controller.dispatch_command(
             command_text="/x",
+            stripped="/x",
             user_input="/x",
             selected_provider_content=None,
             effects=object(),  # type: ignore[arg-type]
@@ -771,6 +876,7 @@ def test_dispatch_command_rejects_wrong_resource_result_type() -> None:
     with pytest.raises(TypeError, match="ResourceDispatchResolution"):
         controller.dispatch_command(
             command_text="/x",
+            stripped="/x",
             user_input="/x",
             selected_provider_content=None,
             effects=_BadResource(),
@@ -788,6 +894,7 @@ def test_dispatch_command_rejects_wrong_extension_result_type() -> None:
     with pytest.raises(TypeError, match="ExtensionDispatchResolution"):
         controller.dispatch_command(
             command_text="/x",
+            stripped="/x",
             user_input="/x",
             selected_provider_content=None,
             effects=_BadExtension(),
@@ -803,6 +910,52 @@ def test_command_dispatch_resolution_rejects_inconsistent_construction() -> None
         CommandDispatchResolution(
             CommandDispatchResolutionKind.PROCEED_TO_RUN,
             user_input=None,  # type: ignore[arg-type]
+        )
+
+
+def _continue_outcome() -> CodingCommandOutcome:
+    return CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        CodingCommandAction.SHOW_HOTKEYS,
+        CodingCommandFooterPolicy.STANDARD,
+    )
+
+
+def test_exit_loop_and_interpret_builtin_factories() -> None:
+    exit_resolution = CommandDispatchResolution.exit_loop()
+    assert exit_resolution.kind is CommandDispatchResolutionKind.EXIT_LOOP
+    assert exit_resolution.interpret_outcome is None
+
+    outcome = _continue_outcome()
+    interpret = CommandDispatchResolution.interpret_builtin(outcome)
+    assert interpret.kind is CommandDispatchResolutionKind.INTERPRET_BUILTIN
+    assert interpret.interpret_outcome is outcome
+
+
+def test_interpret_builtin_requires_a_continue_outcome() -> None:
+    with pytest.raises(ValueError, match="requires a CONTINUE outcome"):
+        CommandDispatchResolution(
+            CommandDispatchResolutionKind.INTERPRET_BUILTIN, interpret_outcome=None
+        )
+    with pytest.raises(ValueError, match="requires a CONTINUE outcome"):
+        CommandDispatchResolution(
+            CommandDispatchResolutionKind.INTERPRET_BUILTIN,
+            interpret_outcome=CodingCommandOutcome(CodingCommandOutcomeKind.EXIT),
+        )
+
+
+def test_only_interpret_builtin_may_carry_an_outcome() -> None:
+    with pytest.raises(ValueError, match="only an INTERPRET_BUILTIN resolution"):
+        CommandDispatchResolution(
+            CommandDispatchResolutionKind.CONTINUE_LOOP,
+            interpret_outcome=_continue_outcome(),
+        )
+
+
+def test_exit_loop_rejects_stray_payload() -> None:
+    with pytest.raises(ValueError, match="EXIT_LOOP resolution carries no user_input"):
+        CommandDispatchResolution(
+            CommandDispatchResolutionKind.EXIT_LOOP, user_input="x"
         )
 
 

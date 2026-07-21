@@ -2355,6 +2355,34 @@ outcome-kind routing) into `dispatch_command` needs the mutable effect-handler
 design and is deferred to the next 3.1f cut, along with the start/run transitions
 and the sub-800-line composition-shell reduction.
 
+Sub-slice 3.1f.3 (continuation 1, 2026-07-21) gives `dispatch_command` the *full*
+built-in>resource>extension precedence. `classify_coding_command` moved from the
+inline `run()` guard into `CodingSessionController.dispatch_command(*, command_text,
+stripped, user_input, selected_provider_content, effects)` and runs FIRST so a
+resource/extension can never shadow a built-in: `/exit`/`/quit` resolve to the new
+`CommandDispatchResolutionKind.EXIT_LOOP` (the loop breaks) and every other
+continuing built-in to the new `INTERPRET_BUILTIN` variant carrying the classified
+`CodingCommandOutcome` in the new `interpret_outcome` field, gated by the exact
+former inline condition (`selected_provider_content is None or not stripped`,
+threaded as the new `stripped` parameter). `CommandDispatchResolution` gains
+`exit_loop()`/`interpret_builtin(outcome)` factories and validation (INTERPRET_BUILTIN
+requires a CONTINUE outcome; `interpret_outcome` rejected on other kinds;
+EXIT_LOOP/INTERPRET_BUILTIN carry no payload). `NativeToolReplSession.run()` calls
+`dispatch_command` once at the former classification site and routes on the kind —
+EXIT_LOOP breaks, INTERPRET_BUILTIN binds `command_outcome = resolution.interpret_outcome`
+and runs the still-inline 29-branch interpretation byte-identically (no re-indent),
+CONTINUE_LOOP continues, PROCEED_TO_RUN feeds the run transition — and deletes the
+superseded inline `classify_coding_command` call, the inline `EXIT`-break, the
+duplicate `dispatch_command` call site, and the now-unused monolith
+`classify_coding_command` import. Byte-identical CLI/JSON/RPC/session behavior; no
+new runtime dependency, `Any`, or `type: ignore`. The import-boundary gate extends
+the `session_controller` exact allowlist with `classify_coding_command` and
+`CodingCommandOutcomeKind`. Still deferred (needs the mutable effect-handler
+design): physically relocating the 29-branch per-action effect interpretation
+(reassigns `run()`-local `session_tree`/`tree_filter_mode`/`pending_prefill`/`/reload`
+bundle) behind per-effect ports, the pre-dispatch hotkey/shortcut/shell routing, and
+the `run()` shrink.
+
 Sub-slice 3.1f.4 (first cut, 2026-07-21) gives the controller ownership of the
 loop driver and start/shutdown lifecycle. `CodingSessionController.run_loop(*,
 drive, fire_session_start, fire_session_shutdown, consume_settle_pending,
