@@ -2477,6 +2477,33 @@ the `_interpret_builtin_effect`/`_repl_step` bodies out of `run()` into methods
 that receive `ctl` explicitly, dropping `run()` under 800 lines and adding the
 `< 800` assertion.
 
+Sub-slice 3.1f-completion (built-in interpretation relocation, 2026-07-22)
+completes the deferred 3.1f.3 remainder: the 886-`ast`-line
+`_interpret_builtin_effect(command_outcome)` closure nested in `run()` is
+physically relocated into a new module-level composition-root handler
+`_BuiltinCommandInterpreter` (stateless, `__slots__ = ()`) whose
+`interpret(command_outcome, *, session, ctl, …)` method the existing
+`_CodingCommandEffectsAdapter` reaches through the already-wired
+`CodingCommandEffects.interpret_builtin(outcome)` port, symmetric with the
+resource/extension dispatch ports. The handler receives `ctl` plus the 31
+run-loop collaborators (resolved with `symtable`) as strictly-typed keyword-only
+arguments and mutates `ctl` in place, so `run()` reads the reassigned
+`session_tree`/`tree_filter_mode`/`pending_prefill`/`/reload`-bundle control state
+back byte-identically. The superseded closure is DELETED with no alias; the
+adapter's `interpret` slot becomes a thin `lambda outcome:
+builtin_interpreter.interpret(outcome, session=self, ctl=ctl, …)` dispatch, so
+`run()` drops from 2,825 to 1,975 `ast`-lines (−850). The relocation is a uniform
+4-space dedent plus a single `\bself\b`→`session` token rename (verified safe:
+every `self` in the body was a `self.`-attribute access on the session, none in a
+string/comment), so the per-action effects, footer policies, built-in>resource>
+extension precedence, and every CLI/JSON/RPC/session/extension/TUI format are
+byte-identical; no new runtime dependency, `Any`, or `type: ignore`
+(`extension_session_allows` is `Callable[..., bool]` with an inline note for its
+keyword-only gate arguments). **Still deferred (the last 3.1f cut):** splitting
+`interpret` into per-effect port methods, physically relocating the still-nested
+`_repl_step` body and the pre-dispatch hotkey/shortcut/shell (`!`/`!!`) routing
+out of `run()`, and dropping `run()` under 800 lines with the `< 800` assertion.
+
 Sub-slice 3.1f.3 (continuation 2, 2026-07-21) makes the continuing built-in's
 per-action effect chain run THROUGH the command-dispatch effect port, symmetric
 with resource/extension dispatch, so the classified outcome no longer crosses the

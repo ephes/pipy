@@ -1091,18 +1091,20 @@ class _ExtensionRuntime:
 @dataclass(slots=True)
 class _RunControlState:
     """Mutable holder for the control state a single ``run()`` invocation shares
-    across its composition-root closures.
+    across its composition-root closures and the built-in command handler.
 
     Before this holder existed, these run-scope names were shared through a
-    ~40-name ``nonlocal`` block reassigned by ``_interpret_builtin_effect`` and
-    read back by ``_repl_step`` and the extension/resource/persistence adapter
-    closures. Routing them through one ``ctl`` instance removes those free-var
-    captures so a later cut can relocate the closure bodies into methods that
-    receive ``ctl`` explicitly. It is deliberately a plain mutable record with no
-    behavior: the closures reassign ``ctl.<attr>`` exactly where they previously
-    rebound the ``nonlocal`` name, and a ``/reload``, ``/new``, ``/resume``,
-    ``/fork``, or ``/clone`` rebind stays visible to every other closure through
-    the shared instance.
+    ~40-name ``nonlocal`` block reassigned by the built-in effect chain and read
+    back by ``_repl_step`` and the extension/resource/persistence adapter
+    closures. Routing them through one ``ctl`` instance removed those free-var
+    captures so the built-in effect chain could be relocated into
+    ``_BuiltinCommandInterpreter.interpret``, which receives ``ctl`` explicitly
+    and mutates it in place (a later cut relocates the remaining ``_repl_step``
+    body the same way). It is deliberately a plain mutable record with no
+    behavior: the handler and closures reassign ``ctl.<attr>`` exactly where they
+    previously rebound the ``nonlocal`` name, and a ``/reload``, ``/new``,
+    ``/resume``, ``/fork``, or ``/clone`` rebind stays visible to every other
+    closure through the shared instance.
     """
 
     session_tree: NativeSessionTree
@@ -1439,6 +1441,886 @@ class _CodingCommandEffectsAdapter:
         self, command_text: str
     ) -> ExtensionDispatchResolution | None:
         return self._resolve_extension(command_text)
+
+
+class _BuiltinCommandInterpreter:
+    """Composition-root handler that owns the built-in command effect chain.
+
+    The controller classifies the built-in>resource>extension precedence and, for
+    a continuing built-in, invokes this handler through the already-wired
+    :meth:`CodingCommandEffects.interpret_builtin` port (symmetric with the
+    resource and extension dispatch ports). :meth:`interpret` receives the run's
+    mutable control-state holder ``ctl`` plus the run-loop collaborators
+    (terminal UI, renderer, session-tree callbacks, extension runtime) explicitly
+    and mutates ``ctl`` in place, so ``run()`` reads the reassigned session tree,
+    tree filter mode, pending prefill, and ``/reload`` extension-runtime bundle
+    back byte-identically after dispatch. The handler holds no state of its own;
+    the per-action effect chain formerly lived as the ``_interpret_builtin_effect``
+    closure nested in ``NativeToolReplSession.run()``.
+    """
+
+    __slots__ = ()
+
+    def interpret(
+        self,
+        command_outcome: CodingCommandOutcome,
+        *,
+        session: "NativeToolReplSession",
+        ctl: _RunControlState,
+        coding_state: CodingSessionState,
+        terminal_ui: ToolLoopTerminalUi | None,
+        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
+        error_stream: TextIO,
+        emitter: _ExtensionAwareAgentEventSink,
+        keybindings: KeybindingsManager,
+        settings: SettingsManager,
+        cwd: Path,
+        system_prompt: str,
+        input_stream: TextIO,
+        prompt_history_store: PromptHistoryStore,
+        resource_options: RuntimeResourceOptions,
+        tool_capabilities: NativeToolCapabilities,
+        repl_input: "ToolLoopTerminalUi | NativeReplInput",
+        diag: Callable[[str], None],
+        apply_compaction: Callable[[str], str],
+        apply_model_selection: Callable[[str], tuple[bool, str]],
+        apply_auth_change: Callable[[str, str], str],
+        rebuild_messages_from_tree: Callable[[], None],
+        redraw_custom_entries_for_active_branch: Callable[[], None],
+        refresh_legacy_footer: Callable[[], None],
+        refresh_legacy_footer_with_usage: Callable[[], None],
+        current_session_dir: Callable[[], Path],
+        resolve_session_file: Callable[[str], Path | None],
+        summarize_branch: Callable[[list[AgentMessage], str | None], str | None],
+        # ``extension_session_allows`` takes keyword-only gate arguments
+        # (operation/target/trigger), so ``Callable[..., bool]`` is the accurate
+        # callback shape here rather than a positional parameter list.
+        extension_session_allows: Callable[..., bool],
+        extension_send_message: Callable[
+            [str, str, bool, "Mapping[str, object]", object | None], object
+        ],
+        extension_render_details: dict[str, object],
+        extension_set_active_tools: Callable[[Sequence[str]], bool],
+        _extension_notify: Callable[[str, str], None],
+        _bind_unavailable_after_reload: Callable[[str], None],
+    ) -> None:
+        # The run's shared control state is reassigned through ``ctl.<attr>``;
+        # the transient names this effect recomputes locally on every
+        # invocation before reading (``fallback``/``fallback_provider``/
+        # ``catalog_state``/``was_extension_selection`` in the reload provider
+        # refresh, ``unknown_filter_names``/``known``/``unknown`` in the
+        # reload tool-filter check, and the ``_registered_tool``/``_port``/
+        # ``custom_message`` loop variables) stay function-local.
+        if command_outcome.kind is CodingCommandOutcomeKind.CONTINUE:
+            if command_outcome.action is CodingCommandAction.SHOW_HOTKEYS:
+                # Render from the resolved keybinding manager so user
+                # keybindings.json overrides remain reflected.
+                hotkeys_text = render_hotkeys(keybindings)
+                if terminal_ui is not None:
+                    terminal_ui.add_notice(hotkeys_text)
+                else:
+                    print(hotkeys_text, file=error_stream)
+            elif command_outcome.action is CodingCommandAction.SHOW_CHANGELOG:
+                changelog_text = render_changelog(read_changelog_entries())
+                if terminal_ui is not None:
+                    terminal_ui.add_notice(changelog_text)
+                else:
+                    print(changelog_text, file=error_stream)
+            elif command_outcome.action is CodingCommandAction.COPY_LAST_ANSWER:
+                session._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    session._copy_last_answer(
+                        coding_state.messages,
+                        error_stream=error_stream,
+                    ),
+                )
+            elif command_outcome.action is CodingCommandAction.SHOW_SESSION_STATUS:
+                diag(format_session_status(ctl.session_tree))
+            elif command_outcome.action is CodingCommandAction.COMPACT:
+                # Local-only: reduce provider-visible history while
+                # preserving the shared manual/automatic compaction
+                # policy, extension gate, and durable write ordering.
+                diag(apply_compaction("manual"))
+            elif command_outcome.action is CodingCommandAction.SESSION_NAME:
+                session_name_argument = command_outcome.argument
+                if type(session_name_argument) is not ProductContent:
+                    raise TypeError(
+                        "SESSION_NAME requires an exact ProductContent argument"
+                    )
+                if not session_name_argument.value:
+                    diag(
+                        "pipy: current session name: "
+                        + (
+                            sanitize_label_text(ctl.session_tree.name)
+                            if ctl.session_tree.name
+                            else "(unnamed)"
+                        )
+                    )
+                else:
+                    ctl.session_tree.append_session_info(session_name_argument.value)
+                    diag(f"pipy: session named {session_name_argument.value!r}.")
+            elif command_outcome.action is CodingCommandAction.NEW_SESSION:
+                # Start a fresh native product session in the same store.
+                if extension_session_allows(
+                    ctl.extension_session_before_switch_hooks,
+                    operation="switch",
+                    target="new",
+                ):
+                    session_dir = (
+                        ctl.session_tree.path.parent
+                        if ctl.session_tree.path is not None
+                        else None
+                    )
+                    ctl.session_tree = NativeSessionTree.create(
+                        cwd,
+                        session_dir=session_dir,
+                        persist=ctl.session_tree.persist,
+                    )
+                    rebuild_messages_from_tree()
+                    diag(
+                        "pipy: started a new native session "
+                        f"({sanitize_label_text(ctl.session_tree.session_id[:8])})."
+                    )
+            elif command_outcome.action is CodingCommandAction.SESSION_TREE:
+                tree_argument = command_outcome.argument
+                if type(tree_argument) is not ProductContent:
+                    raise TypeError(
+                        "SESSION_TREE requires an exact ProductContent argument"
+                    )
+                argument = tree_argument.value
+                tree_sub = argument.split(maxsplit=1)[0].lower() if argument else ""
+                tree_may_change = (
+                    not argument and terminal_ui is not None
+                ) or tree_sub in {"select", "label", "filter"}
+                tree_allowed = not tree_may_change or extension_session_allows(
+                    ctl.extension_session_before_tree_hooks,
+                    operation="tree",
+                    target=argument or None,
+                )
+                if tree_allowed:
+                    tree_outcome = session._handle_tree_command(
+                        argument,
+                        session_tree=ctl.session_tree,
+                        terminal_ui=terminal_ui,
+                        error_stream=error_stream,
+                        repl_input=repl_input,
+                        filter_mode=ctl.tree_filter_mode,
+                        rebuild_messages=rebuild_messages_from_tree,
+                        summarizer=summarize_branch,
+                    )
+                    if tree_outcome.filter_mode is not None:
+                        ctl.tree_filter_mode = tree_outcome.filter_mode
+                    if tree_outcome.prefill is not None:
+                        ctl.pending_prefill = tree_outcome.prefill
+            elif command_outcome.action is CodingCommandAction.SESSION_RESUME:
+                resume_argument = command_outcome.argument
+                if type(resume_argument) is not ProductContent:
+                    raise TypeError(
+                        "SESSION_RESUME requires an exact ProductContent argument"
+                    )
+                argument = resume_argument.value
+                resume_tokens = argument.split()
+                resume_sub = resume_tokens[0].lower() if resume_tokens else ""
+
+                def _list_sessions(named_only: bool = False) -> None:
+                    sessions = list_native_sessions(current_session_dir())
+                    sessions = (
+                        [session for session in sessions if session.name]
+                        if named_only
+                        else sessions
+                    )
+                    if not sessions:
+                        diag("pipy: no native sessions found for this workspace.")
+                        return
+                    scope = "named " if named_only else ""
+                    diag(f"pipy: {scope}native sessions (newest first):")
+                    for index, entry in enumerate(sessions, start=1):
+                        label = (
+                            sanitize_label_text(entry.name)
+                            if entry.name
+                            else "(unnamed)"
+                        )
+                        diag(
+                            f"  {index}. "
+                            f"{sanitize_label_text(entry.session_id[:8])} "
+                            f"{label} "
+                            f"messages={entry.message_count} "
+                            f"file={sanitize_label_text(entry.path.name)}"
+                        )
+                    diag("pipy: use '/resume <number|id>' to open a session.")
+
+                if (
+                    not argument
+                    and terminal_ui is not None
+                    and hasattr(terminal_ui, "run_session_picker")
+                ):
+                    picked_session = session._run_interactive_session_picker(
+                        session_tree=ctl.session_tree,
+                        terminal_ui=terminal_ui,
+                    )
+                    if picked_session is None:
+                        diag("pipy: /resume cancelled.")
+                    elif (
+                        ctl.session_tree.path is not None
+                        and picked_session == ctl.session_tree.path
+                    ):
+                        diag("pipy: already on the selected native session.")
+                    elif extension_session_allows(
+                        ctl.extension_session_before_switch_hooks,
+                        operation="switch",
+                        target=str(picked_session),
+                    ):
+                        ctl.session_tree = NativeSessionTree.open(picked_session)
+                        rebuild_messages_from_tree()
+                        redraw_custom_entries_for_active_branch()
+                        diag(
+                            "pipy: resumed native session "
+                            f"{sanitize_label_text(ctl.session_tree.session_id[:8])} "
+                            f"({sanitize_label_text(ctl.session_tree.name) if ctl.session_tree.name else 'unnamed'})."
+                        )
+                elif not argument:
+                    _list_sessions()
+                elif resume_sub == "named":
+                    _list_sessions(named_only=True)
+                elif resume_sub == "rename":
+                    if len(resume_tokens) < 3:
+                        diag("pipy: usage: /resume rename <number|id> <name>")
+                    else:
+                        target = resolve_session_file(resume_tokens[1])
+                        if target is None:
+                            diag(
+                                f"pipy: no native session matched {resume_tokens[1]!r}."
+                            )
+                        else:
+                            renamed = NativeSessionTree.open(target)
+                            new_name = " ".join(resume_tokens[2:])
+                            renamed.append_session_info(new_name)
+                            diag(
+                                "pipy: renamed session "
+                                f"{sanitize_label_text(renamed.session_id[:8])} "
+                                f"to {new_name!r}."
+                            )
+                elif resume_sub == "delete":
+                    confirm = "--yes" in resume_tokens[1:]
+                    refs = [token for token in resume_tokens[1:] if token != "--yes"]
+                    if not refs:
+                        diag("pipy: usage: /resume delete <number|id> --yes")
+                    else:
+                        target = resolve_session_file(refs[0])
+                        if target is None:
+                            diag(f"pipy: no native session matched {refs[0]!r}.")
+                        elif (
+                            ctl.session_tree.path is not None
+                            and target == ctl.session_tree.path
+                        ):
+                            diag("pipy: cannot delete the active native session.")
+                        elif not confirm:
+                            diag(
+                                "pipy: deletion needs confirmation; "
+                                "re-run "
+                                f"'/resume delete {refs[0]} --yes'. This "
+                                "removes only the native session file, "
+                                "never pipy-session archive records."
+                            )
+                        else:
+                            _ok, detail = delete_native_session(target)
+                            diag(f"pipy: {detail}")
+                else:
+                    target = resolve_session_file(argument)
+                    if target is None:
+                        diag(f"pipy: no native session matched {argument!r}.")
+                    elif extension_session_allows(
+                        ctl.extension_session_before_switch_hooks,
+                        operation="switch",
+                        target=str(target),
+                    ):
+                        ctl.session_tree = NativeSessionTree.open(target)
+                        rebuild_messages_from_tree()
+                        redraw_custom_entries_for_active_branch()
+                        diag(
+                            "pipy: resumed native session "
+                            f"{sanitize_label_text(ctl.session_tree.session_id[:8])} "
+                            f"({sanitize_label_text(ctl.session_tree.name) if ctl.session_tree.name else 'unnamed'})."
+                        )
+            elif command_outcome.action in {
+                CodingCommandAction.SESSION_FORK,
+                CodingCommandAction.SESSION_CLONE,
+            }:
+                if command_outcome.action is CodingCommandAction.SESSION_FORK:
+                    fork_argument = command_outcome.argument
+                    if type(fork_argument) is not ProductContent:
+                        raise TypeError(
+                            "SESSION_FORK requires an exact ProductContent argument"
+                        )
+                    argument = fork_argument.value
+                else:
+                    argument = ""
+                if ctl.session_tree.path is None:
+                    command_name = {
+                        CodingCommandAction.SESSION_FORK: "/fork",
+                        CodingCommandAction.SESSION_CLONE: "/clone",
+                    }[command_outcome.action]
+                    diag(f"pipy: {command_name} requires a persistent native session.")
+                else:
+                    fork_leaf: str | None = None
+                    fork_target_resolved = True
+                    if argument:
+                        target_entry = resolve_entry_ref(
+                            ctl.session_tree,
+                            argument,
+                            filter_mode=ctl.tree_filter_mode,
+                        )
+                        if target_entry is None:
+                            diag(f"pipy: no tree entry matched {argument!r}.")
+                            fork_target_resolved = False
+                        else:
+                            fork_leaf = target_entry.id
+                    else:
+                        fork_leaf = ctl.session_tree.get_leaf_id()
+                    if fork_target_resolved and extension_session_allows(
+                        ctl.extension_session_before_fork_hooks,
+                        operation="fork",
+                        target=fork_leaf,
+                    ):
+                        forked_tree = NativeSessionTree.fork_from(
+                            ctl.session_tree.path,
+                            cwd,
+                            leaf_id=fork_leaf,
+                            session_dir=ctl.session_tree.path.parent,
+                        )
+                        ctl.session_tree = forked_tree
+                        rebuild_messages_from_tree()
+                        success_text = {
+                            CodingCommandAction.SESSION_FORK: (
+                                "forked into new native session "
+                            ),
+                            CodingCommandAction.SESSION_CLONE: (
+                                "cloned active branch into new native session "
+                            ),
+                        }[command_outcome.action]
+                        diag(
+                            f"pipy: {success_text}"
+                            f"{sanitize_label_text(ctl.session_tree.session_id[:8])}."
+                        )
+            elif command_outcome.action is CodingCommandAction.SESSION_EXPORT:
+                session._export_session(
+                    command_outcome.argument,
+                    session_tree=ctl.session_tree,
+                    cwd=cwd,
+                    system_prompt=system_prompt,
+                    diagnostic=diag,
+                )
+            elif command_outcome.action is CodingCommandAction.SESSION_IMPORT:
+                imported_tree = session._import_session(
+                    command_outcome.argument,
+                    cwd=cwd,
+                    input_stream=input_stream,
+                    error_stream=error_stream,
+                    current_session_dir=current_session_dir,
+                    session_switch_allows=lambda target: extension_session_allows(
+                        ctl.extension_session_before_switch_hooks,
+                        operation="switch",
+                        target=target,
+                    ),
+                    diagnostic=diag,
+                )
+                if imported_tree is not None:
+                    ctl.session_tree = imported_tree
+                    rebuild_messages_from_tree()
+                    diag(
+                        "pipy: imported native session "
+                        f"{sanitize_label_text(ctl.session_tree.session_id[:8])}."
+                    )
+            elif command_outcome.action is CodingCommandAction.SESSION_SHARE:
+                token = resolve_github_token()
+                if not token:
+                    diag(
+                        "pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`."
+                    )
+                else:
+                    try:
+                        result = session._share_native_session_command(
+                            session_tree=ctl.session_tree,
+                            token=token,
+                            terminal_ui=terminal_ui,
+                            error_stream=error_stream,
+                        )
+                    except NativeExportError as exc:
+                        diag(f"pipy: {exc}")
+                    else:
+                        if result is not None:
+                            if result.viewer_url:
+                                diag(
+                                    f"pipy: share URL: {result.viewer_url}\npipy: gist URL: {result.gist_url}"
+                                )
+                            else:
+                                diag(f"pipy: gist URL: {result.gist_url}")
+            elif command_outcome.action is CodingCommandAction.SETTINGS:
+                if terminal_ui is not None:
+                    session._drive_settings_dialog(
+                        terminal_ui,
+                        prompt_history_store,
+                        provider=coding_state.provider,
+                        apply_model_selection=apply_model_selection,
+                        apply_auth_change=apply_auth_change,
+                        settings=settings,
+                        session_tree=ctl.session_tree,
+                        error_stream=error_stream,
+                    )
+                else:
+                    for overlay_line in session._settings_overlay_lines(
+                        settings,
+                        provider=coding_state.provider,
+                    ):
+                        print(overlay_line, file=error_stream)
+            elif command_outcome.action is CodingCommandAction.TRUST_PROJECT:
+                session._handle_trust_command(
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    cwd=cwd,
+                    settings=settings,
+                )
+            elif command_outcome.action in {
+                CodingCommandAction.MODEL,
+                CodingCommandAction.SCOPED_MODELS,
+                CodingCommandAction.LOGIN,
+                CodingCommandAction.LOGOUT,
+            }:
+                command_argument = command_outcome.argument
+                if type(command_argument) is not ProductContent:
+                    raise TypeError(
+                        f"{command_outcome.action.name} requires an exact "
+                        "ProductContent argument"
+                    )
+                argument = command_argument.value
+                if command_outcome.action is CodingCommandAction.MODEL:
+                    state = session.provider_state
+                    if not isinstance(state, NativeReplProviderState):
+                        session._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            "pipy: /model is unavailable for this REPL provider state.",
+                        )
+                    elif argument:
+                        _ok, message = apply_model_selection(argument)
+                        session._emit_diagnostic(terminal_ui, error_stream, message)
+                    elif terminal_ui is not None:
+                        ui_options, selections = session._model_selector_rows(state)
+                        current = state.current_selection()
+                        current_index = next(
+                            (
+                                index
+                                for index, selection in enumerate(selections)
+                                if selection.provider_name == current.provider_name
+                                and selection.model_id == current.model_id
+                            ),
+                            0,
+                        )
+                        chosen = terminal_ui.run_model_selector(
+                            ui_options, current_index=current_index
+                        )
+                        if chosen is not None:
+                            _ok, message = apply_model_selection(
+                                selections[chosen].reference
+                            )
+                            terminal_ui.add_notice(message)
+                    else:
+                        for overlay_line in session._settings_overlay_lines(
+                            settings,
+                            provider=coding_state.provider,
+                        ):
+                            print(overlay_line, file=error_stream)
+                elif command_outcome.action is CodingCommandAction.SCOPED_MODELS:
+                    # Local-only: view/set/clear the enabledModels
+                    # patterns constraining model cycling, or cycle over
+                    # the scoped set without a provider/tool turn.
+                    state = session.provider_state
+                    available_refs = (
+                        [
+                            option.selection.reference
+                            for option in state.model_options()
+                            if option.available
+                        ]
+                        if isinstance(state, NativeReplProviderState)
+                        else []
+                    )
+                    patterns = settings.get_enabled_models()
+                    scoped = filter_scoped_references(available_refs, patterns)
+                    if (
+                        not argument
+                        and terminal_ui is not None
+                        and isinstance(state, NativeReplProviderState)
+                        and available_refs
+                    ):
+                        session._open_scoped_models_overlay(
+                            terminal_ui, state=state, settings=settings
+                        )
+                    elif not argument:
+                        pattern_text = (
+                            ", ".join(patterns) if patterns else "(none — full catalog)"
+                        )
+                        cycle_text = ", ".join(scoped) if scoped else "(none available)"
+                        for ctl.line in (
+                            "pipy: scoped models:",
+                            f"  patterns: {pattern_text}",
+                            f"  cycle set: {cycle_text}",
+                        ):
+                            session._emit_diagnostic(
+                                terminal_ui, error_stream, ctl.line
+                            )
+                    elif argument == "clear":
+                        try:
+                            settings.set_enabled_models([])
+                            message = (
+                                "pipy: scoped models cleared (cycle uses "
+                                "the full catalog)."
+                            )
+                        except RuntimeError as exc:
+                            message = f"pipy: could not update scoped models: {exc}"
+                        session._emit_diagnostic(terminal_ui, error_stream, message)
+                    elif argument in {"next", "prev"}:
+                        current_ref = (
+                            state.current_selection().reference
+                            if isinstance(state, NativeReplProviderState)
+                            else ""
+                        )
+                        cycle_target = next_reference(
+                            scoped,
+                            current_ref,
+                            forward=argument == "next",
+                        )
+                        if cycle_target is None:
+                            session._emit_diagnostic(
+                                terminal_ui,
+                                error_stream,
+                                "pipy: no models available to cycle.",
+                            )
+                        else:
+                            _ok, message = apply_model_selection(cycle_target)
+                            session._emit_diagnostic(terminal_ui, error_stream, message)
+                    else:
+                        new_patterns = argument.split()
+                        try:
+                            settings.set_enabled_models(new_patterns)
+                            message = "pipy: scoped models set: " + ", ".join(
+                                new_patterns
+                            )
+                        except RuntimeError as exc:
+                            message = f"pipy: could not update scoped models: {exc}"
+                        session._emit_diagnostic(terminal_ui, error_stream, message)
+                else:
+                    auth_action = (
+                        "login"
+                        if command_outcome.action is CodingCommandAction.LOGIN
+                        else "logout"
+                    )
+                    message = apply_auth_change(auth_action, argument)
+                    session._emit_diagnostic(terminal_ui, error_stream, message)
+            elif command_outcome.action is CodingCommandAction.RELOAD:
+                # Local-only: re-read settings (both scopes), keybindings, and
+                # workspace resources, then re-apply derived UI settings. Runs
+                # between turns at the prompt, so no provider turn or compaction
+                # is in flight. A settings/theme load error keeps the prior good
+                # state for that scope; a malformed keybindings.json falls back
+                # to the built-in defaults. No provider turn, no tool call.
+                settings.reload()
+                keybindings.reload()
+                # Re-resolve package roots + re-install the theme
+                # registry so a package added/removed since startup is
+                # reflected after /reload.
+                ctl.package_roots = compose_package_runtime(
+                    settings,
+                    cwd,
+                    include_package_themes=not resource_options.no_themes,
+                    explicit_theme_paths=resource_options.theme_paths,
+                )
+                ctl.workspace_resources = WorkspaceResources.discover(
+                    cwd,
+                    package_roots=ctl.package_roots,
+                    explicit_skill_paths=resource_options.skill_paths,
+                    explicit_prompt_template_paths=resource_options.prompt_template_paths,
+                    include_skills_defaults=not resource_options.no_skills,
+                    include_prompt_template_defaults=not resource_options.no_prompt_templates,
+                    include_workspace_defaults=settings.project_trusted,
+                ).with_enablement(
+                    skills_patterns=settings.get_skills_patterns(),
+                    prompts_patterns=settings.get_prompts_patterns(),
+                    enable_skill_commands=settings.get_enable_skill_commands(),
+                )
+                # Re-discover + re-activate extensions on reload (Pi
+                # /reload also reloads extensions). A failing extension is
+                # disabled without affecting the session. Clear any chrome
+                # set by the prior generation first so a removed/disabled
+                # extension cannot leave stale widgets/header/footer/title.
+                if terminal_ui is not None:
+                    terminal_ui.clear_extension_chrome()
+                ctl._ext_runtime = _activate_workspace_extensions(
+                    cwd,
+                    ctl.workspace_resources,
+                    tuple(session.tool_registry.keys()),
+                    package_roots=()
+                    if resource_options.no_extensions
+                    else ctl.package_roots.extensions,
+                    extension_patterns=settings.get_extensions_patterns(),
+                    explicit_extension_paths=resource_options.extension_paths,
+                    include_default_extensions=not resource_options.no_extensions,
+                    include_workspace_defaults=settings.project_trusted,
+                )
+                ctl.extension_commands = ctl._ext_runtime.commands
+                ctl.extension_menu_names = ctl._ext_runtime.menu_names
+                ctl.extension_descriptions = ctl._ext_runtime.descriptions
+                ctl.extension_tool_call_hooks_ = ctl._ext_runtime.tool_call_hooks
+                ctl.extension_lifecycle_hooks = ctl._ext_runtime.lifecycle_hooks
+                ctl.extension_input_hooks = ctl._ext_runtime.input_hooks
+                ctl.extension_before_agent_start_hooks = (
+                    ctl._ext_runtime.before_agent_start_hooks
+                )
+                ctl.extension_tool_result_hooks = ctl._ext_runtime.tool_result_hooks
+                ctl.extension_user_bash_hooks = ctl._ext_runtime.user_bash_hooks
+                ctl.extension_before_provider_headers_hooks = (
+                    ctl._ext_runtime.before_provider_headers_hooks
+                )
+                ctl.extension_before_provider_request_hooks = (
+                    ctl._ext_runtime.before_provider_request_hooks
+                )
+                ctl.extension_session_before_switch_hooks = (
+                    ctl._ext_runtime.session_before_switch_hooks
+                )
+                ctl.extension_session_before_fork_hooks = (
+                    ctl._ext_runtime.session_before_fork_hooks
+                )
+                ctl.extension_session_before_compact_hooks = (
+                    ctl._ext_runtime.session_before_compact_hooks
+                )
+                ctl.extension_session_before_tree_hooks = (
+                    ctl._ext_runtime.session_before_tree_hooks
+                )
+                ctl.extension_message_outbox = ctl._ext_runtime.outbox
+                ctl.extension_custom_message_outbox = ctl._ext_runtime.custom_outbox
+                ctl.extension_renderer_map = ctl._ext_runtime.message_renderers
+                ctl.extension_entry_renderer_map = ctl._ext_runtime.entry_renderers
+                ctl.extension_activation_custom_messages = (
+                    ctl._ext_runtime.custom_messages
+                )
+                for custom_message in ctl.extension_activation_custom_messages:
+                    extension_send_message(
+                        custom_message.custom_type,
+                        custom_message.content,
+                        custom_message.display,
+                        custom_message.options,
+                        custom_message.details,
+                    )
+                ctl.extension_activation_custom_messages = ()
+                reloaded_flag_values, reloaded_flag_error = parse_extension_flag_tokens(
+                    ctl._ext_runtime.flags,
+                    tuple(resource_options.extension_flag_tokens),
+                )
+                if reloaded_flag_error is not None:
+                    session._emit_diagnostic(
+                        terminal_ui,
+                        error_stream,
+                        f"pipy: {reloaded_flag_error}",
+                    )
+                else:
+                    ctl.extension_flag_values = reloaded_flag_values
+                    emitter.set_flags(ctl.extension_flag_values)
+                state = session.provider_state
+                if isinstance(state, NativeReplProviderState):
+                    catalog_state = state.catalog_state
+                    if catalog_state is not None:
+                        was_extension_selection = (
+                            state.current_selection_uses_extension_provider()
+                        )
+                        catalog_state.refresh()  # type: ignore[attr-defined]
+                        catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
+                            ctl._ext_runtime.providers,
+                            ctl._ext_runtime.unregistered_providers,
+                        )
+                        selection_disappeared = (
+                            not state.current_selection_supported()
+                            or (
+                                was_extension_selection
+                                and not state.current_selection_uses_extension_provider()
+                            )
+                        )
+                        if not selection_disappeared:
+                            if state.current_selection_uses_extension_provider():
+                                refreshed_provider = state.current_provider()
+                                if getattr(
+                                    refreshed_provider,
+                                    "supports_tool_calls",
+                                    False,
+                                ):
+                                    coding_state.refresh_provider(refreshed_provider)
+                                else:
+                                    fallback = state.reset_to_first_available_model(
+                                        require_tool_calls=True
+                                    )
+                                    if fallback is not None:
+                                        fallback_provider = state.current_provider()
+                                        coding_state.rebind_provider(
+                                            fallback_provider,
+                                            provider_name=fallback.provider_name,
+                                            model_id=fallback.model_id,
+                                            usage_accumulator=(
+                                                AgentUsageAccumulator(
+                                                    _pricing_for(
+                                                        fallback.provider_name,
+                                                        fallback.model_id,
+                                                    )
+                                                )
+                                            ),
+                                        )
+                                        session._emit_diagnostic(
+                                            terminal_ui,
+                                            error_stream,
+                                            "pipy: active model no longer "
+                                            "supports tool calls after reload; "
+                                            f"selected {fallback.reference}.",
+                                        )
+                                    else:
+                                        message = (
+                                            "active model no longer supports "
+                                            "tool calls after reload and no "
+                                            "available tool-capable fallback "
+                                            "was found"
+                                        )
+                                        _bind_unavailable_after_reload(message)
+                                        session._emit_diagnostic(
+                                            terminal_ui,
+                                            error_stream,
+                                            f"pipy: {message}.",
+                                        )
+                        else:
+                            fallback = state.reset_to_first_available_model(
+                                require_tool_calls=True
+                            )
+                            if fallback is not None:
+                                fallback_provider = state.current_provider()
+                                coding_state.rebind_provider(
+                                    fallback_provider,
+                                    provider_name=fallback.provider_name,
+                                    model_id=fallback.model_id,
+                                    usage_accumulator=AgentUsageAccumulator(
+                                        _pricing_for(
+                                            fallback.provider_name,
+                                            fallback.model_id,
+                                        )
+                                    ),
+                                )
+                                session._emit_diagnostic(
+                                    terminal_ui,
+                                    error_stream,
+                                    "pipy: active model disappeared on "
+                                    "reload; selected "
+                                    f"{fallback.reference}.",
+                                )
+                            else:
+                                message = (
+                                    "active model disappeared on reload and "
+                                    "no available tool-capable fallback was "
+                                    "found"
+                                )
+                                _bind_unavailable_after_reload(message)
+                                session._emit_diagnostic(
+                                    terminal_ui,
+                                    error_stream,
+                                    f"pipy: {message}.",
+                                )
+                # Replace the run's extension capability registry and
+                # custom renderer map with the reloaded generation.
+                ctl.extension_tool_renderers = _extension_tool_renderer_map(
+                    ctl._ext_runtime.tools
+                )
+                renderer.refresh_tool_renderers(ctl.extension_tool_renderers)
+                ctl.extension_tool_registry = {}
+                for _registered_tool in ctl._ext_runtime.tools:
+                    _port = _ExtensionToolPort(
+                        _registered_tool,
+                        has_ui=terminal_ui is not None,
+                        notify_sink=_extension_notify,
+                        set_active_tools_fn=lambda names: extension_set_active_tools(
+                            names
+                        ),
+                        flags=ctl.extension_flag_values,
+                        render_details_sink=extension_render_details,
+                        project_trusted=settings.project_trusted,
+                    )
+                    ctl.extension_tool_registry[_port.definition.name] = _port
+                tool_capabilities.replace_extensions(ctl.extension_tool_registry)
+                unknown_filter_names = tool_capabilities.unknown_filter_names
+                if unknown_filter_names:
+                    known = (
+                        ", ".join(sorted(tool_capabilities.registered_names))
+                        or "<none>"
+                    )
+                    unknown = ", ".join(unknown_filter_names)
+                    session._emit_diagnostic(
+                        terminal_ui,
+                        error_stream,
+                        f"pipy: unknown tool name(s): {unknown}. Known tools: {known}",
+                    )
+                # Refresh the emitter's lifecycle hooks so reloaded
+                # extensions observe subsequent agent/turn events.
+                emitter.set_lifecycle_hooks(ctl.extension_lifecycle_hooks)
+                emitter.set_flags(ctl.extension_flag_values)
+                # Re-apply the edited theme (settings is source of truth over the
+                # persisted store) and the derived UI settings.
+                reloaded_theme = settings.get_theme()
+                if reloaded_theme:
+                    os.environ["PIPY_THEME"] = reloaded_theme
+                if terminal_ui is not None:
+                    terminal_ui.autocomplete_max_visible = (
+                        settings.get_autocomplete_max_visible()
+                    )
+                    terminal_ui.command_names = _tool_loop_command_names(
+                        ctl.workspace_resources, ctl.extension_menu_names
+                    )
+                    terminal_ui.command_descriptions = _tool_loop_command_descriptions(
+                        ctl.workspace_resources, ctl.extension_descriptions
+                    )
+                    terminal_ui.extension_shortcut_keys = frozenset(
+                        ctl._ext_runtime.shortcuts
+                    )
+                    redraw_custom_entries_for_active_branch()
+                load_errors = settings.load_errors()
+                if load_errors:
+                    for scope, detail in load_errors.items():
+                        session._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            f"pipy: kept prior {scope} settings ({detail}).",
+                        )
+                if session.verbose_startup or not settings.get_quiet_startup():
+                    print_startup_chrome(
+                        error_stream,
+                        cwd=cwd,
+                        include_workspace_defaults=settings.project_trusted,
+                    )
+                saved_implicit_trust = session._maybe_save_implicit_trust_after_reload(
+                    cwd=cwd,
+                    settings=settings,
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                )
+                emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
+                session._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    (
+                        "pipy: reloaded settings, keybindings, and resources; "
+                        "saved project trust."
+                        if saved_implicit_trust
+                        else "pipy: reloaded settings, keybindings, and resources."
+                    ),
+                )
+            if command_outcome.footer_policy is CodingCommandFooterPolicy.STANDARD:
+                refresh_legacy_footer()
+            elif command_outcome.footer_policy is CodingCommandFooterPolicy.USAGE_AWARE:
+                refresh_legacy_footer_with_usage()
+            else:
+                raise AssertionError("handled command requires a closed footer policy")
 
 
 @dataclass
@@ -3010,897 +3892,47 @@ class NativeToolReplSession:
         # reassigns the run's control state (the live session tree, tree filter
         # mode, pending prefill, and the whole `/reload` extension-runtime
         # bundle) exactly as the superseded inline INTERPRET_BUILTIN branch did.
-        def _interpret_builtin_effect(command_outcome: CodingCommandOutcome) -> None:
-            # The run's shared control state is reassigned through ``ctl.<attr>``;
-            # the transient names this effect recomputes locally on every
-            # invocation before reading (``fallback``/``fallback_provider``/
-            # ``catalog_state``/``was_extension_selection`` in the reload provider
-            # refresh, ``unknown_filter_names``/``known``/``unknown`` in the
-            # reload tool-filter check, and the ``_registered_tool``/``_port``/
-            # ``custom_message`` loop variables) stay function-local.
-            if command_outcome.kind is CodingCommandOutcomeKind.CONTINUE:
-                if command_outcome.action is CodingCommandAction.SHOW_HOTKEYS:
-                    # Render from the resolved keybinding manager so user
-                    # keybindings.json overrides remain reflected.
-                    hotkeys_text = render_hotkeys(keybindings)
-                    if terminal_ui is not None:
-                        terminal_ui.add_notice(hotkeys_text)
-                    else:
-                        print(hotkeys_text, file=error_stream)
-                elif command_outcome.action is CodingCommandAction.SHOW_CHANGELOG:
-                    changelog_text = render_changelog(read_changelog_entries())
-                    if terminal_ui is not None:
-                        terminal_ui.add_notice(changelog_text)
-                    else:
-                        print(changelog_text, file=error_stream)
-                elif command_outcome.action is CodingCommandAction.COPY_LAST_ANSWER:
-                    self._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        self._copy_last_answer(
-                            coding_state.messages,
-                            error_stream=error_stream,
-                        ),
-                    )
-                elif (
-                    command_outcome.action
-                    is CodingCommandAction.SHOW_SESSION_STATUS
-                ):
-                    diag(format_session_status(ctl.session_tree))
-                elif command_outcome.action is CodingCommandAction.COMPACT:
-                    # Local-only: reduce provider-visible history while
-                    # preserving the shared manual/automatic compaction
-                    # policy, extension gate, and durable write ordering.
-                    diag(apply_compaction("manual"))
-                elif command_outcome.action is CodingCommandAction.SESSION_NAME:
-                    session_name_argument = command_outcome.argument
-                    if type(session_name_argument) is not ProductContent:
-                        raise TypeError(
-                            "SESSION_NAME requires an exact ProductContent argument"
-                        )
-                    if not session_name_argument.value:
-                        diag(
-                            "pipy: current session name: "
-                            + (
-                                sanitize_label_text(ctl.session_tree.name)
-                                if ctl.session_tree.name
-                                else "(unnamed)"
-                            )
-                        )
-                    else:
-                        ctl.session_tree.append_session_info(
-                            session_name_argument.value
-                        )
-                        diag(
-                            f"pipy: session named {session_name_argument.value!r}."
-                        )
-                elif command_outcome.action is CodingCommandAction.NEW_SESSION:
-                    # Start a fresh native product session in the same store.
-                    if extension_session_allows(
-                        ctl.extension_session_before_switch_hooks,
-                        operation="switch",
-                        target="new",
-                    ):
-                        session_dir = (
-                            ctl.session_tree.path.parent
-                            if ctl.session_tree.path is not None
-                            else None
-                        )
-                        ctl.session_tree = NativeSessionTree.create(
-                            cwd,
-                            session_dir=session_dir,
-                            persist=ctl.session_tree.persist,
-                        )
-                        rebuild_messages_from_tree()
-                        diag(
-                            "pipy: started a new native session "
-                            f"({sanitize_label_text(ctl.session_tree.session_id[:8])})."
-                        )
-                elif command_outcome.action is CodingCommandAction.SESSION_TREE:
-                    tree_argument = command_outcome.argument
-                    if type(tree_argument) is not ProductContent:
-                        raise TypeError(
-                            "SESSION_TREE requires an exact ProductContent argument"
-                        )
-                    argument = tree_argument.value
-                    tree_sub = (
-                        argument.split(maxsplit=1)[0].lower() if argument else ""
-                    )
-                    tree_may_change = (
-                        not argument and terminal_ui is not None
-                    ) or tree_sub in {"select", "label", "filter"}
-                    tree_allowed = not tree_may_change or extension_session_allows(
-                        ctl.extension_session_before_tree_hooks,
-                        operation="tree",
-                        target=argument or None,
-                    )
-                    if tree_allowed:
-                        tree_outcome = self._handle_tree_command(
-                            argument,
-                            session_tree=ctl.session_tree,
-                            terminal_ui=terminal_ui,
-                            error_stream=error_stream,
-                            repl_input=repl_input,
-                            filter_mode=ctl.tree_filter_mode,
-                            rebuild_messages=rebuild_messages_from_tree,
-                            summarizer=summarize_branch,
-                        )
-                        if tree_outcome.filter_mode is not None:
-                            ctl.tree_filter_mode = tree_outcome.filter_mode
-                        if tree_outcome.prefill is not None:
-                            ctl.pending_prefill = tree_outcome.prefill
-                elif command_outcome.action is CodingCommandAction.SESSION_RESUME:
-                    resume_argument = command_outcome.argument
-                    if type(resume_argument) is not ProductContent:
-                        raise TypeError(
-                            "SESSION_RESUME requires an exact ProductContent "
-                            "argument"
-                        )
-                    argument = resume_argument.value
-                    resume_tokens = argument.split()
-                    resume_sub = resume_tokens[0].lower() if resume_tokens else ""
-
-                    def _list_sessions(named_only: bool = False) -> None:
-                        sessions = list_native_sessions(current_session_dir())
-                        sessions = (
-                            [session for session in sessions if session.name]
-                            if named_only
-                            else sessions
-                        )
-                        if not sessions:
-                            diag(
-                                "pipy: no native sessions found for this workspace."
-                            )
-                            return
-                        scope = "named " if named_only else ""
-                        diag(f"pipy: {scope}native sessions (newest first):")
-                        for index, entry in enumerate(sessions, start=1):
-                            label = (
-                                sanitize_label_text(entry.name)
-                                if entry.name
-                                else "(unnamed)"
-                            )
-                            diag(
-                                f"  {index}. "
-                                f"{sanitize_label_text(entry.session_id[:8])} "
-                                f"{label} "
-                                f"messages={entry.message_count} "
-                                f"file={sanitize_label_text(entry.path.name)}"
-                            )
-                        diag("pipy: use '/resume <number|id>' to open a session.")
-
-                    if (
-                        not argument
-                        and terminal_ui is not None
-                        and hasattr(terminal_ui, "run_session_picker")
-                    ):
-                        picked_session = self._run_interactive_session_picker(
-                            session_tree=ctl.session_tree,
-                            terminal_ui=terminal_ui,
-                        )
-                        if picked_session is None:
-                            diag("pipy: /resume cancelled.")
-                        elif (
-                            ctl.session_tree.path is not None
-                            and picked_session == ctl.session_tree.path
-                        ):
-                            diag("pipy: already on the selected native session.")
-                        elif extension_session_allows(
-                            ctl.extension_session_before_switch_hooks,
-                            operation="switch",
-                            target=str(picked_session),
-                        ):
-                            ctl.session_tree = NativeSessionTree.open(picked_session)
-                            rebuild_messages_from_tree()
-                            redraw_custom_entries_for_active_branch()
-                            diag(
-                                "pipy: resumed native session "
-                                f"{sanitize_label_text(ctl.session_tree.session_id[:8])} "
-                                f"({sanitize_label_text(ctl.session_tree.name) if ctl.session_tree.name else 'unnamed'})."
-                            )
-                    elif not argument:
-                        _list_sessions()
-                    elif resume_sub == "named":
-                        _list_sessions(named_only=True)
-                    elif resume_sub == "rename":
-                        if len(resume_tokens) < 3:
-                            diag("pipy: usage: /resume rename <number|id> <name>")
-                        else:
-                            target = resolve_session_file(resume_tokens[1])
-                            if target is None:
-                                diag(
-                                    "pipy: no native session matched "
-                                    f"{resume_tokens[1]!r}."
-                                )
-                            else:
-                                renamed = NativeSessionTree.open(target)
-                                new_name = " ".join(resume_tokens[2:])
-                                renamed.append_session_info(new_name)
-                                diag(
-                                    "pipy: renamed session "
-                                    f"{sanitize_label_text(renamed.session_id[:8])} "
-                                    f"to {new_name!r}."
-                                )
-                    elif resume_sub == "delete":
-                        confirm = "--yes" in resume_tokens[1:]
-                        refs = [
-                            token for token in resume_tokens[1:] if token != "--yes"
-                        ]
-                        if not refs:
-                            diag("pipy: usage: /resume delete <number|id> --yes")
-                        else:
-                            target = resolve_session_file(refs[0])
-                            if target is None:
-                                diag(
-                                    f"pipy: no native session matched {refs[0]!r}."
-                                )
-                            elif (
-                                ctl.session_tree.path is not None
-                                and target == ctl.session_tree.path
-                            ):
-                                diag(
-                                    "pipy: cannot delete the active native session."
-                                )
-                            elif not confirm:
-                                diag(
-                                    "pipy: deletion needs confirmation; "
-                                    "re-run "
-                                    f"'/resume delete {refs[0]} --yes'. This "
-                                    "removes only the native session file, "
-                                    "never pipy-session archive records."
-                                )
-                            else:
-                                _ok, detail = delete_native_session(target)
-                                diag(f"pipy: {detail}")
-                    else:
-                        target = resolve_session_file(argument)
-                        if target is None:
-                            diag(f"pipy: no native session matched {argument!r}.")
-                        elif extension_session_allows(
-                            ctl.extension_session_before_switch_hooks,
-                            operation="switch",
-                            target=str(target),
-                        ):
-                            ctl.session_tree = NativeSessionTree.open(target)
-                            rebuild_messages_from_tree()
-                            redraw_custom_entries_for_active_branch()
-                            diag(
-                                "pipy: resumed native session "
-                                f"{sanitize_label_text(ctl.session_tree.session_id[:8])} "
-                                f"({sanitize_label_text(ctl.session_tree.name) if ctl.session_tree.name else 'unnamed'})."
-                            )
-                elif command_outcome.action in {
-                    CodingCommandAction.SESSION_FORK,
-                    CodingCommandAction.SESSION_CLONE,
-                }:
-                    if command_outcome.action is CodingCommandAction.SESSION_FORK:
-                        fork_argument = command_outcome.argument
-                        if type(fork_argument) is not ProductContent:
-                            raise TypeError(
-                                "SESSION_FORK requires an exact ProductContent "
-                                "argument"
-                            )
-                        argument = fork_argument.value
-                    else:
-                        argument = ""
-                    if ctl.session_tree.path is None:
-                        command_name = {
-                            CodingCommandAction.SESSION_FORK: "/fork",
-                            CodingCommandAction.SESSION_CLONE: "/clone",
-                        }[command_outcome.action]
-                        diag(
-                            f"pipy: {command_name} requires a persistent "
-                            "native session."
-                        )
-                    else:
-                        fork_leaf: str | None = None
-                        fork_target_resolved = True
-                        if argument:
-                            target_entry = resolve_entry_ref(
-                                ctl.session_tree,
-                                argument,
-                                filter_mode=ctl.tree_filter_mode,
-                            )
-                            if target_entry is None:
-                                diag(f"pipy: no tree entry matched {argument!r}.")
-                                fork_target_resolved = False
-                            else:
-                                fork_leaf = target_entry.id
-                        else:
-                            fork_leaf = ctl.session_tree.get_leaf_id()
-                        if fork_target_resolved and extension_session_allows(
-                            ctl.extension_session_before_fork_hooks,
-                            operation="fork",
-                            target=fork_leaf,
-                        ):
-                            forked_tree = NativeSessionTree.fork_from(
-                                ctl.session_tree.path,
-                                cwd,
-                                leaf_id=fork_leaf,
-                                session_dir=ctl.session_tree.path.parent,
-                            )
-                            ctl.session_tree = forked_tree
-                            rebuild_messages_from_tree()
-                            success_text = {
-                                CodingCommandAction.SESSION_FORK: (
-                                    "forked into new native session "
-                                ),
-                                CodingCommandAction.SESSION_CLONE: (
-                                    "cloned active branch into new native session "
-                                ),
-                            }[command_outcome.action]
-                            diag(
-                                f"pipy: {success_text}"
-                                f"{sanitize_label_text(ctl.session_tree.session_id[:8])}."
-                            )
-                elif command_outcome.action is CodingCommandAction.SESSION_EXPORT:
-                    self._export_session(
-                        command_outcome.argument,
-                        session_tree=ctl.session_tree,
-                        cwd=cwd,
-                        system_prompt=system_prompt,
-                        diagnostic=diag,
-                    )
-                elif command_outcome.action is CodingCommandAction.SESSION_IMPORT:
-                    imported_tree = self._import_session(
-                        command_outcome.argument,
-                        cwd=cwd,
-                        input_stream=input_stream,
-                        error_stream=error_stream,
-                        current_session_dir=current_session_dir,
-                        session_switch_allows=lambda target: (
-                            extension_session_allows(
-                                ctl.extension_session_before_switch_hooks,
-                                operation="switch",
-                                target=target,
-                            )
-                        ),
-                        diagnostic=diag,
-                    )
-                    if imported_tree is not None:
-                        ctl.session_tree = imported_tree
-                        rebuild_messages_from_tree()
-                        diag(
-                            "pipy: imported native session "
-                            f"{sanitize_label_text(ctl.session_tree.session_id[:8])}."
-                        )
-                elif command_outcome.action is CodingCommandAction.SESSION_SHARE:
-                    token = resolve_github_token()
-                    if not token:
-                        diag(
-                            "pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`."
-                        )
-                    else:
-                        try:
-                            result = self._share_native_session_command(
-                                session_tree=ctl.session_tree,
-                                token=token,
-                                terminal_ui=terminal_ui,
-                                error_stream=error_stream,
-                            )
-                        except NativeExportError as exc:
-                            diag(f"pipy: {exc}")
-                        else:
-                            if result is not None:
-                                if result.viewer_url:
-                                    diag(
-                                        f"pipy: share URL: {result.viewer_url}\npipy: gist URL: {result.gist_url}"
-                                    )
-                                else:
-                                    diag(f"pipy: gist URL: {result.gist_url}")
-                elif command_outcome.action is CodingCommandAction.SETTINGS:
-                    if terminal_ui is not None:
-                        self._drive_settings_dialog(
-                            terminal_ui,
-                            prompt_history_store,
-                            provider=coding_state.provider,
-                            apply_model_selection=apply_model_selection,
-                            apply_auth_change=apply_auth_change,
-                            settings=settings,
-                            session_tree=ctl.session_tree,
-                            error_stream=error_stream,
-                        )
-                    else:
-                        for overlay_line in self._settings_overlay_lines(
-                            settings,
-                            provider=coding_state.provider,
-                        ):
-                            print(overlay_line, file=error_stream)
-                elif command_outcome.action is CodingCommandAction.TRUST_PROJECT:
-                    self._handle_trust_command(
-                        terminal_ui=terminal_ui,
-                        error_stream=error_stream,
-                        cwd=cwd,
-                        settings=settings,
-                    )
-                elif command_outcome.action in {
-                    CodingCommandAction.MODEL,
-                    CodingCommandAction.SCOPED_MODELS,
-                    CodingCommandAction.LOGIN,
-                    CodingCommandAction.LOGOUT,
-                }:
-                    command_argument = command_outcome.argument
-                    if type(command_argument) is not ProductContent:
-                        raise TypeError(
-                            f"{command_outcome.action.name} requires an exact "
-                            "ProductContent argument"
-                        )
-                    argument = command_argument.value
-                    if command_outcome.action is CodingCommandAction.MODEL:
-                        state = self.provider_state
-                        if not isinstance(state, NativeReplProviderState):
-                            self._emit_diagnostic(
-                                terminal_ui,
-                                error_stream,
-                                "pipy: /model is unavailable for this REPL "
-                                "provider state.",
-                            )
-                        elif argument:
-                            _ok, message = apply_model_selection(argument)
-                            self._emit_diagnostic(
-                                terminal_ui, error_stream, message
-                            )
-                        elif terminal_ui is not None:
-                            ui_options, selections = self._model_selector_rows(
-                                state
-                            )
-                            current = state.current_selection()
-                            current_index = next(
-                                (
-                                    index
-                                    for index, selection in enumerate(selections)
-                                    if selection.provider_name
-                                    == current.provider_name
-                                    and selection.model_id == current.model_id
-                                ),
-                                0,
-                            )
-                            chosen = terminal_ui.run_model_selector(
-                                ui_options, current_index=current_index
-                            )
-                            if chosen is not None:
-                                _ok, message = apply_model_selection(
-                                    selections[chosen].reference
-                                )
-                                terminal_ui.add_notice(message)
-                        else:
-                            for overlay_line in self._settings_overlay_lines(
-                                settings,
-                                provider=coding_state.provider,
-                            ):
-                                print(overlay_line, file=error_stream)
-                    elif (
-                        command_outcome.action is CodingCommandAction.SCOPED_MODELS
-                    ):
-                        # Local-only: view/set/clear the enabledModels
-                        # patterns constraining model cycling, or cycle over
-                        # the scoped set without a provider/tool turn.
-                        state = self.provider_state
-                        available_refs = (
-                            [
-                                option.selection.reference
-                                for option in state.model_options()
-                                if option.available
-                            ]
-                            if isinstance(state, NativeReplProviderState)
-                            else []
-                        )
-                        patterns = settings.get_enabled_models()
-                        scoped = filter_scoped_references(available_refs, patterns)
-                        if (
-                            not argument
-                            and terminal_ui is not None
-                            and isinstance(state, NativeReplProviderState)
-                            and available_refs
-                        ):
-                            self._open_scoped_models_overlay(
-                                terminal_ui, state=state, settings=settings
-                            )
-                        elif not argument:
-                            pattern_text = (
-                                ", ".join(patterns)
-                                if patterns
-                                else "(none — full catalog)"
-                            )
-                            cycle_text = (
-                                ", ".join(scoped) if scoped else "(none available)"
-                            )
-                            for ctl.line in (
-                                "pipy: scoped models:",
-                                f"  patterns: {pattern_text}",
-                                f"  cycle set: {cycle_text}",
-                            ):
-                                self._emit_diagnostic(
-                                    terminal_ui, error_stream, ctl.line
-                                )
-                        elif argument == "clear":
-                            try:
-                                settings.set_enabled_models([])
-                                message = (
-                                    "pipy: scoped models cleared (cycle uses "
-                                    "the full catalog)."
-                                )
-                            except RuntimeError as exc:
-                                message = (
-                                    f"pipy: could not update scoped models: {exc}"
-                                )
-                            self._emit_diagnostic(
-                                terminal_ui, error_stream, message
-                            )
-                        elif argument in {"next", "prev"}:
-                            current_ref = (
-                                state.current_selection().reference
-                                if isinstance(state, NativeReplProviderState)
-                                else ""
-                            )
-                            cycle_target = next_reference(
-                                scoped,
-                                current_ref,
-                                forward=argument == "next",
-                            )
-                            if cycle_target is None:
-                                self._emit_diagnostic(
-                                    terminal_ui,
-                                    error_stream,
-                                    "pipy: no models available to cycle.",
-                                )
-                            else:
-                                _ok, message = apply_model_selection(cycle_target)
-                                self._emit_diagnostic(
-                                    terminal_ui, error_stream, message
-                                )
-                        else:
-                            new_patterns = argument.split()
-                            try:
-                                settings.set_enabled_models(new_patterns)
-                                message = "pipy: scoped models set: " + ", ".join(
-                                    new_patterns
-                                )
-                            except RuntimeError as exc:
-                                message = (
-                                    f"pipy: could not update scoped models: {exc}"
-                                )
-                            self._emit_diagnostic(
-                                terminal_ui, error_stream, message
-                            )
-                    else:
-                        auth_action = (
-                            "login"
-                            if command_outcome.action is CodingCommandAction.LOGIN
-                            else "logout"
-                        )
-                        message = apply_auth_change(auth_action, argument)
-                        self._emit_diagnostic(terminal_ui, error_stream, message)
-                elif command_outcome.action is CodingCommandAction.RELOAD:
-                    # Local-only: re-read settings (both scopes), keybindings, and
-                    # workspace resources, then re-apply derived UI settings. Runs
-                    # between turns at the prompt, so no provider turn or compaction
-                    # is in flight. A settings/theme load error keeps the prior good
-                    # state for that scope; a malformed keybindings.json falls back
-                    # to the built-in defaults. No provider turn, no tool call.
-                    settings.reload()
-                    keybindings.reload()
-                    # Re-resolve package roots + re-install the theme
-                    # registry so a package added/removed since startup is
-                    # reflected after /reload.
-                    ctl.package_roots = compose_package_runtime(
-                        settings,
-                        cwd,
-                        include_package_themes=not resource_options.no_themes,
-                        explicit_theme_paths=resource_options.theme_paths,
-                    )
-                    ctl.workspace_resources = WorkspaceResources.discover(
-                        cwd,
-                        package_roots=ctl.package_roots,
-                        explicit_skill_paths=resource_options.skill_paths,
-                        explicit_prompt_template_paths=resource_options.prompt_template_paths,
-                        include_skills_defaults=not resource_options.no_skills,
-                        include_prompt_template_defaults=not resource_options.no_prompt_templates,
-                        include_workspace_defaults=settings.project_trusted,
-                    ).with_enablement(
-                        skills_patterns=settings.get_skills_patterns(),
-                        prompts_patterns=settings.get_prompts_patterns(),
-                        enable_skill_commands=settings.get_enable_skill_commands(),
-                    )
-                    # Re-discover + re-activate extensions on reload (Pi
-                    # /reload also reloads extensions). A failing extension is
-                    # disabled without affecting the session. Clear any chrome
-                    # set by the prior generation first so a removed/disabled
-                    # extension cannot leave stale widgets/header/footer/title.
-                    if terminal_ui is not None:
-                        terminal_ui.clear_extension_chrome()
-                    ctl._ext_runtime = _activate_workspace_extensions(
-                        cwd,
-                        ctl.workspace_resources,
-                        tuple(self.tool_registry.keys()),
-                        package_roots=()
-                        if resource_options.no_extensions
-                        else ctl.package_roots.extensions,
-                        extension_patterns=settings.get_extensions_patterns(),
-                        explicit_extension_paths=resource_options.extension_paths,
-                        include_default_extensions=not resource_options.no_extensions,
-                        include_workspace_defaults=settings.project_trusted,
-                    )
-                    ctl.extension_commands = ctl._ext_runtime.commands
-                    ctl.extension_menu_names = ctl._ext_runtime.menu_names
-                    ctl.extension_descriptions = ctl._ext_runtime.descriptions
-                    ctl.extension_tool_call_hooks_ = ctl._ext_runtime.tool_call_hooks
-                    ctl.extension_lifecycle_hooks = ctl._ext_runtime.lifecycle_hooks
-                    ctl.extension_input_hooks = ctl._ext_runtime.input_hooks
-                    ctl.extension_before_agent_start_hooks = (
-                        ctl._ext_runtime.before_agent_start_hooks
-                    )
-                    ctl.extension_tool_result_hooks = ctl._ext_runtime.tool_result_hooks
-                    ctl.extension_user_bash_hooks = ctl._ext_runtime.user_bash_hooks
-                    ctl.extension_before_provider_headers_hooks = (
-                        ctl._ext_runtime.before_provider_headers_hooks
-                    )
-                    ctl.extension_before_provider_request_hooks = (
-                        ctl._ext_runtime.before_provider_request_hooks
-                    )
-                    ctl.extension_session_before_switch_hooks = (
-                        ctl._ext_runtime.session_before_switch_hooks
-                    )
-                    ctl.extension_session_before_fork_hooks = (
-                        ctl._ext_runtime.session_before_fork_hooks
-                    )
-                    ctl.extension_session_before_compact_hooks = (
-                        ctl._ext_runtime.session_before_compact_hooks
-                    )
-                    ctl.extension_session_before_tree_hooks = (
-                        ctl._ext_runtime.session_before_tree_hooks
-                    )
-                    ctl.extension_message_outbox = ctl._ext_runtime.outbox
-                    ctl.extension_custom_message_outbox = ctl._ext_runtime.custom_outbox
-                    ctl.extension_renderer_map = ctl._ext_runtime.message_renderers
-                    ctl.extension_entry_renderer_map = ctl._ext_runtime.entry_renderers
-                    ctl.extension_activation_custom_messages = (
-                        ctl._ext_runtime.custom_messages
-                    )
-                    for custom_message in ctl.extension_activation_custom_messages:
-                        extension_send_message(
-                            custom_message.custom_type,
-                            custom_message.content,
-                            custom_message.display,
-                            custom_message.options,
-                            custom_message.details,
-                        )
-                    ctl.extension_activation_custom_messages = ()
-                    reloaded_flag_values, reloaded_flag_error = (
-                        parse_extension_flag_tokens(
-                            ctl._ext_runtime.flags,
-                            tuple(resource_options.extension_flag_tokens),
-                        )
-                    )
-                    if reloaded_flag_error is not None:
-                        self._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            f"pipy: {reloaded_flag_error}",
-                        )
-                    else:
-                        ctl.extension_flag_values = reloaded_flag_values
-                        emitter.set_flags(ctl.extension_flag_values)
-                    state = self.provider_state
-                    if isinstance(state, NativeReplProviderState):
-                        catalog_state = state.catalog_state
-                        if catalog_state is not None:
-                            was_extension_selection = (
-                                state.current_selection_uses_extension_provider()
-                            )
-                            catalog_state.refresh()  # type: ignore[attr-defined]
-                            catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
-                                ctl._ext_runtime.providers,
-                                ctl._ext_runtime.unregistered_providers,
-                            )
-                            selection_disappeared = (
-                                not state.current_selection_supported()
-                                or (
-                                    was_extension_selection
-                                    and not state.current_selection_uses_extension_provider()
-                                )
-                            )
-                            if not selection_disappeared:
-                                if state.current_selection_uses_extension_provider():
-                                    refreshed_provider = state.current_provider()
-                                    if getattr(
-                                        refreshed_provider,
-                                        "supports_tool_calls",
-                                        False,
-                                    ):
-                                        coding_state.refresh_provider(
-                                            refreshed_provider
-                                        )
-                                    else:
-                                        fallback = (
-                                            state.reset_to_first_available_model(
-                                                require_tool_calls=True
-                                            )
-                                        )
-                                        if fallback is not None:
-                                            fallback_provider = (
-                                                state.current_provider()
-                                            )
-                                            coding_state.rebind_provider(
-                                                fallback_provider,
-                                                provider_name=fallback.provider_name,
-                                                model_id=fallback.model_id,
-                                                usage_accumulator=(
-                                                    AgentUsageAccumulator(
-                                                        _pricing_for(
-                                                            fallback.provider_name,
-                                                            fallback.model_id,
-                                                        )
-                                                    )
-                                                ),
-                                            )
-                                            self._emit_diagnostic(
-                                                terminal_ui,
-                                                error_stream,
-                                                "pipy: active model no longer "
-                                                "supports tool calls after reload; "
-                                                f"selected {fallback.reference}.",
-                                            )
-                                        else:
-                                            message = (
-                                                "active model no longer supports "
-                                                "tool calls after reload and no "
-                                                "available tool-capable fallback "
-                                                "was found"
-                                            )
-                                            _bind_unavailable_after_reload(message)
-                                            self._emit_diagnostic(
-                                                terminal_ui,
-                                                error_stream,
-                                                f"pipy: {message}.",
-                                            )
-                            else:
-                                fallback = state.reset_to_first_available_model(
-                                    require_tool_calls=True
-                                )
-                                if fallback is not None:
-                                    fallback_provider = state.current_provider()
-                                    coding_state.rebind_provider(
-                                        fallback_provider,
-                                        provider_name=fallback.provider_name,
-                                        model_id=fallback.model_id,
-                                        usage_accumulator=AgentUsageAccumulator(
-                                            _pricing_for(
-                                                fallback.provider_name,
-                                                fallback.model_id,
-                                            )
-                                        ),
-                                    )
-                                    self._emit_diagnostic(
-                                        terminal_ui,
-                                        error_stream,
-                                        "pipy: active model disappeared on "
-                                        "reload; selected "
-                                        f"{fallback.reference}.",
-                                    )
-                                else:
-                                    message = (
-                                        "active model disappeared on reload and "
-                                        "no available tool-capable fallback was "
-                                        "found"
-                                    )
-                                    _bind_unavailable_after_reload(message)
-                                    self._emit_diagnostic(
-                                        terminal_ui,
-                                        error_stream,
-                                        f"pipy: {message}.",
-                                    )
-                    # Replace the run's extension capability registry and
-                    # custom renderer map with the reloaded generation.
-                    ctl.extension_tool_renderers = _extension_tool_renderer_map(
-                        ctl._ext_runtime.tools
-                    )
-                    renderer.refresh_tool_renderers(ctl.extension_tool_renderers)
-                    ctl.extension_tool_registry = {}
-                    for _registered_tool in ctl._ext_runtime.tools:
-                        _port = _ExtensionToolPort(
-                            _registered_tool,
-                            has_ui=terminal_ui is not None,
-                            notify_sink=_extension_notify,
-                            set_active_tools_fn=lambda names: (
-                                extension_set_active_tools(names)
-                            ),
-                            flags=ctl.extension_flag_values,
-                            render_details_sink=extension_render_details,
-                            project_trusted=settings.project_trusted,
-                        )
-                        ctl.extension_tool_registry[_port.definition.name] = _port
-                    tool_capabilities.replace_extensions(ctl.extension_tool_registry)
-                    unknown_filter_names = tool_capabilities.unknown_filter_names
-                    if unknown_filter_names:
-                        known = (
-                            ", ".join(sorted(tool_capabilities.registered_names))
-                            or "<none>"
-                        )
-                        unknown = ", ".join(unknown_filter_names)
-                        self._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            f"pipy: unknown tool name(s): {unknown}. "
-                            f"Known tools: {known}",
-                        )
-                    # Refresh the emitter's lifecycle hooks so reloaded
-                    # extensions observe subsequent agent/turn events.
-                    emitter.set_lifecycle_hooks(ctl.extension_lifecycle_hooks)
-                    emitter.set_flags(ctl.extension_flag_values)
-                    # Re-apply the edited theme (settings is source of truth over the
-                    # persisted store) and the derived UI settings.
-                    reloaded_theme = settings.get_theme()
-                    if reloaded_theme:
-                        os.environ["PIPY_THEME"] = reloaded_theme
-                    if terminal_ui is not None:
-                        terminal_ui.autocomplete_max_visible = (
-                            settings.get_autocomplete_max_visible()
-                        )
-                        terminal_ui.command_names = _tool_loop_command_names(
-                            ctl.workspace_resources, ctl.extension_menu_names
-                        )
-                        terminal_ui.command_descriptions = (
-                            _tool_loop_command_descriptions(
-                                ctl.workspace_resources, ctl.extension_descriptions
-                            )
-                        )
-                        terminal_ui.extension_shortcut_keys = frozenset(
-                            ctl._ext_runtime.shortcuts
-                        )
-                        redraw_custom_entries_for_active_branch()
-                    load_errors = settings.load_errors()
-                    if load_errors:
-                        for scope, detail in load_errors.items():
-                            self._emit_diagnostic(
-                                terminal_ui,
-                                error_stream,
-                                f"pipy: kept prior {scope} settings ({detail}).",
-                            )
-                    if self.verbose_startup or not settings.get_quiet_startup():
-                        print_startup_chrome(
-                            error_stream,
-                            cwd=cwd,
-                            include_workspace_defaults=settings.project_trusted,
-                        )
-                    saved_implicit_trust = (
-                        self._maybe_save_implicit_trust_after_reload(
-                            cwd=cwd,
-                            settings=settings,
-                            terminal_ui=terminal_ui,
-                            error_stream=error_stream,
-                        )
-                    )
-                    emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
-                    self._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        (
-                            "pipy: reloaded settings, keybindings, and resources; "
-                            "saved project trust."
-                            if saved_implicit_trust
-                            else "pipy: reloaded settings, keybindings, and resources."
-                        ),
-                    )
-                if (
-                    command_outcome.footer_policy
-                    is CodingCommandFooterPolicy.STANDARD
-                ):
-                    refresh_legacy_footer()
-                elif (
-                    command_outcome.footer_policy
-                    is CodingCommandFooterPolicy.USAGE_AWARE
-                ):
-                    refresh_legacy_footer_with_usage()
-                else:
-                    raise AssertionError(
-                        "handled command requires a closed footer policy"
-                    )
+        builtin_interpreter = _BuiltinCommandInterpreter()
 
         command_effects: CodingCommandEffects = _CodingCommandEffectsAdapter(
             emit=diag,
             footer=refresh_legacy_footer,
-            interpret=_interpret_builtin_effect,
+            interpret=lambda outcome: builtin_interpreter.interpret(
+                outcome,
+                session=self,
+                ctl=ctl,
+                coding_state=coding_state,
+                terminal_ui=terminal_ui,
+                renderer=renderer,
+                error_stream=error_stream,
+                emitter=emitter,
+                keybindings=keybindings,
+                settings=settings,
+                cwd=cwd,
+                system_prompt=system_prompt,
+                input_stream=input_stream,
+                prompt_history_store=prompt_history_store,
+                resource_options=resource_options,
+                tool_capabilities=tool_capabilities,
+                repl_input=repl_input,
+                diag=diag,
+                apply_compaction=apply_compaction,
+                apply_model_selection=apply_model_selection,
+                apply_auth_change=apply_auth_change,
+                rebuild_messages_from_tree=rebuild_messages_from_tree,
+                redraw_custom_entries_for_active_branch=redraw_custom_entries_for_active_branch,
+                refresh_legacy_footer=refresh_legacy_footer,
+                refresh_legacy_footer_with_usage=refresh_legacy_footer_with_usage,
+                current_session_dir=current_session_dir,
+                resolve_session_file=resolve_session_file,
+                summarize_branch=summarize_branch,
+                extension_session_allows=extension_session_allows,
+                extension_send_message=extension_send_message,
+                extension_render_details=extension_render_details,
+                extension_set_active_tools=extension_set_active_tools,
+                _extension_notify=_extension_notify,
+                _bind_unavailable_after_reload=_bind_unavailable_after_reload,
+            ),
             record_resource=coding_state.record_resource_invocation,
             resolve_resource=_dispatch_resource_effect,
             resolve_extension=_dispatch_extension_effect,
@@ -3925,7 +3957,7 @@ class NativeToolReplSession:
         def _repl_step() -> LoopStepSignal:
             # The per-action built-in control-state reassignments (session tree,
             # tree filter mode, prefill, and the whole `/reload` extension-runtime
-            # bundle) now live in `_interpret_builtin_effect`, invoked through the
+            # bundle) now live in `_BuiltinCommandInterpreter.interpret`, invoked through the
             # command-dispatch port; this step only reassigns its own loop control
             # flags plus the input/agent-turn bookkeeping, all through ``ctl``.
             if terminal_ui is None:
@@ -4121,7 +4153,7 @@ class NativeToolReplSession:
             # (`/exit`/`/quit` -> EXIT_LOOP breaks the loop; every other
             # continuing built-in is interpreted through the injected
             # `command_effects.interpret_builtin` port — the per-action effect
-            # chain in `_interpret_builtin_effect` — and resolves to
+            # chain in `_BuiltinCommandInterpreter.interpret` — and resolves to
             # CONTINUE_LOOP), then resource dispatch (list/reject consumed
             # locally; run records the invocation counter and carries the bounded
             # provider text), then extension dispatch (never shadowing a built-in
