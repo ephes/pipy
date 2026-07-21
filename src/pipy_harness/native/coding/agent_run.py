@@ -1,4 +1,4 @@
-"""Product-side collaborator adapters for the reusable headless agent loop.
+"""Product-side collaborators for the reusable headless agent loop.
 
 The three adapters here bind product-owned callables to the canonical
 ``native.agent.loop`` request-source, provider-turn, and status-policy
@@ -7,6 +7,15 @@ the coding-session controller constructs them around freshly bound closures for
 each run so the reusable loop can drive request preparation, provider-turn
 completion, and the exact synchronous status seams without importing product
 composition, UI, persistence, providers, or extensions.
+
+``CodingAgentRunCoordinator`` receives those three product adapters plus the
+already-composed reusable-loop ports and drives one accepted turn: it assembles
+the canonical :class:`~pipy_harness.native.agent.loop.AgentLoop`, builds the run
+input from the live coding-session history, invokes the loop, mirrors the final
+history back into :class:`CodingSessionState`, and forwards the loop's
+controller handoff to the input-queue retention seam. It owns neither queue
+storage/ordering/reservation nor persistence writes; those stay with the
+product controller.
 """
 
 from __future__ import annotations
@@ -14,9 +23,18 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from pipy_harness.native.agent.active_input import AgentActiveInput
-from pipy_harness.native.agent.loop import AgentLoopRequestPreparation
+from pipy_harness.native.agent.loop import (
+    AgentLoop,
+    AgentLoopOutcome,
+    AgentLoopProviderTurn,
+    AgentLoopRequestPreparation,
+    AgentLoopRequestSource,
+    AgentLoopRunInput,
+    AgentLoopStatusPolicy,
+)
 from pipy_harness.native.agent.loop_policy import (
     AgentProviderStatusDecision,
+    AgentToolPolicy,
     AgentToolPolicyState,
 )
 from pipy_harness.native.agent.messages import AgentMessage
@@ -27,6 +45,18 @@ from pipy_harness.native.agent.results import (
     AgentCancellationReason,
     AgentFailure,
 )
+from pipy_harness.native.agent.runtime_ports import (
+    AgentQueuedInput,
+    AgentQueuedInputPort,
+    AgentRunEffectSink,
+    AgentUsagePublisher,
+)
+from pipy_harness.native.agent.tools import (
+    AgentToolCapabilities,
+    ToolInterruptWaiter,
+)
+from pipy_harness.native.agent.usage import AgentTokenPricing
+from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import ProviderResult
 from pipy_harness.native.tools.base import ToolDefinition
 
@@ -160,3 +190,83 @@ class AgentLoopStatusPolicyAdapter:
         /,
     ) -> None:
         self._malformed_fatal(failure, tool_state)
+
+
+class CodingAgentRunCoordinator:
+    """Assemble and drive one reusable ``AgentLoop`` run for the controller.
+
+    The controller builds one coordinator per accepted turn from its freshly
+    bound product adapters and the already-composed reusable-loop ports. A
+    single :meth:`run_turn` call assembles the canonical loop, constructs the
+    run input from the live coding-session history, invokes the loop, mirrors
+    the returned final history back into the session state, and forwards the
+    loop's controller handoff to the input-queue retention seam. Queue storage,
+    ordering, reservation, idle transitions, lifecycle, and persistence writes
+    remain the product controller's responsibility.
+    """
+
+    def __init__(
+        self,
+        *,
+        request_source: AgentLoopRequestSource,
+        provider_turn: AgentLoopProviderTurn,
+        status_policy: AgentLoopStatusPolicy,
+        tool_capabilities: AgentToolCapabilities,
+        tool_policy: AgentToolPolicy,
+        event_sink: AgentEventSink,
+        run_effect_sink: AgentRunEffectSink,
+        usage_publisher: AgentUsagePublisher,
+        queued_input_port: AgentQueuedInputPort,
+        coding_state: CodingSessionState,
+        retain_next_input: Callable[[AgentQueuedInput | None], None],
+        tool_waiter: ToolInterruptWaiter | None = None,
+    ) -> None:
+        if type(coding_state) is not CodingSessionState:
+            raise TypeError("coding_state must be an exact CodingSessionState")
+        if not callable(retain_next_input):
+            raise TypeError("retain_next_input must be callable")
+        self._request_source = request_source
+        self._provider_turn = provider_turn
+        self._status_policy = status_policy
+        self._tool_capabilities = tool_capabilities
+        self._tool_policy = tool_policy
+        self._event_sink = event_sink
+        self._run_effect_sink = run_effect_sink
+        self._usage_publisher = usage_publisher
+        self._queued_input_port = queued_input_port
+        self._coding_state = coding_state
+        self._retain_next_input = retain_next_input
+        self._tool_waiter = tool_waiter
+
+    def run_turn(
+        self,
+        active_input: AgentActiveInput,
+        initial_tool_state: AgentToolPolicyState,
+        *,
+        pricing: AgentTokenPricing | None,
+        accepted_queued_input: AgentQueuedInput | None,
+    ) -> AgentLoopOutcome:
+        agent_loop = AgentLoop(
+            request_source=self._request_source,
+            provider_turn=self._provider_turn,
+            tool_capabilities=self._tool_capabilities,
+            tool_policy=self._tool_policy,
+            event_sink=self._event_sink,
+            run_effect_sink=self._run_effect_sink,
+            usage_publisher=self._usage_publisher,
+            queued_input_port=self._queued_input_port,
+            status_policy=self._status_policy,
+            tool_waiter=self._tool_waiter,
+        )
+        outcome = agent_loop.run(
+            AgentLoopRunInput(
+                self._coding_state.messages,
+                active_input,
+                initial_tool_state,
+                pricing=pricing,
+                accepted_queued_input=accepted_queued_input,
+            )
+        )
+        self._coding_state.mirror_history(outcome.final_history)
+        self._retain_next_input(outcome.next_input)
+        return outcome

@@ -13,6 +13,7 @@ SOURCE_ROOT = REPO_ROOT / "src"
 LOOP_MODULE = "pipy_harness.native.agent.loop"
 LOOP_PATH = SOURCE_ROOT / "pipy_harness/native/agent/loop.py"
 TOOL_LOOP_SESSION_PATH = SOURCE_ROOT / "pipy_harness/native/tool_loop_session.py"
+AGENT_RUN_PATH = SOURCE_ROOT / "pipy_harness/native/coding/agent_run.py"
 RPC_PATH = SOURCE_ROOT / "pipy_harness/native/automation/rpc.py"
 
 _FORBIDDEN_PREFIXES = (
@@ -311,16 +312,43 @@ assert not hasattr(native, 'AgentLoop')
     assert root_completed.returncode == 0, root_completed.stderr
 
 
-def test_product_session_composes_agent_loop_without_inline_policy_cycle() -> None:
+def test_run_coordinator_assembles_agent_loop_without_inline_policy_cycle() -> None:
+    # Slice 3.1e.2 moves the reusable-loop assembly/invocation out of the
+    # monolith and into the CodingAgentRunCoordinator. The coordinator now owns
+    # the `AgentLoop(...)` construction; neither module drives the canonical
+    # policy cycle directly.
+    coordinator_refs = set(_import_references(AGENT_RUN_PATH))
+    assert "pipy_harness.native.agent.loop.AgentLoop" in coordinator_refs
+
+    session_refs = set(_import_references(TOOL_LOOP_SESSION_PATH))
+    assert "pipy_harness.native.agent.loop.AgentLoop" not in session_refs
+    for module_refs in (coordinator_refs, session_refs):
+        assert module_refs.isdisjoint(
+            {
+                "pipy_harness.native.agent.loop_policy.apply_tool_policy_decision",
+                "pipy_harness.native.agent.loop_policy.decide_tool_admission",
+                "pipy_harness.native.agent.loop_policy.normalize_provider_status",
+                "pipy_harness.native.agent.loop_policy.settle_tool_execution",
+            }
+        )
+
+    coordinator_tree = ast.parse(
+        AGENT_RUN_PATH.read_text(encoding="utf-8"),
+        filename=str(AGENT_RUN_PATH),
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "AgentLoop"
+        for node in ast.walk(coordinator_tree)
+    )
+
+
+def test_product_session_composes_run_coordinator() -> None:
     references = set(_import_references(TOOL_LOOP_SESSION_PATH))
-    assert "pipy_harness.native.agent.loop.AgentLoop" in references
-    assert references.isdisjoint(
-        {
-            "pipy_harness.native.agent.loop_policy.apply_tool_policy_decision",
-            "pipy_harness.native.agent.loop_policy.decide_tool_admission",
-            "pipy_harness.native.agent.loop_policy.normalize_provider_status",
-            "pipy_harness.native.agent.loop_policy.settle_tool_execution",
-        }
+    assert (
+        "pipy_harness.native.coding.agent_run.CodingAgentRunCoordinator"
+        in references
     )
 
     tree = ast.parse(
@@ -330,7 +358,7 @@ def test_product_session_composes_agent_loop_without_inline_policy_cycle() -> No
     assert any(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == "AgentLoop"
+        and node.func.id == "CodingAgentRunCoordinator"
         for node in ast.walk(tree)
     )
 

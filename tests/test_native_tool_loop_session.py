@@ -452,7 +452,7 @@ def test_composition_keeps_callback_counters_and_rebinds_final_history(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as tool_loop_session
+    import pipy_harness.native.coding.agent_run as agent_run
     from pipy_harness.native.agent import (
         AgentAssistantMessage,
         AgentRunResult,
@@ -515,7 +515,7 @@ def test_composition_keeps_callback_counters_and_rebinds_final_history(
         copied.append(text)
         return ClipboardResult(True, "test", len(text.encode()), "test clipboard")
 
-    monkeypatch.setattr(tool_loop_session, "AgentLoop", _ComposedAgentLoop)
+    monkeypatch.setattr(agent_run, "AgentLoop", _ComposedAgentLoop)
     result = NativeToolReplSession(
         provider=FakeNativeProvider(supports_tool_calls=True),
         clipboard_copy=copy_answer,

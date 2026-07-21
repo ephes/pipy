@@ -93,9 +93,7 @@ from pipy_harness.native.agent.history import (
     should_compact_agent_history,
 )
 from pipy_harness.native.agent.loop import (
-    AgentLoop,
     AgentLoopRequestPreparation,
-    AgentLoopRunInput,
 )
 from pipy_harness.native.agent.loop_policy import (
     MAX_AGENT_TOOL_BUDGET,
@@ -140,6 +138,7 @@ from pipy_harness.native.coding.agent_run import (
     AgentLoopProviderTurnAdapter,
     AgentLoopRequestSourceAdapter,
     AgentLoopStatusPolicyAdapter,
+    CodingAgentRunCoordinator,
 )
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
@@ -4394,37 +4393,34 @@ class NativeToolReplSession:
                     if terminal_ui is None
                     else partial(_wait_for_tool_interrupt, terminal_ui)
                 )
-                agent_loop = AgentLoop(
+                run_coordinator = CodingAgentRunCoordinator(
                     request_source=AgentLoopRequestSourceAdapter(
                         _prepare_loop_request
                     ),
                     provider_turn=AgentLoopProviderTurnAdapter(
                         _complete_loop_provider_turn
                     ),
+                    status_policy=status_policy,
                     tool_capabilities=tool_capabilities,
                     tool_policy=agent_tool_policy,
                     event_sink=emitter,
                     run_effect_sink=run_effect_sink,
                     usage_publisher=usage_publisher,
                     queued_input_port=coding_input_queue.agent_loop_port,
-                    status_policy=status_policy,
+                    coding_state=coding_state,
+                    retain_next_input=coding_input_queue.retain_agent_input,
                     tool_waiter=tool_waiter,
                 )
                 agent_settled_pending = True
-                loop_outcome = agent_loop.run(
-                    AgentLoopRunInput(
-                        coding_state.messages,
-                        active_input,
-                        initial_tool_state,
-                        pricing=_pricing_for(
-                            coding_state.provider_name,
-                            coding_state.model_id,
-                        ),
-                        accepted_queued_input=queued_input,
-                    )
+                loop_outcome = run_coordinator.run_turn(
+                    active_input,
+                    initial_tool_state,
+                    pricing=_pricing_for(
+                        coding_state.provider_name,
+                        coding_state.model_id,
+                    ),
+                    accepted_queued_input=queued_input,
                 )
-                coding_state.mirror_history(loop_outcome.final_history)
-                coding_input_queue.retain_agent_input(loop_outcome.next_input)
                 extension_in_agent_turn = False
 
                 if loop_outcome.terminate_session:

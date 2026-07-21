@@ -2191,8 +2191,36 @@ UI/terminal, extensions, concrete providers/tools, persistence coordination,
 automation/RPC, the SDK, capture, and the metadata-only workflow archive; an
 exact direct-import allowlist pins the module's dependency surface.
 
-The run coordinator (`AgentLoop` assembly/invocation) is Phase 3.1e.2, and
-accepted-input preparation is Phase 3.1e.3.
+Sub-slice 3.1e.2 (2026-07-21) adds `CodingAgentRunCoordinator` to the same
+module. It receives the three relocated adapters plus the composed reusable-loop
+ports (`tool_capabilities`, `tool_policy`, the emitter `event_sink`,
+`run_effect_sink`, `usage_publisher`, `coding_input_queue.agent_loop_port`, and
+an optional `tool_waiter`), the live `CodingSessionState`, and the input-queue
+retention seam (`coding_input_queue.retain_agent_input`). A single
+`run_turn(active_input, initial_tool_state, *, pricing, accepted_queued_input)`
+method builds the canonical `AgentLoop`, constructs `AgentLoopRunInput` from
+`coding_state.messages` plus the accepted input and initial tool state, invokes
+`agent_loop.run(...)`, mirrors `outcome.final_history` back into session state,
+and forwards `outcome.next_input` to the retention seam.
+`NativeToolReplSession.run()` builds the coordinator once per accepted turn and
+calls `run_turn(...)`; the inline `AgentLoop(...)` construction, the
+`agent_loop.run(...)` call, and the post-run
+`mirror_history`/`retain_agent_input` lines are deleted with no alias, and the
+monolith no longer imports `AgentLoop`/`AgentLoopRunInput`. This is a
+behavior-preserving move only: the request-preparation and provider-turn
+closures remain composition-root policy in `run()`; queue
+storage/ordering/reservation/idle/lifecycle stay with the 3.1a controller;
+persistence writes remain Phase 3.3; and accepted-input preparation
+(`active_input`/`initial_tool_state`) stays inline for Phase 3.1e.3. Event and
+`agent_settled`/`agent_end` ordering, cancellation, terminate-session assembly,
+and public formats are unchanged. The `native.coding.agent_run` boundary rule
+and its exact allowlist are extended to the coordinator's added
+`native.agent.loop`/`loop_policy`/`runtime_ports`/`tools`/`usage` contracts plus
+`native.coding.state.CodingSessionState`, keeping the earlier forbidden surfaces
+intact.
+
+Accepted-input preparation remains Phase 3.1e.3, and the outer
+lifecycle/composition-shell cutover remains Phase 3.1f.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
