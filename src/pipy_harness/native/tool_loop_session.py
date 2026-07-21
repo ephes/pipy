@@ -133,7 +133,7 @@ from pipy_harness.native.agent_runtime import (
     NativeAgentUsagePublisher,
 )
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.coding import CodingInputQueue, CodingInputSource
+from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.accepted_input import (
     CodingAcceptedInputPreparer,
     CodingSessionAcceptedInputRecorder,
@@ -159,6 +159,10 @@ from pipy_harness.native.coding.product_session import (
 from pipy_harness.native.coding.result import (
     NativeToolReplResult,
     build_repl_result,
+)
+from pipy_harness.native.coding.session_controller import (
+    CodingLoopStepKind,
+    CodingSessionController,
 )
 from pipy_harness.native.coding.state import (
     CodingSessionState,
@@ -2331,6 +2335,11 @@ class NativeToolReplSession:
                 ProductContent(message) for message in self.initial_messages if message
             ),
         )
+        loop_controller = CodingSessionController(
+            input_queue=coding_input_queue,
+            coding_state=coding_state,
+            emitter=emitter,
+        )
 
         for custom_message in extension_activation_custom_messages:
             extension_send_message(
@@ -2803,94 +2812,35 @@ class NativeToolReplSession:
                             f"  > {pending_prefill}"
                         )
                     pending_prefill = None
-                # A local command (`/…`/`!…`) submitted with Enter mid-turn runs
-                # locally (Pi): it is dispatched here through the NORMAL path (it is
-                # not a drained message, so ``command_text`` keeps its value below
-                # and local-command dispatch applies) before any queued prompts.
-                # Drain any messages an extension enqueued via
-                # send_user_message (from a command, hook, or other
-                # callback) at the top of every iteration, so they are
-                # always scheduled as deterministic prompts regardless of
-                # which callback queued them.
-                drain_extension_outboxes()
-                selected_input = coding_input_queue.take_next()
-                pending_command: str | None = None
-                retained_fresh_line: str | None = None
-                selected_provider_content: ProductContent | None = None
-                queued_input: AgentQueuedInput | None = None
-                if selected_input is not None:
-                    if selected_input.source is CodingInputSource.LOCAL_COMMAND:
-                        pending_command = selected_input.content.value
-                    elif (
-                        selected_input.source is CodingInputSource.RETAINED_FRESH_INPUT
-                    ):
-                        retained_fresh_line = selected_input.content.value
-                    else:
-                        selected_provider_content = selected_input.content
-                        queued_input = selected_input.queued_input
-                # Pi's extension `agent_settled` is later than `agent_end`: it
-                # waits until retry/compaction work and every queued continuation
-                # have drained. This outer-loop boundary is shared by TUI,
-                # captured/print, JSON, and RPC sessions and is the last point
-                # before fresh input would block (or observe EOF).
-                if (
-                    agent_settled_pending
-                    and pending_command is None
-                    and retained_fresh_line is None
-                    and selected_provider_content is None
-                ):
-                    agent_settled_pending = False
-                    emitter.agent_settled()
-                    # A settled observer may schedule a new prompt. Make it the
-                    # next run instead of blocking on input; the new run gets its
-                    # own later settled notification.
-                    drain_extension_outboxes()
-                    selected_input = coding_input_queue.take_next()
-                    if selected_input is not None:
-                        if selected_input.source is CodingInputSource.LOCAL_COMMAND:
-                            pending_command = selected_input.content.value
-                        elif (
-                            selected_input.source
-                            is CodingInputSource.RETAINED_FRESH_INPUT
-                        ):
-                            retained_fresh_line = selected_input.content.value
-                        else:
-                            selected_provider_content = selected_input.content
-                            queued_input = selected_input.queued_input
-                if pending_command is not None:
-                    line = f"{pending_command}\n"
-                elif retained_fresh_line is not None:
-                    line = retained_fresh_line
-                elif selected_provider_content is not None:
-                    line = f"{selected_provider_content.value}\n"
-                else:
-                    try:
-                        # Pi's input cursor has no leading `> ` glyph; the
-                        # separator pair above and below the input area is the
-                        # visual frame instead. Pass an empty prompt so the
-                        # readline / slash-menu adapter renders just the cursor.
-                        line = repl_input.read_line("", footer=footer_text)
-                        if input_queued_input_port is not None:
-                            selected_input = coding_input_queue.classify_external_wake(
-                                input_queued_input_port,
-                                line,
-                            )
-                            if selected_input is not None:
-                                if (
-                                    selected_input.source
-                                    is CodingInputSource.LOCAL_COMMAND
-                                ):
-                                    pending_command = selected_input.content.value
-                                    line = f"{pending_command}\n"
-                                else:
-                                    selected_provider_content = selected_input.content
-                                    queued_input = selected_input.queued_input
-                                    line = f"{selected_provider_content.value}\n"
-                    except KeyboardInterrupt:
+                # Input selection and the true-idle (`agent_settled`) boundary are
+                # owned by the headless controller. It drains any messages an
+                # extension enqueued via send_user_message at the top of every
+                # iteration (so they are scheduled as deterministic prompts
+                # regardless of which callback queued them), takes one queued input
+                # using the product priority, fires the once-only `agent_settled`
+                # notification and re-polls when nothing is pending, and otherwise
+                # reads one fresh line — with Pi's cursor-only prompt (the separator
+                # pair frames the input area) — and applies the external-wake
+                # overlay. A local command (`/…`/`!…`) submitted mid-turn still
+                # dispatches through the NORMAL path below; queued provider content
+                # bypasses local dispatch. The returned step carries the exact line
+                # the loop consumes and the post-boundary settled flag.
+                step = loop_controller.select_next_step(
+                    settle_pending=agent_settled_pending,
+                    drain_outbox=drain_extension_outboxes,
+                    read_fresh_line=lambda: repl_input.read_line("", footer=footer_text),
+                    input_queued_input_port=input_queued_input_port,
+                )
+                agent_settled_pending = step.settle_pending
+                selected_provider_content: ProductContent | None = (
+                    step.selected_provider_content
+                )
+                queued_input: AgentQueuedInput | None = step.queued_input
+                if step.kind is CodingLoopStepKind.EOF:
+                    if step.keyboard_interrupt:
                         print(file=error_stream)
-                        break
-                if not line:
                     break
+                line = step.line
                 user_input = (
                     selected_provider_content.value
                     if selected_provider_content is not None

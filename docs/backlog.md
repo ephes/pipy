@@ -2287,6 +2287,41 @@ exact direct-import allowlist admitting only stdlib,
 Phase 3.1f.2; the while-loop/composition-shell cutover remains the rest of
 Phase 3.1f.
 
+Sub-slice 3.1f.2 (2026-07-21) introduces the headless controller
+`native.coding.session_controller.CodingSessionController` and gives it ownership
+of the two most tightly-coupled outer transitions: input selection and the
+true-idle (`agent_settled`) boundary. Its single `select_next_step(*,
+settle_pending, drain_outbox, read_fresh_line, input_queued_input_port)`
+reproduces the former top-of-loop block exactly — drain outboxes, take one queued
+input through the 3.1a `CodingInputQueue` priority, fire `emitter.agent_settled()`
+exactly once when nothing local-command/retained-fresh/provider-visible is
+pending and re-drain/re-poll, otherwise read one fresh line and apply the
+`classify_external_wake` overlay — and returns a frozen discriminated
+`CodingLoopStep` (`LOCAL_COMMAND`/`RETAINED_FRESH`/`PROVIDER_CONTENT` with optional
+`queued_input`/`FRESH_LINE`/`EOF` carrying `keyboard_interrupt`) plus the
+post-boundary `settle_pending`. It is injected exactly the four ports named in
+the cut (the already-owned `CodingInputQueue`, an outbox-drain callable, a
+fresh-line reader callable wrapping `repl_input.read_line`, and the settled
+emitter) plus its exact `CodingSessionState` anchor. `NativeToolReplSession.run()`
+builds the controller once per run, calls `select_next_step` each iteration,
+assigns `agent_settled_pending` back from the step, and prints the Ctrl-C newline
+before breaking on an `EOF` step; the inline selection/settled/`classify_external_wake`/
+EOF block is deleted with no alias and the now-unused `CodingInputSource` import
+is dropped. The `while True` skeleton, separator print, footer text, `/tree`
+prefill rehydration, command dispatch, run transition, result building, lifecycle
+firing, and the `session_shutdown`/`agent_settled`/`clear_extension_chrome`
+`try/finally` stay inline; `agent_settled_pending` remains a `run()` local so the
+shutdown-time settle fire is byte-unchanged. Behavior-preserving move only: input
+priority order, once-only `agent_settled` timing, drain-outbox ordering,
+external-wake behavior, EOF/Ctrl-C handling, and CLI/JSON/RPC/TUI event ordering
+are unchanged; no new runtime dependency, `Any`, or `type: ignore`. The
+import-boundary gate adds a `native.coding.session_controller` `BoundaryRule`
+(agent-run forbidden categories) plus an exact direct-import allowlist admitting
+only stdlib, the canonical `native.agent` `content`/`runtime_ports` contracts,
+`native.coding.input_queue`, and `native.coding.state.CodingSessionState`. The
+remaining outer transitions (start/command/run) and the sub-800-line
+composition-shell reduction remain the rest of Phase 3.1f.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable

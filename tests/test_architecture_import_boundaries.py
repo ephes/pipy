@@ -483,6 +483,40 @@ _CODING_RESULT_ALLOWED_DIRECT_IMPORTS = frozenset(
     }
 )
 
+# The outer-loop controller depends on the same forbidden categories as the
+# agent-run collaborators: it owns input selection and the true-idle boundary
+# behind injected ports and may not reach composition, UI/terminal, extensions,
+# concrete providers/tools, persistence coordination, automation/RPC, the SDK,
+# capture, or the metadata-only workflow archive.
+_CODING_SESSION_CONTROLLER_FORBIDDEN_IMPORTS = _CODING_AGENT_RUN_FORBIDDEN_IMPORTS
+
+_CODING_SESSION_CONTROLLER_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "collections.abc",
+        "collections.abc.Callable",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "enum",
+        "enum.Enum",
+        "typing",
+        "typing.Protocol",
+        "typing.runtime_checkable",
+        "pipy_harness.native.agent.content",
+        "pipy_harness.native.agent.content.ProductContent",
+        "pipy_harness.native.agent.runtime_ports",
+        "pipy_harness.native.agent.runtime_ports.AgentQueuedInput",
+        "pipy_harness.native.agent.runtime_ports.AgentQueuedInputPort",
+        "pipy_harness.native.coding.input_queue",
+        "pipy_harness.native.coding.input_queue.CodingInputQueue",
+        "pipy_harness.native.coding.input_queue.CodingInputSelection",
+        "pipy_harness.native.coding.input_queue.CodingInputSource",
+        "pipy_harness.native.coding.state",
+        "pipy_harness.native.coding.state.CodingSessionState",
+    }
+)
+
 _AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS = (
     "pipy_harness.cli",
     "pipy_harness.adapters",
@@ -793,6 +827,17 @@ ARCHITECTURE_RULES = (
             "the shutdown result projection may depend only on the standard "
             "library, the shared harness status enum, and the coding-session "
             "result snapshot, never UI/terminal, extensions, concrete "
+            "providers/tools, persistence coordination, automation/RPC, the SDK, "
+            "capture, or the metadata-only workflow archive"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.coding.session_controller",
+        forbidden_imports=_CODING_SESSION_CONTROLLER_FORBIDDEN_IMPORTS,
+        reason=(
+            "the outer-loop controller may depend only on canonical native.agent "
+            "content/runtime-port contracts, the injected input queue, and the "
+            "coding-session state anchor, never UI/terminal, extensions, concrete "
             "providers/tools, persistence coordination, automation/RPC, the SDK, "
             "capture, or the metadata-only workflow archive"
         ),
@@ -2434,6 +2479,86 @@ from pipy_harness.native.coding.state import CodingSessionResultSnapshot
         rule
         for rule in ARCHITECTURE_RULES
         if rule.source_package == "pipy_harness.native.coding.result"
+    )
+
+    assert _evaluate_rule(source_root, rule) == []
+
+
+def test_coding_session_controller_direct_imports_match_explicit_allowlist() -> None:
+    controller_path = (
+        SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "session_controller.py"
+    )
+    references = _import_references(SOURCE_ROOT, controller_path)
+
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT,
+        controller_path,
+        allowed_imports=_CODING_SESSION_CONTROLLER_ALLOWED_DIRECT_IMPORTS,
+    ), "outer-loop controller gained a dependency outside its allowlist"
+    assert {reference.module for reference in references} == (
+        _CODING_SESSION_CONTROLLER_ALLOWED_DIRECT_IMPORTS
+    ), "remove stale allowances when the outer-loop controller drops imports"
+
+
+@pytest.mark.parametrize(
+    "forbidden_import",
+    (
+        "pipy_harness.native.ui",
+        "pipy_harness.native.tui",
+        "pipy_harness.native.extensions",
+        "pipy_harness.native.extension_runtime",
+        "pipy_harness.native.automation",
+        "pipy_harness.native.coding.commands",
+        "pipy_harness.native.coding.product_session",
+        "pipy_harness.native.coding.session",
+        "pipy_harness.native.provider",
+        "pipy_harness.native.tools.bash",
+        "pipy_harness.native.openai_provider",
+        "pipy_harness.capture",
+        "pipy_session",
+    ),
+)
+def test_coding_session_controller_rule_blocks_outer_runtime_imports(
+    tmp_path: Path,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    controller_path = _write_module(
+        source_root,
+        "pipy_harness.native.coding.session_controller",
+        f"import {forbidden_import}\n",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.session_controller"
+    )
+
+    violations = _evaluate_rule(source_root, rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == controller_path
+    assert violations[0].imported_module == forbidden_import
+
+
+def test_coding_session_controller_rule_allows_canonical_contracts(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    _write_module(
+        source_root,
+        "pipy_harness.native.coding.session_controller",
+        """\
+from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.runtime_ports import AgentQueuedInputPort
+from pipy_harness.native.coding.input_queue import CodingInputQueue
+from pipy_harness.native.coding.state import CodingSessionState
+""",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.session_controller"
     )
 
     assert _evaluate_rule(source_root, rule) == []
