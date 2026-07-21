@@ -1,8 +1,13 @@
 """Headless controller for a product coding session's outer transitions.
 
-This module owns the two most tightly-coupled outer transitions of
-``NativeToolReplSession.run``: input selection and the true-idle
-(``agent_settled``) boundary. A single :meth:`CodingSessionController.select_next_step`
+This module owns the outer transitions of ``NativeToolReplSession.run``. The
+loop driver and start/shutdown lifecycle live in
+:meth:`CodingSessionController.run_loop`: the controller fires ``session_start``,
+drives the injected ``while True`` step closure, and guarantees the once-only
+true-idle settle, the ``session_shutdown`` fire, and the extension-chrome clear
+on every exit path (normal, fatal, or exception). Within each step it owns input
+selection and the true-idle (``agent_settled``) boundary. A single
+:meth:`CodingSessionController.select_next_step`
 call reproduces the exact top-of-loop policy that previously lived inline in the
 monolith:
 
@@ -50,6 +55,7 @@ from pipy_harness.native.coding.input_queue import (
     CodingInputSelection,
     CodingInputSource,
 )
+from pipy_harness.native.coding.result import NativeToolReplResult
 from pipy_harness.native.coding.state import CodingSessionState
 
 _NOT_HANDLED_COMMAND_NOTICE = (
@@ -228,6 +234,63 @@ class CodingSessionController:
         self._input_queue = input_queue
         self._coding_state = coding_state
         self._emitter = emitter
+
+    def run_loop(
+        self,
+        *,
+        drive: Callable[[], NativeToolReplResult],
+        fire_session_start: Callable[[], None],
+        fire_session_shutdown: Callable[[], None],
+        consume_settle_pending: Callable[[], bool],
+        clear_extension_chrome: Callable[[], None],
+    ) -> NativeToolReplResult:
+        """Drive the outer session loop and own the start/shutdown lifecycle.
+
+        The controller owns the lifecycle bookends of one product coding
+        session: it fires ``session_start`` once the session is set up, drives
+        the injected ``drive`` closure (the ``while True`` step loop, whose exit
+        paths return the bounded :class:`NativeToolReplResult` — the terminate
+        ``FAILED`` projection or the post-loop ``SUCCEEDED`` projection), and
+        guarantees, on every exit path (normal return, fatal return, or a
+        propagated exception), the once-only true-idle settle, the
+        ``session_shutdown`` fire, and the extension-chrome clear — in that
+        order.
+
+        Every effect is performed through an injected port so the controller
+        never touches the terminal, renderer, ``repl_input``, extensions,
+        providers, tools, persistence, automation, the SDK, capture, or the
+        workflow archive: ``fire_session_start``/``fire_session_shutdown`` fire
+        the composition root's lifecycle emitter, ``consume_settle_pending``
+        reads-and-resets the run's armed true-idle flag (the controller fires the
+        once-only ``agent_settled`` through its own settled emitter when it
+        returns ``True``), and ``clear_extension_chrome`` clears any live TUI
+        chrome. ``drive`` returns the projected result the loop selected.
+        """
+
+        if not callable(drive):
+            raise TypeError("drive must be callable")
+        if not callable(fire_session_start):
+            raise TypeError("fire_session_start must be callable")
+        if not callable(fire_session_shutdown):
+            raise TypeError("fire_session_shutdown must be callable")
+        if not callable(consume_settle_pending):
+            raise TypeError("consume_settle_pending must be callable")
+        if not callable(clear_extension_chrome):
+            raise TypeError("clear_extension_chrome must be callable")
+
+        # ``session_start`` fires once the session is set up (reason "startup"),
+        # outside the try so a setup-fire failure does not run the shutdown
+        # bookend for a session that never started; ``session_shutdown`` fires
+        # from the finally below so it — like the true-idle settle and the
+        # chrome clear — runs on EVERY exit path.
+        fire_session_start()
+        try:
+            return drive()
+        finally:
+            if consume_settle_pending():
+                self._emitter.agent_settled()
+            fire_session_shutdown()
+            clear_extension_chrome()
 
     def select_next_step(
         self,

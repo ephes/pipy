@@ -375,3 +375,41 @@ def test_queued_input_handoff_has_no_split_kind_side_channel() -> None:
         "delivery_content",
     ):
         assert obsolete_symbol not in source
+
+
+SESSION_CONTROLLER_PATH = (
+    SOURCE_ROOT / "pipy_harness/native/coding/session_controller.py"
+)
+
+
+def test_session_controller_owns_the_loop_driver_and_lifecycle() -> None:
+    # Slice 3.1f.4 inverts the control plane: the loop driver and the
+    # start/shutdown lifecycle are owned by CodingSessionController.run_loop.
+    # It fires session_start, drives the injected loop closure, and guarantees
+    # the once-only true-idle settle, the session_shutdown fire, and the
+    # extension-chrome clear on every exit path. The monolith delegates to it and
+    # no longer fires the once-only agent_settled boundary directly.
+    from pipy_harness.native.coding.session_controller import CodingSessionController
+
+    assert hasattr(CodingSessionController, "run_loop")
+
+    session_tree = ast.parse(
+        TOOL_LOOP_SESSION_PATH.read_text(encoding="utf-8"),
+        filename=str(TOOL_LOOP_SESSION_PATH),
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "run_loop"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "loop_controller"
+        for node in ast.walk(session_tree)
+    ), "NativeToolReplSession.run must delegate to loop_controller.run_loop(...)"
+
+    # The controller now fires the once-only true-idle settle through its own
+    # settled emitter; the monolith must not fire it directly anymore.
+    monolith_source = TOOL_LOOP_SESSION_PATH.read_text(encoding="utf-8")
+    assert "emitter.agent_settled()" not in monolith_source
+
+    controller_source = SESSION_CONTROLLER_PATH.read_text(encoding="utf-8")
+    assert "self._emitter.agent_settled()" in controller_source

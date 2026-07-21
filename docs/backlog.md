@@ -2355,6 +2355,40 @@ outcome-kind routing) into `dispatch_command` needs the mutable effect-handler
 design and is deferred to the next 3.1f cut, along with the start/run transitions
 and the sub-800-line composition-shell reduction.
 
+Sub-slice 3.1f.4 (first cut, 2026-07-21) gives the controller ownership of the
+loop driver and start/shutdown lifecycle. `CodingSessionController.run_loop(*,
+drive, fire_session_start, fire_session_shutdown, consume_settle_pending,
+clear_extension_chrome)` fires `session_start` outside the try (so a setup-fire
+failure never runs the shutdown bookend for a session that never started), drives
+the injected `drive` closure — the `while True` step loop whose exit paths return
+the bounded `NativeToolReplResult` (terminate `FAILED` or post-loop `SUCCEEDED`) —
+and guarantees, on every exit path (normal/fatal/exception), the once-only
+true-idle settle (fired through the controller's own settled emitter when
+`consume_settle_pending()` returns True), the `session_shutdown` fire, and the
+extension-chrome clear, in that exact order, each through an injected port.
+`NativeToolReplSession.run()` wraps its former inline `while True` skeleton +
+post-loop `SUCCEEDED` return in a `_drive_repl_loop()` closure (byte-identical
+body — no re-indent, no control-flow rewrite — sharing the run's mutable control
+state, incl. the live `session_tree`, `tree_filter_mode`, `pending_prefill`,
+`agent_settled_pending`, `extension_in_agent_turn`, and the whole `/reload`
+bundle, via `nonlocal`), defines four thin lifecycle closures, and returns
+`loop_controller.run_loop(...)`; the prior inline `session_start` fire and the
+entire `try/finally` firing the final `agent_settled`/`session_shutdown`/
+`clear_extension_chrome` are deleted, and `emitter.agent_settled()` no longer
+appears in the monolith (moved into the controller). Behavior-preserving move
+only: event ordering, the finally-always shutdown/clear-chrome guarantee, provider
+requests, cancellation, terminate-session assembly, persistence write timing, and
+every public CLI/JSON/RPC/session/extension format are unchanged; no new runtime
+dependency, `Any`, or `type: ignore`. The import-boundary gate extends the
+`session_controller` exact allowlist with `native.coding.result`/
+`NativeToolReplResult`. **Sub-800 shell deferred:** `run()` is still ~2,849 lines
+because `_drive_repl_loop`'s ~1,470-line body is a closure lexically nested in
+`run()`; physically relocating it out of `run()` behind injected ports (with a
+mutable holder for the `session_tree`/`tree_filter_mode`/`pending_prefill`/
+`/reload`-bundle control state) to drop `run()` under 800 lines — at which point
+`while True` moves into `run_loop` proper — and the run transition, remain the
+rest of Phase 3.1f.4.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable

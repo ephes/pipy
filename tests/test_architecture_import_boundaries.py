@@ -493,6 +493,11 @@ _CODING_RESULT_ALLOWED_DIRECT_IMPORTS = frozenset(
 # native.coding.commands outcome contracts (the dispatch/resolution DTOs). That
 # module is un-forbidden for this rule alone; the concrete resource/extension
 # dispatch and every UI/session effect stay behind the injected effects port.
+# It further owns the loop driver + start/shutdown lifecycle
+# (`CodingSessionController.run_loop`) and therefore depends on the headless
+# native.coding.result module for the bounded run-result return type; the loop
+# body, run transition, and every UI/provider/persistence effect stay behind the
+# injected `drive`/lifecycle closures.
 _CODING_SESSION_CONTROLLER_FORBIDDEN_IMPORTS = tuple(
     forbidden_import
     for forbidden_import in _CODING_AGENT_RUN_FORBIDDEN_IMPORTS
@@ -526,6 +531,8 @@ _CODING_SESSION_CONTROLLER_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.coding.input_queue.CodingInputQueue",
         "pipy_harness.native.coding.input_queue.CodingInputSelection",
         "pipy_harness.native.coding.input_queue.CodingInputSource",
+        "pipy_harness.native.coding.result",
+        "pipy_harness.native.coding.result.NativeToolReplResult",
         "pipy_harness.native.coding.state",
         "pipy_harness.native.coding.state.CodingSessionState",
     }

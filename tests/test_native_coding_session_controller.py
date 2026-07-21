@@ -11,8 +11,11 @@ injected ports so the controller's contract is exercised without the monolith.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
@@ -27,6 +30,7 @@ from pipy_harness.native.coding.commands import (
     ResourceDispatchKind,
     ResourceDispatchResolution,
 )
+from pipy_harness.native.coding.result import NativeToolReplResult
 from pipy_harness.native.coding.session_controller import (
     CodingLoopStep,
     CodingLoopStepKind,
@@ -799,4 +803,194 @@ def test_command_dispatch_resolution_rejects_inconsistent_construction() -> None
         CommandDispatchResolution(
             CommandDispatchResolutionKind.PROCEED_TO_RUN,
             user_input=None,  # type: ignore[arg-type]
+        )
+
+
+# --- run_loop: loop driver + start/shutdown lifecycle ------------------------
+
+
+class _LogEmitter:
+    """A settled emitter that appends its fire to a shared ordering log."""
+
+    def __init__(self, log: list[str]) -> None:
+        self._log = log
+
+    def agent_settled(self) -> None:
+        self._log.append("settled")
+
+
+def _repl_result(status: HarnessStatus = HarnessStatus.SUCCEEDED) -> NativeToolReplResult:
+    now = datetime.now(UTC)
+    return NativeToolReplResult(
+        status=status,
+        exit_code=0 if status is HarnessStatus.SUCCEEDED else 1,
+        started_at=now,
+        ended_at=now,
+        provider_name="fake",
+        model_id="fake-model",
+    )
+
+
+def _run_loop_controller(log: list[str]) -> CodingSessionController:
+    return CodingSessionController(
+        input_queue=CodingInputQueue(),
+        coding_state=_coding_state(),
+        emitter=_LogEmitter(log),
+    )
+
+
+def test_run_loop_fires_lifecycle_in_order_and_returns_drive_result() -> None:
+    log: list[str] = []
+    controller = _run_loop_controller(log)
+    result = _repl_result()
+
+    def drive() -> NativeToolReplResult:
+        log.append("drive")
+        return result
+
+    returned = controller.run_loop(
+        drive=drive,
+        fire_session_start=lambda: log.append("start"),
+        fire_session_shutdown=lambda: log.append("shutdown"),
+        consume_settle_pending=lambda: True,
+        clear_extension_chrome=lambda: log.append("clear"),
+    )
+
+    # session_start fires before the loop; the once-only true-idle settle, the
+    # session_shutdown fire, and the extension-chrome clear run after it, in that
+    # exact order; and run_loop returns whatever result the driver selected.
+    assert returned is result
+    assert log == ["start", "drive", "settled", "shutdown", "clear"]
+
+
+def test_run_loop_passes_through_a_terminate_failed_result() -> None:
+    log: list[str] = []
+    controller = _run_loop_controller(log)
+    failed = _repl_result(HarnessStatus.FAILED)
+
+    returned = controller.run_loop(
+        drive=lambda: failed,
+        fire_session_start=lambda: log.append("start"),
+        fire_session_shutdown=lambda: log.append("shutdown"),
+        consume_settle_pending=lambda: True,
+        clear_extension_chrome=lambda: log.append("clear"),
+    )
+
+    assert returned is failed
+    assert log == ["start", "settled", "shutdown", "clear"]
+
+
+def test_run_loop_skips_settle_when_not_pending() -> None:
+    log: list[str] = []
+    controller = _run_loop_controller(log)
+
+    controller.run_loop(
+        drive=lambda: _repl_result(),
+        fire_session_start=lambda: log.append("start"),
+        fire_session_shutdown=lambda: log.append("shutdown"),
+        consume_settle_pending=lambda: False,
+        clear_extension_chrome=lambda: log.append("clear"),
+    )
+
+    # A cleared true-idle flag means agent_settled must not fire, but shutdown
+    # and chrome-clear still run.
+    assert "settled" not in log
+    assert log == ["start", "shutdown", "clear"]
+
+
+def test_run_loop_runs_finally_when_drive_raises() -> None:
+    log: list[str] = []
+    controller = _run_loop_controller(log)
+
+    def drive() -> NativeToolReplResult:
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        controller.run_loop(
+            drive=drive,
+            fire_session_start=lambda: log.append("start"),
+            fire_session_shutdown=lambda: log.append("shutdown"),
+            consume_settle_pending=lambda: True,
+            clear_extension_chrome=lambda: log.append("clear"),
+        )
+
+    # The finally-always guarantee holds on the exception exit path too.
+    assert log == ["start", "settled", "shutdown", "clear"]
+
+
+def test_run_loop_does_not_run_finally_when_session_start_raises() -> None:
+    log: list[str] = []
+    controller = _run_loop_controller(log)
+
+    def start() -> None:
+        raise RuntimeError("start-failed")
+
+    def drive() -> NativeToolReplResult:  # pragma: no cover - never reached
+        raise AssertionError("drive must not run when session_start fails")
+
+    with pytest.raises(RuntimeError, match="start-failed"):
+        controller.run_loop(
+            drive=drive,
+            fire_session_start=start,
+            fire_session_shutdown=lambda: log.append("shutdown"),
+            consume_settle_pending=lambda: False,
+            clear_extension_chrome=lambda: log.append("clear"),
+        )
+
+    # session_start fires outside the try, so a start failure does not run the
+    # shutdown bookend for a session that never started.
+    assert log == []
+
+
+def test_run_loop_rejects_non_callable_ports() -> None:
+    controller = _run_loop_controller([])
+
+    def ok_drive() -> NativeToolReplResult:
+        return _repl_result()
+
+    def noop() -> None:
+        return None
+
+    def not_pending() -> bool:
+        return False
+
+    with pytest.raises(TypeError, match="drive must be callable"):
+        controller.run_loop(
+            drive=None,  # type: ignore[arg-type]
+            fire_session_start=noop,
+            fire_session_shutdown=noop,
+            consume_settle_pending=not_pending,
+            clear_extension_chrome=noop,
+        )
+    with pytest.raises(TypeError, match="fire_session_start must be callable"):
+        controller.run_loop(
+            drive=ok_drive,
+            fire_session_start=None,  # type: ignore[arg-type]
+            fire_session_shutdown=noop,
+            consume_settle_pending=not_pending,
+            clear_extension_chrome=noop,
+        )
+    with pytest.raises(TypeError, match="fire_session_shutdown must be callable"):
+        controller.run_loop(
+            drive=ok_drive,
+            fire_session_start=noop,
+            fire_session_shutdown=None,  # type: ignore[arg-type]
+            consume_settle_pending=not_pending,
+            clear_extension_chrome=noop,
+        )
+    with pytest.raises(TypeError, match="consume_settle_pending must be callable"):
+        controller.run_loop(
+            drive=ok_drive,
+            fire_session_start=noop,
+            fire_session_shutdown=noop,
+            consume_settle_pending=None,  # type: ignore[arg-type]
+            clear_extension_chrome=noop,
+        )
+    with pytest.raises(TypeError, match="clear_extension_chrome must be callable"):
+        controller.run_loop(
+            drive=ok_drive,
+            fire_session_start=noop,
+            fire_session_shutdown=noop,
+            consume_settle_pending=not_pending,
+            clear_extension_chrome=None,  # type: ignore[arg-type]
         )

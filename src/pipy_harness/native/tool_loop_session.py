@@ -2914,11 +2914,43 @@ class NativeToolReplSession:
             resolve_extension=_dispatch_extension_effect,
         )
 
-        # session_start fires once the session is set up; session_shutdown
-        # is fired from the finally below so it runs on EVERY exit path
-        # (normal return, fatal return, or a propagated exception).
-        emitter.fire_lifecycle(EVENT_SESSION_START, reason="startup")
-        try:
+        # The loop driver and the start/shutdown lifecycle are owned by the
+        # headless controller (`CodingSessionController.run_loop`). It fires
+        # `session_start`, drives the `while True` step loop below through the
+        # injected `_drive_repl_loop` closure, and guarantees the once-only
+        # true-idle settle, the `session_shutdown` fire, and the extension-chrome
+        # clear on EVERY exit path (normal return, fatal return, or a propagated
+        # exception). The loop body, run transition, and every UI/provider/
+        # persistence effect stay in the composition root; `_drive_repl_loop`
+        # runs the `while True` skeleton, returns the bounded result its exit
+        # paths select (terminate `FAILED` or post-loop `SUCCEEDED`), and shares
+        # the run's mutable control state with the composition-root closures
+        # through `nonlocal` so a `/reload`, `/new`, `/resume`, `/fork`, or
+        # `/clone` rebind is reflected in those closures exactly as it was inline.
+        def _drive_repl_loop() -> NativeToolReplResult:
+            nonlocal agent_settled_pending, session_tree
+            nonlocal pending_prefill, tree_filter_mode
+            nonlocal package_roots, workspace_resources, _ext_runtime
+            nonlocal extension_commands, extension_menu_names
+            nonlocal extension_descriptions, extension_flag_values
+            nonlocal extension_in_agent_turn
+            nonlocal extension_activation_custom_messages
+            nonlocal extension_tool_call_hooks_, extension_lifecycle_hooks
+            nonlocal extension_input_hooks, extension_before_agent_start_hooks
+            nonlocal extension_tool_result_hooks, extension_user_bash_hooks
+            nonlocal extension_before_provider_headers_hooks
+            nonlocal extension_before_provider_request_hooks
+            nonlocal extension_session_before_switch_hooks
+            nonlocal extension_session_before_fork_hooks
+            nonlocal extension_session_before_compact_hooks
+            nonlocal extension_session_before_tree_hooks
+            nonlocal extension_message_outbox, extension_custom_message_outbox
+            nonlocal extension_renderer_map, extension_entry_renderer_map
+            nonlocal extension_tool_renderers, extension_tool_registry
+            nonlocal unknown_filter_names, known, unknown
+            nonlocal catalog_state, was_extension_selection
+            nonlocal fallback, fallback_provider, line, custom_message
+            nonlocal _port, _registered_tool
             while True:
                 if terminal_ui is None:
                     print_input_separator(error_stream)
@@ -4409,13 +4441,30 @@ class NativeToolReplSession:
                 started_at=started_at,
                 ended_at=ended_at,
             )
-        finally:
+        def _fire_session_start() -> None:
+            emitter.fire_lifecycle(EVENT_SESSION_START, reason="startup")
+
+        def _fire_session_shutdown() -> None:
+            emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
+
+        def _consume_agent_settled_pending() -> bool:
+            nonlocal agent_settled_pending
             if agent_settled_pending:
                 agent_settled_pending = False
-                emitter.agent_settled()
-            emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
+                return True
+            return False
+
+        def _clear_extension_chrome_after_run() -> None:
             if terminal_ui is not None:
                 terminal_ui.clear_extension_chrome()
+
+        return loop_controller.run_loop(
+            drive=_drive_repl_loop,
+            fire_session_start=_fire_session_start,
+            fire_session_shutdown=_fire_session_shutdown,
+            consume_settle_pending=_consume_agent_settled_pending,
+            clear_extension_chrome=_clear_extension_chrome_after_run,
+        )
 
     def _build_repl_input(
         self,
