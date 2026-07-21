@@ -2534,6 +2534,44 @@ port methods, relocating the residual renderer/provider-mutation/adapter closure
 still in `run()`, and dropping `run()` under 800 lines with the `< 800`
 assertion.
 
+Sub-slice 3.1f-completion (custom-entry renderer relocation, 2026-07-22)
+relocates the ~208-line custom-entry/custom-message rendering and extension-outbox
+band out of `run()`. The eleven closures `render_extension_custom_message`,
+`render_extension_custom_entry`, `add_rendered_custom_entry_to_terminal`,
+`render_custom_message_entry`, `add_rendered_entry_to_terminal`,
+`add_custom_message_entry_to_terminal`, `replay_custom_entries_to_terminal`,
+`redraw_custom_entries_for_active_branch`, `extension_append_entry`,
+`extension_send_message`, and `drain_extension_outboxes` are physically relocated
+into a new module-level composition-root handler `_CustomEntryRenderer`, symmetric
+with `_ReplLoopStep`/`_BuiltinCommandInterpreter`. Because these closures call one
+another densely, the handler is a frozen/slotted/kw-only dataclass holding the
+mutable `ctl` holder (its `session_tree`, renderer maps, outboxes, and
+`extension_in_agent_turn` flag are read fresh so a `/reload`/`/new`/`/resume`/
+`/fork`/`/clone` rebind is reflected inline) plus the stable run-scope
+collaborators — the owning session (for `_emit_diagnostic`), the terminal UI, the
+coding input queue, and the error stream — and its methods call each other through
+`self`. `run()` constructs it once (after `coding_input_queue`/`loop_controller`)
+and passes each bound method where the deleted closures were consumed: the
+`_ReplLoopStep.step_once` `drain_extension_outboxes`/`extension_append_entry`/
+`extension_send_message` ports, the `_BuiltinCommandInterpreter.interpret`
+`redraw_custom_entries_for_active_branch`/`extension_send_message` ports, the
+`_dispatch_extension_effect` `append_entry_fn`/`send_message_fn` seams, the
+startup `replay_custom_entries_to_terminal()` call, and the activation
+custom-message replay loop; the eleven superseded closures are DELETED with no
+alias. Body-preserving move (locals rebound as `terminal_ui = self.terminal_ui`,
+`ctl`→`self.ctl`, cross-closure calls prefixed `self.`, `self._emit_diagnostic`→
+`self.session._emit_diagnostic`), so the custom payloads, non-styled fallback,
+terminal replay order, redraw rows, outbox drain-into-prompt/steer/follow-up/
+next-turn timing, and every renderer-map registration are byte-identical. `run()`
+drops from 1,469 to 1,265 `ast`-lines (−204); the handler is 259 `ast`-lines. No
+new module (an intra-module relocation like the two prior handlers), so the
+import-boundary gate is unchanged; no new `Any`, `type: ignore`, or runtime
+dependency, and the metadata-only workflow archive is untouched. **Still deferred
+(the last 3.1f cut):** splitting `interpret` into per-effect port methods,
+relocating the residual provider-mutation/footer/persistence/adapter closures
+still in `run()`, and dropping `run()` under 800 lines with the `< 800`
+assertion.
+
 Sub-slice 3.1f.3 (continuation 2, 2026-07-21) makes the continuing built-in's
 per-action effect chain run THROUGH the command-dispatch effect port, symmetric
 with resource/extension dispatch, so the classified outcome no longer crosses the
