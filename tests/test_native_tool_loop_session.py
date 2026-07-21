@@ -3099,3 +3099,195 @@ def test_extension_command_persists_session_name_and_label(
         "session_info",
         "label",
     ]
+
+
+@dataclass
+class _RecordingToolProvider:
+    """Tool-capable provider that records each request's provider-visible text.
+
+    Used by the Phase 3.1d dispatch-precedence characterization to pin exactly
+    which submitted lines reach a provider turn (and which are intercepted by
+    the built-in kernel, resource dispatch, extension dispatch, or the
+    unknown-``/`` fallback before ever reaching the provider).
+    """
+
+    requests: list[ProviderRequest] = field(default_factory=list)
+
+    @property
+    def name(self) -> str:
+        return "recording-tool-fake"
+
+    @property
+    def model_id(self) -> str:
+        return "recording-tool-model"
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return True
+
+    def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
+        self.requests.append(request)
+        now = datetime.now(UTC)
+        return ProviderResult(
+            status=HarnessStatus.SUCCEEDED,
+            provider_name=self.name,
+            model_id=self.model_id,
+            started_at=now,
+            ended_at=now,
+            final_text="OK",
+            usage=None,
+            metadata=None,
+            tool_calls=(),
+        )
+
+
+def test_command_dispatch_precedence_kernel_resource_extension_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Characterize the closed Phase 3.1d dispatch precedence end to end.
+
+    Driving ``run()`` through the real dispatch boundary pins the exact
+    post-migration ordering now that ``/reload`` was the final built-in to
+    leave the raw late-branch path:
+
+    1. **Kernel is the sole built-in classifier.** ``/reload`` is claimed by
+       the outcome kernel (it reloads settings/resources) even though a custom
+       command *also* named ``reload`` exists on disk; no raw ``command_text ==
+       "/reload"`` branch survives to change that, and the collision is
+       resolved solely by kernel-before-resource ordering — not by
+       ``RESERVED_COMMAND_NAMES`` (``reload`` is deliberately absent from that
+       advertising set, whose completion is deferred to Phase 3.2).
+    2. **UNHANDLED is the single delegation boundary**, in the fixed order
+       ``dispatch_resource_command`` -> ``dispatch_extension_command`` -> the
+       unknown-``/`` fallback diagnostic -> the provider turn.
+    3. **Built-in over custom.** The colliding custom ``/reload`` command is
+       never claimed by resource dispatch.
+    4. **Custom over extension, extension over fallback.** ``/greet`` resolves
+       to the workspace prompt template (a resource run) and the same-named
+       extension command never fires, because a resource claim guards out
+       extension dispatch; ``/extonly`` reaches the extension command (which
+       runs before the unknown-``/`` fallback); ``/bogus`` reaches the
+       unknown-``/`` fallback. (A same-named custom *command* would additionally
+       be reserved out of the extension at registration time; a prompt template
+       is not reserved, so both coexist and the fixed dispatch order — resource
+       before extension — is what decides the winner.)
+    """
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+
+    # A custom command whose name collides with the built-in kernel command
+    # ``/reload``. It is discovered and would be claimed by resource dispatch if
+    # that layer were ever consulted for ``/reload``; the kernel intercepts
+    # first, so it never is.
+    commands_dir = tmp_path / ".pipy" / "commands"
+    commands_dir.mkdir(parents=True)
+    (commands_dir / "reload.md").write_text(
+        "---\nname: reload\ndescription: custom reload\n---\n\n"
+        "CUSTOM_RELOAD_BODY $ARGUMENTS\n",
+        encoding="utf-8",
+    )
+
+    # A prompt template whose name collides with an extension command
+    # (``greet``). A template is not reserved out of extensions, so both the
+    # template and the extension command coexist; the fixed dispatch order
+    # (resource before extension) must let the template win.
+    templates_dir = tmp_path / ".pipy" / "templates"
+    templates_dir.mkdir(parents=True)
+    (templates_dir / "greet.md").write_text(
+        "---\nname: greet\ndescription: greet template\n---\n\n"
+        "TEMPLATE_GREET_BODY $ARGUMENTS\n",
+        encoding="utf-8",
+    )
+
+    # Extension commands: ``greet`` collides with the prompt template above and
+    # must never win; ``extonly`` has no resource collision and must run before
+    # the unknown-``/`` fallback. Each writes a marker file when its handler
+    # actually executes.
+    greet_marker = tmp_path / "greet_ext_ran"
+    extonly_marker = tmp_path / "extonly_ext_ran"
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "precedence_ext.py").write_text(
+        "from pathlib import Path\n"
+        "def activate(api):\n"
+        f"    greet_marker = Path({str(greet_marker)!r})\n"
+        f"    extonly_marker = Path({str(extonly_marker)!r})\n"
+        "    def greet(ctx, args):\n"
+        "        greet_marker.write_text('ran', encoding='utf-8')\n"
+        "    def extonly(ctx, args):\n"
+        "        extonly_marker.write_text('ran', encoding='utf-8')\n"
+        "    api.register_command('greet', 'greet command', greet)\n"
+        "    api.register_command('extonly', 'extension only', extonly)\n",
+        encoding="utf-8",
+    )
+
+    provider = _RecordingToolProvider()
+    session = NativeToolReplSession(provider=provider, tool_registry={})
+    error_stream = io.StringIO()
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/reload\n/greet hi\n/extonly\n/bogus\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+    err = error_stream.getvalue()
+
+    # (1)+(2): exactly one submitted line reached a provider turn — the
+    # ``/greet`` prompt-template resource run. ``/reload`` (built-in kernel),
+    # ``/extonly`` (extension command), ``/bogus`` (unknown-``/`` fallback),
+    # and ``/exit`` (built-in kernel) all short-circuit before the provider.
+    prompts = [request.user_prompt or "" for request in provider.requests]
+    assert len(prompts) == 1
+    assert prompts[0].strip() == "TEMPLATE_GREET_BODY hi"
+    assert not any("CUSTOM_RELOAD_BODY" in prompt for prompt in prompts)
+    assert result.resource_invocation_count == 1
+
+    # (1)+(3): the outcome kernel classified ``/reload`` as the RELOAD built-in
+    # (settings/resources reloaded) rather than the colliding custom command.
+    assert "reloaded settings, keybindings, and resources." in err
+
+    # The precedence here is enforced solely by kernel-before-resource
+    # ordering: ``reload`` is not reserved, so the resource layer WOULD claim
+    # ``/reload`` as a custom-command run if it were ever consulted for it. It
+    # never is, because the kernel classifies and continues first. This pins
+    # the Phase 3.2-deferred RESERVED_COMMAND_NAMES advertising gap.
+    from pipy_harness.native.resources import (
+        DISPATCH_COMMAND_RUN,
+        WorkspaceResources,
+        dispatch_resource_command,
+    )
+
+    resources = WorkspaceResources.discover(
+        tmp_path,
+        config_home_env={},
+        home_dir=tmp_path,
+        include_workspace_defaults=True,
+    )
+    would_be_claimed = dispatch_resource_command("/reload", resources)
+    assert would_be_claimed is not None
+    assert would_be_claimed.kind == DISPATCH_COMMAND_RUN
+
+    # (4a): the ``/greet`` prompt-template resource run wins over the
+    # same-named extension command, which therefore never fires (a resource
+    # claim guards out extension dispatch). This is only a real dispatch-order
+    # check if the ``greet`` extension command genuinely coexists rather than
+    # being silently disabled at registration: the extension reserved set is a
+    # union of built-ins with *custom-command* slash names only (not prompt
+    # templates), so the ``greet`` template does not reserve the ``greet``
+    # extension command. Pin that here so ``not greet_marker.exists()`` cannot
+    # pass vacuously if a future change ever folded template names into the
+    # reserved set.
+    reserved = extension_reserved_command_names(
+        resources.custom_command_slash_names()
+    )
+    assert "greet" not in reserved
+    assert "extonly" not in reserved
+    assert not greet_marker.exists()
+
+    # (4b): ``/extonly`` reaches the extension command (before the fallback).
+    assert extonly_marker.exists()
+    assert "'/extonly' is not handled in tool-loop mode" not in err
+
+    # (2): ``/bogus`` — no built-in, no resource, no extension command — lands
+    # on the single unknown-``/`` fallback diagnostic.
+    assert "'/bogus' is not handled in tool-loop mode" in err

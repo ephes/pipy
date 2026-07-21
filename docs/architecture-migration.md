@@ -1066,6 +1066,68 @@ entry, the Phase 3.2 declarative registry, Phase 3.3 write ownership, Phase 4 UI
 movement, and async conversion remain explicit non-goals. The command extraction
 changes no product behavior or public product format.
 
+Slice 3.1d-reload-precedence closes and characterizes the completed Phase 3.1d
+typed-command-family ownership now that `/reload` was the final built-in to
+leave the raw late-branch path. The dispatch precedence is locked: the outcome
+kernel (`classify_coding_command`) is the sole classifier for every built-in
+slash command; only the private `HOTKEY_*` sentinels and the `!` shell prefix
+precede classification, and those are owned by hotkey / Phase 4 handling rather
+than by any surviving raw built-in slash branch. The kernel's `UNHANDLED`
+outcome is the single delegation boundary, evaluated in the fixed order
+`dispatch_resource_command` (skills / prompt-templates / custom-commands) ->
+`dispatch_extension_command` -> the unknown-`/` fallback diagnostic -> the
+provider turn. Built-in-over-custom precedence therefore holds structurally: a
+custom command or template whose name collides with a kernel built-in (for
+example `reload`, `tree`, or `new`) is never claimed, because the kernel
+intercepts before resource dispatch is ever consulted — not because the name is
+reserved. Custom-command-over-extension precedence holds by the same ordering: a
+resource-claimed name (a skill, template, or custom command) wins over a
+same-named extension command, and an extension command runs before the
+unknown-`/` fallback.
+
+This closure is a characterization plus documentation cut with no production
+dispatch-logic change, matching the test-only precedent of 3.1d.2b-test. A
+single end-to-end characterization test in
+`tests/test_native_tool_loop_session.py` drives `run()` through the real
+dispatch boundary to pin the ordering: a custom command named `reload`
+(discovered but never claimed, since the kernel classifies `/reload` first) with
+an assertion that `dispatch_resource_command("/reload", …)` *would* return a
+`DISPATCH_COMMAND_RUN` if it were ever consulted; a prompt template named
+`greet` that wins over a same-named extension `greet` command (a template is not
+reserved out of extensions, so both coexist and the fixed resource-before-
+extension order decides the winner); an `extonly` extension command that runs
+before the fallback; and a `/bogus` line that reaches the unknown-`/` fallback.
+Exactly one submitted line — the template resource run — reaches the provider,
+proving every built-in, extension command, and fallback short-circuits first.
+
+A Claude Opus review-panel pass raised three suggestions, all applied. First,
+the characterization now asserts non-vacuity of the resource-over-extension
+check directly: it pins that `extension_reserved_command_names(...)` — a union of
+built-ins with *custom-command* slash names only, never prompt-template names —
+excludes both `greet` and `extonly`, so the `greet` extension command genuinely
+coexists with the `greet` template rather than being silently disabled at
+registration; without this, a future change folding template names into the
+reserved set would let `not greet_marker.exists()` pass vacuously. Second, the
+new test's `monkeypatch` parameter is annotated `pytest.MonkeyPatch` so its body
+stays under mypy. Third, the backlog section header was set to "review pending"
+during the review to match this ledger row's own honest pending-review state, and
+returned to "SHIPPED" at commit once the review gate ran clean.
+
+The delegation targets `dispatch_resource_command` and
+`dispatch_extension_command` remain the resource and extension dispatch owners
+pending the Phase 3.2 declarative registry; this slice does not introduce that
+registry. It deliberately does not expand `RESERVED_COMMAND_NAMES` to the full
+built-in set: that set governs which colliding custom commands are advertised /
+dropped in slash discovery, so widening it would change behavior (a colliding
+`reload`/`tree`/`new` custom command is currently still advertised even though
+the kernel prevents it from ever running). That advertising-completeness
+correction is explicitly deferred to Phase 3.2's declarative registry, which
+will own names, aliases, descriptions, availability, help, completion, and menus
+from a single source of truth. The unknown-`/` fallback message text, the
+deferred model-change native-tree entry, Phase 3.3 write ownership, and Phase 4
+UI movement remain explicit non-goals, and this closure changes no product
+behavior or public product format.
+
 ### Slice 3.2: Declarative command registry
 
 Replace the large command dispatcher with one registry containing command name,
@@ -1287,6 +1349,7 @@ The default sequence is:
 | 3.1d.4d | This commit — `refactor: type import command` | Exact full-content `/import` classification, standard footer, typed composition ownership, `--yes` detection, home and cwd resolution, direct-stream confirmations, the `session_before_switch` gate, collision-safe native-store import, missing-cwd recovery, active-history rebuild, extension-input clearing, ordered parse/confirm/switch/import/rebuild/diagnostic sequencing, native-product/workflow-archive privacy separation, the narrowed durable-archive exception projection, and superseded late-path deletion passed. Focused command/runtime/session/RPC/import-boundary validation passed 412 tests and session export/resume/lineage validation passed 43. Export conformance passed 11/11, automation/RPC conformance 15/15, and PTY smoke 8/8. `NativeToolReplSession.run()` McCabe complexity fell from 307 to 297 while the remaining C901 inventory held as known findings. Final `just check`: Ruff and mypy clean across 381 source files, 4,221 tests passed, 2 skipped; `just docs-build` and the diff review passed. Review: Claude Opus panel (user-directed substitution for the different-family gate) ran 1 round across both the behavior and invariants lenses and returned CLEAN with 0 findings; the final round was clean and no finding was fixed, rejected, or deferred. |
 | 3.1d.4x-share | This commit — `refactor: type share command` | Exact payload-free `/share` classification alongside `/hotkeys`/`/settings`/`/trust`, standard footer, typed composition ownership of the share effect sequence (`resolve_github_token()`, no-token diagnostic, the untouched cancellation-worker `_share_native_session_command` guarded so only `NativeExportError` maps through the sanitized path, the cancelled `result is None` path, and the viewer_url/gist_url diagnostics), single centralized standard-footer refresh matching `/export`/`/import`, `/share foo` and altered forms falling through to UNHANDLED and resource/custom-command dispatch, built-in-over-custom precedence, GitHub secret-gist/never-send-token-in-body privacy and `ShareResult` shape preserved, and superseded raw late-path deletion passed. Focused kernel classification/validation and export-distribution token-boundary/privacy validation passed 228 tests (`tests/test_native_coding_commands.py` + `tests/test_native_export_distribution.py`), and `tests/test_native_tool_loop_session.py` + `tests/test_architecture_import_boundaries.py` passed 197. Export conformance passed 11/11, automation/RPC conformance 15/15, and PTY smoke 8/8. `NativeToolReplSession.run()` McCabe complexity is 298 (net +1 for the added typed dispatch arm over the deleted raw branch) while the remaining C901 inventory held as known findings. Final `just check`: Ruff and mypy clean across 381 source files, 4,230 tests passed, 2 skipped; `just docs-build` passed. Two nondeterministic PTY timing failures were observed under full-suite load in the multi-tool-balancing and queued-shell-drain tests; each passed in isolation, the specific failure moved between runs, and neither touches the `/share` classification or dispatch path, matching the documented PTY timing flake. Review: Claude Opus panel (user-directed substitution for the different-family gate) ran 1 round across both the behavior and invariants lenses and returned CLEAN with 0 findings; the final round was clean and no finding was fixed, rejected, or deferred. |
 | 3.1d.4d-reload | This commit — `refactor: type reload command` | Exact payload-free `/reload` classification in the payload-free tuple loop alongside `/hotkeys`/`/changelog`/`/copy`/`/session`/`/compact`/`/new`/`/clone`/`/settings`/`/trust`/`/share`, standard footer, typed composition ownership of the full reload effect sequence moved verbatim into an `elif ... CodingCommandAction.RELOAD` arm (settings/keybindings reload, `compose_package_runtime`, `WorkspaceResources.discover(...).with_enablement(...)`, `clear_extension_chrome`, `_activate_workspace_extensions` and every `_ext_runtime` reassignment, extension-flag re-parse, catalog refresh + extension-provider contributions + selection-disappeared/tool-capability fallback rebind with `_bind_unavailable_after_reload`/`_pricing_for`, tool renderer/registry replacement, emitter lifecycle/flags refresh, theme + derived-UI re-apply, `redraw_custom_entries_for_active_branch`, `load_errors` diagnostics, startup chrome, `_maybe_save_implicit_trust_after_reload`, `EVENT_SESSION_START` `reason='reload'`, and the reloaded-settings diagnostic), single centralized standard-footer refresh matching `/export`/`/import`/`/share`, `/reload anything` and altered forms falling through to UNHANDLED and resource/extension dispatch, built-in-over-custom precedence, queued/RPC bypass preserved via the `''` command_text, settings/keybindings kept out of the metadata-only workflow archive, and superseded raw `if command_text == "/reload":` late-path deletion — cutting the last raw built-in slash branch onto the typed kernel — passed; the moved body is byte-identical modulo the +8-space reindent. Focused kernel classification/exact-outcome validation passed 220 tests (`tests/test_native_coding_commands.py`), and `tests/test_native_tool_loop_session.py` + `tests/test_architecture_import_boundaries.py` + `tests/test_native_tool_loop_session_import.py` passed 234, including the reload characterization (`test_reload_rereads_edited_settings_without_provider_turn`, `test_reload_malformed_settings_keeps_prior_and_warns`, `test_reload_refreshes_extension_entry_renderers`, `test_reload_fires_session_start_reload_for_new_extension_generation`) and the no-provider-turn assertions. Settings-config conformance passed 17/17, automation/RPC conformance 15/15, and PTY smoke 8/8. `NativeToolReplSession.run()` McCabe complexity holds at 298 (the added typed dispatch arm offsets the deleted raw branch) while the remaining C901 inventory held as known findings. Final `just check`: Ruff and mypy clean across 381 source files, 4,239 tests passed, 2 skipped; `just docs-build` passed. Review: Claude Opus panel (user-directed substitution for the different-family gate) ran 1 round across both the behavior and invariants lenses and returned CLEAN with 0 findings; the final round was clean and no finding was fixed, rejected, or deferred. |
+| 3.1d-reload-precedence | This commit — `test: close command dispatch precedence` | Phase 3.1d typed-command-family ownership is complete and closed: the outcome kernel is the sole classifier for every built-in slash command (only the `HOTKEY_*` sentinels and the `!` shell prefix precede classification), the kernel's `UNHANDLED` outcome is the single delegation boundary in the fixed order `dispatch_resource_command` -> `dispatch_extension_command` -> unknown-`/` fallback -> provider turn, and `dispatch_resource_command`/`dispatch_extension_command` remain the delegation targets pending Phase 3.2's declarative registry. Characterization plus documentation closure only — no production dispatch-logic change (matching the 3.1d.2b-test precedent). One new end-to-end characterization test in `tests/test_native_tool_loop_session.py` drives `run()` to pin: built-in-over-custom precedence (a custom `reload` command is discovered but never claimed because the kernel intercepts first, asserted alongside `dispatch_resource_command("/reload", …)` returning `DISPATCH_COMMAND_RUN` if it were consulted); custom/template-over-extension precedence (a `greet` prompt template wins over a same-named extension `greet` command, which never fires); extension-before-fallback (`/extonly` runs before the unknown-`/` fallback); and the unknown-`/` fallback (`/bogus`), with exactly one submitted line (the template resource run) reaching the provider. The `RESERVED_COMMAND_NAMES` advertising-completeness correction (widening it to the full built-in set) is explicitly deferred to Phase 3.2 as a behavior change, and this slice documents that deferral. Focused `tests/test_native_tool_loop_session.py`, `tests/test_native_resources.py`, `tests/test_native_custom_commands.py`, `tests/test_native_extension_chrome_session.py`, `tests/test_native_coding_commands.py`, and `tests/test_native_tool_loop_session_import.py` passed 371 tests, plus 17 extension-live-session checks. Settings-config conformance passed 17/17, automation/RPC conformance 15/15, and PTY smoke 8/8. Final `just check`: Ruff and mypy clean across 381 source files, 4,240 tests passed, 2 skipped; `just docs-build` passed. One unchanged project-trust startup-selector PTY case missed its readiness deadline under full-suite load; it passed four isolated runs and a fresh fully green `just check` without a production change, matching the documented PTY timing flake. Review: Claude Opus panel (user-directed substitution for the different-family gate) ran 1 round across both the behavior and invariants lenses, raised 3 findings — all accepted and applied — and the final round was clean; no finding was rejected or deferred. |
 
 The earlier code-quality audit remains evidence, with this mapping:
 

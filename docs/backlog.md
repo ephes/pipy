@@ -2139,6 +2139,35 @@ reloaded settings nor keybindings enter the metadata-only workflow archive.
 metadata, persistence relocation, UI movement, and async conversion remain
 outside it. The extraction changes no product behavior or public product format.
 
+### Dispatch Precedence Closure — SHIPPED (2026-07-21)
+
+Phase 3.1d typed-command-family ownership is now complete and closed. With
+`/reload` the final built-in to leave the raw late-branch path, the dispatch
+precedence is locked and characterized: the outcome kernel
+(`classify_coding_command`) is the sole classifier for every built-in slash
+command — only the `HOTKEY_*` sentinels and the `!` shell prefix precede
+classification — and the kernel's `UNHANDLED` outcome is the single delegation
+boundary, in the fixed order `dispatch_resource_command` ->
+`dispatch_extension_command` -> the unknown-`/` fallback diagnostic -> the
+provider turn. Built-in-over-custom precedence holds because the kernel
+intercepts before resource dispatch, and custom/template-over-extension
+precedence holds because a resource claim guards out extension dispatch, which
+in turn runs before the unknown-`/` fallback. `dispatch_resource_command` and
+`dispatch_extension_command` remain the delegation targets pending Phase 3.2's
+declarative registry.
+
+This closure is characterization plus documentation only, with no production
+dispatch-logic change (matching the 3.1d.2b-test precedent). A single end-to-end
+characterization test in `tests/test_native_tool_loop_session.py` drives `run()`
+to pin all four orderings. It deliberately does not expand
+`RESERVED_COMMAND_NAMES` to the full built-in set: that set governs which
+colliding custom commands are advertised or dropped in slash discovery, so
+widening it is a behavior change (a colliding `reload`/`tree`/`new` custom
+command is still advertised even though the kernel prevents it running). That
+advertising-completeness correction — like names, aliases, descriptions,
+availability, help, completion, and menus — is deferred to Phase 3.2's
+declarative registry.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable
