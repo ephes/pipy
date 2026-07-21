@@ -134,6 +134,10 @@ from pipy_harness.native.agent_runtime import (
 )
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding import CodingInputQueue, CodingInputSource
+from pipy_harness.native.coding.accepted_input import (
+    CodingAcceptedInputPreparer,
+    CodingSessionAcceptedInputRecorder,
+)
 from pipy_harness.native.coding.agent_run import (
     AgentLoopProviderTurnAdapter,
     AgentLoopRequestSourceAdapter,
@@ -342,9 +346,12 @@ from pipy_harness.native.tui import (
     run_project_trust_selector,
 )
 from pipy_harness.native.tools.bash import LocalShellResult, run_local_command
-from pipy_harness.native.file_references import resolve_file_references
+from pipy_harness.native.file_references import (
+    FileReferenceResolution,
+    resolve_file_references,
+)
 from pipy_harness.native.image_attachment import (
-    ProviderImageAttachment,
+    ImageAttachmentResolution,
     resolve_image_attachments,
 )
 from pipy_harness.native.tools import (
@@ -4097,30 +4104,19 @@ class NativeToolReplSession:
                 # and keep the literal prompt for the rendered panel, prompt
                 # history, and native product session tree. None of that content
                 # enters the metadata-only workflow archive.
-                turn_attachments: tuple[ProviderImageAttachment, ...] = ()
-                if resource_provider_text is not None:
-                    # Resource turn: the bounded instruction/expansion is the
-                    # provider message verbatim. @file augmentation, prompt
-                    # history, and native product-session persistence are all
-                    # skipped so the literal resource text never leaks past the
-                    # provider or into the metadata-only workflow archive.
-                    provider_user_input = resource_provider_text
-                    accepted_user_content = ProductContent(provider_user_input)
-                else:
-                    # `input` hooks may transform the submitted prompt before
-                    # the provider turn. The original `user_input` still goes
-                    # to prompt history, the native product session tree, and the
-                    # rendered panel (never the metadata-only workflow archive);
-                    # only the provider-visible text and @file resolution use the
-                    # transformed value.
-                    accepted_user_content = (
-                        selected_provider_content
-                        if selected_provider_content is not None
-                        else ProductContent(user_input)
-                    )
-                    transformed_input = dispatch_input_hooks(
+                # Accepted-input preparation owns the resource-vs-literal
+                # branch, the transformed-vs-original prompt split, the hook
+                # ordering (input hook, @file resolution, image attachments,
+                # then before_agent_start augmentation), diagnostic text, and
+                # safe-counter recording. The controller supplies only thin
+                # adapters over its effectful helpers; the provider-visible
+                # excerpts, image bytes, transformed text, and injected
+                # system-prompt context ride the returned turn and never enter
+                # the metadata-only workflow archive.
+                def _transform_accepted_input(prompt: str) -> str:
+                    return dispatch_input_hooks(
                         extension_input_hooks,
-                        user_input,
+                        prompt,
                         cwd=str(cwd),
                         has_ui=terminal_ui is not None,
                         notify_sink=_extension_notify,
@@ -4130,85 +4126,70 @@ class NativeToolReplSession:
                         set_thinking_level_fn=extension_set_thinking_level,
                         project_trusted=settings.project_trusted,
                     )
-                    provider_user_input = transformed_input
-                    file_references = resolve_file_references(
-                        transformed_input,
+
+                def _resolve_accepted_file_references(
+                    prompt: str,
+                ) -> FileReferenceResolution:
+                    return resolve_file_references(
+                        prompt,
                         workspace_root=cwd,
                         reference_roots=self.reference_roots,
                     )
-                    if file_references.reference_count:
-                        coding_state.record_file_references(
-                            reference_count=file_references.reference_count,
-                            loaded_count=file_references.loaded_count,
-                            failed_count=file_references.failed_count,
-                        )
-                        for diagnostic in file_references.diagnostics():
-                            self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
-                        if file_references.used:
-                            provider_user_input = file_references.augmented_prompt(
-                                transformed_input
-                            )
+
+                def _resolve_accepted_image_attachments(
+                    prompt: str,
+                ) -> ImageAttachmentResolution:
                     # User-directed image attachments (@image:<path>): bounded,
-                    # fail-closed image loading that becomes provider-visible image
-                    # blocks on the current user message. Raw bytes never reach the
-                    # prompt history, native product session tree, metadata-only
-                    # workflow archive, or the result.
-                    image_attachments = resolve_image_attachments(
-                        transformed_input,
+                    # fail-closed image loading that becomes provider-visible
+                    # image blocks on the current user message. Raw bytes never
+                    # reach prompt history, the native product session tree, the
+                    # metadata-only workflow archive, or the result.
+                    return resolve_image_attachments(
+                        prompt,
                         workspace_root=cwd,
                         reference_roots=image_reference_roots,
                     )
-                    if image_attachments.reference_count:
-                        coding_state.record_image_attachments(
-                            attachment_count=image_attachments.reference_count,
-                            loaded_count=image_attachments.loaded_count,
-                            failed_count=image_attachments.failed_count,
-                        )
-                        for diagnostic in image_attachments.diagnostics():
-                            self._emit_diagnostic(terminal_ui, error_stream, diagnostic)
-                        turn_attachments = image_attachments.attachments()
-                turn_user_message = AgentUserMessage(content=accepted_user_content)
-                # `before_agent_start` hooks may inject bounded context into
-                # this agent run's system prompt. Computed once per accepted
-                # prompt; the injected text is provider-visible but not added
-                # to the metadata archive.
-                before_agent_result = dispatch_before_agent_start_hooks(
-                    extension_before_agent_start_hooks,
-                    cwd=str(cwd),
-                    has_ui=terminal_ui is not None,
-                    system_prompt=base_system_prompt,
-                    notify_sink=_extension_notify,
-                    ui_driver=extension_ui_driver,
-                    set_active_tools_fn=extension_set_active_tools,
-                    set_model_fn=extension_set_model,
-                    set_thinking_level_fn=extension_set_thinking_level,
-                    flags=extension_flag_values,
-                    project_trusted=settings.project_trusted,
-                )
-                agent_system_prompt = base_system_prompt
-                if before_agent_result.append_system_prompt:
-                    agent_system_prompt = (
-                        base_system_prompt
-                        + "\n"
-                        + before_agent_result.append_system_prompt
-                    )
-                active_input = AgentActiveInput(
-                    turn_user_message,
-                    tuple(
-                        AgentUserMessage(content=content)
-                        for content in coding_input_queue.take_next_turn_context()
-                    ),
-                )
 
-                initial_tool_state = AgentToolPolicyState(
-                    tool_budget=self.tool_budget,
-                    tool_invocation_count=coding_state.tool_invocation_count,
-                    malformed_argument_count=coding_state.malformed_argument_count,
-                    consecutive_malformed_streak=(
-                        coding_state.consecutive_malformed_streak
+                def _accepted_system_prompt_suffix(base_prompt: str) -> str | None:
+                    before_agent_result = dispatch_before_agent_start_hooks(
+                        extension_before_agent_start_hooks,
+                        cwd=str(cwd),
+                        has_ui=terminal_ui is not None,
+                        system_prompt=base_prompt,
+                        notify_sink=_extension_notify,
+                        ui_driver=extension_ui_driver,
+                        set_active_tools_fn=extension_set_active_tools,
+                        set_model_fn=extension_set_model,
+                        set_thinking_level_fn=extension_set_thinking_level,
+                        flags=extension_flag_values,
+                        project_trusted=settings.project_trusted,
+                    )
+                    return before_agent_result.append_system_prompt
+
+                def _emit_accepted_input_diagnostic(message: str) -> None:
+                    self._emit_diagnostic(terminal_ui, error_stream, message)
+
+                accepted_turn = CodingAcceptedInputPreparer(
+                    transform_input=_transform_accepted_input,
+                    resolve_file_references=_resolve_accepted_file_references,
+                    resolve_image_attachments=_resolve_accepted_image_attachments,
+                    system_prompt_suffix=_accepted_system_prompt_suffix,
+                    next_turn_context=coding_input_queue.take_next_turn_context,
+                    emit_diagnostic=_emit_accepted_input_diagnostic,
+                    state_recorder=CodingSessionAcceptedInputRecorder(
+                        coding_state, tool_budget=self.tool_budget
                     ),
-                    budget_exhausted_count=coding_state.budget_exhausted_count,
+                ).prepare(
+                    user_input=user_input,
+                    resource_provider_text=resource_provider_text,
+                    selected_provider_content=selected_provider_content,
+                    base_system_prompt=base_system_prompt,
                 )
+                active_input = accepted_turn.active_input
+                initial_tool_state = accepted_turn.initial_tool_state
+                provider_user_input = accepted_turn.provider_user_input
+                turn_attachments = accepted_turn.turn_attachments
+                agent_system_prompt = accepted_turn.agent_system_prompt
 
                 def _prepare_loop_request(
                     history: tuple[AgentMessage, ...],

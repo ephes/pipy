@@ -426,6 +426,41 @@ _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS = frozenset(
     }
 )
 
+# Accepted-input preparation depends on the same forbidden categories as the
+# agent-run collaborators: canonical native.agent contracts plus the injected
+# coding state/input queue only, never composition, UI/terminal, extensions,
+# concrete providers/tools, persistence coordination, automation/RPC, the SDK,
+# capture, or the metadata-only workflow archive.
+_CODING_ACCEPTED_INPUT_FORBIDDEN_IMPORTS = _CODING_AGENT_RUN_FORBIDDEN_IMPORTS
+
+_CODING_ACCEPTED_INPUT_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "collections.abc",
+        "collections.abc.Callable",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "typing",
+        "typing.Protocol",
+        "pipy_harness.native.agent.active_input",
+        "pipy_harness.native.agent.active_input.AgentActiveInput",
+        "pipy_harness.native.agent.content",
+        "pipy_harness.native.agent.content.ProductContent",
+        "pipy_harness.native.agent.loop_policy",
+        "pipy_harness.native.agent.loop_policy.AgentToolPolicyState",
+        "pipy_harness.native.agent.messages",
+        "pipy_harness.native.agent.messages.AgentUserMessage",
+        "pipy_harness.native.coding.state",
+        "pipy_harness.native.coding.state.CodingSessionState",
+        "pipy_harness.native.file_references",
+        "pipy_harness.native.file_references.FileReferenceResolution",
+        "pipy_harness.native.image_attachment",
+        "pipy_harness.native.image_attachment.ImageAttachmentResolution",
+        "pipy_harness.native.image_attachment.ProviderImageAttachment",
+    }
+)
+
 _AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS = (
     "pipy_harness.cli",
     "pipy_harness.adapters",
@@ -716,6 +751,17 @@ ARCHITECTURE_RULES = (
             "UI/terminal, extensions, concrete providers/tools, persistence "
             "coordination, automation/RPC, the SDK, capture, or the metadata-only "
             "workflow archive"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.coding.accepted_input",
+        forbidden_imports=_CODING_ACCEPTED_INPUT_FORBIDDEN_IMPORTS,
+        reason=(
+            "accepted-input preparation may depend only on canonical native.agent "
+            "contracts, injected coding state/input queues, and the @file/image "
+            "resolution data contracts, never UI/terminal, extensions, concrete "
+            "providers/tools, persistence coordination, automation/RPC, the SDK, "
+            "capture, or the metadata-only workflow archive"
         ),
     ),
     BoundaryRule(
@@ -2194,6 +2240,90 @@ from pipy_harness.native.tools.base import ToolDefinition
         rule
         for rule in ARCHITECTURE_RULES
         if rule.source_package == "pipy_harness.native.coding.agent_run"
+    )
+
+    assert _evaluate_rule(source_root, rule) == []
+
+
+def test_coding_accepted_input_direct_imports_match_explicit_allowlist() -> None:
+    accepted_input_path = (
+        SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "accepted_input.py"
+    )
+    references = _import_references(SOURCE_ROOT, accepted_input_path)
+
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT,
+        accepted_input_path,
+        allowed_imports=_CODING_ACCEPTED_INPUT_ALLOWED_DIRECT_IMPORTS,
+    ), "accepted-input preparation gained a dependency outside its allowlist"
+    assert {reference.module for reference in references} == (
+        _CODING_ACCEPTED_INPUT_ALLOWED_DIRECT_IMPORTS
+    ), "remove stale allowances when accepted-input preparation drops imports"
+
+
+@pytest.mark.parametrize(
+    "forbidden_import",
+    (
+        "pipy_harness.native.ui",
+        "pipy_harness.native.tui",
+        "pipy_harness.native.extensions",
+        "pipy_harness.native.extension_runtime",
+        "pipy_harness.native.automation",
+        "pipy_harness.native.coding.commands",
+        "pipy_harness.native.coding.product_session",
+        "pipy_harness.native.coding.session",
+        "pipy_harness.native.provider",
+        "pipy_harness.native.tools.bash",
+        "pipy_harness.native.openai_provider",
+        "pipy_harness.capture",
+        "pipy_session",
+    ),
+)
+def test_coding_accepted_input_rule_blocks_outer_runtime_imports(
+    tmp_path: Path,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    accepted_input_path = _write_module(
+        source_root,
+        "pipy_harness.native.coding.accepted_input",
+        f"import {forbidden_import}\n",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.accepted_input"
+    )
+
+    violations = _evaluate_rule(source_root, rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == accepted_input_path
+    assert violations[0].imported_module == forbidden_import
+
+
+def test_coding_accepted_input_rule_allows_canonical_contracts(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    _write_module(
+        source_root,
+        "pipy_harness.native.coding.accepted_input",
+        """\
+from pipy_harness.native.agent.active_input import AgentActiveInput
+from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.loop_policy import AgentToolPolicyState
+from pipy_harness.native.agent.messages import AgentUserMessage
+from pipy_harness.native.coding.state import CodingSessionState
+from pipy_harness.native.coding.input_queue import CodingInputQueue
+from pipy_harness.native.file_references import FileReferenceResolution
+from pipy_harness.native.image_attachment import ImageAttachmentResolution
+""",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.accepted_input"
     )
 
     assert _evaluate_rule(source_root, rule) == []

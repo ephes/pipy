@@ -2219,8 +2219,42 @@ and its exact allowlist are extended to the coordinator's added
 `native.coding.state.CodingSessionState`, keeping the earlier forbidden surfaces
 intact.
 
-Accepted-input preparation remains Phase 3.1e.3, and the outer
-lifecycle/composition-shell cutover remains Phase 3.1f.
+Sub-slice 3.1e.3 (2026-07-21) extracts the run()-inline accepted-turn
+preparation into the new strict-typed module `native.coding.accepted_input`: the
+frozen/slotted `CodingAcceptedTurn` DTO (`turn_user_message`, `active_input`,
+`initial_tool_state`, `provider_user_input`, `turn_attachments`,
+`agent_system_prompt`) and `CodingAcceptedInputPreparer`. A single
+`prepare(*, user_input, resource_provider_text, selected_provider_content,
+base_system_prompt)` call reproduces the exact prior logic behind injected
+product ports — an input-hook transform, an `@file` resolver, an image-attachment
+resolver, a `before_agent_start` suffix source (`str | None`, with the
+single-newline concatenation owned by the preparer), a next-turn-context source,
+a diagnostic sink, and a state recorder (`record_file_references`/
+`record_image_attachments` plus the tool-counter snapshot via the module's
+`CodingSessionAcceptedInputRecorder` over the live `CodingSessionState`). It
+preserves the resource-vs-literal branch, the transformed-vs-original prompt
+split, the hook ordering (input hook → `@file` → image → `before_agent_start`,
+suffix before the next-turn-context read), the suffix appended exactly once, and
+the diagnostic text. `NativeToolReplSession.run()` builds thin adapters over
+`dispatch_input_hooks`, `resolve_file_references`, `resolve_image_attachments`,
+`dispatch_before_agent_start_hooks`, `self._emit_diagnostic`,
+`coding_input_queue.take_next_turn_context`, and the recorder, calls
+`prepare(...)`, and unpacks the returned DTO — feeding
+`active_input`/`initial_tool_state` into the 3.1e.2 coordinator; the inline block
+and the now-unused `ProviderImageAttachment` import are deleted with no alias.
+Behavior-preserving move only: the metadata-only workflow archive stays intact
+(transformed provider text, `@file` excerpts, image bytes, and injected
+system-prompt context ride the returned turn's provider-visible fields and never
+enter JSONL/Markdown/archive), and queue ownership, persistence writes,
+prompt-history recording, resource-turn skip semantics, event/settle ordering,
+and public formats are unchanged. The `native.coding.accepted_input`
+import-boundary rule (agent-run forbidden categories) plus an exact allowlist
+admit only canonical `native.agent` contracts (`active_input`/`content`/
+`loop_policy`/`messages`), `native.coding.state.CodingSessionState`, and the
+`native.file_references`/`native.image_attachment` resolution data contracts.
+
+Phase 3.1e is complete; the outer lifecycle/composition-shell cutover remains
+Phase 3.1f.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
