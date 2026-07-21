@@ -2444,6 +2444,39 @@ alongside the separately-deferred 3.1f.3 remainder (relocating the 29-branch
 `CodingCommandAction` interpretation and `EXIT`/`CONTINUE` routing into
 `dispatch_command`).
 
+Sub-slice 3.1f-completion enabler (control-state holder, 2026-07-21) lands the
+mutable holder both deferred remainders named. The ~40 run-scope names shared
+through `nonlocal` are consolidated into one slotted strictly-typed
+`_RunControlState` instance (`ctl`) local to `run()`, holding the 32 genuinely
+cross-closure-shared names (`session_tree`, `tree_filter_mode`, `pending_prefill`,
+`line`, `package_roots`, `workspace_resources`, the `_ExtensionRuntime` bundle and
+its projected command/menu/description/hook/outbox/renderer-map/flag-values/
+tool-renderer/tool-registry names, `extension_activation_custom_messages`,
+`agent_settled_pending`, `extension_in_agent_turn`). Every run-bound read/write of
+those names in `_interpret_builtin_effect`, `_repl_step`,
+`_dispatch_resource_effect`, `_dispatch_extension_effect`, `_agent_loop_entered`,
+`_consume_agent_settled_pending`, and the persistence/extension/renderer/footer
+adapter closures now routes through `ctl.<attr>` (186 references across 173 lines,
+decided with a `symtable` scope resolver that distinguishes the `run()` binding from shadowing
+params/comprehension temporaries), and all four `nonlocal` blocks are deleted. Ten
+confirmed assign-before-read `_interpret_builtin_effect` transients stay
+function-local rather than joining `ctl`: the `_registered_tool`/`_port`/
+`custom_message` loop variables (a `for`-target would force an Optional attribute
+and defeat the non-optional `RegisteredTool`/`QueuedCustomMessage`/`ToolPort`
+contracts) and the `/reload` provider-refresh + tool-filter-check transients
+`fallback`/`fallback_provider`/`catalog_state`/`was_extension_selection`/
+`unknown_filter_names`/`known`/`unknown`. `ctl` is constructed once
+`session_tree` is bound (before the first setup-time closure call) and seeded from
+the setup locals; `pending_prefill`/`tree_filter_mode` carry their literal
+initializers into the constructor and `line` uses the dataclass default. No
+closure body leaves `run()` (still 2,825 `ast`-lines) and no `< 800` assertion is
+added yet. Byte-identical behavior; the metadata-only workflow archive is
+untouched; no new runtime dependency, `Any`, or `type: ignore`. This removes the
+run-scope free-variable capture so the remaining last cut can physically relocate
+the `_interpret_builtin_effect`/`_repl_step` bodies out of `run()` into methods
+that receive `ctl` explicitly, dropping `run()` under 800 lines and adding the
+`< 800` assertion.
+
 Sub-slice 3.1f.3 (continuation 2, 2026-07-21) makes the continuing built-in's
 per-action effect chain run THROUGH the command-dispatch effect port, symmetric
 with resource/extension dispatch, so the classified outcome no longer crosses the
