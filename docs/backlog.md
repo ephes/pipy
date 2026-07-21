@@ -2444,6 +2444,38 @@ alongside the separately-deferred 3.1f.3 remainder (relocating the 29-branch
 `CodingCommandAction` interpretation and `EXIT`/`CONTINUE` routing into
 `dispatch_command`).
 
+Sub-slice 3.1f.3 (continuation 2, 2026-07-21) makes the continuing built-in's
+per-action effect chain run THROUGH the command-dispatch effect port, symmetric
+with resource/extension dispatch, so the classified outcome no longer crosses the
+controller→composition boundary as data. `CodingCommandEffects` gains
+`interpret_builtin(outcome)`; `dispatch_command`, for a continuing built-in, calls
+`effects.interpret_builtin(outcome)` and returns `CONTINUE_LOOP` instead of an
+`INTERPRET_BUILTIN` resolution. The superseded contract is deleted with no alias:
+`CommandDispatchResolutionKind.INTERPRET_BUILTIN`, the
+`CommandDispatchResolution.interpret_outcome` field, the `interpret_builtin`
+factory, and their validation all leave `native.coding.commands`, leaving the
+contract exactly `{CONTINUE_LOOP, PROCEED_TO_RUN, EXIT_LOOP}`. The 893-line
+per-action effect chain moved verbatim (uniform 4-space dedent) out of
+`_repl_step`'s inline INTERPRET_BUILTIN branch into a new run-scope closure
+`_interpret_builtin_effect(command_outcome)`, performed via
+`_CodingCommandEffectsAdapter`'s new `interpret`/`interpret_builtin` slot; the
+closure declares the run's control state (`session_tree`/`tree_filter_mode`/
+`pending_prefill`/the `/reload` bundle, ~40 names) `nonlocal` so it mutates the
+same run-scope bindings the deleted branch did and `run()` reads them back
+byte-for-byte, and `_repl_step`'s own `nonlocal` set shrinks to the four flags it
+still assigns. Byte-identical CLI/JSON/RPC/session behavior; metadata-only archive
+intact; no new runtime dependency, `Any`, or `type: ignore`. The import-boundary
+gate extends the `session_controller` exact allowlist with
+`native.coding.commands.CodingCommandOutcome`. **Still deferred (needs the mutable
+control-state holder + closure-ecosystem cascade):** `_interpret_builtin_effect`
+(893 `ast`-lines) and `_repl_step`'s ~1,470-line body are still closures lexically
+nested in `run()`, so `run()` still measures ~2,797 `ast`-lines (the block moved
+to a sibling run-closure, not out of the function). Splitting `interpret_builtin`
+into per-effect port methods, physically relocating those bodies out of `run()`
+behind a mutable holder (dropping `run()` under 800 lines with a `< 800`
+assertion), and the pre-dispatch hotkey/shortcut/shell (`!`/`!!`) routing
+relocation remain the last cut of Phase 3.1f.3/3.1f.4.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable

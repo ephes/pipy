@@ -236,7 +236,6 @@ class CommandDispatchResolutionKind(StrEnum):
     CONTINUE_LOOP = "continue_loop"
     PROCEED_TO_RUN = "proceed_to_run"
     EXIT_LOOP = "exit_loop"
-    INTERPRET_BUILTIN = "interpret_builtin"
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,13 +243,15 @@ class CommandDispatchResolution:
     """Result of resolving one command-dispatch step.
 
     ``EXIT_LOOP`` means a built-in ``/exit``/``/quit`` classified: the outer loop
-    must break. ``INTERPRET_BUILTIN`` means a continuing built-in classified: it
-    carries the ``interpret_outcome`` the composition loop still interprets inline
-    (the imperative per-action effect chain). ``CONTINUE_LOOP`` means the input
-    was consumed locally (a resource list/reject, an extension command, or an
-    unhandled ``/…`` line) and the outer loop must continue without a provider
-    turn. ``PROCEED_TO_RUN`` carries the exact values the run transition needs:
-    the literal ``user_input``, the optional ``resource_provider_text`` from a
+    must break. A continuing built-in is no longer carried back as data: the
+    controller invokes the composition-root :meth:`interpret_builtin` effect port
+    directly and returns ``CONTINUE_LOOP``, so built-in interpretation runs
+    through the same port as resource/extension dispatch. ``CONTINUE_LOOP`` means
+    the input was consumed locally (a continuing built-in interpreted through the
+    port, a resource list/reject, an extension command, or an unhandled ``/…``
+    line) and the outer loop must continue without a provider turn.
+    ``PROCEED_TO_RUN`` carries the exact values the run transition needs: the
+    literal ``user_input``, the optional ``resource_provider_text`` from a
     resource run, and the optional ``selected_provider_content`` for
     queued/provider-visible content.
     """
@@ -259,7 +260,6 @@ class CommandDispatchResolution:
     user_input: str = ""
     resource_provider_text: str | None = None
     selected_provider_content: ProductContent | None = None
-    interpret_outcome: CodingCommandOutcome | None = None
 
     def __post_init__(self) -> None:
         if type(self.kind) is not CommandDispatchResolutionKind:
@@ -275,25 +275,6 @@ class CommandDispatchResolution:
         ):
             raise TypeError(
                 "selected_provider_content must be an exact ProductContent or None"
-            )
-        if self.interpret_outcome is not None and (
-            type(self.interpret_outcome) is not CodingCommandOutcome
-        ):
-            raise TypeError(
-                "interpret_outcome must be an exact CodingCommandOutcome or None"
-            )
-        if self.kind is CommandDispatchResolutionKind.INTERPRET_BUILTIN:
-            if self.interpret_outcome is None:
-                raise ValueError(
-                    "an INTERPRET_BUILTIN resolution requires a CONTINUE outcome"
-                )
-            if self.interpret_outcome.kind is not CodingCommandOutcomeKind.CONTINUE:
-                raise ValueError(
-                    "an INTERPRET_BUILTIN resolution requires a CONTINUE outcome"
-                )
-        elif self.interpret_outcome is not None:
-            raise ValueError(
-                "only an INTERPRET_BUILTIN resolution carries an interpret_outcome"
             )
         if self.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:
             if self.user_input != "":
@@ -315,19 +296,6 @@ class CommandDispatchResolution:
                 )
             if self.selected_provider_content is not None:
                 raise ValueError("an EXIT_LOOP resolution carries no provider content")
-        if self.kind is CommandDispatchResolutionKind.INTERPRET_BUILTIN:
-            if self.user_input != "":
-                raise ValueError(
-                    "an INTERPRET_BUILTIN resolution carries no user_input"
-                )
-            if self.resource_provider_text is not None:
-                raise ValueError(
-                    "an INTERPRET_BUILTIN resolution carries no resource_provider_text"
-                )
-            if self.selected_provider_content is not None:
-                raise ValueError(
-                    "an INTERPRET_BUILTIN resolution carries no provider content"
-                )
 
     @classmethod
     def continue_loop(cls) -> CommandDispatchResolution:
@@ -336,15 +304,6 @@ class CommandDispatchResolution:
     @classmethod
     def exit_loop(cls) -> CommandDispatchResolution:
         return cls(CommandDispatchResolutionKind.EXIT_LOOP)
-
-    @classmethod
-    def interpret_builtin(
-        cls, outcome: CodingCommandOutcome
-    ) -> CommandDispatchResolution:
-        return cls(
-            CommandDispatchResolutionKind.INTERPRET_BUILTIN,
-            interpret_outcome=outcome,
-        )
 
     @classmethod
     def proceed_to_run(

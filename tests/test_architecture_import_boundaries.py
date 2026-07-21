@@ -523,6 +523,7 @@ _CODING_SESSION_CONTROLLER_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.runtime_ports.AgentQueuedInput",
         "pipy_harness.native.agent.runtime_ports.AgentQueuedInputPort",
         "pipy_harness.native.coding.commands",
+        "pipy_harness.native.coding.commands.CodingCommandOutcome",
         "pipy_harness.native.coding.commands.CodingCommandOutcomeKind",
         "pipy_harness.native.coding.commands.CommandDispatchResolution",
         "pipy_harness.native.coding.commands.ExtensionDispatchResolution",

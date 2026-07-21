@@ -50,6 +50,7 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputPort,
 )
 from pipy_harness.native.coding.commands import (
+    CodingCommandOutcome,
     CodingCommandOutcomeKind,
     CommandDispatchResolution,
     ExtensionDispatchResolution,
@@ -91,8 +92,9 @@ class CodingCommandEffects(Protocol):
 
     Every method performs a composition-root effect the headless controller may
     not reach directly (terminal/renderer diagnostics, footer painting, resource/
-    extension dispatch, and the resource-invocation counter). The controller owns
-    only the ordering/precedence and the resulting
+    extension dispatch, the resource-invocation counter, and the continuing
+    built-in's imperative per-action effect chain). The controller owns only the
+    ordering/precedence and the resulting
     :class:`~pipy_harness.native.coding.commands.CommandDispatchResolution`; the
     concrete port implementation stays in the composition root.
     """
@@ -100,6 +102,8 @@ class CodingCommandEffects(Protocol):
     def emit_diagnostic(self, message: str) -> None: ...
 
     def refresh_footer(self) -> None: ...
+
+    def interpret_builtin(self, outcome: CodingCommandOutcome) -> None: ...
 
     def record_resource_invocation(self) -> None: ...
 
@@ -468,14 +472,17 @@ class CodingSessionController:
         The controller owns the full ordering/precedence and outcome routing.
         Built-in commands are classified FIRST so a resource or extension can
         never shadow them: ``/exit``/``/quit`` resolve to ``EXIT_LOOP`` (the
-        composition loop breaks), and every other continuing built-in resolves
-        to ``INTERPRET_BUILTIN`` carrying the ``CodingCommandOutcome`` the
-        composition loop still interprets inline (the imperative per-action
-        effect chain has not yet been relocated behind ports). The classification
-        runs only when the composition loop would have run it inline — for typed
-        input, or an empty submission — never for non-empty provider/queued
-        content, whose blank ``command_text`` must reach the provider verbatim
-        and therefore falls straight through to ``PROCEED_TO_RUN``.
+        composition loop breaks), and every other continuing built-in is
+        interpreted through the injected :meth:`CodingCommandEffects.interpret_builtin`
+        port — the composition-root per-action effect chain that reassigns the
+        run's control state — after which the controller returns ``CONTINUE_LOOP``,
+        so built-in interpretation runs through the same port as resource and
+        extension dispatch and the outcome never crosses back to the composition
+        loop as data. The classification runs only when the composition loop
+        would have run it inline — for typed input, or an empty submission —
+        never for non-empty provider/queued content, whose blank ``command_text``
+        must reach the provider verbatim and therefore falls straight through to
+        ``PROCEED_TO_RUN``.
 
         A non-built-in ``/…`` (or plain prompt) then runs resource dispatch
         (a list/reject is consumed locally; a run records the invocation counter
@@ -497,7 +504,12 @@ class CodingSessionController:
             if outcome.kind is CodingCommandOutcomeKind.EXIT:
                 return CommandDispatchResolution.exit_loop()
             if outcome.kind is CodingCommandOutcomeKind.CONTINUE:
-                return CommandDispatchResolution.interpret_builtin(outcome)
+                # The continuing built-in's imperative per-action effect chain
+                # runs through the port (it reassigns the run's control state),
+                # symmetric with resource/extension dispatch; the outcome is no
+                # longer handed back to the composition loop as data.
+                effects.interpret_builtin(outcome)
+                return CommandDispatchResolution.continue_loop()
 
         # Resource dispatch (skills, prompt templates, custom commands) runs
         # through the same local-command boundary as the built-ins, after them so
