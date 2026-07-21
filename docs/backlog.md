@@ -2053,10 +2053,49 @@ resource/custom-command and extension precedence, the model-change/tree and
 extension-hook gap, Phase 3.2 registry metadata, Phase 3.3 write ownership, and
 Phase 4 UI movement remain outside this slice.
 
+### Typed Import Command — IN PROGRESS (2026-07-20)
+
+Phase 3.1d.4d adds the exact full-content `SESSION_IMPORT` outcome for bare and
+literal-space `/import` forms with the standard footer. The action carries the
+exact `ProductContent` argument, including empty. Composition retains outer
+trimming, the submitted user bubble, and non-empty queued/RPC bypass at the
+existing serialized boundary.
+
+The composition interpreter continues to own quoted/unquoted path parsing,
+`--yes` detection, home and cwd resolution, direct-stream confirmation, the
+`session_before_switch` gate, collision-safe copy/open in the native product
+store, missing-cwd recovery, typed history rebuild, extension-input clearing,
+diagnostics, and footer timing. The preserved success order is parse/resolve,
+confirmation unless `--yes`, switch gate, import, optional missing-cwd
+confirmation and retry, history rebuild, extension-input clear, success
+diagnostic, then one standard footer. Usage, cancellation, veto, and controlled
+import errors keep their existing diagnostic and footer cutoffs; later failures
+do not roll back earlier filesystem or live-state effects.
+
+The action, source path, and imported transcript are private full-content
+product values and never enter the metadata-only workflow archive. An import
+exception escaping through a harness adapter may retain caller-facing or in-
+memory detail, but durable metadata JSONL and Markdown retain only its bounded
+type and fixed lifecycle metadata, never exception text, paths, or session
+content. Direct `NativeToolReplSession` propagation is unchanged. This is an
+ownership-only cut: it preserves direct-stream confirmation in both live and
+captured modes, the second direct missing-cwd prompt, the absent post-switch
+`session_start(reason=resume)` event, absent custom-entry and ordinary-
+scrollback redraw, and raw unsanitized confirmation-path output. Fixing those
+current-versus-target gaps requires dedicated UI, lifecycle, and security
+decisions.
+
+The command extraction changes no product behavior or public product format.
+The accepted review fix narrows the durable metadata-archive exception
+projection and is release-noted. `/share`, `/reload`, registry metadata,
+persistence relocation, UI movement, path-parser or native-store/format
+changes, confirmation-path security correction, rollback or atomic-write work,
+and async conversion remain outside it.
+
 **Next green slice — remaining typed external/UI-effect commands:** continue
-Phase 3.1d with a separately bounded `/import` or `/share` ownership cut after
-3.1d.4c is green and reviewed. Preserve external-I/O suspension, terminal
-behavior, public formats, privacy, and command precedence. Keep `/reload`,
+Phase 3.1d with a separately bounded `/share` ownership cut after 3.1d.4d is
+green and reviewed. Preserve external-I/O suspension, terminal behavior,
+public formats, privacy, and command precedence. Keep `/reload`,
 resource/custom-command and extension precedence, the model-change/tree and
 extension-hook gap, Phase 3.2 registry metadata, Phase 3.3 write ownership, and
 Phase 4 UI movement outside that cut.

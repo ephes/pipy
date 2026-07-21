@@ -2463,7 +2463,8 @@ def test_headless_command_kernel_classifies_supported_local_commands(
             "/login openai-codex\n/logout openai-codex\n/new\n"
             "/tree\n/tree select 1\n/resume\n/resume named\n"
             "/fork\n/fork 1\n/clone\n/trust   \n"
-            "/export\n/export artifacts/session.html\n/exit\n"
+            "/export\n/export artifacts/session.html\n"
+            "/import artifacts/session.jsonl --yes\n/exit\n"
         ),
         output_stream=io.StringIO(),
         error_stream=error_stream,
@@ -2493,6 +2494,7 @@ def test_headless_command_kernel_classifies_supported_local_commands(
         "/trust",
         "/export",
         "/export artifacts/session.html",
+        "/import artifacts/session.jsonl --yes",
         "/exit",
     ]
     assert "What's New" in error_stream.getvalue()
@@ -2566,6 +2568,16 @@ def test_export_command_uses_only_typed_interpreter_dispatch() -> None:
     source = Path(module_path).read_text(encoding="utf-8")
     assert 'if command_text == "/export"' not in source
     assert 'command_text.startswith("/export ")' not in source
+
+
+def test_import_command_uses_only_typed_interpreter_dispatch() -> None:
+    import pipy_harness.native.tool_loop_session as loop_module
+
+    module_path = loop_module.__file__
+    assert module_path is not None
+    source = Path(module_path).read_text(encoding="utf-8")
+    assert 'if command_text == "/import"' not in source
+    assert 'command_text.startswith("/import ")' not in source
 
 
 def test_new_command_applies_standard_footer_without_provider_turn(

@@ -157,6 +157,8 @@ class HarnessRunner:
         exit_code = 1
         error_type: str | None = None
         error_message: str | None = None
+        archive_error_type: str | None = None
+        archive_error_message: str | None = None
         adapter_result: AdapterResult | None = None
 
         try:
@@ -198,6 +200,8 @@ class HarnessRunner:
                     error_type = sanitize_text(adapter_error_type)
                 if isinstance(adapter_error_message, str):
                     error_message = sanitize_text(adapter_error_message)
+                archive_error_type = error_type
+                archive_error_message = error_message
 
             if request.capture_policy.record_file_paths and adapter_result.changed_paths:
                 sink.emit(
@@ -234,6 +238,8 @@ class HarnessRunner:
             status = HarnessStatus.ABORTED
             exit_code = 130
             error_type = "KeyboardInterrupt"
+            archive_error_type = error_type
+            archive_error_message = error_message
             sink.emit(
                 "harness.run.aborted",
                 summary="Harness run aborted before completion.",
@@ -249,6 +255,8 @@ class HarnessRunner:
             exit_code = 1
             error_type = type(exc).__name__
             error_message = _error_message(exc)
+            archive_error_type = error_type
+            archive_error_message = error_type
             sink.emit(
                 "harness.run.exception",
                 summary="Harness run failed because an exception escaped the adapter.",
@@ -256,7 +264,7 @@ class HarnessRunner:
                     **_base_payload(request, self.adapter.name, workspace, status),
                     "exit_code": exit_code,
                     "error_type": error_type,
-                    "error_message": error_message,
+                    "error_message": archive_error_message,
                     "duration_seconds": _duration_seconds(started_at, self.clock()),
                 },
             )
@@ -274,8 +282,8 @@ class HarnessRunner:
                 started_at=started_at,
                 ended_at=self.clock(),
                 changed_paths=adapter_result.changed_paths if adapter_result is not None else (),
-                error_type=error_type,
-                error_message=error_message,
+                error_type=archive_error_type,
+                error_message=archive_error_message,
             ),
         )
         duration_seconds = _duration_seconds(started_at, self.clock())

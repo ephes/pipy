@@ -607,6 +607,7 @@ def test_steering_queue_is_consumed_not_stale(client) -> None:
         "/trust",
         "/settings",
         "/export full-session.html",
+        "/import source.jsonl --yes",
     ],
 )
 def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(

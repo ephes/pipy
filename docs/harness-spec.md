@@ -1980,6 +1980,45 @@ queue reservation, idle settlement, terminal behavior, or persistence
 ownership. `/import`, `/share`, `/reload`, resource/custom-command and
 extension precedence, Phase 3.2, Phase 3.3, and Phase 4 remain deferred.
 
+Slice 3.1d.4d adds exact full-content `SESSION_IMPORT` outcomes for bare and
+literal-space `/import` forms with the standard footer. The direct kernel
+carries the exact `ProductContent` argument, including empty, and remains an
+already-stripped classifier. Composition retains outer trimming, the submitted
+user bubble, and non-empty queued/RPC bypass at the serialized boundary.
+
+Composition continues to own quoted/unquoted path parsing, `--yes` detection,
+home and cwd resolution, direct-stream confirmation, the
+`session_before_switch` gate, collision-safe native-store import, missing-cwd
+recovery, typed active-history rebuild, extension-input clearing, diagnostics,
+and footer timing. Its preserved success order is parse/resolve, confirmation
+unless `--yes`, switch
+gate, import, optional second missing-cwd confirmation and retry, history
+rebuild, extension-input clear, success diagnostic, then one standard footer.
+Usage, cancellation, veto, and controlled `NativeExportError` paths retain
+their existing diagnostic/footer cutoffs. Uncontrolled failure and partial
+filesystem or live-state behavior is unchanged; no rollback is added.
+
+The action/path and imported JSONL remain private full-content product data.
+They are not serialized by the command kernel or projected into the metadata-
+only workflow archive. If import raises through the harness adapter, its caller-
+facing or in-memory result may retain detail, but durable
+`harness.run.exception` JSONL and derived Markdown retain only the bounded
+exception type and fixed lifecycle metadata—never raw exception text, paths, or
+session content. This archive projection does not change direct exception
+propagation from `NativeToolReplSession`. This ownership move intentionally
+preserves the current gaps from the target interaction: confirmations use the direct input/output
+streams in both live and captured mode, missing cwd uses a second yes/no prompt,
+success emits no post-switch `session_start(reason=resume)` lifecycle event,
+custom entries and ordinary inline scrollback are not redrawn, and confirmation
+prints the raw resolved path without label sanitization.
+
+The command extraction changes no product behavior or public product format.
+The accepted review fix narrows the durable metadata-archive exception
+projection and is release-noted. `/share`, `/reload`, resource/custom-command
+and extension precedence, parser, native-store/format/confirmation-path
+security/rollback semantics, lifecycle or redraw fixes, Phase 3.2, Phase 3.3,
+Phase 4, and async conversion remain deferred.
+
 Command/outcome values are full-content product-control data. They expose no
 serializer, SDK shape, persistence projection, or workflow-archive adapter.
 Exact direct-import allowlists plus recursive, fresh-process, and no-eager-

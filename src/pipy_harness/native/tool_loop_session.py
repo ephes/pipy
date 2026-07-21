@@ -1618,6 +1618,92 @@ class NativeToolReplSession:
         except NativeExportError as exc:
             diagnostic(f"pipy: {exc}")
 
+    @staticmethod
+    def _confirm_import_prompt(
+        prompt: str,
+        *,
+        input_stream: TextIO,
+        error_stream: TextIO,
+    ) -> bool:
+        """Read one direct import confirmation without changing failure policy."""
+
+        print(prompt, end="", file=error_stream, flush=True)
+        try:
+            return input_stream.readline().strip().lower() in ("y", "yes")
+        except (OSError, ValueError):
+            return False
+
+    @staticmethod
+    def _resolve_import_source_path(argument: str, *, cwd: Path) -> Path | None:
+        """Parse and expand the first import path without resolving symlinks."""
+
+        path_arg = parse_command_path_argument(argument)
+        if not path_arg:
+            return None
+        source_path = Path(path_arg).expanduser()
+        if source_path.is_absolute():
+            return source_path
+        return cwd / source_path
+
+    @classmethod
+    def _import_session(
+        cls,
+        argument: ProductContent | None,
+        *,
+        cwd: Path,
+        input_stream: TextIO,
+        error_stream: TextIO,
+        current_session_dir: Callable[[], Path],
+        session_switch_allows: Callable[[str], bool],
+        diagnostic: Callable[[str], None],
+    ) -> NativeSessionTree | None:
+        """Import a product session through the typed command effect."""
+
+        if type(argument) is not ProductContent:
+            raise TypeError("SESSION_IMPORT requires an exact ProductContent argument")
+        source_path = cls._resolve_import_source_path(argument.value, cwd=cwd)
+        if source_path is None:
+            diagnostic("pipy: Usage: /import <path.jsonl>")
+            return None
+        confirm = "--yes" in argument.value.split()
+        if not confirm:
+            confirm = cls._confirm_import_prompt(
+                f"Replace current session with {source_path}? [y/N] ",
+                input_stream=input_stream,
+                error_stream=error_stream,
+            )
+        if not confirm:
+            diagnostic("pipy: /import cancelled.")
+            return None
+        if not session_switch_allows(str(source_path)):
+            return None
+        try:
+            return import_native_session_jsonl(
+                source_path,
+                session_dir=current_session_dir(),
+            )
+        except NativeExportError as exc:
+            if "imported session cwd does not exist:" not in str(exc):
+                diagnostic(f"pipy: {exc}")
+                return None
+            use_current = cls._confirm_import_prompt(
+                f"{exc} Use current workspace {cwd}? [y/N] ",
+                input_stream=input_stream,
+                error_stream=error_stream,
+            )
+            if not use_current:
+                diagnostic("pipy: /import cancelled.")
+                return None
+            try:
+                return import_native_session_jsonl(
+                    source_path,
+                    session_dir=current_session_dir(),
+                    missing_cwd=cwd,
+                )
+            except NativeExportError as second_exc:
+                diagnostic(f"pipy: {second_exc}")
+                return None
+
     def run(
         self,
         *,
@@ -2768,9 +2854,9 @@ class NativeToolReplSession:
             """Rebuild the live provider-visible list from the active branch.
 
             Used after ``/tree`` navigation, ``/new``, ``/resume``, ``/fork``,
-            and ``/clone``: the native tree is the source of truth, so the
-            provider list and the system-prompt compaction suffix are reset to
-            match the (possibly compacted) active branch.
+            ``/clone``, and ``/import``: the native tree is the source of truth,
+            so the provider list and the system-prompt compaction suffix are
+            reset to match the (possibly compacted) active branch.
             """
 
             product_session.rebuild_active_history()
@@ -3467,6 +3553,31 @@ class NativeToolReplSession:
                                 system_prompt=system_prompt,
                                 diagnostic=diag,
                             )
+                        elif (
+                            command_outcome.action is CodingCommandAction.SESSION_IMPORT
+                        ):
+                            imported_tree = self._import_session(
+                                command_outcome.argument,
+                                cwd=cwd,
+                                input_stream=input_stream,
+                                error_stream=error_stream,
+                                current_session_dir=current_session_dir,
+                                session_switch_allows=lambda target: (
+                                    extension_session_allows(
+                                        extension_session_before_switch_hooks,
+                                        operation="switch",
+                                        target=target,
+                                    )
+                                ),
+                                diagnostic=diag,
+                            )
+                            if imported_tree is not None:
+                                session_tree = imported_tree
+                                rebuild_messages_from_tree()
+                                diag(
+                                    "pipy: imported native session "
+                                    f"{sanitize_label_text(session_tree.session_id[:8])}."
+                                )
                         elif command_outcome.action is CodingCommandAction.SETTINGS:
                             if terminal_ui is not None:
                                 self._drive_settings_dialog(
@@ -3982,85 +4093,6 @@ class NativeToolReplSession:
                             if saved_implicit_trust
                             else "pipy: reloaded settings, keybindings, and resources."
                         ),
-                    )
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/import" or command_text.startswith("/import "):
-                    argument = stripped[len("/import") :]
-                    path_arg = parse_command_path_argument(argument)
-                    if not path_arg:
-                        diag("pipy: Usage: /import <path.jsonl>")
-                        refresh_legacy_footer()
-                        continue
-                    confirm = "--yes" in argument.split()
-                    source_path = Path(path_arg).expanduser()
-                    if not source_path.is_absolute():
-                        source_path = cwd / source_path
-                    if not confirm:
-                        print(
-                            f"Replace current session with {source_path}? [y/N] ",
-                            end="",
-                            file=error_stream,
-                            flush=True,
-                        )
-                        try:
-                            confirm = input_stream.readline().strip().lower() in (
-                                "y",
-                                "yes",
-                            )
-                        except (OSError, ValueError):
-                            confirm = False
-                    if not confirm:
-                        diag("pipy: /import cancelled.")
-                        refresh_legacy_footer()
-                        continue
-                    if not extension_session_allows(
-                        extension_session_before_switch_hooks,
-                        operation="switch",
-                        target=str(source_path),
-                    ):
-                        refresh_legacy_footer()
-                        continue
-                    try:
-                        session_tree = import_native_session_jsonl(
-                            source_path, session_dir=current_session_dir()
-                        )
-                    except NativeExportError as exc:
-                        if "imported session cwd does not exist:" not in str(exc):
-                            diag(f"pipy: {exc}")
-                            refresh_legacy_footer()
-                            continue
-                        print(
-                            f"{exc} Use current workspace {cwd}? [y/N] ",
-                            end="",
-                            file=error_stream,
-                            flush=True,
-                        )
-                        try:
-                            use_current = input_stream.readline().strip().lower() in (
-                                "y",
-                                "yes",
-                            )
-                        except (OSError, ValueError):
-                            use_current = False
-                        if not use_current:
-                            diag("pipy: /import cancelled.")
-                            refresh_legacy_footer()
-                            continue
-                        try:
-                            session_tree = import_native_session_jsonl(
-                                source_path,
-                                session_dir=current_session_dir(),
-                                missing_cwd=cwd,
-                            )
-                        except NativeExportError as second_exc:
-                            diag(f"pipy: {second_exc}")
-                            refresh_legacy_footer()
-                            continue
-                    rebuild_messages_from_tree()
-                    diag(
-                        "pipy: imported native session "
-                        f"{sanitize_label_text(session_tree.session_id[:8])}."
                     )
                     refresh_legacy_footer()
                     continue

@@ -35,6 +35,7 @@ class CodingCommandAction(StrEnum):
     SESSION_FORK = "session_fork"
     SESSION_CLONE = "session_clone"
     SESSION_EXPORT = "session_export"
+    SESSION_IMPORT = "session_import"
     SETTINGS = "settings"
     TRUST_PROJECT = "trust_project"
 
@@ -89,6 +90,7 @@ def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
         ("/name", CodingCommandAction.SESSION_NAME),
         ("/fork", CodingCommandAction.SESSION_FORK),
         ("/export", CodingCommandAction.SESSION_EXPORT),
+        ("/import", CodingCommandAction.SESSION_IMPORT),
     ):
         if value == command or (
             value == value.strip() and value.startswith(f"{command} ")
@@ -160,6 +162,7 @@ def require_exact_coding_command_outcome(outcome: object) -> None:
             CodingCommandAction.SESSION_TREE,
             CodingCommandAction.SESSION_FORK,
             CodingCommandAction.SESSION_EXPORT,
+            CodingCommandAction.SESSION_IMPORT,
         }
         if outcome.action in argument_actions:
             if outcome.argument is None:

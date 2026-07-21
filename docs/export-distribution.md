@@ -64,6 +64,22 @@ boundary and remain separate from the metadata-only workflow archive. Top-
 level `--export`, `/import`, `/share`, formats, redaction, default paths, and
 filesystem semantics are outside this ownership slice.
 
+Phase 3.1d.4d is the corresponding ownership-only migration of the shipped
+`/import` surface. The headless command kernel classifies bare and literal-space
+forms into one exact full-content `SESSION_IMPORT` action carrying the exact
+`ProductContent` substring after `/import`, including empty, with the standard
+footer policy. Product composition retains path parsing and resolution,
+`--yes`, direct-stream confirmation, the switch gate, collision-safe native-
+store import, missing-cwd recovery, active-history rebuild, extension-input
+clearing, diagnostics, and footer timing. Non-empty queued/RPC input still
+bypasses local command handling at the serialized RPC boundary.
+
+This extraction changes neither behavior nor the JSONL/native-store format.
+The import argument and transcript remain private full-content product data and
+never enter the metadata-only workflow archive. `/share`, path-parser and
+storage semantics, UI/lifecycle/security corrections, rollback/atomic-write
+behavior, and async conversion are outside this ownership slice.
+
 The first HTML template is an inline stdlib template in the Python module rather
 than a separate packaged data directory. It is still a single self-contained
 artifact with inlined CSS/JS and base64 session-data embedding; splitting it
@@ -295,7 +311,24 @@ distinct from the deferred "raw transcript import" policy in
 transcripts into the metadata archive; `/import` here imports pipy's own native
 JSONL into the native product store.
 
+If an import exception escapes through a harness adapter, caller-facing or in-
+memory failure detail may remain available, but the metadata-only archive stores
+only its bounded exception type and fixed lifecycle metadata. Raw exception
+text, paths, and imported session content never enter either durable JSONL or
+derived Markdown. This archive projection does not change direct exception
+propagation from `NativeToolReplSession`.
+
 Usage error (no path) prints `Usage: /import <path.jsonl>`, matching Pi.
+
+Phase 3.1d.4d preserves the current shipped composition path while moving only
+classification into the typed command kernel. That current path has known gaps
+from the target interaction described above: its replace confirmation reads and
+writes the direct streams even in captured mode; missing cwd triggers a second
+direct yes/no prompt to use the current workspace; success emits no post-switch
+`session_start(reason=resume)` event; it does not redraw custom entries or
+ordinary inline scrollback; and its confirmation prints the raw resolved path
+without label sanitization. These are explicitly deferred UI, lifecycle, and
+security behavior decisions, not changes bundled into the ownership cut.
 
 ## `/share` Secret Gist Upload
 
@@ -615,7 +648,12 @@ passing and update this section when behavior changes.
    product TUI layer (not the runtime), missing-cwd prompt, file-not-found error,
    usage error, and lifecycle event parity. Tests asserting a session file is
    created/opened in the store, the source is untouched, and provider context is
-   rebuilt from the imported branch.
+   rebuilt from the imported branch. Phase 3.1d.4d moves only exact command
+   classification into the typed headless kernel; composition retains the
+   shipped direct-stream confirmation/recovery path, switch/import/rebuild
+   ordering, and standard-footer timing. The TUI confirmation split, post-switch
+   lifecycle event, redraw, and sanitized path display remain target follow-up
+   work.
 6. **`/share` command.** Token resolution
    (`GITHUB_TOKEN`/`GH_TOKEN`/`gh auth token`), temp HTML export, cancellable
    `urllib` gist creation (`public:false`), share-URL + `html_url` output, and

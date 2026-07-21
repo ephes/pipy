@@ -196,6 +196,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Escaped adapter exceptions no longer copy raw exception messages into the
+  durable metadata archive or its Markdown summary. Those records retain only
+  the bounded exception type and fixed lifecycle metadata, while the in-memory
+  `RunResult` keeps its existing caller-facing failure detail.
 - Registered tools omitted from the exact provider request can no longer reach
   extension tool hooks or execution when a provider returns them anyway. They
   now produce the normal balanced, budget-consuming `unknown tool` result with

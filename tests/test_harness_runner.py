@@ -287,9 +287,44 @@ def test_runner_finalizes_failed_record_when_adapter_raises_exception(tmp_path):
     events = read_jsonl(result.record.jsonl_path)
     assert [event["type"] for event in events[-2:]] == ["harness.run.exception", "session.finalized"]
     assert events[-2]["payload"]["error_type"] == "RuntimeError"
-    assert events[-2]["payload"]["error_message"] == "adapter exploded"
+    assert events[-2]["payload"]["error_message"] == "RuntimeError"
     assert events[-2]["payload"]["duration_seconds"] >= 0
+    assert "- Error detail: RuntimeError" in result.record.markdown_path.read_text(encoding="utf-8")
+    assert "adapter exploded" not in result.record.markdown_path.read_text(encoding="utf-8")
     assert verify_session_archive(root=tmp_path / "sessions").ok is True
+
+
+def test_runner_bounds_escaped_exception_detail_in_metadata_archive(tmp_path):
+    private_marker = "PIPY_PRIVATE_RUNNER_EXCEPTION_4e7a91d2"
+    private_path = tmp_path / private_marker / "import-source.data"
+    raw_message = f"adapter could not open private path: {private_path}"
+    result = HarnessRunner(
+        adapter=PrivatePathExplodingAdapter(raw_message),
+        id_factory=lambda: "run-private-error",
+    ).run(
+        RunRequest(
+            agent="custom",
+            slug="private-adapter-error",
+            command=["fake"],
+            cwd=tmp_path,
+            root=tmp_path / "sessions",
+        )
+    )
+
+    assert result.status == HarnessStatus.FAILED
+    assert result.error_type == "RuntimeError"
+    assert result.error_message == raw_message
+    events = read_jsonl(result.record.jsonl_path)
+    exception_event = next(event for event in events if event["type"] == "harness.run.exception")
+    assert exception_event["payload"]["error_type"] == "RuntimeError"
+    assert exception_event["payload"]["error_message"] == "RuntimeError"
+    archive_jsonl = result.record.jsonl_path.read_text(encoding="utf-8")
+    archive_markdown = result.record.markdown_path.read_text(encoding="utf-8")
+    assert "- Error type: RuntimeError" in archive_markdown
+    assert "- Error detail: RuntimeError" in archive_markdown
+    for private_detail in (private_marker, str(private_path), raw_message):
+        assert private_detail not in archive_jsonl
+        assert private_detail not in archive_markdown
 
 
 def test_runner_clock_sets_monotonic_sequence_not_event_time_order(tmp_path):
@@ -369,6 +404,25 @@ class ExplodingAdapter:
 
     def run(self, prepared, *, event_sink, capture_policy) -> AdapterResult:
         raise RuntimeError("adapter exploded")
+
+
+class PrivatePathExplodingAdapter:
+    name = "fake-private-exception"
+
+    def __init__(self, message: str) -> None:
+        self._message = message
+
+    def prepare(self, request: RunRequest) -> PreparedRun:
+        return PreparedRun(
+            command=tuple(request.command),
+            cwd=request.cwd,
+            adapter=self.name,
+            command_executable="fake",
+        )
+
+    def run(self, prepared, *, event_sink, capture_policy) -> AdapterResult:
+        del prepared, event_sink, capture_policy
+        raise RuntimeError(self._message)
 
 
 def _run_git(cwd: Path, *args: str) -> None:

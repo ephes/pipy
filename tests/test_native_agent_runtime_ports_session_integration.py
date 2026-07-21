@@ -211,6 +211,7 @@ def test_positional_seed_preserves_exact_trailing_newlines(tmp_path: Path) -> No
         "/trust",
         "/settings",
         "/export full-session.html",
+        "/import source.jsonl --yes",
     ),
 )
 def test_registered_input_wake_bypasses_local_command_kernel(

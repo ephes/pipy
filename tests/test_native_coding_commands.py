@@ -209,6 +209,40 @@ def test_session_export_commands_return_exact_standard_product_arguments(
     assert second.argument is not first.argument
 
 
+@pytest.mark.parametrize(
+    ("command", "expected_argument"),
+    [
+        ("/import", ""),
+        ("/import source.jsonl", "source.jsonl"),
+        ("/import source.jsonl --yes", "source.jsonl --yes"),
+        (
+            '/import   "artifacts/full session.jsonl" --yes',
+            '"artifacts/full session.jsonl" --yes',
+        ),
+    ],
+)
+def test_session_import_commands_return_exact_standard_product_arguments(
+    command: str,
+    expected_argument: str,
+) -> None:
+    first = classify_coding_command(ProductContent(command))
+    second = classify_coding_command(ProductContent(command))
+
+    action = CodingCommandAction["SESSION_IMPORT"]
+    expected = CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        action,
+        CodingCommandFooterPolicy.STANDARD,
+        ProductContent(expected_argument),
+    )
+    assert first == expected
+    assert type(first.argument) is ProductContent
+    assert first.argument.value == expected_argument
+    assert second == first
+    assert second is not first
+    assert second.argument is not first.argument
+
+
 def test_session_clone_command_returns_exact_standard_payload_free_outcome() -> None:
     first = classify_coding_command(ProductContent("/clone"))
     second = classify_coding_command(ProductContent("/clone"))
@@ -351,6 +385,13 @@ def test_usage_aware_classification_returns_fresh_deterministic_outcomes(
         "/EXPORT",
         "/exports",
         "/export/session.html",
+        " /import",
+        "/import ",
+        "/import source.jsonl ",
+        "/import\tsource.jsonl",
+        "/IMPORT",
+        "/imports",
+        "/import/source.jsonl",
         " /clone",
         "/clone ",
         "/clone anything",
@@ -720,6 +761,46 @@ def test_session_export_action_requires_an_exact_product_argument() -> None:
         require_exact_coding_command_outcome(outcome)
 
     object.__setattr__(outcome, "argument", ProductContent("session.html"))
+    object.__setattr__(outcome.argument, "value", cast(str, []))
+    with pytest.raises(TypeError, match="outcome.argument"):
+        require_exact_coding_command_outcome(outcome)
+
+
+def test_session_import_action_requires_an_exact_product_argument() -> None:
+    action = CodingCommandAction["SESSION_IMPORT"]
+    with pytest.raises(ValueError, match="require an argument"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            action,
+            CodingCommandFooterPolicy.STANDARD,
+        )
+    with pytest.raises(ValueError, match="require the STANDARD footer"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            action,
+            CodingCommandFooterPolicy.USAGE_AWARE,
+            ProductContent("source.jsonl --yes"),
+        )
+
+    outcome = CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        action,
+        CodingCommandFooterPolicy.STANDARD,
+        ProductContent(""),
+    )
+    object.__setattr__(outcome, "argument", "source.jsonl --yes")
+    with pytest.raises(TypeError, match="outcome.argument"):
+        require_exact_coding_command_outcome(outcome)
+
+    object.__setattr__(
+        outcome,
+        "argument",
+        _ProductContentSubclass("source.jsonl --yes"),
+    )
+    with pytest.raises(TypeError, match="outcome.argument"):
+        require_exact_coding_command_outcome(outcome)
+
+    object.__setattr__(outcome, "argument", ProductContent("source.jsonl --yes"))
     object.__setattr__(outcome.argument, "value", cast(str, []))
     with pytest.raises(TypeError, match="outcome.argument"):
         require_exact_coding_command_outcome(outcome)

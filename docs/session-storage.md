@@ -95,6 +95,15 @@ explicitly allowlisted learning fields rather than raw transcript bodies. This
 keeps complete capture useful for private forensics while preserving safe
 day-to-day inspection.
 
+Escaped adapter exceptions follow the same split. A caller-facing or in-memory
+result may retain failure detail where its product contract requires it, but a
+durable `harness.run.exception` event and its derived Markdown summary record
+only the bounded exception type plus fixed lifecycle metadata. They never store
+raw exception text, paths, command arguments, prompts, imported session content,
+or other product-session data. In particular, an exception escaping the native
+`/import` adapter path may name its type in the metadata archive, but its message
+and any source-path or transcript detail remain outside both archive formats.
+
 ## File Lifecycle
 
 Session recorders should not sync files while they are still being written.
