@@ -368,6 +368,45 @@ _CODING_COMMANDS_ALLOWED_DIRECT_IMPORTS = frozenset(
     }
 )
 
+_CODING_AGENT_RUN_FORBIDDEN_IMPORTS = (
+    *_CODING_STATE_FORBIDDEN_IMPORTS,
+    "pipy_harness.native.coding.commands",
+    "pipy_harness.native.coding.product_session",
+    "pipy_harness.native.coding.session",
+    "pipy_harness.native.provider",
+)
+
+_CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "collections.abc",
+        "collections.abc.Callable",
+        "pipy_harness.native.agent.active_input",
+        "pipy_harness.native.agent.active_input.AgentActiveInput",
+        "pipy_harness.native.agent.loop",
+        "pipy_harness.native.agent.loop.AgentLoopRequestPreparation",
+        "pipy_harness.native.agent.loop_policy",
+        "pipy_harness.native.agent.loop_policy.AgentProviderStatusDecision",
+        "pipy_harness.native.agent.loop_policy.AgentToolPolicyState",
+        "pipy_harness.native.agent.messages",
+        "pipy_harness.native.agent.messages.AgentMessage",
+        "pipy_harness.native.agent.ports",
+        "pipy_harness.native.agent.ports.AgentEventSink",
+        "pipy_harness.native.agent.provider_turn",
+        "pipy_harness.native.agent.provider_turn.ProviderTurnOutcome",
+        "pipy_harness.native.agent.request",
+        "pipy_harness.native.agent.request.AgentProviderRequestSnapshot",
+        "pipy_harness.native.agent.results",
+        "pipy_harness.native.agent.results.AgentCancellationReason",
+        "pipy_harness.native.agent.results.AgentFailure",
+        "pipy_harness.native.models",
+        "pipy_harness.native.models.ProviderResult",
+        "pipy_harness.native.tools.base",
+        "pipy_harness.native.tools.base.ToolDefinition",
+    }
+)
+
 _AGENT_TOOL_CAPABILITIES_FORBIDDEN_IMPORTS = (
     "pipy_harness.cli",
     "pipy_harness.adapters",
@@ -647,6 +686,17 @@ ARCHITECTURE_RULES = (
             "headless imperative command outcomes may depend only on canonical "
             "product content, never composition, UI, persistence, providers, "
             "tools, extensions, automation, capture, or archive implementations"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.coding.agent_run",
+        forbidden_imports=_CODING_AGENT_RUN_FORBIDDEN_IMPORTS,
+        reason=(
+            "the agent-run collaborator adapters may depend only on canonical "
+            "native.agent contracts and injected coding state/input queues, never "
+            "UI/terminal, extensions, concrete providers/tools, persistence "
+            "coordination, automation/RPC, the SDK, capture, or the metadata-only "
+            "workflow archive"
         ),
     ),
     BoundaryRule(
@@ -2047,6 +2097,87 @@ def test_coding_commands_direct_imports_match_explicit_allowlist() -> None:
     assert {reference.module for reference in references} == (
         _CODING_COMMANDS_ALLOWED_DIRECT_IMPORTS
     ), "remove stale allowances when headless command outcomes drop imports"
+
+
+def test_coding_agent_run_direct_imports_match_explicit_allowlist() -> None:
+    agent_run_path = (
+        SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "agent_run.py"
+    )
+    references = _import_references(SOURCE_ROOT, agent_run_path)
+
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT,
+        agent_run_path,
+        allowed_imports=_CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS,
+    ), "agent-run collaborator adapters gained a dependency outside their allowlist"
+    assert {reference.module for reference in references} == (
+        _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS
+    ), "remove stale allowances when the agent-run adapters drop imports"
+
+
+@pytest.mark.parametrize(
+    "forbidden_import",
+    (
+        "pipy_harness.native.ui",
+        "pipy_harness.native.tui",
+        "pipy_harness.native.extensions",
+        "pipy_harness.native.automation",
+        "pipy_harness.native.coding.commands",
+        "pipy_harness.native.coding.product_session",
+        "pipy_harness.native.coding.session",
+        "pipy_harness.native.provider",
+        "pipy_harness.native.tools.bash",
+        "pipy_harness.native.openai_provider",
+        "pipy_harness.capture",
+        "pipy_session",
+    ),
+)
+def test_coding_agent_run_rule_blocks_outer_runtime_imports(
+    tmp_path: Path,
+    forbidden_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    agent_run_path = _write_module(
+        source_root,
+        "pipy_harness.native.coding.agent_run",
+        f"import {forbidden_import}\n",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.agent_run"
+    )
+
+    violations = _evaluate_rule(source_root, rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == agent_run_path
+    assert violations[0].imported_module == forbidden_import
+
+
+def test_coding_agent_run_rule_allows_canonical_agent_contracts(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    _write_module(
+        source_root,
+        "pipy_harness.native.coding.agent_run",
+        """\
+from pipy_harness.native.agent.loop import AgentLoopRequestPreparation
+from pipy_harness.native.agent.provider_turn import ProviderTurnOutcome
+from pipy_harness.native.coding.state import CodingSessionState
+from pipy_harness.native.coding.input_queue import CodingInputQueue
+from pipy_harness.native.models import ProviderResult
+from pipy_harness.native.tools.base import ToolDefinition
+""",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.agent_run"
+    )
+
+    assert _evaluate_rule(source_root, rule) == []
 
 
 def test_coding_product_session_rule_blocks_outer_runtime_imports(

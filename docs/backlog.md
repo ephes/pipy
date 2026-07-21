@@ -2168,6 +2168,32 @@ advertising-completeness correction — like names, aliases, descriptions,
 availability, help, completion, and menus — is deferred to Phase 3.2's
 declarative registry.
 
+### Agent-run collaborator adapter relocation — IN PROGRESS (2026-07-21)
+
+Phase 3.1e (accepted-input and agent-run coordinator) begins with sub-slice
+3.1e.1: relocate the three generic agent-loop collaborator wrappers from the
+`native.tool_loop_session` monolith into the new strict-typed module
+`native.coding.agent_run`. `AgentLoopRequestSourceAdapter`,
+`AgentLoopProviderTurnAdapter`, and `AgentLoopStatusPolicyAdapter` are now public
+typed adapters conforming to the canonical `native.agent.loop` request-source,
+provider-turn, and status-policy protocols, with identical positional-only
+signatures. `NativeToolReplSession.run()` imports and constructs them exactly as
+before; the three superseded in-monolith classes are deleted with no alias or
+re-export shim.
+
+This is a behavior-preserving move only: no change to event ordering, provider
+requests, request/provider-turn closures, status-callback timing, persistence
+writes, or queue ownership, and no new runtime dependency, `Any`, or
+`type: ignore`. The import-boundary gate adds an explicit
+`native.coding.agent_run` rule allowing only canonical `native.agent` contracts
+plus injected `native.coding.state`/`native.coding.input_queue`, and forbidding
+UI/terminal, extensions, concrete providers/tools, persistence coordination,
+automation/RPC, the SDK, capture, and the metadata-only workflow archive; an
+exact direct-import allowlist pins the module's dependency surface.
+
+The run coordinator (`AgentLoop` assembly/invocation) is Phase 3.1e.2, and
+accepted-input preparation is Phase 3.1e.3.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable
