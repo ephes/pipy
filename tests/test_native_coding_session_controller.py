@@ -20,6 +20,13 @@ from pipy_harness.native.agent.runtime_ports import (
 )
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.input_queue import CodingInputQueue
+from pipy_harness.native.coding.commands import (
+    CommandDispatchResolution,
+    CommandDispatchResolutionKind,
+    ExtensionDispatchResolution,
+    ResourceDispatchKind,
+    ResourceDispatchResolution,
+)
 from pipy_harness.native.coding.session_controller import (
     CodingLoopStep,
     CodingLoopStepKind,
@@ -527,4 +534,269 @@ def test_step_rejects_inconsistent_construction() -> None:
     with pytest.raises(ValueError, match="only an EOF step may record"):
         CodingLoopStep(
             CodingLoopStepKind.FRESH_LINE, "x\n", True, keyboard_interrupt=True
+        )
+
+
+# --- command dispatch precedence ---------------------------------------------
+
+
+class _FakeCommandEffects:
+    """Recording :class:`CodingCommandEffects` with configurable dispatch results."""
+
+    def __init__(
+        self,
+        *,
+        resource: ResourceDispatchResolution | None = None,
+        extension: ExtensionDispatchResolution | None = None,
+    ) -> None:
+        self._resource = resource
+        self._extension = extension
+        self.diagnostics: list[str] = []
+        self.footer_calls = 0
+        self.resource_invocations = 0
+        self.resource_dispatches: list[str] = []
+        self.extension_dispatches: list[str] = []
+
+    def emit_diagnostic(self, message: str) -> None:
+        self.diagnostics.append(message)
+
+    def refresh_footer(self) -> None:
+        self.footer_calls += 1
+
+    def record_resource_invocation(self) -> None:
+        self.resource_invocations += 1
+
+    def dispatch_resource(
+        self, command_text: str
+    ) -> ResourceDispatchResolution | None:
+        self.resource_dispatches.append(command_text)
+        return self._resource
+
+    def dispatch_extension(
+        self, command_text: str
+    ) -> ExtensionDispatchResolution | None:
+        self.extension_dispatches.append(command_text)
+        return self._extension
+
+
+def _dispatch(
+    *,
+    command_text: str,
+    user_input: str,
+    selected_provider_content: ProductContent | None = None,
+    effects: _FakeCommandEffects,
+) -> CommandDispatchResolution:
+    controller, _ = _controller(CodingInputQueue())
+    return controller.dispatch_command(
+        command_text=command_text,
+        user_input=user_input,
+        selected_provider_content=selected_provider_content,
+        effects=effects,
+    )
+
+
+def test_plain_prompt_proceeds_to_run_without_effects() -> None:
+    effects = _FakeCommandEffects()
+
+    resolution = _dispatch(
+        command_text="hello there",
+        user_input="hello there",
+        effects=effects,
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.user_input == "hello there"
+    assert resolution.resource_provider_text is None
+    assert resolution.selected_provider_content is None
+    assert effects.resource_dispatches == ["hello there"]
+    assert effects.extension_dispatches == ["hello there"]
+    assert effects.diagnostics == []
+    assert effects.footer_calls == 0
+    assert effects.resource_invocations == 0
+
+
+def test_provider_content_falls_straight_through_to_run() -> None:
+    effects = _FakeCommandEffects()
+    content = ProductContent("queued turn")
+
+    resolution = _dispatch(
+        command_text="",
+        user_input="queued turn",
+        selected_provider_content=content,
+        effects=effects,
+    )
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.selected_provider_content == content
+    assert resolution.resource_provider_text is None
+    assert effects.resource_dispatches == [""]
+    assert effects.extension_dispatches == [""]
+
+
+def test_resource_list_is_consumed_locally() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.LIST, "the list")
+    )
+
+    resolution = _dispatch(command_text="/skills", user_input="/skills", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.diagnostics == ["the list"]
+    assert effects.footer_calls == 1
+    assert effects.extension_dispatches == []
+    assert effects.resource_invocations == 0
+
+
+def test_resource_reject_is_consumed_locally() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.REJECT, "nope")
+    )
+
+    resolution = _dispatch(command_text="/bad", user_input="/bad", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.diagnostics == ["nope"]
+    assert effects.footer_calls == 1
+    assert effects.extension_dispatches == []
+
+
+def test_resource_run_proceeds_with_provider_text_and_records_invocation() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(
+            ResourceDispatchKind.RUN, "ran /skill", "expanded prompt"
+        )
+    )
+
+    resolution = _dispatch(command_text="/skill", user_input="/skill", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.resource_provider_text == "expanded prompt"
+    assert resolution.user_input == "/skill"
+    assert effects.resource_invocations == 1
+    assert effects.diagnostics == ["ran /skill"]
+    # A resource run never dispatches an extension and paints no footer here.
+    assert effects.extension_dispatches == []
+    assert effects.footer_calls == 0
+
+
+def test_resource_run_with_no_provider_text_carries_empty_string() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "ran", None)
+    )
+
+    resolution = _dispatch(command_text="/skill", user_input="/skill", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    assert resolution.resource_provider_text == ""
+
+
+def test_extension_command_consumed_without_error() -> None:
+    effects = _FakeCommandEffects(
+        extension=ExtensionDispatchResolution(name="hi", ran=True, error=None)
+    )
+
+    resolution = _dispatch(command_text="/hi", user_input="/hi", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.diagnostics == []
+    assert effects.footer_calls == 1
+
+
+def test_extension_command_failure_surfaces_diagnostic() -> None:
+    effects = _FakeCommandEffects(
+        extension=ExtensionDispatchResolution(name="hi", ran=False, error="ValueError")
+    )
+
+    resolution = _dispatch(command_text="/hi", user_input="/hi", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert effects.diagnostics == [
+        "pipy: extension command /hi failed (ValueError)"
+    ]
+    assert effects.footer_calls == 1
+
+
+def test_unhandled_slash_command_reports_supported_commands() -> None:
+    effects = _FakeCommandEffects()
+
+    resolution = _dispatch(command_text="/bogus", user_input="/bogus", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+    assert len(effects.diagnostics) == 1
+    assert effects.diagnostics[0].startswith(
+        "pipy: '/bogus' is not handled in tool-loop mode; "
+        "supported local commands are /hotkeys, /reload,"
+    )
+    assert effects.diagnostics[0].endswith("Other prompts are sent to the model.")
+    assert effects.footer_calls == 1
+
+
+def test_precedence_resource_run_beats_extension() -> None:
+    effects = _FakeCommandEffects(
+        resource=ResourceDispatchResolution(
+            ResourceDispatchKind.RUN, "ran", "text"
+        ),
+        extension=ExtensionDispatchResolution(name="x", ran=True, error=None),
+    )
+
+    resolution = _dispatch(command_text="/x", user_input="/x", effects=effects)
+
+    assert resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN
+    # The extension port is never consulted once a resource run wins.
+    assert effects.extension_dispatches == []
+
+
+def test_dispatch_command_rejects_non_effects_port() -> None:
+    controller, _ = _controller(CodingInputQueue())
+
+    with pytest.raises(TypeError, match="effects must implement CodingCommandEffects"):
+        controller.dispatch_command(
+            command_text="/x",
+            user_input="/x",
+            selected_provider_content=None,
+            effects=object(),  # type: ignore[arg-type]
+        )
+
+
+def test_dispatch_command_rejects_wrong_resource_result_type() -> None:
+    class _BadResource(_FakeCommandEffects):
+        def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution:
+            return object()  # type: ignore[return-value]
+
+    controller, _ = _controller(CodingInputQueue())
+    with pytest.raises(TypeError, match="ResourceDispatchResolution"):
+        controller.dispatch_command(
+            command_text="/x",
+            user_input="/x",
+            selected_provider_content=None,
+            effects=_BadResource(),
+        )
+
+
+def test_dispatch_command_rejects_wrong_extension_result_type() -> None:
+    class _BadExtension(_FakeCommandEffects):
+        def dispatch_extension(
+            self, command_text: str
+        ) -> ExtensionDispatchResolution:
+            return object()  # type: ignore[return-value]
+
+    controller, _ = _controller(CodingInputQueue())
+    with pytest.raises(TypeError, match="ExtensionDispatchResolution"):
+        controller.dispatch_command(
+            command_text="/x",
+            user_input="/x",
+            selected_provider_content=None,
+            effects=_BadExtension(),
+        )
+
+
+def test_command_dispatch_resolution_rejects_inconsistent_construction() -> None:
+    with pytest.raises(ValueError, match="CONTINUE_LOOP resolution carries no"):
+        CommandDispatchResolution(
+            CommandDispatchResolutionKind.CONTINUE_LOOP, user_input="x"
+        )
+    with pytest.raises(TypeError, match="user_input must be an exact str"):
+        CommandDispatchResolution(
+            CommandDispatchResolutionKind.PROCEED_TO_RUN,
+            user_input=None,  # type: ignore[arg-type]
         )

@@ -488,7 +488,16 @@ _CODING_RESULT_ALLOWED_DIRECT_IMPORTS = frozenset(
 # behind injected ports and may not reach composition, UI/terminal, extensions,
 # concrete providers/tools, persistence coordination, automation/RPC, the SDK,
 # capture, or the metadata-only workflow archive.
-_CODING_SESSION_CONTROLLER_FORBIDDEN_IMPORTS = _CODING_AGENT_RUN_FORBIDDEN_IMPORTS
+# The outer-loop controller now also owns the built-in>resource>extension
+# command-dispatch precedence and therefore depends on the headless
+# native.coding.commands outcome contracts (the dispatch/resolution DTOs). That
+# module is un-forbidden for this rule alone; the concrete resource/extension
+# dispatch and every UI/session effect stay behind the injected effects port.
+_CODING_SESSION_CONTROLLER_FORBIDDEN_IMPORTS = tuple(
+    forbidden_import
+    for forbidden_import in _CODING_AGENT_RUN_FORBIDDEN_IMPORTS
+    if forbidden_import != "pipy_harness.native.coding.commands"
+)
 
 _CODING_SESSION_CONTROLLER_ALLOWED_DIRECT_IMPORTS = frozenset(
     {
@@ -508,6 +517,11 @@ _CODING_SESSION_CONTROLLER_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.runtime_ports",
         "pipy_harness.native.agent.runtime_ports.AgentQueuedInput",
         "pipy_harness.native.agent.runtime_ports.AgentQueuedInputPort",
+        "pipy_harness.native.coding.commands",
+        "pipy_harness.native.coding.commands.CommandDispatchResolution",
+        "pipy_harness.native.coding.commands.ExtensionDispatchResolution",
+        "pipy_harness.native.coding.commands.ResourceDispatchKind",
+        "pipy_harness.native.coding.commands.ResourceDispatchResolution",
         "pipy_harness.native.coding.input_queue",
         "pipy_harness.native.coding.input_queue.CodingInputQueue",
         "pipy_harness.native.coding.input_queue.CodingInputSelection",
@@ -2508,7 +2522,6 @@ def test_coding_session_controller_direct_imports_match_explicit_allowlist() -> 
         "pipy_harness.native.extensions",
         "pipy_harness.native.extension_runtime",
         "pipy_harness.native.automation",
-        "pipy_harness.native.coding.commands",
         "pipy_harness.native.coding.product_session",
         "pipy_harness.native.coding.session",
         "pipy_harness.native.provider",
@@ -2551,6 +2564,7 @@ def test_coding_session_controller_rule_allows_canonical_contracts(
         """\
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.runtime_ports import AgentQueuedInputPort
+from pipy_harness.native.coding.commands import CommandDispatchResolution
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.state import CodingSessionState
 """,

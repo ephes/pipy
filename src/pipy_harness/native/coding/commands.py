@@ -182,6 +182,125 @@ def require_exact_coding_command_outcome(outcome: object) -> None:
         raise ValueError("only CONTINUE outcomes may carry an argument")
 
 
+class ResourceDispatchKind(StrEnum):
+    """Closed classification of a workspace-resource command dispatch.
+
+    The composition root maps a concrete resource dispatch onto exactly one of
+    these before the headless controller interprets the precedence: ``LIST`` and
+    ``REJECT`` are consumed locally (diagnostic + footer), while ``RUN`` records
+    the invocation counter and carries the bounded provider-visible text.
+    """
+
+    LIST = "list"
+    REJECT = "reject"
+    RUN = "run"
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceDispatchResolution:
+    """Narrow, headless projection of a resolved workspace-resource command."""
+
+    kind: ResourceDispatchKind
+    message: str
+    provider_text: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not ResourceDispatchKind:
+            raise TypeError("kind must be an exact ResourceDispatchKind")
+        if type(self.message) is not str:
+            raise TypeError("message must be an exact str")
+        if self.provider_text is not None and type(self.provider_text) is not str:
+            raise TypeError("provider_text must be an exact str or None")
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionDispatchResolution:
+    """Narrow, headless projection of a dispatched extension ``/command``."""
+
+    name: str
+    ran: bool
+    error: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.name) is not str:
+            raise TypeError("name must be an exact str")
+        if type(self.ran) is not bool:
+            raise TypeError("ran must be an exact bool")
+        if self.error is not None and type(self.error) is not str:
+            raise TypeError("error must be an exact str or None")
+
+
+class CommandDispatchResolutionKind(StrEnum):
+    """Closed outcome of the built-in>resource>extension command precedence."""
+
+    CONTINUE_LOOP = "continue_loop"
+    PROCEED_TO_RUN = "proceed_to_run"
+
+
+@dataclass(frozen=True, slots=True)
+class CommandDispatchResolution:
+    """Result of resolving one non-built-in command-dispatch step.
+
+    ``CONTINUE_LOOP`` means the input was consumed locally (a resource list/
+    reject, an extension command, or an unhandled ``/…`` line) and the outer
+    loop must continue without a provider turn. ``PROCEED_TO_RUN`` carries the
+    exact values the run transition needs: the literal ``user_input``, the
+    optional ``resource_provider_text`` from a resource run, and the optional
+    ``selected_provider_content`` for queued/provider-visible content.
+    """
+
+    kind: CommandDispatchResolutionKind
+    user_input: str = ""
+    resource_provider_text: str | None = None
+    selected_provider_content: ProductContent | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not CommandDispatchResolutionKind:
+            raise TypeError("kind must be an exact CommandDispatchResolutionKind")
+        if type(self.user_input) is not str:
+            raise TypeError("user_input must be an exact str")
+        if self.resource_provider_text is not None and (
+            type(self.resource_provider_text) is not str
+        ):
+            raise TypeError("resource_provider_text must be an exact str or None")
+        if self.selected_provider_content is not None and (
+            type(self.selected_provider_content) is not ProductContent
+        ):
+            raise TypeError(
+                "selected_provider_content must be an exact ProductContent or None"
+            )
+        if self.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:
+            if self.user_input != "":
+                raise ValueError("a CONTINUE_LOOP resolution carries no user_input")
+            if self.resource_provider_text is not None:
+                raise ValueError(
+                    "a CONTINUE_LOOP resolution carries no resource_provider_text"
+                )
+            if self.selected_provider_content is not None:
+                raise ValueError(
+                    "a CONTINUE_LOOP resolution carries no provider content"
+                )
+
+    @classmethod
+    def continue_loop(cls) -> CommandDispatchResolution:
+        return cls(CommandDispatchResolutionKind.CONTINUE_LOOP)
+
+    @classmethod
+    def proceed_to_run(
+        cls,
+        *,
+        user_input: str,
+        resource_provider_text: str | None,
+        selected_provider_content: ProductContent | None,
+    ) -> CommandDispatchResolution:
+        return cls(
+            CommandDispatchResolutionKind.PROCEED_TO_RUN,
+            user_input,
+            resource_provider_text,
+            selected_provider_content,
+        )
+
+
 def _continue_outcome(
     action: CodingCommandAction | None = None,
     argument: ProductContent | None = None,

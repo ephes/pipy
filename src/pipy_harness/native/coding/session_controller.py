@@ -39,6 +39,12 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputPort,
 )
+from pipy_harness.native.coding.commands import (
+    CommandDispatchResolution,
+    ExtensionDispatchResolution,
+    ResourceDispatchKind,
+    ResourceDispatchResolution,
+)
 from pipy_harness.native.coding.input_queue import (
     CodingInputQueue,
     CodingInputSelection,
@@ -46,12 +52,51 @@ from pipy_harness.native.coding.input_queue import (
 )
 from pipy_harness.native.coding.state import CodingSessionState
 
+_NOT_HANDLED_COMMAND_NOTICE = (
+    "supported local commands are /hotkeys, /reload, "
+    "/changelog, /model, /scoped-models, /settings, /trust, "
+    "/login, /logout, /copy, /compact, /export, /import, "
+    "/share, /session, /name, "
+    "/new, /tree, /resume, /fork, /clone, /skill, "
+    "/exit, /quit "
+    "(plus any workspace prompt templates and custom "
+    "commands as /<name>, and activated extension "
+    "commands). Other prompts are sent to the model."
+)
+
 
 @runtime_checkable
 class SettledEventEmitter(Protocol):
     """Narrow emitter port for the once-only true-idle notification."""
 
     def agent_settled(self) -> None: ...
+
+
+@runtime_checkable
+class CodingCommandEffects(Protocol):
+    """Composition-root effect port for the command-dispatch precedence.
+
+    Every method performs a composition-root effect the headless controller may
+    not reach directly (terminal/renderer diagnostics, footer painting, resource/
+    extension dispatch, and the resource-invocation counter). The controller owns
+    only the ordering/precedence and the resulting
+    :class:`~pipy_harness.native.coding.commands.CommandDispatchResolution`; the
+    concrete port implementation stays in the composition root.
+    """
+
+    def emit_diagnostic(self, message: str) -> None: ...
+
+    def refresh_footer(self) -> None: ...
+
+    def record_resource_invocation(self) -> None: ...
+
+    def dispatch_resource(
+        self, command_text: str
+    ) -> ResourceDispatchResolution | None: ...
+
+    def dispatch_extension(
+        self, command_text: str
+    ) -> ExtensionDispatchResolution | None: ...
 
 
 class CodingLoopStepKind(Enum):
@@ -273,6 +318,89 @@ class CodingSessionController:
             settle_pending,
         )
 
+    def dispatch_command(
+        self,
+        *,
+        command_text: str,
+        user_input: str,
+        selected_provider_content: ProductContent | None,
+        effects: CodingCommandEffects,
+    ) -> CommandDispatchResolution:
+        """Resolve the built-in>resource>extension command precedence tail.
+
+        This owns only the ordering/precedence and outcome routing for the
+        non-built-in portion of the dispatch: the built-in ``/exit``/``/quit``
+        and continuing-command interpretation is resolved by the composition
+        loop before this call, and ``command_text`` is blank for queued/provider
+        content, which therefore falls straight through to ``PROCEED_TO_RUN``.
+
+        Resource commands run first (a list/reject is consumed locally; a run
+        records the invocation counter and carries the bounded provider text),
+        then extension commands (so a custom command can never shadow a built-in
+        or a resource), then the unhandled ``/…`` fallback; every effect is
+        performed through the injected :class:`CodingCommandEffects` port.
+        """
+
+        if not isinstance(effects, CodingCommandEffects):
+            raise TypeError("effects must implement CodingCommandEffects")
+
+        # Resource dispatch (skills, prompt templates, custom commands) runs
+        # through the same local-command boundary as the built-ins, after them so
+        # a custom command can never shadow a built-in.
+        resource = effects.dispatch_resource(command_text)
+        resource_provider_text: str | None = None
+        if resource is not None:
+            if type(resource) is not ResourceDispatchResolution:
+                raise TypeError("dispatch_resource must return a ResourceDispatchResolution")
+            if resource.kind is ResourceDispatchKind.LIST:
+                effects.emit_diagnostic(resource.message)
+                effects.refresh_footer()
+                return CommandDispatchResolution.continue_loop()
+            if resource.kind is ResourceDispatchKind.REJECT:
+                # Fail closed: diagnostic only, no provider turn, native
+                # product-session write, prompt-history entry, or metadata-only
+                # workflow archive event.
+                effects.emit_diagnostic(resource.message)
+                effects.refresh_footer()
+                return CommandDispatchResolution.continue_loop()
+            # RUN: the expanded/instruction text becomes the bounded
+            # provider-visible message; it never reaches prompt history, the
+            # native product session tree, or the metadata-only workflow archive.
+            # Only the invocation counter is surfaced.
+            effects.record_resource_invocation()
+            resource_provider_text = resource.provider_text or ""
+            effects.emit_diagnostic(resource.message)
+        # Extension commands dispatch AFTER built-ins and resource commands (so
+        # they can never shadow them) and BEFORE the not-handled fallback. The
+        # handler runs locally with no provider turn; its notifications are live
+        # UI output only.
+        if resource_provider_text is None:
+            extension = effects.dispatch_extension(command_text)
+            if extension is not None:
+                if type(extension) is not ExtensionDispatchResolution:
+                    raise TypeError(
+                        "dispatch_extension must return an ExtensionDispatchResolution"
+                    )
+                if not extension.ran and extension.error:
+                    effects.emit_diagnostic(
+                        f"pipy: extension command /{extension.name} "
+                        f"failed ({extension.error})"
+                    )
+                effects.refresh_footer()
+                return CommandDispatchResolution.continue_loop()
+        if command_text.startswith("/") and resource_provider_text is None:
+            effects.emit_diagnostic(
+                f"pipy: {command_text!r} is not handled in tool-loop mode; "
+                + _NOT_HANDLED_COMMAND_NOTICE
+            )
+            effects.refresh_footer()
+            return CommandDispatchResolution.continue_loop()
+        return CommandDispatchResolution.proceed_to_run(
+            user_input=user_input,
+            resource_provider_text=resource_provider_text,
+            selected_provider_content=selected_provider_content,
+        )
+
     def _step_from_wake(
         self,
         wake: CodingInputSelection,
@@ -291,6 +419,7 @@ class CodingSessionController:
 
 
 __all__ = [
+    "CodingCommandEffects",
     "CodingLoopStep",
     "CodingLoopStepKind",
     "CodingSessionController",

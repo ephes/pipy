@@ -148,6 +148,10 @@ from pipy_harness.native.coding.commands import (
     CodingCommandAction,
     CodingCommandFooterPolicy,
     CodingCommandOutcomeKind,
+    CommandDispatchResolutionKind,
+    ExtensionDispatchResolution,
+    ResourceDispatchKind,
+    ResourceDispatchResolution,
     classify_coding_command,
 )
 from pipy_harness.native.coding.product_session import (
@@ -161,6 +165,7 @@ from pipy_harness.native.coding.result import (
     build_repl_result,
 )
 from pipy_harness.native.coding.session_controller import (
+    CodingCommandEffects,
     CodingLoopStepKind,
     CodingSessionController,
 )
@@ -1320,6 +1325,59 @@ class _TreeCommandOutcome:
 
     prefill: str | None = None
     filter_mode: str | None = None
+
+
+class _CodingCommandEffectsAdapter:
+    """Composition-root :class:`CodingCommandEffects` port over run() closures.
+
+    The controller owns the built-in>resource>extension precedence; this adapter
+    performs each effect (diagnostics, footer painting, the resource-invocation
+    counter, and resource/extension dispatch) through callables that close over
+    the live run-loop state, so a ``/reload`` that rebinds the workspace
+    resources or extension registry is reflected on the next dispatch.
+    """
+
+    __slots__ = (
+        "_emit",
+        "_footer",
+        "_record_resource",
+        "_resolve_extension",
+        "_resolve_resource",
+    )
+
+    def __init__(
+        self,
+        *,
+        emit: Callable[[str], None],
+        footer: Callable[[], None],
+        record_resource: Callable[[], None],
+        resolve_resource: Callable[[str], ResourceDispatchResolution | None],
+        resolve_extension: Callable[[str], ExtensionDispatchResolution | None],
+    ) -> None:
+        self._emit = emit
+        self._footer = footer
+        self._record_resource = record_resource
+        self._resolve_resource = resolve_resource
+        self._resolve_extension = resolve_extension
+
+    def emit_diagnostic(self, message: str) -> None:
+        self._emit(message)
+
+    def refresh_footer(self) -> None:
+        self._footer()
+
+    def record_resource_invocation(self) -> None:
+        self._record_resource()
+
+    def dispatch_resource(
+        self, command_text: str
+    ) -> ResourceDispatchResolution | None:
+        return self._resolve_resource(command_text)
+
+    def dispatch_extension(
+        self, command_text: str
+    ) -> ExtensionDispatchResolution | None:
+        return self._resolve_extension(command_text)
 
 
 @dataclass
@@ -2786,6 +2844,76 @@ class NativeToolReplSession:
                 usage_snapshot=coding_state.usage_snapshot(),
             )
 
+        # Command-dispatch effect port: the controller owns the built-in>
+        # resource>extension precedence and calls back through these closures to
+        # perform each composition-root effect. They close over the run-loop
+        # variables (workspace resources, the extension registry, the live
+        # session tree) so a `/reload` rebind is reflected on the next dispatch.
+        def _dispatch_resource_effect(
+            command_text: str,
+        ) -> ResourceDispatchResolution | None:
+            resource_dispatch = dispatch_resource_command(
+                command_text, workspace_resources
+            )
+            if resource_dispatch is None:
+                return None
+            if resource_dispatch.kind == DISPATCH_LIST:
+                return ResourceDispatchResolution(
+                    ResourceDispatchKind.LIST, resource_dispatch.message
+                )
+            if resource_dispatch.is_reject:
+                return ResourceDispatchResolution(
+                    ResourceDispatchKind.REJECT, resource_dispatch.message
+                )
+            if resource_dispatch.is_run:
+                return ResourceDispatchResolution(
+                    ResourceDispatchKind.RUN,
+                    resource_dispatch.message,
+                    resource_dispatch.provider_text,
+                )
+            return None
+
+        def _dispatch_extension_effect(
+            command_text: str,
+        ) -> ExtensionDispatchResolution | None:
+            extension_dispatch = dispatch_extension_command(
+                command_text,
+                extension_commands,
+                cwd=str(cwd),
+                has_ui=terminal_ui is not None,
+                messages=coding_state.messages,
+                complete_fn=_extension_complete,
+                notify_sink=_extension_notify,
+                ui_custom_driver=_extension_custom_driver,
+                ui_driver=extension_ui_driver,
+                set_active_tools_fn=extension_set_active_tools,
+                set_model_fn=extension_set_model,
+                set_thinking_level_fn=extension_set_thinking_level,
+                append_entry_fn=extension_append_entry,
+                set_session_name_fn=extension_set_session_name,
+                get_session_name_fn=extension_get_session_name,
+                set_label_fn=extension_set_label,
+                send_message_fn=extension_send_message,
+                flags=extension_flag_values,
+                session_tree=session_tree,
+                project_trusted=settings.project_trusted,
+            )
+            if extension_dispatch is None:
+                return None
+            return ExtensionDispatchResolution(
+                name=extension_dispatch.name,
+                ran=extension_dispatch.ran,
+                error=extension_dispatch.error,
+            )
+
+        command_effects: CodingCommandEffects = _CodingCommandEffectsAdapter(
+            emit=diag,
+            footer=refresh_legacy_footer,
+            record_resource=coding_state.record_resource_invocation,
+            resolve_resource=_dispatch_resource_effect,
+            resolve_extension=_dispatch_extension_effect,
+        )
+
         # session_start fires once the session is set up; session_shutdown
         # is fired from the finally below so it runs on EVERY exit path
         # (normal return, fatal return, or a propagated exception).
@@ -3920,103 +4048,28 @@ class NativeToolReplSession:
                                 "handled command requires a closed footer policy"
                             )
                         continue
-                # Resource dispatch (skills, prompt templates, custom commands)
-                # runs through the same local-command boundary as the built-ins,
-                # after them so a custom command can never shadow a built-in.
-                resource_dispatch = dispatch_resource_command(
-                    command_text, workspace_resources
+                # The built-in>resource>extension command-dispatch precedence
+                # tail is owned by the headless controller. The built-in `/exit`/
+                # `/quit` and continuing-command interpretation is resolved inline
+                # above; this call runs resource dispatch (list/reject consumed
+                # locally; run records the invocation counter and carries the
+                # bounded provider text), then extension dispatch (never shadowing
+                # a built-in or resource), then the unhandled `/…` fallback — each
+                # effect performed through the injected `command_effects` port.
+                # Queued/provider content has a blank `command_text` and therefore
+                # falls straight through to `PROCEED_TO_RUN`.
+                resolution = loop_controller.dispatch_command(
+                    command_text=command_text,
+                    user_input=user_input,
+                    selected_provider_content=selected_provider_content,
+                    effects=command_effects,
                 )
-                resource_provider_text: str | None = None
                 if (
-                    resource_dispatch is not None
-                    and resource_dispatch.kind == DISPATCH_LIST
+                    resolution.kind
+                    is CommandDispatchResolutionKind.CONTINUE_LOOP
                 ):
-                    self._emit_diagnostic(
-                        terminal_ui, error_stream, resource_dispatch.message
-                    )
-                    refresh_legacy_footer()
                     continue
-                if resource_dispatch is not None and resource_dispatch.is_reject:
-                    # Fail closed: diagnostic only, no provider turn, native
-                    # product-session write, prompt-history entry, or metadata-only
-                    # workflow archive event.
-                    self._emit_diagnostic(
-                        terminal_ui, error_stream, resource_dispatch.message
-                    )
-                    refresh_legacy_footer()
-                    continue
-                if resource_dispatch is not None and resource_dispatch.is_run:
-                    # The expanded/instruction text becomes the bounded
-                    # provider-visible message; it never reaches prompt history,
-                    # the native product session tree, or the metadata-only
-                    # workflow archive. Only the invocation counter is surfaced.
-                    coding_state.record_resource_invocation()
-                    resource_provider_text = resource_dispatch.provider_text or ""
-                    self._emit_diagnostic(
-                        terminal_ui, error_stream, resource_dispatch.message
-                    )
-                # Extension commands dispatch AFTER built-ins and resource
-                # commands (so they can never shadow them) and BEFORE the
-                # not-handled fallback. The handler runs locally with no
-                # provider turn; its notifications are live UI output only.
-                if resource_provider_text is None:
-                    extension_dispatch = dispatch_extension_command(
-                        command_text,
-                        extension_commands,
-                        cwd=str(cwd),
-                        has_ui=terminal_ui is not None,
-                        messages=coding_state.messages,
-                        complete_fn=_extension_complete,
-                        notify_sink=_extension_notify,
-                        ui_custom_driver=_extension_custom_driver,
-                        ui_driver=extension_ui_driver,
-                        set_active_tools_fn=extension_set_active_tools,
-                        set_model_fn=extension_set_model,
-                        set_thinking_level_fn=extension_set_thinking_level,
-                        append_entry_fn=extension_append_entry,
-                        set_session_name_fn=extension_set_session_name,
-                        get_session_name_fn=extension_get_session_name,
-                        set_label_fn=extension_set_label,
-                        send_message_fn=extension_send_message,
-                        flags=extension_flag_values,
-                        session_tree=session_tree,
-                        project_trusted=settings.project_trusted,
-                    )
-                    if extension_dispatch is not None:
-                        # Notifications already surfaced live via the sink while
-                        # the handler ran; only the failure diagnostic remains.
-                        if not extension_dispatch.ran and extension_dispatch.error:
-                            self._emit_diagnostic(
-                                terminal_ui,
-                                error_stream,
-                                (
-                                    f"pipy: extension command /{extension_dispatch.name} "
-                                    f"failed ({extension_dispatch.error})"
-                                ),
-                            )
-                        # Messages a command enqueued via send_user_message
-                        # are drained at the top of the next iteration.
-                        refresh_legacy_footer()
-                        continue
-                if command_text.startswith("/") and resource_provider_text is None:
-                    self._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        (
-                            f"pipy: {stripped!r} is not handled in tool-loop mode; "
-                            "supported local commands are /hotkeys, /reload, "
-                            "/changelog, /model, /scoped-models, /settings, /trust, "
-                            "/login, /logout, /copy, /compact, /export, /import, "
-                            "/share, /session, /name, "
-                            "/new, /tree, /resume, /fork, /clone, /skill, "
-                            "/exit, /quit "
-                            "(plus any workspace prompt templates and custom "
-                            "commands as /<name>, and activated extension "
-                            "commands). Other prompts are sent to the model."
-                        ),
-                    )
-                    refresh_legacy_footer()
-                    continue
+                resource_provider_text: str | None = resolution.resource_provider_text
                 # User-directed file context: a genuine prompt may name workspace
                 # files with ``@path``. Resolve them through the shared bounded
                 # reader (reusing this loop's ``read`` policy and reference roots),
@@ -4100,9 +4153,9 @@ class NativeToolReplSession:
                         coding_state, tool_budget=self.tool_budget
                     ),
                 ).prepare(
-                    user_input=user_input,
+                    user_input=resolution.user_input,
                     resource_provider_text=resource_provider_text,
-                    selected_provider_content=selected_provider_content,
+                    selected_provider_content=resolution.selected_provider_content,
                     base_system_prompt=base_system_prompt,
                 )
                 active_input = accepted_turn.active_input

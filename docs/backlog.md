@@ -2322,6 +2322,39 @@ only stdlib, the canonical `native.agent` `content`/`runtime_ports` contracts,
 remaining outer transitions (start/command/run) and the sub-800-line
 composition-shell reduction remain the rest of Phase 3.1f.
 
+Sub-slice 3.1f.3 (first cut, 2026-07-21) gives the controller ownership of the
+built-in>resource>extension command-dispatch precedence *tail*. `native.coding.commands`
+gains closed dispatch/resolution outcome contracts — `ResourceDispatchResolution`/
+`ResourceDispatchKind` (LIST/REJECT/RUN), `ExtensionDispatchResolution`, and
+`CommandDispatchResolution`/`CommandDispatchResolutionKind`
+(CONTINUE_LOOP/PROCEED_TO_RUN carrying `user_input`/`resource_provider_text`/
+`selected_provider_content`) — and `CodingSessionController.dispatch_command(*,
+command_text, user_input, selected_provider_content, effects)` owns only the
+ordering/precedence: resource dispatch first (list/reject consumed locally with
+diagnostic + footer; run records the invocation counter, carries the bounded
+provider text, paints no footer), then extension dispatch under the exact
+`resource_provider_text is None` guard, then the byte-identical unhandled-`/`
+notice, otherwise `PROCEED_TO_RUN`. Every effect runs through the new
+`CodingCommandEffects` port (protocol defined with the controller; the concrete
+`_CodingCommandEffectsAdapter` over run() closures stays composition-root and
+maps the concrete `ResourceDispatch`/`ExtensionCommandDispatch` onto the narrow
+resolutions). `NativeToolReplSession.run()` deletes the inline resource dispatch,
+extension dispatch, and unhandled-`/` fallback (~95 lines) and replaces them with
+one `dispatch_command(...)` call plus a `CONTINUE_LOOP`/`continue` branch and a
+`resource_provider_text` read feeding the untouched run transition. Byte-identical
+CLI/JSON/RPC/session behavior; no new runtime dependency, `Any`, or `type: ignore`.
+The import-boundary gate un-forbids `native.coding.commands` for the
+`session_controller` rule alone (filtering the shared agent-run forbidden set,
+leaving `result`/`accepted_input` unchanged) and extends the controller's exact
+allowlist with the four dispatch/resolution contracts. This first cut keeps the
+built-in classification, the `/exit`/`/quit` `EXIT`, and the 29-branch `CONTINUE`
+`CodingCommandAction` interpretation inline: those branches reassign `run()`-local
+control state (`session_tree`, `tree_filter_mode`, `pending_prefill`, the
+`/reload` extension-runtime bundle), so relocating them (and the `EXIT`/`CONTINUE`
+outcome-kind routing) into `dispatch_command` needs the mutable effect-handler
+design and is deferred to the next 3.1f cut, along with the start/run transitions
+and the sub-800-line composition-shell reduction.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable
