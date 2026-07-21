@@ -2499,10 +2499,40 @@ string/comment), so the per-action effects, footer policies, built-in>resource>
 extension precedence, and every CLI/JSON/RPC/session/extension/TUI format are
 byte-identical; no new runtime dependency, `Any`, or `type: ignore`
 (`extension_session_allows` is `Callable[..., bool]` with an inline note for its
-keyword-only gate arguments). **Still deferred (the last 3.1f cut):** splitting
-`interpret` into per-effect port methods, physically relocating the still-nested
-`_repl_step` body and the pre-dispatch hotkey/shortcut/shell (`!`/`!!`) routing
-out of `run()`, and dropping `run()` under 800 lines with the `< 800` assertion.
+keyword-only gate arguments).
+
+Sub-slice 3.1f-completion (repl loop step relocation, 2026-07-22) relocates the
+per-iteration REPL loop step and its lifecycle bookends out of `run()`. The
+538-`ast`-line `_repl_step` closure (with its nested `_prepare_loop_request` and
+the per-turn provider/status/coordinator closures) plus the five bookends
+`_finalize_repl_loop`/`_fire_session_start`/`_fire_session_shutdown`/
+`_consume_agent_settled_pending`/`_clear_extension_chrome_after_run` are
+physically relocated into a new module-level composition-root handler
+`_ReplLoopStep` (stateless, `__slots__ = ()`), symmetric with
+`_BuiltinCommandInterpreter`. Its `step_once(*, session, ctl, loop_controller,
+…)` performs one iteration and returns only the routing `LoopStepSignal`, and its
+`finalize`/`fire_session_start`/`fire_session_shutdown`/`consume_settle_pending`/
+`clear_extension_chrome` methods build the terminal projections and fire the
+lifecycle effects. `run()` reaches the handler through the unchanged
+`run_loop(step_once=, finalize=, …)` ports by passing each method
+`functools.partial`-bound to the run-scope collaborators; the six superseded
+closures are DELETED with no alias. The 42 `_repl_step` free variables (a
+superset of the bookends') were resolved with `symtable` and became the handlers'
+keyword-only parameter lists; the relocation is a uniform 4-space dedent plus a
+single `\bself\b`→`session` token rename (verified safe: every `self` in the body
+is a `self.`-attribute access on the session, and the bare word `session` occurs
+only in comments), so the loop routing, once-only true-idle settle, lifecycle
+fires, extension-chrome clear, hotkey/shortcut/`!`-shell pre-dispatch,
+`dispatch_command` precedence, accepted-input preparation, provider-turn
+execution, cancellation, event ordering, and every CLI/JSON/RPC/session/
+extension/TUI format are byte-identical. `run()` drops from 1,975 to 1,469
+`ast`-lines (−506). No new runtime dependency, `Any`, or `type: ignore`
+(`_extension_custom_driver` is `Callable[..., object]`), and `run_loop`'s port
+contract, `LoopStepSignal`, and the metadata-only workflow archive are untouched.
+**Still deferred (the last 3.1f cut):** splitting `interpret` into per-effect
+port methods, relocating the residual renderer/provider-mutation/adapter closures
+still in `run()`, and dropping `run()` under 800 lines with the `< 800`
+assertion.
 
 Sub-slice 3.1f.3 (continuation 2, 2026-07-21) makes the continuing built-in's
 per-action effect chain run THROUGH the command-dispatch effect port, symmetric

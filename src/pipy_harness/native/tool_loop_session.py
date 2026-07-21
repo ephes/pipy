@@ -1095,13 +1095,13 @@ class _RunControlState:
 
     Before this holder existed, these run-scope names were shared through a
     ~40-name ``nonlocal`` block reassigned by the built-in effect chain and read
-    back by ``_repl_step`` and the extension/resource/persistence adapter
+    back by the REPL loop step and the extension/resource/persistence adapter
     closures. Routing them through one ``ctl`` instance removed those free-var
     captures so the built-in effect chain could be relocated into
-    ``_BuiltinCommandInterpreter.interpret``, which receives ``ctl`` explicitly
-    and mutates it in place (a later cut relocates the remaining ``_repl_step``
-    body the same way). It is deliberately a plain mutable record with no
-    behavior: the handler and closures reassign ``ctl.<attr>`` exactly where they
+    ``_BuiltinCommandInterpreter.interpret`` and the per-iteration loop step into
+    ``_ReplLoopStep.step_once`` — both receive ``ctl`` explicitly as a keyword-only
+    argument and mutate it in place. It is deliberately a plain mutable record with
+    no behavior: the handlers and closures reassign ``ctl.<attr>`` exactly where they
     previously rebound the ``nonlocal`` name, and a ``/reload``, ``/new``,
     ``/resume``, ``/fork``, or ``/clone`` rebind stays visible to every other
     closure through the shared instance.
@@ -1138,7 +1138,8 @@ class _RunControlState:
     extension_tool_registry: dict[str, ToolPort]
     agent_settled_pending: bool
     extension_in_agent_turn: bool
-    # ``line`` is (re)assigned by ``_repl_step`` before any read every iteration;
+    # ``line`` is (re)assigned by ``_ReplLoopStep.step_once`` before any read every
+    # iteration;
     # the setup-scope changelog loop that reuses the name never seeds it here.
     line: str = ""
 
@@ -2321,6 +2322,654 @@ class _BuiltinCommandInterpreter:
                 refresh_legacy_footer_with_usage()
             else:
                 raise AssertionError("handled command requires a closed footer policy")
+
+
+class _ReplLoopStep:
+    """Composition-root handler that owns one REPL loop iteration and the
+    loop's lifecycle bookends.
+
+    Symmetric with :class:`_BuiltinCommandInterpreter`: the headless controller
+    (:meth:`CodingSessionController.run_loop`) owns the ``while True`` skeleton
+    and reaches this handler through the injected ``step_once``/``finalize``/
+    ``fire_session_start``/``fire_session_shutdown``/``consume_settle_pending``/
+    ``clear_extension_chrome`` ports. :meth:`step_once` performs exactly one
+    iteration and returns only the routing :class:`LoopStepSignal`; the bookend
+    methods build the terminal projections and fire the lifecycle effects. The
+    handler holds no state of its own (``__slots__ = ()``); it receives the run's
+    mutable control-state holder ``ctl`` plus the stable run-scope collaborators
+    explicitly as keyword-only arguments and mutates ``ctl`` in place, so the
+    composition-root closures read the reassigned loop control flags back
+    byte-identically. The bodies formerly lived as the ``_repl_step`` closure
+    (with its nested ``_prepare_loop_request``) and the ``_finalize_repl_loop``/
+    ``_fire_session_start``/``_fire_session_shutdown``/
+    ``_consume_agent_settled_pending``/``_clear_extension_chrome_after_run``
+    bookends nested in ``NativeToolReplSession.run()``.
+    """
+
+    __slots__ = ()
+
+    def step_once(
+        self,
+        *,
+        session: "NativeToolReplSession",
+        ctl: _RunControlState,
+        loop_controller: CodingSessionController,
+        terminal_ui: ToolLoopTerminalUi | None,
+        error_stream: TextIO,
+        coding_state: CodingSessionState,
+        repl_input: "ToolLoopTerminalUi | NativeReplInput",
+        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
+        emitter: _ExtensionAwareAgentEventSink,
+        settings: SettingsManager,
+        cwd: Path,
+        started_at: datetime,
+        base_system_prompt: str,
+        image_reference_roots: tuple[Path, ...],
+        prompt_history_store: PromptHistoryStore,
+        tool_capabilities: NativeToolCapabilities,
+        agent_tool_policy: NativeAgentToolPolicy,
+        coding_input_queue: CodingInputQueue,
+        command_effects: CodingCommandEffects,
+        input_queued_input_port: NativeAgentQueuedInputPort | None,
+        provider_request_policy: NativeAgentProviderRequestPolicy,
+        provider_turn_executor: ProviderTurnExecutor,
+        run_effect_sink: NativeAgentRunEffectSink,
+        usage_publisher: NativeAgentUsagePublisher,
+        extension_ui_driver: _LiveExtensionUiDriver | None,
+        diag: Callable[[str], None],
+        coding_footer_text: Callable[[], str],
+        refresh_legacy_footer_with_usage: Callable[[], None],
+        apply_compaction: Callable[[str], str],
+        append_agent_message: Callable[[AgentMessage], None],
+        drain_extension_outboxes: Callable[[], None],
+        _active_provider_header_callback: Callable[
+            [], Callable[[MutableMapping[str, str | None]], None] | None
+        ],
+        _extension_complete: Callable[[str, str], str],
+        _extension_custom_driver: Callable[..., object],
+        _extension_notify: Callable[[str, str], None],
+        _sync_tool_policy_counters: Callable[[AgentToolPolicyState], None],
+        extension_append_entry: Callable[[str, object | None], object],
+        extension_get_session_name: Callable[[], str | None],
+        extension_send_message: Callable[
+            [str, str, bool, "Mapping[str, object]", object | None], object
+        ],
+        extension_set_active_tools: Callable[[Sequence[str]], bool],
+        extension_set_label: Callable[[str, str | None], object],
+        extension_set_model: Callable[[str], bool],
+        extension_set_session_name: Callable[[str | None], object],
+        extension_set_thinking_level: Callable[[str], bool],
+    ) -> LoopStepSignal:
+        # The per-action built-in control-state reassignments (session tree,
+        # tree filter mode, prefill, and the whole `/reload` extension-runtime
+        # bundle) now live in `_BuiltinCommandInterpreter.interpret`, invoked through the
+        # command-dispatch port; this step only reassigns its own loop control
+        # flags plus the input/agent-turn bookkeeping, all through ``ctl``.
+        if terminal_ui is None:
+            print_input_separator(error_stream)
+        footer_text = coding_footer_text()
+        if ctl.pending_prefill is not None:
+            # A ``/tree`` user-message selection puts the chosen text back
+            # into the editor. The live TUI rehydrates the editor directly;
+            # captured-stream callers see a hint and type the (edited) text
+            # as the next line, which branches from the selected parent.
+            if terminal_ui is not None and hasattr(terminal_ui, "set_input_text"):
+                terminal_ui.set_input_text(ctl.pending_prefill)
+            elif terminal_ui is None:
+                diag(
+                    "pipy: editor rehydrated with selected message; "
+                    "type your (edited) message to branch from here, or "
+                    "submit as-is.\n"
+                    f"  > {ctl.pending_prefill}"
+                )
+            ctl.pending_prefill = None
+        # Input selection and the true-idle (`agent_settled`) boundary are
+        # owned by the headless controller. It drains any messages an
+        # extension enqueued via send_user_message at the top of every
+        # iteration (so they are scheduled as deterministic prompts
+        # regardless of which callback queued them), takes one queued input
+        # using the product priority, fires the once-only `agent_settled`
+        # notification and re-polls when nothing is pending, and otherwise
+        # reads one fresh line — with Pi's cursor-only prompt (the separator
+        # pair frames the input area) — and applies the external-wake
+        # overlay. A local command (`/…`/`!…`) submitted mid-turn still
+        # dispatches through the NORMAL path below; queued provider content
+        # bypasses local dispatch. The returned step carries the exact line
+        # the loop consumes and the post-boundary settled flag.
+        step = loop_controller.select_next_step(
+            settle_pending=ctl.agent_settled_pending,
+            drain_outbox=drain_extension_outboxes,
+            read_fresh_line=lambda: repl_input.read_line("", footer=footer_text),
+            input_queued_input_port=input_queued_input_port,
+        )
+        ctl.agent_settled_pending = step.settle_pending
+        selected_provider_content: ProductContent | None = (
+            step.selected_provider_content
+        )
+        queued_input: AgentQueuedInput | None = step.queued_input
+        if step.kind is CodingLoopStepKind.EOF:
+            if step.keyboard_interrupt:
+                print(file=error_stream)
+            return LoopStepSignal.break_loop()
+        ctl.line = step.line
+        user_input = (
+            selected_provider_content.value
+            if selected_provider_content is not None
+            else ctl.line.rstrip("\n")
+        )
+        stripped = user_input.strip()
+        # Queued steering/follow-up messages (Pi) are provider-visible prompt
+        # text, never local commands: a follow-up enqueued mid-turn that
+        # happens to begin with `/` (slash command) or `!` (bash shortcut)
+        # must reach the model verbatim, not be intercepted and silently
+        # dropped from the conversation. ``command_text`` is the dispatch key
+        # for every local command/hotkey below; it is blank for a drained
+        # line or for RPC input carrying a closed delivery classification,
+        # so neither can match and both fall through to the provider-message
+        # path (which still resolves any @file/@image references). Ordinary
+        # typed input keeps ``command_text == stripped`` and is unaffected.
+        command_text = "" if selected_provider_content is not None else stripped
+        # In-editor hotkeys arrive as private sentinel "commands" from the
+        # TUI so they dispatch without rendering a user-message bubble.
+        # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
+        # the model (translated to the existing /scoped-models dispatch).
+        if command_text in {HOTKEY_TOGGLE_TOOLS, HOTKEY_TOGGLE_THINKING}:
+            session._toggle_view_fold(
+                stripped,
+                terminal_ui=terminal_ui,
+                error_stream=error_stream,
+                settings=settings,
+            )
+            return LoopStepSignal.continue_loop()
+        if command_text == HOTKEY_THINKING_CYCLE:
+            session._cycle_thinking_level(
+                terminal_ui=terminal_ui,
+                error_stream=error_stream,
+                session_tree=ctl.session_tree,
+            )
+            refresh_legacy_footer_with_usage()
+            return LoopStepSignal.continue_loop()
+        if command_text.startswith(HOTKEY_EXTENSION_SHORTCUT_PREFIX):
+            # An activated extension's registered keyboard shortcut
+            # fired; dispatch its handler with the same mode-aware
+            # context as its command. Like the command path, a handler
+            # that calls api.send_user_message enqueues to the shared
+            # outbox, which is drained into a deterministic provider
+            # prompt at the top of the next iteration (see the
+            # drain_user_messages call above) — so the turn fires; this
+            # branch only needs to surface a handler failure and
+            # continue. Covered by
+            # test_shortcut_send_user_message_triggers_a_turn.
+            shortcut_key = command_text[len(HOTKEY_EXTENSION_SHORTCUT_PREFIX) :]
+            shortcut_dispatch = dispatch_extension_shortcut(
+                shortcut_key,
+                ctl._ext_runtime.shortcuts,
+                cwd=str(cwd),
+                has_ui=terminal_ui is not None,
+                messages=coding_state.messages,
+                complete_fn=_extension_complete,
+                notify_sink=_extension_notify,
+                ui_custom_driver=_extension_custom_driver,
+                ui_driver=extension_ui_driver,
+                set_active_tools_fn=extension_set_active_tools,
+                set_model_fn=extension_set_model,
+                set_thinking_level_fn=extension_set_thinking_level,
+                append_entry_fn=extension_append_entry,
+                set_session_name_fn=extension_set_session_name,
+                get_session_name_fn=extension_get_session_name,
+                set_label_fn=extension_set_label,
+                send_message_fn=extension_send_message,
+                flags=ctl.extension_flag_values,
+                session_tree=ctl.session_tree,
+                project_trusted=settings.project_trusted,
+            )
+            if (
+                shortcut_dispatch is not None
+                and not shortcut_dispatch.ran
+                and shortcut_dispatch.error
+            ):
+                session._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    (
+                        f"pipy: extension shortcut {shortcut_key!r} "
+                        f"failed ({shortcut_dispatch.error})"
+                    ),
+                )
+            return LoopStepSignal.continue_loop()
+        from_hotkey = command_text in {
+            HOTKEY_MODEL_CYCLE_NEXT,
+            HOTKEY_MODEL_CYCLE_PREV,
+            HOTKEY_MODEL_SELECT,
+        }
+        if from_hotkey:
+            stripped = (
+                "/model"
+                if command_text == HOTKEY_MODEL_SELECT
+                else (
+                    "/scoped-models next"
+                    if command_text == HOTKEY_MODEL_CYCLE_NEXT
+                    else "/scoped-models prev"
+                )
+            )
+            user_input = stripped
+            # Keep the dispatch key in sync with the translated command so
+            # the /scoped-models handler below matches (a hotkey is never a
+            # drained line, so this only rewrites typed-hotkey input).
+            command_text = stripped
+        # Local shell shortcut: a submitted line whose first non-space
+        # character is ``!`` runs a bash command from the editor with no
+        # provider turn (Pi's ``handleBashCommand``). ``!cmd`` records the
+        # command/output into the conversation context and native session
+        # tree so the next turn and resume see it; ``!!cmd`` runs identically
+        # but is excluded from context (a live-only diagnostic). Escape
+        # cancels a running command. Intercepted before the user-message
+        # panel so it renders as a shell block, not a chat bubble.
+        if command_text.startswith("!"):
+            shell_context_text = session._run_local_shell_shortcut(
+                stripped,
+                terminal_ui=terminal_ui,
+                error_stream=error_stream,
+                cwd=cwd,
+                user_bash_hooks=ctl.extension_user_bash_hooks,
+                set_active_tools_fn=extension_set_active_tools,
+                set_model_fn=extension_set_model,
+                set_thinking_level_fn=extension_set_thinking_level,
+                ui_driver=extension_ui_driver,
+                flags=ctl.extension_flag_values,
+                project_trusted=settings.project_trusted,
+            )
+            if shell_context_text is not None:
+                shell_message = AgentUserMessage(
+                    content=ProductContent(shell_context_text)
+                )
+                append_agent_message(shell_message)
+            refresh_legacy_footer_with_usage()
+            return LoopStepSignal.continue_loop()
+        # Pi paints the submitted user message back on a muted
+        # `userMessageBg` panel — distinct from the green tool
+        # panel — so the prompt reads as a chat bubble. Overwrite
+        # the readline echo line with the styled panel row when
+        # the renderer can drive ANSI cursor controls.
+        if stripped and not from_hotkey:
+            renderer.render_user_message(user_input)
+        # The built-in>resource>extension command-dispatch precedence is
+        # owned by the headless controller: it classifies built-ins first
+        # (`/exit`/`/quit` -> EXIT_LOOP breaks the loop; every other
+        # continuing built-in is interpreted through the injected
+        # `command_effects.interpret_builtin` port — the per-action effect
+        # chain in `_BuiltinCommandInterpreter.interpret` — and resolves to
+        # CONTINUE_LOOP), then resource dispatch (list/reject consumed
+        # locally; run records the invocation counter and carries the bounded
+        # provider text), then extension dispatch (never shadowing a built-in
+        # or resource), then the unhandled `/…` fallback — each effect
+        # performed through the injected `command_effects` port.
+        # Queued/provider content has a blank `command_text` and falls
+        # straight through to PROCEED_TO_RUN.
+        resolution = loop_controller.dispatch_command(
+            command_text=command_text,
+            stripped=stripped,
+            user_input=user_input,
+            selected_provider_content=selected_provider_content,
+            effects=command_effects,
+        )
+        if resolution.kind is CommandDispatchResolutionKind.EXIT_LOOP:
+            return LoopStepSignal.break_loop()
+        if resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:
+            return LoopStepSignal.continue_loop()
+        resource_provider_text: str | None = resolution.resource_provider_text
+
+        # User-directed file context: a genuine prompt may name workspace
+        # files with ``@path``. Resolve them through the shared bounded
+        # reader (reusing this loop's ``read`` policy and reference roots),
+        # append the bounded excerpts to the provider-visible user message,
+        # and keep the literal prompt for the rendered panel, prompt
+        # history, and native product session tree. None of that content
+        # enters the metadata-only workflow archive.
+        # Accepted-input preparation owns the resource-vs-literal
+        # branch, the transformed-vs-original prompt split, the hook
+        # ordering (input hook, @file resolution, image attachments,
+        # then before_agent_start augmentation), diagnostic text, and
+        # safe-counter recording. The controller supplies only thin
+        # adapters over its effectful helpers; the provider-visible
+        # excerpts, image bytes, transformed text, and injected
+        # system-prompt context ride the returned turn and never enter
+        # the metadata-only workflow archive.
+        def _transform_accepted_input(prompt: str) -> str:
+            return dispatch_input_hooks(
+                ctl.extension_input_hooks,
+                prompt,
+                cwd=str(cwd),
+                has_ui=terminal_ui is not None,
+                notify_sink=_extension_notify,
+                ui_driver=extension_ui_driver,
+                set_active_tools_fn=extension_set_active_tools,
+                set_model_fn=extension_set_model,
+                set_thinking_level_fn=extension_set_thinking_level,
+                project_trusted=settings.project_trusted,
+            )
+
+        def _resolve_accepted_file_references(
+            prompt: str,
+        ) -> FileReferenceResolution:
+            return resolve_file_references(
+                prompt,
+                workspace_root=cwd,
+                reference_roots=session.reference_roots,
+            )
+
+        def _resolve_accepted_image_attachments(
+            prompt: str,
+        ) -> ImageAttachmentResolution:
+            # User-directed image attachments (@image:<path>): bounded,
+            # fail-closed image loading that becomes provider-visible
+            # image blocks on the current user message. Raw bytes never
+            # reach prompt history, the native product session tree, the
+            # metadata-only workflow archive, or the result.
+            return resolve_image_attachments(
+                prompt,
+                workspace_root=cwd,
+                reference_roots=image_reference_roots,
+            )
+
+        def _accepted_system_prompt_suffix(base_prompt: str) -> str | None:
+            before_agent_result = dispatch_before_agent_start_hooks(
+                ctl.extension_before_agent_start_hooks,
+                cwd=str(cwd),
+                has_ui=terminal_ui is not None,
+                system_prompt=base_prompt,
+                notify_sink=_extension_notify,
+                ui_driver=extension_ui_driver,
+                set_active_tools_fn=extension_set_active_tools,
+                set_model_fn=extension_set_model,
+                set_thinking_level_fn=extension_set_thinking_level,
+                flags=ctl.extension_flag_values,
+                project_trusted=settings.project_trusted,
+            )
+            return before_agent_result.append_system_prompt
+
+        def _emit_accepted_input_diagnostic(message: str) -> None:
+            session._emit_diagnostic(terminal_ui, error_stream, message)
+
+        accepted_turn = CodingAcceptedInputPreparer(
+            transform_input=_transform_accepted_input,
+            resolve_file_references=_resolve_accepted_file_references,
+            resolve_image_attachments=_resolve_accepted_image_attachments,
+            system_prompt_suffix=_accepted_system_prompt_suffix,
+            next_turn_context=coding_input_queue.take_next_turn_context,
+            emit_diagnostic=_emit_accepted_input_diagnostic,
+            state_recorder=CodingSessionAcceptedInputRecorder(
+                coding_state, tool_budget=session.tool_budget
+            ),
+        ).prepare(
+            user_input=resolution.user_input,
+            resource_provider_text=resource_provider_text,
+            selected_provider_content=resolution.selected_provider_content,
+            base_system_prompt=base_system_prompt,
+        )
+        active_input = accepted_turn.active_input
+        initial_tool_state = accepted_turn.initial_tool_state
+        provider_user_input = accepted_turn.provider_user_input
+        turn_attachments = accepted_turn.turn_attachments
+        agent_system_prompt = accepted_turn.agent_system_prompt
+
+        def _prepare_loop_request(
+            history: tuple[AgentMessage, ...],
+            loop_active_input: AgentActiveInput,
+            turn_index: int,
+            available_tools: tuple[ToolDefinition, ...],
+        ) -> AgentLoopRequestPreparation:
+            coding_state.mirror_history(history)
+            # Automatic compaction: when the provider-visible history grows
+            # past the threshold, drop the oldest user-turn groups before
+            # building the next request. The cut is at a user-message
+            # boundary so no tool result is orphaned, and the safe summary
+            # rides in the system prompt suffix below.
+            if settings.get_compaction_enabled() and should_compact_agent_history(
+                coding_state.messages,
+                max_messages=_AGENT_HISTORY_MAX_MESSAGES,
+                max_bytes=_AGENT_HISTORY_MAX_BYTES,
+                keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
+            ):
+                notice = apply_compaction("auto")
+                session._emit_diagnostic(terminal_ui, error_stream, notice)
+            snapshot = provider_request_policy.prepare(
+                AgentProviderRequestPolicyInput(
+                    baseline=ProviderRequest(
+                        system_prompt=(
+                            agent_system_prompt + coding_state.compaction_suffix
+                        ),
+                        user_prompt=provider_user_input,
+                        provider_name=coding_state.provider_name,
+                        model_id=coding_state.model_id,
+                        cwd=cwd,
+                        messages=loop_active_input.request_messages(
+                            coding_state.messages
+                        ),
+                        available_tools=available_tools,
+                        # Image attachments belong to the current user
+                        # message, so they ride only the first provider
+                        # call of this turn; later tool-loop iterations
+                        # append tool results (also user-role), and
+                        # re-sending would mis-attach the image.
+                        attachments=(turn_attachments if turn_index == 0 else ()),
+                        provider_header_callback=(_active_provider_header_callback()),
+                    ),
+                    active_input=loop_active_input,
+                ),
+            )
+            renderer.refresh_tool_renderers(
+                {
+                    name: ctl.extension_tool_renderers[name]
+                    for name in snapshot.advertised_tool_names
+                    if name in ctl.extension_tool_renderers
+                }
+            )
+            return AgentLoopRequestPreparation(coding_state.messages, snapshot)
+
+        def _complete_loop_provider_turn(
+            snapshot: AgentProviderRequestSnapshot,
+            event_sink: AgentEventSink,
+            turn_index: int,
+        ) -> ProviderTurnOutcome:
+            provider_request = materialize_provider_request(snapshot)
+            provider_waiter = None
+            provider_for_turn: ProviderPort = coding_state.provider
+            if terminal_ui is not None:
+                provider_waiter = partial(_wait_for_provider_interrupt, terminal_ui)
+            elif session.abort_event is not None:
+                provider_start_event = None
+                if isinstance(session.abort_event, _AbortCallbackSignal):
+                    provider_start_event = threading.Event()
+                    provider_for_turn = _StartGatedProvider(
+                        coding_state.provider, provider_start_event
+                    )
+                provider_waiter = partial(
+                    _wait_for_external_abort,
+                    session.abort_event,
+                    provider_start_event,
+                )
+            return provider_turn_executor.complete(
+                provider_for_turn,
+                provider_request,
+                event_sink,
+                turn_index=turn_index,
+                waiter=provider_waiter,
+            )
+
+        def _agent_loop_entered() -> None:
+            ctl.extension_in_agent_turn = True
+
+        def _agent_input_accepted() -> None:
+            coding_state.record_input_accepted()
+            # Only genuine literal prompts enter the local recall store.
+            if resource_provider_text is None:
+                prompt_history_store.record(user_input)
+
+        def _provider_result_observed(result: ProviderResult) -> None:
+            del result
+            if terminal_ui is not None and terminal_ui.has_pending_messages():
+                terminal_ui.promote_pending_to_drain()
+
+        def _agent_provider_succeeded(
+            status: AgentProviderStatusDecision,
+            tool_state: AgentToolPolicyState,
+        ) -> None:
+            del status
+            del tool_state
+            coding_state.clear_provider_failure()
+
+        def _agent_cancellation_observed(
+            reason: AgentCancellationReason,
+        ) -> None:
+            if terminal_ui is None:
+                return
+            if reason is AgentCancellationReason.OPERATOR_ABORT:
+                terminal_ui.restore_pending_to_editor()
+            elif reason in (
+                AgentCancellationReason.STEERING,
+                AgentCancellationReason.LOCAL_COMMAND,
+            ):
+                terminal_ui.promote_pending_to_drain()
+
+        def _agent_provider_failed(
+            status: AgentProviderStatusDecision,
+            tool_state: AgentToolPolicyState,
+        ) -> None:
+            failure = status.failure
+            assert failure is not None
+            del tool_state
+            coding_state.record_provider_failure(failure)
+            suffix = (
+                f" (response_status={status.response_status})"
+                if status.response_status is not None
+                else ""
+            )
+            session._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                "pipy: provider failure during turn: "
+                f"{failure.error_type}: {failure.message.value}{suffix}",
+            )
+            refresh_legacy_footer_with_usage()
+
+        def _agent_no_tool_assistant(
+            tool_state: AgentToolPolicyState,
+        ) -> None:
+            del tool_state
+            refresh_legacy_footer_with_usage()
+
+        def _agent_malformed_fatal(
+            failure: AgentFailure,
+            tool_state: AgentToolPolicyState,
+        ) -> None:
+            del tool_state
+            session._emit_diagnostic(
+                terminal_ui,
+                error_stream,
+                f"pipy: tool-loop ended after {failure.message.value}",
+            )
+
+        status_policy = AgentLoopStatusPolicyAdapter(
+            run_entered=_agent_loop_entered,
+            input_accepted=_agent_input_accepted,
+            provider_result_observed=_provider_result_observed,
+            provider_cancellation_observed=(_agent_cancellation_observed),
+            tool_policy_state_changed=_sync_tool_policy_counters,
+            provider_succeeded=_agent_provider_succeeded,
+            provider_failed=_agent_provider_failed,
+            no_tool_assistant=_agent_no_tool_assistant,
+            malformed_fatal=_agent_malformed_fatal,
+        )
+        tool_waiter = (
+            None
+            if terminal_ui is None
+            else partial(_wait_for_tool_interrupt, terminal_ui)
+        )
+        run_coordinator = CodingAgentRunCoordinator(
+            request_source=AgentLoopRequestSourceAdapter(_prepare_loop_request),
+            provider_turn=AgentLoopProviderTurnAdapter(_complete_loop_provider_turn),
+            status_policy=status_policy,
+            tool_capabilities=tool_capabilities,
+            tool_policy=agent_tool_policy,
+            event_sink=emitter,
+            run_effect_sink=run_effect_sink,
+            usage_publisher=usage_publisher,
+            queued_input_port=coding_input_queue.agent_loop_port,
+            coding_state=coding_state,
+            retain_next_input=coding_input_queue.retain_agent_input,
+            tool_waiter=tool_waiter,
+        )
+        ctl.agent_settled_pending = True
+        loop_outcome = run_coordinator.run_turn(
+            active_input,
+            initial_tool_state,
+            pricing=_pricing_for(
+                coding_state.provider_name,
+                coding_state.model_id,
+            ),
+            accepted_queued_input=queued_input,
+        )
+        ctl.extension_in_agent_turn = False
+
+        if loop_outcome.terminate_session:
+            run_failure = loop_outcome.result.failure
+            assert run_failure is not None
+            result_snapshot = coding_state.result_snapshot()
+            ended_at = datetime.now(UTC)
+            try:
+                repl_input.close()
+            except Exception:
+                pass
+            return LoopStepSignal.return_result(
+                build_repl_result(
+                    result_snapshot,
+                    status=HarnessStatus.FAILED,
+                    exit_code=1,
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    error_type=run_failure.error_type,
+                    error_message=run_failure.message.value,
+                )
+            )
+        return LoopStepSignal.continue_loop()
+
+    def finalize(
+        self,
+        *,
+        coding_state: CodingSessionState,
+        repl_input: "ToolLoopTerminalUi | NativeReplInput",
+        started_at: datetime,
+    ) -> NativeToolReplResult:
+        try:
+            repl_input.close()
+        except Exception:
+            pass
+        ended_at = datetime.now(UTC)
+        result_snapshot = coding_state.result_snapshot()
+        return build_repl_result(
+            result_snapshot,
+            status=HarnessStatus.SUCCEEDED,
+            exit_code=0,
+            started_at=started_at,
+            ended_at=ended_at,
+        )
+
+    def fire_session_start(self, *, emitter: _ExtensionAwareAgentEventSink) -> None:
+        emitter.fire_lifecycle(EVENT_SESSION_START, reason="startup")
+
+    def fire_session_shutdown(self, *, emitter: _ExtensionAwareAgentEventSink) -> None:
+        emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
+
+    def consume_settle_pending(self, *, ctl: _RunControlState) -> bool:
+        if ctl.agent_settled_pending:
+            ctl.agent_settled_pending = False
+            return True
+        return False
+
+    def clear_extension_chrome(self, *, terminal_ui: ToolLoopTerminalUi | None) -> None:
+        if terminal_ui is not None:
+            terminal_ui.clear_extension_chrome()
 
 
 @dataclass
@@ -3941,596 +4590,90 @@ class NativeToolReplSession:
         # The `while True` skeleton and the start/shutdown lifecycle are owned by
         # the headless controller (`CodingSessionController.run_loop`). It fires
         # `session_start`, runs the `while True` itself, and on each iteration
-        # calls the injected `_repl_step` port and routes the `LoopStepSignal` it
-        # returns — `CONTINUE` re-enters the loop, `BREAK` finalizes through
-        # `_finalize_repl_loop` (the post-loop `SUCCEEDED` projection), and
+        # calls the injected `step_once` port and routes the `LoopStepSignal` it
+        # returns — `CONTINUE` re-enters the loop, `BREAK` finalizes through the
+        # `finalize` port (the post-loop `SUCCEEDED` projection), and
         # `RETURN_RESULT` returns the terminate `FAILED` projection the step
         # already built — guaranteeing the once-only true-idle settle, the
         # `session_shutdown` fire, and the extension-chrome clear on EVERY exit
         # path (normal return, fatal return, or a propagated exception). One
         # iteration's body, the run transition, and every UI/provider/persistence
-        # effect stay in the composition root; `_repl_step` performs one iteration
-        # and returns only the routing signal, and shares the run's mutable
-        # control state with the composition-root closures through the `ctl`
-        # `_RunControlState` holder so a `/reload`, `/new`, `/resume`, `/fork`, or
-        # `/clone` rebind is reflected in those closures exactly as it was inline.
-        def _repl_step() -> LoopStepSignal:
-            # The per-action built-in control-state reassignments (session tree,
-            # tree filter mode, prefill, and the whole `/reload` extension-runtime
-            # bundle) now live in `_BuiltinCommandInterpreter.interpret`, invoked through the
-            # command-dispatch port; this step only reassigns its own loop control
-            # flags plus the input/agent-turn bookkeeping, all through ``ctl``.
-            if terminal_ui is None:
-                print_input_separator(error_stream)
-            footer_text = coding_footer_text()
-            if ctl.pending_prefill is not None:
-                # A ``/tree`` user-message selection puts the chosen text back
-                # into the editor. The live TUI rehydrates the editor directly;
-                # captured-stream callers see a hint and type the (edited) text
-                # as the next line, which branches from the selected parent.
-                if terminal_ui is not None and hasattr(terminal_ui, "set_input_text"):
-                    terminal_ui.set_input_text(ctl.pending_prefill)
-                elif terminal_ui is None:
-                    diag(
-                        "pipy: editor rehydrated with selected message; "
-                        "type your (edited) message to branch from here, or "
-                        "submit as-is.\n"
-                        f"  > {ctl.pending_prefill}"
-                    )
-                ctl.pending_prefill = None
-            # Input selection and the true-idle (`agent_settled`) boundary are
-            # owned by the headless controller. It drains any messages an
-            # extension enqueued via send_user_message at the top of every
-            # iteration (so they are scheduled as deterministic prompts
-            # regardless of which callback queued them), takes one queued input
-            # using the product priority, fires the once-only `agent_settled`
-            # notification and re-polls when nothing is pending, and otherwise
-            # reads one fresh line — with Pi's cursor-only prompt (the separator
-            # pair frames the input area) — and applies the external-wake
-            # overlay. A local command (`/…`/`!…`) submitted mid-turn still
-            # dispatches through the NORMAL path below; queued provider content
-            # bypasses local dispatch. The returned step carries the exact line
-            # the loop consumes and the post-boundary settled flag.
-            step = loop_controller.select_next_step(
-                settle_pending=ctl.agent_settled_pending,
-                drain_outbox=drain_extension_outboxes,
-                read_fresh_line=lambda: repl_input.read_line("", footer=footer_text),
-                input_queued_input_port=input_queued_input_port,
-            )
-            ctl.agent_settled_pending = step.settle_pending
-            selected_provider_content: ProductContent | None = (
-                step.selected_provider_content
-            )
-            queued_input: AgentQueuedInput | None = step.queued_input
-            if step.kind is CodingLoopStepKind.EOF:
-                if step.keyboard_interrupt:
-                    print(file=error_stream)
-                return LoopStepSignal.break_loop()
-            ctl.line = step.line
-            user_input = (
-                selected_provider_content.value
-                if selected_provider_content is not None
-                else ctl.line.rstrip("\n")
-            )
-            stripped = user_input.strip()
-            # Queued steering/follow-up messages (Pi) are provider-visible prompt
-            # text, never local commands: a follow-up enqueued mid-turn that
-            # happens to begin with `/` (slash command) or `!` (bash shortcut)
-            # must reach the model verbatim, not be intercepted and silently
-            # dropped from the conversation. ``command_text`` is the dispatch key
-            # for every local command/hotkey below; it is blank for a drained
-            # line or for RPC input carrying a closed delivery classification,
-            # so neither can match and both fall through to the provider-message
-            # path (which still resolves any @file/@image references). Ordinary
-            # typed input keeps ``command_text == stripped`` and is unaffected.
-            command_text = "" if selected_provider_content is not None else stripped
-            # In-editor hotkeys arrive as private sentinel "commands" from the
-            # TUI so they dispatch without rendering a user-message bubble.
-            # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
-            # the model (translated to the existing /scoped-models dispatch).
-            if command_text in {HOTKEY_TOGGLE_TOOLS, HOTKEY_TOGGLE_THINKING}:
-                self._toggle_view_fold(
-                    stripped,
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
-                    settings=settings,
-                )
-                return LoopStepSignal.continue_loop()
-            if command_text == HOTKEY_THINKING_CYCLE:
-                self._cycle_thinking_level(
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
-                    session_tree=ctl.session_tree,
-                )
-                refresh_legacy_footer_with_usage()
-                return LoopStepSignal.continue_loop()
-            if command_text.startswith(HOTKEY_EXTENSION_SHORTCUT_PREFIX):
-                # An activated extension's registered keyboard shortcut
-                # fired; dispatch its handler with the same mode-aware
-                # context as its command. Like the command path, a handler
-                # that calls api.send_user_message enqueues to the shared
-                # outbox, which is drained into a deterministic provider
-                # prompt at the top of the next iteration (see the
-                # drain_user_messages call above) — so the turn fires; this
-                # branch only needs to surface a handler failure and
-                # continue. Covered by
-                # test_shortcut_send_user_message_triggers_a_turn.
-                shortcut_key = command_text[len(HOTKEY_EXTENSION_SHORTCUT_PREFIX) :]
-                shortcut_dispatch = dispatch_extension_shortcut(
-                    shortcut_key,
-                    ctl._ext_runtime.shortcuts,
-                    cwd=str(cwd),
-                    has_ui=terminal_ui is not None,
-                    messages=coding_state.messages,
-                    complete_fn=_extension_complete,
-                    notify_sink=_extension_notify,
-                    ui_custom_driver=_extension_custom_driver,
-                    ui_driver=extension_ui_driver,
-                    set_active_tools_fn=extension_set_active_tools,
-                    set_model_fn=extension_set_model,
-                    set_thinking_level_fn=extension_set_thinking_level,
-                    append_entry_fn=extension_append_entry,
-                    set_session_name_fn=extension_set_session_name,
-                    get_session_name_fn=extension_get_session_name,
-                    set_label_fn=extension_set_label,
-                    send_message_fn=extension_send_message,
-                    flags=ctl.extension_flag_values,
-                    session_tree=ctl.session_tree,
-                    project_trusted=settings.project_trusted,
-                )
-                if (
-                    shortcut_dispatch is not None
-                    and not shortcut_dispatch.ran
-                    and shortcut_dispatch.error
-                ):
-                    self._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        (
-                            f"pipy: extension shortcut {shortcut_key!r} "
-                            f"failed ({shortcut_dispatch.error})"
-                        ),
-                    )
-                return LoopStepSignal.continue_loop()
-            from_hotkey = command_text in {
-                HOTKEY_MODEL_CYCLE_NEXT,
-                HOTKEY_MODEL_CYCLE_PREV,
-                HOTKEY_MODEL_SELECT,
-            }
-            if from_hotkey:
-                stripped = (
-                    "/model"
-                    if command_text == HOTKEY_MODEL_SELECT
-                    else (
-                        "/scoped-models next"
-                        if command_text == HOTKEY_MODEL_CYCLE_NEXT
-                        else "/scoped-models prev"
-                    )
-                )
-                user_input = stripped
-                # Keep the dispatch key in sync with the translated command so
-                # the /scoped-models handler below matches (a hotkey is never a
-                # drained line, so this only rewrites typed-hotkey input).
-                command_text = stripped
-            # Local shell shortcut: a submitted line whose first non-space
-            # character is ``!`` runs a bash command from the editor with no
-            # provider turn (Pi's ``handleBashCommand``). ``!cmd`` records the
-            # command/output into the conversation context and native session
-            # tree so the next turn and resume see it; ``!!cmd`` runs identically
-            # but is excluded from context (a live-only diagnostic). Escape
-            # cancels a running command. Intercepted before the user-message
-            # panel so it renders as a shell block, not a chat bubble.
-            if command_text.startswith("!"):
-                shell_context_text = self._run_local_shell_shortcut(
-                    stripped,
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
-                    cwd=cwd,
-                    user_bash_hooks=ctl.extension_user_bash_hooks,
-                    set_active_tools_fn=extension_set_active_tools,
-                    set_model_fn=extension_set_model,
-                    set_thinking_level_fn=extension_set_thinking_level,
-                    ui_driver=extension_ui_driver,
-                    flags=ctl.extension_flag_values,
-                    project_trusted=settings.project_trusted,
-                )
-                if shell_context_text is not None:
-                    shell_message = AgentUserMessage(
-                        content=ProductContent(shell_context_text)
-                    )
-                    append_agent_message(shell_message)
-                refresh_legacy_footer_with_usage()
-                return LoopStepSignal.continue_loop()
-            # Pi paints the submitted user message back on a muted
-            # `userMessageBg` panel — distinct from the green tool
-            # panel — so the prompt reads as a chat bubble. Overwrite
-            # the readline echo line with the styled panel row when
-            # the renderer can drive ANSI cursor controls.
-            if stripped and not from_hotkey:
-                renderer.render_user_message(user_input)
-            # The built-in>resource>extension command-dispatch precedence is
-            # owned by the headless controller: it classifies built-ins first
-            # (`/exit`/`/quit` -> EXIT_LOOP breaks the loop; every other
-            # continuing built-in is interpreted through the injected
-            # `command_effects.interpret_builtin` port — the per-action effect
-            # chain in `_BuiltinCommandInterpreter.interpret` — and resolves to
-            # CONTINUE_LOOP), then resource dispatch (list/reject consumed
-            # locally; run records the invocation counter and carries the bounded
-            # provider text), then extension dispatch (never shadowing a built-in
-            # or resource), then the unhandled `/…` fallback — each effect
-            # performed through the injected `command_effects` port.
-            # Queued/provider content has a blank `command_text` and falls
-            # straight through to PROCEED_TO_RUN.
-            resolution = loop_controller.dispatch_command(
-                command_text=command_text,
-                stripped=stripped,
-                user_input=user_input,
-                selected_provider_content=selected_provider_content,
-                effects=command_effects,
-            )
-            if resolution.kind is CommandDispatchResolutionKind.EXIT_LOOP:
-                return LoopStepSignal.break_loop()
-            if resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:
-                return LoopStepSignal.continue_loop()
-            resource_provider_text: str | None = resolution.resource_provider_text
-
-            # User-directed file context: a genuine prompt may name workspace
-            # files with ``@path``. Resolve them through the shared bounded
-            # reader (reusing this loop's ``read`` policy and reference roots),
-            # append the bounded excerpts to the provider-visible user message,
-            # and keep the literal prompt for the rendered panel, prompt
-            # history, and native product session tree. None of that content
-            # enters the metadata-only workflow archive.
-            # Accepted-input preparation owns the resource-vs-literal
-            # branch, the transformed-vs-original prompt split, the hook
-            # ordering (input hook, @file resolution, image attachments,
-            # then before_agent_start augmentation), diagnostic text, and
-            # safe-counter recording. The controller supplies only thin
-            # adapters over its effectful helpers; the provider-visible
-            # excerpts, image bytes, transformed text, and injected
-            # system-prompt context ride the returned turn and never enter
-            # the metadata-only workflow archive.
-            def _transform_accepted_input(prompt: str) -> str:
-                return dispatch_input_hooks(
-                    ctl.extension_input_hooks,
-                    prompt,
-                    cwd=str(cwd),
-                    has_ui=terminal_ui is not None,
-                    notify_sink=_extension_notify,
-                    ui_driver=extension_ui_driver,
-                    set_active_tools_fn=extension_set_active_tools,
-                    set_model_fn=extension_set_model,
-                    set_thinking_level_fn=extension_set_thinking_level,
-                    project_trusted=settings.project_trusted,
-                )
-
-            def _resolve_accepted_file_references(
-                prompt: str,
-            ) -> FileReferenceResolution:
-                return resolve_file_references(
-                    prompt,
-                    workspace_root=cwd,
-                    reference_roots=self.reference_roots,
-                )
-
-            def _resolve_accepted_image_attachments(
-                prompt: str,
-            ) -> ImageAttachmentResolution:
-                # User-directed image attachments (@image:<path>): bounded,
-                # fail-closed image loading that becomes provider-visible
-                # image blocks on the current user message. Raw bytes never
-                # reach prompt history, the native product session tree, the
-                # metadata-only workflow archive, or the result.
-                return resolve_image_attachments(
-                    prompt,
-                    workspace_root=cwd,
-                    reference_roots=image_reference_roots,
-                )
-
-            def _accepted_system_prompt_suffix(base_prompt: str) -> str | None:
-                before_agent_result = dispatch_before_agent_start_hooks(
-                    ctl.extension_before_agent_start_hooks,
-                    cwd=str(cwd),
-                    has_ui=terminal_ui is not None,
-                    system_prompt=base_prompt,
-                    notify_sink=_extension_notify,
-                    ui_driver=extension_ui_driver,
-                    set_active_tools_fn=extension_set_active_tools,
-                    set_model_fn=extension_set_model,
-                    set_thinking_level_fn=extension_set_thinking_level,
-                    flags=ctl.extension_flag_values,
-                    project_trusted=settings.project_trusted,
-                )
-                return before_agent_result.append_system_prompt
-
-            def _emit_accepted_input_diagnostic(message: str) -> None:
-                self._emit_diagnostic(terminal_ui, error_stream, message)
-
-            accepted_turn = CodingAcceptedInputPreparer(
-                transform_input=_transform_accepted_input,
-                resolve_file_references=_resolve_accepted_file_references,
-                resolve_image_attachments=_resolve_accepted_image_attachments,
-                system_prompt_suffix=_accepted_system_prompt_suffix,
-                next_turn_context=coding_input_queue.take_next_turn_context,
-                emit_diagnostic=_emit_accepted_input_diagnostic,
-                state_recorder=CodingSessionAcceptedInputRecorder(
-                    coding_state, tool_budget=self.tool_budget
-                ),
-            ).prepare(
-                user_input=resolution.user_input,
-                resource_provider_text=resource_provider_text,
-                selected_provider_content=resolution.selected_provider_content,
+        # effect live in `_ReplLoopStep.step_once` (a module-level composition-root
+        # handler, symmetric with `_BuiltinCommandInterpreter`); it performs one
+        # iteration and returns only the routing signal, and shares the run's
+        # mutable control state with the composition-root closures through the
+        # `ctl` `_RunControlState` holder so a `/reload`, `/new`, `/resume`,
+        # `/fork`, or `/clone` rebind is reflected in those closures exactly as it
+        # was inline. `run()` reaches the handler by passing its bound methods
+        # (each `functools.partial`-bound to the run-scope collaborators) through
+        # the same `run_loop` ports.
+        repl_loop_step = _ReplLoopStep()
+        return loop_controller.run_loop(
+            step_once=partial(
+                repl_loop_step.step_once,
+                session=self,
+                ctl=ctl,
+                loop_controller=loop_controller,
+                terminal_ui=terminal_ui,
+                error_stream=error_stream,
+                coding_state=coding_state,
+                repl_input=repl_input,
+                renderer=renderer,
+                emitter=emitter,
+                settings=settings,
+                cwd=cwd,
+                started_at=started_at,
                 base_system_prompt=base_system_prompt,
-            )
-            active_input = accepted_turn.active_input
-            initial_tool_state = accepted_turn.initial_tool_state
-            provider_user_input = accepted_turn.provider_user_input
-            turn_attachments = accepted_turn.turn_attachments
-            agent_system_prompt = accepted_turn.agent_system_prompt
-
-            def _prepare_loop_request(
-                history: tuple[AgentMessage, ...],
-                loop_active_input: AgentActiveInput,
-                turn_index: int,
-                available_tools: tuple[ToolDefinition, ...],
-            ) -> AgentLoopRequestPreparation:
-                coding_state.mirror_history(history)
-                # Automatic compaction: when the provider-visible history grows
-                # past the threshold, drop the oldest user-turn groups before
-                # building the next request. The cut is at a user-message
-                # boundary so no tool result is orphaned, and the safe summary
-                # rides in the system prompt suffix below.
-                if settings.get_compaction_enabled() and should_compact_agent_history(
-                    coding_state.messages,
-                    max_messages=_AGENT_HISTORY_MAX_MESSAGES,
-                    max_bytes=_AGENT_HISTORY_MAX_BYTES,
-                    keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
-                ):
-                    notice = apply_compaction("auto")
-                    self._emit_diagnostic(terminal_ui, error_stream, notice)
-                snapshot = provider_request_policy.prepare(
-                    AgentProviderRequestPolicyInput(
-                        baseline=ProviderRequest(
-                            system_prompt=(
-                                agent_system_prompt + coding_state.compaction_suffix
-                            ),
-                            user_prompt=provider_user_input,
-                            provider_name=coding_state.provider_name,
-                            model_id=coding_state.model_id,
-                            cwd=cwd,
-                            messages=loop_active_input.request_messages(
-                                coding_state.messages
-                            ),
-                            available_tools=available_tools,
-                            # Image attachments belong to the current user
-                            # message, so they ride only the first provider
-                            # call of this turn; later tool-loop iterations
-                            # append tool results (also user-role), and
-                            # re-sending would mis-attach the image.
-                            attachments=(turn_attachments if turn_index == 0 else ()),
-                            provider_header_callback=(
-                                _active_provider_header_callback()
-                            ),
-                        ),
-                        active_input=loop_active_input,
-                    ),
-                )
-                renderer.refresh_tool_renderers(
-                    {
-                        name: ctl.extension_tool_renderers[name]
-                        for name in snapshot.advertised_tool_names
-                        if name in ctl.extension_tool_renderers
-                    }
-                )
-                return AgentLoopRequestPreparation(coding_state.messages, snapshot)
-
-            def _complete_loop_provider_turn(
-                snapshot: AgentProviderRequestSnapshot,
-                event_sink: AgentEventSink,
-                turn_index: int,
-            ) -> ProviderTurnOutcome:
-                provider_request = materialize_provider_request(snapshot)
-                provider_waiter = None
-                provider_for_turn: ProviderPort = coding_state.provider
-                if terminal_ui is not None:
-                    provider_waiter = partial(_wait_for_provider_interrupt, terminal_ui)
-                elif self.abort_event is not None:
-                    provider_start_event = None
-                    if isinstance(self.abort_event, _AbortCallbackSignal):
-                        provider_start_event = threading.Event()
-                        provider_for_turn = _StartGatedProvider(
-                            coding_state.provider, provider_start_event
-                        )
-                    provider_waiter = partial(
-                        _wait_for_external_abort,
-                        self.abort_event,
-                        provider_start_event,
-                    )
-                return provider_turn_executor.complete(
-                    provider_for_turn,
-                    provider_request,
-                    event_sink,
-                    turn_index=turn_index,
-                    waiter=provider_waiter,
-                )
-
-            def _agent_loop_entered() -> None:
-                ctl.extension_in_agent_turn = True
-
-            def _agent_input_accepted() -> None:
-                coding_state.record_input_accepted()
-                # Only genuine literal prompts enter the local recall store.
-                if resource_provider_text is None:
-                    prompt_history_store.record(user_input)
-
-            def _provider_result_observed(result: ProviderResult) -> None:
-                del result
-                if terminal_ui is not None and terminal_ui.has_pending_messages():
-                    terminal_ui.promote_pending_to_drain()
-
-            def _agent_provider_succeeded(
-                status: AgentProviderStatusDecision,
-                tool_state: AgentToolPolicyState,
-            ) -> None:
-                del status
-                del tool_state
-                coding_state.clear_provider_failure()
-
-            def _agent_cancellation_observed(
-                reason: AgentCancellationReason,
-            ) -> None:
-                if terminal_ui is None:
-                    return
-                if reason is AgentCancellationReason.OPERATOR_ABORT:
-                    terminal_ui.restore_pending_to_editor()
-                elif reason in (
-                    AgentCancellationReason.STEERING,
-                    AgentCancellationReason.LOCAL_COMMAND,
-                ):
-                    terminal_ui.promote_pending_to_drain()
-
-            def _agent_provider_failed(
-                status: AgentProviderStatusDecision,
-                tool_state: AgentToolPolicyState,
-            ) -> None:
-                failure = status.failure
-                assert failure is not None
-                del tool_state
-                coding_state.record_provider_failure(failure)
-                suffix = (
-                    f" (response_status={status.response_status})"
-                    if status.response_status is not None
-                    else ""
-                )
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    "pipy: provider failure during turn: "
-                    f"{failure.error_type}: {failure.message.value}{suffix}",
-                )
-                refresh_legacy_footer_with_usage()
-
-            def _agent_no_tool_assistant(
-                tool_state: AgentToolPolicyState,
-            ) -> None:
-                del tool_state
-                refresh_legacy_footer_with_usage()
-
-            def _agent_malformed_fatal(
-                failure: AgentFailure,
-                tool_state: AgentToolPolicyState,
-            ) -> None:
-                del tool_state
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    f"pipy: tool-loop ended after {failure.message.value}",
-                )
-
-            status_policy = AgentLoopStatusPolicyAdapter(
-                run_entered=_agent_loop_entered,
-                input_accepted=_agent_input_accepted,
-                provider_result_observed=_provider_result_observed,
-                provider_cancellation_observed=(_agent_cancellation_observed),
-                tool_policy_state_changed=_sync_tool_policy_counters,
-                provider_succeeded=_agent_provider_succeeded,
-                provider_failed=_agent_provider_failed,
-                no_tool_assistant=_agent_no_tool_assistant,
-                malformed_fatal=_agent_malformed_fatal,
-            )
-            tool_waiter = (
-                None
-                if terminal_ui is None
-                else partial(_wait_for_tool_interrupt, terminal_ui)
-            )
-            run_coordinator = CodingAgentRunCoordinator(
-                request_source=AgentLoopRequestSourceAdapter(_prepare_loop_request),
-                provider_turn=AgentLoopProviderTurnAdapter(
-                    _complete_loop_provider_turn
-                ),
-                status_policy=status_policy,
+                image_reference_roots=image_reference_roots,
+                prompt_history_store=prompt_history_store,
                 tool_capabilities=tool_capabilities,
-                tool_policy=agent_tool_policy,
-                event_sink=emitter,
+                agent_tool_policy=agent_tool_policy,
+                coding_input_queue=coding_input_queue,
+                command_effects=command_effects,
+                input_queued_input_port=input_queued_input_port,
+                provider_request_policy=provider_request_policy,
+                provider_turn_executor=provider_turn_executor,
                 run_effect_sink=run_effect_sink,
                 usage_publisher=usage_publisher,
-                queued_input_port=coding_input_queue.agent_loop_port,
+                extension_ui_driver=extension_ui_driver,
+                diag=diag,
+                coding_footer_text=coding_footer_text,
+                refresh_legacy_footer_with_usage=refresh_legacy_footer_with_usage,
+                apply_compaction=apply_compaction,
+                append_agent_message=append_agent_message,
+                drain_extension_outboxes=drain_extension_outboxes,
+                _active_provider_header_callback=_active_provider_header_callback,
+                _extension_complete=_extension_complete,
+                _extension_custom_driver=_extension_custom_driver,
+                _extension_notify=_extension_notify,
+                _sync_tool_policy_counters=_sync_tool_policy_counters,
+                extension_append_entry=extension_append_entry,
+                extension_get_session_name=extension_get_session_name,
+                extension_send_message=extension_send_message,
+                extension_set_active_tools=extension_set_active_tools,
+                extension_set_label=extension_set_label,
+                extension_set_model=extension_set_model,
+                extension_set_session_name=extension_set_session_name,
+                extension_set_thinking_level=extension_set_thinking_level,
+            ),
+            finalize=partial(
+                repl_loop_step.finalize,
                 coding_state=coding_state,
-                retain_next_input=coding_input_queue.retain_agent_input,
-                tool_waiter=tool_waiter,
-            )
-            ctl.agent_settled_pending = True
-            loop_outcome = run_coordinator.run_turn(
-                active_input,
-                initial_tool_state,
-                pricing=_pricing_for(
-                    coding_state.provider_name,
-                    coding_state.model_id,
-                ),
-                accepted_queued_input=queued_input,
-            )
-            ctl.extension_in_agent_turn = False
-
-            if loop_outcome.terminate_session:
-                run_failure = loop_outcome.result.failure
-                assert run_failure is not None
-                result_snapshot = coding_state.result_snapshot()
-                ended_at = datetime.now(UTC)
-                try:
-                    repl_input.close()
-                except Exception:
-                    pass
-                return LoopStepSignal.return_result(
-                    build_repl_result(
-                        result_snapshot,
-                        status=HarnessStatus.FAILED,
-                        exit_code=1,
-                        started_at=started_at,
-                        ended_at=ended_at,
-                        error_type=run_failure.error_type,
-                        error_message=run_failure.message.value,
-                    )
-                )
-            return LoopStepSignal.continue_loop()
-
-        def _finalize_repl_loop() -> NativeToolReplResult:
-            try:
-                repl_input.close()
-            except Exception:
-                pass
-            ended_at = datetime.now(UTC)
-            result_snapshot = coding_state.result_snapshot()
-            return build_repl_result(
-                result_snapshot,
-                status=HarnessStatus.SUCCEEDED,
-                exit_code=0,
+                repl_input=repl_input,
                 started_at=started_at,
-                ended_at=ended_at,
-            )
-
-        def _fire_session_start() -> None:
-            emitter.fire_lifecycle(EVENT_SESSION_START, reason="startup")
-
-        def _fire_session_shutdown() -> None:
-            emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
-
-        def _consume_agent_settled_pending() -> bool:
-            if ctl.agent_settled_pending:
-                ctl.agent_settled_pending = False
-                return True
-            return False
-
-        def _clear_extension_chrome_after_run() -> None:
-            if terminal_ui is not None:
-                terminal_ui.clear_extension_chrome()
-
-        return loop_controller.run_loop(
-            step_once=_repl_step,
-            finalize=_finalize_repl_loop,
-            fire_session_start=_fire_session_start,
-            fire_session_shutdown=_fire_session_shutdown,
-            consume_settle_pending=_consume_agent_settled_pending,
-            clear_extension_chrome=_clear_extension_chrome_after_run,
+            ),
+            fire_session_start=partial(
+                repl_loop_step.fire_session_start, emitter=emitter
+            ),
+            fire_session_shutdown=partial(
+                repl_loop_step.fire_session_shutdown, emitter=emitter
+            ),
+            consume_settle_pending=partial(
+                repl_loop_step.consume_settle_pending, ctl=ctl
+            ),
+            clear_extension_chrome=partial(
+                repl_loop_step.clear_extension_chrome, terminal_ui=terminal_ui
+            ),
         )
 
     def _build_repl_input(

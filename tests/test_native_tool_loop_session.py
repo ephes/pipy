@@ -399,9 +399,18 @@ def test_footer_paths_read_constant_time_state_scalars(
             assert isinstance(value.value, ast.Name)
             assert value.value.id == "coding_state"
 
+    # The result projection (the terminate `FAILED` branch and the post-loop
+    # `SUCCEEDED` finalize) relocated with the per-iteration loop step and its
+    # bookends into the module-level `_ReplLoopStep` handler; the two
+    # `result_snapshot` calls read the same constant-time state scalars there.
+    repl_loop_step_class = next(
+        node
+        for node in syntax.body
+        if isinstance(node, ast.ClassDef) and node.name == "_ReplLoopStep"
+    )
     result_snapshot_calls = [
         node
-        for node in ast.walk(run_method)
+        for node in ast.walk(repl_loop_step_class)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "result_snapshot"
