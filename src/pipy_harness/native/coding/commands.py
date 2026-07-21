@@ -39,6 +39,7 @@ class CodingCommandAction(StrEnum):
     SESSION_SHARE = "session_share"
     SETTINGS = "settings"
     TRUST_PROJECT = "trust_project"
+    RELOAD = "reload"
 
 
 class CodingCommandFooterPolicy(StrEnum):
@@ -83,6 +84,7 @@ def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
         ("/settings", CodingCommandAction.SETTINGS),
         ("/trust", CodingCommandAction.TRUST_PROJECT),
         ("/share", CodingCommandAction.SESSION_SHARE),
+        ("/reload", CodingCommandAction.RELOAD),
     ):
         if value == command:
             return _continue_outcome(action)

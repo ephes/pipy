@@ -1021,6 +1021,51 @@ and description entries, Phase 3.2 registry metadata, Phase 3.3 write ownership,
 Phase 4 UI movement, and async conversion remain explicit non-goals. The command
 extraction changes no product behavior or public product format.
 
+Slice 3.1d.4d-reload adds `RELOAD` as a payload-free CONTINUE outcome with the
+standard footer, classified in the exact payload-free tuple loop alongside
+`/hotkeys`, `/changelog`, `/copy`, `/session`, `/compact`, `/new`, `/clone`,
+`/settings`, `/trust`, and `/share`. Only an already-stripped bare `/reload`
+classifies; `/reload anything` and every spaced or altered form fall through to
+UNHANDLED and reach `dispatch_resource_command`/`dispatch_extension_command`
+exactly as before, so no argument grammar is introduced and the built-in still
+wins over any custom command of the same name because the kernel is evaluated
+before resource and extension dispatch. `RELOAD` stays out of both
+`usage_aware_actions` and `argument_actions` in
+`require_exact_coding_command_outcome`, so validation already enforces the
+STANDARD footer policy and the absence of an argument.
+
+The composition interpreter remains the owner of the full reload effect
+sequence, now moved verbatim into an `elif command_outcome.action is
+CodingCommandAction.RELOAD:` arm of the CONTINUE chain: `settings.reload()` and
+`keybindings.reload()`, `compose_package_runtime`,
+`WorkspaceResources.discover(...).with_enablement(...)`,
+`clear_extension_chrome`, `_activate_workspace_extensions` and every
+`_ext_runtime` local reassignment, extension-flag re-parse, catalog
+`refresh()` plus extension-provider contributions and the
+selection-disappeared/tool-capability fallback rebind (with
+`_bind_unavailable_after_reload` and `_pricing_for`), tool renderer/registry
+replacement, emitter lifecycle/flags refresh, theme and derived-UI re-apply,
+`redraw_custom_entries_for_active_branch`, `load_errors` diagnostics, startup
+chrome, `_maybe_save_implicit_trust_after_reload`, the
+`EVENT_SESSION_START` lifecycle with `reason='reload'`, and the reloaded-settings
+diagnostic. The typed arm drops its own trailing `refresh_legacy_footer()`; the
+centralized STANDARD footer refresh after the CONTINUE chain now owns the single
+post-command footer paint, identical to `/export`, `/import`, and `/share`. The
+superseded raw `if command_text == "/reload":` late branch is deleted in this
+cut. Queued/RPC bypass is preserved automatically because `command_text` is `''`
+for selected provider content, so the kernel classifies `/reload` only for
+genuinely typed input.
+
+The reload semantics, effect ordering, diagnostics, provider-fallback behavior,
+the reload-fired session-start lifecycle, and the narrowly guarded
+no-resource-start implicit-trust exception are all unchanged. Neither the
+reloaded settings nor keybindings cross into the metadata-only workflow archive.
+Resource/custom-command and extension precedence, `RESERVED_COMMAND_NAMES`,
+slash-menu names/descriptions, completion, the deferred model-change native-tree
+entry, the Phase 3.2 declarative registry, Phase 3.3 write ownership, Phase 4 UI
+movement, and async conversion remain explicit non-goals. The command extraction
+changes no product behavior or public product format.
+
 ### Slice 3.2: Declarative command registry
 
 Replace the large command dispatcher with one registry containing command name,
@@ -1241,6 +1286,7 @@ The default sequence is:
 | 3.1d.4c | `80d1e30` — `refactor: type export command` | Exact full-content `/export` classification, standard footer, typed-only ownership, path/default/format routing, full-tree HTML and active-branch JSONL behavior, credential-shaped redaction, real finalized metadata-archive separation, queued/RPC bypass, controlled and uncontrolled failure timing, and superseded late-path deletion passed. Focused command/runtime/RPC/import-boundary validation passed 473 tests and existing export/archive/catalog validation passed 38. Export conformance passed 11/11, automation/RPC conformance 15/15, and PTY smoke 8/8. The C901 inventory remained at 125 known findings while `NativeToolReplSession.run()` fell from 311 to 307. One unrelated Escape-cancellation PTY follow-up deadline missed after all export tests passed; the exact case passed three isolated reruns, the containing 49-test PTY module passed, and the fresh full suite passed without a production change. Final `just check`: Ruff and mypy clean across 380 sources, 4,168 tests passed, 2 skipped; docs and diff passed. Mandatory Pi round 1 (`openai-codex/gpt-5.6-sol`, high, read-only) returned explicit CLEAN with C0/W0/S0. Claude Fable round 1 returned direct unscoped CLEAN with zero findings, skips, truncations, redactions, forbidden tool uses, or errors. No finding was fixed, rejected, or deferred. |
 | 3.1d.4d | This commit — `refactor: type import command` | Exact full-content `/import` classification, standard footer, typed composition ownership, `--yes` detection, home and cwd resolution, direct-stream confirmations, the `session_before_switch` gate, collision-safe native-store import, missing-cwd recovery, active-history rebuild, extension-input clearing, ordered parse/confirm/switch/import/rebuild/diagnostic sequencing, native-product/workflow-archive privacy separation, the narrowed durable-archive exception projection, and superseded late-path deletion passed. Focused command/runtime/session/RPC/import-boundary validation passed 412 tests and session export/resume/lineage validation passed 43. Export conformance passed 11/11, automation/RPC conformance 15/15, and PTY smoke 8/8. `NativeToolReplSession.run()` McCabe complexity fell from 307 to 297 while the remaining C901 inventory held as known findings. Final `just check`: Ruff and mypy clean across 381 source files, 4,221 tests passed, 2 skipped; `just docs-build` and the diff review passed. Review: Claude Opus panel (user-directed substitution for the different-family gate) ran 1 round across both the behavior and invariants lenses and returned CLEAN with 0 findings; the final round was clean and no finding was fixed, rejected, or deferred. |
 | 3.1d.4x-share | This commit — `refactor: type share command` | Exact payload-free `/share` classification alongside `/hotkeys`/`/settings`/`/trust`, standard footer, typed composition ownership of the share effect sequence (`resolve_github_token()`, no-token diagnostic, the untouched cancellation-worker `_share_native_session_command` guarded so only `NativeExportError` maps through the sanitized path, the cancelled `result is None` path, and the viewer_url/gist_url diagnostics), single centralized standard-footer refresh matching `/export`/`/import`, `/share foo` and altered forms falling through to UNHANDLED and resource/custom-command dispatch, built-in-over-custom precedence, GitHub secret-gist/never-send-token-in-body privacy and `ShareResult` shape preserved, and superseded raw late-path deletion passed. Focused kernel classification/validation and export-distribution token-boundary/privacy validation passed 228 tests (`tests/test_native_coding_commands.py` + `tests/test_native_export_distribution.py`), and `tests/test_native_tool_loop_session.py` + `tests/test_architecture_import_boundaries.py` passed 197. Export conformance passed 11/11, automation/RPC conformance 15/15, and PTY smoke 8/8. `NativeToolReplSession.run()` McCabe complexity is 298 (net +1 for the added typed dispatch arm over the deleted raw branch) while the remaining C901 inventory held as known findings. Final `just check`: Ruff and mypy clean across 381 source files, 4,230 tests passed, 2 skipped; `just docs-build` passed. Two nondeterministic PTY timing failures were observed under full-suite load in the multi-tool-balancing and queued-shell-drain tests; each passed in isolation, the specific failure moved between runs, and neither touches the `/share` classification or dispatch path, matching the documented PTY timing flake. Review: Claude Opus panel (user-directed substitution for the different-family gate) ran 1 round across both the behavior and invariants lenses and returned CLEAN with 0 findings; the final round was clean and no finding was fixed, rejected, or deferred. |
+| 3.1d.4d-reload | This commit — `refactor: type reload command` | Exact payload-free `/reload` classification in the payload-free tuple loop alongside `/hotkeys`/`/changelog`/`/copy`/`/session`/`/compact`/`/new`/`/clone`/`/settings`/`/trust`/`/share`, standard footer, typed composition ownership of the full reload effect sequence moved verbatim into an `elif ... CodingCommandAction.RELOAD` arm (settings/keybindings reload, `compose_package_runtime`, `WorkspaceResources.discover(...).with_enablement(...)`, `clear_extension_chrome`, `_activate_workspace_extensions` and every `_ext_runtime` reassignment, extension-flag re-parse, catalog refresh + extension-provider contributions + selection-disappeared/tool-capability fallback rebind with `_bind_unavailable_after_reload`/`_pricing_for`, tool renderer/registry replacement, emitter lifecycle/flags refresh, theme + derived-UI re-apply, `redraw_custom_entries_for_active_branch`, `load_errors` diagnostics, startup chrome, `_maybe_save_implicit_trust_after_reload`, `EVENT_SESSION_START` `reason='reload'`, and the reloaded-settings diagnostic), single centralized standard-footer refresh matching `/export`/`/import`/`/share`, `/reload anything` and altered forms falling through to UNHANDLED and resource/extension dispatch, built-in-over-custom precedence, queued/RPC bypass preserved via the `''` command_text, settings/keybindings kept out of the metadata-only workflow archive, and superseded raw `if command_text == "/reload":` late-path deletion — cutting the last raw built-in slash branch onto the typed kernel — passed; the moved body is byte-identical modulo the +8-space reindent. Focused kernel classification/exact-outcome validation passed 220 tests (`tests/test_native_coding_commands.py`), and `tests/test_native_tool_loop_session.py` + `tests/test_architecture_import_boundaries.py` + `tests/test_native_tool_loop_session_import.py` passed 234, including the reload characterization (`test_reload_rereads_edited_settings_without_provider_turn`, `test_reload_malformed_settings_keeps_prior_and_warns`, `test_reload_refreshes_extension_entry_renderers`, `test_reload_fires_session_start_reload_for_new_extension_generation`) and the no-provider-turn assertions. Settings-config conformance passed 17/17, automation/RPC conformance 15/15, and PTY smoke 8/8. `NativeToolReplSession.run()` McCabe complexity holds at 298 (the added typed dispatch arm offsets the deleted raw branch) while the remaining C901 inventory held as known findings. Final `just check`: Ruff and mypy clean across 381 source files, 4,239 tests passed, 2 skipped; `just docs-build` passed. Review: Claude Opus panel (user-directed substitution for the different-family gate) ran 1 round across both the behavior and invariants lenses and returned CLEAN with 0 findings; the final round was clean and no finding was fixed, rejected, or deferred. |
 
 The earlier code-quality audit remains evidence, with this mapping:
 

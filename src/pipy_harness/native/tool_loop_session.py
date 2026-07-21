@@ -3804,6 +3804,307 @@ class NativeToolReplSession:
                                 self._emit_diagnostic(
                                     terminal_ui, error_stream, message
                                 )
+                        elif command_outcome.action is CodingCommandAction.RELOAD:
+                            # Local-only: re-read settings (both scopes), keybindings, and
+                            # workspace resources, then re-apply derived UI settings. Runs
+                            # between turns at the prompt, so no provider turn or compaction
+                            # is in flight. A settings/theme load error keeps the prior good
+                            # state for that scope; a malformed keybindings.json falls back
+                            # to the built-in defaults. No provider turn, no tool call.
+                            settings.reload()
+                            keybindings.reload()
+                            # Re-resolve package roots + re-install the theme
+                            # registry so a package added/removed since startup is
+                            # reflected after /reload.
+                            package_roots = compose_package_runtime(
+                                settings,
+                                cwd,
+                                include_package_themes=not resource_options.no_themes,
+                                explicit_theme_paths=resource_options.theme_paths,
+                            )
+                            workspace_resources = WorkspaceResources.discover(
+                                cwd,
+                                package_roots=package_roots,
+                                explicit_skill_paths=resource_options.skill_paths,
+                                explicit_prompt_template_paths=resource_options.prompt_template_paths,
+                                include_skills_defaults=not resource_options.no_skills,
+                                include_prompt_template_defaults=not resource_options.no_prompt_templates,
+                                include_workspace_defaults=settings.project_trusted,
+                            ).with_enablement(
+                                skills_patterns=settings.get_skills_patterns(),
+                                prompts_patterns=settings.get_prompts_patterns(),
+                                enable_skill_commands=settings.get_enable_skill_commands(),
+                            )
+                            # Re-discover + re-activate extensions on reload (Pi
+                            # /reload also reloads extensions). A failing extension is
+                            # disabled without affecting the session. Clear any chrome
+                            # set by the prior generation first so a removed/disabled
+                            # extension cannot leave stale widgets/header/footer/title.
+                            if terminal_ui is not None:
+                                terminal_ui.clear_extension_chrome()
+                            _ext_runtime = _activate_workspace_extensions(
+                                cwd,
+                                workspace_resources,
+                                tuple(self.tool_registry.keys()),
+                                package_roots=()
+                                if resource_options.no_extensions
+                                else package_roots.extensions,
+                                extension_patterns=settings.get_extensions_patterns(),
+                                explicit_extension_paths=resource_options.extension_paths,
+                                include_default_extensions=not resource_options.no_extensions,
+                                include_workspace_defaults=settings.project_trusted,
+                            )
+                            extension_commands = _ext_runtime.commands
+                            extension_menu_names = _ext_runtime.menu_names
+                            extension_descriptions = _ext_runtime.descriptions
+                            extension_tool_call_hooks_ = _ext_runtime.tool_call_hooks
+                            extension_lifecycle_hooks = _ext_runtime.lifecycle_hooks
+                            extension_input_hooks = _ext_runtime.input_hooks
+                            extension_before_agent_start_hooks = (
+                                _ext_runtime.before_agent_start_hooks
+                            )
+                            extension_tool_result_hooks = _ext_runtime.tool_result_hooks
+                            extension_user_bash_hooks = _ext_runtime.user_bash_hooks
+                            extension_before_provider_headers_hooks = (
+                                _ext_runtime.before_provider_headers_hooks
+                            )
+                            extension_before_provider_request_hooks = (
+                                _ext_runtime.before_provider_request_hooks
+                            )
+                            extension_session_before_switch_hooks = (
+                                _ext_runtime.session_before_switch_hooks
+                            )
+                            extension_session_before_fork_hooks = (
+                                _ext_runtime.session_before_fork_hooks
+                            )
+                            extension_session_before_compact_hooks = (
+                                _ext_runtime.session_before_compact_hooks
+                            )
+                            extension_session_before_tree_hooks = (
+                                _ext_runtime.session_before_tree_hooks
+                            )
+                            extension_message_outbox = _ext_runtime.outbox
+                            extension_custom_message_outbox = _ext_runtime.custom_outbox
+                            extension_renderer_map = _ext_runtime.message_renderers
+                            extension_entry_renderer_map = _ext_runtime.entry_renderers
+                            extension_activation_custom_messages = _ext_runtime.custom_messages
+                            for custom_message in extension_activation_custom_messages:
+                                extension_send_message(
+                                    custom_message.custom_type,
+                                    custom_message.content,
+                                    custom_message.display,
+                                    custom_message.options,
+                                    custom_message.details,
+                                )
+                            extension_activation_custom_messages = ()
+                            reloaded_flag_values, reloaded_flag_error = (
+                                parse_extension_flag_tokens(
+                                    _ext_runtime.flags,
+                                    tuple(resource_options.extension_flag_tokens),
+                                )
+                            )
+                            if reloaded_flag_error is not None:
+                                self._emit_diagnostic(
+                                    terminal_ui,
+                                    error_stream,
+                                    f"pipy: {reloaded_flag_error}",
+                                )
+                            else:
+                                extension_flag_values = reloaded_flag_values
+                                emitter.set_flags(extension_flag_values)
+                            state = self.provider_state
+                            if isinstance(state, NativeReplProviderState):
+                                catalog_state = state.catalog_state
+                                if catalog_state is not None:
+                                    was_extension_selection = (
+                                        state.current_selection_uses_extension_provider()
+                                    )
+                                    catalog_state.refresh()  # type: ignore[attr-defined]
+                                    catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
+                                        _ext_runtime.providers,
+                                        _ext_runtime.unregistered_providers,
+                                    )
+                                    selection_disappeared = (
+                                        not state.current_selection_supported()
+                                        or (
+                                            was_extension_selection
+                                            and not state.current_selection_uses_extension_provider()
+                                        )
+                                    )
+                                    if not selection_disappeared:
+                                        if state.current_selection_uses_extension_provider():
+                                            refreshed_provider = state.current_provider()
+                                            if getattr(
+                                                refreshed_provider, "supports_tool_calls", False
+                                            ):
+                                                coding_state.refresh_provider(
+                                                    refreshed_provider
+                                                )
+                                            else:
+                                                fallback = state.reset_to_first_available_model(
+                                                    require_tool_calls=True
+                                                )
+                                                if fallback is not None:
+                                                    fallback_provider = state.current_provider()
+                                                    coding_state.rebind_provider(
+                                                        fallback_provider,
+                                                        provider_name=fallback.provider_name,
+                                                        model_id=fallback.model_id,
+                                                        usage_accumulator=(
+                                                            AgentUsageAccumulator(
+                                                                _pricing_for(
+                                                                    fallback.provider_name,
+                                                                    fallback.model_id,
+                                                                )
+                                                            )
+                                                        ),
+                                                    )
+                                                    self._emit_diagnostic(
+                                                        terminal_ui,
+                                                        error_stream,
+                                                        "pipy: active model no longer "
+                                                        "supports tool calls after reload; "
+                                                        f"selected {fallback.reference}.",
+                                                    )
+                                                else:
+                                                    message = (
+                                                        "active model no longer supports "
+                                                        "tool calls after reload and no "
+                                                        "available tool-capable fallback "
+                                                        "was found"
+                                                    )
+                                                    _bind_unavailable_after_reload(message)
+                                                    self._emit_diagnostic(
+                                                        terminal_ui,
+                                                        error_stream,
+                                                        f"pipy: {message}.",
+                                                    )
+                                    else:
+                                        fallback = state.reset_to_first_available_model(
+                                            require_tool_calls=True
+                                        )
+                                        if fallback is not None:
+                                            fallback_provider = state.current_provider()
+                                            coding_state.rebind_provider(
+                                                fallback_provider,
+                                                provider_name=fallback.provider_name,
+                                                model_id=fallback.model_id,
+                                                usage_accumulator=AgentUsageAccumulator(
+                                                    _pricing_for(
+                                                        fallback.provider_name,
+                                                        fallback.model_id,
+                                                    )
+                                                ),
+                                            )
+                                            self._emit_diagnostic(
+                                                terminal_ui,
+                                                error_stream,
+                                                "pipy: active model disappeared on "
+                                                "reload; selected "
+                                                f"{fallback.reference}.",
+                                            )
+                                        else:
+                                            message = (
+                                                "active model disappeared on reload and "
+                                                "no available tool-capable fallback was "
+                                                "found"
+                                            )
+                                            _bind_unavailable_after_reload(message)
+                                            self._emit_diagnostic(
+                                                terminal_ui,
+                                                error_stream,
+                                                f"pipy: {message}.",
+                                            )
+                            # Replace the run's extension capability registry and
+                            # custom renderer map with the reloaded generation.
+                            extension_tool_renderers = _extension_tool_renderer_map(
+                                _ext_runtime.tools
+                            )
+                            renderer.refresh_tool_renderers(extension_tool_renderers)
+                            extension_tool_registry = {}
+                            for _registered_tool in _ext_runtime.tools:
+                                _port = _ExtensionToolPort(
+                                    _registered_tool,
+                                    has_ui=terminal_ui is not None,
+                                    notify_sink=_extension_notify,
+                                    set_active_tools_fn=lambda names: (
+                                        extension_set_active_tools(names)
+                                    ),
+                                    flags=extension_flag_values,
+                                    render_details_sink=extension_render_details,
+                                    project_trusted=settings.project_trusted,
+                                )
+                                extension_tool_registry[_port.definition.name] = _port
+                            tool_capabilities.replace_extensions(extension_tool_registry)
+                            unknown_filter_names = tool_capabilities.unknown_filter_names
+                            if unknown_filter_names:
+                                known = (
+                                    ", ".join(sorted(tool_capabilities.registered_names))
+                                    or "<none>"
+                                )
+                                unknown = ", ".join(unknown_filter_names)
+                                self._emit_diagnostic(
+                                    terminal_ui,
+                                    error_stream,
+                                    f"pipy: unknown tool name(s): {unknown}. "
+                                    f"Known tools: {known}",
+                                )
+                            # Refresh the emitter's lifecycle hooks so reloaded
+                            # extensions observe subsequent agent/turn events.
+                            emitter.set_lifecycle_hooks(extension_lifecycle_hooks)
+                            emitter.set_flags(extension_flag_values)
+                            # Re-apply the edited theme (settings is source of truth over the
+                            # persisted store) and the derived UI settings.
+                            reloaded_theme = settings.get_theme()
+                            if reloaded_theme:
+                                os.environ["PIPY_THEME"] = reloaded_theme
+                            if terminal_ui is not None:
+                                terminal_ui.autocomplete_max_visible = (
+                                    settings.get_autocomplete_max_visible()
+                                )
+                                terminal_ui.command_names = _tool_loop_command_names(
+                                    workspace_resources, extension_menu_names
+                                )
+                                terminal_ui.command_descriptions = (
+                                    _tool_loop_command_descriptions(
+                                        workspace_resources, extension_descriptions
+                                    )
+                                )
+                                terminal_ui.extension_shortcut_keys = frozenset(
+                                    _ext_runtime.shortcuts
+                                )
+                                redraw_custom_entries_for_active_branch()
+                            load_errors = settings.load_errors()
+                            if load_errors:
+                                for scope, detail in load_errors.items():
+                                    self._emit_diagnostic(
+                                        terminal_ui,
+                                        error_stream,
+                                        f"pipy: kept prior {scope} settings ({detail}).",
+                                    )
+                            if self.verbose_startup or not settings.get_quiet_startup():
+                                print_startup_chrome(
+                                    error_stream,
+                                    cwd=cwd,
+                                    include_workspace_defaults=settings.project_trusted,
+                                )
+                            saved_implicit_trust = self._maybe_save_implicit_trust_after_reload(
+                                cwd=cwd,
+                                settings=settings,
+                                terminal_ui=terminal_ui,
+                                error_stream=error_stream,
+                            )
+                            emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
+                            self._emit_diagnostic(
+                                terminal_ui,
+                                error_stream,
+                                (
+                                    "pipy: reloaded settings, keybindings, and resources; "
+                                    "saved project trust."
+                                    if saved_implicit_trust
+                                    else "pipy: reloaded settings, keybindings, and resources."
+                                ),
+                            )
                         if (
                             command_outcome.footer_policy
                             is CodingCommandFooterPolicy.STANDARD
@@ -3819,309 +4120,6 @@ class NativeToolReplSession:
                                 "handled command requires a closed footer policy"
                             )
                         continue
-                if command_text == "/reload":
-                    # Local-only: re-read settings (both scopes), keybindings, and
-                    # workspace resources, then re-apply derived UI settings. Runs
-                    # between turns at the prompt, so no provider turn or compaction
-                    # is in flight. A settings/theme load error keeps the prior good
-                    # state for that scope; a malformed keybindings.json falls back
-                    # to the built-in defaults. No provider turn, no tool call.
-                    settings.reload()
-                    keybindings.reload()
-                    # Re-resolve package roots + re-install the theme
-                    # registry so a package added/removed since startup is
-                    # reflected after /reload.
-                    package_roots = compose_package_runtime(
-                        settings,
-                        cwd,
-                        include_package_themes=not resource_options.no_themes,
-                        explicit_theme_paths=resource_options.theme_paths,
-                    )
-                    workspace_resources = WorkspaceResources.discover(
-                        cwd,
-                        package_roots=package_roots,
-                        explicit_skill_paths=resource_options.skill_paths,
-                        explicit_prompt_template_paths=resource_options.prompt_template_paths,
-                        include_skills_defaults=not resource_options.no_skills,
-                        include_prompt_template_defaults=not resource_options.no_prompt_templates,
-                        include_workspace_defaults=settings.project_trusted,
-                    ).with_enablement(
-                        skills_patterns=settings.get_skills_patterns(),
-                        prompts_patterns=settings.get_prompts_patterns(),
-                        enable_skill_commands=settings.get_enable_skill_commands(),
-                    )
-                    # Re-discover + re-activate extensions on reload (Pi
-                    # /reload also reloads extensions). A failing extension is
-                    # disabled without affecting the session. Clear any chrome
-                    # set by the prior generation first so a removed/disabled
-                    # extension cannot leave stale widgets/header/footer/title.
-                    if terminal_ui is not None:
-                        terminal_ui.clear_extension_chrome()
-                    _ext_runtime = _activate_workspace_extensions(
-                        cwd,
-                        workspace_resources,
-                        tuple(self.tool_registry.keys()),
-                        package_roots=()
-                        if resource_options.no_extensions
-                        else package_roots.extensions,
-                        extension_patterns=settings.get_extensions_patterns(),
-                        explicit_extension_paths=resource_options.extension_paths,
-                        include_default_extensions=not resource_options.no_extensions,
-                        include_workspace_defaults=settings.project_trusted,
-                    )
-                    extension_commands = _ext_runtime.commands
-                    extension_menu_names = _ext_runtime.menu_names
-                    extension_descriptions = _ext_runtime.descriptions
-                    extension_tool_call_hooks_ = _ext_runtime.tool_call_hooks
-                    extension_lifecycle_hooks = _ext_runtime.lifecycle_hooks
-                    extension_input_hooks = _ext_runtime.input_hooks
-                    extension_before_agent_start_hooks = (
-                        _ext_runtime.before_agent_start_hooks
-                    )
-                    extension_tool_result_hooks = _ext_runtime.tool_result_hooks
-                    extension_user_bash_hooks = _ext_runtime.user_bash_hooks
-                    extension_before_provider_headers_hooks = (
-                        _ext_runtime.before_provider_headers_hooks
-                    )
-                    extension_before_provider_request_hooks = (
-                        _ext_runtime.before_provider_request_hooks
-                    )
-                    extension_session_before_switch_hooks = (
-                        _ext_runtime.session_before_switch_hooks
-                    )
-                    extension_session_before_fork_hooks = (
-                        _ext_runtime.session_before_fork_hooks
-                    )
-                    extension_session_before_compact_hooks = (
-                        _ext_runtime.session_before_compact_hooks
-                    )
-                    extension_session_before_tree_hooks = (
-                        _ext_runtime.session_before_tree_hooks
-                    )
-                    extension_message_outbox = _ext_runtime.outbox
-                    extension_custom_message_outbox = _ext_runtime.custom_outbox
-                    extension_renderer_map = _ext_runtime.message_renderers
-                    extension_entry_renderer_map = _ext_runtime.entry_renderers
-                    extension_activation_custom_messages = _ext_runtime.custom_messages
-                    for custom_message in extension_activation_custom_messages:
-                        extension_send_message(
-                            custom_message.custom_type,
-                            custom_message.content,
-                            custom_message.display,
-                            custom_message.options,
-                            custom_message.details,
-                        )
-                    extension_activation_custom_messages = ()
-                    reloaded_flag_values, reloaded_flag_error = (
-                        parse_extension_flag_tokens(
-                            _ext_runtime.flags,
-                            tuple(resource_options.extension_flag_tokens),
-                        )
-                    )
-                    if reloaded_flag_error is not None:
-                        self._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            f"pipy: {reloaded_flag_error}",
-                        )
-                    else:
-                        extension_flag_values = reloaded_flag_values
-                        emitter.set_flags(extension_flag_values)
-                    state = self.provider_state
-                    if isinstance(state, NativeReplProviderState):
-                        catalog_state = state.catalog_state
-                        if catalog_state is not None:
-                            was_extension_selection = (
-                                state.current_selection_uses_extension_provider()
-                            )
-                            catalog_state.refresh()  # type: ignore[attr-defined]
-                            catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
-                                _ext_runtime.providers,
-                                _ext_runtime.unregistered_providers,
-                            )
-                            selection_disappeared = (
-                                not state.current_selection_supported()
-                                or (
-                                    was_extension_selection
-                                    and not state.current_selection_uses_extension_provider()
-                                )
-                            )
-                            if not selection_disappeared:
-                                if state.current_selection_uses_extension_provider():
-                                    refreshed_provider = state.current_provider()
-                                    if getattr(
-                                        refreshed_provider, "supports_tool_calls", False
-                                    ):
-                                        coding_state.refresh_provider(
-                                            refreshed_provider
-                                        )
-                                    else:
-                                        fallback = state.reset_to_first_available_model(
-                                            require_tool_calls=True
-                                        )
-                                        if fallback is not None:
-                                            fallback_provider = state.current_provider()
-                                            coding_state.rebind_provider(
-                                                fallback_provider,
-                                                provider_name=fallback.provider_name,
-                                                model_id=fallback.model_id,
-                                                usage_accumulator=(
-                                                    AgentUsageAccumulator(
-                                                        _pricing_for(
-                                                            fallback.provider_name,
-                                                            fallback.model_id,
-                                                        )
-                                                    )
-                                                ),
-                                            )
-                                            self._emit_diagnostic(
-                                                terminal_ui,
-                                                error_stream,
-                                                "pipy: active model no longer "
-                                                "supports tool calls after reload; "
-                                                f"selected {fallback.reference}.",
-                                            )
-                                        else:
-                                            message = (
-                                                "active model no longer supports "
-                                                "tool calls after reload and no "
-                                                "available tool-capable fallback "
-                                                "was found"
-                                            )
-                                            _bind_unavailable_after_reload(message)
-                                            self._emit_diagnostic(
-                                                terminal_ui,
-                                                error_stream,
-                                                f"pipy: {message}.",
-                                            )
-                            else:
-                                fallback = state.reset_to_first_available_model(
-                                    require_tool_calls=True
-                                )
-                                if fallback is not None:
-                                    fallback_provider = state.current_provider()
-                                    coding_state.rebind_provider(
-                                        fallback_provider,
-                                        provider_name=fallback.provider_name,
-                                        model_id=fallback.model_id,
-                                        usage_accumulator=AgentUsageAccumulator(
-                                            _pricing_for(
-                                                fallback.provider_name,
-                                                fallback.model_id,
-                                            )
-                                        ),
-                                    )
-                                    self._emit_diagnostic(
-                                        terminal_ui,
-                                        error_stream,
-                                        "pipy: active model disappeared on "
-                                        "reload; selected "
-                                        f"{fallback.reference}.",
-                                    )
-                                else:
-                                    message = (
-                                        "active model disappeared on reload and "
-                                        "no available tool-capable fallback was "
-                                        "found"
-                                    )
-                                    _bind_unavailable_after_reload(message)
-                                    self._emit_diagnostic(
-                                        terminal_ui,
-                                        error_stream,
-                                        f"pipy: {message}.",
-                                    )
-                    # Replace the run's extension capability registry and
-                    # custom renderer map with the reloaded generation.
-                    extension_tool_renderers = _extension_tool_renderer_map(
-                        _ext_runtime.tools
-                    )
-                    renderer.refresh_tool_renderers(extension_tool_renderers)
-                    extension_tool_registry = {}
-                    for _registered_tool in _ext_runtime.tools:
-                        _port = _ExtensionToolPort(
-                            _registered_tool,
-                            has_ui=terminal_ui is not None,
-                            notify_sink=_extension_notify,
-                            set_active_tools_fn=lambda names: (
-                                extension_set_active_tools(names)
-                            ),
-                            flags=extension_flag_values,
-                            render_details_sink=extension_render_details,
-                            project_trusted=settings.project_trusted,
-                        )
-                        extension_tool_registry[_port.definition.name] = _port
-                    tool_capabilities.replace_extensions(extension_tool_registry)
-                    unknown_filter_names = tool_capabilities.unknown_filter_names
-                    if unknown_filter_names:
-                        known = (
-                            ", ".join(sorted(tool_capabilities.registered_names))
-                            or "<none>"
-                        )
-                        unknown = ", ".join(unknown_filter_names)
-                        self._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            f"pipy: unknown tool name(s): {unknown}. "
-                            f"Known tools: {known}",
-                        )
-                    # Refresh the emitter's lifecycle hooks so reloaded
-                    # extensions observe subsequent agent/turn events.
-                    emitter.set_lifecycle_hooks(extension_lifecycle_hooks)
-                    emitter.set_flags(extension_flag_values)
-                    # Re-apply the edited theme (settings is source of truth over the
-                    # persisted store) and the derived UI settings.
-                    reloaded_theme = settings.get_theme()
-                    if reloaded_theme:
-                        os.environ["PIPY_THEME"] = reloaded_theme
-                    if terminal_ui is not None:
-                        terminal_ui.autocomplete_max_visible = (
-                            settings.get_autocomplete_max_visible()
-                        )
-                        terminal_ui.command_names = _tool_loop_command_names(
-                            workspace_resources, extension_menu_names
-                        )
-                        terminal_ui.command_descriptions = (
-                            _tool_loop_command_descriptions(
-                                workspace_resources, extension_descriptions
-                            )
-                        )
-                        terminal_ui.extension_shortcut_keys = frozenset(
-                            _ext_runtime.shortcuts
-                        )
-                        redraw_custom_entries_for_active_branch()
-                    load_errors = settings.load_errors()
-                    if load_errors:
-                        for scope, detail in load_errors.items():
-                            self._emit_diagnostic(
-                                terminal_ui,
-                                error_stream,
-                                f"pipy: kept prior {scope} settings ({detail}).",
-                            )
-                    if self.verbose_startup or not settings.get_quiet_startup():
-                        print_startup_chrome(
-                            error_stream,
-                            cwd=cwd,
-                            include_workspace_defaults=settings.project_trusted,
-                        )
-                    saved_implicit_trust = self._maybe_save_implicit_trust_after_reload(
-                        cwd=cwd,
-                        settings=settings,
-                        terminal_ui=terminal_ui,
-                        error_stream=error_stream,
-                    )
-                    emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
-                    self._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        (
-                            "pipy: reloaded settings, keybindings, and resources; "
-                            "saved project trust."
-                            if saved_implicit_trust
-                            else "pipy: reloaded settings, keybindings, and resources."
-                        ),
-                    )
-                    refresh_legacy_footer()
-                    continue
                 # Resource dispatch (skills, prompt templates, custom commands)
                 # runs through the same local-command boundary as the built-ins,
                 # after them so a custom command can never shadow a built-in.

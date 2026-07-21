@@ -2113,6 +2113,32 @@ precedence, `tui.py`/`repl_input.py` menu entries, registry metadata,
 persistence relocation, UI movement, and async conversion remain outside it.
 The extraction changes no product behavior or public product format.
 
+Phase 3.1d.4d-reload adds the exact payload-free `RELOAD` outcome for bare
+`/reload` with the standard footer, classified in the payload-free tuple loop
+alongside `/hotkeys`, `/changelog`, `/copy`, `/session`, `/compact`, `/new`,
+`/clone`, `/settings`, `/trust`, and `/share`. `/reload anything` and every
+altered form fall through to UNHANDLED and reach
+`dispatch_resource_command`/`dispatch_extension_command` unchanged, so no
+argument grammar is introduced and the built-in still wins over any custom
+command of the same name. This cuts the last raw built-in slash branch onto the
+typed kernel path. Composition continues to own the entire reload effect
+sequence — settings/keybindings reload, package-runtime/workspace re-discovery
+and extension re-activation, extension-flag re-parse, catalog refresh with
+extension-provider contributions and the tool-capability fallback rebind, tool
+renderer/registry replacement, emitter/theme/derived-UI re-apply, custom-entry
+redraw, `load_errors` diagnostics, startup chrome, the guarded implicit-trust
+save, the `EVENT_SESSION_START` `reason='reload'` lifecycle, and the
+reloaded-settings diagnostic — moved verbatim into an `elif` arm of the CONTINUE
+chain, while the centralized standard-footer refresh after the chain now owns
+the single post-command footer paint, matching `/export`, `/import`, and
+`/share`. The superseded raw `if command_text == "/reload":` late branch is
+deleted. Reload semantics, effect ordering, diagnostics, provider-fallback
+behavior, and the reload-fired session-start lifecycle are unchanged; neither
+reloaded settings nor keybindings enter the metadata-only workflow archive.
+`RESERVED_COMMAND_NAMES`, slash-menu names/descriptions, completion, registry
+metadata, persistence relocation, UI movement, and async conversion remain
+outside it. The extraction changes no product behavior or public product format.
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable
