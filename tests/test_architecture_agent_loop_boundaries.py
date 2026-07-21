@@ -382,13 +382,15 @@ SESSION_CONTROLLER_PATH = (
 )
 
 
-def test_session_controller_owns_the_loop_driver_and_lifecycle() -> None:
-    # Slice 3.1f.4 inverts the control plane: the loop driver and the
-    # start/shutdown lifecycle are owned by CodingSessionController.run_loop.
-    # It fires session_start, drives the injected loop closure, and guarantees
-    # the once-only true-idle settle, the session_shutdown fire, and the
-    # extension-chrome clear on every exit path. The monolith delegates to it and
-    # no longer fires the once-only agent_settled boundary directly.
+def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
+    # Slice 3.1f.4 inverts the control plane: the ``while True`` loop skeleton and
+    # the start/shutdown lifecycle are owned by CodingSessionController.run_loop.
+    # It fires session_start, runs the ``while True`` itself, calls the injected
+    # per-iteration ``step_once`` port and routes its ``LoopStepSignal`` (finalizing
+    # a BREAK through the ``finalize`` port), and guarantees the once-only true-idle
+    # settle, the session_shutdown fire, and the extension-chrome clear on every
+    # exit path. The monolith delegates to it and no longer fires the once-only
+    # agent_settled boundary directly.
     from pipy_harness.native.coding.session_controller import CodingSessionController
 
     assert hasattr(CodingSessionController, "run_loop")
@@ -397,14 +399,22 @@ def test_session_controller_owns_the_loop_driver_and_lifecycle() -> None:
         TOOL_LOOP_SESSION_PATH.read_text(encoding="utf-8"),
         filename=str(TOOL_LOOP_SESSION_PATH),
     )
-    assert any(
-        isinstance(node, ast.Call)
+    run_loop_calls = [
+        node
+        for node in ast.walk(session_tree)
+        if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "run_loop"
         and isinstance(node.func.value, ast.Name)
         and node.func.value.id == "loop_controller"
-        for node in ast.walk(session_tree)
-    ), "NativeToolReplSession.run must delegate to loop_controller.run_loop(...)"
+    ]
+    assert run_loop_calls, (
+        "NativeToolReplSession.run must delegate to loop_controller.run_loop(...)"
+    )
+    # The delegation passes the per-iteration step and the post-loop finalize as
+    # ports; the controller — not the monolith — owns the ``while True``.
+    delegated_kwargs = {kw.arg for kw in run_loop_calls[0].keywords}
+    assert {"step_once", "finalize"} <= delegated_kwargs
 
     # The controller now fires the once-only true-idle settle through its own
     # settled emitter; the monolith must not fire it directly anymore.
@@ -413,3 +423,16 @@ def test_session_controller_owns_the_loop_driver_and_lifecycle() -> None:
 
     controller_source = SESSION_CONTROLLER_PATH.read_text(encoding="utf-8")
     assert "self._emitter.agent_settled()" in controller_source
+    # The ``while True`` step skeleton lives in run_loop, not only in the monolith.
+    controller_ast = ast.parse(controller_source, filename=str(SESSION_CONTROLLER_PATH))
+    run_loop_def = next(
+        node
+        for node in ast.walk(controller_ast)
+        if isinstance(node, ast.FunctionDef) and node.name == "run_loop"
+    )
+    assert any(
+        isinstance(node, ast.While)
+        and isinstance(node.test, ast.Constant)
+        and node.test.value is True
+        for node in ast.walk(run_loop_def)
+    ), "CodingSessionController.run_loop must own the `while True` step skeleton"

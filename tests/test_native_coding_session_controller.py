@@ -39,6 +39,8 @@ from pipy_harness.native.coding.session_controller import (
     CodingLoopStep,
     CodingLoopStepKind,
     CodingSessionController,
+    LoopStepSignal,
+    LoopStepSignalKind,
 )
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
@@ -992,44 +994,91 @@ def _run_loop_controller(log: list[str]) -> CodingSessionController:
     )
 
 
-def test_run_loop_fires_lifecycle_in_order_and_returns_drive_result() -> None:
+def _never_finalize() -> NativeToolReplResult:  # pragma: no cover - guard only
+    raise AssertionError("finalize must not run on a RETURN_RESULT exit")
+
+
+def test_run_loop_iterates_then_finalizes_in_order() -> None:
     log: list[str] = []
     controller = _run_loop_controller(log)
     result = _repl_result()
+    signals = iter(
+        [
+            LoopStepSignal.continue_loop(),
+            LoopStepSignal.continue_loop(),
+            LoopStepSignal.break_loop(),
+        ]
+    )
 
-    def drive() -> NativeToolReplResult:
-        log.append("drive")
+    def step_once() -> LoopStepSignal:
+        log.append("step")
+        return next(signals)
+
+    def finalize() -> NativeToolReplResult:
+        log.append("finalize")
         return result
 
     returned = controller.run_loop(
-        drive=drive,
+        step_once=step_once,
+        finalize=finalize,
         fire_session_start=lambda: log.append("start"),
         fire_session_shutdown=lambda: log.append("shutdown"),
         consume_settle_pending=lambda: True,
         clear_extension_chrome=lambda: log.append("clear"),
     )
 
-    # session_start fires before the loop; the once-only true-idle settle, the
-    # session_shutdown fire, and the extension-chrome clear run after it, in that
-    # exact order; and run_loop returns whatever result the driver selected.
+    # session_start fires before the loop; the controller owns the while, calling
+    # step_once each iteration (CONTINUE re-enters, BREAK finalizes), then the
+    # once-only true-idle settle, the session_shutdown fire, and the
+    # extension-chrome clear run after it, in that exact order.
     assert returned is result
-    assert log == ["start", "drive", "settled", "shutdown", "clear"]
+    assert log == [
+        "start",
+        "step",
+        "step",
+        "step",
+        "finalize",
+        "settled",
+        "shutdown",
+        "clear",
+    ]
 
 
-def test_run_loop_passes_through_a_terminate_failed_result() -> None:
+def test_run_loop_returns_a_terminate_failed_result_without_finalizing() -> None:
     log: list[str] = []
     controller = _run_loop_controller(log)
     failed = _repl_result(HarnessStatus.FAILED)
 
     returned = controller.run_loop(
-        drive=lambda: failed,
+        step_once=lambda: LoopStepSignal.return_result(failed),
+        finalize=_never_finalize,
         fire_session_start=lambda: log.append("start"),
         fire_session_shutdown=lambda: log.append("shutdown"),
         consume_settle_pending=lambda: True,
         clear_extension_chrome=lambda: log.append("clear"),
     )
 
+    # RETURN_RESULT carries the exact bounded projection the step already built;
+    # the post-loop SUCCEEDED finalize is NOT run on this fatal exit path.
     assert returned is failed
+    assert log == ["start", "settled", "shutdown", "clear"]
+
+
+def test_run_loop_rejects_a_non_signal_from_step_once() -> None:
+    log: list[str] = []
+    controller = _run_loop_controller(log)
+
+    with pytest.raises(TypeError, match="step_once must return a LoopStepSignal"):
+        controller.run_loop(
+            step_once=lambda: _repl_result(),  # type: ignore[arg-type,return-value]
+            finalize=_never_finalize,
+            fire_session_start=lambda: log.append("start"),
+            fire_session_shutdown=lambda: log.append("shutdown"),
+            consume_settle_pending=lambda: True,
+            clear_extension_chrome=lambda: log.append("clear"),
+        )
+
+    # A malformed step still runs the finally-always shutdown/clear guarantee.
     assert log == ["start", "settled", "shutdown", "clear"]
 
 
@@ -1038,7 +1087,8 @@ def test_run_loop_skips_settle_when_not_pending() -> None:
     controller = _run_loop_controller(log)
 
     controller.run_loop(
-        drive=lambda: _repl_result(),
+        step_once=lambda: LoopStepSignal.break_loop(),
+        finalize=lambda: _repl_result(),
         fire_session_start=lambda: log.append("start"),
         fire_session_shutdown=lambda: log.append("shutdown"),
         consume_settle_pending=lambda: False,
@@ -1051,16 +1101,17 @@ def test_run_loop_skips_settle_when_not_pending() -> None:
     assert log == ["start", "shutdown", "clear"]
 
 
-def test_run_loop_runs_finally_when_drive_raises() -> None:
+def test_run_loop_runs_finally_when_step_once_raises() -> None:
     log: list[str] = []
     controller = _run_loop_controller(log)
 
-    def drive() -> NativeToolReplResult:
+    def step_once() -> LoopStepSignal:
         raise RuntimeError("boom")
 
     with pytest.raises(RuntimeError, match="boom"):
         controller.run_loop(
-            drive=drive,
+            step_once=step_once,
+            finalize=_never_finalize,
             fire_session_start=lambda: log.append("start"),
             fire_session_shutdown=lambda: log.append("shutdown"),
             consume_settle_pending=lambda: True,
@@ -1078,12 +1129,13 @@ def test_run_loop_does_not_run_finally_when_session_start_raises() -> None:
     def start() -> None:
         raise RuntimeError("start-failed")
 
-    def drive() -> NativeToolReplResult:  # pragma: no cover - never reached
-        raise AssertionError("drive must not run when session_start fails")
+    def step_once() -> LoopStepSignal:  # pragma: no cover - never reached
+        raise AssertionError("step must not run when session_start fails")
 
     with pytest.raises(RuntimeError, match="start-failed"):
         controller.run_loop(
-            drive=drive,
+            step_once=step_once,
+            finalize=_never_finalize,
             fire_session_start=start,
             fire_session_shutdown=lambda: log.append("shutdown"),
             consume_settle_pending=lambda: False,
@@ -1098,7 +1150,10 @@ def test_run_loop_does_not_run_finally_when_session_start_raises() -> None:
 def test_run_loop_rejects_non_callable_ports() -> None:
     controller = _run_loop_controller([])
 
-    def ok_drive() -> NativeToolReplResult:
+    def ok_step() -> LoopStepSignal:
+        return LoopStepSignal.break_loop()
+
+    def ok_finalize() -> NativeToolReplResult:
         return _repl_result()
 
     def noop() -> None:
@@ -1107,9 +1162,19 @@ def test_run_loop_rejects_non_callable_ports() -> None:
     def not_pending() -> bool:
         return False
 
-    with pytest.raises(TypeError, match="drive must be callable"):
+    with pytest.raises(TypeError, match="step_once must be callable"):
         controller.run_loop(
-            drive=None,  # type: ignore[arg-type]
+            step_once=None,  # type: ignore[arg-type]
+            finalize=ok_finalize,
+            fire_session_start=noop,
+            fire_session_shutdown=noop,
+            consume_settle_pending=not_pending,
+            clear_extension_chrome=noop,
+        )
+    with pytest.raises(TypeError, match="finalize must be callable"):
+        controller.run_loop(
+            step_once=ok_step,
+            finalize=None,  # type: ignore[arg-type]
             fire_session_start=noop,
             fire_session_shutdown=noop,
             consume_settle_pending=not_pending,
@@ -1117,7 +1182,8 @@ def test_run_loop_rejects_non_callable_ports() -> None:
         )
     with pytest.raises(TypeError, match="fire_session_start must be callable"):
         controller.run_loop(
-            drive=ok_drive,
+            step_once=ok_step,
+            finalize=ok_finalize,
             fire_session_start=None,  # type: ignore[arg-type]
             fire_session_shutdown=noop,
             consume_settle_pending=not_pending,
@@ -1125,7 +1191,8 @@ def test_run_loop_rejects_non_callable_ports() -> None:
         )
     with pytest.raises(TypeError, match="fire_session_shutdown must be callable"):
         controller.run_loop(
-            drive=ok_drive,
+            step_once=ok_step,
+            finalize=ok_finalize,
             fire_session_start=noop,
             fire_session_shutdown=None,  # type: ignore[arg-type]
             consume_settle_pending=not_pending,
@@ -1133,7 +1200,8 @@ def test_run_loop_rejects_non_callable_ports() -> None:
         )
     with pytest.raises(TypeError, match="consume_settle_pending must be callable"):
         controller.run_loop(
-            drive=ok_drive,
+            step_once=ok_step,
+            finalize=ok_finalize,
             fire_session_start=noop,
             fire_session_shutdown=noop,
             consume_settle_pending=None,  # type: ignore[arg-type]
@@ -1141,9 +1209,27 @@ def test_run_loop_rejects_non_callable_ports() -> None:
         )
     with pytest.raises(TypeError, match="clear_extension_chrome must be callable"):
         controller.run_loop(
-            drive=ok_drive,
+            step_once=ok_step,
+            finalize=ok_finalize,
             fire_session_start=noop,
             fire_session_shutdown=noop,
             consume_settle_pending=not_pending,
             clear_extension_chrome=None,  # type: ignore[arg-type]
         )
+
+
+def test_loop_step_signal_invariants() -> None:
+    # RETURN_RESULT requires an exact NativeToolReplResult; the other kinds carry
+    # no result.
+    with pytest.raises(TypeError, match="exact NativeToolReplResult"):
+        LoopStepSignal(LoopStepSignalKind.RETURN_RESULT)
+    with pytest.raises(ValueError, match="only RETURN_RESULT carries a result"):
+        LoopStepSignal(LoopStepSignalKind.CONTINUE, _repl_result())
+    with pytest.raises(TypeError, match="exact LoopStepSignalKind"):
+        LoopStepSignal("continue")  # type: ignore[arg-type]
+    assert LoopStepSignal.continue_loop().kind is LoopStepSignalKind.CONTINUE
+    assert LoopStepSignal.break_loop().kind is LoopStepSignalKind.BREAK
+    carried = _repl_result()
+    signal = LoopStepSignal.return_result(carried)
+    assert signal.kind is LoopStepSignalKind.RETURN_RESULT
+    assert signal.result is carried

@@ -1,12 +1,17 @@
 """Headless controller for a product coding session's outer transitions.
 
 This module owns the outer transitions of ``NativeToolReplSession.run``. The
-loop driver and start/shutdown lifecycle live in
+loop skeleton and start/shutdown lifecycle live in
 :meth:`CodingSessionController.run_loop`: the controller fires ``session_start``,
-drives the injected ``while True`` step closure, and guarantees the once-only
-true-idle settle, the ``session_shutdown`` fire, and the extension-chrome clear
-on every exit path (normal, fatal, or exception). Within each step it owns input
-selection and the true-idle (``agent_settled``) boundary. A single
+runs the ``while True`` skeleton itself — calling the injected per-iteration
+``step_once`` port and routing its returned :class:`LoopStepSignal`
+(``CONTINUE`` re-enters the loop, ``BREAK`` finalizes the post-loop
+``SUCCEEDED`` projection through the injected ``finalize`` port, ``RETURN_RESULT``
+returns the terminate ``FAILED`` projection the step selected) — and guarantees
+the once-only true-idle settle, the ``session_shutdown`` fire, and the
+extension-chrome clear on every exit path (normal, fatal, or exception). Within
+each step it owns input selection and the true-idle (``agent_settled``)
+boundary. A single
 :meth:`CodingSessionController.select_next_step`
 call reproduces the exact top-of-loop policy that previously lived inline in the
 monolith:
@@ -209,6 +214,51 @@ class CodingLoopStep:
         )
 
 
+class LoopStepSignalKind(Enum):
+    """Closed classification of one per-iteration outcome the step port returns."""
+
+    CONTINUE = "continue"
+    BREAK = "break"
+    RETURN_RESULT = "return_result"
+
+
+@dataclass(frozen=True, slots=True)
+class LoopStepSignal:
+    """The routing signal one ``step_once`` call returns to :meth:`run_loop`.
+
+    ``CONTINUE`` re-enters the loop (the composition step handled the iteration
+    itself), ``BREAK`` ends the loop through the ``finalize`` port (the post-loop
+    ``SUCCEEDED`` projection), and ``RETURN_RESULT`` ends the loop returning the
+    exact bounded :class:`NativeToolReplResult` the step already built (the
+    terminate ``FAILED`` projection). ``result`` is carried only for
+    ``RETURN_RESULT``.
+    """
+
+    kind: LoopStepSignalKind
+    result: NativeToolReplResult | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.kind) is not LoopStepSignalKind:
+            raise TypeError("kind must be an exact LoopStepSignalKind")
+        if self.kind is LoopStepSignalKind.RETURN_RESULT:
+            if type(self.result) is not NativeToolReplResult:
+                raise TypeError("RETURN_RESULT requires an exact NativeToolReplResult")
+        elif self.result is not None:
+            raise ValueError("only RETURN_RESULT carries a result")
+
+    @classmethod
+    def continue_loop(cls) -> LoopStepSignal:
+        return cls(LoopStepSignalKind.CONTINUE)
+
+    @classmethod
+    def break_loop(cls) -> LoopStepSignal:
+        return cls(LoopStepSignalKind.BREAK)
+
+    @classmethod
+    def return_result(cls, result: NativeToolReplResult) -> LoopStepSignal:
+        return cls(LoopStepSignalKind.RETURN_RESULT, result)
+
+
 class CodingSessionController:
     """Own the input-selection and true-idle transitions for one coding session.
 
@@ -240,37 +290,45 @@ class CodingSessionController:
     def run_loop(
         self,
         *,
-        drive: Callable[[], NativeToolReplResult],
+        step_once: Callable[[], LoopStepSignal],
+        finalize: Callable[[], NativeToolReplResult],
         fire_session_start: Callable[[], None],
         fire_session_shutdown: Callable[[], None],
         consume_settle_pending: Callable[[], bool],
         clear_extension_chrome: Callable[[], None],
     ) -> NativeToolReplResult:
-        """Drive the outer session loop and own the start/shutdown lifecycle.
+        """Own the ``while True`` skeleton and the start/shutdown lifecycle.
 
-        The controller owns the lifecycle bookends of one product coding
-        session: it fires ``session_start`` once the session is set up, drives
-        the injected ``drive`` closure (the ``while True`` step loop, whose exit
-        paths return the bounded :class:`NativeToolReplResult` — the terminate
-        ``FAILED`` projection or the post-loop ``SUCCEEDED`` projection), and
-        guarantees, on every exit path (normal return, fatal return, or a
-        propagated exception), the once-only true-idle settle, the
-        ``session_shutdown`` fire, and the extension-chrome clear — in that
+        The controller owns the loop skeleton and the lifecycle bookends of one
+        product coding session: it fires ``session_start`` once the session is
+        set up, runs the ``while True`` itself, and on each iteration calls the
+        injected ``step_once`` port and routes its returned
+        :class:`LoopStepSignal` — ``CONTINUE`` re-enters the loop, ``BREAK`` ends
+        it through the injected ``finalize`` port (the post-loop ``SUCCEEDED``
+        projection), and ``RETURN_RESULT`` ends it returning the exact bounded
+        :class:`NativeToolReplResult` the step already built (the terminate
+        ``FAILED`` projection). On every exit path (normal return, fatal return,
+        or a propagated exception) it guarantees the once-only true-idle settle,
+        the ``session_shutdown`` fire, and the extension-chrome clear — in that
         order.
 
         Every effect is performed through an injected port so the controller
         never touches the terminal, renderer, ``repl_input``, extensions,
         providers, tools, persistence, automation, the SDK, capture, or the
-        workflow archive: ``fire_session_start``/``fire_session_shutdown`` fire
-        the composition root's lifecycle emitter, ``consume_settle_pending``
-        reads-and-resets the run's armed true-idle flag (the controller fires the
-        once-only ``agent_settled`` through its own settled emitter when it
-        returns ``True``), and ``clear_extension_chrome`` clears any live TUI
-        chrome. ``drive`` returns the projected result the loop selected.
+        workflow archive: ``step_once`` performs one iteration's composition-root
+        work and returns only the routing signal, ``finalize`` builds the
+        post-loop ``SUCCEEDED`` projection, ``fire_session_start``/
+        ``fire_session_shutdown`` fire the composition root's lifecycle emitter,
+        ``consume_settle_pending`` reads-and-resets the run's armed true-idle flag
+        (the controller fires the once-only ``agent_settled`` through its own
+        settled emitter when it returns ``True``), and ``clear_extension_chrome``
+        clears any live TUI chrome.
         """
 
-        if not callable(drive):
-            raise TypeError("drive must be callable")
+        if not callable(step_once):
+            raise TypeError("step_once must be callable")
+        if not callable(finalize):
+            raise TypeError("finalize must be callable")
         if not callable(fire_session_start):
             raise TypeError("fire_session_start must be callable")
         if not callable(fire_session_shutdown):
@@ -287,7 +345,20 @@ class CodingSessionController:
         # chrome clear — runs on EVERY exit path.
         fire_session_start()
         try:
-            return drive()
+            result: NativeToolReplResult | None = None
+            while True:
+                signal = step_once()
+                if type(signal) is not LoopStepSignal:
+                    raise TypeError("step_once must return a LoopStepSignal")
+                if signal.kind is LoopStepSignalKind.RETURN_RESULT:
+                    assert signal.result is not None
+                    result = signal.result
+                    break
+                if signal.kind is LoopStepSignalKind.BREAK:
+                    result = finalize()
+                    break
+                # CONTINUE: the step handled the iteration; re-enter the loop.
+            return result
         finally:
             if consume_settle_pending():
                 self._emitter.agent_settled()
@@ -509,5 +580,7 @@ __all__ = [
     "CodingLoopStep",
     "CodingLoopStepKind",
     "CodingSessionController",
+    "LoopStepSignal",
+    "LoopStepSignalKind",
     "SettledEventEmitter",
 ]

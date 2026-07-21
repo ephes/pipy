@@ -167,6 +167,7 @@ from pipy_harness.native.coding.session_controller import (
     CodingCommandEffects,
     CodingLoopStepKind,
     CodingSessionController,
+    LoopStepSignal,
 )
 from pipy_harness.native.coding.state import (
     CodingSessionState,
@@ -1368,9 +1369,7 @@ class _CodingCommandEffectsAdapter:
     def record_resource_invocation(self) -> None:
         self._record_resource()
 
-    def dispatch_resource(
-        self, command_text: str
-    ) -> ResourceDispatchResolution | None:
+    def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution | None:
         return self._resolve_resource(command_text)
 
     def dispatch_extension(
@@ -1501,9 +1500,7 @@ class NativeToolReplSession:
         """Export the active product session through the typed command effect."""
 
         if type(argument) is not ProductContent:
-            raise TypeError(
-                "SESSION_EXPORT requires an exact ProductContent argument"
-            )
+            raise TypeError("SESSION_EXPORT requires an exact ProductContent argument")
         path_arg = parse_command_path_argument(argument.value)
         try:
             if path_arg and Path(path_arg).suffix.lower() == ".jsonl":
@@ -2913,20 +2910,23 @@ class NativeToolReplSession:
             resolve_extension=_dispatch_extension_effect,
         )
 
-        # The loop driver and the start/shutdown lifecycle are owned by the
-        # headless controller (`CodingSessionController.run_loop`). It fires
-        # `session_start`, drives the `while True` step loop below through the
-        # injected `_drive_repl_loop` closure, and guarantees the once-only
-        # true-idle settle, the `session_shutdown` fire, and the extension-chrome
-        # clear on EVERY exit path (normal return, fatal return, or a propagated
-        # exception). The loop body, run transition, and every UI/provider/
-        # persistence effect stay in the composition root; `_drive_repl_loop`
-        # runs the `while True` skeleton, returns the bounded result its exit
-        # paths select (terminate `FAILED` or post-loop `SUCCEEDED`), and shares
-        # the run's mutable control state with the composition-root closures
-        # through `nonlocal` so a `/reload`, `/new`, `/resume`, `/fork`, or
-        # `/clone` rebind is reflected in those closures exactly as it was inline.
-        def _drive_repl_loop() -> NativeToolReplResult:
+        # The `while True` skeleton and the start/shutdown lifecycle are owned by
+        # the headless controller (`CodingSessionController.run_loop`). It fires
+        # `session_start`, runs the `while True` itself, and on each iteration
+        # calls the injected `_repl_step` port and routes the `LoopStepSignal` it
+        # returns — `CONTINUE` re-enters the loop, `BREAK` finalizes through
+        # `_finalize_repl_loop` (the post-loop `SUCCEEDED` projection), and
+        # `RETURN_RESULT` returns the terminate `FAILED` projection the step
+        # already built — guaranteeing the once-only true-idle settle, the
+        # `session_shutdown` fire, and the extension-chrome clear on EVERY exit
+        # path (normal return, fatal return, or a propagated exception). One
+        # iteration's body, the run transition, and every UI/provider/persistence
+        # effect stay in the composition root; `_repl_step` performs one iteration
+        # and returns only the routing signal, and shares the run's mutable
+        # control state with the composition-root closures through `nonlocal` so a
+        # `/reload`, `/new`, `/resume`, `/fork`, or `/clone` rebind is reflected in
+        # those closures exactly as it was inline.
+        def _repl_step() -> LoopStepSignal:
             nonlocal agent_settled_pending, session_tree
             nonlocal pending_prefill, tree_filter_mode
             nonlocal package_roots, workspace_resources, _ext_runtime
@@ -2950,650 +2950,664 @@ class NativeToolReplSession:
             nonlocal catalog_state, was_extension_selection
             nonlocal fallback, fallback_provider, line, custom_message
             nonlocal _port, _registered_tool
-            while True:
-                if terminal_ui is None:
-                    print_input_separator(error_stream)
-                footer_text = coding_footer_text()
-                if pending_prefill is not None:
-                    # A ``/tree`` user-message selection puts the chosen text back
-                    # into the editor. The live TUI rehydrates the editor directly;
-                    # captured-stream callers see a hint and type the (edited) text
-                    # as the next line, which branches from the selected parent.
-                    if terminal_ui is not None and hasattr(
-                        terminal_ui, "set_input_text"
-                    ):
-                        terminal_ui.set_input_text(pending_prefill)
-                    elif terminal_ui is None:
-                        diag(
-                            "pipy: editor rehydrated with selected message; "
-                            "type your (edited) message to branch from here, or "
-                            "submit as-is.\n"
-                            f"  > {pending_prefill}"
-                        )
-                    pending_prefill = None
-                # Input selection and the true-idle (`agent_settled`) boundary are
-                # owned by the headless controller. It drains any messages an
-                # extension enqueued via send_user_message at the top of every
-                # iteration (so they are scheduled as deterministic prompts
-                # regardless of which callback queued them), takes one queued input
-                # using the product priority, fires the once-only `agent_settled`
-                # notification and re-polls when nothing is pending, and otherwise
-                # reads one fresh line — with Pi's cursor-only prompt (the separator
-                # pair frames the input area) — and applies the external-wake
-                # overlay. A local command (`/…`/`!…`) submitted mid-turn still
-                # dispatches through the NORMAL path below; queued provider content
-                # bypasses local dispatch. The returned step carries the exact line
-                # the loop consumes and the post-boundary settled flag.
-                step = loop_controller.select_next_step(
-                    settle_pending=agent_settled_pending,
-                    drain_outbox=drain_extension_outboxes,
-                    read_fresh_line=lambda: repl_input.read_line("", footer=footer_text),
-                    input_queued_input_port=input_queued_input_port,
-                )
-                agent_settled_pending = step.settle_pending
-                selected_provider_content: ProductContent | None = (
-                    step.selected_provider_content
-                )
-                queued_input: AgentQueuedInput | None = step.queued_input
-                if step.kind is CodingLoopStepKind.EOF:
-                    if step.keyboard_interrupt:
-                        print(file=error_stream)
-                    break
-                line = step.line
-                user_input = (
-                    selected_provider_content.value
-                    if selected_provider_content is not None
-                    else line.rstrip("\n")
-                )
-                stripped = user_input.strip()
-                # Queued steering/follow-up messages (Pi) are provider-visible prompt
-                # text, never local commands: a follow-up enqueued mid-turn that
-                # happens to begin with `/` (slash command) or `!` (bash shortcut)
-                # must reach the model verbatim, not be intercepted and silently
-                # dropped from the conversation. ``command_text`` is the dispatch key
-                # for every local command/hotkey below; it is blank for a drained
-                # line or for RPC input carrying a closed delivery classification,
-                # so neither can match and both fall through to the provider-message
-                # path (which still resolves any @file/@image references). Ordinary
-                # typed input keeps ``command_text == stripped`` and is unaffected.
-                command_text = "" if selected_provider_content is not None else stripped
-                # In-editor hotkeys arrive as private sentinel "commands" from the
-                # TUI so they dispatch without rendering a user-message bubble.
-                # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
-                # the model (translated to the existing /scoped-models dispatch).
-                if command_text in {HOTKEY_TOGGLE_TOOLS, HOTKEY_TOGGLE_THINKING}:
-                    self._toggle_view_fold(
-                        stripped,
-                        terminal_ui=terminal_ui,
-                        error_stream=error_stream,
-                        settings=settings,
+            if terminal_ui is None:
+                print_input_separator(error_stream)
+            footer_text = coding_footer_text()
+            if pending_prefill is not None:
+                # A ``/tree`` user-message selection puts the chosen text back
+                # into the editor. The live TUI rehydrates the editor directly;
+                # captured-stream callers see a hint and type the (edited) text
+                # as the next line, which branches from the selected parent.
+                if terminal_ui is not None and hasattr(terminal_ui, "set_input_text"):
+                    terminal_ui.set_input_text(pending_prefill)
+                elif terminal_ui is None:
+                    diag(
+                        "pipy: editor rehydrated with selected message; "
+                        "type your (edited) message to branch from here, or "
+                        "submit as-is.\n"
+                        f"  > {pending_prefill}"
                     )
-                    continue
-                if command_text == HOTKEY_THINKING_CYCLE:
-                    self._cycle_thinking_level(
-                        terminal_ui=terminal_ui,
-                        error_stream=error_stream,
-                        session_tree=session_tree,
+                pending_prefill = None
+            # Input selection and the true-idle (`agent_settled`) boundary are
+            # owned by the headless controller. It drains any messages an
+            # extension enqueued via send_user_message at the top of every
+            # iteration (so they are scheduled as deterministic prompts
+            # regardless of which callback queued them), takes one queued input
+            # using the product priority, fires the once-only `agent_settled`
+            # notification and re-polls when nothing is pending, and otherwise
+            # reads one fresh line — with Pi's cursor-only prompt (the separator
+            # pair frames the input area) — and applies the external-wake
+            # overlay. A local command (`/…`/`!…`) submitted mid-turn still
+            # dispatches through the NORMAL path below; queued provider content
+            # bypasses local dispatch. The returned step carries the exact line
+            # the loop consumes and the post-boundary settled flag.
+            step = loop_controller.select_next_step(
+                settle_pending=agent_settled_pending,
+                drain_outbox=drain_extension_outboxes,
+                read_fresh_line=lambda: repl_input.read_line("", footer=footer_text),
+                input_queued_input_port=input_queued_input_port,
+            )
+            agent_settled_pending = step.settle_pending
+            selected_provider_content: ProductContent | None = (
+                step.selected_provider_content
+            )
+            queued_input: AgentQueuedInput | None = step.queued_input
+            if step.kind is CodingLoopStepKind.EOF:
+                if step.keyboard_interrupt:
+                    print(file=error_stream)
+                return LoopStepSignal.break_loop()
+            line = step.line
+            user_input = (
+                selected_provider_content.value
+                if selected_provider_content is not None
+                else line.rstrip("\n")
+            )
+            stripped = user_input.strip()
+            # Queued steering/follow-up messages (Pi) are provider-visible prompt
+            # text, never local commands: a follow-up enqueued mid-turn that
+            # happens to begin with `/` (slash command) or `!` (bash shortcut)
+            # must reach the model verbatim, not be intercepted and silently
+            # dropped from the conversation. ``command_text`` is the dispatch key
+            # for every local command/hotkey below; it is blank for a drained
+            # line or for RPC input carrying a closed delivery classification,
+            # so neither can match and both fall through to the provider-message
+            # path (which still resolves any @file/@image references). Ordinary
+            # typed input keeps ``command_text == stripped`` and is unaffected.
+            command_text = "" if selected_provider_content is not None else stripped
+            # In-editor hotkeys arrive as private sentinel "commands" from the
+            # TUI so they dispatch without rendering a user-message bubble.
+            # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
+            # the model (translated to the existing /scoped-models dispatch).
+            if command_text in {HOTKEY_TOGGLE_TOOLS, HOTKEY_TOGGLE_THINKING}:
+                self._toggle_view_fold(
+                    stripped,
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    settings=settings,
+                )
+                return LoopStepSignal.continue_loop()
+            if command_text == HOTKEY_THINKING_CYCLE:
+                self._cycle_thinking_level(
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    session_tree=session_tree,
+                )
+                refresh_legacy_footer_with_usage()
+                return LoopStepSignal.continue_loop()
+            if command_text.startswith(HOTKEY_EXTENSION_SHORTCUT_PREFIX):
+                # An activated extension's registered keyboard shortcut
+                # fired; dispatch its handler with the same mode-aware
+                # context as its command. Like the command path, a handler
+                # that calls api.send_user_message enqueues to the shared
+                # outbox, which is drained into a deterministic provider
+                # prompt at the top of the next iteration (see the
+                # drain_user_messages call above) — so the turn fires; this
+                # branch only needs to surface a handler failure and
+                # continue. Covered by
+                # test_shortcut_send_user_message_triggers_a_turn.
+                shortcut_key = command_text[len(HOTKEY_EXTENSION_SHORTCUT_PREFIX) :]
+                shortcut_dispatch = dispatch_extension_shortcut(
+                    shortcut_key,
+                    _ext_runtime.shortcuts,
+                    cwd=str(cwd),
+                    has_ui=terminal_ui is not None,
+                    messages=coding_state.messages,
+                    complete_fn=_extension_complete,
+                    notify_sink=_extension_notify,
+                    ui_custom_driver=_extension_custom_driver,
+                    ui_driver=extension_ui_driver,
+                    set_active_tools_fn=extension_set_active_tools,
+                    set_model_fn=extension_set_model,
+                    set_thinking_level_fn=extension_set_thinking_level,
+                    append_entry_fn=extension_append_entry,
+                    set_session_name_fn=extension_set_session_name,
+                    get_session_name_fn=extension_get_session_name,
+                    set_label_fn=extension_set_label,
+                    send_message_fn=extension_send_message,
+                    flags=extension_flag_values,
+                    session_tree=session_tree,
+                    project_trusted=settings.project_trusted,
+                )
+                if (
+                    shortcut_dispatch is not None
+                    and not shortcut_dispatch.ran
+                    and shortcut_dispatch.error
+                ):
+                    self._emit_diagnostic(
+                        terminal_ui,
+                        error_stream,
+                        (
+                            f"pipy: extension shortcut {shortcut_key!r} "
+                            f"failed ({shortcut_dispatch.error})"
+                        ),
                     )
-                    refresh_legacy_footer_with_usage()
-                    continue
-                if command_text.startswith(HOTKEY_EXTENSION_SHORTCUT_PREFIX):
-                    # An activated extension's registered keyboard shortcut
-                    # fired; dispatch its handler with the same mode-aware
-                    # context as its command. Like the command path, a handler
-                    # that calls api.send_user_message enqueues to the shared
-                    # outbox, which is drained into a deterministic provider
-                    # prompt at the top of the next iteration (see the
-                    # drain_user_messages call above) — so the turn fires; this
-                    # branch only needs to surface a handler failure and
-                    # continue. Covered by
-                    # test_shortcut_send_user_message_triggers_a_turn.
-                    shortcut_key = command_text[len(HOTKEY_EXTENSION_SHORTCUT_PREFIX) :]
-                    shortcut_dispatch = dispatch_extension_shortcut(
-                        shortcut_key,
-                        _ext_runtime.shortcuts,
-                        cwd=str(cwd),
-                        has_ui=terminal_ui is not None,
-                        messages=coding_state.messages,
-                        complete_fn=_extension_complete,
-                        notify_sink=_extension_notify,
-                        ui_custom_driver=_extension_custom_driver,
-                        ui_driver=extension_ui_driver,
-                        set_active_tools_fn=extension_set_active_tools,
-                        set_model_fn=extension_set_model,
-                        set_thinking_level_fn=extension_set_thinking_level,
-                        append_entry_fn=extension_append_entry,
-                        set_session_name_fn=extension_set_session_name,
-                        get_session_name_fn=extension_get_session_name,
-                        set_label_fn=extension_set_label,
-                        send_message_fn=extension_send_message,
-                        flags=extension_flag_values,
-                        session_tree=session_tree,
-                        project_trusted=settings.project_trusted,
+                return LoopStepSignal.continue_loop()
+            from_hotkey = command_text in {
+                HOTKEY_MODEL_CYCLE_NEXT,
+                HOTKEY_MODEL_CYCLE_PREV,
+                HOTKEY_MODEL_SELECT,
+            }
+            if from_hotkey:
+                stripped = (
+                    "/model"
+                    if command_text == HOTKEY_MODEL_SELECT
+                    else (
+                        "/scoped-models next"
+                        if command_text == HOTKEY_MODEL_CYCLE_NEXT
+                        else "/scoped-models prev"
                     )
-                    if (
-                        shortcut_dispatch is not None
-                        and not shortcut_dispatch.ran
-                        and shortcut_dispatch.error
-                    ):
+                )
+                user_input = stripped
+                # Keep the dispatch key in sync with the translated command so
+                # the /scoped-models handler below matches (a hotkey is never a
+                # drained line, so this only rewrites typed-hotkey input).
+                command_text = stripped
+            # Local shell shortcut: a submitted line whose first non-space
+            # character is ``!`` runs a bash command from the editor with no
+            # provider turn (Pi's ``handleBashCommand``). ``!cmd`` records the
+            # command/output into the conversation context and native session
+            # tree so the next turn and resume see it; ``!!cmd`` runs identically
+            # but is excluded from context (a live-only diagnostic). Escape
+            # cancels a running command. Intercepted before the user-message
+            # panel so it renders as a shell block, not a chat bubble.
+            if command_text.startswith("!"):
+                shell_context_text = self._run_local_shell_shortcut(
+                    stripped,
+                    terminal_ui=terminal_ui,
+                    error_stream=error_stream,
+                    cwd=cwd,
+                    user_bash_hooks=extension_user_bash_hooks,
+                    set_active_tools_fn=extension_set_active_tools,
+                    set_model_fn=extension_set_model,
+                    set_thinking_level_fn=extension_set_thinking_level,
+                    ui_driver=extension_ui_driver,
+                    flags=extension_flag_values,
+                    project_trusted=settings.project_trusted,
+                )
+                if shell_context_text is not None:
+                    shell_message = AgentUserMessage(
+                        content=ProductContent(shell_context_text)
+                    )
+                    append_agent_message(shell_message)
+                refresh_legacy_footer_with_usage()
+                return LoopStepSignal.continue_loop()
+            # Pi paints the submitted user message back on a muted
+            # `userMessageBg` panel — distinct from the green tool
+            # panel — so the prompt reads as a chat bubble. Overwrite
+            # the readline echo line with the styled panel row when
+            # the renderer can drive ANSI cursor controls.
+            if stripped and not from_hotkey:
+                renderer.render_user_message(user_input)
+            # The built-in>resource>extension command-dispatch precedence is
+            # owned by the headless controller: it classifies built-ins first
+            # (`/exit`/`/quit` -> EXIT_LOOP; every other continuing built-in ->
+            # INTERPRET_BUILTIN carrying the outcome interpreted inline below),
+            # then resource dispatch (list/reject consumed locally; run records
+            # the invocation counter and carries the bounded provider text),
+            # then extension dispatch (never shadowing a built-in or resource),
+            # then the unhandled `/…` fallback — each effect performed through
+            # the injected `command_effects` port. Queued/provider content has
+            # a blank `command_text` and falls straight through to
+            # PROCEED_TO_RUN. The imperative per-action effect chain below is
+            # still interpreted inline (it reassigns run()-local control state).
+            resolution = loop_controller.dispatch_command(
+                command_text=command_text,
+                stripped=stripped,
+                user_input=user_input,
+                selected_provider_content=selected_provider_content,
+                effects=command_effects,
+            )
+            if resolution.kind is CommandDispatchResolutionKind.EXIT_LOOP:
+                return LoopStepSignal.break_loop()
+            if resolution.kind is CommandDispatchResolutionKind.INTERPRET_BUILTIN:
+                command_outcome = resolution.interpret_outcome
+                # INTERPRET_BUILTIN always carries a CONTINUE outcome.
+                assert command_outcome is not None
+                if command_outcome.kind is CodingCommandOutcomeKind.CONTINUE:
+                    if command_outcome.action is CodingCommandAction.SHOW_HOTKEYS:
+                        # Render from the resolved keybinding manager so user
+                        # keybindings.json overrides remain reflected.
+                        hotkeys_text = render_hotkeys(keybindings)
+                        if terminal_ui is not None:
+                            terminal_ui.add_notice(hotkeys_text)
+                        else:
+                            print(hotkeys_text, file=error_stream)
+                    elif command_outcome.action is CodingCommandAction.SHOW_CHANGELOG:
+                        changelog_text = render_changelog(read_changelog_entries())
+                        if terminal_ui is not None:
+                            terminal_ui.add_notice(changelog_text)
+                        else:
+                            print(changelog_text, file=error_stream)
+                    elif command_outcome.action is CodingCommandAction.COPY_LAST_ANSWER:
                         self._emit_diagnostic(
                             terminal_ui,
                             error_stream,
-                            (
-                                f"pipy: extension shortcut {shortcut_key!r} "
-                                f"failed ({shortcut_dispatch.error})"
+                            self._copy_last_answer(
+                                coding_state.messages,
+                                error_stream=error_stream,
                             ),
                         )
-                    continue
-                from_hotkey = command_text in {
-                    HOTKEY_MODEL_CYCLE_NEXT,
-                    HOTKEY_MODEL_CYCLE_PREV,
-                    HOTKEY_MODEL_SELECT,
-                }
-                if from_hotkey:
-                    stripped = (
-                        "/model"
-                        if command_text == HOTKEY_MODEL_SELECT
-                        else (
-                            "/scoped-models next"
-                            if command_text == HOTKEY_MODEL_CYCLE_NEXT
-                            else "/scoped-models prev"
-                        )
-                    )
-                    user_input = stripped
-                    # Keep the dispatch key in sync with the translated command so
-                    # the /scoped-models handler below matches (a hotkey is never a
-                    # drained line, so this only rewrites typed-hotkey input).
-                    command_text = stripped
-                # Local shell shortcut: a submitted line whose first non-space
-                # character is ``!`` runs a bash command from the editor with no
-                # provider turn (Pi's ``handleBashCommand``). ``!cmd`` records the
-                # command/output into the conversation context and native session
-                # tree so the next turn and resume see it; ``!!cmd`` runs identically
-                # but is excluded from context (a live-only diagnostic). Escape
-                # cancels a running command. Intercepted before the user-message
-                # panel so it renders as a shell block, not a chat bubble.
-                if command_text.startswith("!"):
-                    shell_context_text = self._run_local_shell_shortcut(
-                        stripped,
-                        terminal_ui=terminal_ui,
-                        error_stream=error_stream,
-                        cwd=cwd,
-                        user_bash_hooks=extension_user_bash_hooks,
-                        set_active_tools_fn=extension_set_active_tools,
-                        set_model_fn=extension_set_model,
-                        set_thinking_level_fn=extension_set_thinking_level,
-                        ui_driver=extension_ui_driver,
-                        flags=extension_flag_values,
-                        project_trusted=settings.project_trusted,
-                    )
-                    if shell_context_text is not None:
-                        shell_message = AgentUserMessage(
-                            content=ProductContent(shell_context_text)
-                        )
-                        append_agent_message(shell_message)
-                    refresh_legacy_footer_with_usage()
-                    continue
-                # Pi paints the submitted user message back on a muted
-                # `userMessageBg` panel — distinct from the green tool
-                # panel — so the prompt reads as a chat bubble. Overwrite
-                # the readline echo line with the styled panel row when
-                # the renderer can drive ANSI cursor controls.
-                if stripped and not from_hotkey:
-                    renderer.render_user_message(user_input)
-                # The built-in>resource>extension command-dispatch precedence is
-                # owned by the headless controller: it classifies built-ins first
-                # (`/exit`/`/quit` -> EXIT_LOOP; every other continuing built-in ->
-                # INTERPRET_BUILTIN carrying the outcome interpreted inline below),
-                # then resource dispatch (list/reject consumed locally; run records
-                # the invocation counter and carries the bounded provider text),
-                # then extension dispatch (never shadowing a built-in or resource),
-                # then the unhandled `/…` fallback — each effect performed through
-                # the injected `command_effects` port. Queued/provider content has
-                # a blank `command_text` and falls straight through to
-                # PROCEED_TO_RUN. The imperative per-action effect chain below is
-                # still interpreted inline (it reassigns run()-local control state).
-                resolution = loop_controller.dispatch_command(
-                    command_text=command_text,
-                    stripped=stripped,
-                    user_input=user_input,
-                    selected_provider_content=selected_provider_content,
-                    effects=command_effects,
-                )
-                if resolution.kind is CommandDispatchResolutionKind.EXIT_LOOP:
-                    break
-                if resolution.kind is CommandDispatchResolutionKind.INTERPRET_BUILTIN:
-                    command_outcome = resolution.interpret_outcome
-                    # INTERPRET_BUILTIN always carries a CONTINUE outcome.
-                    assert command_outcome is not None
-                    if command_outcome.kind is CodingCommandOutcomeKind.CONTINUE:
-                        if command_outcome.action is CodingCommandAction.SHOW_HOTKEYS:
-                            # Render from the resolved keybinding manager so user
-                            # keybindings.json overrides remain reflected.
-                            hotkeys_text = render_hotkeys(keybindings)
-                            if terminal_ui is not None:
-                                terminal_ui.add_notice(hotkeys_text)
-                            else:
-                                print(hotkeys_text, file=error_stream)
-                        elif (
-                            command_outcome.action is CodingCommandAction.SHOW_CHANGELOG
-                        ):
-                            changelog_text = render_changelog(read_changelog_entries())
-                            if terminal_ui is not None:
-                                terminal_ui.add_notice(changelog_text)
-                            else:
-                                print(changelog_text, file=error_stream)
-                        elif (
-                            command_outcome.action
-                            is CodingCommandAction.COPY_LAST_ANSWER
-                        ):
-                            self._emit_diagnostic(
-                                terminal_ui,
-                                error_stream,
-                                self._copy_last_answer(
-                                    coding_state.messages,
-                                    error_stream=error_stream,
-                                ),
+                    elif (
+                        command_outcome.action
+                        is CodingCommandAction.SHOW_SESSION_STATUS
+                    ):
+                        diag(format_session_status(session_tree))
+                    elif command_outcome.action is CodingCommandAction.COMPACT:
+                        # Local-only: reduce provider-visible history while
+                        # preserving the shared manual/automatic compaction
+                        # policy, extension gate, and durable write ordering.
+                        diag(apply_compaction("manual"))
+                    elif command_outcome.action is CodingCommandAction.SESSION_NAME:
+                        session_name_argument = command_outcome.argument
+                        if type(session_name_argument) is not ProductContent:
+                            raise TypeError(
+                                "SESSION_NAME requires an exact ProductContent argument"
                             )
-                        elif (
-                            command_outcome.action
-                            is CodingCommandAction.SHOW_SESSION_STATUS
+                        if not session_name_argument.value:
+                            diag(
+                                "pipy: current session name: "
+                                + (
+                                    sanitize_label_text(session_tree.name)
+                                    if session_tree.name
+                                    else "(unnamed)"
+                                )
+                            )
+                        else:
+                            session_tree.append_session_info(
+                                session_name_argument.value
+                            )
+                            diag(
+                                f"pipy: session named {session_name_argument.value!r}."
+                            )
+                    elif command_outcome.action is CodingCommandAction.NEW_SESSION:
+                        # Start a fresh native product session in the same store.
+                        if extension_session_allows(
+                            extension_session_before_switch_hooks,
+                            operation="switch",
+                            target="new",
                         ):
-                            diag(format_session_status(session_tree))
-                        elif command_outcome.action is CodingCommandAction.COMPACT:
-                            # Local-only: reduce provider-visible history while
-                            # preserving the shared manual/automatic compaction
-                            # policy, extension gate, and durable write ordering.
-                            diag(apply_compaction("manual"))
-                        elif command_outcome.action is CodingCommandAction.SESSION_NAME:
-                            session_name_argument = command_outcome.argument
-                            if type(session_name_argument) is not ProductContent:
-                                raise TypeError(
-                                    "SESSION_NAME requires an exact ProductContent argument"
-                                )
-                            if not session_name_argument.value:
+                            session_dir = (
+                                session_tree.path.parent
+                                if session_tree.path is not None
+                                else None
+                            )
+                            session_tree = NativeSessionTree.create(
+                                cwd,
+                                session_dir=session_dir,
+                                persist=session_tree.persist,
+                            )
+                            rebuild_messages_from_tree()
+                            diag(
+                                "pipy: started a new native session "
+                                f"({sanitize_label_text(session_tree.session_id[:8])})."
+                            )
+                    elif command_outcome.action is CodingCommandAction.SESSION_TREE:
+                        tree_argument = command_outcome.argument
+                        if type(tree_argument) is not ProductContent:
+                            raise TypeError(
+                                "SESSION_TREE requires an exact ProductContent argument"
+                            )
+                        argument = tree_argument.value
+                        tree_sub = (
+                            argument.split(maxsplit=1)[0].lower() if argument else ""
+                        )
+                        tree_may_change = (
+                            not argument and terminal_ui is not None
+                        ) or tree_sub in {"select", "label", "filter"}
+                        tree_allowed = not tree_may_change or extension_session_allows(
+                            extension_session_before_tree_hooks,
+                            operation="tree",
+                            target=argument or None,
+                        )
+                        if tree_allowed:
+                            tree_outcome = self._handle_tree_command(
+                                argument,
+                                session_tree=session_tree,
+                                terminal_ui=terminal_ui,
+                                error_stream=error_stream,
+                                repl_input=repl_input,
+                                filter_mode=tree_filter_mode,
+                                rebuild_messages=rebuild_messages_from_tree,
+                                summarizer=summarize_branch,
+                            )
+                            if tree_outcome.filter_mode is not None:
+                                tree_filter_mode = tree_outcome.filter_mode
+                            if tree_outcome.prefill is not None:
+                                pending_prefill = tree_outcome.prefill
+                    elif command_outcome.action is CodingCommandAction.SESSION_RESUME:
+                        resume_argument = command_outcome.argument
+                        if type(resume_argument) is not ProductContent:
+                            raise TypeError(
+                                "SESSION_RESUME requires an exact ProductContent "
+                                "argument"
+                            )
+                        argument = resume_argument.value
+                        resume_tokens = argument.split()
+                        resume_sub = resume_tokens[0].lower() if resume_tokens else ""
+
+                        def _list_sessions(named_only: bool = False) -> None:
+                            sessions = list_native_sessions(current_session_dir())
+                            sessions = (
+                                [session for session in sessions if session.name]
+                                if named_only
+                                else sessions
+                            )
+                            if not sessions:
                                 diag(
-                                    "pipy: current session name: "
-                                    + (
-                                        sanitize_label_text(session_tree.name)
-                                        if session_tree.name
-                                        else "(unnamed)"
-                                    )
+                                    "pipy: no native sessions found for this workspace."
                                 )
-                            else:
-                                session_tree.append_session_info(
-                                    session_name_argument.value
+                                return
+                            scope = "named " if named_only else ""
+                            diag(f"pipy: {scope}native sessions (newest first):")
+                            for index, entry in enumerate(sessions, start=1):
+                                label = (
+                                    sanitize_label_text(entry.name)
+                                    if entry.name
+                                    else "(unnamed)"
                                 )
                                 diag(
-                                    "pipy: session named "
-                                    f"{session_name_argument.value!r}."
+                                    f"  {index}. "
+                                    f"{sanitize_label_text(entry.session_id[:8])} "
+                                    f"{label} "
+                                    f"messages={entry.message_count} "
+                                    f"file={sanitize_label_text(entry.path.name)}"
                                 )
-                        elif command_outcome.action is CodingCommandAction.NEW_SESSION:
-                            # Start a fresh native product session in the same store.
-                            if extension_session_allows(
+                            diag("pipy: use '/resume <number|id>' to open a session.")
+
+                        if (
+                            not argument
+                            and terminal_ui is not None
+                            and hasattr(terminal_ui, "run_session_picker")
+                        ):
+                            picked_session = self._run_interactive_session_picker(
+                                session_tree=session_tree,
+                                terminal_ui=terminal_ui,
+                            )
+                            if picked_session is None:
+                                diag("pipy: /resume cancelled.")
+                            elif (
+                                session_tree.path is not None
+                                and picked_session == session_tree.path
+                            ):
+                                diag("pipy: already on the selected native session.")
+                            elif extension_session_allows(
                                 extension_session_before_switch_hooks,
                                 operation="switch",
-                                target="new",
+                                target=str(picked_session),
                             ):
-                                session_dir = (
-                                    session_tree.path.parent
-                                    if session_tree.path is not None
-                                    else None
-                                )
-                                session_tree = NativeSessionTree.create(
-                                    cwd,
-                                    session_dir=session_dir,
-                                    persist=session_tree.persist,
-                                )
+                                session_tree = NativeSessionTree.open(picked_session)
                                 rebuild_messages_from_tree()
+                                redraw_custom_entries_for_active_branch()
                                 diag(
-                                    "pipy: started a new native session "
-                                    f"({sanitize_label_text(session_tree.session_id[:8])})."
+                                    "pipy: resumed native session "
+                                    f"{sanitize_label_text(session_tree.session_id[:8])} "
+                                    f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
                                 )
-                        elif command_outcome.action is CodingCommandAction.SESSION_TREE:
-                            tree_argument = command_outcome.argument
-                            if type(tree_argument) is not ProductContent:
-                                raise TypeError(
-                                    "SESSION_TREE requires an exact ProductContent "
-                                    "argument"
-                                )
-                            argument = tree_argument.value
-                            tree_sub = (
-                                argument.split(maxsplit=1)[0].lower()
-                                if argument
-                                else ""
-                            )
-                            tree_may_change = (
-                                not argument and terminal_ui is not None
-                            ) or tree_sub in {"select", "label", "filter"}
-                            tree_allowed = (
-                                not tree_may_change
-                                or extension_session_allows(
-                                    extension_session_before_tree_hooks,
-                                    operation="tree",
-                                    target=argument or None,
-                                )
-                            )
-                            if tree_allowed:
-                                tree_outcome = self._handle_tree_command(
-                                    argument,
-                                    session_tree=session_tree,
-                                    terminal_ui=terminal_ui,
-                                    error_stream=error_stream,
-                                    repl_input=repl_input,
-                                    filter_mode=tree_filter_mode,
-                                    rebuild_messages=rebuild_messages_from_tree,
-                                    summarizer=summarize_branch,
-                                )
-                                if tree_outcome.filter_mode is not None:
-                                    tree_filter_mode = tree_outcome.filter_mode
-                                if tree_outcome.prefill is not None:
-                                    pending_prefill = tree_outcome.prefill
-                        elif (
-                            command_outcome.action is CodingCommandAction.SESSION_RESUME
-                        ):
-                            resume_argument = command_outcome.argument
-                            if type(resume_argument) is not ProductContent:
-                                raise TypeError(
-                                    "SESSION_RESUME requires an exact ProductContent "
-                                    "argument"
-                                )
-                            argument = resume_argument.value
-                            resume_tokens = argument.split()
-                            resume_sub = (
-                                resume_tokens[0].lower() if resume_tokens else ""
-                            )
-
-                            def _list_sessions(named_only: bool = False) -> None:
-                                sessions = list_native_sessions(current_session_dir())
-                                sessions = (
-                                    [session for session in sessions if session.name]
-                                    if named_only
-                                    else sessions
-                                )
-                                if not sessions:
-                                    diag(
-                                        "pipy: no native sessions found for this "
-                                        "workspace."
-                                    )
-                                    return
-                                scope = "named " if named_only else ""
-                                diag(f"pipy: {scope}native sessions (newest first):")
-                                for index, entry in enumerate(sessions, start=1):
-                                    label = (
-                                        sanitize_label_text(entry.name)
-                                        if entry.name
-                                        else "(unnamed)"
-                                    )
-                                    diag(
-                                        f"  {index}. "
-                                        f"{sanitize_label_text(entry.session_id[:8])} "
-                                        f"{label} "
-                                        f"messages={entry.message_count} "
-                                        f"file={sanitize_label_text(entry.path.name)}"
-                                    )
-                                diag(
-                                    "pipy: use '/resume <number|id>' to open a session."
-                                )
-
-                            if (
-                                not argument
-                                and terminal_ui is not None
-                                and hasattr(terminal_ui, "run_session_picker")
-                            ):
-                                picked_session = self._run_interactive_session_picker(
-                                    session_tree=session_tree,
-                                    terminal_ui=terminal_ui,
-                                )
-                                if picked_session is None:
-                                    diag("pipy: /resume cancelled.")
-                                elif (
-                                    session_tree.path is not None
-                                    and picked_session == session_tree.path
-                                ):
-                                    diag(
-                                        "pipy: already on the selected native session."
-                                    )
-                                elif extension_session_allows(
-                                    extension_session_before_switch_hooks,
-                                    operation="switch",
-                                    target=str(picked_session),
-                                ):
-                                    session_tree = NativeSessionTree.open(
-                                        picked_session
-                                    )
-                                    rebuild_messages_from_tree()
-                                    redraw_custom_entries_for_active_branch()
-                                    diag(
-                                        "pipy: resumed native session "
-                                        f"{sanitize_label_text(session_tree.session_id[:8])} "
-                                        f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
-                                    )
-                            elif not argument:
-                                _list_sessions()
-                            elif resume_sub == "named":
-                                _list_sessions(named_only=True)
-                            elif resume_sub == "rename":
-                                if len(resume_tokens) < 3:
-                                    diag(
-                                        "pipy: usage: /resume rename <number|id> <name>"
-                                    )
-                                else:
-                                    target = resolve_session_file(resume_tokens[1])
-                                    if target is None:
-                                        diag(
-                                            "pipy: no native session matched "
-                                            f"{resume_tokens[1]!r}."
-                                        )
-                                    else:
-                                        renamed = NativeSessionTree.open(target)
-                                        new_name = " ".join(resume_tokens[2:])
-                                        renamed.append_session_info(new_name)
-                                        diag(
-                                            "pipy: renamed session "
-                                            f"{sanitize_label_text(renamed.session_id[:8])} "
-                                            f"to {new_name!r}."
-                                        )
-                            elif resume_sub == "delete":
-                                confirm = "--yes" in resume_tokens[1:]
-                                refs = [
-                                    token
-                                    for token in resume_tokens[1:]
-                                    if token != "--yes"
-                                ]
-                                if not refs:
-                                    diag(
-                                        "pipy: usage: /resume delete <number|id> --yes"
-                                    )
-                                else:
-                                    target = resolve_session_file(refs[0])
-                                    if target is None:
-                                        diag(
-                                            "pipy: no native session matched "
-                                            f"{refs[0]!r}."
-                                        )
-                                    elif (
-                                        session_tree.path is not None
-                                        and target == session_tree.path
-                                    ):
-                                        diag(
-                                            "pipy: cannot delete the active native "
-                                            "session."
-                                        )
-                                    elif not confirm:
-                                        diag(
-                                            "pipy: deletion needs confirmation; "
-                                            "re-run "
-                                            f"'/resume delete {refs[0]} --yes'. This "
-                                            "removes only the native session file, "
-                                            "never pipy-session archive records."
-                                        )
-                                    else:
-                                        _ok, detail = delete_native_session(target)
-                                        diag(f"pipy: {detail}")
+                        elif not argument:
+                            _list_sessions()
+                        elif resume_sub == "named":
+                            _list_sessions(named_only=True)
+                        elif resume_sub == "rename":
+                            if len(resume_tokens) < 3:
+                                diag("pipy: usage: /resume rename <number|id> <name>")
                             else:
-                                target = resolve_session_file(argument)
+                                target = resolve_session_file(resume_tokens[1])
                                 if target is None:
                                     diag(
-                                        f"pipy: no native session matched {argument!r}."
+                                        "pipy: no native session matched "
+                                        f"{resume_tokens[1]!r}."
                                     )
-                                elif extension_session_allows(
-                                    extension_session_before_switch_hooks,
-                                    operation="switch",
-                                    target=str(target),
-                                ):
-                                    session_tree = NativeSessionTree.open(target)
-                                    rebuild_messages_from_tree()
-                                    redraw_custom_entries_for_active_branch()
+                                else:
+                                    renamed = NativeSessionTree.open(target)
+                                    new_name = " ".join(resume_tokens[2:])
+                                    renamed.append_session_info(new_name)
                                     diag(
-                                        "pipy: resumed native session "
-                                        f"{sanitize_label_text(session_tree.session_id[:8])} "
-                                        f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
+                                        "pipy: renamed session "
+                                        f"{sanitize_label_text(renamed.session_id[:8])} "
+                                        f"to {new_name!r}."
                                     )
-                        elif command_outcome.action in {
-                            CodingCommandAction.SESSION_FORK,
-                            CodingCommandAction.SESSION_CLONE,
-                        }:
-                            if (
-                                command_outcome.action
-                                is CodingCommandAction.SESSION_FORK
-                            ):
-                                fork_argument = command_outcome.argument
-                                if type(fork_argument) is not ProductContent:
-                                    raise TypeError(
-                                        "SESSION_FORK requires an exact ProductContent "
-                                        "argument"
-                                    )
-                                argument = fork_argument.value
+                        elif resume_sub == "delete":
+                            confirm = "--yes" in resume_tokens[1:]
+                            refs = [
+                                token for token in resume_tokens[1:] if token != "--yes"
+                            ]
+                            if not refs:
+                                diag("pipy: usage: /resume delete <number|id> --yes")
                             else:
-                                argument = ""
-                            if session_tree.path is None:
-                                command_name = {
-                                    CodingCommandAction.SESSION_FORK: "/fork",
-                                    CodingCommandAction.SESSION_CLONE: "/clone",
+                                target = resolve_session_file(refs[0])
+                                if target is None:
+                                    diag(
+                                        f"pipy: no native session matched {refs[0]!r}."
+                                    )
+                                elif (
+                                    session_tree.path is not None
+                                    and target == session_tree.path
+                                ):
+                                    diag(
+                                        "pipy: cannot delete the active native session."
+                                    )
+                                elif not confirm:
+                                    diag(
+                                        "pipy: deletion needs confirmation; "
+                                        "re-run "
+                                        f"'/resume delete {refs[0]} --yes'. This "
+                                        "removes only the native session file, "
+                                        "never pipy-session archive records."
+                                    )
+                                else:
+                                    _ok, detail = delete_native_session(target)
+                                    diag(f"pipy: {detail}")
+                        else:
+                            target = resolve_session_file(argument)
+                            if target is None:
+                                diag(f"pipy: no native session matched {argument!r}.")
+                            elif extension_session_allows(
+                                extension_session_before_switch_hooks,
+                                operation="switch",
+                                target=str(target),
+                            ):
+                                session_tree = NativeSessionTree.open(target)
+                                rebuild_messages_from_tree()
+                                redraw_custom_entries_for_active_branch()
+                                diag(
+                                    "pipy: resumed native session "
+                                    f"{sanitize_label_text(session_tree.session_id[:8])} "
+                                    f"({sanitize_label_text(session_tree.name) if session_tree.name else 'unnamed'})."
+                                )
+                    elif command_outcome.action in {
+                        CodingCommandAction.SESSION_FORK,
+                        CodingCommandAction.SESSION_CLONE,
+                    }:
+                        if command_outcome.action is CodingCommandAction.SESSION_FORK:
+                            fork_argument = command_outcome.argument
+                            if type(fork_argument) is not ProductContent:
+                                raise TypeError(
+                                    "SESSION_FORK requires an exact ProductContent "
+                                    "argument"
+                                )
+                            argument = fork_argument.value
+                        else:
+                            argument = ""
+                        if session_tree.path is None:
+                            command_name = {
+                                CodingCommandAction.SESSION_FORK: "/fork",
+                                CodingCommandAction.SESSION_CLONE: "/clone",
+                            }[command_outcome.action]
+                            diag(
+                                f"pipy: {command_name} requires a persistent "
+                                "native session."
+                            )
+                        else:
+                            fork_leaf: str | None = None
+                            fork_target_resolved = True
+                            if argument:
+                                target_entry = resolve_entry_ref(
+                                    session_tree,
+                                    argument,
+                                    filter_mode=tree_filter_mode,
+                                )
+                                if target_entry is None:
+                                    diag(f"pipy: no tree entry matched {argument!r}.")
+                                    fork_target_resolved = False
+                                else:
+                                    fork_leaf = target_entry.id
+                            else:
+                                fork_leaf = session_tree.get_leaf_id()
+                            if fork_target_resolved and extension_session_allows(
+                                extension_session_before_fork_hooks,
+                                operation="fork",
+                                target=fork_leaf,
+                            ):
+                                forked_tree = NativeSessionTree.fork_from(
+                                    session_tree.path,
+                                    cwd,
+                                    leaf_id=fork_leaf,
+                                    session_dir=session_tree.path.parent,
+                                )
+                                session_tree = forked_tree
+                                rebuild_messages_from_tree()
+                                success_text = {
+                                    CodingCommandAction.SESSION_FORK: (
+                                        "forked into new native session "
+                                    ),
+                                    CodingCommandAction.SESSION_CLONE: (
+                                        "cloned active branch into new native session "
+                                    ),
                                 }[command_outcome.action]
                                 diag(
-                                    f"pipy: {command_name} requires a persistent "
-                                    "native session."
-                                )
-                            else:
-                                fork_leaf: str | None = None
-                                fork_target_resolved = True
-                                if argument:
-                                    target_entry = resolve_entry_ref(
-                                        session_tree,
-                                        argument,
-                                        filter_mode=tree_filter_mode,
-                                    )
-                                    if target_entry is None:
-                                        diag(
-                                            f"pipy: no tree entry matched {argument!r}."
-                                        )
-                                        fork_target_resolved = False
-                                    else:
-                                        fork_leaf = target_entry.id
-                                else:
-                                    fork_leaf = session_tree.get_leaf_id()
-                                if fork_target_resolved and extension_session_allows(
-                                    extension_session_before_fork_hooks,
-                                    operation="fork",
-                                    target=fork_leaf,
-                                ):
-                                    forked_tree = NativeSessionTree.fork_from(
-                                        session_tree.path,
-                                        cwd,
-                                        leaf_id=fork_leaf,
-                                        session_dir=session_tree.path.parent,
-                                    )
-                                    session_tree = forked_tree
-                                    rebuild_messages_from_tree()
-                                    success_text = {
-                                        CodingCommandAction.SESSION_FORK: (
-                                            "forked into new native session "
-                                        ),
-                                        CodingCommandAction.SESSION_CLONE: (
-                                            "cloned active branch into new native "
-                                            "session "
-                                        ),
-                                    }[command_outcome.action]
-                                    diag(
-                                        f"pipy: {success_text}"
-                                        f"{sanitize_label_text(session_tree.session_id[:8])}."
-                                    )
-                        elif (
-                            command_outcome.action
-                            is CodingCommandAction.SESSION_EXPORT
-                        ):
-                            self._export_session(
-                                command_outcome.argument,
-                                session_tree=session_tree,
-                                cwd=cwd,
-                                system_prompt=system_prompt,
-                                diagnostic=diag,
-                            )
-                        elif (
-                            command_outcome.action is CodingCommandAction.SESSION_IMPORT
-                        ):
-                            imported_tree = self._import_session(
-                                command_outcome.argument,
-                                cwd=cwd,
-                                input_stream=input_stream,
-                                error_stream=error_stream,
-                                current_session_dir=current_session_dir,
-                                session_switch_allows=lambda target: (
-                                    extension_session_allows(
-                                        extension_session_before_switch_hooks,
-                                        operation="switch",
-                                        target=target,
-                                    )
-                                ),
-                                diagnostic=diag,
-                            )
-                            if imported_tree is not None:
-                                session_tree = imported_tree
-                                rebuild_messages_from_tree()
-                                diag(
-                                    "pipy: imported native session "
+                                    f"pipy: {success_text}"
                                     f"{sanitize_label_text(session_tree.session_id[:8])}."
                                 )
-                        elif (
-                            command_outcome.action is CodingCommandAction.SESSION_SHARE
-                        ):
-                            token = resolve_github_token()
-                            if not token:
-                                diag(
-                                    "pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`."
+                    elif command_outcome.action is CodingCommandAction.SESSION_EXPORT:
+                        self._export_session(
+                            command_outcome.argument,
+                            session_tree=session_tree,
+                            cwd=cwd,
+                            system_prompt=system_prompt,
+                            diagnostic=diag,
+                        )
+                    elif command_outcome.action is CodingCommandAction.SESSION_IMPORT:
+                        imported_tree = self._import_session(
+                            command_outcome.argument,
+                            cwd=cwd,
+                            input_stream=input_stream,
+                            error_stream=error_stream,
+                            current_session_dir=current_session_dir,
+                            session_switch_allows=lambda target: (
+                                extension_session_allows(
+                                    extension_session_before_switch_hooks,
+                                    operation="switch",
+                                    target=target,
                                 )
-                            else:
-                                try:
-                                    result = self._share_native_session_command(
-                                        session_tree=session_tree,
-                                        token=token,
-                                        terminal_ui=terminal_ui,
-                                        error_stream=error_stream,
-                                    )
-                                except NativeExportError as exc:
-                                    diag(f"pipy: {exc}")
-                                else:
-                                    if result is not None:
-                                        if result.viewer_url:
-                                            diag(
-                                                f"pipy: share URL: {result.viewer_url}\npipy: gist URL: {result.gist_url}"
-                                            )
-                                        else:
-                                            diag(f"pipy: gist URL: {result.gist_url}")
-                        elif command_outcome.action is CodingCommandAction.SETTINGS:
-                            if terminal_ui is not None:
-                                self._drive_settings_dialog(
-                                    terminal_ui,
-                                    prompt_history_store,
-                                    provider=coding_state.provider,
-                                    apply_model_selection=apply_model_selection,
-                                    apply_auth_change=apply_auth_change,
-                                    settings=settings,
+                            ),
+                            diagnostic=diag,
+                        )
+                        if imported_tree is not None:
+                            session_tree = imported_tree
+                            rebuild_messages_from_tree()
+                            diag(
+                                "pipy: imported native session "
+                                f"{sanitize_label_text(session_tree.session_id[:8])}."
+                            )
+                    elif command_outcome.action is CodingCommandAction.SESSION_SHARE:
+                        token = resolve_github_token()
+                        if not token:
+                            diag(
+                                "pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`."
+                            )
+                        else:
+                            try:
+                                result = self._share_native_session_command(
                                     session_tree=session_tree,
+                                    token=token,
+                                    terminal_ui=terminal_ui,
                                     error_stream=error_stream,
                                 )
+                            except NativeExportError as exc:
+                                diag(f"pipy: {exc}")
+                            else:
+                                if result is not None:
+                                    if result.viewer_url:
+                                        diag(
+                                            f"pipy: share URL: {result.viewer_url}\npipy: gist URL: {result.gist_url}"
+                                        )
+                                    else:
+                                        diag(f"pipy: gist URL: {result.gist_url}")
+                    elif command_outcome.action is CodingCommandAction.SETTINGS:
+                        if terminal_ui is not None:
+                            self._drive_settings_dialog(
+                                terminal_ui,
+                                prompt_history_store,
+                                provider=coding_state.provider,
+                                apply_model_selection=apply_model_selection,
+                                apply_auth_change=apply_auth_change,
+                                settings=settings,
+                                session_tree=session_tree,
+                                error_stream=error_stream,
+                            )
+                        else:
+                            for overlay_line in self._settings_overlay_lines(
+                                settings,
+                                provider=coding_state.provider,
+                            ):
+                                print(overlay_line, file=error_stream)
+                    elif command_outcome.action is CodingCommandAction.TRUST_PROJECT:
+                        self._handle_trust_command(
+                            terminal_ui=terminal_ui,
+                            error_stream=error_stream,
+                            cwd=cwd,
+                            settings=settings,
+                        )
+                    elif command_outcome.action in {
+                        CodingCommandAction.MODEL,
+                        CodingCommandAction.SCOPED_MODELS,
+                        CodingCommandAction.LOGIN,
+                        CodingCommandAction.LOGOUT,
+                    }:
+                        command_argument = command_outcome.argument
+                        if type(command_argument) is not ProductContent:
+                            raise TypeError(
+                                f"{command_outcome.action.name} requires an exact "
+                                "ProductContent argument"
+                            )
+                        argument = command_argument.value
+                        if command_outcome.action is CodingCommandAction.MODEL:
+                            state = self.provider_state
+                            if not isinstance(state, NativeReplProviderState):
+                                self._emit_diagnostic(
+                                    terminal_ui,
+                                    error_stream,
+                                    "pipy: /model is unavailable for this REPL "
+                                    "provider state.",
+                                )
+                            elif argument:
+                                _ok, message = apply_model_selection(argument)
+                                self._emit_diagnostic(
+                                    terminal_ui, error_stream, message
+                                )
+                            elif terminal_ui is not None:
+                                ui_options, selections = self._model_selector_rows(
+                                    state
+                                )
+                                current = state.current_selection()
+                                current_index = next(
+                                    (
+                                        index
+                                        for index, selection in enumerate(selections)
+                                        if selection.provider_name
+                                        == current.provider_name
+                                        and selection.model_id == current.model_id
+                                    ),
+                                    0,
+                                )
+                                chosen = terminal_ui.run_model_selector(
+                                    ui_options, current_index=current_index
+                                )
+                                if chosen is not None:
+                                    _ok, message = apply_model_selection(
+                                        selections[chosen].reference
+                                    )
+                                    terminal_ui.add_notice(message)
                             else:
                                 for overlay_line in self._settings_overlay_lines(
                                     settings,
@@ -3601,823 +3615,746 @@ class NativeToolReplSession:
                                 ):
                                     print(overlay_line, file=error_stream)
                         elif (
-                            command_outcome.action is CodingCommandAction.TRUST_PROJECT
+                            command_outcome.action is CodingCommandAction.SCOPED_MODELS
                         ):
-                            self._handle_trust_command(
-                                terminal_ui=terminal_ui,
-                                error_stream=error_stream,
-                                cwd=cwd,
-                                settings=settings,
+                            # Local-only: view/set/clear the enabledModels
+                            # patterns constraining model cycling, or cycle over
+                            # the scoped set without a provider/tool turn.
+                            state = self.provider_state
+                            available_refs = (
+                                [
+                                    option.selection.reference
+                                    for option in state.model_options()
+                                    if option.available
+                                ]
+                                if isinstance(state, NativeReplProviderState)
+                                else []
                             )
-                        elif command_outcome.action in {
-                            CodingCommandAction.MODEL,
-                            CodingCommandAction.SCOPED_MODELS,
-                            CodingCommandAction.LOGIN,
-                            CodingCommandAction.LOGOUT,
-                        }:
-                            command_argument = command_outcome.argument
-                            if type(command_argument) is not ProductContent:
-                                raise TypeError(
-                                    f"{command_outcome.action.name} requires an exact "
-                                    "ProductContent argument"
-                                )
-                            argument = command_argument.value
-                            if command_outcome.action is CodingCommandAction.MODEL:
-                                state = self.provider_state
-                                if not isinstance(state, NativeReplProviderState):
-                                    self._emit_diagnostic(
-                                        terminal_ui,
-                                        error_stream,
-                                        "pipy: /model is unavailable for this REPL "
-                                        "provider state.",
-                                    )
-                                elif argument:
-                                    _ok, message = apply_model_selection(argument)
-                                    self._emit_diagnostic(
-                                        terminal_ui, error_stream, message
-                                    )
-                                elif terminal_ui is not None:
-                                    ui_options, selections = self._model_selector_rows(
-                                        state
-                                    )
-                                    current = state.current_selection()
-                                    current_index = next(
-                                        (
-                                            index
-                                            for index, selection in enumerate(
-                                                selections
-                                            )
-                                            if selection.provider_name
-                                            == current.provider_name
-                                            and selection.model_id == current.model_id
-                                        ),
-                                        0,
-                                    )
-                                    chosen = terminal_ui.run_model_selector(
-                                        ui_options, current_index=current_index
-                                    )
-                                    if chosen is not None:
-                                        _ok, message = apply_model_selection(
-                                            selections[chosen].reference
-                                        )
-                                        terminal_ui.add_notice(message)
-                                else:
-                                    for overlay_line in self._settings_overlay_lines(
-                                        settings,
-                                        provider=coding_state.provider,
-                                    ):
-                                        print(overlay_line, file=error_stream)
-                            elif (
-                                command_outcome.action
-                                is CodingCommandAction.SCOPED_MODELS
+                            patterns = settings.get_enabled_models()
+                            scoped = filter_scoped_references(available_refs, patterns)
+                            if (
+                                not argument
+                                and terminal_ui is not None
+                                and isinstance(state, NativeReplProviderState)
+                                and available_refs
                             ):
-                                # Local-only: view/set/clear the enabledModels
-                                # patterns constraining model cycling, or cycle over
-                                # the scoped set without a provider/tool turn.
-                                state = self.provider_state
-                                available_refs = (
-                                    [
-                                        option.selection.reference
-                                        for option in state.model_options()
-                                        if option.available
-                                    ]
-                                    if isinstance(state, NativeReplProviderState)
-                                    else []
+                                self._open_scoped_models_overlay(
+                                    terminal_ui, state=state, settings=settings
                                 )
-                                patterns = settings.get_enabled_models()
-                                scoped = filter_scoped_references(
-                                    available_refs, patterns
+                            elif not argument:
+                                pattern_text = (
+                                    ", ".join(patterns)
+                                    if patterns
+                                    else "(none — full catalog)"
                                 )
-                                if (
-                                    not argument
-                                    and terminal_ui is not None
-                                    and isinstance(state, NativeReplProviderState)
-                                    and available_refs
+                                cycle_text = (
+                                    ", ".join(scoped) if scoped else "(none available)"
+                                )
+                                for line in (
+                                    "pipy: scoped models:",
+                                    f"  patterns: {pattern_text}",
+                                    f"  cycle set: {cycle_text}",
                                 ):
-                                    self._open_scoped_models_overlay(
-                                        terminal_ui, state=state, settings=settings
-                                    )
-                                elif not argument:
-                                    pattern_text = (
-                                        ", ".join(patterns)
-                                        if patterns
-                                        else "(none — full catalog)"
-                                    )
-                                    cycle_text = (
-                                        ", ".join(scoped)
-                                        if scoped
-                                        else "(none available)"
-                                    )
-                                    for line in (
-                                        "pipy: scoped models:",
-                                        f"  patterns: {pattern_text}",
-                                        f"  cycle set: {cycle_text}",
-                                    ):
-                                        self._emit_diagnostic(
-                                            terminal_ui, error_stream, line
-                                        )
-                                elif argument == "clear":
-                                    try:
-                                        settings.set_enabled_models([])
-                                        message = (
-                                            "pipy: scoped models cleared (cycle uses "
-                                            "the full catalog)."
-                                        )
-                                    except RuntimeError as exc:
-                                        message = (
-                                            "pipy: could not update scoped models: "
-                                            f"{exc}"
-                                        )
                                     self._emit_diagnostic(
-                                        terminal_ui, error_stream, message
+                                        terminal_ui, error_stream, line
                                     )
-                                elif argument in {"next", "prev"}:
-                                    current_ref = (
-                                        state.current_selection().reference
-                                        if isinstance(state, NativeReplProviderState)
-                                        else ""
+                            elif argument == "clear":
+                                try:
+                                    settings.set_enabled_models([])
+                                    message = (
+                                        "pipy: scoped models cleared (cycle uses "
+                                        "the full catalog)."
                                     )
-                                    cycle_target = next_reference(
-                                        scoped,
-                                        current_ref,
-                                        forward=argument == "next",
+                                except RuntimeError as exc:
+                                    message = (
+                                        f"pipy: could not update scoped models: {exc}"
                                     )
-                                    if cycle_target is None:
-                                        self._emit_diagnostic(
-                                            terminal_ui,
-                                            error_stream,
-                                            "pipy: no models available to cycle.",
-                                        )
-                                    else:
-                                        _ok, message = apply_model_selection(
-                                            cycle_target
-                                        )
-                                        self._emit_diagnostic(
-                                            terminal_ui, error_stream, message
-                                        )
-                                else:
-                                    new_patterns = argument.split()
-                                    try:
-                                        settings.set_enabled_models(new_patterns)
-                                        message = (
-                                            "pipy: scoped models set: "
-                                            + ", ".join(new_patterns)
-                                        )
-                                    except RuntimeError as exc:
-                                        message = (
-                                            "pipy: could not update scoped models: "
-                                            f"{exc}"
-                                        )
-                                    self._emit_diagnostic(
-                                        terminal_ui, error_stream, message
-                                    )
-                            else:
-                                auth_action = (
-                                    "login"
-                                    if command_outcome.action
-                                    is CodingCommandAction.LOGIN
-                                    else "logout"
-                                )
-                                message = apply_auth_change(auth_action, argument)
                                 self._emit_diagnostic(
                                     terminal_ui, error_stream, message
                                 )
-                        elif command_outcome.action is CodingCommandAction.RELOAD:
-                            # Local-only: re-read settings (both scopes), keybindings, and
-                            # workspace resources, then re-apply derived UI settings. Runs
-                            # between turns at the prompt, so no provider turn or compaction
-                            # is in flight. A settings/theme load error keeps the prior good
-                            # state for that scope; a malformed keybindings.json falls back
-                            # to the built-in defaults. No provider turn, no tool call.
-                            settings.reload()
-                            keybindings.reload()
-                            # Re-resolve package roots + re-install the theme
-                            # registry so a package added/removed since startup is
-                            # reflected after /reload.
-                            package_roots = compose_package_runtime(
-                                settings,
-                                cwd,
-                                include_package_themes=not resource_options.no_themes,
-                                explicit_theme_paths=resource_options.theme_paths,
-                            )
-                            workspace_resources = WorkspaceResources.discover(
-                                cwd,
-                                package_roots=package_roots,
-                                explicit_skill_paths=resource_options.skill_paths,
-                                explicit_prompt_template_paths=resource_options.prompt_template_paths,
-                                include_skills_defaults=not resource_options.no_skills,
-                                include_prompt_template_defaults=not resource_options.no_prompt_templates,
-                                include_workspace_defaults=settings.project_trusted,
-                            ).with_enablement(
-                                skills_patterns=settings.get_skills_patterns(),
-                                prompts_patterns=settings.get_prompts_patterns(),
-                                enable_skill_commands=settings.get_enable_skill_commands(),
-                            )
-                            # Re-discover + re-activate extensions on reload (Pi
-                            # /reload also reloads extensions). A failing extension is
-                            # disabled without affecting the session. Clear any chrome
-                            # set by the prior generation first so a removed/disabled
-                            # extension cannot leave stale widgets/header/footer/title.
-                            if terminal_ui is not None:
-                                terminal_ui.clear_extension_chrome()
-                            _ext_runtime = _activate_workspace_extensions(
-                                cwd,
-                                workspace_resources,
-                                tuple(self.tool_registry.keys()),
-                                package_roots=()
-                                if resource_options.no_extensions
-                                else package_roots.extensions,
-                                extension_patterns=settings.get_extensions_patterns(),
-                                explicit_extension_paths=resource_options.extension_paths,
-                                include_default_extensions=not resource_options.no_extensions,
-                                include_workspace_defaults=settings.project_trusted,
-                            )
-                            extension_commands = _ext_runtime.commands
-                            extension_menu_names = _ext_runtime.menu_names
-                            extension_descriptions = _ext_runtime.descriptions
-                            extension_tool_call_hooks_ = _ext_runtime.tool_call_hooks
-                            extension_lifecycle_hooks = _ext_runtime.lifecycle_hooks
-                            extension_input_hooks = _ext_runtime.input_hooks
-                            extension_before_agent_start_hooks = (
-                                _ext_runtime.before_agent_start_hooks
-                            )
-                            extension_tool_result_hooks = _ext_runtime.tool_result_hooks
-                            extension_user_bash_hooks = _ext_runtime.user_bash_hooks
-                            extension_before_provider_headers_hooks = (
-                                _ext_runtime.before_provider_headers_hooks
-                            )
-                            extension_before_provider_request_hooks = (
-                                _ext_runtime.before_provider_request_hooks
-                            )
-                            extension_session_before_switch_hooks = (
-                                _ext_runtime.session_before_switch_hooks
-                            )
-                            extension_session_before_fork_hooks = (
-                                _ext_runtime.session_before_fork_hooks
-                            )
-                            extension_session_before_compact_hooks = (
-                                _ext_runtime.session_before_compact_hooks
-                            )
-                            extension_session_before_tree_hooks = (
-                                _ext_runtime.session_before_tree_hooks
-                            )
-                            extension_message_outbox = _ext_runtime.outbox
-                            extension_custom_message_outbox = _ext_runtime.custom_outbox
-                            extension_renderer_map = _ext_runtime.message_renderers
-                            extension_entry_renderer_map = _ext_runtime.entry_renderers
-                            extension_activation_custom_messages = _ext_runtime.custom_messages
-                            for custom_message in extension_activation_custom_messages:
-                                extension_send_message(
-                                    custom_message.custom_type,
-                                    custom_message.content,
-                                    custom_message.display,
-                                    custom_message.options,
-                                    custom_message.details,
+                            elif argument in {"next", "prev"}:
+                                current_ref = (
+                                    state.current_selection().reference
+                                    if isinstance(state, NativeReplProviderState)
+                                    else ""
                                 )
-                            extension_activation_custom_messages = ()
-                            reloaded_flag_values, reloaded_flag_error = (
-                                parse_extension_flag_tokens(
-                                    _ext_runtime.flags,
-                                    tuple(resource_options.extension_flag_tokens),
+                                cycle_target = next_reference(
+                                    scoped,
+                                    current_ref,
+                                    forward=argument == "next",
                                 )
-                            )
-                            if reloaded_flag_error is not None:
-                                self._emit_diagnostic(
-                                    terminal_ui,
-                                    error_stream,
-                                    f"pipy: {reloaded_flag_error}",
-                                )
-                            else:
-                                extension_flag_values = reloaded_flag_values
-                                emitter.set_flags(extension_flag_values)
-                            state = self.provider_state
-                            if isinstance(state, NativeReplProviderState):
-                                catalog_state = state.catalog_state
-                                if catalog_state is not None:
-                                    was_extension_selection = (
-                                        state.current_selection_uses_extension_provider()
-                                    )
-                                    catalog_state.refresh()  # type: ignore[attr-defined]
-                                    catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
-                                        _ext_runtime.providers,
-                                        _ext_runtime.unregistered_providers,
-                                    )
-                                    selection_disappeared = (
-                                        not state.current_selection_supported()
-                                        or (
-                                            was_extension_selection
-                                            and not state.current_selection_uses_extension_provider()
-                                        )
-                                    )
-                                    if not selection_disappeared:
-                                        if state.current_selection_uses_extension_provider():
-                                            refreshed_provider = state.current_provider()
-                                            if getattr(
-                                                refreshed_provider, "supports_tool_calls", False
-                                            ):
-                                                coding_state.refresh_provider(
-                                                    refreshed_provider
-                                                )
-                                            else:
-                                                fallback = state.reset_to_first_available_model(
-                                                    require_tool_calls=True
-                                                )
-                                                if fallback is not None:
-                                                    fallback_provider = state.current_provider()
-                                                    coding_state.rebind_provider(
-                                                        fallback_provider,
-                                                        provider_name=fallback.provider_name,
-                                                        model_id=fallback.model_id,
-                                                        usage_accumulator=(
-                                                            AgentUsageAccumulator(
-                                                                _pricing_for(
-                                                                    fallback.provider_name,
-                                                                    fallback.model_id,
-                                                                )
-                                                            )
-                                                        ),
-                                                    )
-                                                    self._emit_diagnostic(
-                                                        terminal_ui,
-                                                        error_stream,
-                                                        "pipy: active model no longer "
-                                                        "supports tool calls after reload; "
-                                                        f"selected {fallback.reference}.",
-                                                    )
-                                                else:
-                                                    message = (
-                                                        "active model no longer supports "
-                                                        "tool calls after reload and no "
-                                                        "available tool-capable fallback "
-                                                        "was found"
-                                                    )
-                                                    _bind_unavailable_after_reload(message)
-                                                    self._emit_diagnostic(
-                                                        terminal_ui,
-                                                        error_stream,
-                                                        f"pipy: {message}.",
-                                                    )
-                                    else:
-                                        fallback = state.reset_to_first_available_model(
-                                            require_tool_calls=True
-                                        )
-                                        if fallback is not None:
-                                            fallback_provider = state.current_provider()
-                                            coding_state.rebind_provider(
-                                                fallback_provider,
-                                                provider_name=fallback.provider_name,
-                                                model_id=fallback.model_id,
-                                                usage_accumulator=AgentUsageAccumulator(
-                                                    _pricing_for(
-                                                        fallback.provider_name,
-                                                        fallback.model_id,
-                                                    )
-                                                ),
-                                            )
-                                            self._emit_diagnostic(
-                                                terminal_ui,
-                                                error_stream,
-                                                "pipy: active model disappeared on "
-                                                "reload; selected "
-                                                f"{fallback.reference}.",
-                                            )
-                                        else:
-                                            message = (
-                                                "active model disappeared on reload and "
-                                                "no available tool-capable fallback was "
-                                                "found"
-                                            )
-                                            _bind_unavailable_after_reload(message)
-                                            self._emit_diagnostic(
-                                                terminal_ui,
-                                                error_stream,
-                                                f"pipy: {message}.",
-                                            )
-                            # Replace the run's extension capability registry and
-                            # custom renderer map with the reloaded generation.
-                            extension_tool_renderers = _extension_tool_renderer_map(
-                                _ext_runtime.tools
-                            )
-                            renderer.refresh_tool_renderers(extension_tool_renderers)
-                            extension_tool_registry = {}
-                            for _registered_tool in _ext_runtime.tools:
-                                _port = _ExtensionToolPort(
-                                    _registered_tool,
-                                    has_ui=terminal_ui is not None,
-                                    notify_sink=_extension_notify,
-                                    set_active_tools_fn=lambda names: (
-                                        extension_set_active_tools(names)
-                                    ),
-                                    flags=extension_flag_values,
-                                    render_details_sink=extension_render_details,
-                                    project_trusted=settings.project_trusted,
-                                )
-                                extension_tool_registry[_port.definition.name] = _port
-                            tool_capabilities.replace_extensions(extension_tool_registry)
-                            unknown_filter_names = tool_capabilities.unknown_filter_names
-                            if unknown_filter_names:
-                                known = (
-                                    ", ".join(sorted(tool_capabilities.registered_names))
-                                    or "<none>"
-                                )
-                                unknown = ", ".join(unknown_filter_names)
-                                self._emit_diagnostic(
-                                    terminal_ui,
-                                    error_stream,
-                                    f"pipy: unknown tool name(s): {unknown}. "
-                                    f"Known tools: {known}",
-                                )
-                            # Refresh the emitter's lifecycle hooks so reloaded
-                            # extensions observe subsequent agent/turn events.
-                            emitter.set_lifecycle_hooks(extension_lifecycle_hooks)
-                            emitter.set_flags(extension_flag_values)
-                            # Re-apply the edited theme (settings is source of truth over the
-                            # persisted store) and the derived UI settings.
-                            reloaded_theme = settings.get_theme()
-                            if reloaded_theme:
-                                os.environ["PIPY_THEME"] = reloaded_theme
-                            if terminal_ui is not None:
-                                terminal_ui.autocomplete_max_visible = (
-                                    settings.get_autocomplete_max_visible()
-                                )
-                                terminal_ui.command_names = _tool_loop_command_names(
-                                    workspace_resources, extension_menu_names
-                                )
-                                terminal_ui.command_descriptions = (
-                                    _tool_loop_command_descriptions(
-                                        workspace_resources, extension_descriptions
-                                    )
-                                )
-                                terminal_ui.extension_shortcut_keys = frozenset(
-                                    _ext_runtime.shortcuts
-                                )
-                                redraw_custom_entries_for_active_branch()
-                            load_errors = settings.load_errors()
-                            if load_errors:
-                                for scope, detail in load_errors.items():
+                                if cycle_target is None:
                                     self._emit_diagnostic(
                                         terminal_ui,
                                         error_stream,
-                                        f"pipy: kept prior {scope} settings ({detail}).",
+                                        "pipy: no models available to cycle.",
                                     )
-                            if self.verbose_startup or not settings.get_quiet_startup():
-                                print_startup_chrome(
-                                    error_stream,
-                                    cwd=cwd,
-                                    include_workspace_defaults=settings.project_trusted,
+                                else:
+                                    _ok, message = apply_model_selection(cycle_target)
+                                    self._emit_diagnostic(
+                                        terminal_ui, error_stream, message
+                                    )
+                            else:
+                                new_patterns = argument.split()
+                                try:
+                                    settings.set_enabled_models(new_patterns)
+                                    message = "pipy: scoped models set: " + ", ".join(
+                                        new_patterns
+                                    )
+                                except RuntimeError as exc:
+                                    message = (
+                                        f"pipy: could not update scoped models: {exc}"
+                                    )
+                                self._emit_diagnostic(
+                                    terminal_ui, error_stream, message
                                 )
-                            saved_implicit_trust = self._maybe_save_implicit_trust_after_reload(
+                        else:
+                            auth_action = (
+                                "login"
+                                if command_outcome.action is CodingCommandAction.LOGIN
+                                else "logout"
+                            )
+                            message = apply_auth_change(auth_action, argument)
+                            self._emit_diagnostic(terminal_ui, error_stream, message)
+                    elif command_outcome.action is CodingCommandAction.RELOAD:
+                        # Local-only: re-read settings (both scopes), keybindings, and
+                        # workspace resources, then re-apply derived UI settings. Runs
+                        # between turns at the prompt, so no provider turn or compaction
+                        # is in flight. A settings/theme load error keeps the prior good
+                        # state for that scope; a malformed keybindings.json falls back
+                        # to the built-in defaults. No provider turn, no tool call.
+                        settings.reload()
+                        keybindings.reload()
+                        # Re-resolve package roots + re-install the theme
+                        # registry so a package added/removed since startup is
+                        # reflected after /reload.
+                        package_roots = compose_package_runtime(
+                            settings,
+                            cwd,
+                            include_package_themes=not resource_options.no_themes,
+                            explicit_theme_paths=resource_options.theme_paths,
+                        )
+                        workspace_resources = WorkspaceResources.discover(
+                            cwd,
+                            package_roots=package_roots,
+                            explicit_skill_paths=resource_options.skill_paths,
+                            explicit_prompt_template_paths=resource_options.prompt_template_paths,
+                            include_skills_defaults=not resource_options.no_skills,
+                            include_prompt_template_defaults=not resource_options.no_prompt_templates,
+                            include_workspace_defaults=settings.project_trusted,
+                        ).with_enablement(
+                            skills_patterns=settings.get_skills_patterns(),
+                            prompts_patterns=settings.get_prompts_patterns(),
+                            enable_skill_commands=settings.get_enable_skill_commands(),
+                        )
+                        # Re-discover + re-activate extensions on reload (Pi
+                        # /reload also reloads extensions). A failing extension is
+                        # disabled without affecting the session. Clear any chrome
+                        # set by the prior generation first so a removed/disabled
+                        # extension cannot leave stale widgets/header/footer/title.
+                        if terminal_ui is not None:
+                            terminal_ui.clear_extension_chrome()
+                        _ext_runtime = _activate_workspace_extensions(
+                            cwd,
+                            workspace_resources,
+                            tuple(self.tool_registry.keys()),
+                            package_roots=()
+                            if resource_options.no_extensions
+                            else package_roots.extensions,
+                            extension_patterns=settings.get_extensions_patterns(),
+                            explicit_extension_paths=resource_options.extension_paths,
+                            include_default_extensions=not resource_options.no_extensions,
+                            include_workspace_defaults=settings.project_trusted,
+                        )
+                        extension_commands = _ext_runtime.commands
+                        extension_menu_names = _ext_runtime.menu_names
+                        extension_descriptions = _ext_runtime.descriptions
+                        extension_tool_call_hooks_ = _ext_runtime.tool_call_hooks
+                        extension_lifecycle_hooks = _ext_runtime.lifecycle_hooks
+                        extension_input_hooks = _ext_runtime.input_hooks
+                        extension_before_agent_start_hooks = (
+                            _ext_runtime.before_agent_start_hooks
+                        )
+                        extension_tool_result_hooks = _ext_runtime.tool_result_hooks
+                        extension_user_bash_hooks = _ext_runtime.user_bash_hooks
+                        extension_before_provider_headers_hooks = (
+                            _ext_runtime.before_provider_headers_hooks
+                        )
+                        extension_before_provider_request_hooks = (
+                            _ext_runtime.before_provider_request_hooks
+                        )
+                        extension_session_before_switch_hooks = (
+                            _ext_runtime.session_before_switch_hooks
+                        )
+                        extension_session_before_fork_hooks = (
+                            _ext_runtime.session_before_fork_hooks
+                        )
+                        extension_session_before_compact_hooks = (
+                            _ext_runtime.session_before_compact_hooks
+                        )
+                        extension_session_before_tree_hooks = (
+                            _ext_runtime.session_before_tree_hooks
+                        )
+                        extension_message_outbox = _ext_runtime.outbox
+                        extension_custom_message_outbox = _ext_runtime.custom_outbox
+                        extension_renderer_map = _ext_runtime.message_renderers
+                        extension_entry_renderer_map = _ext_runtime.entry_renderers
+                        extension_activation_custom_messages = (
+                            _ext_runtime.custom_messages
+                        )
+                        for custom_message in extension_activation_custom_messages:
+                            extension_send_message(
+                                custom_message.custom_type,
+                                custom_message.content,
+                                custom_message.display,
+                                custom_message.options,
+                                custom_message.details,
+                            )
+                        extension_activation_custom_messages = ()
+                        reloaded_flag_values, reloaded_flag_error = (
+                            parse_extension_flag_tokens(
+                                _ext_runtime.flags,
+                                tuple(resource_options.extension_flag_tokens),
+                            )
+                        )
+                        if reloaded_flag_error is not None:
+                            self._emit_diagnostic(
+                                terminal_ui,
+                                error_stream,
+                                f"pipy: {reloaded_flag_error}",
+                            )
+                        else:
+                            extension_flag_values = reloaded_flag_values
+                            emitter.set_flags(extension_flag_values)
+                        state = self.provider_state
+                        if isinstance(state, NativeReplProviderState):
+                            catalog_state = state.catalog_state
+                            if catalog_state is not None:
+                                was_extension_selection = (
+                                    state.current_selection_uses_extension_provider()
+                                )
+                                catalog_state.refresh()  # type: ignore[attr-defined]
+                                catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
+                                    _ext_runtime.providers,
+                                    _ext_runtime.unregistered_providers,
+                                )
+                                selection_disappeared = (
+                                    not state.current_selection_supported()
+                                    or (
+                                        was_extension_selection
+                                        and not state.current_selection_uses_extension_provider()
+                                    )
+                                )
+                                if not selection_disappeared:
+                                    if state.current_selection_uses_extension_provider():
+                                        refreshed_provider = state.current_provider()
+                                        if getattr(
+                                            refreshed_provider,
+                                            "supports_tool_calls",
+                                            False,
+                                        ):
+                                            coding_state.refresh_provider(
+                                                refreshed_provider
+                                            )
+                                        else:
+                                            fallback = (
+                                                state.reset_to_first_available_model(
+                                                    require_tool_calls=True
+                                                )
+                                            )
+                                            if fallback is not None:
+                                                fallback_provider = (
+                                                    state.current_provider()
+                                                )
+                                                coding_state.rebind_provider(
+                                                    fallback_provider,
+                                                    provider_name=fallback.provider_name,
+                                                    model_id=fallback.model_id,
+                                                    usage_accumulator=(
+                                                        AgentUsageAccumulator(
+                                                            _pricing_for(
+                                                                fallback.provider_name,
+                                                                fallback.model_id,
+                                                            )
+                                                        )
+                                                    ),
+                                                )
+                                                self._emit_diagnostic(
+                                                    terminal_ui,
+                                                    error_stream,
+                                                    "pipy: active model no longer "
+                                                    "supports tool calls after reload; "
+                                                    f"selected {fallback.reference}.",
+                                                )
+                                            else:
+                                                message = (
+                                                    "active model no longer supports "
+                                                    "tool calls after reload and no "
+                                                    "available tool-capable fallback "
+                                                    "was found"
+                                                )
+                                                _bind_unavailable_after_reload(message)
+                                                self._emit_diagnostic(
+                                                    terminal_ui,
+                                                    error_stream,
+                                                    f"pipy: {message}.",
+                                                )
+                                else:
+                                    fallback = state.reset_to_first_available_model(
+                                        require_tool_calls=True
+                                    )
+                                    if fallback is not None:
+                                        fallback_provider = state.current_provider()
+                                        coding_state.rebind_provider(
+                                            fallback_provider,
+                                            provider_name=fallback.provider_name,
+                                            model_id=fallback.model_id,
+                                            usage_accumulator=AgentUsageAccumulator(
+                                                _pricing_for(
+                                                    fallback.provider_name,
+                                                    fallback.model_id,
+                                                )
+                                            ),
+                                        )
+                                        self._emit_diagnostic(
+                                            terminal_ui,
+                                            error_stream,
+                                            "pipy: active model disappeared on "
+                                            "reload; selected "
+                                            f"{fallback.reference}.",
+                                        )
+                                    else:
+                                        message = (
+                                            "active model disappeared on reload and "
+                                            "no available tool-capable fallback was "
+                                            "found"
+                                        )
+                                        _bind_unavailable_after_reload(message)
+                                        self._emit_diagnostic(
+                                            terminal_ui,
+                                            error_stream,
+                                            f"pipy: {message}.",
+                                        )
+                        # Replace the run's extension capability registry and
+                        # custom renderer map with the reloaded generation.
+                        extension_tool_renderers = _extension_tool_renderer_map(
+                            _ext_runtime.tools
+                        )
+                        renderer.refresh_tool_renderers(extension_tool_renderers)
+                        extension_tool_registry = {}
+                        for _registered_tool in _ext_runtime.tools:
+                            _port = _ExtensionToolPort(
+                                _registered_tool,
+                                has_ui=terminal_ui is not None,
+                                notify_sink=_extension_notify,
+                                set_active_tools_fn=lambda names: (
+                                    extension_set_active_tools(names)
+                                ),
+                                flags=extension_flag_values,
+                                render_details_sink=extension_render_details,
+                                project_trusted=settings.project_trusted,
+                            )
+                            extension_tool_registry[_port.definition.name] = _port
+                        tool_capabilities.replace_extensions(extension_tool_registry)
+                        unknown_filter_names = tool_capabilities.unknown_filter_names
+                        if unknown_filter_names:
+                            known = (
+                                ", ".join(sorted(tool_capabilities.registered_names))
+                                or "<none>"
+                            )
+                            unknown = ", ".join(unknown_filter_names)
+                            self._emit_diagnostic(
+                                terminal_ui,
+                                error_stream,
+                                f"pipy: unknown tool name(s): {unknown}. "
+                                f"Known tools: {known}",
+                            )
+                        # Refresh the emitter's lifecycle hooks so reloaded
+                        # extensions observe subsequent agent/turn events.
+                        emitter.set_lifecycle_hooks(extension_lifecycle_hooks)
+                        emitter.set_flags(extension_flag_values)
+                        # Re-apply the edited theme (settings is source of truth over the
+                        # persisted store) and the derived UI settings.
+                        reloaded_theme = settings.get_theme()
+                        if reloaded_theme:
+                            os.environ["PIPY_THEME"] = reloaded_theme
+                        if terminal_ui is not None:
+                            terminal_ui.autocomplete_max_visible = (
+                                settings.get_autocomplete_max_visible()
+                            )
+                            terminal_ui.command_names = _tool_loop_command_names(
+                                workspace_resources, extension_menu_names
+                            )
+                            terminal_ui.command_descriptions = (
+                                _tool_loop_command_descriptions(
+                                    workspace_resources, extension_descriptions
+                                )
+                            )
+                            terminal_ui.extension_shortcut_keys = frozenset(
+                                _ext_runtime.shortcuts
+                            )
+                            redraw_custom_entries_for_active_branch()
+                        load_errors = settings.load_errors()
+                        if load_errors:
+                            for scope, detail in load_errors.items():
+                                self._emit_diagnostic(
+                                    terminal_ui,
+                                    error_stream,
+                                    f"pipy: kept prior {scope} settings ({detail}).",
+                                )
+                        if self.verbose_startup or not settings.get_quiet_startup():
+                            print_startup_chrome(
+                                error_stream,
+                                cwd=cwd,
+                                include_workspace_defaults=settings.project_trusted,
+                            )
+                        saved_implicit_trust = (
+                            self._maybe_save_implicit_trust_after_reload(
                                 cwd=cwd,
                                 settings=settings,
                                 terminal_ui=terminal_ui,
                                 error_stream=error_stream,
                             )
-                            emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
-                            self._emit_diagnostic(
-                                terminal_ui,
-                                error_stream,
-                                (
-                                    "pipy: reloaded settings, keybindings, and resources; "
-                                    "saved project trust."
-                                    if saved_implicit_trust
-                                    else "pipy: reloaded settings, keybindings, and resources."
-                                ),
-                            )
-                        if (
-                            command_outcome.footer_policy
-                            is CodingCommandFooterPolicy.STANDARD
-                        ):
-                            refresh_legacy_footer()
-                        elif (
-                            command_outcome.footer_policy
-                            is CodingCommandFooterPolicy.USAGE_AWARE
-                        ):
-                            refresh_legacy_footer_with_usage()
-                        else:
-                            raise AssertionError(
-                                "handled command requires a closed footer policy"
-                            )
-                        continue
-                if resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:
-                    continue
-                resource_provider_text: str | None = resolution.resource_provider_text
-                # User-directed file context: a genuine prompt may name workspace
-                # files with ``@path``. Resolve them through the shared bounded
-                # reader (reusing this loop's ``read`` policy and reference roots),
-                # append the bounded excerpts to the provider-visible user message,
-                # and keep the literal prompt for the rendered panel, prompt
-                # history, and native product session tree. None of that content
-                # enters the metadata-only workflow archive.
-                # Accepted-input preparation owns the resource-vs-literal
-                # branch, the transformed-vs-original prompt split, the hook
-                # ordering (input hook, @file resolution, image attachments,
-                # then before_agent_start augmentation), diagnostic text, and
-                # safe-counter recording. The controller supplies only thin
-                # adapters over its effectful helpers; the provider-visible
-                # excerpts, image bytes, transformed text, and injected
-                # system-prompt context ride the returned turn and never enter
-                # the metadata-only workflow archive.
-                def _transform_accepted_input(prompt: str) -> str:
-                    return dispatch_input_hooks(
-                        extension_input_hooks,
-                        prompt,
-                        cwd=str(cwd),
-                        has_ui=terminal_ui is not None,
-                        notify_sink=_extension_notify,
-                        ui_driver=extension_ui_driver,
-                        set_active_tools_fn=extension_set_active_tools,
-                        set_model_fn=extension_set_model,
-                        set_thinking_level_fn=extension_set_thinking_level,
-                        project_trusted=settings.project_trusted,
-                    )
-
-                def _resolve_accepted_file_references(
-                    prompt: str,
-                ) -> FileReferenceResolution:
-                    return resolve_file_references(
-                        prompt,
-                        workspace_root=cwd,
-                        reference_roots=self.reference_roots,
-                    )
-
-                def _resolve_accepted_image_attachments(
-                    prompt: str,
-                ) -> ImageAttachmentResolution:
-                    # User-directed image attachments (@image:<path>): bounded,
-                    # fail-closed image loading that becomes provider-visible
-                    # image blocks on the current user message. Raw bytes never
-                    # reach prompt history, the native product session tree, the
-                    # metadata-only workflow archive, or the result.
-                    return resolve_image_attachments(
-                        prompt,
-                        workspace_root=cwd,
-                        reference_roots=image_reference_roots,
-                    )
-
-                def _accepted_system_prompt_suffix(base_prompt: str) -> str | None:
-                    before_agent_result = dispatch_before_agent_start_hooks(
-                        extension_before_agent_start_hooks,
-                        cwd=str(cwd),
-                        has_ui=terminal_ui is not None,
-                        system_prompt=base_prompt,
-                        notify_sink=_extension_notify,
-                        ui_driver=extension_ui_driver,
-                        set_active_tools_fn=extension_set_active_tools,
-                        set_model_fn=extension_set_model,
-                        set_thinking_level_fn=extension_set_thinking_level,
-                        flags=extension_flag_values,
-                        project_trusted=settings.project_trusted,
-                    )
-                    return before_agent_result.append_system_prompt
-
-                def _emit_accepted_input_diagnostic(message: str) -> None:
-                    self._emit_diagnostic(terminal_ui, error_stream, message)
-
-                accepted_turn = CodingAcceptedInputPreparer(
-                    transform_input=_transform_accepted_input,
-                    resolve_file_references=_resolve_accepted_file_references,
-                    resolve_image_attachments=_resolve_accepted_image_attachments,
-                    system_prompt_suffix=_accepted_system_prompt_suffix,
-                    next_turn_context=coding_input_queue.take_next_turn_context,
-                    emit_diagnostic=_emit_accepted_input_diagnostic,
-                    state_recorder=CodingSessionAcceptedInputRecorder(
-                        coding_state, tool_budget=self.tool_budget
-                    ),
-                ).prepare(
-                    user_input=resolution.user_input,
-                    resource_provider_text=resource_provider_text,
-                    selected_provider_content=resolution.selected_provider_content,
-                    base_system_prompt=base_system_prompt,
-                )
-                active_input = accepted_turn.active_input
-                initial_tool_state = accepted_turn.initial_tool_state
-                provider_user_input = accepted_turn.provider_user_input
-                turn_attachments = accepted_turn.turn_attachments
-                agent_system_prompt = accepted_turn.agent_system_prompt
-
-                def _prepare_loop_request(
-                    history: tuple[AgentMessage, ...],
-                    loop_active_input: AgentActiveInput,
-                    turn_index: int,
-                    available_tools: tuple[ToolDefinition, ...],
-                ) -> AgentLoopRequestPreparation:
-                    coding_state.mirror_history(history)
-                    # Automatic compaction: when the provider-visible history grows
-                    # past the threshold, drop the oldest user-turn groups before
-                    # building the next request. The cut is at a user-message
-                    # boundary so no tool result is orphaned, and the safe summary
-                    # rides in the system prompt suffix below.
-                    if (
-                        settings.get_compaction_enabled()
-                        and should_compact_agent_history(
-                            coding_state.messages,
-                            max_messages=_AGENT_HISTORY_MAX_MESSAGES,
-                            max_bytes=_AGENT_HISTORY_MAX_BYTES,
-                            keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
                         )
-                    ):
-                        notice = apply_compaction("auto")
-                        self._emit_diagnostic(terminal_ui, error_stream, notice)
-                    snapshot = provider_request_policy.prepare(
-                        AgentProviderRequestPolicyInput(
-                            baseline=ProviderRequest(
-                                system_prompt=(
-                                    agent_system_prompt + coding_state.compaction_suffix
-                                ),
-                                user_prompt=provider_user_input,
-                                provider_name=coding_state.provider_name,
-                                model_id=coding_state.model_id,
-                                cwd=cwd,
-                                messages=loop_active_input.request_messages(
-                                    coding_state.messages
-                                ),
-                                available_tools=available_tools,
-                                # Image attachments belong to the current user
-                                # message, so they ride only the first provider
-                                # call of this turn; later tool-loop iterations
-                                # append tool results (also user-role), and
-                                # re-sending would mis-attach the image.
-                                attachments=(
-                                    turn_attachments if turn_index == 0 else ()
-                                ),
-                                provider_header_callback=(
-                                    _active_provider_header_callback()
-                                ),
+                        emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
+                        self._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            (
+                                "pipy: reloaded settings, keybindings, and resources; "
+                                "saved project trust."
+                                if saved_implicit_trust
+                                else "pipy: reloaded settings, keybindings, and resources."
                             ),
-                            active_input=loop_active_input,
-                        ),
-                    )
-                    renderer.refresh_tool_renderers(
-                        {
-                            name: extension_tool_renderers[name]
-                            for name in snapshot.advertised_tool_names
-                            if name in extension_tool_renderers
-                        }
-                    )
-                    return AgentLoopRequestPreparation(coding_state.messages, snapshot)
-
-                def _complete_loop_provider_turn(
-                    snapshot: AgentProviderRequestSnapshot,
-                    event_sink: AgentEventSink,
-                    turn_index: int,
-                ) -> ProviderTurnOutcome:
-                    provider_request = materialize_provider_request(snapshot)
-                    provider_waiter = None
-                    provider_for_turn: ProviderPort = coding_state.provider
-                    if terminal_ui is not None:
-                        provider_waiter = partial(
-                            _wait_for_provider_interrupt, terminal_ui
                         )
-                    elif self.abort_event is not None:
-                        provider_start_event = None
-                        if isinstance(self.abort_event, _AbortCallbackSignal):
-                            provider_start_event = threading.Event()
-                            provider_for_turn = _StartGatedProvider(
-                                coding_state.provider, provider_start_event
-                            )
-                        provider_waiter = partial(
-                            _wait_for_external_abort,
-                            self.abort_event,
-                            provider_start_event,
-                        )
-                    return provider_turn_executor.complete(
-                        provider_for_turn,
-                        provider_request,
-                        event_sink,
-                        turn_index=turn_index,
-                        waiter=provider_waiter,
-                    )
-
-                def _agent_loop_entered() -> None:
-                    nonlocal extension_in_agent_turn
-                    extension_in_agent_turn = True
-
-                def _agent_input_accepted() -> None:
-                    coding_state.record_input_accepted()
-                    # Only genuine literal prompts enter the local recall store.
-                    if resource_provider_text is None:
-                        prompt_history_store.record(user_input)
-
-                def _provider_result_observed(result: ProviderResult) -> None:
-                    del result
-                    if terminal_ui is not None and terminal_ui.has_pending_messages():
-                        terminal_ui.promote_pending_to_drain()
-
-                def _agent_provider_succeeded(
-                    status: AgentProviderStatusDecision,
-                    tool_state: AgentToolPolicyState,
-                ) -> None:
-                    del status
-                    del tool_state
-                    coding_state.clear_provider_failure()
-
-                def _agent_cancellation_observed(
-                    reason: AgentCancellationReason,
-                ) -> None:
-                    if terminal_ui is None:
-                        return
-                    if reason is AgentCancellationReason.OPERATOR_ABORT:
-                        terminal_ui.restore_pending_to_editor()
-                    elif reason in (
-                        AgentCancellationReason.STEERING,
-                        AgentCancellationReason.LOCAL_COMMAND,
+                    if (
+                        command_outcome.footer_policy
+                        is CodingCommandFooterPolicy.STANDARD
                     ):
-                        terminal_ui.promote_pending_to_drain()
+                        refresh_legacy_footer()
+                    elif (
+                        command_outcome.footer_policy
+                        is CodingCommandFooterPolicy.USAGE_AWARE
+                    ):
+                        refresh_legacy_footer_with_usage()
+                    else:
+                        raise AssertionError(
+                            "handled command requires a closed footer policy"
+                        )
+                    return LoopStepSignal.continue_loop()
+            if resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:
+                return LoopStepSignal.continue_loop()
+            resource_provider_text: str | None = resolution.resource_provider_text
 
-                def _agent_provider_failed(
-                    status: AgentProviderStatusDecision,
-                    tool_state: AgentToolPolicyState,
-                ) -> None:
-                    failure = status.failure
-                    assert failure is not None
-                    del tool_state
-                    coding_state.record_provider_failure(failure)
-                    suffix = (
-                        f" (response_status={status.response_status})"
-                        if status.response_status is not None
-                        else ""
-                    )
-                    self._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        "pipy: provider failure during turn: "
-                        f"{failure.error_type}: {failure.message.value}{suffix}",
-                    )
-                    refresh_legacy_footer_with_usage()
-
-                def _agent_no_tool_assistant(
-                    tool_state: AgentToolPolicyState,
-                ) -> None:
-                    del tool_state
-                    refresh_legacy_footer_with_usage()
-
-                def _agent_malformed_fatal(
-                    failure: AgentFailure,
-                    tool_state: AgentToolPolicyState,
-                ) -> None:
-                    del tool_state
-                    self._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        f"pipy: tool-loop ended after {failure.message.value}",
-                    )
-
-                status_policy = AgentLoopStatusPolicyAdapter(
-                    run_entered=_agent_loop_entered,
-                    input_accepted=_agent_input_accepted,
-                    provider_result_observed=_provider_result_observed,
-                    provider_cancellation_observed=(_agent_cancellation_observed),
-                    tool_policy_state_changed=_sync_tool_policy_counters,
-                    provider_succeeded=_agent_provider_succeeded,
-                    provider_failed=_agent_provider_failed,
-                    no_tool_assistant=_agent_no_tool_assistant,
-                    malformed_fatal=_agent_malformed_fatal,
+            # User-directed file context: a genuine prompt may name workspace
+            # files with ``@path``. Resolve them through the shared bounded
+            # reader (reusing this loop's ``read`` policy and reference roots),
+            # append the bounded excerpts to the provider-visible user message,
+            # and keep the literal prompt for the rendered panel, prompt
+            # history, and native product session tree. None of that content
+            # enters the metadata-only workflow archive.
+            # Accepted-input preparation owns the resource-vs-literal
+            # branch, the transformed-vs-original prompt split, the hook
+            # ordering (input hook, @file resolution, image attachments,
+            # then before_agent_start augmentation), diagnostic text, and
+            # safe-counter recording. The controller supplies only thin
+            # adapters over its effectful helpers; the provider-visible
+            # excerpts, image bytes, transformed text, and injected
+            # system-prompt context ride the returned turn and never enter
+            # the metadata-only workflow archive.
+            def _transform_accepted_input(prompt: str) -> str:
+                return dispatch_input_hooks(
+                    extension_input_hooks,
+                    prompt,
+                    cwd=str(cwd),
+                    has_ui=terminal_ui is not None,
+                    notify_sink=_extension_notify,
+                    ui_driver=extension_ui_driver,
+                    set_active_tools_fn=extension_set_active_tools,
+                    set_model_fn=extension_set_model,
+                    set_thinking_level_fn=extension_set_thinking_level,
+                    project_trusted=settings.project_trusted,
                 )
-                tool_waiter = (
-                    None
-                    if terminal_ui is None
-                    else partial(_wait_for_tool_interrupt, terminal_ui)
+
+            def _resolve_accepted_file_references(
+                prompt: str,
+            ) -> FileReferenceResolution:
+                return resolve_file_references(
+                    prompt,
+                    workspace_root=cwd,
+                    reference_roots=self.reference_roots,
                 )
-                run_coordinator = CodingAgentRunCoordinator(
-                    request_source=AgentLoopRequestSourceAdapter(
-                        _prepare_loop_request
+
+            def _resolve_accepted_image_attachments(
+                prompt: str,
+            ) -> ImageAttachmentResolution:
+                # User-directed image attachments (@image:<path>): bounded,
+                # fail-closed image loading that becomes provider-visible
+                # image blocks on the current user message. Raw bytes never
+                # reach prompt history, the native product session tree, the
+                # metadata-only workflow archive, or the result.
+                return resolve_image_attachments(
+                    prompt,
+                    workspace_root=cwd,
+                    reference_roots=image_reference_roots,
+                )
+
+            def _accepted_system_prompt_suffix(base_prompt: str) -> str | None:
+                before_agent_result = dispatch_before_agent_start_hooks(
+                    extension_before_agent_start_hooks,
+                    cwd=str(cwd),
+                    has_ui=terminal_ui is not None,
+                    system_prompt=base_prompt,
+                    notify_sink=_extension_notify,
+                    ui_driver=extension_ui_driver,
+                    set_active_tools_fn=extension_set_active_tools,
+                    set_model_fn=extension_set_model,
+                    set_thinking_level_fn=extension_set_thinking_level,
+                    flags=extension_flag_values,
+                    project_trusted=settings.project_trusted,
+                )
+                return before_agent_result.append_system_prompt
+
+            def _emit_accepted_input_diagnostic(message: str) -> None:
+                self._emit_diagnostic(terminal_ui, error_stream, message)
+
+            accepted_turn = CodingAcceptedInputPreparer(
+                transform_input=_transform_accepted_input,
+                resolve_file_references=_resolve_accepted_file_references,
+                resolve_image_attachments=_resolve_accepted_image_attachments,
+                system_prompt_suffix=_accepted_system_prompt_suffix,
+                next_turn_context=coding_input_queue.take_next_turn_context,
+                emit_diagnostic=_emit_accepted_input_diagnostic,
+                state_recorder=CodingSessionAcceptedInputRecorder(
+                    coding_state, tool_budget=self.tool_budget
+                ),
+            ).prepare(
+                user_input=resolution.user_input,
+                resource_provider_text=resource_provider_text,
+                selected_provider_content=resolution.selected_provider_content,
+                base_system_prompt=base_system_prompt,
+            )
+            active_input = accepted_turn.active_input
+            initial_tool_state = accepted_turn.initial_tool_state
+            provider_user_input = accepted_turn.provider_user_input
+            turn_attachments = accepted_turn.turn_attachments
+            agent_system_prompt = accepted_turn.agent_system_prompt
+
+            def _prepare_loop_request(
+                history: tuple[AgentMessage, ...],
+                loop_active_input: AgentActiveInput,
+                turn_index: int,
+                available_tools: tuple[ToolDefinition, ...],
+            ) -> AgentLoopRequestPreparation:
+                coding_state.mirror_history(history)
+                # Automatic compaction: when the provider-visible history grows
+                # past the threshold, drop the oldest user-turn groups before
+                # building the next request. The cut is at a user-message
+                # boundary so no tool result is orphaned, and the safe summary
+                # rides in the system prompt suffix below.
+                if settings.get_compaction_enabled() and should_compact_agent_history(
+                    coding_state.messages,
+                    max_messages=_AGENT_HISTORY_MAX_MESSAGES,
+                    max_bytes=_AGENT_HISTORY_MAX_BYTES,
+                    keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
+                ):
+                    notice = apply_compaction("auto")
+                    self._emit_diagnostic(terminal_ui, error_stream, notice)
+                snapshot = provider_request_policy.prepare(
+                    AgentProviderRequestPolicyInput(
+                        baseline=ProviderRequest(
+                            system_prompt=(
+                                agent_system_prompt + coding_state.compaction_suffix
+                            ),
+                            user_prompt=provider_user_input,
+                            provider_name=coding_state.provider_name,
+                            model_id=coding_state.model_id,
+                            cwd=cwd,
+                            messages=loop_active_input.request_messages(
+                                coding_state.messages
+                            ),
+                            available_tools=available_tools,
+                            # Image attachments belong to the current user
+                            # message, so they ride only the first provider
+                            # call of this turn; later tool-loop iterations
+                            # append tool results (also user-role), and
+                            # re-sending would mis-attach the image.
+                            attachments=(turn_attachments if turn_index == 0 else ()),
+                            provider_header_callback=(
+                                _active_provider_header_callback()
+                            ),
+                        ),
+                        active_input=loop_active_input,
                     ),
-                    provider_turn=AgentLoopProviderTurnAdapter(
-                        _complete_loop_provider_turn
-                    ),
-                    status_policy=status_policy,
-                    tool_capabilities=tool_capabilities,
-                    tool_policy=agent_tool_policy,
-                    event_sink=emitter,
-                    run_effect_sink=run_effect_sink,
-                    usage_publisher=usage_publisher,
-                    queued_input_port=coding_input_queue.agent_loop_port,
-                    coding_state=coding_state,
-                    retain_next_input=coding_input_queue.retain_agent_input,
-                    tool_waiter=tool_waiter,
                 )
-                agent_settled_pending = True
-                loop_outcome = run_coordinator.run_turn(
-                    active_input,
-                    initial_tool_state,
-                    pricing=_pricing_for(
-                        coding_state.provider_name,
-                        coding_state.model_id,
-                    ),
-                    accepted_queued_input=queued_input,
+                renderer.refresh_tool_renderers(
+                    {
+                        name: extension_tool_renderers[name]
+                        for name in snapshot.advertised_tool_names
+                        if name in extension_tool_renderers
+                    }
                 )
-                extension_in_agent_turn = False
+                return AgentLoopRequestPreparation(coding_state.messages, snapshot)
 
-                if loop_outcome.terminate_session:
-                    run_failure = loop_outcome.result.failure
-                    assert run_failure is not None
-                    result_snapshot = coding_state.result_snapshot()
-                    ended_at = datetime.now(UTC)
-                    try:
-                        repl_input.close()
-                    except Exception:
-                        pass
-                    return build_repl_result(
+            def _complete_loop_provider_turn(
+                snapshot: AgentProviderRequestSnapshot,
+                event_sink: AgentEventSink,
+                turn_index: int,
+            ) -> ProviderTurnOutcome:
+                provider_request = materialize_provider_request(snapshot)
+                provider_waiter = None
+                provider_for_turn: ProviderPort = coding_state.provider
+                if terminal_ui is not None:
+                    provider_waiter = partial(_wait_for_provider_interrupt, terminal_ui)
+                elif self.abort_event is not None:
+                    provider_start_event = None
+                    if isinstance(self.abort_event, _AbortCallbackSignal):
+                        provider_start_event = threading.Event()
+                        provider_for_turn = _StartGatedProvider(
+                            coding_state.provider, provider_start_event
+                        )
+                    provider_waiter = partial(
+                        _wait_for_external_abort,
+                        self.abort_event,
+                        provider_start_event,
+                    )
+                return provider_turn_executor.complete(
+                    provider_for_turn,
+                    provider_request,
+                    event_sink,
+                    turn_index=turn_index,
+                    waiter=provider_waiter,
+                )
+
+            def _agent_loop_entered() -> None:
+                nonlocal extension_in_agent_turn
+                extension_in_agent_turn = True
+
+            def _agent_input_accepted() -> None:
+                coding_state.record_input_accepted()
+                # Only genuine literal prompts enter the local recall store.
+                if resource_provider_text is None:
+                    prompt_history_store.record(user_input)
+
+            def _provider_result_observed(result: ProviderResult) -> None:
+                del result
+                if terminal_ui is not None and terminal_ui.has_pending_messages():
+                    terminal_ui.promote_pending_to_drain()
+
+            def _agent_provider_succeeded(
+                status: AgentProviderStatusDecision,
+                tool_state: AgentToolPolicyState,
+            ) -> None:
+                del status
+                del tool_state
+                coding_state.clear_provider_failure()
+
+            def _agent_cancellation_observed(
+                reason: AgentCancellationReason,
+            ) -> None:
+                if terminal_ui is None:
+                    return
+                if reason is AgentCancellationReason.OPERATOR_ABORT:
+                    terminal_ui.restore_pending_to_editor()
+                elif reason in (
+                    AgentCancellationReason.STEERING,
+                    AgentCancellationReason.LOCAL_COMMAND,
+                ):
+                    terminal_ui.promote_pending_to_drain()
+
+            def _agent_provider_failed(
+                status: AgentProviderStatusDecision,
+                tool_state: AgentToolPolicyState,
+            ) -> None:
+                failure = status.failure
+                assert failure is not None
+                del tool_state
+                coding_state.record_provider_failure(failure)
+                suffix = (
+                    f" (response_status={status.response_status})"
+                    if status.response_status is not None
+                    else ""
+                )
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    "pipy: provider failure during turn: "
+                    f"{failure.error_type}: {failure.message.value}{suffix}",
+                )
+                refresh_legacy_footer_with_usage()
+
+            def _agent_no_tool_assistant(
+                tool_state: AgentToolPolicyState,
+            ) -> None:
+                del tool_state
+                refresh_legacy_footer_with_usage()
+
+            def _agent_malformed_fatal(
+                failure: AgentFailure,
+                tool_state: AgentToolPolicyState,
+            ) -> None:
+                del tool_state
+                self._emit_diagnostic(
+                    terminal_ui,
+                    error_stream,
+                    f"pipy: tool-loop ended after {failure.message.value}",
+                )
+
+            status_policy = AgentLoopStatusPolicyAdapter(
+                run_entered=_agent_loop_entered,
+                input_accepted=_agent_input_accepted,
+                provider_result_observed=_provider_result_observed,
+                provider_cancellation_observed=(_agent_cancellation_observed),
+                tool_policy_state_changed=_sync_tool_policy_counters,
+                provider_succeeded=_agent_provider_succeeded,
+                provider_failed=_agent_provider_failed,
+                no_tool_assistant=_agent_no_tool_assistant,
+                malformed_fatal=_agent_malformed_fatal,
+            )
+            tool_waiter = (
+                None
+                if terminal_ui is None
+                else partial(_wait_for_tool_interrupt, terminal_ui)
+            )
+            run_coordinator = CodingAgentRunCoordinator(
+                request_source=AgentLoopRequestSourceAdapter(_prepare_loop_request),
+                provider_turn=AgentLoopProviderTurnAdapter(
+                    _complete_loop_provider_turn
+                ),
+                status_policy=status_policy,
+                tool_capabilities=tool_capabilities,
+                tool_policy=agent_tool_policy,
+                event_sink=emitter,
+                run_effect_sink=run_effect_sink,
+                usage_publisher=usage_publisher,
+                queued_input_port=coding_input_queue.agent_loop_port,
+                coding_state=coding_state,
+                retain_next_input=coding_input_queue.retain_agent_input,
+                tool_waiter=tool_waiter,
+            )
+            agent_settled_pending = True
+            loop_outcome = run_coordinator.run_turn(
+                active_input,
+                initial_tool_state,
+                pricing=_pricing_for(
+                    coding_state.provider_name,
+                    coding_state.model_id,
+                ),
+                accepted_queued_input=queued_input,
+            )
+            extension_in_agent_turn = False
+
+            if loop_outcome.terminate_session:
+                run_failure = loop_outcome.result.failure
+                assert run_failure is not None
+                result_snapshot = coding_state.result_snapshot()
+                ended_at = datetime.now(UTC)
+                try:
+                    repl_input.close()
+                except Exception:
+                    pass
+                return LoopStepSignal.return_result(
+                    build_repl_result(
                         result_snapshot,
                         status=HarnessStatus.FAILED,
                         exit_code=1,
@@ -4426,7 +4363,10 @@ class NativeToolReplSession:
                         error_type=run_failure.error_type,
                         error_message=run_failure.message.value,
                     )
+                )
+            return LoopStepSignal.continue_loop()
 
+        def _finalize_repl_loop() -> NativeToolReplResult:
             try:
                 repl_input.close()
             except Exception:
@@ -4440,6 +4380,7 @@ class NativeToolReplSession:
                 started_at=started_at,
                 ended_at=ended_at,
             )
+
         def _fire_session_start() -> None:
             emitter.fire_lifecycle(EVENT_SESSION_START, reason="startup")
 
@@ -4458,7 +4399,8 @@ class NativeToolReplSession:
                 terminal_ui.clear_extension_chrome()
 
         return loop_controller.run_loop(
-            drive=_drive_repl_loop,
+            step_once=_repl_step,
+            finalize=_finalize_repl_loop,
             fire_session_start=_fire_session_start,
             fire_session_shutdown=_fire_session_shutdown,
             consume_settle_pending=_consume_agent_settled_pending,

@@ -2417,6 +2417,33 @@ mutable holder for the `session_tree`/`tree_filter_mode`/`pending_prefill`/
 `while True` moves into `run_loop` proper — and the run transition, remain the
 rest of Phase 3.1f.4.
 
+Sub-slice 3.1f.4 (continuation 2, 2026-07-21) moves the `while True` skeleton into
+`run_loop` proper: `CodingSessionController.run_loop` now takes `step_once` (one
+iteration → the new frozen `LoopStepSignal`: `CONTINUE`/`BREAK`/`RETURN_RESULT`)
+plus `finalize` (the post-loop `SUCCEEDED` projection) in place of the single
+`drive` port, and runs the loop itself — routing `CONTINUE` back into the loop,
+`BREAK` through `finalize`, and `RETURN_RESULT` returning the terminate `FAILED`
+projection the step already built. `NativeToolReplSession.run()`'s former
+`_drive_repl_loop` closure is split into `_repl_step` (one iteration, returning a
+`LoopStepSignal` — every inline `break`/`continue` and the terminate return became
+the matching signal, the natural end-of-iteration a `CONTINUE`) and
+`_finalize_repl_loop`; the `while True` and its exit routing no longer live in the
+monolith. Behavior-preserving: event ordering, the finally-always
+shutdown/clear-chrome guarantee on normal/fatal/exception exit, and every public
+CLI/JSON/RPC/session/extension format are unchanged; no new runtime dependency,
+`Any`, or `type: ignore`. **Still deferred (sub-800 shell + `< 800` assertion):**
+`run()` is still ~2,794 lines because `_repl_step`'s ~1,470-line body remains a
+closure lexically nested in `run()`, sharing the `session_tree`/`tree_filter_mode`/
+`pending_prefill`/`extension_in_agent_turn`/`/reload`-bundle control state with the
+composition-root closures through `nonlocal`. Physically relocating that body (and
+the setup closures) out of `run()` behind a mutable holder for the shared control
+state plus injected ports for every concrete UI/renderer/`repl_input`/provider/
+session-tree/persistence effect it performs — to drop `run()` under 800 lines and
+add the `run()`-length `< 800` assertion — remains the last cut of Phase 3.1f.4,
+alongside the separately-deferred 3.1f.3 remainder (relocating the 29-branch
+`CodingCommandAction` interpretation and `EXIT`/`CONTINUE` routing into
+`dispatch_command`).
+
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 
 Phase 2.2b.3 defines the runtime-checkable
