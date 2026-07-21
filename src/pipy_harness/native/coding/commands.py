@@ -36,6 +36,7 @@ class CodingCommandAction(StrEnum):
     SESSION_CLONE = "session_clone"
     SESSION_EXPORT = "session_export"
     SESSION_IMPORT = "session_import"
+    SESSION_SHARE = "session_share"
     SETTINGS = "settings"
     TRUST_PROJECT = "trust_project"
 
@@ -81,6 +82,7 @@ def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
         ("/clone", CodingCommandAction.SESSION_CLONE),
         ("/settings", CodingCommandAction.SETTINGS),
         ("/trust", CodingCommandAction.TRUST_PROJECT),
+        ("/share", CodingCommandAction.SESSION_SHARE),
     ):
         if value == command:
             return _continue_outcome(action)

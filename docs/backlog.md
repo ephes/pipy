@@ -2092,13 +2092,26 @@ persistence relocation, UI movement, path-parser or native-store/format
 changes, confirmation-path security correction, rollback or atomic-write work,
 and async conversion remain outside it.
 
-**Next green slice — remaining typed external/UI-effect commands:** continue
-Phase 3.1d with a separately bounded `/share` ownership cut after 3.1d.4d is
-green and reviewed. Preserve external-I/O suspension, terminal behavior,
-public formats, privacy, and command precedence. Keep `/reload`,
-resource/custom-command and extension precedence, the model-change/tree and
-extension-hook gap, Phase 3.2 registry metadata, Phase 3.3 write ownership, and
-Phase 4 UI movement outside that cut.
+Phase 3.1d.4x-share adds the exact payload-free `SESSION_SHARE` outcome for
+bare `/share` with the standard footer, classified alongside `/hotkeys`,
+`/settings`, and `/trust` in the payload-free tuple loop. `/share foo` and every
+altered form fall through to UNHANDLED and reach resource/custom-command
+dispatch unchanged, so no new argument grammar is introduced and the built-in
+still wins over any custom command of the same name. Composition continues to
+own the entire share effect sequence — `resolve_github_token()`, the no-token
+diagnostic, the cancellation-worker `_share_native_session_command`
+(`CancelToken`, worker thread, `wait_for_active_turn_interrupt`, Escape-cancel,
+`Share cancelled.` messaging) guarded so only `NativeExportError` maps through
+the sanitized diagnostic path, the cancelled `result is None` path, and the
+viewer_url/gist_url diagnostics — but the centralized standard-footer refresh
+after the CONTINUE block now owns the single post-command footer refresh,
+matching `/export` and `/import`. The GitHub secret-gist creation, the
+never-send-token-in-body privacy guarantee, the `ShareResult` output shape, and
+`share_native_session` are untouched; neither token nor transcript enters the
+metadata-only workflow archive. `/reload`, resource/custom-command and extension
+precedence, `tui.py`/`repl_input.py` menu entries, registry metadata,
+persistence relocation, UI movement, and async conversion remain outside it.
+The extraction changes no product behavior or public product format.
 
 ### Session tool-capability port seam — SHIPPED (2026-07-19)
 

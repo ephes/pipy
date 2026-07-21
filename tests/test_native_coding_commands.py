@@ -291,6 +291,22 @@ def test_settings_command_returns_exact_standard_payload_free_outcome() -> None:
     assert second is not first
 
 
+def test_share_command_returns_exact_standard_payload_free_outcome() -> None:
+    first = classify_coding_command(ProductContent("/share"))
+    second = classify_coding_command(ProductContent("/share"))
+
+    action = CodingCommandAction["SESSION_SHARE"]
+    expected = CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        action,
+        CodingCommandFooterPolicy.STANDARD,
+    )
+    assert first == expected
+    assert first.argument is None
+    assert second == first
+    assert second is not first
+
+
 @pytest.mark.parametrize(
     ("command", "action", "expected_argument"),
     [
@@ -413,6 +429,13 @@ def test_usage_aware_classification_returns_fresh_deterministic_outcomes(
         "/SETTINGS",
         "/settings-menu",
         "/settings/anything",
+        " /share",
+        "/share ",
+        "/share foo",
+        "/share\tfoo",
+        "/SHARE",
+        "/shared",
+        "/share/anything",
         "/NAME",
         "/name ",
         "/name    ",
@@ -860,6 +883,23 @@ def test_trust_action_requires_standard_footer_and_no_argument() -> None:
 
 def test_settings_action_requires_standard_footer_and_no_argument() -> None:
     action = CodingCommandAction["SETTINGS"]
+    with pytest.raises(ValueError, match="require the STANDARD footer"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            action,
+            CodingCommandFooterPolicy.USAGE_AWARE,
+        )
+    with pytest.raises(ValueError, match="only argument actions"):
+        CodingCommandOutcome(
+            CodingCommandOutcomeKind.CONTINUE,
+            action,
+            CodingCommandFooterPolicy.STANDARD,
+            ProductContent("anything"),
+        )
+
+
+def test_share_action_requires_standard_footer_and_no_argument() -> None:
+    action = CodingCommandAction["SESSION_SHARE"]
     with pytest.raises(ValueError, match="require the STANDARD footer"):
         CodingCommandOutcome(
             CodingCommandOutcomeKind.CONTINUE,

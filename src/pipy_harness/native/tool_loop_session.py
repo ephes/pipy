@@ -3578,6 +3578,32 @@ class NativeToolReplSession:
                                     "pipy: imported native session "
                                     f"{sanitize_label_text(session_tree.session_id[:8])}."
                                 )
+                        elif (
+                            command_outcome.action is CodingCommandAction.SESSION_SHARE
+                        ):
+                            token = resolve_github_token()
+                            if not token:
+                                diag(
+                                    "pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`."
+                                )
+                            else:
+                                try:
+                                    result = self._share_native_session_command(
+                                        session_tree=session_tree,
+                                        token=token,
+                                        terminal_ui=terminal_ui,
+                                        error_stream=error_stream,
+                                    )
+                                except NativeExportError as exc:
+                                    diag(f"pipy: {exc}")
+                                else:
+                                    if result is not None:
+                                        if result.viewer_url:
+                                            diag(
+                                                f"pipy: share URL: {result.viewer_url}\npipy: gist URL: {result.gist_url}"
+                                            )
+                                        else:
+                                            diag(f"pipy: gist URL: {result.gist_url}")
                         elif command_outcome.action is CodingCommandAction.SETTINGS:
                             if terminal_ui is not None:
                                 self._drive_settings_dialog(
@@ -4094,36 +4120,6 @@ class NativeToolReplSession:
                             else "pipy: reloaded settings, keybindings, and resources."
                         ),
                     )
-                    refresh_legacy_footer()
-                    continue
-                if command_text == "/share":
-                    token = resolve_github_token()
-                    if not token:
-                        diag(
-                            "pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`."
-                        )
-                        refresh_legacy_footer()
-                        continue
-                    try:
-                        result = self._share_native_session_command(
-                            session_tree=session_tree,
-                            token=token,
-                            terminal_ui=terminal_ui,
-                            error_stream=error_stream,
-                        )
-                    except NativeExportError as exc:
-                        diag(f"pipy: {exc}")
-                        refresh_legacy_footer()
-                        continue
-                    if result is None:
-                        refresh_legacy_footer()
-                        continue
-                    if result.viewer_url:
-                        diag(
-                            f"pipy: share URL: {result.viewer_url}\npipy: gist URL: {result.gist_url}"
-                        )
-                    else:
-                        diag(f"pipy: gist URL: {result.gist_url}")
                     refresh_legacy_footer()
                     continue
                 # Resource dispatch (skills, prompt templates, custom commands)
