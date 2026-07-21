@@ -2568,9 +2568,54 @@ new module (an intra-module relocation like the two prior handlers), so the
 import-boundary gate is unchanged; no new `Any`, `type: ignore`, or runtime
 dependency, and the metadata-only workflow archive is untouched. **Still deferred
 (the last 3.1f cut):** splitting `interpret` into per-effect port methods,
-relocating the residual provider-mutation/footer/persistence/adapter closures
-still in `run()`, and dropping `run()` under 800 lines with the `< 800`
-assertion.
+relocating the residual footer/persistence/adapter closures still in `run()`, and
+dropping `run()` under 800 lines with the `< 800` assertion (the provider-mutation
+band landed in the sub-slice below).
+
+Sub-slice 3.1f-completion (provider/model/auth/compaction mutation relocation,
+2026-07-22) relocates the seven mutation closures `apply_model_selection`,
+`apply_auth_change`, `apply_compaction`, `_append_durable_compaction`,
+`extension_set_active_tools`, `extension_set_model`, and
+`extension_set_thinking_level` out of `run()` into a new module-level
+composition-root handler `_ProviderMutationEffects`, symmetric with
+`_CustomEntryRenderer`/`_ReplLoopStep`/`_BuiltinCommandInterpreter`. Because these
+effects call one another densely (`extension_set_model` re-enters
+`apply_model_selection`; `apply_compaction`'s before-compact hook dispatch passes
+the three `extension_set_*` peers), the handler is a frozen/slotted/kw-only
+dataclass holding the mutable `ctl` holder (its
+`extension_session_before_compact_hooks`, `extension_flag_values`, and
+`session_tree` are read fresh so a `/reload`/`/new`/`/resume`/`/fork`/`/clone`
+rebind is reflected inline) plus the stable run-scope collaborators — the owning
+session (for its live `provider_state`), the coding state, the product session,
+the terminal UI, the tool-capability facade, settings, cwd, the input/error
+streams, the `refresh_footer_text` port, and the extension notify sink / UI
+driver — and its methods call each other through `self`. `run()` constructs it
+once (right after `refresh_footer_text`) and passes each bound method where the
+deleted closures were consumed: the `_BuiltinCommandInterpreter.interpret`
+`apply_compaction`/`apply_model_selection`/`apply_auth_change`/
+`extension_set_active_tools` ports, the `_ReplLoopStep.step_once`
+`apply_compaction`/`extension_set_*` ports, the `_dispatch_extension_effect`
+`set_active_tools_fn`/`set_model_fn`/`set_thinking_level_fn` seams, the
+provider-request/tool-policy hook contexts, the `_ExtensionToolPort`
+`set_active_tools_fn`, the `extension_session_allows` gate, and the
+product-session `_persist_compaction` durable-append callback; the seven
+superseded closures are DELETED with no alias. Body-preserving move (collaborators
+reached through `self.session.provider_state`/`self.coding_state`/
+`self.refresh_footer_text`/`self.ctl`/`self.product_session`/
+`self.extension_set_*`), so the rebind semantics are byte-identical — a
+provider/model/auth rebind clears only the live provider history and resets usage
+via a fresh `AgentUsageAccumulator` while preserving the in-memory compaction
+suffix and leaving the durable session tree intact, the tool-call-support refusal
+restores the prior selection, `/login` still suspends the TUI live region for
+archive-free interactive OAuth output, and compaction still keeps the recent
+user-turn groups and appends the metadata-only durable summary. `run()` drops from
+1,265 to 1,084 `ast`-lines (−181); the handler is 259 `ast`-lines. No new module
+(an intra-module relocation like the three prior handlers), so the import-boundary
+gate is unchanged; no new `Any`, `type: ignore`, or runtime dependency, and the
+metadata-only workflow archive is untouched. **Still deferred (the last 3.1f
+cut):** splitting `interpret` into per-effect port methods, relocating the
+residual footer/persistence/adapter closures still in `run()`, and dropping
+`run()` under 800 lines with the `< 800` assertion.
 
 Sub-slice 3.1f.3 (continuation 2, 2026-07-21) makes the continuing built-in's
 per-action effect chain run THROUGH the command-dispatch effect port, symmetric

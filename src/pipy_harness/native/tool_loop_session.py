@@ -2586,6 +2586,268 @@ class _CustomEntryRenderer:
             )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ProviderMutationEffects:
+    """Composition-root handler owning the provider/model/auth/compaction
+    mutation effects.
+
+    Symmetric with :class:`_CustomEntryRenderer`, :class:`_ReplLoopStep`, and
+    :class:`_BuiltinCommandInterpreter`, these bodies formerly lived as the
+    ``apply_model_selection``/``apply_auth_change``/``apply_compaction``/
+    ``_append_durable_compaction``/``extension_set_active_tools``/
+    ``extension_set_model``/``extension_set_thinking_level`` closures nested in
+    ``NativeToolReplSession.run()``. They call one another densely (the compaction
+    hook path and ``extension_set_model`` re-enter the peer effects), so the
+    handler is a frozen, slotted, keyword-only dataclass that holds the run's
+    mutable control-state holder ``ctl`` (its ``session_tree``,
+    ``extension_session_before_compact_hooks``, and ``extension_flag_values`` are
+    read fresh on every call so a ``/reload``/``/new``/``/resume``/``/fork``/
+    ``/clone`` rebind is reflected exactly as it was inline) plus the stable
+    run-scope collaborators — the owning session (for its live
+    ``provider_state``), the coding state, the product session, the terminal UI,
+    the tool-capability facade, settings, cwd, the input/error streams, the
+    footer-refresh port, and the extension notify sink / UI driver — passed as
+    keyword-only construction arguments; its methods call each other through
+    ``self``. The provider/model/auth rebinds clear only the live provider
+    history and reset usage while preserving the in-memory compaction suffix and
+    leaving the durable session tree intact. The ``run()`` composition root passes
+    each bound method exactly where the deleted closures were consumed: the
+    built-in interpreter's ``apply_compaction``/``apply_model_selection``/
+    ``apply_auth_change``/``extension_set_active_tools`` ports, the loop-step
+    handler's ``apply_compaction``/``extension_set_*`` ports, the
+    extension-dispatch and provider-request/tool-policy hook seams, and the
+    product-session ``_persist_compaction`` durable-append callback.
+    """
+
+    session: NativeToolReplSession
+    ctl: _RunControlState
+    coding_state: CodingSessionState
+    product_session: CodingProductSessionCoordinator
+    terminal_ui: ToolLoopTerminalUi | None
+    tool_capabilities: NativeToolCapabilities
+    settings: SettingsManager
+    cwd: Path
+    input_stream: TextIO
+    error_stream: TextIO
+    refresh_footer_text: Callable[[], None]
+    extension_notify: Callable[[str, str], None]
+    extension_ui_driver: _LiveExtensionUiDriver | None
+
+    def extension_set_active_tools(self, tool_names: Sequence[str]) -> bool:
+        """Restrict model-visible tools for future provider requests."""
+
+        return self.tool_capabilities.set_active_tools(tool_names)
+
+    def extension_set_model(self, reference: str) -> bool:
+        ok, _message = self.apply_model_selection(reference)
+        return ok
+
+    def extension_set_thinking_level(self, level: str) -> bool:
+        """Set the active reasoning level through the provider state."""
+
+        state = self.session.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return False
+        normalized = str(level).strip().lower()
+        if normalized not in THINKING_LEVELS:
+            return False
+        current = state.current_selection()
+        supports_thinking = any(
+            option.selection.provider_name == current.provider_name
+            and option.selection.model_id == current.model_id
+            and bool(option.reasoning)
+            for option in state.model_options()
+        )
+        if normalized != "off" and not supports_thinking:
+            return False
+        state.thinking_level = normalized
+        self.ctl.session_tree.append_thinking_level_change(normalized)
+        self.refresh_footer_text()
+        return True
+
+    def apply_model_selection(self, reference: str) -> tuple[bool, str]:
+        """Select ``reference`` through the provider-state boundary.
+
+        Mirrors the no-tool ``/model`` path: on success it rebinds the live
+        provider, clears the in-memory conversation context, rebinds the
+        usage meter, and refreshes the footer/status model label so the next
+        provider turn is constructed with the new provider/model. The switch
+        is refused (and the previous selection restored) when the chosen
+        provider does not advertise tool-call support, which the product
+        REPL requires. No provider turn happens here.
+        """
+
+        state = self.session.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return False, (
+                "pipy: /model is unavailable for this REPL provider state."
+            )
+        previous_selection = state.current_selection()
+        ok, message = state.select_model(reference)
+        if not ok:
+            return False, message
+        new_provider = state.current_provider()
+        if not getattr(new_provider, "supports_tool_calls", False):
+            # Restore the prior selection directly rather than via
+            # select_model(): the previous selection may be an explicit,
+            # tool-capable provider that is not "available" under the
+            # env-credential probe (e.g. an injected provider), in which
+            # case re-selecting it would fail and silently leave the
+            # rejected selection (and persisted default) in place.
+            state.selection = previous_selection
+            state._save_default(previous_selection)
+            return False, (
+                f"pipy: {reference} does not support tool calls in "
+                "tool-loop mode; selection unchanged."
+            )
+        selection = state.current_selection()
+        self.coding_state.rebind_provider(
+            new_provider,
+            provider_name=selection.provider_name,
+            model_id=selection.model_id,
+            usage_accumulator=AgentUsageAccumulator(
+                _pricing_for(selection.provider_name, selection.model_id)
+            ),
+        )
+        self.refresh_footer_text()
+        return True, message
+
+    def apply_auth_change(self, action: str, argument: str) -> str:
+        """Run ``/login`` or ``/logout`` through the auth boundary.
+
+        Mirrors the no-tool auth path through the same
+        ``NativeReplProviderState``: it performs no provider turn and no
+        tool call, clears the in-memory conversation, then rebinds the live
+        provider/usage/footer so refreshed model-option availability and the
+        (possibly reset) selection take effect on the next turn. Interactive
+        login output (the OAuth URL/prompt) renders only on the live
+        terminal — never in the session archive — and the TUI live region is
+        suspended around it so the inline frame repaints coherently
+        afterward.
+        """
+
+        state = self.session.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return f"pipy: /{action} is unavailable for this REPL provider state."
+        provider_name = argument or "openai-codex"
+        if action == "login":
+            if self.terminal_ui is not None:
+                self.terminal_ui.suspend_for_external_io()
+            try:
+                _ok, message = state.login(
+                    provider_name,
+                    input_stream=self.input_stream,
+                    output_stream=self.error_stream,
+                )
+            except Exception as exc:  # noqa: BLE001 - report, never crash REPL
+                message = (
+                    "pipy: openai-codex login failed with "
+                    f"{type(exc).__name__}: {sanitize_text(str(exc))}"
+                )
+        else:
+            try:
+                _ok, message = state.logout(provider_name)
+            except Exception as exc:  # noqa: BLE001 - report, never crash REPL
+                message = (
+                    "pipy: openai-codex logout failed with "
+                    f"{type(exc).__name__}: {sanitize_text(str(exc))}"
+                )
+        # Clear context and rebind the live provider regardless of outcome,
+        # so a credential change never leaks prior context or leaves a stale
+        # provider bound (logout resets the selection to the local default).
+        # The persisted default stays the inert ``fake-native-bootstrap``;
+        # the product REPL upgrades the *live* fake selection to the
+        # tool-capable ``fake-tools`` here so the next turn has tool support.
+        state.selection = normalize_repl_fake_selection(state.current_selection())
+        rebound_provider = state.current_provider()
+        selection = state.current_selection()
+        self.coding_state.rebind_provider(
+            rebound_provider,
+            provider_name=selection.provider_name,
+            model_id=selection.model_id,
+            usage_accumulator=AgentUsageAccumulator(
+                _pricing_for(selection.provider_name, selection.model_id)
+            ),
+        )
+        self.refresh_footer_text()
+        return message
+
+    def apply_compaction(self, trigger: str) -> str:
+        """Compact the in-memory provider history at a user-turn boundary.
+
+        Returns a safe diagnostic string. The cut keeps the most recent
+        turns and replaces the dropped prefix with a metadata-only summary
+        appended to the system prompt; provider/model, usage counters,
+        prompt history, and the TUI frame are all left intact. No tool
+        result is orphaned because the cut is at a user-message boundary.
+        """
+
+        decision = dispatch_session_before_hooks(
+            self.ctl.extension_session_before_compact_hooks,
+            operation="compact",
+            cwd=str(self.cwd),
+            has_ui=self.terminal_ui is not None,
+            trigger=trigger,
+            notify_sink=self.extension_notify,
+            ui_driver=self.extension_ui_driver,
+            set_active_tools_fn=self.extension_set_active_tools,
+            set_model_fn=self.extension_set_model,
+            set_thinking_level_fn=self.extension_set_thinking_level,
+            flags=self.ctl.extension_flag_values,
+            project_trusted=self.settings.project_trusted,
+        )
+        if not decision.allow:
+            reason = decision.reason or "blocked by extension"
+            return f"pipy: compact blocked by extension: {reason}"
+        result = compact_agent_history(
+            self.coding_state.messages,
+            keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
+        )
+        if not result.changed:
+            return "pipy: nothing to compact yet."
+        summary_block = _agent_history_summary(result)
+        self.product_session.apply_compaction(
+            CodingProductSessionCompaction(
+                retained_messages=result.messages,
+                summary_suffix=ProductContent(f"\n\n{summary_block}"),
+                durable_summary=ProductContent(summary_block),
+                dropped_group_count=result.dropped_group_count,
+                measure_before=result.bytes_before,
+            )
+        )
+        return (
+            f"pipy: compacted conversation context ({trigger}; dropped "
+            f"{result.dropped_group_count} earlier exchange(s), kept "
+            f"{result.retained_group_count})."
+        )
+
+    def append_durable_compaction(
+        self, summary_block: str, bytes_before: int
+    ) -> None:
+        branch = self.ctl.session_tree.get_branch()
+        last_compaction = -1
+        for i, entry in enumerate(branch):
+            if isinstance(entry, _CompactionEntry):
+                last_compaction = i
+        segment = branch[last_compaction + 1 :]
+        user_entries = [
+            entry
+            for entry in segment
+            if isinstance(entry, _MessageEntry)
+            and isinstance(entry.message, AgentUserMessage)
+        ]
+        if len(user_entries) <= _AGENT_HISTORY_KEEP_RECENT_GROUPS:
+            return
+        first_kept = user_entries[
+            len(user_entries) - _AGENT_HISTORY_KEEP_RECENT_GROUPS
+        ]
+        self.ctl.session_tree.append_compaction(
+            summary=summary_block.strip(),
+            first_kept_entry_id=first_kept.id,
+            tokens_before=bytes_before,
+        )
+
+
 class _ReplLoopStep:
     """Composition-root handler that owns one REPL loop iteration and the
     loop's lifecycle bookends.
@@ -3760,9 +4022,9 @@ class NativeToolReplSession:
                     has_ui=terminal_ui is not None,
                     notify_sink=_extension_notify,
                     ui_driver=extension_ui_driver,
-                    set_active_tools_fn=extension_set_active_tools,
+                    set_active_tools_fn=provider_mutation.extension_set_active_tools,
                     set_model_fn=lambda _reference: False,
-                    set_thinking_level_fn=extension_set_thinking_level,
+                    set_thinking_level_fn=provider_mutation.extension_set_thinking_level,
                     flags=ctl.extension_flag_values,
                     project_trusted=settings.project_trusted,
                 ),
@@ -3779,9 +4041,9 @@ class NativeToolReplSession:
                 has_ui=terminal_ui is not None,
                 notify_sink=_extension_notify,
                 ui_driver=extension_ui_driver,
-                set_active_tools_fn=extension_set_active_tools,
+                set_active_tools_fn=provider_mutation.extension_set_active_tools,
                 set_model_fn=lambda _reference: False,
-                set_thinking_level_fn=extension_set_thinking_level,
+                set_thinking_level_fn=provider_mutation.extension_set_thinking_level,
                 flags=ctl.extension_flag_values,
                 project_trusted=settings.project_trusted,
             )
@@ -3804,9 +4066,9 @@ class NativeToolReplSession:
                 has_ui=terminal_ui is not None,
                 notify_sink=_extension_notify,
                 ui_driver=extension_ui_driver,
-                set_active_tools_fn=extension_set_active_tools,
+                set_active_tools_fn=provider_mutation.extension_set_active_tools,
                 set_model_fn=lambda _reference: False,
-                set_thinking_level_fn=extension_set_thinking_level,
+                set_thinking_level_fn=provider_mutation.extension_set_thinking_level,
                 flags=ctl.extension_flag_values,
                 project_trusted=settings.project_trusted,
             )
@@ -3831,7 +4093,9 @@ class NativeToolReplSession:
                 _registered_tool,
                 has_ui=terminal_ui is not None,
                 notify_sink=_extension_notify,
-                set_active_tools_fn=lambda names: extension_set_active_tools(names),
+                set_active_tools_fn=lambda names: provider_mutation.extension_set_active_tools(
+                    names
+                ),
                 flags=extension_flag_values,
                 render_details_sink=extension_render_details,
                 project_trusted=settings.project_trusted,
@@ -3980,7 +4244,11 @@ class NativeToolReplSession:
             ctl.session_tree.append_message(message)
 
         def _persist_compaction(action: CodingProductSessionCompaction) -> None:
-            _append_durable_compaction(
+            # `provider_mutation` is assigned later in this run scope; this
+            # callback only fires at runtime (via `product_session.apply_compaction`
+            # inside the handler's `apply_compaction`), by which point the handler
+            # is bound, so the late name reference is safe.
+            provider_mutation.append_durable_compaction(
                 action.durable_summary.value,
                 action.measure_before,
             )
@@ -4120,217 +4388,30 @@ class NativeToolReplSession:
             if terminal_ui is not None:
                 terminal_ui.set_footer_text(coding_footer_text())
 
-        def extension_set_active_tools(tool_names: Sequence[str]) -> bool:
-            """Restrict model-visible tools for future provider requests."""
-
-            return tool_capabilities.set_active_tools(tool_names)
-
-        def extension_set_model(reference: str) -> bool:
-            ok, _message = apply_model_selection(reference)
-            return ok
-
-        def extension_set_thinking_level(level: str) -> bool:
-            """Set the active reasoning level through the provider state."""
-
-            state = self.provider_state
-            if not isinstance(state, NativeReplProviderState):
-                return False
-            normalized = str(level).strip().lower()
-            if normalized not in THINKING_LEVELS:
-                return False
-            current = state.current_selection()
-            supports_thinking = any(
-                option.selection.provider_name == current.provider_name
-                and option.selection.model_id == current.model_id
-                and bool(option.reasoning)
-                for option in state.model_options()
-            )
-            if normalized != "off" and not supports_thinking:
-                return False
-            state.thinking_level = normalized
-            ctl.session_tree.append_thinking_level_change(normalized)
-            refresh_footer_text()
-            return True
-
-        def apply_model_selection(reference: str) -> tuple[bool, str]:
-            """Select ``reference`` through the provider-state boundary.
-
-            Mirrors the no-tool ``/model`` path: on success it rebinds the live
-            provider, clears the in-memory conversation context, rebinds the
-            usage meter, and refreshes the footer/status model label so the next
-            provider turn is constructed with the new provider/model. The switch
-            is refused (and the previous selection restored) when the chosen
-            provider does not advertise tool-call support, which the product
-            REPL requires. No provider turn happens here.
-            """
-
-            state = self.provider_state
-            if not isinstance(state, NativeReplProviderState):
-                return False, (
-                    "pipy: /model is unavailable for this REPL provider state."
-                )
-            previous_selection = state.current_selection()
-            ok, message = state.select_model(reference)
-            if not ok:
-                return False, message
-            new_provider = state.current_provider()
-            if not getattr(new_provider, "supports_tool_calls", False):
-                # Restore the prior selection directly rather than via
-                # select_model(): the previous selection may be an explicit,
-                # tool-capable provider that is not "available" under the
-                # env-credential probe (e.g. an injected provider), in which
-                # case re-selecting it would fail and silently leave the
-                # rejected selection (and persisted default) in place.
-                state.selection = previous_selection
-                state._save_default(previous_selection)
-                return False, (
-                    f"pipy: {reference} does not support tool calls in "
-                    "tool-loop mode; selection unchanged."
-                )
-            selection = state.current_selection()
-            coding_state.rebind_provider(
-                new_provider,
-                provider_name=selection.provider_name,
-                model_id=selection.model_id,
-                usage_accumulator=AgentUsageAccumulator(
-                    _pricing_for(selection.provider_name, selection.model_id)
-                ),
-            )
-            refresh_footer_text()
-            return True, message
-
-        def apply_auth_change(action: str, argument: str) -> str:
-            """Run ``/login`` or ``/logout`` through the auth boundary.
-
-            Mirrors the no-tool auth path through the same
-            ``NativeReplProviderState``: it performs no provider turn and no
-            tool call, clears the in-memory conversation, then rebinds the live
-            provider/usage/footer so refreshed model-option availability and the
-            (possibly reset) selection take effect on the next turn. Interactive
-            login output (the OAuth URL/prompt) renders only on the live
-            terminal — never in the session archive — and the TUI live region is
-            suspended around it so the inline frame repaints coherently
-            afterward.
-            """
-
-            state = self.provider_state
-            if not isinstance(state, NativeReplProviderState):
-                return f"pipy: /{action} is unavailable for this REPL provider state."
-            provider_name = argument or "openai-codex"
-            if action == "login":
-                if terminal_ui is not None:
-                    terminal_ui.suspend_for_external_io()
-                try:
-                    _ok, message = state.login(
-                        provider_name,
-                        input_stream=input_stream,
-                        output_stream=error_stream,
-                    )
-                except Exception as exc:  # noqa: BLE001 - report, never crash REPL
-                    message = (
-                        "pipy: openai-codex login failed with "
-                        f"{type(exc).__name__}: {sanitize_text(str(exc))}"
-                    )
-            else:
-                try:
-                    _ok, message = state.logout(provider_name)
-                except Exception as exc:  # noqa: BLE001 - report, never crash REPL
-                    message = (
-                        "pipy: openai-codex logout failed with "
-                        f"{type(exc).__name__}: {sanitize_text(str(exc))}"
-                    )
-            # Clear context and rebind the live provider regardless of outcome,
-            # so a credential change never leaks prior context or leaves a stale
-            # provider bound (logout resets the selection to the local default).
-            # The persisted default stays the inert ``fake-native-bootstrap``;
-            # the product REPL upgrades the *live* fake selection to the
-            # tool-capable ``fake-tools`` here so the next turn has tool support.
-            state.selection = normalize_repl_fake_selection(state.current_selection())
-            rebound_provider = state.current_provider()
-            selection = state.current_selection()
-            coding_state.rebind_provider(
-                rebound_provider,
-                provider_name=selection.provider_name,
-                model_id=selection.model_id,
-                usage_accumulator=AgentUsageAccumulator(
-                    _pricing_for(selection.provider_name, selection.model_id)
-                ),
-            )
-            refresh_footer_text()
-            return message
-
-        def apply_compaction(trigger: str) -> str:
-            """Compact the in-memory provider history at a user-turn boundary.
-
-            Returns a safe diagnostic string. The cut keeps the most recent
-            turns and replaces the dropped prefix with a metadata-only summary
-            appended to the system prompt; provider/model, usage counters,
-            prompt history, and the TUI frame are all left intact. No tool
-            result is orphaned because the cut is at a user-message boundary.
-            """
-
-            decision = dispatch_session_before_hooks(
-                ctl.extension_session_before_compact_hooks,
-                operation="compact",
-                cwd=str(cwd),
-                has_ui=terminal_ui is not None,
-                trigger=trigger,
-                notify_sink=_extension_notify,
-                ui_driver=extension_ui_driver,
-                set_active_tools_fn=extension_set_active_tools,
-                set_model_fn=extension_set_model,
-                set_thinking_level_fn=extension_set_thinking_level,
-                flags=ctl.extension_flag_values,
-                project_trusted=settings.project_trusted,
-            )
-            if not decision.allow:
-                reason = decision.reason or "blocked by extension"
-                return f"pipy: compact blocked by extension: {reason}"
-            result = compact_agent_history(
-                coding_state.messages,
-                keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
-            )
-            if not result.changed:
-                return "pipy: nothing to compact yet."
-            summary_block = _agent_history_summary(result)
-            product_session.apply_compaction(
-                CodingProductSessionCompaction(
-                    retained_messages=result.messages,
-                    summary_suffix=ProductContent(f"\n\n{summary_block}"),
-                    durable_summary=ProductContent(summary_block),
-                    dropped_group_count=result.dropped_group_count,
-                    measure_before=result.bytes_before,
-                )
-            )
-            return (
-                f"pipy: compacted conversation context ({trigger}; dropped "
-                f"{result.dropped_group_count} earlier exchange(s), kept "
-                f"{result.retained_group_count})."
-            )
-
-        def _append_durable_compaction(summary_block: str, bytes_before: int) -> None:
-            branch = ctl.session_tree.get_branch()
-            last_compaction = -1
-            for i, entry in enumerate(branch):
-                if isinstance(entry, _CompactionEntry):
-                    last_compaction = i
-            segment = branch[last_compaction + 1 :]
-            user_entries = [
-                entry
-                for entry in segment
-                if isinstance(entry, _MessageEntry)
-                and isinstance(entry.message, AgentUserMessage)
-            ]
-            if len(user_entries) <= _AGENT_HISTORY_KEEP_RECENT_GROUPS:
-                return
-            first_kept = user_entries[
-                len(user_entries) - _AGENT_HISTORY_KEEP_RECENT_GROUPS
-            ]
-            ctl.session_tree.append_compaction(
-                summary=summary_block.strip(),
-                first_kept_entry_id=first_kept.id,
-                tokens_before=bytes_before,
-            )
+        # The provider/model/auth/compaction mutation effects moved into the
+        # module-level `_ProviderMutationEffects` composition-root handler
+        # (symmetric with `_CustomEntryRenderer`/`_ReplLoopStep`/
+        # `_BuiltinCommandInterpreter`). It is built once, after the collaborators
+        # it holds (`product_session`, `refresh_footer_text`) exist, and reaches
+        # the run's mutable control state through the shared `ctl` holder so a
+        # `/reload`/`/new`/`/resume`/`/fork`/`/clone` rebind is reflected in these
+        # effects exactly as it was inline; `run()` passes each bound method where
+        # the deleted closures were consumed.
+        provider_mutation = _ProviderMutationEffects(
+            session=self,
+            ctl=ctl,
+            coding_state=coding_state,
+            product_session=product_session,
+            terminal_ui=terminal_ui,
+            tool_capabilities=tool_capabilities,
+            settings=settings,
+            cwd=cwd,
+            input_stream=input_stream,
+            error_stream=error_stream,
+            refresh_footer_text=refresh_footer_text,
+            extension_notify=_extension_notify,
+            extension_ui_driver=extension_ui_driver,
+        )
 
         repl_input = (
             terminal_ui
@@ -4442,9 +4523,9 @@ class NativeToolReplSession:
                 trigger=trigger,
                 notify_sink=_extension_notify,
                 ui_driver=extension_ui_driver,
-                set_active_tools_fn=extension_set_active_tools,
-                set_model_fn=extension_set_model,
-                set_thinking_level_fn=extension_set_thinking_level,
+                set_active_tools_fn=provider_mutation.extension_set_active_tools,
+                set_model_fn=provider_mutation.extension_set_model,
+                set_thinking_level_fn=provider_mutation.extension_set_thinking_level,
                 flags=ctl.extension_flag_values,
                 project_trusted=settings.project_trusted,
             )
@@ -4573,9 +4654,9 @@ class NativeToolReplSession:
                 notify_sink=_extension_notify,
                 ui_custom_driver=_extension_custom_driver,
                 ui_driver=extension_ui_driver,
-                set_active_tools_fn=extension_set_active_tools,
-                set_model_fn=extension_set_model,
-                set_thinking_level_fn=extension_set_thinking_level,
+                set_active_tools_fn=provider_mutation.extension_set_active_tools,
+                set_model_fn=provider_mutation.extension_set_model,
+                set_thinking_level_fn=provider_mutation.extension_set_thinking_level,
                 append_entry_fn=custom_renderer.extension_append_entry,
                 set_session_name_fn=extension_set_session_name,
                 get_session_name_fn=extension_get_session_name,
@@ -4623,9 +4704,9 @@ class NativeToolReplSession:
                 tool_capabilities=tool_capabilities,
                 repl_input=repl_input,
                 diag=diag,
-                apply_compaction=apply_compaction,
-                apply_model_selection=apply_model_selection,
-                apply_auth_change=apply_auth_change,
+                apply_compaction=provider_mutation.apply_compaction,
+                apply_model_selection=provider_mutation.apply_model_selection,
+                apply_auth_change=provider_mutation.apply_auth_change,
                 rebuild_messages_from_tree=rebuild_messages_from_tree,
                 redraw_custom_entries_for_active_branch=custom_renderer.redraw_custom_entries_for_active_branch,
                 refresh_legacy_footer=refresh_legacy_footer,
@@ -4636,7 +4717,7 @@ class NativeToolReplSession:
                 extension_session_allows=extension_session_allows,
                 extension_send_message=custom_renderer.extension_send_message,
                 extension_render_details=extension_render_details,
-                extension_set_active_tools=extension_set_active_tools,
+                extension_set_active_tools=provider_mutation.extension_set_active_tools,
                 _extension_notify=_extension_notify,
                 _bind_unavailable_after_reload=_bind_unavailable_after_reload,
             ),
@@ -4697,7 +4778,7 @@ class NativeToolReplSession:
                 diag=diag,
                 coding_footer_text=coding_footer_text,
                 refresh_legacy_footer_with_usage=refresh_legacy_footer_with_usage,
-                apply_compaction=apply_compaction,
+                apply_compaction=provider_mutation.apply_compaction,
                 append_agent_message=append_agent_message,
                 drain_extension_outboxes=custom_renderer.drain_extension_outboxes,
                 _active_provider_header_callback=_active_provider_header_callback,
@@ -4708,11 +4789,11 @@ class NativeToolReplSession:
                 extension_append_entry=custom_renderer.extension_append_entry,
                 extension_get_session_name=extension_get_session_name,
                 extension_send_message=custom_renderer.extension_send_message,
-                extension_set_active_tools=extension_set_active_tools,
+                extension_set_active_tools=provider_mutation.extension_set_active_tools,
                 extension_set_label=extension_set_label,
-                extension_set_model=extension_set_model,
+                extension_set_model=provider_mutation.extension_set_model,
                 extension_set_session_name=extension_set_session_name,
-                extension_set_thinking_level=extension_set_thinking_level,
+                extension_set_thinking_level=provider_mutation.extension_set_thinking_level,
             ),
             finalize=partial(
                 repl_loop_step.finalize,
