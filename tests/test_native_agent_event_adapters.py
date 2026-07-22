@@ -610,6 +610,118 @@ def test_product_projection_omits_synthetic_balance_only_assistant(
     assert collector.actions == []
 
 
+def test_product_projection_pins_exact_append_sequence_for_a_real_assistant_turn() -> (
+    None
+):
+    # Slice 3.3 precondition: pin the exact durable-append sequence the live
+    # persistence projection must reproduce for a full real turn — a user
+    # message, a real (non-empty, tool-calling) assistant message, the completed
+    # tool result, and a tool result recovered as skipped from ``TurnCompleted``
+    # — with the already completed result appended exactly once (no duplicate).
+    collector = _ProductActionCollector()
+    projection = ProductSessionEventProjection(collector)
+    user = AgentUserMessage(ProductContent("please read the file"))
+    call = AgentToolCall("provider-call", "read", ProductContent('{"path":"x"}'))
+    real_assistant = AgentAssistantMessage(
+        ProductContent("I will read that file now."), (call,)
+    )
+    completed = AgentToolResultMessage(
+        "pipy-tool-completed",
+        "read",
+        ProductContent("file contents"),
+        "provider-completed",
+    )
+    skipped = AgentToolResultMessage(
+        "pipy-tool-skipped",
+        "ls",
+        ProductContent("never executed"),
+        "provider-skipped",
+        is_error=True,
+    )
+
+    projection.emit(AgentRunStarted())
+    projection.emit(MessageCompleted(0, user))
+    projection.emit(MessageCompleted(0, real_assistant))
+    projection.emit(ToolCallCompleted(0, completed))
+    projection.emit(
+        TurnCompleted(
+            0,
+            AgentTurnOutcome.SUCCEEDED,
+            real_assistant,
+            (completed, skipped),
+        )
+    )
+
+    appended = [action.message for action in collector.actions]
+    assert appended == [user, real_assistant, completed, skipped]
+    assert all(
+        actual is expected
+        for actual, expected in zip(appended, (user, real_assistant, completed, skipped))
+    )
+    # The already completed tool result is not re-appended from ``TurnCompleted``.
+    assert appended.count(completed) == 1
+
+
+def test_product_projection_synthetic_suppression_is_one_shot_and_reset_scoped() -> (
+    None
+):
+    # The synthetic balance-only assistant suppression armed by a terminal
+    # failure/cancellation consumes exactly one assistant completion, so a
+    # genuine assistant emitted afterwards in the same turn is still appended;
+    # a fresh ``AgentRunStarted`` also clears a stale armed suppression.
+    collector = _ProductActionCollector()
+    projection = ProductSessionEventProjection(collector)
+    synthetic = AgentAssistantMessage(ProductContent(""))
+    real_same_turn = AgentAssistantMessage(ProductContent("recovered real answer"))
+    real_next_run = AgentAssistantMessage(ProductContent("next run answer"))
+
+    projection.emit(AgentRunStarted())
+    projection.emit(
+        ProviderFailed(
+            AgentFailure("ProviderFailure", ProductContent("private failure")),
+            will_retry=True,
+        )
+    )
+    projection.emit(MessageCompleted(0, synthetic))
+    projection.emit(MessageCompleted(0, real_same_turn))
+
+    # A second armed suppression that never consumes an assistant is discarded
+    # by the reset on the next run start rather than leaking into it.
+    projection.emit(RunCancelled(AgentCancellationReason.OPERATOR_ABORT))
+    projection.emit(AgentRunStarted())
+    projection.emit(MessageCompleted(0, real_next_run))
+
+    assert [action.message for action in collector.actions] == [
+        real_same_turn,
+        real_next_run,
+    ]
+
+
+def test_product_projection_with_default_sink_stays_inert_across_a_full_stream() -> None:
+    # Production wires this projection with ``sink=None`` (Slice 3.3 owns the
+    # cutover); the default construction must accept the full canonical stream
+    # without writing or raising while the live loop still performs the writes.
+    projection = ProductSessionEventProjection()
+    user = AgentUserMessage(ProductContent("prompt"))
+    call = AgentToolCall("provider-call", "read", ProductContent('{"path":"x"}'))
+    assistant = AgentAssistantMessage(ProductContent("answer"), (call,))
+    completed = AgentToolResultMessage(
+        "pipy-tool-completed",
+        "read",
+        ProductContent("contents"),
+        "provider-completed",
+    )
+
+    projection.emit(AgentRunStarted())
+    projection.emit(MessageCompleted(0, user))
+    projection.emit(MessageCompleted(0, assistant))
+    projection.emit(ToolCallCompleted(0, completed))
+    projection.emit(TurnCompleted(0, AgentTurnOutcome.SUCCEEDED, assistant, (completed,)))
+    projection.emit(
+        RunCancelled(AgentCancellationReason.OPERATOR_ABORT, ProductContent("detail"))
+    )
+
+
 def test_workflow_projection_exposes_only_fixed_numeric_counts() -> None:
     adapter = WorkflowArchiveAgentEventAdapter()
     private = ProductContent("PIPY_PRIVATE_WORKFLOW_PROJECTION_SENTINEL")

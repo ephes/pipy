@@ -45,6 +45,32 @@ _PROHIBITED_ARCHIVE_MARKERS = (
     _PRIVATE_TOOL_OUTPUT,
 )
 
+# The metadata-only workflow archive for a native product run emits only these
+# lifecycle/summary event types.  None of them is a per-message, per-assistant,
+# per-tool, or per-turn content record, so the archive stays counts-only and no
+# full-content crossover from the raw native product session is possible.
+_ARCHIVE_METADATA_ONLY_EVENT_TYPES = frozenset(
+    {
+        "session.started",
+        "capture.limitations",
+        "native.workspace_context.loaded",
+        "native.session.compacted",
+        "native.session.resumed",
+        "harness.run.started",
+        "harness.run.completed",
+        "harness.run.aborted",
+        "harness.run.adapter_failed",
+        "harness.run.exception",
+        "session.finalized",
+    }
+)
+_PROHIBITED_ARCHIVE_EVENT_TYPE_PREFIXES = (
+    "message.",
+    "assistant.",
+    "tool.",
+    "turn.",
+)
+
 
 @pytest.fixture(autouse=True)
 def _isolated_config_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -234,3 +260,99 @@ def test_raw_native_product_session_is_distinct_from_metadata_workflow_archive(
     archive_events = _jsonl_events(result.record.jsonl_path)
     assert archive_events[-1]["type"] == "session.finalized"
     assert archive_events[-1]["run_id"] == "architecture-store-boundary"
+
+
+def _run_private_native_product_session(
+    tmp_path: Path,
+) -> tuple[NativeSessionTree, RunResult]:
+    """Drive one real native product run whose every turn carries a sentinel."""
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    native_tree = NativeSessionTree.create(
+        workspace,
+        session_dir=tmp_path / "private-native-sessions",
+    )
+    provider = FakeNativeProvider(
+        final_text=_PRIVATE_MODEL_OUTPUT,
+        supports_tool_calls=True,
+        programmable_tool_calls=(
+            (
+                ProviderToolCall(
+                    provider_correlation_id="private-call",
+                    tool_name="private_output",
+                    arguments_json=json.dumps({"text": _PRIVATE_TOOL_ARGUMENT}),
+                ),
+            ),
+            (),
+        ),
+    )
+    adapter = PipyNativeToolReplAdapter(
+        provider=provider,
+        tool_registry={"private_output": _PrivateOutputTool()},
+        input_stream=io.StringIO(f"{_PRIVATE_PROMPT}\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+        native_session=native_tree,
+        settings_manager=SettingsManager.for_workspace(
+            workspace,
+            home_dir=tmp_path / "home",
+            project_trusted=False,
+        ),
+    )
+    request = RunRequest(
+        agent="pipy-native",
+        slug="architecture-counts-only",
+        command=[],
+        cwd=workspace,
+        goal="native session storage counts-only characterization",
+        root=tmp_path / "workflow-archive",
+    )
+    result = HarnessRunner(
+        adapter=adapter,
+        id_factory=lambda: "architecture-counts-only",
+    ).run(request)
+    return native_tree, result
+
+
+def test_metadata_workflow_archive_stays_counts_only_after_a_real_run(
+    tmp_path: Path,
+) -> None:
+    native_tree, result = _run_private_native_product_session(tmp_path)
+
+    assert result.status is HarnessStatus.SUCCEEDED
+
+    # The raw native product session holds the full prompt/assistant/tool-content
+    # sentinels, so this run genuinely exercised private content end to end.
+    assert native_tree.path is not None
+    _assert_private_markers_present(native_tree.path.read_text(encoding="utf-8"))
+
+    # The metadata-only workflow archive carries only fixed lifecycle/summary
+    # event types — no per-message, per-assistant, per-tool, or per-turn content
+    # record — so it stays counts-only with no crossover.
+    archive_events = _jsonl_events(result.record.jsonl_path)
+    observed_types = {str(event["type"]) for event in archive_events}
+    assert observed_types <= _ARCHIVE_METADATA_ONLY_EVENT_TYPES
+    # Guard the allowlist constant itself, not the observed subset.  Once the
+    # subset check above passes, every observed type is one of the 11 allowlist
+    # entries and none of those carries a prohibited prefix, so a prohibited
+    # check over ``observed_types`` would be vacuous.  Asserting on the allowlist
+    # keeps the guard non-vacuous: it fails if the metadata-only allowlist is
+    # ever widened to admit a per-message/assistant/tool/turn content record.
+    assert not any(
+        allowed_type.startswith(_PROHIBITED_ARCHIVE_EVENT_TYPE_PREFIXES)
+        for allowed_type in _ARCHIVE_METADATA_ONLY_EVENT_TYPES
+    )
+
+    # Every archive event body (summary and metadata payload) is sentinel-free,
+    # and so is the human-readable markdown summary.
+    for event in archive_events:
+        _assert_private_markers_absent(json.dumps(event, sort_keys=True))
+    assert result.record.markdown_path is not None
+    _assert_private_markers_absent(
+        result.record.markdown_path.read_text(encoding="utf-8"),
+    )
+
+    assert archive_events[-1]["type"] == "session.finalized"
+    assert archive_events[-1]["run_id"] == "architecture-counts-only"
