@@ -91,8 +91,6 @@ from pipy_harness.native.extension_runtime import (
     WidgetPlacement,
     activate_extensions,
     coerce_tool_render_lines,
-    dispatch_before_provider_request_hooks,
-    dispatch_before_provider_headers_hooks,
     dispatch_extension_command,
     drain_user_messages,
     drain_custom_messages,
@@ -112,6 +110,8 @@ from pipy_harness.native.extension_runtime import (
 )
 from pipy_harness.native.extension_hooks import (
     dispatch_before_agent_start_hooks,
+    dispatch_before_provider_headers_hooks,
+    dispatch_before_provider_request_hooks,
     dispatch_input_hooks,
     dispatch_lifecycle_hooks,
     dispatch_session_before_hooks,

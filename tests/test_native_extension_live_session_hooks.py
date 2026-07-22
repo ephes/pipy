@@ -16,6 +16,8 @@ import pytest
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentUserMessage
 from pipy_harness.native.extension_hooks import (
+    dispatch_before_provider_headers_hooks,
+    dispatch_before_provider_request_hooks,
     dispatch_session_before_hooks,
     dispatch_user_bash_hooks,
 )
@@ -23,8 +25,6 @@ from pipy_harness.native.extension_runtime import (
     ProviderRequestTransform,
     SessionDecision,
     UserBashDecision,
-    dispatch_before_provider_headers_hooks,
-    dispatch_before_provider_request_hooks,
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import apply_provider_headers

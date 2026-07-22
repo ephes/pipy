@@ -292,7 +292,6 @@ from pipy_harness.native.extension_runtime import (
     RenderedCustomEntry,
     ToolResult,
     activate_extensions,
-    dispatch_before_provider_headers_hooks,
     dispatch_extension_command,
     dispatch_extension_shortcut,
     drain_custom_messages,
@@ -315,6 +314,7 @@ from pipy_harness.native.extension_runtime import (
 )
 from pipy_harness.native.extension_hooks import (
     dispatch_before_agent_start_hooks,
+    dispatch_before_provider_headers_hooks,
     dispatch_input_hooks,
     dispatch_lifecycle_hooks,
     dispatch_session_before_hooks,

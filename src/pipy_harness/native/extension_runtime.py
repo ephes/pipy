@@ -46,7 +46,6 @@ from types import MappingProxyType
 from typing import Literal, Protocol, cast, runtime_checkable
 
 from pipy_harness.native.extension_loader import (
-    _drive_awaitable,
     _import_entry_module,
     _run_awaitable,
 )
@@ -62,14 +61,14 @@ from pipy_harness.native.themes import (
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     BeforeAgentStartResult,  # noqa: F401 - re-exported via pipy_harness.extensions
-    BeforeProviderHeadersEvent,
-    BeforeProviderRequestEvent,
+    BeforeProviderHeadersEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    BeforeProviderRequestEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     ExtensionFlag,
     ExtensionTool,
     InputEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     InputTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
     LifecycleEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ProviderRequestTransform,
+    ProviderRequestTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
     QueuedCustomMessage,
     QueuedUserMessage,
     REASON_ACTIVATION_ERROR,
@@ -320,8 +319,6 @@ def make_extension_context(
         project_trusted=project_trusted,
     )
 
-
-_PROVIDER_REQUEST_FIELD_MAX_CHARS: int = 128 * 1024
 
 ControlSetActiveToolsFn = Callable[[Sequence[str]], bool]
 ControlSetModelFn = Callable[[str], bool]
@@ -3220,133 +3217,6 @@ def _activate_one(
         custom_messages=custom_messages,
         _activation_key=_descriptor_activation_key(descriptor),
         _activation_api=None if commit_activation else api,
-    )
-
-
-def dispatch_before_provider_request_hooks(
-    hooks: Sequence[HookHandler],
-    request: object,
-    *,
-    cwd: str,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None] | None = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
-    flags: Mapping[str, object] | None = None,
-    project_trusted: bool = False,
-) -> ProviderRequestTransform:
-    """Run `before_provider_request` hooks and return the final transform.
-
-    The dispatcher deliberately avoids importing `ProviderRequest` here to
-    keep the public extension runtime lightweight. It reads the expected
-    request attributes structurally. Crashing hooks are fail-safe: the
-    current request fields are preserved.
-    """
-
-    current_system = str(getattr(request, "system_prompt", ""))
-    current_user = str(getattr(request, "user_prompt", ""))
-    tools = tuple(
-        str(getattr(tool, "name", ""))
-        for tool in getattr(request, "available_tools", ())
-        if str(getattr(tool, "name", ""))
-    )
-    current_tools: tuple[str, ...] | None = None
-    if hooks:
-        ctx = _CommandContext(
-            cwd,
-            _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-            _ConversationView(getattr(request, "messages", ())),
-            set_active_tools_fn=set_active_tools_fn,
-            set_model_fn=set_model_fn,
-            set_thinking_level_fn=set_thinking_level_fn,
-            flags=flags,
-            project_trusted=project_trusted,
-        )
-        for hook in hooks:
-            event = BeforeProviderRequestEvent(
-                system_prompt=current_system,
-                user_prompt=current_user,
-                provider_name=str(getattr(request, "provider_name", "")),
-                model_id=str(getattr(request, "model_id", "")),
-                available_tools=tools if current_tools is None else current_tools,
-                messages=tuple(getattr(request, "messages", ())),
-            )
-            try:
-                result = hook(event, ctx)
-                if inspect.isawaitable(result):
-                    result = _drive_awaitable(result)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:  # noqa: BLE001 - fail-safe: preserve request
-                continue
-            if not isinstance(result, ProviderRequestTransform):
-                continue
-            if isinstance(result.system_prompt, str):
-                current_system = _bounded_provider_field(result.system_prompt)
-            if isinstance(result.user_prompt, str):
-                current_user = _bounded_provider_field(result.user_prompt)
-            if result.available_tools is not None:
-                current_tools = tuple(
-                    str(name)
-                    for name in result.available_tools
-                    if isinstance(name, str) and name
-                )
-    return ProviderRequestTransform(
-        system_prompt=current_system,
-        user_prompt=current_user,
-        available_tools=current_tools,
-    )
-
-
-def dispatch_before_provider_headers_hooks(
-    hooks: Sequence[HookHandler],
-    headers: MutableMapping[str, str | None],
-    *,
-    cwd: str,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None] | None = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    flags: Mapping[str, object] | None = None,
-    session_tree: "NativeSessionTree | None" = None,
-    project_trusted: bool = False,
-) -> None:
-    """Run mutation-only provider-header hooks serially and fail soft.
-
-    Every hook receives the same mutable mapping, so later handlers observe
-    prior mutations. Awaitables are driven to completion and return values are
-    deliberately ignored. A bad handler does not prevent later handlers or the
-    provider request from continuing.
-    """
-
-    if not hooks:
-        return
-    ctx = _CommandContext(
-        cwd,
-        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        flags=flags,
-        session_tree=session_tree,
-        project_trusted=project_trusted,
-    )
-    event = BeforeProviderHeadersEvent(headers=headers)
-    for hook in hooks:
-        try:
-            result = hook(event, ctx)
-            if inspect.isawaitable(result):
-                _drive_awaitable(result)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - Pi-compatible fail-soft observer
-            continue
-
-
-def _bounded_provider_field(value: str) -> str:
-    if len(value) <= _PROVIDER_REQUEST_FIELD_MAX_CHARS:
-        return value
-    return (
-        value[:_PROVIDER_REQUEST_FIELD_MAX_CHARS]
-        + "\n[pipy: before_provider_request field truncated]"
     )
 
 

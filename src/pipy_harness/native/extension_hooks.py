@@ -17,6 +17,15 @@ and recorded), while `dispatch_user_bash_hooks` and
 `dispatch_session_before_hooks` fail closed — a raising local-shell or
 session-operation gate blocks the command or operation.
 
+Finally it owns the provider-request hook dispatchers that run just before
+a provider call: `dispatch_before_provider_request_hooks` reads the request
+attributes structurally, runs `before_provider_request` hooks fail-safe
+(a raising or non-conforming hook keeps the current fields), and returns
+the final `ProviderRequestTransform` with each transformed field bounded by
+`_PROVIDER_REQUEST_FIELD_MAX_CHARS`; `dispatch_before_provider_headers_hooks`
+runs mutation-only header hooks serially and fail-soft over one shared
+mutable mapping.
+
 It depends only on the `_drive_awaitable` coroutine driver from
 `extension_loader`, the hook value objects from `extension_types`, and the
 `_CommandContext` / `_CollectingUi` builders plus the `EVENT_*` event-name
@@ -31,7 +40,7 @@ malicious extension cannot create unbounded provider input.
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from typing import Literal, cast
 
 from pipy_harness.native.extension_loader import _drive_awaitable
@@ -46,10 +55,13 @@ from pipy_harness.native.extension_runtime import (
     HookHandler,
     _CollectingUi,
     _CommandContext,
+    _ConversationView,
 )
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,
     BeforeAgentStartResult,
+    BeforeProviderHeadersEvent,
+    BeforeProviderRequestEvent,
     ExtensionMode,
     InputEvent,
     InputTransform,
@@ -58,6 +70,7 @@ from pipy_harness.native.extension_types import (
     ProjectTrustDispatchResult,
     ProjectTrustEvent,
     ProjectTrustHandlerError,
+    ProviderRequestTransform,
     SessionBeforeEvent,
     SessionDecision,
     ToolBlock,
@@ -70,11 +83,17 @@ from pipy_harness.native.extension_types import (
     _safe_diagnostic,
 )
 
+if False:  # pragma: no cover - imported for type checkers only
+    from pipy_harness.native.session_tree import NativeSessionTree
+
 # Bound a transformed tool-result observation before it reaches the model.
 _TOOL_RESULT_MAX_CHARS: int = 60 * 1024
 # Cap the total `before_agent_start` system-prompt injection so a buggy or
 # malicious extension cannot create unbounded provider input.
 _BEFORE_AGENT_START_MAX_CHARS: int = 16 * 1024
+# Bound each `before_provider_request` transformed field so an extension
+# cannot create unbounded provider input.
+_PROVIDER_REQUEST_FIELD_MAX_CHARS: int = 128 * 1024
 
 
 def extension_event_hooks(
@@ -555,3 +574,130 @@ def dispatch_session_before_hooks(
                 allow=False, reason=result.reason or "blocked by extension"
             )
     return SessionDecision()
+
+
+def dispatch_before_provider_request_hooks(
+    hooks: Sequence[HookHandler],
+    request: object,
+    *,
+    cwd: str,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
+) -> ProviderRequestTransform:
+    """Run `before_provider_request` hooks and return the final transform.
+
+    The dispatcher deliberately avoids importing `ProviderRequest` here to
+    keep the public extension runtime lightweight. It reads the expected
+    request attributes structurally. Crashing hooks are fail-safe: the
+    current request fields are preserved.
+    """
+
+    current_system = str(getattr(request, "system_prompt", ""))
+    current_user = str(getattr(request, "user_prompt", ""))
+    tools = tuple(
+        str(getattr(tool, "name", ""))
+        for tool in getattr(request, "available_tools", ())
+        if str(getattr(tool, "name", ""))
+    )
+    current_tools: tuple[str, ...] | None = None
+    if hooks:
+        ctx = _CommandContext(
+            cwd,
+            _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
+            _ConversationView(getattr(request, "messages", ())),
+            set_active_tools_fn=set_active_tools_fn,
+            set_model_fn=set_model_fn,
+            set_thinking_level_fn=set_thinking_level_fn,
+            flags=flags,
+            project_trusted=project_trusted,
+        )
+        for hook in hooks:
+            event = BeforeProviderRequestEvent(
+                system_prompt=current_system,
+                user_prompt=current_user,
+                provider_name=str(getattr(request, "provider_name", "")),
+                model_id=str(getattr(request, "model_id", "")),
+                available_tools=tools if current_tools is None else current_tools,
+                messages=tuple(getattr(request, "messages", ())),
+            )
+            try:
+                result = hook(event, ctx)
+                if inspect.isawaitable(result):
+                    result = _drive_awaitable(result)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001 - fail-safe: preserve request
+                continue
+            if not isinstance(result, ProviderRequestTransform):
+                continue
+            if isinstance(result.system_prompt, str):
+                current_system = _bounded_provider_field(result.system_prompt)
+            if isinstance(result.user_prompt, str):
+                current_user = _bounded_provider_field(result.user_prompt)
+            if result.available_tools is not None:
+                current_tools = tuple(
+                    str(name)
+                    for name in result.available_tools
+                    if isinstance(name, str) and name
+                )
+    return ProviderRequestTransform(
+        system_prompt=current_system,
+        user_prompt=current_user,
+        available_tools=current_tools,
+    )
+
+
+def dispatch_before_provider_headers_hooks(
+    hooks: Sequence[HookHandler],
+    headers: MutableMapping[str, str | None],
+    *,
+    cwd: str,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
+    flags: Mapping[str, object] | None = None,
+    session_tree: "NativeSessionTree | None" = None,
+    project_trusted: bool = False,
+) -> None:
+    """Run mutation-only provider-header hooks serially and fail soft.
+
+    Every hook receives the same mutable mapping, so later handlers observe
+    prior mutations. Awaitables are driven to completion and return values are
+    deliberately ignored. A bad handler does not prevent later handlers or the
+    provider request from continuing.
+    """
+
+    if not hooks:
+        return
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
+        flags=flags,
+        session_tree=session_tree,
+        project_trusted=project_trusted,
+    )
+    event = BeforeProviderHeadersEvent(headers=headers)
+    for hook in hooks:
+        try:
+            result = hook(event, ctx)
+            if inspect.isawaitable(result):
+                _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - Pi-compatible fail-soft observer
+            continue
+
+
+def _bounded_provider_field(value: str) -> str:
+    if len(value) <= _PROVIDER_REQUEST_FIELD_MAX_CHARS:
+        return value
+    return (
+        value[:_PROVIDER_REQUEST_FIELD_MAX_CHARS]
+        + "\n[pipy: before_provider_request field truncated]"
+    )

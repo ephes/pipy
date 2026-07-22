@@ -2684,8 +2684,41 @@ docs-build` are green. The provider-request/headers dispatchers stay in
 `extension_runtime` for the next 6.2 cut. Review: Claude Opus panel (user-directed
 substitution for the different-family gate). Pending review.
 
-Host/provider ports (6.3) and the UI bridge (6.4), plus the remaining 6.2
-provider-request/headers dispatch cut, remain deferred.
+### Provider-request hook-dispatch family (Slice 6.2c) — DONE (2026-07-22)
+
+Sub-slice 6.2c relocates the last hook family verbatim out of
+`extension_runtime.py` into `native.extension_hooks`:
+`dispatch_before_provider_request_hooks`, `dispatch_before_provider_headers_hooks`,
+their helper `_bounded_provider_field`, and the `_PROVIDER_REQUEST_FIELD_MAX_CHARS`
+(128 KiB) field bound. The originals are deleted with no shadow copy or alias. The
+move reuses the `extension_hooks` -> `extension_loader`/`extension_types`/
+`extension_runtime` dependency established in 6.2a/6.2b, adding only the
+`_ConversationView` builder from `extension_runtime`, the provider value objects
+(`BeforeProviderRequestEvent`/`BeforeProviderHeadersEvent`/`ProviderRequestTransform`)
+from `extension_types`, plus `MutableMapping` and a type-check-only
+`NativeSessionTree` import, so no new import edge or cycle appears.
+`extension_runtime` no longer references any moved function, so its now-unused
+`_drive_awaitable` import is dropped and the three provider value-object re-imports
+(still re-exported through `pipy_harness.extensions`) become explicit
+`# noqa: F401` re-exports. `agent_request.py`, `tool_loop_session`, the
+`pipy_harness.extensions` re-export block, the direct-import tests, and the
+`test_architecture_agent_request_boundaries` allow-list are repointed to
+`extension_hooks` (public paths byte-identical; `ProviderRequestTransform` stays
+sourced from `extension_runtime`). After this cut `extension_hooks` is the sole
+owner of all extension hook dispatch, leaving `extension_runtime` with activation,
+registration, context builders, protocols, and renderers. No change to structural
+request-attribute reading, the field-truncation bound, mutation-only header
+semantics, fail-safe/fail-soft behavior, or public imports; no new dependency,
+`Any`, or `type: ignore`. Focused dispatch/providers/live-session/project-trust/
+policy-integration/import-boundary/agent-request-boundary suites passed (272);
+`extension_conformance_gate`, `extension_dispatch_conformance`,
+`extension_live_session_conformance`, and `automation_rpc_conformance` reported ALL
+PASS; the 49-test TUI PTY file and PTY smoke (8) passed; `just check` (Ruff, mypy
+clean, full suite green) and `just docs-build` are green. Review: Claude Opus panel
+(user-directed substitution for the different-family gate). Pending review.
+
+Host/provider ports (6.3) and the UI bridge (6.4) remain deferred; Slice 6.2 hook
+dispatch is now complete.
 
 ### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
 

@@ -79,7 +79,7 @@ def prepare_provider_request(
 ) -> AgentProviderRequestSnapshot:
     """Dispatch hooks serially while permitting only monotonic tool narrowing."""
 
-    from pipy_harness.native.extension_runtime import (
+    from pipy_harness.native.extension_hooks import (
         dispatch_before_provider_request_hooks,
     )
 

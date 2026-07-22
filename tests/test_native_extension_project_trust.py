@@ -12,7 +12,6 @@ from pipy_harness.native.extension_runtime import (
     activate_extension_batch,
     activate_extensions,
     drain_user_messages,
-    dispatch_before_provider_request_hooks,
     dispatch_extension_command,
     dispatch_extension_shortcut,
     extension_command_map,
@@ -20,6 +19,7 @@ from pipy_harness.native.extension_runtime import (
     make_extension_context,
 )
 from pipy_harness.native.extension_hooks import (
+    dispatch_before_provider_request_hooks,
     dispatch_input_hooks,
     dispatch_lifecycle_hooks,
     dispatch_project_trust_hooks,
