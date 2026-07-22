@@ -20,6 +20,7 @@ PROVIDER_MODULES = (
     "providers/bedrock.py",
     "providers/cloudflare.py",
     "providers/google_generative_ai.py",
+    "providers/google_vertex.py",
     "providers/mistral.py",
     "providers/openai_completions.py",
     "providers/openai_responses.py",

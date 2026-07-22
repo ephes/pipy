@@ -56,7 +56,7 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.providers.cloudflare",
     "pipy_harness.native.providers.ds4",
     "pipy_harness.native.providers.google_generative_ai",
-    "pipy_harness.native.google_vertex_provider",
+    "pipy_harness.native.providers.google_vertex",
     "pipy_harness.native.providers.mistral",
     "pipy_harness.native.openai_codex_provider",
     "pipy_harness.native.providers.openai_completions",

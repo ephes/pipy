@@ -1403,7 +1403,7 @@ def _check_tier3_construction(checks, tmp: Path):
     from datetime import UTC, datetime
 
     from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
-    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+    from pipy_harness.native.providers.google_vertex import GoogleVertexProvider
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
         NativeReplProviderState,

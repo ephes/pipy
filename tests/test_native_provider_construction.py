@@ -1881,7 +1881,7 @@ def test_bedrock_drops_reserved_headers_before_signing(tmp_path):
 
 
 def test_vertex_catalog_construction(tmp_path):
-    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+    from pipy_harness.native.providers.google_vertex import GoogleVertexProvider
 
     spec = NativeModelSpec(
         provider_name="google-vertex",
@@ -1904,7 +1904,7 @@ def test_vertex_catalog_construction(tmp_path):
 def test_vertex_catalog_no_key_resolves_to_adc(tmp_path):
     # With no Vertex Express key (and no ADC detected) the forwarded api key is
     # None, so the adapter uses its ADC bearer path.
-    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+    from pipy_harness.native.providers.google_vertex import GoogleVertexProvider
 
     spec = NativeModelSpec(
         provider_name="google-vertex",

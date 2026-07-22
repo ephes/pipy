@@ -13,7 +13,7 @@ from pipy_harness.native._provider_helpers import (
     serialize_tool_for_responses,
 )
 from pipy_harness.native.providers.google_generative_ai import _serialize_tool_for_gemini
-from pipy_harness.native.google_vertex_provider import (
+from pipy_harness.native.providers.google_vertex import (
     _serialize_tool_for_gemini as _serialize_tool_for_vertex_gemini,
 )
 from pipy_harness.native.tools.base import ToolDefinition

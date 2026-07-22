@@ -1088,10 +1088,14 @@ The bulk is mechanical duplication. pi-mono's
    primitives, keeping `GoogleGenerativeAIProvider`, `google_http_client()`, the
    `GoogleProviderError` hierarchy, the URL-embedded `?key=` auth, the per-model
    `generationConfig.thinkingConfig` shape, and `GOOGLE_USAGE_FIELDS`
-   byte-for-byte; its Vertex sibling (`google_vertex_provider.py`) stays
-   top-level until its own sub-slice. Remaining: the per-family wire-shape
-   modules under `native.providers` (Slice 5.2), including the Gemini/Vertex
-   wire consolidation (cut 3).
+   byte-for-byte; its Vertex sibling has since moved verbatim to
+   `pipy_harness.native.providers.google_vertex` (migration Slice 5.2-gemini,
+   cut 2), keeping `GoogleVertexProvider`, `google_vertex_http_client()`, the
+   `GoogleVertexProviderError` hierarchy, the Express-vs-ADC auth switch, the
+   regional/Express endpoint templates, the `vertex_auth_mode`/
+   `google_cloud_location` metadata, and the per-model
+   `generationConfig.thinkingConfig` shape byte-for-byte. Remaining: the
+   Gemini/Vertex wire consolidation (cut 3).
 2. Extract a shared Chat-Completions wire translator for the Chat-Completions
    wire shape. Collapse OpenAI-Completions, OpenRouter, Mistral, and Cloudflare
    onto it. Refs: `02:F3`. **Done (migration Slice 5.2-chat, cuts 1–4):**

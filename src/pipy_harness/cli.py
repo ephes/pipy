@@ -2911,7 +2911,7 @@ def _native_provider_for_selection(
 
         return GoogleGenerativeAIProvider(model_id=selection.model_id)
     if selection.provider_name == "google-vertex":
-        from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+        from pipy_harness.native.providers.google_vertex import GoogleVertexProvider
 
         return GoogleVertexProvider(model_id=selection.model_id)
     if selection.provider_name == "mistral":

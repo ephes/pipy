@@ -21,7 +21,7 @@ from typing import Any
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest
-from pipy_harness.native.google_vertex_provider import (
+from pipy_harness.native.providers.google_vertex import (
     GoogleVertexProvider,
     JsonResponse,
     _build_thinking_config,

@@ -1,0 +1,14 @@
+{
+  "final_text": "config.toml sets port 8080.",
+  "usage": {
+    "input_tokens": 31,
+    "output_tokens": 9,
+    "total_tokens": 40
+  },
+  "metadata": {
+    "provider_response_store_requested": false,
+    "finish_reason": "STOP",
+    "vertex_auth_mode": "adc",
+    "google_cloud_location": "us-central1"
+  }
+}

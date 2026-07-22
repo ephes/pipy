@@ -746,7 +746,7 @@ def _build_iam_provider(
             **http_kwargs,  # type: ignore[arg-type]
         )
 
-    from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
+    from pipy_harness.native.providers.google_vertex import GoogleVertexProvider
 
     return GoogleVertexProvider(
         model_id=resolved.model_id,
