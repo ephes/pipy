@@ -2790,6 +2790,49 @@ gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
 
+### Headless extension UI bridge module (Slice 6.4c) — DONE (2026-07-23)
+
+Third Phase 6.4 cut: the deterministic, headless extension UI bridge moves
+verbatim out of `extension_runtime.py` into the new
+`native/extension_ui.py`, originals deleted with no shadow copy or alias.
+Moved: `_CollectingUi` (the mode-aware `ExtensionUi` implementation handling
+notices, dialogs, overlays, status/working controls, widgets, editor text,
+autocomplete, and theme reads), the `_safe_ui_key` helper, the
+`coerce_tool_render_lines` / `_LinesComponent` / `lines_component`
+chrome-component helpers, and the `_CUSTOM_RENDER_MAX_CHARS` render-truncation
+bound. The new module imports only the `extension_types` contracts
+(`CustomComponentDriver` / `CustomComponentFactory` / `CustomComponentOptions` /
+`ExtensionUiDriver` / `ToolRenderComponent` / `WidgetPlacement`) and the
+`native.themes` registry helpers (`ChromePalette` / `NativeThemeStore` /
+`available_theme_names` / `is_known_theme` / `resolve_active_theme_name` /
+`resolve_palette`), so it never reaches `tool_loop_session` or `tui`.
+`extension_runtime` re-imports `_CollectingUi` (body-used by
+`make_extension_context` / `_ActivationApi`), `coerce_tool_render_lines`
+(body-used by the surviving message/entry renderers), `_CUSTOM_RENDER_MAX_CHARS`
+(body-used by `_coerce_rendered_lines` / `_bounded_render_text`), and
+`lines_component` (`# noqa: F401` re-export); its now-unused `themes` import
+block, `cast`, and `CustomComponentOptions` are dropped, and
+`CustomComponentFactory` / `WidgetPlacement` / `ToolRenderComponent` become
+body-unused `# noqa: F401` re-exports. `_LiveExtensionUiDriver` (coupled to
+`ToolLoopTerminalUi`), `render_extension_message` / `render_extension_entry`, and
+the tool-render dispatch stay in `extension_runtime` / `tool_loop_session`.
+`pipy_harness.extensions` re-exports `coerce_tool_render_lines` /
+`lines_component` byte-identically; extension-hooks and the direct-import tests
+that pull `_CollectingUi` from `extension_runtime` stay valid and resolve to the
+same object. The import-boundary suite adds `native.extension_ui` to every agent-
+and coding-layer forbidden-import list and a dedicated rule asserting
+`extension_ui` never imports `tool_loop_session` or `tui`. No notice / dialog /
+widget / editor / theme semantics, deterministic non-interactive behavior, or
+public-surface change; no new dependency, `Any`, or `type: ignore`. Focused
+ui-notify / custom-ui / custom-editor / theme-controls / headless-host /
+chrome-collecting / autocomplete / tool-render-contract / tool-render-dispatch /
+import-boundary suites passed; `extension_ui_notify_conformance`,
+`extension_conformance_gate`, and `extension_dispatch_conformance` reported ALL
+PASS; the custom-ui PTY test and `just test-pty-smoke` (8/8) passed; `just check`
+(Ruff, mypy clean, full suite green) and `just docs-build` are green. Review:
+Pending review — Claude Opus panel (user-directed substitution for the
+different-family gate).
+
 ### Extension UI protocol contracts leaf relocation (Slice 6.4a) — DONE (2026-07-23)
 
 First Phase 6.4 cut: the extension UI protocol contracts move verbatim out of

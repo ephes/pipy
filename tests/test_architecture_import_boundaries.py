@@ -111,6 +111,7 @@ _AGENT_USAGE_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.extension_loader",
     "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extension_types",
+    "pipy_harness.native.extension_ui",
     "pipy_harness.native.extensions",
     "pipy_harness.native.ui",
     "pipy_harness.native.tui",
@@ -151,6 +152,7 @@ _AGENT_HISTORY_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.extension_loader",
     "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extension_types",
+    "pipy_harness.native.extension_ui",
     "pipy_harness.native.extensions",
     "pipy_harness.native.ui",
     "pipy_harness.native.tui",
@@ -213,6 +215,7 @@ _CODING_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.extension_loader",
     "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extension_types",
+    "pipy_harness.native.extension_ui",
     "pipy_harness.native.extensions",
     "pipy_harness.native.ui",
     "pipy_harness.native.tui",
@@ -720,6 +723,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.extension_loader",
             "pipy_harness.native.extension_runtime",
             "pipy_harness.native.extension_types",
+            "pipy_harness.native.extension_ui",
             "pipy_harness.native.extensions",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
@@ -752,6 +756,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.extension_loader",
             "pipy_harness.native.extension_runtime",
             "pipy_harness.native.extension_types",
+            "pipy_harness.native.extension_ui",
             "pipy_harness.native.extensions",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
@@ -785,6 +790,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.extension_loader",
             "pipy_harness.native.extension_runtime",
             "pipy_harness.native.extension_types",
+            "pipy_harness.native.extension_ui",
             *_LEGACY_CONCRETE_PROVIDER_MODULES,
         ),
         reason=(
@@ -972,6 +978,21 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.extension_hooks",
             "pipy_harness.native.extension_loader",
         )
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.extension_ui",
+        forbidden_imports=(
+            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.tui",
+        ),
+        reason=(
+            "the headless extension UI bridge (_CollectingUi and the "
+            "lines_component chrome helpers) must depend only on the "
+            "extension_types contracts and the native.themes registry, never on "
+            "the concrete product session (tool_loop_session) or the terminal UI "
+            "(tui); the live _LiveExtensionUiDriver that binds ToolLoopTerminalUi "
+            "stays in tool_loop_session"
+        ),
     ),
 )
 
@@ -2016,6 +2037,7 @@ def test_isolated_provider_turn_executor_import_stays_headless_in_either_order(
         "pipy_harness.native.extension_loader",
         "pipy_harness.native.extension_runtime",
         "pipy_harness.native.extension_types",
+        "pipy_harness.native.extension_ui",
         "pipy_harness.native.extensions",
         "pipy_harness.native.ui",
         "pipy_harness.native.tui",
@@ -2478,6 +2500,7 @@ def test_coding_accepted_input_direct_imports_match_explicit_allowlist() -> None
         "pipy_harness.native.extension_loader",
         "pipy_harness.native.extension_runtime",
         "pipy_harness.native.extension_types",
+        "pipy_harness.native.extension_ui",
         "pipy_harness.native.automation",
         "pipy_harness.native.coding.commands",
         "pipy_harness.native.coding.product_session",
@@ -2563,6 +2586,7 @@ def test_coding_result_direct_imports_match_explicit_allowlist() -> None:
         "pipy_harness.native.extension_loader",
         "pipy_harness.native.extension_runtime",
         "pipy_harness.native.extension_types",
+        "pipy_harness.native.extension_ui",
         "pipy_harness.native.automation",
         "pipy_harness.native.coding.commands",
         "pipy_harness.native.coding.product_session",
@@ -2645,6 +2669,7 @@ def test_coding_session_controller_direct_imports_match_explicit_allowlist() -> 
         "pipy_harness.native.extension_loader",
         "pipy_harness.native.extension_runtime",
         "pipy_harness.native.extension_types",
+        "pipy_harness.native.extension_ui",
         "pipy_harness.native.automation",
         "pipy_harness.native.coding.product_session",
         "pipy_harness.native.coding.session",
