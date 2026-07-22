@@ -45,6 +45,7 @@ from pipy_harness.native.chrome import (
     discover_loaded_resource_names,
     pipy_version_label,
 )
+from pipy_harness.native.coding.command_registry import project_command_completions
 from pipy_harness.native.clipboard import ImageClipboardResult
 from pipy_harness.native.editor_completion import (
     CompletionItem,
@@ -103,23 +104,29 @@ _TOOL_STREAM_LIVE_MAX_CHARS = 8 * 1024
 _OVERFLOW_BOTTOM_GUTTER_LINES = 2
 _OVERFLOW_CONTEXT_TARGET_LINES = 13
 _OVERFLOW_CONTEXT_MIN_LINES = 4
-TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = (
-    "/hotkeys",
-    "/model",
-    "/scoped-models",
-    "/settings",
-    "/trust",
-    "/login",
-    "/logout",
-    "/copy",
-    "/compact",
-    "/export",
-    "/import",
-    "/share",
-    "/reload",
-    "/changelog",
-    "/exit",
-    "/quit",
+# Curated ordered projection: an explicit advertised-name list validated against
+# the declarative command registry. Every name here is a registry built-in (the
+# tool-loop menu advertises no resource adjunct); order and membership are
+# preserved exactly and are not derived from the full built-in set.
+TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = project_command_completions(
+    (
+        "/hotkeys",
+        "/model",
+        "/scoped-models",
+        "/settings",
+        "/trust",
+        "/login",
+        "/logout",
+        "/copy",
+        "/compact",
+        "/export",
+        "/import",
+        "/share",
+        "/reload",
+        "/changelog",
+        "/exit",
+        "/quit",
+    )
 )
 # How long the input loops block on stdin before checking for a terminal
 # resize. Resize handling is poll-based (comparing the live terminal size to

@@ -14,7 +14,11 @@ from pipy_harness.native.coding.command_registry import (
     BuiltinArgumentContract,
     BuiltinCommandKind,
     BuiltinCommandSpec,
+    builtin_command_description,
+    builtin_command_names,
     classify_coding_command,
+    project_command_completions,
+    project_command_descriptions,
 )
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
@@ -1185,3 +1189,110 @@ def test_registry_spec_validation_rejects_non_exact_field_types() -> None:
             BuiltinCommandKind.EXIT,
             BuiltinArgumentContract.NONE,
         )
+
+
+def test_registry_spec_validation_rejects_non_str_description() -> None:
+    with pytest.raises(TypeError, match="spec.description"):
+        BuiltinCommandSpec(
+            "/exit",
+            BuiltinCommandKind.EXIT,
+            BuiltinArgumentContract.NONE,
+            description=cast(str, 0),
+        )
+
+
+def test_builtin_command_names_projects_every_advertisable_name() -> None:
+    names = builtin_command_names()
+
+    assert "" not in names
+    assert names == {
+        spec.name
+        for spec in _BUILTIN_COMMANDS
+        if spec.kind is not BuiltinCommandKind.BLANK
+    }
+
+
+def test_registry_carries_the_exact_advertised_descriptions() -> None:
+    assert builtin_command_description("/hotkeys") == "Show keyboard shortcuts"
+    assert builtin_command_description("/reload") == (
+        "Reload settings, keybindings, and resources"
+    )
+    assert builtin_command_description("/changelog") == (
+        "Show the changelog (What's New)"
+    )
+    assert builtin_command_description("/compact") == (
+        "Compact context, keep a safe summary"
+    )
+    assert builtin_command_description("/export") == (
+        "Export the native session to HTML or active-branch JSONL"
+    )
+    assert builtin_command_description("/import") == "Import a native session JSONL file"
+    assert builtin_command_description("/share") == (
+        "Upload the native session as a secret GitHub gist"
+    )
+    assert builtin_command_description("/settings") == "Settings and status"
+    assert builtin_command_description("/trust") == (
+        "Save project trust for the next restart"
+    )
+    assert builtin_command_description("/copy") == (
+        "Copy the last answer to the clipboard (local)"
+    )
+    assert builtin_command_description("/login") == "Log in (openai-codex OAuth)"
+    assert builtin_command_description("/logout") == "Log out (openai-codex OAuth)"
+    assert builtin_command_description("/model") == "Select provider/model"
+    assert builtin_command_description("/scoped-models") == (
+        "View/set the Ctrl+P model cycle set"
+    )
+    assert builtin_command_description("/exit") == "Exit the REPL"
+    assert builtin_command_description("/quit") == "Exit the REPL (alias)"
+
+
+def test_builtin_command_description_rejects_unknown_name() -> None:
+    with pytest.raises(KeyError):
+        builtin_command_description("/nonexistent")
+
+
+def test_project_command_completions_preserves_order_and_membership() -> None:
+    names = ("/model", "/settings", "/exit")
+
+    assert project_command_completions(names) == names
+
+
+def test_project_command_completions_allows_declared_adjuncts() -> None:
+    names = ("/model", "/skill", "/exit")
+
+    assert (
+        project_command_completions(names, adjunct_names=frozenset({"/skill"})) == names
+    )
+
+
+def test_project_command_completions_rejects_unknown_names() -> None:
+    with pytest.raises(ValueError, match="not registry built-ins or adjuncts"):
+        project_command_completions(("/model", "/skill"))
+
+
+def test_project_command_descriptions_reads_from_the_registry() -> None:
+    descriptions = project_command_descriptions(("/model", "/exit"))
+
+    assert descriptions == {
+        "/model": "Select provider/model",
+        "/exit": "Exit the REPL",
+    }
+    assert list(descriptions) == ["/model", "/exit"]
+
+
+def test_project_command_descriptions_supplies_adjunct_text() -> None:
+    descriptions = project_command_descriptions(
+        ("/model", "/skill"),
+        adjunct_descriptions={"/skill": "List or load a workspace/global skill"},
+    )
+
+    assert descriptions == {
+        "/model": "Select provider/model",
+        "/skill": "List or load a workspace/global skill",
+    }
+
+
+def test_project_command_descriptions_rejects_builtins_without_description() -> None:
+    with pytest.raises(ValueError, match="no advertised description"):
+        project_command_descriptions(("/session",))

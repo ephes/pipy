@@ -11,6 +11,10 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, AsyncIterator, Iterable, Protocol, TextIO
 
 from pipy_harness.capture import looks_sensitive
+from pipy_harness.native.coding.command_registry import (
+    project_command_completions,
+    project_command_descriptions,
+)
 from pipy_harness.native.read_only_tool import _is_ignored_or_generated, _is_relative_to
 from pipy_harness.native.terminal_input import read_terminal_utf8_char
 
@@ -26,39 +30,55 @@ SUPPORTED_REPL_INPUT_RUNTIMES = (
     REPL_INPUT_RUNTIME_READLINE,
     REPL_INPUT_RUNTIME_SLASH_MENU,
 )
-DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = (
-    "/hotkeys",
-    "/compact",
-    "/settings",
-    "/trust",
-    "/login",
-    "/logout",
-    "/model",
-    "/skill",
-    "/reload",
-    "/changelog",
-    "/exit",
-    "/quit",
+# Resource-owned commands advertised in the REPL that are not registry built-ins.
+# Their advertised text is preserved here, as an explicit adjunct, because the
+# registry deliberately does not own them (see command_registry projections).
+_SKILL_ADJUNCT_NAME = "/skill"
+_SKILL_ADJUNCT_DESCRIPTION = "List or load a workspace/global skill"
+# Curated ordered projection: an explicit advertised-name list validated against
+# the declarative command registry, with the /skill resource adjunct. Order and
+# membership are preserved exactly; nothing is derived from the full built-in set.
+DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS = project_command_completions(
+    (
+        "/hotkeys",
+        "/compact",
+        "/settings",
+        "/trust",
+        "/login",
+        "/logout",
+        "/model",
+        _SKILL_ADJUNCT_NAME,
+        "/reload",
+        "/changelog",
+        "/exit",
+        "/quit",
+    ),
+    adjunct_names=frozenset({_SKILL_ADJUNCT_NAME}),
 )
-DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = {
-    "/hotkeys": "Show keyboard shortcuts",
-    "/reload": "Reload settings, keybindings, and resources",
-    "/changelog": "Show the changelog (What's New)",
-    "/compact": "Compact context, keep a safe summary",
-    "/export": "Export the native session to HTML or active-branch JSONL",
-    "/import": "Import a native session JSONL file",
-    "/share": "Upload the native session as a secret GitHub gist",
-    "/settings": "Settings and status",
-    "/trust": "Save project trust for the next restart",
-    "/copy": "Copy the last answer to the clipboard (local)",
-    "/login": "Log in (openai-codex OAuth)",
-    "/logout": "Log out (openai-codex OAuth)",
-    "/model": "Select provider/model",
-    "/scoped-models": "View/set the Ctrl+P model cycle set",
-    "/skill": "List or load a workspace/global skill",
-    "/exit": "Exit the REPL",
-    "/quit": "Exit the REPL (alias)",
-}
+# Curated ordered projection: descriptions are read from the registry per name,
+# with the /skill adjunct supplying its own advertised text.
+DEFAULT_REPL_COMMAND_DESCRIPTIONS: dict[str, str] = project_command_descriptions(
+    (
+        "/hotkeys",
+        "/reload",
+        "/changelog",
+        "/compact",
+        "/export",
+        "/import",
+        "/share",
+        "/settings",
+        "/trust",
+        "/copy",
+        "/login",
+        "/logout",
+        "/model",
+        "/scoped-models",
+        _SKILL_ADJUNCT_NAME,
+        "/exit",
+        "/quit",
+    ),
+    adjunct_descriptions={_SKILL_ADJUNCT_NAME: _SKILL_ADJUNCT_DESCRIPTION},
+)
 DEFAULT_REPL_FILE_PATH_COMPLETION_COMMANDS: tuple[str, ...] = ()
 _FILE_CONTEXT_COMMANDS_WITH_SEPARATOR: frozenset[str] = frozenset()
 DEFAULT_REPL_FILE_REFERENCE_COMPLETION_COMMANDS = tuple(

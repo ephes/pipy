@@ -75,10 +75,13 @@ class BuiltinCommandSpec:
     action: CodingCommandAction | None = None
     aliases: tuple[str, ...] = ()
     availability: Callable[[], bool] = field(default=_always_available)
+    description: str = ""
 
     def __post_init__(self) -> None:
         if type(self.name) is not str:
             raise TypeError("spec.name must be an exact str")
+        if type(self.description) is not str:
+            raise TypeError("spec.description must be an exact str")
         if type(self.kind) is not BuiltinCommandKind:
             raise TypeError("spec.kind must be an exact BuiltinCommandKind")
         if type(self.argument_contract) is not BuiltinArgumentContract:
@@ -110,25 +113,38 @@ class BuiltinCommandSpec:
 
 _BUILTIN_COMMANDS: tuple[BuiltinCommandSpec, ...] = (
     BuiltinCommandSpec("", BuiltinCommandKind.BLANK, BuiltinArgumentContract.NONE),
-    BuiltinCommandSpec("/exit", BuiltinCommandKind.EXIT, BuiltinArgumentContract.NONE),
-    BuiltinCommandSpec("/quit", BuiltinCommandKind.EXIT, BuiltinArgumentContract.NONE),
+    BuiltinCommandSpec(
+        "/exit",
+        BuiltinCommandKind.EXIT,
+        BuiltinArgumentContract.NONE,
+        description="Exit the REPL",
+    ),
+    BuiltinCommandSpec(
+        "/quit",
+        BuiltinCommandKind.EXIT,
+        BuiltinArgumentContract.NONE,
+        description="Exit the REPL (alias)",
+    ),
     BuiltinCommandSpec(
         "/hotkeys",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.NONE,
         CodingCommandAction.SHOW_HOTKEYS,
+        description="Show keyboard shortcuts",
     ),
     BuiltinCommandSpec(
         "/changelog",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.NONE,
         CodingCommandAction.SHOW_CHANGELOG,
+        description="Show the changelog (What's New)",
     ),
     BuiltinCommandSpec(
         "/copy",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.NONE,
         CodingCommandAction.COPY_LAST_ANSWER,
+        description="Copy the last answer to the clipboard (local)",
     ),
     BuiltinCommandSpec(
         "/session",
@@ -141,6 +157,7 @@ _BUILTIN_COMMANDS: tuple[BuiltinCommandSpec, ...] = (
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.NONE,
         CodingCommandAction.COMPACT,
+        description="Compact context, keep a safe summary",
     ),
     BuiltinCommandSpec(
         "/new",
@@ -159,24 +176,28 @@ _BUILTIN_COMMANDS: tuple[BuiltinCommandSpec, ...] = (
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.NONE,
         CodingCommandAction.SETTINGS,
+        description="Settings and status",
     ),
     BuiltinCommandSpec(
         "/trust",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.NONE,
         CodingCommandAction.TRUST_PROJECT,
+        description="Save project trust for the next restart",
     ),
     BuiltinCommandSpec(
         "/share",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.NONE,
         CodingCommandAction.SESSION_SHARE,
+        description="Upload the native session as a secret GitHub gist",
     ),
     BuiltinCommandSpec(
         "/reload",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.NONE,
         CodingCommandAction.RELOAD,
+        description="Reload settings, keybindings, and resources",
     ),
     BuiltinCommandSpec(
         "/tree",
@@ -207,36 +228,42 @@ _BUILTIN_COMMANDS: tuple[BuiltinCommandSpec, ...] = (
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.OPTIONAL_ARG,
         CodingCommandAction.SESSION_EXPORT,
+        description="Export the native session to HTML or active-branch JSONL",
     ),
     BuiltinCommandSpec(
         "/import",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.OPTIONAL_ARG,
         CodingCommandAction.SESSION_IMPORT,
+        description="Import a native session JSONL file",
     ),
     BuiltinCommandSpec(
         "/model",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.USAGE_AWARE,
         CodingCommandAction.MODEL,
+        description="Select provider/model",
     ),
     BuiltinCommandSpec(
         "/scoped-models",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.USAGE_AWARE,
         CodingCommandAction.SCOPED_MODELS,
+        description="View/set the Ctrl+P model cycle set",
     ),
     BuiltinCommandSpec(
         "/login",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.USAGE_AWARE,
         CodingCommandAction.LOGIN,
+        description="Log in (openai-codex OAuth)",
     ),
     BuiltinCommandSpec(
         "/logout",
         BuiltinCommandKind.ACTION,
         BuiltinArgumentContract.USAGE_AWARE,
         CodingCommandAction.LOGOUT,
+        description="Log out (openai-codex OAuth)",
     ),
 )
 
@@ -303,3 +330,88 @@ def _continue_outcome(
         footer_policy,
         argument,
     )
+
+
+def builtin_command_names() -> frozenset[str]:
+    """Every advertisable built-in ``/…`` name (spec names + their aliases).
+
+    Excludes the blank-input spec, which has no advertisable name. Consumers use
+    this to validate their curated completion/description name lists against the
+    single registry source rather than re-listing command strings.
+    """
+
+    names: set[str] = set()
+    for spec in _BUILTIN_COMMANDS:
+        if spec.kind is BuiltinCommandKind.BLANK:
+            continue
+        names.add(spec.name)
+        names.update(spec.aliases)
+    return frozenset(names)
+
+
+def builtin_command_description(name: str) -> str:
+    """Return the advertised description for a built-in ``/…`` name.
+
+    ``name`` matches a spec's ``name`` or one of its aliases. Raises
+    :class:`KeyError` for an unknown name so a stale projection fails loudly at
+    import instead of silently advertising nothing.
+    """
+
+    for spec in _BUILTIN_COMMANDS:
+        if spec.name == name or name in spec.aliases:
+            return spec.description
+    raise KeyError(name)
+
+
+def project_command_completions(
+    names: tuple[str, ...],
+    *,
+    adjunct_names: frozenset[str] = frozenset(),
+) -> tuple[str, ...]:
+    """Return ``names`` unchanged after validating each against the registry.
+
+    Every entry must be a registry built-in name or an explicitly listed
+    ``adjunct_names`` (resource-owned commands such as ``/skill`` and ``/theme``
+    that are advertised but are not registry built-ins). The order and membership
+    of ``names`` are preserved exactly; this is a curated projection, not a
+    derivation of the full built-in set.
+    """
+
+    valid = builtin_command_names() | adjunct_names
+    unknown = tuple(name for name in names if name not in valid)
+    if unknown:
+        raise ValueError(
+            "advertised command names are not registry built-ins or adjuncts: "
+            f"{unknown}"
+        )
+    return names
+
+
+def project_command_descriptions(
+    names: tuple[str, ...],
+    *,
+    adjunct_descriptions: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Build an ordered description map for ``names`` from the registry.
+
+    Registry built-in descriptions are read from the single registry source; an
+    ``adjunct_descriptions`` entry supplies the advertised text for a resource-
+    owned adjunct (``/skill``/``/theme``) that is not a registry built-in. Order
+    follows ``names``. A registry built-in with no advertised description, or an
+    unknown non-adjunct name, is a hard error so a stale projection fails at
+    import.
+    """
+
+    adjuncts = adjunct_descriptions or {}
+    descriptions: dict[str, str] = {}
+    for name in names:
+        if name in adjuncts:
+            descriptions[name] = adjuncts[name]
+            continue
+        description = builtin_command_description(name)
+        if not description:
+            raise ValueError(
+                f"registry built-in {name!r} has no advertised description"
+            )
+        descriptions[name] = description
+    return descriptions

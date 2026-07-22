@@ -2194,6 +2194,27 @@ stays trivially true; gating remains in the interpreter), and no
 public CLI/JSON/RPC/session-format change, and no new runtime dependency, `Any`,
 or `type: ignore`.
 
+### Command metadata sourced from the registry — SHIPPED (2026-07-22)
+
+The second Phase 3.2 sub-slice makes the registry the single source of advertised
+command metadata. `BuiltinCommandSpec` gains a validated `description: str = ""`
+field, and the sixteen advertised built-ins carry their prior description strings
+verbatim. The registry adds four pure projection helpers — `builtin_command_names()`,
+`builtin_command_description(name)`, `project_command_completions(names, *, adjunct_names=…)`,
+and `project_command_descriptions(names, *, adjunct_descriptions=…)`. The three
+metadata consumers become curated ordered projections: `native.repl_input` builds
+`DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS`/`DEFAULT_REPL_COMMAND_DESCRIPTIONS` and
+`native.tui` builds `TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS` from explicit name
+lists validated against the registry with descriptions read from it, keeping
+resource-owned `/skill` as an explicit adjunct so its advertised text is
+preserved. The independently typed description dict literal and both duplicated
+command-string tuples are deleted. Byte-identical behavior — every completion
+tuple's members/order and every description string are preserved, the divergent
+tuples are not unified, and the advertised set is unchanged. Availability
+enforcement in menus/help and the `RESERVED_COMMAND_NAMES` widening remain later
+sub-slices. No public CLI/JSON/RPC/session-format change, and no new runtime
+dependency, `Any`, or `type: ignore`.
+
 ### Agent-run collaborator adapter relocation — IN PROGRESS (2026-07-21)
 
 Phase 3.1e (accepted-input and agent-run coordinator) begins with sub-slice
