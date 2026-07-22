@@ -63,11 +63,13 @@ from pipy_harness.native.extension_types import (
     BeforeAgentStartResult,  # noqa: F401 - re-exported via pipy_harness.extensions
     BeforeProviderHeadersEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     BeforeProviderRequestEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    ChromeComponent,  # noqa: F401 - re-exported via pipy_harness.extensions
     CompletionFn,  # noqa: F401 - re-exported via pipy_harness.extensions
     CustomComponent,  # noqa: F401 - re-exported via pipy_harness.extensions
     CustomComponentDriver,
     CustomComponentFactory,
     CustomComponentOptions,
+    EntryRenderContext,
     ExtensionCodingSessionControl,
     ExtensionFlag,
     ExtensionModelRuntimeControl,
@@ -76,9 +78,12 @@ from pipy_harness.native.extension_types import (
     ExtensionTool,
     ExtensionUi,
     ExtensionUiDriver,
+    FooterData,  # noqa: F401 - re-exported via pipy_harness.extensions
     InputEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     InputTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
     LifecycleEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    MessageRenderComponent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    MessageRenderContext,
     ProviderContext,  # noqa: F401 - re-exported via pipy_harness.extensions
     ProviderRequestTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
     QueuedCustomMessage,
@@ -107,11 +112,15 @@ from pipy_harness.native.extension_types import (
     RegisteredFlag,
     RegisteredProvider,
     RegisteredTool,
+    RenderedCustomEntry,
     SessionBeforeEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     SessionDecision,  # noqa: F401 - re-exported via pipy_harness.extensions
+    ThemeColor,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolBlock,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolCallEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    ToolRenderComponent,
     ToolRenderContext,  # noqa: F401 - re-exported via pipy_harness.extensions
+    ToolRenderTheme,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolResult,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolResultEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolResultTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
@@ -366,156 +375,6 @@ class ExtensionActivationBatch:
     message_outbox: list[QueuedUserMessage]
     custom_message_outbox: list[QueuedCustomMessage]
     pending: bool = False
-
-
-ThemeColor = Literal["text", "accent", "success", "warning", "error", "dim"]
-
-
-@runtime_checkable
-class ToolRenderTheme(Protocol):
-    """Bounded styling helper handed to extension tool renderers.
-
-    Implementations map semantic names onto the active chrome palette and
-    emit plain text when color is disabled (captured / NO_COLOR)."""
-
-    def fg(self, color: ThemeColor, text: str) -> str: ...
-    def bold(self, text: str) -> str: ...
-    def dim(self, text: str) -> str: ...
-
-
-@runtime_checkable
-class ToolRenderComponent(Protocol):
-    """A render-once tool-row component returned by render_call/render_result.
-
-    `render(width)` returns the row's content lines (already theme-styled by
-    the component). Aligned with `CustomComponent`; `invalidate`/`dispose`/
-    `handle_input` are reserved for the later live-runtime slice and are not
-    called here."""
-
-    def render(self, width: int) -> Sequence[str]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class MessageRenderContext:
-    """Read-only context passed to a rich extension message renderer.
-
-    A renderer that requires a second positional parameter receives this; a
-    1-arg ``renderer(data)`` (including the capture-default idiom
-    ``renderer(data, prefix=captured)``) keeps its slice-16 plain-text behavior.
-    ``theme`` is a ToolRenderTheme (None only in unit tests / no-color captured
-    runs)."""
-
-    custom_type: str
-    data: object | None
-    expanded: bool
-    width: int
-    theme: object  # ToolRenderTheme | None
-
-
-@dataclass(frozen=True, slots=True)
-class EntryRenderContext:
-    """Live product-TUI context passed to a durable entry renderer."""
-
-    expanded: bool
-    width: int
-    theme: object  # ToolRenderTheme | None
-
-
-# A message renderer's component shares the tool-renderer component contract
-# (render(width) -> Sequence[str]); one contract across the rich-UI slices.
-MessageRenderComponent = ToolRenderComponent
-
-
-@dataclass(frozen=True, slots=True)
-class RenderedCustomEntry:
-    """Result of rendering one custom entry.
-
-    ``styled`` True means ``lines`` carry theme SGR and must be committed
-    SGR-preserving (the ``custom_message_custom`` TUI kind); False means the
-    plain, sanitized back-compat path."""
-
-    lines: tuple[str, ...]
-    styled: bool
-
-
-@runtime_checkable
-class ChromeComponent(Protocol):
-    """A width-reactive snapshot chrome component.
-
-    Only ``render(width)`` is required (so ``lines_component`` output satisfies
-    it structurally). ``invalidate()`` and ``dispose()`` are OPTIONAL and
-    duck-typed — called if present: ``invalidate()`` before a re-render on
-    resize, ``dispose()`` when the component is replaced/cleared/reloaded or on
-    shutdown. Per-frame repaint and requestRender-driven animation are reserved
-    for the later live slice and never invoked here."""
-
-    def render(self, width: int) -> Sequence[str]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class FooterData:
-    """Read-only data handed to a footer factory.
-
-    This mirrors Pi's ``ReadonlyFooterDataProvider`` method surface while keeping
-    pipy's scalar fields snapshot-based. Live product-TUI snapshots may carry an
-    optional branch-change registrar for Pi-shaped ``onBranchChange`` delivery;
-    headless/offline snapshots keep a safe no-op disposer. ``extension_statuses``
-    is copied into a read-only proxy so a caller-passed ``dict`` cannot be
-    mutated through the snapshot.
-    """
-
-    git_branch: str | None
-    extension_statuses: Mapping[str, str]
-    available_provider_count: int = 0
-    branch_change_registrar: (
-        Callable[[Callable[[], object]], Callable[[], None]] | None
-    ) = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "extension_statuses",
-            MappingProxyType(dict(self.extension_statuses)),
-        )
-        object.__setattr__(
-            self,
-            "available_provider_count",
-            max(0, int(self.available_provider_count)),
-        )
-
-    def get_git_branch(self) -> str | None:
-        return self.git_branch
-
-    def getGitBranch(self) -> str | None:  # noqa: N802 - Pi-shaped API
-        return self.get_git_branch()
-
-    def get_extension_statuses(self) -> Mapping[str, str]:
-        return self.extension_statuses
-
-    def getExtensionStatuses(self) -> Mapping[str, str]:  # noqa: N802 - Pi-shaped API
-        return self.get_extension_statuses()
-
-    def get_available_provider_count(self) -> int:
-        return self.available_provider_count
-
-    def getAvailableProviderCount(self) -> int:  # noqa: N802 - Pi-shaped API
-        return self.get_available_provider_count()
-
-    def on_branch_change(self, callback: Callable[[], object]) -> Callable[[], None]:
-        """Register for branch changes and return a safe disposer.
-
-        Live TUI snapshots delegate to the UI registrar. Headless snapshots keep
-        translated extensions source-shaped with a no-op disposer.
-        """
-
-        if self.branch_change_registrar is not None:
-            return self.branch_change_registrar(callback)
-        return lambda: None
-
-    def onBranchChange(  # noqa: N802 - Pi-shaped API
-        self, callback: Callable[[], object]
-    ) -> Callable[[], None]:
-        return self.on_branch_change(callback)
 
 
 def coerce_tool_render_lines(value: object) -> tuple[str, ...] | None:

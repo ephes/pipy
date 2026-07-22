@@ -2821,6 +2821,37 @@ PASS; `just check` (Ruff, mypy clean, full suite green) and `just docs-build` ar
 green. Review: Pending review — Claude Opus panel (user-directed substitution for
 the different-family gate). The UI implementations/renderers remain 6.4b.
 
+### Extension render/theme/component value objects leaf relocation (Slice 6.4b) — DONE (2026-07-23)
+
+Second Phase 6.4 cut: the remaining rich-UI value-object vocabulary moves
+verbatim out of `extension_runtime.py` into the `native.extension_types` leaf,
+originals deleted with no alias. Moved: the `ThemeColor` literal, the
+`ToolRenderTheme` / `ToolRenderComponent` `@runtime_checkable` protocols, the
+`MessageRenderContext` / `EntryRenderContext` frozen dataclasses, the
+`MessageRenderComponent` alias, the `RenderedCustomEntry` frozen dataclass, the
+`ChromeComponent` protocol, and the `FooterData` frozen dataclass (its
+`branch_change_registrar` field and Pi-shaped snake/camel method pairs
+unchanged). This completes the extension UI contract vocabulary in the
+stdlib-only leaf; only the concrete UI implementations (`_CollectingUi`,
+`_LiveExtensionUiDriver`), the message/entry/tool-phase render logic, and the
+`coerce_tool_render_lines` / `_LinesComponent` / `lines_component` helpers stay
+in `extension_runtime`. `FooterData` adds one new stdlib leaf import,
+`from types import MappingProxyType`; `extension_runtime` keeps every top-level
+import it still uses. `extension_runtime` re-imports every moved name
+(`ChromeComponent` / `FooterData` / `MessageRenderComponent` / `ThemeColor` /
+`ToolRenderTheme` body-unused → `# noqa: F401 - re-exported via
+pipy_harness.extensions`; the rest stay body-used) and `pipy_harness.extensions`
+re-exports the public subset byte-identically. No field, ordering, default,
+callback, hook-ordering, or public-surface change; no new dependency, `Any`, or
+`type: ignore`. Focused tool-renderer / message-renderer / entry-renderer /
+theme-controls / chrome-widgets / chrome-collecting / chrome-contract /
+chrome-driver / chrome-session / import-boundary suites passed (288);
+`extension_tool_renderer_conformance`, `extension_message_renderer_conformance`,
+`extension_entry_renderer_conformance`, `extension_chrome_widgets_conformance`,
+and `extension_conformance_gate` reported ALL PASS; `just check` (Ruff, mypy
+clean, full suite green) and `just docs-build` are green. Review: Pending review
+— Claude Opus panel (user-directed substitution for the different-family gate).
+
 ### Typed extension coding-session host port + headless fake-host coverage (Slice 6.3c) — DONE (2026-07-23)
 
 Sub-slice 6.3c groups the eight loose coding-session parameters
