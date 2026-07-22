@@ -2544,6 +2544,32 @@ Control-plane move only: no change to resolved sizes, resize repaint behavior
 RPC/session/extension formats; no new runtime dependency, `Any`, or `type:
 ignore`.
 
+### Extension API vocabulary leaf (Slice 6.1a) — IN PROGRESS (2026-07-22)
+
+Phase 6.1 begins with sub-slice 6.1a: the new stdlib-only leaf
+`native.extension_types` takes sole ownership of the fail-closed extension
+vocabulary both the runtime and the later loader depend on. The twenty-one
+`REASON_*` activation reason codes, the internal `_ActivationError`, the
+type-name-only `_safe_diagnostic`, the Pi command-name character rules
+(`_is_valid_command_name`/`is_valid_custom_entry_type`), the reserved-shortcut
+layer (`RESERVED_SHORTCUT_KEYS`, `_SHORTCUT_MODIFIERS`, `normalize_shortcut_key`),
+and the bound constants (`_DIAGNOSTIC_MAX_LENGTH`, `_CUSTOM_ENTRY_TYPE_MAX_CHARS`)
+move verbatim out of `extension_runtime.py`; the originals are deleted with no
+shadow copy or compatibility alias. Because the module has no project imports it
+can never form an import cycle with the runtime/loader that import it.
+`extension_runtime` re-imports every still-referenced name, `pipy_harness.extensions`
+keeps re-exporting `normalize_shortcut_key` unchanged, and `tool_loop_session`/
+`tui` keep importing the shortcut/entry-type helpers from `extension_runtime`
+with no source change. The import-boundary suite forbids `native.extension_types`
+beside `native.extension_runtime` in every agent- and coding-layer rule.
+Behavior-preserving move only: no callback, ordering, reason-code string, or
+public import change; no new runtime dependency, `Any`, or `type: ignore`.
+Focused extension shortcut/activation/conformance and import-boundary suites
+passed (205), `extension_conformance_gate.py` reported ALL PASS, and `just check`
+(Ruff, mypy clean, 4,500 passed/2 skipped) plus `just docs-build` are green.
+Hook dispatch (6.2), host/provider ports (6.3), and the UI bridge (6.4) remain
+deferred.
+
 ### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
 
 Phase 4.1 introduces the terminal-free `native.ui` package. `native.ui.state`
