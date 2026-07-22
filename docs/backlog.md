@@ -2287,6 +2287,36 @@ coordinator; the raw native tree stays distinct from the counts-only archive
 session-integration assertions were retargeted onto `outcome.final_history` and
 the projection action sink. No new runtime dependency, `Any`, or `type: ignore`.
 
+### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
+
+Phase 4.1 introduces the terminal-free `native.ui` package. `native.ui.state`
+adds the frozen `UiState` (`assistant_active`/`assistant_streamed`/
+`assistant_completion_suppressed`) and the pure `reduce(state, event) ->
+(UiState, tuple[RenderDecision, ...])`, which owns the assistant message
+lifecycle and imports only the canonical `native.agent` `events`/`messages`/
+`results` value types. The decision machine — start-and-reset, non-empty stream
+accumulation, reasoning passthrough, `ProviderFailed`/`RunCancelled` suppression
+(fail/cancel only while active, suppress always), and `MessageCompleted`
+buffered-vs-streamed body + `has_tool_calls` + complete-once — is lifted verbatim
+out of `RenderingAgentEventAdapter`, whose inline `_assistant_active`/
+`_assistant_streamed`/`_assistant_completion_suppressed` booleans are DELETED.
+The protocol and adapter move to `native.ui.rendering`: the adapter now holds a
+`UiState`, delegates each non-tool event to `reduce`, and applies the returned
+ordered `RenderDecision` tuple, keeping tool start/update/result events as direct
+stateless pass-throughs (Slice 4.1b owns their reducer move). Because a UI
+projection now lives in `native.ui`, `native.agent_adapters` drops the renderer
+protocol/adapter and its now-unused lifecycle event imports; `tool_loop_session`
+and the three adapter/rendering/TUI tests import `RenderingAgentEventAdapter` from
+`native.ui`. The declared `native.ui` import-boundary rule (forbidding
+`coding.state`/`coding.session`/`tool_loop_session`) is now active against the
+real tree. New PTY-free `tests/test_native_ui_state.py` pins every decision;
+`just test-pty-smoke` and `automation_rpc_conformance.py` pass; `just check`
+(Ruff, mypy, 4434 passed/2 skipped) and `just docs-build` are green. No
+CLI/JSON/RPC/session/extension format, event-ordering, or terminal-behavior
+change; no new runtime dependency, `Any`, or `type: ignore`. Footer/status and
+coding-state projection (Phase 4 boundary), terminal driver (Slice 4.2), and
+extension-UI relocation (Slice 6.4) remain deferred.
+
 ### Agent-run collaborator adapter relocation — IN PROGRESS (2026-07-21)
 
 Phase 3.1e (accepted-input and agent-run coordinator) begins with sub-slice

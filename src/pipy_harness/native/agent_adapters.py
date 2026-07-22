@@ -13,21 +13,17 @@ from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
-    AgentCancellationReason,
     AgentEvent,
     AgentEventSink,
     AgentMessage,
     AgentRunCompleted,
     AgentRunResult,
     AgentRunStarted,
-    AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
-    AssistantReasoningDelta,
     AssistantTextDelta,
     FollowUpConsumed,
     MessageCompleted,
-    MessageStarted,
     ProviderFailed,
     RetryCompleted,
     RetryScheduled,
@@ -35,7 +31,6 @@ from pipy_harness.native.agent import (
     SteeringConsumed,
     ToolCallCompleted,
     ToolCallStarted,
-    ToolCallUpdated,
     TurnCompleted,
     TurnStarted,
     UsageUpdated,
@@ -56,103 +51,6 @@ class SynchronousAgentEventComposite:
     def emit(self, event: AgentEvent) -> None:
         for sink in self._sinks:
             sink.emit(event)
-
-
-@runtime_checkable
-class AgentEventRenderer(Protocol):
-    """Renderer callbacks driven exclusively by canonical agent events."""
-
-    def start_assistant_message(self) -> None: ...
-
-    @property
-    def stream_sink(self) -> StreamChunkSink: ...
-
-    @property
-    def reasoning_sink(self) -> StreamChunkSink: ...
-
-    def render_buffered_assistant_text(
-        self, text: str, *, has_tool_calls: bool
-    ) -> None: ...
-
-    def complete_assistant_message(self, *, has_tool_calls: bool) -> None: ...
-
-    def fail_assistant_message(self) -> None: ...
-
-    def cancel_assistant_message(self, reason: AgentCancellationReason) -> None: ...
-
-    def render_tool_call(self, call: AgentToolCall) -> None: ...
-
-    def tool_output_sink(self, chunk: str) -> None: ...
-
-    def render_tool_result(
-        self,
-        *,
-        output_text: str,
-        is_error: bool,
-        duration_seconds: float | None = None,
-    ) -> None: ...
-
-
-class RenderingAgentEventAdapter:
-    """Project canonical deltas, messages, and tool events onto a renderer."""
-
-    def __init__(self, renderer: AgentEventRenderer) -> None:
-        if not isinstance(renderer, AgentEventRenderer):
-            raise TypeError("renderer must implement AgentEventRenderer")
-        self._renderer = renderer
-        self._assistant_active = False
-        self._assistant_streamed = False
-        self._assistant_completion_suppressed = False
-
-    def emit(self, event: AgentEvent) -> None:
-        if isinstance(event, MessageStarted) and isinstance(
-            event.message, AgentAssistantMessage
-        ):
-            self._renderer.start_assistant_message()
-            self._assistant_active = True
-            self._assistant_streamed = False
-            self._assistant_completion_suppressed = False
-        elif isinstance(event, AssistantTextDelta):
-            self._renderer.stream_sink(event.delta.value)
-            self._assistant_streamed = self._assistant_streamed or bool(
-                event.delta.value
-            )
-        elif isinstance(event, AssistantReasoningDelta):
-            self._renderer.reasoning_sink(event.delta.value)
-        elif isinstance(event, ProviderFailed):
-            self._assistant_completion_suppressed = True
-            if self._assistant_active:
-                self._renderer.fail_assistant_message()
-        elif isinstance(event, RunCancelled):
-            self._assistant_completion_suppressed = True
-            if self._assistant_active:
-                self._renderer.cancel_assistant_message(event.reason)
-        elif isinstance(event, MessageCompleted) and isinstance(
-            event.message, AgentAssistantMessage
-        ):
-            if not self._assistant_active:
-                return
-            self._assistant_active = False
-            if self._assistant_completion_suppressed:
-                return
-            if event.message.content.value and not self._assistant_streamed:
-                self._renderer.render_buffered_assistant_text(
-                    event.message.content.value,
-                    has_tool_calls=bool(event.message.tool_calls),
-                )
-            self._renderer.complete_assistant_message(
-                has_tool_calls=bool(event.message.tool_calls),
-            )
-        elif isinstance(event, ToolCallStarted):
-            self._renderer.render_tool_call(event.call)
-        elif isinstance(event, ToolCallCompleted):
-            self._renderer.render_tool_result(
-                output_text=event.result.content.value,
-                is_error=event.result.is_error,
-                duration_seconds=event.duration_seconds,
-            )
-        elif isinstance(event, ToolCallUpdated):
-            self._renderer.tool_output_sink(event.update.value)
 
 
 @dataclass(frozen=True, slots=True)

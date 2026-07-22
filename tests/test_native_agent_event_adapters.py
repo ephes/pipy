@@ -46,12 +46,12 @@ from pipy_harness.native.agent_adapters import (
     AppendProductMessage,
     NativeProductSessionActionSink,
     ProductSessionEventProjection,
-    RenderingAgentEventAdapter,
     SdkAgentEventAdapter,
     SynchronousAgentEventComposite,
     WorkflowArchiveAgentEventAdapter,
     WorkflowAgentEventCounts,
 )
+from pipy_harness.native.ui import RenderingAgentEventAdapter
 
 
 _PRIVATE_ARGUMENTS = "PIPY_PRIVATE_ADAPTER_ARGUMENTS_2835"

@@ -2047,6 +2047,42 @@ export gates keep the kernel free of UI/terminal, session persistence,
 provider/tool, settings/resources, extensions, automation/RPC, SDK, capture,
 and archive implementations.
 
+### Pure UI State Reducer
+
+Phase 4.1 introduces the `native.ui` package as the terminal-free UI boundary.
+`native.ui.state` is a pure decision machine: the frozen `UiState`
+(`assistant_active`, `assistant_streamed`, `assistant_completion_suppressed`) and
+`reduce(state, event) -> (UiState, tuple[RenderDecision, ...])`. `reduce` owns the
+assistant message lifecycle and performs no terminal I/O, importing only the
+canonical `native.agent` `events`/`messages`/`results` value types. Its decisions
+are deterministic and byte-identical to the prior inline adapter logic:
+`MessageStarted` for an assistant message starts a fresh message and resets all
+three flags; each `AssistantTextDelta` streams its full-content value and records
+non-empty accumulation; `AssistantReasoningDelta` is a stateless reasoning
+passthrough; `ProviderFailed` and `RunCancelled` set completion suppression
+always and emit a fail/cancel decision only while a message is active (cancel
+carries the exact `AgentCancellationReason`); and a `MessageCompleted` for an
+active assistant message deactivates it and, unless suppressed, renders the
+buffered body only when there is non-streamed content, then completes exactly
+once with the message's `has_tool_calls`. A second or inactive completion is
+silent, so completion happens at most once per message. `assistant_streamed`
+persists across completion and is reset only by the next `MessageStarted`.
+
+`native.ui.rendering` holds the `AgentEventRenderer` protocol and the
+`RenderingAgentEventAdapter`. The adapter holds one `UiState`, routes each
+non-tool event through `reduce`, and applies the returned ordered
+`RenderDecision` tuple to the renderer, so the renderer sees the same calls in
+the same order as before. Tool-call start, update, and result events remain
+direct stateless pass-throughs on the adapter this slice; their reducer ownership
+is deferred to Slice 4.1b, and footer/status and coding-state projection remain
+deferred behind this boundary. Because a UI projection now lives in `native.ui`,
+`native.agent_adapters` no longer defines the renderer protocol or rendering
+adapter and is import-gated to forbid depending on `native.ui`; the `native.ui`
+import boundary forbids depending on `coding.state`, `coding.session`, or
+`tool_loop_session`. No CLI/JSON/RPC/session/extension format, event ordering, or
+terminal behavior changes; the terminal driver relocation is Phase 4.2 and
+extension-UI relocation is Slice 6.4.
+
 ### Canonical Agent Tool-Capability Port
 
 Phase 2.2b.3 adds the runtime-checkable, synchronous

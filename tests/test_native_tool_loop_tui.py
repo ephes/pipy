@@ -23,7 +23,7 @@ from pipy_harness.native.agent import (
     ProductContent,
     RunCancelled,
 )
-from pipy_harness.native.agent_adapters import RenderingAgentEventAdapter
+from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink

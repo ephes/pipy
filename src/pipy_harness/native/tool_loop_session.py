@@ -125,7 +125,6 @@ from pipy_harness.native.agent_adapters import (
     NativeProductSessionActionSink,
     ProductSessionActionSink,
     ProductSessionEventProjection,
-    RenderingAgentEventAdapter,
     SynchronousAgentEventComposite,
     WorkflowArchiveAgentEventAdapter,
 )
@@ -363,6 +362,7 @@ from pipy_harness.native.tui import (
     ToolLoopTerminalUi,
     run_project_trust_selector,
 )
+from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.tools.bash import LocalShellResult, run_local_command
 from pipy_harness.native.file_references import (
     FileReferenceResolution,
