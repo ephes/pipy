@@ -377,9 +377,20 @@ def test_footer_paths_read_constant_time_state_scalars(
         for node in session_class.body
         if isinstance(node, ast.FunctionDef) and node.name == "run"
     )
+    # The footer-text and legacy-footer refresh bodies relocated into the
+    # module-level `_FooterEffects` composition-root handler; `run()` keeps only
+    # the inline pre-loop legacy-footer paint. The four footer calls (the TUI
+    # `_footer_text`, the two legacy `_print_footer` refreshes, and the inline
+    # pre-loop paint) still read the same constant-time state scalars.
+    footer_effects_class = next(
+        node
+        for node in syntax.body
+        if isinstance(node, ast.ClassDef) and node.name == "_FooterEffects"
+    )
     footer_calls = [
         node
-        for node in ast.walk(run_method)
+        for scope in (run_method, footer_effects_class)
+        for node in ast.walk(scope)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr in {"_footer_text", "_print_footer"}

@@ -2430,9 +2430,7 @@ class _CustomEntryRenderer:
         stream: TextIO,
     ) -> RenderedCustomEntry:
         if entry.custom_type not in self.ctl.extension_renderer_map:
-            return RenderedCustomEntry(
-                tuple(entry.content.splitlines() or [""]), False
-            )
+            return RenderedCustomEntry(tuple(entry.content.splitlines() or [""]), False)
         return self.render_extension_custom_message(
             entry.custom_type,
             _custom_message_renderer_payload(entry),
@@ -2561,8 +2559,7 @@ class _CustomEntryRenderer:
         elif deliver_as in {"followUp", "follow_up"}:
             self.coding_input_queue.enqueue_extension_follow_up(ProductContent(content))
         elif not self.ctl.extension_in_agent_turn and (
-            options.get("triggerTurn") is True
-            or options.get("trigger_turn") is True
+            options.get("triggerTurn") is True or options.get("trigger_turn") is True
         ):
             self.coding_input_queue.enqueue_extension_prompt(ProductContent(content))
         return appended.id
@@ -2679,9 +2676,7 @@ class _ProviderMutationEffects:
 
         state = self.session.provider_state
         if not isinstance(state, NativeReplProviderState):
-            return False, (
-                "pipy: /model is unavailable for this REPL provider state."
-            )
+            return False, ("pipy: /model is unavailable for this REPL provider state.")
         previous_selection = state.current_selection()
         ok, message = state.select_model(reference)
         if not ok:
@@ -2821,9 +2816,7 @@ class _ProviderMutationEffects:
             f"{result.retained_group_count})."
         )
 
-    def append_durable_compaction(
-        self, summary_block: str, bytes_before: int
-    ) -> None:
+    def append_durable_compaction(self, summary_block: str, bytes_before: int) -> None:
         branch = self.ctl.session_tree.get_branch()
         last_compaction = -1
         for i, entry in enumerate(branch):
@@ -2838,9 +2831,7 @@ class _ProviderMutationEffects:
         ]
         if len(user_entries) <= _AGENT_HISTORY_KEEP_RECENT_GROUPS:
             return
-        first_kept = user_entries[
-            len(user_entries) - _AGENT_HISTORY_KEEP_RECENT_GROUPS
-        ]
+        first_kept = user_entries[len(user_entries) - _AGENT_HISTORY_KEEP_RECENT_GROUPS]
         self.ctl.session_tree.append_compaction(
             summary=summary_block.strip(),
             first_kept_entry_id=first_kept.id,
@@ -3496,6 +3487,396 @@ class _ReplLoopStep:
             terminal_ui.clear_extension_chrome()
 
 
+# A bounded one-shot completion handed to extension command handlers as
+# ``ctx.complete(system_prompt, user_text)`` caps its inputs so a buggy handler
+# cannot create unbounded provider input.
+_EXTENSION_COMPLETE_MAX_CHARS = 100 * 1024
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _FooterEffects:
+    """Composition-root handler owning the footer/status-line effects.
+
+    Symmetric with :class:`_ProviderMutationEffects`/:class:`_CustomEntryRenderer`/
+    :class:`_ReplLoopStep`/:class:`_BuiltinCommandInterpreter`, these bodies
+    formerly lived as the ``coding_footer_text``/``refresh_footer_text``/
+    ``legacy_footer_enabled``/``refresh_legacy_footer``/
+    ``refresh_legacy_footer_with_usage`` closures nested in
+    ``NativeToolReplSession.run()``. The TUI footer text and the plain-stream
+    legacy footer are pure projections of the live coding state, so the handler is
+    a frozen, slotted, keyword-only dataclass holding the owning session (for the
+    ``_footer_text``/``_print_footer`` sinks), cwd, the coding state, the error
+    stream, the terminal UI, and the REPL input (for the slash-menu runtime
+    check); its methods call each other through ``self``. The ``run()`` composition
+    root passes each bound method exactly where the deleted closures were consumed
+    (the provider-mutation ``refresh_footer_text`` port, the loop-step
+    ``coding_footer_text``/``refresh_legacy_footer_with_usage`` ports, the built-in
+    interpreter's ``refresh_legacy_footer``/``refresh_legacy_footer_with_usage``
+    ports, the command-effects ``footer`` port, and the startup footer paint).
+    """
+
+    session: NativeToolReplSession
+    cwd: Path
+    coding_state: CodingSessionState
+    error_stream: TextIO
+    terminal_ui: ToolLoopTerminalUi | None
+    repl_input: ToolLoopTerminalUi | NativeReplInput
+
+    def coding_footer_text(self) -> str:
+        coding_state = self.coding_state
+        return self.session._footer_text(
+            cwd=self.cwd,
+            provider_name=coding_state.provider_name,
+            model_id=coding_state.model_id,
+            user_turn_count=coding_state.user_turn_count,
+            tool_invocation_count=coding_state.tool_invocation_count,
+            error_stream=self.error_stream,
+            usage_snapshot=coding_state.usage_snapshot(),
+        )
+
+    def refresh_footer_text(self) -> None:
+        if self.terminal_ui is not None:
+            self.terminal_ui.set_footer_text(self.coding_footer_text())
+
+    def legacy_footer_enabled(self) -> bool:
+        return (
+            self.terminal_ui is None and self.repl_input.runtime_label != "slash-menu"
+        )
+
+    def refresh_legacy_footer(self) -> None:
+        if self.legacy_footer_enabled():
+            coding_state = self.coding_state
+            self.session._print_footer(
+                self.error_stream,
+                cwd=self.cwd,
+                provider_name=coding_state.provider_name,
+                model_id=coding_state.model_id,
+                user_turn_count=coding_state.user_turn_count,
+                tool_invocation_count=coding_state.tool_invocation_count,
+            )
+
+    def refresh_legacy_footer_with_usage(self) -> None:
+        if self.legacy_footer_enabled():
+            coding_state = self.coding_state
+            self.session._print_footer(
+                self.error_stream,
+                cwd=self.cwd,
+                provider_name=coding_state.provider_name,
+                model_id=coding_state.model_id,
+                user_turn_count=coding_state.user_turn_count,
+                tool_invocation_count=coding_state.tool_invocation_count,
+                usage_snapshot=coding_state.usage_snapshot(),
+            )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _SessionCollaborators:
+    """Composition-root handler owning the residual run-loop collaborators.
+
+    Symmetric with :class:`_ProviderMutationEffects`/:class:`_CustomEntryRenderer`/
+    :class:`_ReplLoopStep`/:class:`_BuiltinCommandInterpreter`, these bodies
+    formerly lived as the ``diag``/``extension_session_allows``/
+    ``rebuild_messages_from_tree``/``summarize_branch``/``current_session_dir``/
+    ``resolve_session_file``/session-name-setter/``_extension_complete``/
+    ``_extension_custom_driver``/provider-request/tool-policy-hook/
+    ``_dispatch_resource_effect``/``_dispatch_extension_effect`` closures nested in
+    ``NativeToolReplSession.run()``. They reach one another densely (extension
+    dispatch calls the completion, custom driver, and session-name setters;
+    ``extension_session_allows``/``summarize_branch`` call ``diag``/
+    ``active_provider_header_callback``), so the handler is a frozen, slotted,
+    keyword-only dataclass holding the run's mutable control-state holder ``ctl``
+    (its ``session_tree``, extension command/hook/flag bundle is read fresh on
+    every call so a ``/reload``/``/new``/``/resume``/``/fork``/``/clone`` rebind is
+    reflected exactly as it was inline) plus the stable run-scope collaborators —
+    the owning session, the coding state, the product session, the coding input
+    queue, the terminal UI, settings, cwd, the error stream, the provider-mutation
+    and custom-entry handlers, the extension UI driver, and the extension notify
+    sink; its methods call each other through ``self``. The ``run()`` composition
+    root passes each bound method exactly where the deleted closures were consumed.
+    """
+
+    session: NativeToolReplSession
+    ctl: _RunControlState
+    coding_state: CodingSessionState
+    product_session: CodingProductSessionCoordinator
+    coding_input_queue: CodingInputQueue
+    terminal_ui: ToolLoopTerminalUi | None
+    settings: SettingsManager
+    cwd: Path
+    error_stream: TextIO
+    provider_mutation: _ProviderMutationEffects
+    custom_renderer: _CustomEntryRenderer
+    extension_ui_driver: _LiveExtensionUiDriver | None
+    extension_notify: Callable[[str, str], None]
+
+    def diag(self, message: str) -> None:
+        self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
+
+    def extension_set_session_name(self, name: str | None) -> object:
+        return self.ctl.session_tree.append_session_info(name)
+
+    def extension_get_session_name(self) -> str | None:
+        return self.ctl.session_tree.name
+
+    def extension_set_label(self, entry_id: str, label: str | None) -> object:
+        return self.ctl.session_tree.append_label_change(entry_id, label)
+
+    def current_session_dir(self) -> Path:
+        if self.ctl.session_tree.path is not None:
+            return self.ctl.session_tree.path.parent
+        return default_native_session_dir(self.cwd)
+
+    def resolve_session_file(self, ref: str) -> Path | None:
+        return resolve_session_target(self.current_session_dir(), ref)
+
+    def rebuild_messages_from_tree(self) -> None:
+        """Rebuild the live provider-visible list from the active branch.
+
+        Used after ``/tree`` navigation, ``/new``, ``/resume``, ``/fork``,
+        ``/clone``, and ``/import``: the native tree is the source of truth,
+        so the provider list and the system-prompt compaction suffix are
+        reset to match the (possibly compacted) active branch.
+        """
+
+        self.product_session.rebuild_active_history()
+        # Extension delivery is bound to the active native session/branch
+        # and must not leak into its replacement. Positional seeds, a local
+        # command, a retained loop handoff, and externally owned RPC
+        # reservations preserve their existing independent lifetimes.
+        self.coding_input_queue.clear_extension_inputs()
+
+    def extension_session_allows(
+        self,
+        hooks: Sequence[HookHandler],
+        *,
+        operation: str,
+        target: str | None = None,
+        trigger: str | None = None,
+    ) -> bool:
+        decision = dispatch_session_before_hooks(
+            hooks,
+            operation=operation,
+            cwd=str(self.cwd),
+            has_ui=self.terminal_ui is not None,
+            target=target,
+            trigger=trigger,
+            notify_sink=self.extension_notify,
+            ui_driver=self.extension_ui_driver,
+            set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
+            set_model_fn=self.provider_mutation.extension_set_model,
+            set_thinking_level_fn=self.provider_mutation.extension_set_thinking_level,
+            flags=self.ctl.extension_flag_values,
+            project_trusted=self.settings.project_trusted,
+        )
+        if decision.allow:
+            return True
+        reason = decision.reason or "blocked by extension"
+        self.diag(f"pipy: {operation} blocked by extension: {reason}")
+        return False
+
+    def extension_complete(self, system_prompt: str, user_text: str) -> str:
+        request = ProviderRequest(
+            system_prompt=str(system_prompt)[:_EXTENSION_COMPLETE_MAX_CHARS],
+            user_prompt=str(user_text)[:_EXTENSION_COMPLETE_MAX_CHARS],
+            provider_name=self.coding_state.provider_name,
+            model_id=self.coding_state.model_id,
+            cwd=self.cwd,
+            available_tools=(),
+            provider_header_callback=self.active_provider_header_callback(),
+        )
+        result = self.coding_state.provider.complete(request)
+        if result.status != HarnessStatus.SUCCEEDED:
+            raise ExtensionCapabilityError(
+                f"completion failed ({result.error_type or result.status})"
+            )
+        return result.final_text or ""
+
+    def extension_custom_driver(self, factory: Any, options: Any = None) -> object:
+        # Only an interactive terminal can take over the screen; a
+        # captured-stream run degrades to a deterministic no-op (also
+        # enforced by ExtensionUi.custom when has_ui is False).
+        if self.terminal_ui is None:
+            return None
+        return self.terminal_ui.run_custom_component(factory, options)
+
+    def summarize_branch(
+        self, branch_messages: list[AgentMessage], focus: str | None
+    ) -> str | None:
+        """Summarize an abandoned branch through the active provider.
+
+        Runs one bounded provider turn (no tools) and returns the summary
+        text, or ``None`` when the provider fails so the caller can leave
+        the tree and leaf unchanged.
+        """
+
+        if not branch_messages:
+            return None
+        instruction = (
+            "Summarize the following abandoned conversation branch "
+            "concisely so it can be referenced later."
+        )
+        if focus:
+            instruction += f" Focus on: {focus}."
+        request = ProviderRequest(
+            system_prompt=instruction,
+            user_prompt="Provide the branch summary now.",
+            provider_name=self.coding_state.provider_name,
+            model_id=self.coding_state.model_id,
+            cwd=self.cwd,
+            messages=tuple(branch_messages),
+            available_tools=(),
+            provider_header_callback=self.active_provider_header_callback(),
+        )
+        try:
+            result = self.coding_state.provider.complete(request)
+        except Exception:  # noqa: BLE001 - never crash the REPL
+            return None
+        if result.status != HarnessStatus.SUCCEEDED:
+            return None
+        return (result.final_text or "").strip() or None
+
+    def dispatch_extension_provider_headers(
+        self, headers: MutableMapping[str, str | None]
+    ) -> None:
+        dispatch_before_provider_headers_hooks(
+            self.ctl.extension_before_provider_headers_hooks,
+            headers,
+            cwd=str(self.cwd),
+            has_ui=self.terminal_ui is not None,
+            notify_sink=self.extension_notify,
+            ui_driver=self.extension_ui_driver,
+            flags=self.ctl.extension_flag_values,
+            session_tree=self.ctl.session_tree,
+            project_trusted=self.settings.project_trusted,
+        )
+
+    def active_provider_header_callback(
+        self,
+    ) -> Callable[[MutableMapping[str, str | None]], None] | None:
+        if not self.ctl.extension_before_provider_headers_hooks:
+            return None
+        return self.dispatch_extension_provider_headers
+
+    def prepare_agent_provider_request(
+        self, policy_input: AgentProviderRequestPolicyInput
+    ) -> AgentProviderRequestSnapshot:
+        return prepare_provider_request(
+            policy_input,
+            self.ctl.extension_before_provider_request_hooks,
+            NativeProviderRequestHookContext(
+                cwd=str(self.cwd),
+                has_ui=self.terminal_ui is not None,
+                notify_sink=self.extension_notify,
+                ui_driver=self.extension_ui_driver,
+                set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
+                set_model_fn=lambda _reference: False,
+                set_thinking_level_fn=self.provider_mutation.extension_set_thinking_level,
+                flags=self.ctl.extension_flag_values,
+                project_trusted=self.settings.project_trusted,
+            ),
+        )
+
+    def apply_extension_tool_policy(
+        self, call: AgentToolCall
+    ) -> AgentToolPolicyDecision:
+        tool_block = dispatch_tool_call_hooks(
+            self.ctl.extension_tool_call_hooks_,
+            tool_name=call.tool_name,
+            tool_input=_parse_tool_input(call.arguments_json.value),
+            cwd=str(self.cwd),
+            has_ui=self.terminal_ui is not None,
+            notify_sink=self.extension_notify,
+            ui_driver=self.extension_ui_driver,
+            set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
+            set_model_fn=lambda _reference: False,
+            set_thinking_level_fn=self.provider_mutation.extension_set_thinking_level,
+            flags=self.ctl.extension_flag_values,
+            project_trusted=self.settings.project_trusted,
+        )
+        if tool_block is None:
+            return AgentToolPolicyDecision()
+        return AgentToolPolicyDecision(ProductContent(tool_block.reason))
+
+    def transform_extension_tool_result(
+        self, call: AgentToolCall, result: AgentToolResultMessage
+    ) -> ProductContent:
+        if not self.ctl.extension_tool_result_hooks:
+            return result.content
+        transformed = dispatch_tool_result_hooks(
+            self.ctl.extension_tool_result_hooks,
+            tool_name=call.tool_name,
+            content=result.content.value,
+            is_error=result.is_error,
+            cwd=str(self.cwd),
+            has_ui=self.terminal_ui is not None,
+            notify_sink=self.extension_notify,
+            ui_driver=self.extension_ui_driver,
+            set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
+            set_model_fn=lambda _reference: False,
+            set_thinking_level_fn=self.provider_mutation.extension_set_thinking_level,
+            flags=self.ctl.extension_flag_values,
+            project_trusted=self.settings.project_trusted,
+        )
+        return ProductContent(transformed)
+
+    def dispatch_resource_effect(
+        self, command_text: str
+    ) -> ResourceDispatchResolution | None:
+        resource_dispatch = dispatch_resource_command(
+            command_text, self.ctl.workspace_resources
+        )
+        if resource_dispatch is None:
+            return None
+        if resource_dispatch.kind == DISPATCH_LIST:
+            return ResourceDispatchResolution(
+                ResourceDispatchKind.LIST, resource_dispatch.message
+            )
+        if resource_dispatch.is_reject:
+            return ResourceDispatchResolution(
+                ResourceDispatchKind.REJECT, resource_dispatch.message
+            )
+        if resource_dispatch.is_run:
+            return ResourceDispatchResolution(
+                ResourceDispatchKind.RUN,
+                resource_dispatch.message,
+                resource_dispatch.provider_text,
+            )
+        return None
+
+    def dispatch_extension_effect(
+        self, command_text: str
+    ) -> ExtensionDispatchResolution | None:
+        extension_dispatch = dispatch_extension_command(
+            command_text,
+            self.ctl.extension_commands,
+            cwd=str(self.cwd),
+            has_ui=self.terminal_ui is not None,
+            messages=self.coding_state.messages,
+            complete_fn=self.extension_complete,
+            notify_sink=self.extension_notify,
+            ui_custom_driver=self.extension_custom_driver,
+            ui_driver=self.extension_ui_driver,
+            set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
+            set_model_fn=self.provider_mutation.extension_set_model,
+            set_thinking_level_fn=self.provider_mutation.extension_set_thinking_level,
+            append_entry_fn=self.custom_renderer.extension_append_entry,
+            set_session_name_fn=self.extension_set_session_name,
+            get_session_name_fn=self.extension_get_session_name,
+            set_label_fn=self.extension_set_label,
+            send_message_fn=self.custom_renderer.extension_send_message,
+            flags=self.ctl.extension_flag_values,
+            session_tree=self.ctl.session_tree,
+            project_trusted=self.settings.project_trusted,
+        )
+        if extension_dispatch is None:
+            return None
+        return ExtensionDispatchResolution(
+            name=extension_dispatch.name,
+            ran=extension_dispatch.ran,
+            error=extension_dispatch.error,
+        )
+
+
 @dataclass
 class NativeToolReplSession:
     """Bounded model-driven tool loop, slice 4 skeleton.
@@ -3951,135 +4332,10 @@ class NativeToolReplSession:
             )
             self._emit_diagnostic(terminal_ui, error_stream, safe_message)
 
-        # A bounded one-shot completion handed to extension command handlers as
-        # `ctx.complete(system_prompt, user_text)`: runs a single provider turn
-        # with the active provider/model and no tools, and returns its text. It
-        # is a normal provider call (subject to the same auth); inputs are
-        # capped so a buggy handler cannot create unbounded provider input.
-        _EXTENSION_COMPLETE_MAX_CHARS = 100 * 1024
-
-        def _extension_complete(system_prompt: str, user_text: str) -> str:
-            request = ProviderRequest(
-                system_prompt=str(system_prompt)[:_EXTENSION_COMPLETE_MAX_CHARS],
-                user_prompt=str(user_text)[:_EXTENSION_COMPLETE_MAX_CHARS],
-                provider_name=coding_state.provider_name,
-                model_id=coding_state.model_id,
-                cwd=cwd,
-                available_tools=(),
-                provider_header_callback=_active_provider_header_callback(),
-            )
-            result = coding_state.provider.complete(request)
-            if result.status != HarnessStatus.SUCCEEDED:
-                raise ExtensionCapabilityError(
-                    f"completion failed ({result.error_type or result.status})"
-                )
-            return result.final_text or ""
-
-        def _extension_custom_driver(factory: Any, options: Any = None) -> object:
-            # Only an interactive terminal can take over the screen; a
-            # captured-stream run degrades to a deterministic no-op (also
-            # enforced by ExtensionUi.custom when has_ui is False).
-            if terminal_ui is None:
-                return None
-            return terminal_ui.run_custom_component(factory, options)
-
         extension_ui_driver = (
             _LiveExtensionUiDriver(terminal_ui, cwd)
             if terminal_ui is not None
             else None
-        )
-
-        def _dispatch_extension_provider_headers(
-            headers: MutableMapping[str, str | None],
-        ) -> None:
-            dispatch_before_provider_headers_hooks(
-                ctl.extension_before_provider_headers_hooks,
-                headers,
-                cwd=str(cwd),
-                has_ui=terminal_ui is not None,
-                notify_sink=_extension_notify,
-                ui_driver=extension_ui_driver,
-                flags=ctl.extension_flag_values,
-                session_tree=ctl.session_tree,
-                project_trusted=settings.project_trusted,
-            )
-
-        def _active_provider_header_callback() -> (
-            Callable[[MutableMapping[str, str | None]], None] | None
-        ):
-            if not ctl.extension_before_provider_headers_hooks:
-                return None
-            return _dispatch_extension_provider_headers
-
-        def _prepare_agent_provider_request(
-            policy_input: AgentProviderRequestPolicyInput,
-        ) -> AgentProviderRequestSnapshot:
-            return prepare_provider_request(
-                policy_input,
-                ctl.extension_before_provider_request_hooks,
-                NativeProviderRequestHookContext(
-                    cwd=str(cwd),
-                    has_ui=terminal_ui is not None,
-                    notify_sink=_extension_notify,
-                    ui_driver=extension_ui_driver,
-                    set_active_tools_fn=provider_mutation.extension_set_active_tools,
-                    set_model_fn=lambda _reference: False,
-                    set_thinking_level_fn=provider_mutation.extension_set_thinking_level,
-                    flags=ctl.extension_flag_values,
-                    project_trusted=settings.project_trusted,
-                ),
-            )
-
-        def _apply_extension_tool_policy(
-            call: AgentToolCall,
-        ) -> AgentToolPolicyDecision:
-            tool_block = dispatch_tool_call_hooks(
-                ctl.extension_tool_call_hooks_,
-                tool_name=call.tool_name,
-                tool_input=_parse_tool_input(call.arguments_json.value),
-                cwd=str(cwd),
-                has_ui=terminal_ui is not None,
-                notify_sink=_extension_notify,
-                ui_driver=extension_ui_driver,
-                set_active_tools_fn=provider_mutation.extension_set_active_tools,
-                set_model_fn=lambda _reference: False,
-                set_thinking_level_fn=provider_mutation.extension_set_thinking_level,
-                flags=ctl.extension_flag_values,
-                project_trusted=settings.project_trusted,
-            )
-            if tool_block is None:
-                return AgentToolPolicyDecision()
-            return AgentToolPolicyDecision(ProductContent(tool_block.reason))
-
-        def _transform_extension_tool_result(
-            call: AgentToolCall,
-            result: AgentToolResultMessage,
-        ) -> ProductContent:
-            if not ctl.extension_tool_result_hooks:
-                return result.content
-            transformed = dispatch_tool_result_hooks(
-                ctl.extension_tool_result_hooks,
-                tool_name=call.tool_name,
-                content=result.content.value,
-                is_error=result.is_error,
-                cwd=str(cwd),
-                has_ui=terminal_ui is not None,
-                notify_sink=_extension_notify,
-                ui_driver=extension_ui_driver,
-                set_active_tools_fn=provider_mutation.extension_set_active_tools,
-                set_model_fn=lambda _reference: False,
-                set_thinking_level_fn=provider_mutation.extension_set_thinking_level,
-                flags=ctl.extension_flag_values,
-                project_trusted=settings.project_trusted,
-            )
-            return ProductContent(transformed)
-
-        provider_request_policy = NativeAgentProviderRequestPolicy(
-            _prepare_agent_provider_request
-        )
-        agent_tool_policy = NativeAgentToolPolicy(
-            _apply_extension_tool_policy,
-            _transform_extension_tool_result,
         )
 
         # Adapt activated extension tools at the product composition seam. The
@@ -4093,8 +4349,8 @@ class NativeToolReplSession:
                 _registered_tool,
                 has_ui=terminal_ui is not None,
                 notify_sink=_extension_notify,
-                set_active_tools_fn=lambda names: provider_mutation.extension_set_active_tools(
-                    names
+                set_active_tools_fn=lambda names: (
+                    provider_mutation.extension_set_active_tools(names)
                 ),
                 flags=extension_flag_values,
                 render_details_sink=extension_render_details,
@@ -4364,55 +4620,6 @@ class NativeToolReplSession:
             )
         ctl.extension_activation_custom_messages = ()
 
-        def extension_set_session_name(name: str | None) -> object:
-            return ctl.session_tree.append_session_info(name)
-
-        def extension_get_session_name() -> str | None:
-            return ctl.session_tree.name
-
-        def extension_set_label(entry_id: str, label: str | None) -> object:
-            return ctl.session_tree.append_label_change(entry_id, label)
-
-        def coding_footer_text() -> str:
-            return self._footer_text(
-                cwd=cwd,
-                provider_name=coding_state.provider_name,
-                model_id=coding_state.model_id,
-                user_turn_count=coding_state.user_turn_count,
-                tool_invocation_count=coding_state.tool_invocation_count,
-                error_stream=error_stream,
-                usage_snapshot=coding_state.usage_snapshot(),
-            )
-
-        def refresh_footer_text() -> None:
-            if terminal_ui is not None:
-                terminal_ui.set_footer_text(coding_footer_text())
-
-        # The provider/model/auth/compaction mutation effects moved into the
-        # module-level `_ProviderMutationEffects` composition-root handler
-        # (symmetric with `_CustomEntryRenderer`/`_ReplLoopStep`/
-        # `_BuiltinCommandInterpreter`). It is built once, after the collaborators
-        # it holds (`product_session`, `refresh_footer_text`) exist, and reaches
-        # the run's mutable control state through the shared `ctl` holder so a
-        # `/reload`/`/new`/`/resume`/`/fork`/`/clone` rebind is reflected in these
-        # effects exactly as it was inline; `run()` passes each bound method where
-        # the deleted closures were consumed.
-        provider_mutation = _ProviderMutationEffects(
-            session=self,
-            ctl=ctl,
-            coding_state=coding_state,
-            product_session=product_session,
-            terminal_ui=terminal_ui,
-            tool_capabilities=tool_capabilities,
-            settings=settings,
-            cwd=cwd,
-            input_stream=input_stream,
-            error_stream=error_stream,
-            refresh_footer_text=refresh_footer_text,
-            extension_notify=_extension_notify,
-            extension_ui_driver=extension_ui_driver,
-        )
-
         repl_input = (
             terminal_ui
             if terminal_ui is not None
@@ -4424,6 +4631,18 @@ class NativeToolReplSession:
                 extension_menu_names=extension_menu_names,
                 extension_descriptions=extension_descriptions,
             )
+        )
+        # The footer/status-line effects moved into the module-level
+        # `_FooterEffects` composition-root handler. It is built once `repl_input`
+        # exists (the slash-menu runtime check needs it) and before the
+        # provider-mutation handler that consumes its `refresh_footer_text` port.
+        footer = _FooterEffects(
+            session=self,
+            cwd=cwd,
+            coding_state=coding_state,
+            error_stream=error_stream,
+            terminal_ui=terminal_ui,
+            repl_input=repl_input,
         )
         if terminal_ui is None:
             print_startup_chrome(
@@ -4442,7 +4661,7 @@ class NativeToolReplSession:
                     file=error_stream,
                 )
         else:
-            terminal_ui.set_footer_text(coding_footer_text())
+            terminal_ui.set_footer_text(footer.coding_footer_text())
             terminal_ui.start()
             if self.resume_context is not None:
                 # Safe resumed-state notice committed to scrollback at startup:
@@ -4478,122 +4697,55 @@ class NativeToolReplSession:
             except RuntimeError:
                 pass
 
-        def legacy_footer_enabled() -> bool:
-            return terminal_ui is None and repl_input.runtime_label != "slash-menu"
+        # The provider/model/auth/compaction mutation effects live in the
+        # `_ProviderMutationEffects` handler, built after `product_session`/`footer`
+        # exist; it reaches the run's mutable control state through the shared `ctl`
+        # holder so a `/reload` rebind is reflected exactly as it was inline.
+        provider_mutation = _ProviderMutationEffects(
+            session=self,
+            ctl=ctl,
+            coding_state=coding_state,
+            product_session=product_session,
+            terminal_ui=terminal_ui,
+            tool_capabilities=tool_capabilities,
+            settings=settings,
+            cwd=cwd,
+            input_stream=input_stream,
+            error_stream=error_stream,
+            refresh_footer_text=footer.refresh_footer_text,
+            extension_notify=_extension_notify,
+            extension_ui_driver=extension_ui_driver,
+        )
 
-        def refresh_legacy_footer() -> None:
-            if legacy_footer_enabled():
-                self._print_footer(
-                    error_stream,
-                    cwd=cwd,
-                    provider_name=coding_state.provider_name,
-                    model_id=coding_state.model_id,
-                    user_turn_count=coding_state.user_turn_count,
-                    tool_invocation_count=coding_state.tool_invocation_count,
-                )
-
-        def refresh_legacy_footer_with_usage() -> None:
-            if legacy_footer_enabled():
-                self._print_footer(
-                    error_stream,
-                    cwd=cwd,
-                    provider_name=coding_state.provider_name,
-                    model_id=coding_state.model_id,
-                    user_turn_count=coding_state.user_turn_count,
-                    tool_invocation_count=coding_state.tool_invocation_count,
-                    usage_snapshot=coding_state.usage_snapshot(),
-                )
-
-        def diag(message: str) -> None:
-            self._emit_diagnostic(terminal_ui, error_stream, message)
-
-        def extension_session_allows(
-            hooks: Sequence[HookHandler],
-            *,
-            operation: str,
-            target: str | None = None,
-            trigger: str | None = None,
-        ) -> bool:
-            decision = dispatch_session_before_hooks(
-                hooks,
-                operation=operation,
-                cwd=str(cwd),
-                has_ui=terminal_ui is not None,
-                target=target,
-                trigger=trigger,
-                notify_sink=_extension_notify,
-                ui_driver=extension_ui_driver,
-                set_active_tools_fn=provider_mutation.extension_set_active_tools,
-                set_model_fn=provider_mutation.extension_set_model,
-                set_thinking_level_fn=provider_mutation.extension_set_thinking_level,
-                flags=ctl.extension_flag_values,
-                project_trusted=settings.project_trusted,
-            )
-            if decision.allow:
-                return True
-            reason = decision.reason or "blocked by extension"
-            diag(f"pipy: {operation} blocked by extension: {reason}")
-            return False
-
-        def rebuild_messages_from_tree() -> None:
-            """Rebuild the live provider-visible list from the active branch.
-
-            Used after ``/tree`` navigation, ``/new``, ``/resume``, ``/fork``,
-            ``/clone``, and ``/import``: the native tree is the source of truth,
-            so the provider list and the system-prompt compaction suffix are
-            reset to match the (possibly compacted) active branch.
-            """
-
-            product_session.rebuild_active_history()
-            # Extension delivery is bound to the active native session/branch
-            # and must not leak into its replacement. Positional seeds, a local
-            # command, a retained loop handoff, and externally owned RPC
-            # reservations preserve their existing independent lifetimes.
-            coding_input_queue.clear_extension_inputs()
-
-        def summarize_branch(
-            branch_messages: list[AgentMessage], focus: str | None
-        ) -> str | None:
-            """Summarize an abandoned branch through the active provider.
-
-            Runs one bounded provider turn (no tools) and returns the summary
-            text, or ``None`` when the provider fails so the caller can leave
-            the tree and leaf unchanged.
-            """
-
-            if not branch_messages:
-                return None
-            instruction = (
-                "Summarize the following abandoned conversation branch "
-                "concisely so it can be referenced later."
-            )
-            if focus:
-                instruction += f" Focus on: {focus}."
-            request = ProviderRequest(
-                system_prompt=instruction,
-                user_prompt="Provide the branch summary now.",
-                provider_name=coding_state.provider_name,
-                model_id=coding_state.model_id,
-                cwd=cwd,
-                messages=tuple(branch_messages),
-                available_tools=(),
-                provider_header_callback=_active_provider_header_callback(),
-            )
-            try:
-                result = coding_state.provider.complete(request)
-            except Exception:  # noqa: BLE001 - never crash the REPL
-                return None
-            if result.status != HarnessStatus.SUCCEEDED:
-                return None
-            return (result.final_text or "").strip() or None
-
-        def current_session_dir() -> Path:
-            if ctl.session_tree.path is not None:
-                return ctl.session_tree.path.parent
-            return default_native_session_dir(cwd)
-
-        def resolve_session_file(ref: str) -> Path | None:
-            return resolve_session_target(current_session_dir(), ref)
+        # The residual run-loop collaborators (diagnostics, session-name setters,
+        # session-dir/resolution, tree rebuild, branch summarization, the extension
+        # completion/custom-UI/session-gate/provider-request/tool-policy hooks, and
+        # the resource/extension command-dispatch effects) live in the
+        # `_SessionCollaborators` handler, built once `provider_mutation`/
+        # `custom_renderer` exist; it reads the run's mutable control state through
+        # the shared `ctl` holder so a `/reload` rebind is reflected on next dispatch.
+        collaborators = _SessionCollaborators(
+            session=self,
+            ctl=ctl,
+            coding_state=coding_state,
+            product_session=product_session,
+            coding_input_queue=coding_input_queue,
+            terminal_ui=terminal_ui,
+            settings=settings,
+            cwd=cwd,
+            error_stream=error_stream,
+            provider_mutation=provider_mutation,
+            custom_renderer=custom_renderer,
+            extension_ui_driver=extension_ui_driver,
+            extension_notify=_extension_notify,
+        )
+        provider_request_policy = NativeAgentProviderRequestPolicy(
+            collaborators.prepare_agent_provider_request
+        )
+        agent_tool_policy = NativeAgentToolPolicy(
+            collaborators.apply_extension_tool_policy,
+            collaborators.transform_extension_tool_result,
+        )
 
         # Pi-parity: the slash-menu input adapter draws the bottom status
         # block (cwd + status line) live below the input area, so we only
@@ -4601,7 +4753,7 @@ class NativeToolReplSession:
         # duplicate cwd/status row above the prompt area in TTY sessions,
         # while keeping the captured-stream/plain case visible on immediate
         # EOF. `_print_footer` re-emits it after each submission.
-        if legacy_footer_enabled():
+        if footer.legacy_footer_enabled():
             self._print_footer(
                 error_stream,
                 cwd=cwd,
@@ -4610,68 +4762,6 @@ class NativeToolReplSession:
                 user_turn_count=coding_state.user_turn_count,
                 tool_invocation_count=coding_state.tool_invocation_count,
                 usage_snapshot=coding_state.usage_snapshot(),
-            )
-
-        # Command-dispatch effect port: the controller owns the built-in>
-        # resource>extension precedence and calls back through these closures to
-        # perform each composition-root effect. They close over the run-loop
-        # variables (workspace resources, the extension registry, the live
-        # session tree) so a `/reload` rebind is reflected on the next dispatch.
-        def _dispatch_resource_effect(
-            command_text: str,
-        ) -> ResourceDispatchResolution | None:
-            resource_dispatch = dispatch_resource_command(
-                command_text, ctl.workspace_resources
-            )
-            if resource_dispatch is None:
-                return None
-            if resource_dispatch.kind == DISPATCH_LIST:
-                return ResourceDispatchResolution(
-                    ResourceDispatchKind.LIST, resource_dispatch.message
-                )
-            if resource_dispatch.is_reject:
-                return ResourceDispatchResolution(
-                    ResourceDispatchKind.REJECT, resource_dispatch.message
-                )
-            if resource_dispatch.is_run:
-                return ResourceDispatchResolution(
-                    ResourceDispatchKind.RUN,
-                    resource_dispatch.message,
-                    resource_dispatch.provider_text,
-                )
-            return None
-
-        def _dispatch_extension_effect(
-            command_text: str,
-        ) -> ExtensionDispatchResolution | None:
-            extension_dispatch = dispatch_extension_command(
-                command_text,
-                ctl.extension_commands,
-                cwd=str(cwd),
-                has_ui=terminal_ui is not None,
-                messages=coding_state.messages,
-                complete_fn=_extension_complete,
-                notify_sink=_extension_notify,
-                ui_custom_driver=_extension_custom_driver,
-                ui_driver=extension_ui_driver,
-                set_active_tools_fn=provider_mutation.extension_set_active_tools,
-                set_model_fn=provider_mutation.extension_set_model,
-                set_thinking_level_fn=provider_mutation.extension_set_thinking_level,
-                append_entry_fn=custom_renderer.extension_append_entry,
-                set_session_name_fn=extension_set_session_name,
-                get_session_name_fn=extension_get_session_name,
-                set_label_fn=extension_set_label,
-                send_message_fn=custom_renderer.extension_send_message,
-                flags=ctl.extension_flag_values,
-                session_tree=ctl.session_tree,
-                project_trusted=settings.project_trusted,
-            )
-            if extension_dispatch is None:
-                return None
-            return ExtensionDispatchResolution(
-                name=extension_dispatch.name,
-                ran=extension_dispatch.ran,
-                error=extension_dispatch.error,
             )
 
         # Continuing built-in interpretation runs through the command-dispatch
@@ -4683,8 +4773,8 @@ class NativeToolReplSession:
         builtin_interpreter = _BuiltinCommandInterpreter()
 
         command_effects: CodingCommandEffects = _CodingCommandEffectsAdapter(
-            emit=diag,
-            footer=refresh_legacy_footer,
+            emit=collaborators.diag,
+            footer=footer.refresh_legacy_footer,
             interpret=lambda outcome: builtin_interpreter.interpret(
                 outcome,
                 session=self,
@@ -4703,18 +4793,18 @@ class NativeToolReplSession:
                 resource_options=resource_options,
                 tool_capabilities=tool_capabilities,
                 repl_input=repl_input,
-                diag=diag,
+                diag=collaborators.diag,
                 apply_compaction=provider_mutation.apply_compaction,
                 apply_model_selection=provider_mutation.apply_model_selection,
                 apply_auth_change=provider_mutation.apply_auth_change,
-                rebuild_messages_from_tree=rebuild_messages_from_tree,
+                rebuild_messages_from_tree=collaborators.rebuild_messages_from_tree,
                 redraw_custom_entries_for_active_branch=custom_renderer.redraw_custom_entries_for_active_branch,
-                refresh_legacy_footer=refresh_legacy_footer,
-                refresh_legacy_footer_with_usage=refresh_legacy_footer_with_usage,
-                current_session_dir=current_session_dir,
-                resolve_session_file=resolve_session_file,
-                summarize_branch=summarize_branch,
-                extension_session_allows=extension_session_allows,
+                refresh_legacy_footer=footer.refresh_legacy_footer,
+                refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
+                current_session_dir=collaborators.current_session_dir,
+                resolve_session_file=collaborators.resolve_session_file,
+                summarize_branch=collaborators.summarize_branch,
+                extension_session_allows=collaborators.extension_session_allows,
                 extension_send_message=custom_renderer.extension_send_message,
                 extension_render_details=extension_render_details,
                 extension_set_active_tools=provider_mutation.extension_set_active_tools,
@@ -4722,8 +4812,8 @@ class NativeToolReplSession:
                 _bind_unavailable_after_reload=_bind_unavailable_after_reload,
             ),
             record_resource=coding_state.record_resource_invocation,
-            resolve_resource=_dispatch_resource_effect,
-            resolve_extension=_dispatch_extension_effect,
+            resolve_resource=collaborators.dispatch_resource_effect,
+            resolve_extension=collaborators.dispatch_extension_effect,
         )
 
         # The `while True` skeleton and the start/shutdown lifecycle are owned by
@@ -4775,24 +4865,24 @@ class NativeToolReplSession:
                 run_effect_sink=run_effect_sink,
                 usage_publisher=usage_publisher,
                 extension_ui_driver=extension_ui_driver,
-                diag=diag,
-                coding_footer_text=coding_footer_text,
-                refresh_legacy_footer_with_usage=refresh_legacy_footer_with_usage,
+                diag=collaborators.diag,
+                coding_footer_text=footer.coding_footer_text,
+                refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
                 apply_compaction=provider_mutation.apply_compaction,
                 append_agent_message=append_agent_message,
                 drain_extension_outboxes=custom_renderer.drain_extension_outboxes,
-                _active_provider_header_callback=_active_provider_header_callback,
-                _extension_complete=_extension_complete,
-                _extension_custom_driver=_extension_custom_driver,
+                _active_provider_header_callback=collaborators.active_provider_header_callback,
+                _extension_complete=collaborators.extension_complete,
+                _extension_custom_driver=collaborators.extension_custom_driver,
                 _extension_notify=_extension_notify,
                 _sync_tool_policy_counters=_sync_tool_policy_counters,
                 extension_append_entry=custom_renderer.extension_append_entry,
-                extension_get_session_name=extension_get_session_name,
+                extension_get_session_name=collaborators.extension_get_session_name,
                 extension_send_message=custom_renderer.extension_send_message,
                 extension_set_active_tools=provider_mutation.extension_set_active_tools,
-                extension_set_label=extension_set_label,
+                extension_set_label=collaborators.extension_set_label,
                 extension_set_model=provider_mutation.extension_set_model,
-                extension_set_session_name=extension_set_session_name,
+                extension_set_session_name=collaborators.extension_set_session_name,
                 extension_set_thinking_level=provider_mutation.extension_set_thinking_level,
             ),
             finalize=partial(

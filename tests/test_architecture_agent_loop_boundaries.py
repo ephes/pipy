@@ -436,3 +436,25 @@ def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
         and node.test.value is True
         for node in ast.walk(run_loop_def)
     ), "CodingSessionController.run_loop must own the `while True` step skeleton"
+
+    # Slice 3.1f-completion: the residual composition-root collaborator closures
+    # (the footer set, diagnostics, session-name setters, session-dir/resolution,
+    # tree rebuild, branch summarization, the extension completion/custom-UI/
+    # session-gate/provider-request/tool-policy hooks, and the resource/extension
+    # command-dispatch effects) relocated into the ``_FooterEffects``/
+    # ``_SessionCollaborators`` handlers alongside the earlier loop-step,
+    # built-in-interpreter, custom-entry, and provider-mutation handlers, leaving
+    # ``run()`` a composition shell that only builds collaborators and delegates to
+    # ``loop_controller.run_loop(...)``. Guard that reduction: the shell stays under
+    # 800 ``ast``-lines so the loop body cannot creep back inline.
+    run_def = next(
+        node
+        for node in ast.walk(session_tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "run"
+    )
+    assert run_def.end_lineno is not None
+    run_ast_lines = run_def.end_lineno - run_def.lineno + 1
+    assert run_ast_lines < 800, (
+        "NativeToolReplSession.run must stay a composition shell under 800 "
+        f"ast-lines; measured {run_ast_lines}"
+    )

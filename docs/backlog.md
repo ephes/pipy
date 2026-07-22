@@ -2617,6 +2617,44 @@ cut):** splitting `interpret` into per-effect port methods, relocating the
 residual footer/persistence/adapter closures still in `run()`, and dropping
 `run()` under 800 lines with the `< 800` assertion.
 
+Sub-slice 3.1f-completion (residual composition adapters + Phase 3.1 acceptance,
+2026-07-22) closes Phase 3.1. The last band of substantial composition-root
+collaborator closures leaves `NativeToolReplSession.run()`, which now measures
+793 `ast`-lines (down from 1,084). Two new module-level frozen/slotted/kw-only
+handlers, symmetric with the four earlier ones, own the relocated bodies:
+`_FooterEffects` owns the footer/status-line set (`coding_footer_text`,
+`refresh_footer_text`, `legacy_footer_enabled`, `refresh_legacy_footer`,
+`refresh_legacy_footer_with_usage`); `_SessionCollaborators` owns `diag`, the
+session-name setters, `current_session_dir`/`resolve_session_file`,
+`rebuild_messages_from_tree`, `summarize_branch`, `extension_session_allows`, the
+extension completion/custom-UI driver, the provider-request/tool-policy hooks, and
+the resource/extension command-dispatch effects. Both hold the mutable `ctl`
+holder (extension command/hook/flag bundle read fresh so a `/reload` rebind is
+reflected inline) plus the stable run-scope collaborators; methods call one
+another through `self`. Each body is a mechanical `self.`-prefixing move
+(byte-identical footer/diagnostic/session-resolution/summary/hook-dispatch/
+precedence behavior). The construction order was adjusted so
+`_FooterEffects.refresh_footer_text` feeds `_ProviderMutationEffects` and its
+`extension_set_*` feed `_SessionCollaborators` (the two handlers and the two policy
+wrappers moved below the `repl_input`/startup/changelog band); the superseded
+closures are DELETED with no alias and their consumers pass the bound handler
+methods. No new module (intra-module relocation), so the import-boundary gate is
+unchanged; no new `Any`, `type: ignore`, or runtime dependency. The persistence
+write callbacks (`_load_product_session_history`, `_persist_agent_message`,
+`_persist_compaction`) intentionally stay run-scope closures: `_persist_compaction`
+reaches `provider_mutation` through a late name reference while `product_session`
+(which consumes all three at construction) is built earlier — a genuine
+construction cycle whose clean resolution is write-ownership relocation
+(Phase 3.3). The ownership gate
+`test_session_controller_owns_the_loop_skeleton_and_lifecycle` now asserts `run()`
+stays under 800 `ast`-lines (the honest guard, added only now the shell is
+genuinely 793). This completes Phase 3.1: the headless state machine, loop
+skeleton/lifecycle, command dispatch, built-in interpretation, custom-entry
+rendering, provider mutation, and residual collaborators all live in
+`native.coding.*` composition-root handlers reached through typed ports.
+Splitting the single `interpret_builtin` port into per-effect port methods remains
+Phase 3.2, and persistence write ownership remains Phase 3.3.
+
 Sub-slice 3.1f.3 (continuation 2, 2026-07-21) makes the continuing built-in's
 per-action effect chain run THROUGH the command-dispatch effect port, symmetric
 with resource/extension dispatch, so the classified outcome no longer crosses the
