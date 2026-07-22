@@ -2717,8 +2717,41 @@ PASS; the 49-test TUI PTY file and PTY smoke (8) passed; `just check` (Ruff, myp
 clean, full suite green) and `just docs-build` are green. Review: Claude Opus panel
 (user-directed substitution for the different-family gate). Pending review.
 
-Host/provider ports (6.3) and the UI bridge (6.4) remain deferred; Slice 6.2 hook
-dispatch is now complete.
+### Extension provider registration onto the shared construction port (Slice 6.3a) — DONE (2026-07-22)
+
+Sub-slice 6.3a moves the extension provider-port value objects and their build
+functions out of `extension_runtime.py`, originals deleted with no shadow copy or
+alias. The four descriptors (`ProviderContext`, `ExtensionOAuthConfig`,
+`ExtensionProvider`, `RegisteredProvider`) relocate verbatim into the
+`native.extension_types` value-object leaf (their 6.1b-deferred home);
+`ExtensionProviderBuildResult` plus `build_extension_provider_port` /
+`try_build_extension_provider_port` relocate into `native.provider_construction`,
+already the single provider-construction owner for built-ins, which gains one
+cycle-free edge to the stdlib-only `extension_types` leaf
+(`ProviderContext`/`RegisteredProvider`/`_safe_diagnostic`). `repl_state` drops
+its runtime→`extension_runtime` construction edge and builds extension providers
+through the same `provider_construction` seam as built-ins; `catalog_state` and
+`extension_provider_catalog` repoint `RegisteredProvider` to `extension_types`;
+`extension_runtime` re-imports the four descriptors (still used in
+staging/registration; body-unused `ProviderContext` re-exported via `# noqa: F401`)
+and keeps only activation/registration/staging. `pipy_harness.extensions` keeps
+every public name — sourcing `build_extension_provider_port` from
+`provider_construction` and the descriptors from `extension_runtime` — so the
+public import path is byte-identical; the characterization suite and
+`extension_providers_conformance.py` repoint their direct construction imports.
+No change to provider request/response semantics, factory-failure fail-closed
+behavior, `ProviderContext` field shape, catalog selection, or public extension
+imports; no new dependency, `Any`, or `type: ignore`. Focused providers/
+activation/agent-runtime-ports/import-boundary suites passed (249);
+`provider_catalog_conformance`, `extension_providers_conformance`,
+`extension_conformance_gate`, and `automation_rpc_conformance` reported ALL PASS;
+PTY smoke (8) passed; `just check` (Ruff, mypy clean, full suite green) and
+`just docs-build` are green. Review: Claude Opus panel (user-directed substitution
+for the different-family gate). Pending review.
+
+Host-port bundling (6.3b/6.3c) and the UI bridge (6.4) remain deferred; Slice 6.2
+hook dispatch is complete and 6.3 extension-provider construction now shares the
+built-in construction seam.
 
 ### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
 

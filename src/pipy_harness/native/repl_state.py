@@ -237,6 +237,7 @@ class ModelRuntime:
             build_builtin_provider,
             build_provider,
             resolve_construction,
+            try_build_extension_provider_port,
         )
 
         state = self.catalog
@@ -247,10 +248,6 @@ class ModelRuntime:
             registered = state.extension_provider_for(spec.provider_name)
             if registered is None:
                 return build_builtin_provider(selection, options)
-            from pipy_harness.native.extension_runtime import (
-                try_build_extension_provider_port,
-            )
-
             build_result = try_build_extension_provider_port(
                 registered, model_id=spec.model_id
             )

@@ -16,10 +16,12 @@ from typing import cast
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
-    build_extension_provider_port,
     extension_oauth_providers,
     extension_providers,
     extension_unregistered_providers,
+)
+from pipy_harness.native.provider_construction import (
+    build_extension_provider_port,
     try_build_extension_provider_port,
 )
 from pipy_harness.native.auth_store import AuthStore

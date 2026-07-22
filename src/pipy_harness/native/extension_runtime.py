@@ -64,10 +64,13 @@ from pipy_harness.native.extension_types import (
     BeforeProviderHeadersEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     BeforeProviderRequestEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     ExtensionFlag,
+    ExtensionOAuthConfig,
+    ExtensionProvider,
     ExtensionTool,
     InputEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     InputTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
     LifecycleEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    ProviderContext,  # noqa: F401 - re-exported via pipy_harness.extensions
     ProviderRequestTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
     QueuedCustomMessage,
     QueuedUserMessage,
@@ -93,6 +96,7 @@ from pipy_harness.native.extension_types import (
     REASON_RESERVED_TOOL,
     RESERVED_SHORTCUT_KEYS,
     RegisteredFlag,
+    RegisteredProvider,
     RegisteredTool,
     SessionBeforeEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     SessionDecision,  # noqa: F401 - re-exported via pipy_harness.extensions
@@ -164,112 +168,6 @@ LIFECYCLE_EVENTS: tuple[str, ...] = (
 )
 
 HookHandler = Callable[..., object]
-
-@dataclass(frozen=True, slots=True)
-class ProviderContext:
-    """Context passed to an extension provider `factory`.
-
-    Carries only safe selection metadata: the provider name, its default
-    model, and the currently selected model when the factory is built for a
-    concrete catalog selection. A provider extension must read its own
-    environment / a future auth capability — it never receives the shared
-    auth store.
-    """
-
-    provider_name: str
-    default_model: str | None
-    model_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ExtensionOAuthConfig:
-    """OAuth metadata for an extension-registered provider.
-
-    Mirrors Pi's ``ProviderConfig.oauth`` shape through Python snake_case. The
-    provider name is the future OAuth id source, matching Pi's derived
-    ``{...oauth, id: providerName}``; extension authors do not supply an id.
-    Callbacks are preserved for later auth/login integration and are not invoked
-    during activation or provider-port construction.
-    """
-
-    name: str
-    login: Callable[..., object]
-    refresh_token: Callable[..., object]
-    get_api_key: Callable[..., object]
-    modify_models: Callable[..., object] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ExtensionProvider:
-    """A model provider an extension registers via `api.register_provider`.
-
-    `name` is the provider name (selectable through the catalog / `/model`);
-    `default_model` and `models` describe the provider's model ids;
-    `factory(ProviderContext)` builds a `ProviderPort`. A provider may
-    override a built-in of the same name; `unregister_provider(name)`
-    removes it and restores the built-in. ``oauth`` preserves Pi-shaped OAuth
-    metadata for a later `/login`/auth-storage integration slice.
-    """
-
-    name: str
-    default_model: str | None
-    models: tuple[str, ...]
-    factory: Callable[..., object]
-    oauth: ExtensionOAuthConfig | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class RegisteredProvider:
-    """An extension provider accepted during activation, with its owner."""
-
-    provider: ExtensionProvider
-    extension: str
-
-
-@dataclass(frozen=True, slots=True)
-class ExtensionProviderBuildResult:
-    """Bounded result from constructing an extension provider factory."""
-
-    port: object | None
-    diagnostic: str | None = None
-
-
-def build_extension_provider_port(
-    registered: RegisteredProvider,
-    *,
-    model_id: str | None = None,
-) -> object | None:
-    """Build a `ProviderPort` from a registered extension provider.
-
-    Calls the provider's `factory(ProviderContext)`. A factory that raises
-    (or returns nothing) yields `None` rather than crashing the caller, so
-    a bad provider is bounded. `KeyboardInterrupt` / `SystemExit`
-    propagate.
-    """
-
-    return try_build_extension_provider_port(registered, model_id=model_id).port
-
-
-def try_build_extension_provider_port(
-    registered: RegisteredProvider,
-    *,
-    model_id: str | None = None,
-) -> ExtensionProviderBuildResult:
-    """Build a provider and keep a safe diagnostic when its factory fails."""
-
-    provider = registered.provider
-    context = ProviderContext(
-        provider_name=provider.name,
-        default_model=provider.default_model,
-        model_id=model_id or provider.default_model or provider.models[0],
-    )
-    try:
-        port = provider.factory(context)
-    except (KeyboardInterrupt, SystemExit):
-        raise
-    except BaseException as exc:  # noqa: BLE001 - bound a bad provider factory
-        return ExtensionProviderBuildResult(port=None, diagnostic=_safe_diagnostic(exc))
-    return ExtensionProviderBuildResult(port=port)
 
 
 def make_extension_context(

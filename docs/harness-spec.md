@@ -664,10 +664,12 @@ provider turn is constructed with the new provider/model. Construction and
 catalog spec resolution behind that boundary are owned by `ModelRuntime`
 (`native/repl_state.py`), which composes the merged provider catalog with the
 `provider_construction` boundary; its `construct` is total (every selection —
-catalog-wired families, `openai-codex`, the `fake` bootstrap, and the bare
-built-in `ds4` — yields a provider through that boundary, threading the
-settings-derived `ConstructionOptions`; there is no separate legacy provider
-factory), and the `select_model`/`model_options`/auth surface and its behavior
+catalog-wired families, `openai-codex`, the `fake` bootstrap, the bare
+built-in `ds4`, and extension-registered providers (built through
+`provider_construction.try_build_extension_provider_port`, Slice 6.3a) — yields a
+provider through that boundary, threading the settings-derived
+`ConstructionOptions`; there is no separate legacy provider factory), and the
+`select_model`/`model_options`/auth surface and its behavior
 are unchanged. A direct
 `/model <provider>/<model>` (or `<model>`) form switches without opening the
 selector and works in both the product TUI and the captured-stream fallback. A

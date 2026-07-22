@@ -95,7 +95,6 @@ from pipy_harness.native.extension_runtime import (
     drain_user_messages,
     drain_custom_messages,
     extension_command_map,
-    build_extension_provider_port,
     extension_providers,
     extension_flags,
     extension_tools,
@@ -127,6 +126,7 @@ from pipy_harness.native.extensions import (
     safe_extension_metadata,
 )
 from pipy_harness.native.provider import apply_provider_headers
+from pipy_harness.native.provider_construction import build_extension_provider_port
 
 __all__ = [
     "PipyExtensionAPI",

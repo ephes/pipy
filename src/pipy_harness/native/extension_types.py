@@ -496,3 +496,64 @@ class RegisteredFlag:
 
     def get_value(self) -> object | None:
         return self.values.get(self.flag.name)
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderContext:
+    """Context passed to an extension provider `factory`.
+
+    Carries only safe selection metadata: the provider name, its default
+    model, and the currently selected model when the factory is built for a
+    concrete catalog selection. A provider extension must read its own
+    environment / a future auth capability — it never receives the shared
+    auth store.
+    """
+
+    provider_name: str
+    default_model: str | None
+    model_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionOAuthConfig:
+    """OAuth metadata for an extension-registered provider.
+
+    Mirrors Pi's ``ProviderConfig.oauth`` shape through Python snake_case. The
+    provider name is the future OAuth id source, matching Pi's derived
+    ``{...oauth, id: providerName}``; extension authors do not supply an id.
+    Callbacks are preserved for later auth/login integration and are not invoked
+    during activation or provider-port construction.
+    """
+
+    name: str
+    login: Callable[..., object]
+    refresh_token: Callable[..., object]
+    get_api_key: Callable[..., object]
+    modify_models: Callable[..., object] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionProvider:
+    """A model provider an extension registers via `api.register_provider`.
+
+    `name` is the provider name (selectable through the catalog / `/model`);
+    `default_model` and `models` describe the provider's model ids;
+    `factory(ProviderContext)` builds a `ProviderPort`. A provider may
+    override a built-in of the same name; `unregister_provider(name)`
+    removes it and restores the built-in. ``oauth`` preserves Pi-shaped OAuth
+    metadata for a later `/login`/auth-storage integration slice.
+    """
+
+    name: str
+    default_model: str | None
+    models: tuple[str, ...]
+    factory: Callable[..., object]
+    oauth: ExtensionOAuthConfig | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RegisteredProvider:
+    """An extension provider accepted during activation, with its owner."""
+
+    provider: ExtensionProvider
+    extension: str

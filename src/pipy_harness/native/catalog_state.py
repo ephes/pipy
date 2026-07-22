@@ -23,7 +23,7 @@ from pipy_harness.native.auth_store import (
     provider_auth_status,
 )
 from pipy_harness.native.catalog import NativeModelSpec
-from pipy_harness.native.extension_runtime import RegisteredProvider
+from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.models_json import (
     ModelCatalog,
     default_models_json_path,

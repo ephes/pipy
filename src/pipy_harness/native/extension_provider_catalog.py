@@ -6,11 +6,11 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from pipy_harness.native.extension_runtime import (
-    RegisteredProvider,
     activate_extensions,
     extension_providers,
     extension_unregistered_providers,
 )
+from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.package_resources import PackageRoot
 from pipy_harness.native.resource_enablement import is_resource_enabled

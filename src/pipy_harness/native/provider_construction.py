@@ -35,8 +35,13 @@ directly (codex from ``spec`` + the settings-derived
 retry policy) rather than through the resolved api key. The bare
 ``--native-provider ds4`` selection has no catalog spec and is built by name in
 :func:`build_builtin_provider`. This module is the single construction owner —
-there is no separate legacy provider factory. No secret value is placed on any
-archived field.
+there is no separate legacy provider factory. Extension-registered providers
+build through the same seam: :func:`try_build_extension_provider_port` (and the
+port-only :func:`build_extension_provider_port`) invoke a
+:class:`~pipy_harness.native.extension_types.RegisteredProvider` factory with a
+bounded :class:`~pipy_harness.native.extension_types.ProviderContext`, failing
+closed to ``None`` plus a safe diagnostic when the factory raises. No secret
+value is placed on any archived field.
 """
 
 from __future__ import annotations
@@ -52,6 +57,11 @@ from pipy_harness.native.auth_store import (
     resolve_request_auth,
 )
 from pipy_harness.native.catalog import NativeModelSpec
+from pipy_harness.native.extension_types import (
+    ProviderContext,
+    RegisteredProvider,
+    _safe_diagnostic,
+)
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.retry import RetryPolicy
 from pipy_harness.native.routing import model_request_routing
@@ -929,3 +939,49 @@ class _FailedAuthProvider:
             error_type="CatalogAuthError",
             error_message=self.error,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionProviderBuildResult:
+    """Bounded result from constructing an extension provider factory."""
+
+    port: object | None
+    diagnostic: str | None = None
+
+
+def build_extension_provider_port(
+    registered: RegisteredProvider,
+    *,
+    model_id: str | None = None,
+) -> object | None:
+    """Build a `ProviderPort` from a registered extension provider.
+
+    Calls the provider's `factory(ProviderContext)`. A factory that raises
+    (or returns nothing) yields `None` rather than crashing the caller, so
+    a bad provider is bounded. `KeyboardInterrupt` / `SystemExit`
+    propagate.
+    """
+
+    return try_build_extension_provider_port(registered, model_id=model_id).port
+
+
+def try_build_extension_provider_port(
+    registered: RegisteredProvider,
+    *,
+    model_id: str | None = None,
+) -> ExtensionProviderBuildResult:
+    """Build a provider and keep a safe diagnostic when its factory fails."""
+
+    provider = registered.provider
+    context = ProviderContext(
+        provider_name=provider.name,
+        default_model=provider.default_model,
+        model_id=model_id or provider.default_model or provider.models[0],
+    )
+    try:
+        port = provider.factory(context)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as exc:  # noqa: BLE001 - bound a bad provider factory
+        return ExtensionProviderBuildResult(port=None, diagnostic=_safe_diagnostic(exc))
+    return ExtensionProviderBuildResult(port=port)
