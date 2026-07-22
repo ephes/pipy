@@ -43,7 +43,7 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.agent_request",
     "pipy_harness.native.anthropic_provider",
     "pipy_harness.native.automation",
-    "pipy_harness.native.azure_openai_provider",
+    "pipy_harness.native.providers.azure_openai_responses",
     "pipy_harness.native.bedrock_provider",
     "pipy_harness.native.chrome",
     "pipy_harness.native.cloudflare_provider",

@@ -15,12 +15,12 @@ from pipy_harness.native import (
 
 PROVIDER_MODULES = (
     "anthropic_provider.py",
-    "azure_openai_provider.py",
     "bedrock_provider.py",
     "cloudflare_provider.py",
     "mistral_provider.py",
     "openai_codex_provider.py",
     "openai_completions_provider.py",
+    "providers/azure_openai_responses.py",
     "providers/openai_responses.py",
     "openrouter_provider.py",
 )

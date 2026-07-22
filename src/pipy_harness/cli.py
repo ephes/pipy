@@ -2923,7 +2923,7 @@ def _native_provider_for_selection(
 
         return AmazonBedrockProvider(model_id=selection.model_id)
     if selection.provider_name == "azure-openai":
-        from pipy_harness.native.azure_openai_provider import (
+        from pipy_harness.native.providers.azure_openai_responses import (
             AzureOpenAIResponsesProvider,
         )
 

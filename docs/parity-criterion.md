@@ -108,7 +108,7 @@ that defines a provider class (excluding shared helpers `*-shared.ts`,
 | A7 | google-vertex | ✅ | `test -f src/pipy_harness/native/google_vertex_provider.py` |
 | A8 | mistral | ✅ | `test -f src/pipy_harness/native/mistral_provider.py` |
 | A9 | amazon-bedrock | ✅ | `test -f src/pipy_harness/native/bedrock_provider.py` |
-| A10 | azure-openai-responses | ✅ | `test -f src/pipy_harness/native/azure_openai_provider.py` |
+| A10 | azure-openai-responses | ✅ | `test -f src/pipy_harness/native/providers/azure_openai_responses.py` |
 | A11 | cloudflare | ✅ | `test -f src/pipy_harness/native/cloudflare_provider.py` |
 
 Additionally, pipy ships `openrouter` (not in pi-mono); it is counted as

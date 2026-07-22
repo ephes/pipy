@@ -1361,7 +1361,7 @@ def _check_tier2_construction(checks, tmp: Path):
     checks.append(Check("21_cloudflare_missing_account_fails_closed", cf_failclosed_ok, "cloudflare missing CLOUDFLARE_ACCOUNT_ID fails closed"))
 
     # 21e: product boundary constructs a built-in azure catalog model (not legacy).
-    from pipy_harness.native.azure_openai_provider import AzureOpenAIResponsesProvider
+    from pipy_harness.native.providers.azure_openai_responses import AzureOpenAIResponsesProvider
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
         NativeReplProviderState,

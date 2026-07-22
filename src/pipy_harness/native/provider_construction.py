@@ -614,7 +614,7 @@ def build_provider(
         )
 
     if resolved.api == "azure-openai-responses":
-        from pipy_harness.native.azure_openai_provider import (
+        from pipy_harness.native.providers.azure_openai_responses import (
             AzureOpenAIResponsesProvider,
         )
 

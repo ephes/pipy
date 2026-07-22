@@ -121,7 +121,7 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.terminal_input",
     "pipy_harness.native.terminal_screen",
     "pipy_harness.native.anthropic_provider",
-    "pipy_harness.native.azure_openai_provider",
+    "pipy_harness.native.providers.azure_openai_responses",
     "pipy_harness.native.bedrock_provider",
     "pipy_harness.native.cloudflare_provider",
     "pipy_harness.native.ds4_provider",

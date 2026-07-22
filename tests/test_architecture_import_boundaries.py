@@ -60,7 +60,6 @@ class BoundaryViolation:
 
 _LEGACY_CONCRETE_PROVIDER_MODULES = (
     "pipy_harness.native.anthropic_provider",
-    "pipy_harness.native.azure_openai_provider",
     "pipy_harness.native.bedrock_provider",
     "pipy_harness.native.cloudflare_provider",
     "pipy_harness.native.ds4_provider",
