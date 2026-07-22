@@ -19,6 +19,8 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.extension_runtime import (
     ToolBlock,
     activate_extensions,
+)
+from pipy_harness.native.extension_hooks import (
     dispatch_tool_call_hooks,
     extension_tool_call_hooks,
 )

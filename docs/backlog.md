@@ -2623,8 +2623,40 @@ pytest green); `just check` (Ruff, mypy clean, 4,503 passed/2 skipped) plus
 `just docs-build` are green. Review: Claude Opus panel (user-directed
 substitution for the different-family gate) — pending review.
 
-Hook dispatch (6.2), host/provider ports (6.3), and the UI bridge (6.4) remain
-deferred.
+### Turn hook-dispatch families (Slice 6.2a) — DONE (2026-07-22)
+
+Sub-slice 6.2a creates `native.extension_hooks` and moves the five per-turn
+hook-dispatch families plus their shared collectors and bound constants verbatim
+out of `extension_runtime.py`: `extension_event_hooks`,
+`extension_tool_call_hooks`, `dispatch_input_hooks`,
+`dispatch_before_agent_start_hooks`, `dispatch_tool_result_hooks`,
+`dispatch_lifecycle_hooks`, `dispatch_tool_call_hooks`, and the
+`_TOOL_RESULT_MAX_CHARS` / `_BEFORE_AGENT_START_MAX_CHARS` truncation bounds. The
+originals are deleted with no shadow copy or alias. The new module imports
+`_drive_awaitable` from `extension_loader`, the hook value objects from
+`extension_types`, and the `_CommandContext`/`_CollectingUi` builders plus the
+`EVENT_TOOL_CALL` constant from `extension_runtime` (one-way, cycle-free —
+`extension_runtime` never imports back). `tool_loop_session`, the
+`pipy_harness.extensions` re-export block, the `extension_tool_call_conformance`
+gate, and the direct-import extension tests are repointed to `extension_hooks`;
+the nine hook value objects `extension_runtime` re-imported solely for those
+functions become explicit `# noqa: F401` re-exports (public path via
+`pipy_harness.extensions` unchanged). The import-boundary suite adds
+`native.extension_hooks` beside `extension_runtime`/`extension_loader`/
+`extension_types` in every agent- and coding-layer forbidden rule (10 rules). No
+signature, ordering, fail-soft/fail-closed, truncation-bound, callback, or
+public-import-path change; no new dependency, `Any`, or `type: ignore`. The gate
+family (`project_trust`/`user_bash`/`session_before`) and the
+provider-request/headers dispatchers stay in `extension_runtime` for later 6.2
+cuts. Focused extension lifecycle/input/tool-result/tool-call/dispatch plus the
+import-boundary and tool-loop suites passed; the five extension conformance gates
+and PTY smoke reported ALL PASS; `just check` (Ruff, mypy clean, 4,506 passed/2
+skipped) and `just docs-build` are green. Review: Claude Opus panel
+(user-directed substitution for the different-family gate) — 1 round, 0 findings,
+final round clean, both lenses (behavior; invariants).
+
+Host/provider ports (6.3) and the UI bridge (6.4), plus the remaining 6.2 gate
+and provider-request/headers dispatch cuts, remain deferred.
 
 ### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
 

@@ -15,9 +15,11 @@ from pathlib import Path
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
+    make_extension_context,
+)
+from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
     extension_event_hooks,
-    make_extension_context,
 )
 from pipy_harness.native.extension_runtime import (
     LifecycleEvent,

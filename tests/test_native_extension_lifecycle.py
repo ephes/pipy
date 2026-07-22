@@ -17,6 +17,8 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.extension_runtime import (
     LifecycleEvent,
     activate_extensions,
+)
+from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
     extension_event_hooks,
 )

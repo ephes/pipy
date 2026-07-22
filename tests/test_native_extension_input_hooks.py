@@ -16,9 +16,11 @@ from pathlib import Path
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
+    drain_user_messages,
+)
+from pipy_harness.native.extension_hooks import (
     dispatch_before_agent_start_hooks,
     dispatch_input_hooks,
-    drain_user_messages,
     extension_event_hooks,
 )
 from pipy_harness.native.extensions import discover_extensions

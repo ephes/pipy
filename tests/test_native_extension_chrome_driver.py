@@ -1,6 +1,8 @@
 from pipy_harness.native.extension_runtime import (
     FooterData,
     LifecycleEvent,
+)
+from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
 )
 from pipy_harness.native.tool_loop_session import _LiveExtensionUiDriver

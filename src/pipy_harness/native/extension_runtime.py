@@ -26,10 +26,13 @@ Public API (also re-exported from `pipy_harness.extensions`):
   `RegisteredProvider` / `ActivatedExtension` value objects.
 - `activate_extensions(descriptors, *, reserved_command_names=(),
   reserved_tool_names=(), message_outbox=None)`.
-- The collectors (`extension_command_map`, `extension_shortcuts`,
-  `extension_tools`, `extension_event_hooks`, ...) and dispatchers
-  (`dispatch_extension_command`, `dispatch_extension_shortcut`, the hook
-  dispatchers), plus `safe_activation_metadata(activated)`.
+- The command/shortcut/tool/provider collectors (`extension_command_map`,
+  `extension_shortcuts`, `extension_tools`, ...) and dispatchers
+  (`dispatch_extension_command`, `dispatch_extension_shortcut`), plus
+  `safe_activation_metadata(activated)`. The per-turn hook collectors and
+  dispatchers (`extension_event_hooks`, `dispatch_input_hooks`, the
+  lifecycle/tool-call/tool-result families) live in
+  `pipy_harness.native.extension_hooks`.
 """
 
 from __future__ import annotations
@@ -57,16 +60,16 @@ from pipy_harness.native.themes import (
     resolve_palette,
 )
 from pipy_harness.native.extension_types import (
-    BeforeAgentStartEvent,
-    BeforeAgentStartResult,
+    BeforeAgentStartEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    BeforeAgentStartResult,  # noqa: F401 - re-exported via pipy_harness.extensions
     BeforeProviderHeadersEvent,
     BeforeProviderRequestEvent,
     ExtensionFlag,
     ExtensionMode,
     ExtensionTool,
-    InputEvent,
-    InputTransform,
-    LifecycleEvent,
+    InputEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    InputTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
+    LifecycleEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     ProjectTrustContext,
     ProjectTrustDispatchResult,
     ProjectTrustEvent,
@@ -99,11 +102,11 @@ from pipy_harness.native.extension_types import (
     RegisteredTool,
     SessionBeforeEvent,
     SessionDecision,
-    ToolBlock,
-    ToolCallEvent,
+    ToolBlock,  # noqa: F401 - re-exported via pipy_harness.extensions
+    ToolCallEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolResult,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ToolResultEvent,
-    ToolResultTransform,
+    ToolResultEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    ToolResultTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
     UserBashDecision,
     UserBashDispatch,
     UserBashEvent,
@@ -149,8 +152,6 @@ EVENT_SESSION_BEFORE_FORK: str = "session_before_fork"
 EVENT_SESSION_BEFORE_COMPACT: str = "session_before_compact"
 EVENT_SESSION_BEFORE_TREE: str = "session_before_tree"
 
-# Bound a transformed tool-result observation before it reaches the model.
-_TOOL_RESULT_MAX_CHARS: int = 60 * 1024
 # Bound custom extension-rendered session entry text and data. Product native
 # sessions intentionally store full user-visible content, but extension payloads
 # should still be JSON-safe and capped so a bad renderer cannot grow the TUI or
@@ -325,9 +326,6 @@ def make_extension_context(
     )
 
 
-# Cap the total `before_agent_start` system-prompt injection so a buggy or
-# malicious extension cannot create unbounded provider input.
-_BEFORE_AGENT_START_MAX_CHARS: int = 16 * 1024
 _PROVIDER_REQUEST_FIELD_MAX_CHARS: int = 128 * 1024
 
 ControlSetActiveToolsFn = Callable[[Sequence[str]], bool]
@@ -3230,20 +3228,6 @@ def _activate_one(
     )
 
 
-def extension_event_hooks(
-    activated: Sequence[ActivatedExtension],
-    event_name: str,
-) -> tuple[HookHandler, ...]:
-    """Collect hooks for `event_name` from activated extensions, in order."""
-
-    hooks: list[HookHandler] = []
-    for extension in activated:
-        if extension.status != "activated":
-            continue
-        hooks.extend(extension.hooks.get(event_name, ()))
-    return tuple(hooks)
-
-
 def dispatch_project_trust_hooks(
     activated: Sequence[ActivatedExtension],
     *,
@@ -3291,287 +3275,6 @@ def dispatch_project_trust_hooks(
                     )
                 )
     return ProjectTrustDispatchResult(errors=tuple(errors))
-
-
-def extension_tool_call_hooks(
-    activated: Sequence[ActivatedExtension],
-) -> tuple[HookHandler, ...]:
-    """Collect `tool_call` hooks from activated extensions, in order."""
-
-    return extension_event_hooks(activated, EVENT_TOOL_CALL)
-
-
-def dispatch_input_hooks(
-    hooks: Sequence[HookHandler],
-    text: str,
-    *,
-    cwd: str,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None] | None = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
-    flags: Mapping[str, object] | None = None,
-    project_trusted: bool = False,
-) -> str:
-    """Run `input` hooks over a submitted prompt; return the final text.
-
-    Hooks run in registration order, each receiving an `InputEvent` with
-    the current text. A hook returning an `InputTransform` replaces the
-    text for subsequent hooks; any other return value observes only. A
-    hook that raises is fail-safe: the current text is kept unchanged so
-    a buggy hook never breaks submission. `KeyboardInterrupt` /
-    `SystemExit` propagate.
-    """
-
-    current = text
-    if not hooks:
-        return current
-    ctx = _CommandContext(
-        cwd,
-        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
-        flags=flags,
-        project_trusted=project_trusted,
-    )
-    for hook in hooks:
-        try:
-            result = hook(InputEvent(text=current), ctx)
-            if inspect.isawaitable(result):
-                result = _drive_awaitable(result)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - fail-safe: keep current text
-            continue
-        if isinstance(result, InputTransform) and isinstance(result.text, str):
-            # Ignore a non-string transform (fail-safe): never propagate a
-            # non-string into @file resolution / the provider request.
-            current = result.text
-    return current
-
-
-def dispatch_before_agent_start_hooks(
-    hooks: Sequence[HookHandler],
-    *,
-    cwd: str,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None] | None = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    system_prompt: str = "",
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
-    flags: Mapping[str, object] | None = None,
-    project_trusted: bool = False,
-) -> BeforeAgentStartResult:
-    """Run `before_agent_start` hooks; aggregate their context injections.
-
-    Each hook receives a `BeforeAgentStartEvent` (the current system
-    prompt) and may return a `BeforeAgentStartResult` whose
-    `append_system_prompt` is concatenated (in order). A hook that raises
-    is fail-safe (ignored). `KeyboardInterrupt` / `SystemExit` propagate.
-    """
-
-    appended: list[str] = []
-    if hooks:
-        ctx = _CommandContext(
-            cwd,
-            _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-            set_active_tools_fn=set_active_tools_fn,
-            set_model_fn=set_model_fn,
-            set_thinking_level_fn=set_thinking_level_fn,
-            flags=flags,
-            project_trusted=project_trusted,
-        )
-        current_prompt = system_prompt
-        for hook in hooks:
-            try:
-                result = hook(BeforeAgentStartEvent(system_prompt=current_prompt), ctx)
-                if inspect.isawaitable(result):
-                    result = _drive_awaitable(result)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:  # noqa: BLE001 - fail-safe: ignore a bad hook
-                continue
-            if (
-                isinstance(result, BeforeAgentStartResult)
-                and isinstance(result.append_system_prompt, str)
-                and result.append_system_prompt
-            ):
-                appended.append(result.append_system_prompt)
-                # Later hooks see earlier hooks' appended context (ordered
-                # composition), matching `BeforeAgentStartEvent.system_prompt`.
-                current_prompt = current_prompt + "\n" + result.append_system_prompt
-    if not appended:
-        return BeforeAgentStartResult(append_system_prompt=None)
-    combined = "\n".join(appended)
-    if len(combined) > _BEFORE_AGENT_START_MAX_CHARS:
-        combined = (
-            combined[:_BEFORE_AGENT_START_MAX_CHARS]
-            + "\n[pipy: before_agent_start injection truncated]"
-        )
-    return BeforeAgentStartResult(append_system_prompt=combined)
-
-
-def dispatch_tool_result_hooks(
-    hooks: Sequence[HookHandler],
-    *,
-    tool_name: str,
-    content: str,
-    is_error: bool,
-    cwd: str,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None] | None = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
-    flags: Mapping[str, object] | None = None,
-    project_trusted: bool = False,
-) -> str:
-    """Run `tool_result` hooks over a finalized tool result; return content.
-
-    Each hook receives a `ToolResultEvent` with the current content and
-    may return a `ToolResultTransform` to replace it for later hooks /
-    the model. Hooks run in registration order. A hook that raises or
-    returns a non-string transform is fail-safe (the current content is
-    kept). The final content is bounded before returning to the model.
-    `KeyboardInterrupt` / `SystemExit` propagate.
-    """
-
-    current = content
-    if hooks:
-        ctx = _CommandContext(
-            cwd,
-            _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-            set_active_tools_fn=set_active_tools_fn,
-            set_model_fn=set_model_fn,
-            set_thinking_level_fn=set_thinking_level_fn,
-            flags=flags,
-            project_trusted=project_trusted,
-        )
-        for hook in hooks:
-            try:
-                result = hook(
-                    ToolResultEvent(
-                        tool_name=tool_name, content=current, is_error=is_error
-                    ),
-                    ctx,
-                )
-                if inspect.isawaitable(result):
-                    result = _drive_awaitable(result)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:  # noqa: BLE001 - fail-safe: keep current content
-                continue
-            if isinstance(result, ToolResultTransform) and isinstance(
-                result.content, str
-            ):
-                current = result.content
-    if len(current) > _TOOL_RESULT_MAX_CHARS:
-        current = (
-            current[:_TOOL_RESULT_MAX_CHARS]
-            + "\n[pipy: tool_result transform truncated]"
-        )
-    return current
-
-
-def dispatch_lifecycle_hooks(
-    hooks: Sequence[HookHandler],
-    event: LifecycleEvent,
-    *,
-    cwd: str,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None] | None = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
-    flags: Mapping[str, object] | None = None,
-    project_trusted: bool = False,
-) -> None:
-    """Run observe-only lifecycle hooks for one event, in order.
-
-    Each hook receives the `LifecycleEvent` and a mode-aware context. The
-    return value is ignored (these hooks observe; they do not alter the
-    turn in this slice). A hook that raises is bounded and ignored so one
-    crashing observer never breaks the session or the other observers.
-    `KeyboardInterrupt` / `SystemExit` propagate (user abort is never
-    swallowed).
-    """
-
-    if not hooks:
-        return
-    ctx = _CommandContext(
-        cwd,
-        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
-        flags=flags,
-        project_trusted=project_trusted,
-    )
-    for hook in hooks:
-        try:
-            result = hook(event, ctx)
-            if inspect.isawaitable(result):
-                _drive_awaitable(result)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - an observer must not break the session
-            continue
-
-
-def dispatch_tool_call_hooks(
-    hooks: Sequence[HookHandler],
-    *,
-    tool_name: str,
-    tool_input: Mapping[str, object],
-    cwd: str,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None] | None = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
-    flags: Mapping[str, object] | None = None,
-    project_trusted: bool = False,
-) -> ToolBlock | None:
-    """Run `tool_call` hooks for one tool call; return the first block.
-
-    Each hook receives a `ToolCallEvent` (live tool name + parsed input)
-    and a mode-aware context. The first hook to return a `ToolBlock`
-    blocks the call; hooks returning anything else allow it. A hook that
-    raises fails closed (blocks with a safe reason), since a policy gate
-    that errors must not silently allow the action. `KeyboardInterrupt` /
-    `SystemExit` propagate (user abort is never swallowed).
-    """
-
-    event = ToolCallEvent(tool_name=tool_name, input=tool_input)
-    ctx = _CommandContext(
-        cwd,
-        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
-        flags=flags,
-        project_trusted=project_trusted,
-    )
-    for hook in hooks:
-        try:
-            result = hook(event, ctx)
-            if inspect.isawaitable(result):
-                result = _drive_awaitable(result)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - fail closed on a bad gate
-            return ToolBlock(reason="extension tool_call hook error")
-        if isinstance(result, ToolBlock):
-            return result
-    return None
 
 
 def dispatch_user_bash_hooks(

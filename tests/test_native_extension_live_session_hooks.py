@@ -657,6 +657,8 @@ def test_non_lifecycle_dispatchers_can_paint_live_ui_driver(tmp_path: Path) -> N
         InputTransform,
         ToolBlock,
         ToolResultTransform,
+    )
+    from pipy_harness.native.extension_hooks import (
         dispatch_before_agent_start_hooks,
         dispatch_input_hooks,
         dispatch_tool_call_hooks,
