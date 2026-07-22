@@ -26,7 +26,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.providers.anthropic_messages import _messages_payload
+from pipy_harness.native.providers.anthropic_messages import AnthropicResponseParseError
+from pipy_harness.native.providers.anthropic_messages_wire import messages_payload
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
@@ -97,8 +98,14 @@ def _image_reaches_provider_and_result_is_safe() -> bool:
         return False
     if att.sha256 != hashlib.sha256(_PNG).hexdigest():
         return False
-    # A multimodal adapter renders it as a native image block.
-    payload = _messages_payload(provider.requests[0])
+    # A multimodal adapter renders it as a native image block. Invoke the shared
+    # translator with the Anthropic parameters (image attachment + coalescing on).
+    payload = messages_payload(
+        provider.requests[0],
+        parse_error_class=AnthropicResponseParseError,
+        attach_images=True,
+        coalesce_tool_results=True,
+    )
     user = payload[-1]
     image_blocks = [b for b in user["content"] if b.get("type") == "image"]
     if len(image_blocks) != 1:

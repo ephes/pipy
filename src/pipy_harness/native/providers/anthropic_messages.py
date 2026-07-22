@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import (
     utc_now,
     failed_provider_result,
@@ -20,18 +18,16 @@ from pipy_harness.native.http import (
     JsonHTTPClient,
     ProviderHTTPError,
     UrllibJsonHTTPClient,
-    extract_anthropic_usage,
-)
-from pipy_harness.native.agent import (
-    AgentAssistantMessage,
-    AgentToolResultMessage,
-    AgentUserMessage,
 )
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.deferred_tools import split_deferred_tools
-from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.providers.anthropic_messages_wire import (
+    messages_payload,
+    parse_response,
+)
 
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_DEFAULT_MAX_TOKENS = 4096
@@ -175,9 +171,12 @@ class AnthropicProvider:
             "model": self.model_id,
             "max_tokens": self.max_tokens,
             "system": request.system_prompt,
-            "messages": _messages_payload(
+            "messages": messages_payload(
                 request,
+                parse_error_class=AnthropicResponseParseError,
                 deferred_tool_names=deferred_tool_names,
+                attach_images=True,
+                coalesce_tool_results=True,
             ),
         }
         if request.available_tools:
@@ -246,7 +245,12 @@ class AnthropicProvider:
                     f"Anthropic API request failed with HTTP status {response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
-            result = _parse_response(response.body)
+            result = parse_response(
+                response.body,
+                parse_error_class=AnthropicResponseParseError,
+                response_label="Anthropic",
+                tool_call_provider_prefix="anthropic",
+            )
         except AnthropicProviderError as exc:
             return failed_provider_result(
                 request,
@@ -272,162 +276,6 @@ class AnthropicProvider:
         )
 
 
-def _messages_payload(
-    request: ProviderRequest,
-    *,
-    deferred_tool_names: frozenset[str] = frozenset(),
-) -> list[dict[str, object]]:
-    if request.messages:
-        items: list[dict[str, object]] = []
-        loaded_tool_names: set[str] = set()
-        index = 0
-        while index < len(request.messages):
-            envelope = request.messages[index]
-            if not isinstance(envelope, AgentToolResultMessage):
-                items.append(_envelope_to_message(envelope))
-                index += 1
-                continue
-            tool_results: list[dict[str, object]] = []
-            sibling_content: list[dict[str, object]] = []
-            while index < len(request.messages) and isinstance(
-                request.messages[index], AgentToolResultMessage
-            ):
-                tool_result = request.messages[index]
-                assert isinstance(tool_result, AgentToolResultMessage)
-                result, siblings = _convert_tool_result(
-                    tool_result,
-                    deferred_tool_names=deferred_tool_names,
-                    loaded_tool_names=loaded_tool_names,
-                )
-                tool_results.append(result)
-                sibling_content.extend(siblings)
-                index += 1
-            items.append(
-                {
-                    "role": "user",
-                    "content": [*tool_results, *sibling_content],
-                }
-            )
-    else:
-        items = [
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": request.user_prompt}],
-            }
-        ]
-    _attach_images(items, request)
-    return items
-
-
-def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> None:
-    """Append base64 image blocks to the latest user message in ``items``.
-
-    Image attachments belong to the current user turn, so they ride on the last
-    user message. Anthropic accepts ``image`` content blocks with a base64
-    source alongside text blocks.
-    """
-
-    if not request.attachments:
-        return
-    for item in reversed(items):
-        if item.get("role") != "user":
-            continue
-        content = item.get("content")
-        if not isinstance(content, list):
-            return
-        for attachment in request.attachments:
-            content.append(
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": attachment.media_type,
-                        "data": attachment.data_base64,
-                    },
-                }
-            )
-        return
-
-
-def _envelope_to_message(envelope: Any) -> dict[str, object]:
-    """Translate one ``AgentMessage`` into one Anthropic message dict."""
-
-    if isinstance(envelope, AgentUserMessage):
-        return {
-            "role": "user",
-            "content": [{"type": "text", "text": envelope.content.value}],
-        }
-    if isinstance(envelope, AgentAssistantMessage):
-        content: list[dict[str, object]] = []
-        if envelope.content.value:
-            content.append({"type": "text", "text": envelope.content.value})
-        for call in envelope.tool_calls:
-            try:
-                parsed_input = (
-                    json.loads(call.arguments_json.value)
-                    if call.arguments_json.value
-                    else {}
-                )
-            except json.JSONDecodeError:
-                parsed_input = {}
-            if not isinstance(parsed_input, Mapping):
-                parsed_input = {}
-            content.append(
-                {
-                    "type": "tool_use",
-                    "id": call.provider_correlation_id,
-                    "name": call.tool_name,
-                    "input": dict(parsed_input),
-                }
-            )
-        return {"role": "assistant", "content": content}
-    if isinstance(envelope, AgentToolResultMessage):
-        result, siblings = _convert_tool_result(
-            envelope,
-            deferred_tool_names=frozenset(),
-            loaded_tool_names=set(),
-        )
-        return {"role": "user", "content": [result, *siblings]}
-    raise AnthropicResponseParseError(
-        f"unsupported message envelope: {type(envelope).__name__}"
-    )
-
-
-def _convert_tool_result(
-    envelope: AgentToolResultMessage,
-    *,
-    deferred_tool_names: frozenset[str],
-    loaded_tool_names: set[str],
-) -> tuple[dict[str, object], list[dict[str, object]]]:
-    references: list[dict[str, object]] = []
-    for name in envelope.added_tool_names:
-        if name not in deferred_tool_names or name in loaded_tool_names:
-            continue
-        loaded_tool_names.add(name)
-        references.append({"type": "tool_reference", "tool_name": name})
-    block: dict[str, object] = {
-        "type": "tool_result",
-        "tool_use_id": envelope.provider_correlation_id,
-        "content": references if references else envelope.content.value,
-    }
-    if envelope.is_error:
-        block["is_error"] = True
-    siblings: list[dict[str, object]] = (
-        [{"type": "text", "text": envelope.content.value}]
-        if references and envelope.content.value.strip()
-        else []
-    )
-    return block, siblings
-
-
-@dataclass(frozen=True, slots=True)
-class ParsedAnthropicResponse:
-    final_text: str | None
-    usage: dict[str, int | float]
-    stop_reason: str
-    tool_calls: tuple[ProviderToolCall, ...] = ()
-
-
 class AnthropicProviderError(ProviderHTTPError):
     """Base class for sanitized Anthropic provider errors."""
 
@@ -447,88 +295,3 @@ class AnthropicTransportError(AnthropicProviderError):
 
 class AnthropicResponseParseError(AnthropicProviderError):
     """Raised when the Anthropic response shape is unsupported."""
-
-
-def _parse_response(body: Mapping[str, Any]) -> ParsedAnthropicResponse:
-    stop_reason_raw = body.get("stop_reason")
-    stop_reason = (
-        sanitize_text(stop_reason_raw)
-        if isinstance(stop_reason_raw, str)
-        else "unknown"
-    )
-
-    content = body.get("content")
-    final_text = _extract_final_text(content)
-    tool_calls = _extract_tool_calls(content)
-
-    if not final_text and not tool_calls:
-        raise AnthropicResponseParseError(
-            "Anthropic response did not include final output text or tool calls.",
-            metadata={"stop_reason": stop_reason},
-        )
-
-    return ParsedAnthropicResponse(
-        final_text=final_text,
-        usage=extract_anthropic_usage(body.get("usage")),
-        stop_reason=stop_reason,
-        tool_calls=tool_calls,
-    )
-
-
-def _extract_final_text(content: Any) -> str | None:
-    if not isinstance(content, list):
-        return None
-    chunks: list[str] = []
-    for item in content:
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("type") != "text":
-            continue
-        text = item.get("text")
-        if isinstance(text, str) and text:
-            chunks.append(text)
-    if not chunks:
-        return None
-    return "".join(chunks)
-
-
-def _extract_tool_calls(content: Any) -> tuple[ProviderToolCall, ...]:
-    """Parse Anthropic `content` items of type `tool_use`."""
-
-    if not isinstance(content, list):
-        return ()
-    calls: list[ProviderToolCall] = []
-    for index, item in enumerate(content):
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("type") != "tool_use":
-            continue
-        name = item.get("name")
-        tool_input = item.get("input")
-        call_id = item.get("id")
-        if not isinstance(name, str) or not name:
-            continue
-        if isinstance(tool_input, Mapping):
-            arguments_json = json.dumps(dict(tool_input), sort_keys=True)
-        else:
-            arguments_json = "{}"
-        correlation: str
-        if isinstance(call_id, str) and call_id:
-            correlation = call_id
-        else:
-            correlation = f"anthropic-tool-{index}"
-        try:
-            calls.append(
-                ProviderToolCall(
-                    provider_correlation_id=correlation[
-                        : ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH
-                    ],
-                    tool_name=name[: ProviderToolCall.TOOL_NAME_MAX_LENGTH],
-                    arguments_json=arguments_json[
-                        : ProviderToolCall.ARGUMENTS_JSON_MAX_LENGTH
-                    ],
-                )
-            )
-        except ValueError:
-            continue
-    return tuple(calls)

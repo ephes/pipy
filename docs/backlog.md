@@ -1119,21 +1119,28 @@ The bulk is mechanical duplication. pi-mono's
    it (their duplicate copies deleted). Remaining: fold the
    `openai_codex_provider` Responses/SSE path onto the same translator once its
    streaming contract is characterized. Refs: `02:F16`.
-4. Extract `pipy_harness.native.providers._anthropic_shared` and
-   collapse Anthropic + Bedrock onto it. Refs: `02:F4`.
-   **In progress (migration Slice 5.2-anthropic, cuts 1–2):** the Anthropic
-   Messages adapter moved verbatim to
-   `pipy_harness.native.providers.anthropic_messages`, translation-only over the
-   shared `native.http` primitives, keeping `AnthropicProvider`, the
-   `anthropic_http_client()` factory, `ANTHROPIC_MESSAGES_URL`, the
-   thinking-budget/adaptive constants, and `supports_adaptive_thinking` (cut 1);
-   the Bedrock InvokeModel adapter then moved verbatim to
-   `pipy_harness.native.providers.bedrock` in cut 2, translation-only over the
-   same shared primitives, keeping `AmazonBedrockProvider`,
-   `bedrock_http_client()`, `BedrockHTTPStatusError`/`BedrockAuthError`, the
-   region-templated endpoint, `anthropic_version` envelope, env-resolved
-   credentials, and the pure-stdlib `_sigv4_sign` chain byte-for-byte.
-   Remaining: consolidate the anthropic/bedrock wire helpers (cut 3).
+4. Extract a shared Anthropic Messages wire-shape translator and
+   collapse Anthropic + Bedrock onto it. Refs: `02:F4`. **Done (migration
+   Slice 5.2-anthropic, cuts 1–3).** Cut 1 moved the Anthropic Messages adapter
+   verbatim to `pipy_harness.native.providers.anthropic_messages`,
+   translation-only over the shared `native.http` primitives, keeping
+   `AnthropicProvider`, the `anthropic_http_client()` factory,
+   `ANTHROPIC_MESSAGES_URL`, the thinking-budget/adaptive constants, and
+   `supports_adaptive_thinking`; cut 2 moved the Bedrock InvokeModel adapter
+   verbatim to `pipy_harness.native.providers.bedrock`, keeping
+   `AmazonBedrockProvider`, `bedrock_http_client()`,
+   `BedrockHTTPStatusError`/`BedrockAuthError`, the region-templated endpoint,
+   `anthropic_version` envelope, env-resolved credentials, and the pure-stdlib
+   `_sigv4_sign` chain byte-for-byte. Cut 3 then consolidated the byte-identical
+   wire helpers into `pipy_harness.native.providers.anthropic_messages_wire`,
+   which now owns `messages_payload`/`envelope_to_message`/`convert_tool_result`/
+   `parse_response`/`extract_final_text`/`extract_tool_calls` and the shared
+   `ParsedAnthropicMessagesResponse` result, parameterized only by each adapter's
+   parse-error class, response label, tool-call provider prefix, and the
+   Anthropic-only message extensions Bedrock omits (tool-result coalescing,
+   deferred `tool_reference` emission, and image attachment); the two provider
+   dataclasses and their separate error hierarchies stay unmerged, and SigV4
+   signing still runs in the Bedrock adapter before the shared client sends.
 5. Move `_safe_response_label`, `_extract_usage`, and `_utc_now` into
    the shared http/parsing modules. Delete the per-provider copies.
    Refs: `02:F2`, `02:F13`, `02:F20`.

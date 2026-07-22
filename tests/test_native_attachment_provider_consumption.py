@@ -11,7 +11,8 @@ import hashlib
 from pathlib import Path
 from typing import Any, cast
 
-from pipy_harness.native.providers.anthropic_messages import _messages_payload
+from pipy_harness.native.providers.anthropic_messages import AnthropicResponseParseError
+from pipy_harness.native.providers.anthropic_messages_wire import messages_payload
 from pipy_harness.native.agent import AgentMessage, AgentUserMessage, ProductContent
 from pipy_harness.native.google_provider import _gemini_contents
 from pipy_harness.native.image_attachment import ProviderImageAttachment
@@ -49,8 +50,22 @@ def _request(*, messages: tuple[AgentMessage, ...] = ()) -> ProviderRequest:
     )
 
 
+def _anthropic_payload(request: ProviderRequest) -> list[dict[str, Any]]:
+    # Invoke the shared translator with the Anthropic parameters (the adapter
+    # enables image attachment and tool-result coalescing).
+    return cast(
+        list[dict[str, Any]],
+        messages_payload(
+            request,
+            parse_error_class=AnthropicResponseParseError,
+            attach_images=True,
+            coalesce_tool_results=True,
+        ),
+    )
+
+
 def test_anthropic_attaches_image_block_to_last_user_message() -> None:
-    payload = _messages_payload(_request())
+    payload = _anthropic_payload(_request())
     user = payload[-1]
     assert user["role"] == "user"
     blocks = _content(user)
@@ -65,7 +80,7 @@ def test_anthropic_attaches_image_block_to_last_user_message() -> None:
 
 
 def test_anthropic_attaches_to_messages_envelope() -> None:
-    payload = _messages_payload(
+    payload = _anthropic_payload(
         _request(messages=(AgentUserMessage(content=ProductContent("hi")),))
     )
     user = payload[-1]
@@ -117,7 +132,7 @@ def test_no_attachments_leaves_payload_text_only() -> None:
         model_id="m",
         cwd=Path("/tmp"),
     )
-    payload = _messages_payload(request)
+    payload = _anthropic_payload(request)
     assert all(
         block.get("type") != "image"
         for message in payload
