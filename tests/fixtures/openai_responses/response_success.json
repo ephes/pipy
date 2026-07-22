@@ -1,0 +1,25 @@
+{
+  "status": "completed",
+  "output": [
+    {
+      "type": "message",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "config.toml sets port 8080."
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 42,
+    "output_tokens": 8,
+    "total_tokens": 50,
+    "input_tokens_details": {
+      "cached_tokens": 12
+    },
+    "output_tokens_details": {
+      "reasoning_tokens": 4
+    }
+  }
+}

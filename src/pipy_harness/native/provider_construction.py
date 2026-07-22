@@ -547,7 +547,7 @@ def _default_endpoint(api: str) -> str:
 
         return ANTHROPIC_MESSAGES_URL
     if api == "openai-responses":
-        from pipy_harness.native.openai_provider import OPENAI_RESPONSES_URL
+        from pipy_harness.native.providers.openai_responses import OPENAI_RESPONSES_URL
 
         return OPENAI_RESPONSES_URL
     from pipy_harness.native.mistral_provider import MISTRAL_CHAT_COMPLETIONS_URL
@@ -684,7 +684,7 @@ def build_provider(
         )
 
     if resolved.api == "openai-responses":
-        from pipy_harness.native.openai_provider import OpenAIResponsesProvider
+        from pipy_harness.native.providers.openai_responses import OpenAIResponsesProvider
 
         return OpenAIResponsesProvider(
             model_id=resolved.model_id,

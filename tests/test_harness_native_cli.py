@@ -494,7 +494,7 @@ def test_cli_native_openai_provider_is_selectable_without_storing_output(
             )
 
     monkeypatch.setattr(
-        "pipy_harness.native.openai_provider.OpenAIResponsesProvider",
+        "pipy_harness.native.providers.openai_responses.OpenAIResponsesProvider",
         CliFakeOpenAIProvider,
     )
 
@@ -754,7 +754,7 @@ def test_cli_native_openai_failure_does_not_print_or_store_provider_final_text(
             )
 
     monkeypatch.setattr(
-        "pipy_harness.native.openai_provider.OpenAIResponsesProvider",
+        "pipy_harness.native.providers.openai_responses.OpenAIResponsesProvider",
         CliFailingOpenAIProvider,
     )
 

@@ -1,0 +1,57 @@
+{
+  "model": "gpt-5.1-codex",
+  "instructions": "You are the pipy native assistant.",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Read config.toml and summarize it."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "I'll read the file first."
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "call_id": "call_read_1",
+      "name": "read",
+      "arguments": "{\"path\": \"config.toml\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_read_1",
+      "output": "port = 8080"
+    }
+  ],
+  "store": false,
+  "tools": [
+    {
+      "type": "function",
+      "name": "read",
+      "description": "Read a file from the workspace.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  ],
+  "reasoning": {
+    "effort": "high"
+  }
+}

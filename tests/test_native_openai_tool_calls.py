@@ -24,7 +24,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
-from pipy_harness.native.openai_provider import (
+from pipy_harness.native.providers.openai_responses import (
     JsonResponse,
     OpenAIResponsesProvider,
 )

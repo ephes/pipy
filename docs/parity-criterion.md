@@ -100,7 +100,7 @@ that defines a provider class (excluding shared helpers `*-shared.ts`,
 | # | Feature | pipy status (2026-05-25) | Verify command |
 | - | ------- | ------------------------ | -------------- |
 | A1 | faux/fake provider | ✅ | `test -f src/pipy_harness/native/fake.py` |
-| A2 | openai-responses | ✅ | `test -f src/pipy_harness/native/openai_provider.py` |
+| A2 | openai-responses | ✅ | `test -f src/pipy_harness/native/providers/openai_responses.py` |
 | A3 | openai-codex-responses | ✅ | `test -f src/pipy_harness/native/openai_codex_provider.py` |
 | A4 | openai-completions (chat) | ✅ | `test -f src/pipy_harness/native/openai_completions_provider.py` |
 | A5 | anthropic | ✅ | `test -f src/pipy_harness/native/anthropic_provider.py` |
@@ -361,7 +361,7 @@ matrix where appropriate:
 These pipy invariants are **NOT relaxed** by the parity push:
 
 - **No new runtime dependencies.** All new providers must use `urllib` +
-  stdlib JSON, mirroring `openai_provider.py`. No `httpx`, `boto3`,
+  stdlib JSON, mirroring `providers/openai_responses.py`. No `httpx`, `boto3`,
   `anthropic`, `google-generativeai`, etc.
 - **Metadata-first archive.** No new feature may write raw prompts, model
   text, tool payloads, file contents, diffs, or auth material to the

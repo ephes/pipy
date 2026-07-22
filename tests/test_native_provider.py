@@ -21,7 +21,7 @@ PROVIDER_MODULES = (
     "mistral_provider.py",
     "openai_codex_provider.py",
     "openai_completions_provider.py",
-    "openai_provider.py",
+    "providers/openai_responses.py",
     "openrouter_provider.py",
 )
 

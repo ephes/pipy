@@ -130,7 +130,7 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.mistral_provider",
     "pipy_harness.native.openai_codex_provider",
     "pipy_harness.native.openai_completions_provider",
-    "pipy_harness.native.openai_provider",
+    "pipy_harness.native.providers.openai_responses",
     "pipy_harness.native.openrouter_provider",
 )
 

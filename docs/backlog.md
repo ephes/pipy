@@ -1090,8 +1090,8 @@ The bulk is mechanical duplication. pi-mono's
    `02:F3`.
 3. Extract `pipy_harness.native.providers._responses_shared` for the
    OpenAI Responses wire shape and collapse the three current copies
-   (`openai_provider`, `openai_codex_provider`, plus the Codex SSE
-   path). Refs: `02:F16`.
+   (`providers.openai_responses`, `openai_codex_provider`, plus the Codex
+   SSE path). Refs: `02:F16`.
 4. Extract `pipy_harness.native.providers._anthropic_shared` and
    collapse Anthropic + Bedrock onto it. Refs: `02:F4`.
 5. Move `_safe_response_label`, `_extract_usage`, and `_utc_now` into

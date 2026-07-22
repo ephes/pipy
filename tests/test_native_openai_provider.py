@@ -10,7 +10,7 @@ from typing import Any
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import NativeNoToolReplConversationContext, ProviderRequest
-from pipy_harness.native.openai_provider import (
+from pipy_harness.native.providers.openai_responses import (
     JsonResponse,
     OpenAIHTTPStatusError,
     OpenAIResponsesProvider,

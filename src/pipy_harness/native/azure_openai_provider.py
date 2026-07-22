@@ -5,8 +5,8 @@ OpenAI's first-party endpoint, but reaches it through a per-deployment URL
 and authenticates with an ``api-key`` header instead of a bearer token.
 
 This adapter intentionally duplicates the parsing helpers from
-``openai_provider`` so the two providers remain decoupled and can drift
-independently.
+``providers/openai_responses`` so the two providers remain decoupled and can
+drift independently.
 """
 
 from __future__ import annotations

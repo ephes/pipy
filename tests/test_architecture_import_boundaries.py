@@ -69,7 +69,6 @@ _LEGACY_CONCRETE_PROVIDER_MODULES = (
     "pipy_harness.native.mistral_provider",
     "pipy_harness.native.openai_codex_provider",
     "pipy_harness.native.openai_completions_provider",
-    "pipy_harness.native.openai_provider",
     "pipy_harness.native.openrouter_provider",
 )
 
@@ -93,10 +92,12 @@ _PROVIDER_UI_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.tui",
 )
 
-# Phase 5 will move the concrete transports under ``native.providers``.  Until
-# that cutover, enforce the same boundary for every current top-level transport
-# and the provider-facing ports, fakes, deferred-tool adapter, and shared HTTP
-# helper so the planned package rule cannot silently no-op.
+# Phase 5.2 is migrating the concrete transports under ``native.providers`` one
+# family at a time (the OpenAI Responses adapter now lives in
+# ``native.providers.openai_responses`` and is governed by the ``native.providers``
+# package rule below).  For every transport still at the top level, enforce the
+# same boundary here alongside the provider-facing ports, fakes, deferred-tool
+# adapter, and shared HTTP helper so the package rule cannot silently no-op.
 _CURRENT_PROVIDER_UI_BOUNDARY_SOURCES = (
     *_LEGACY_CONCRETE_PROVIDER_MODULES,
     *_PROVIDER_UI_SUPPORT_MODULES,
@@ -823,7 +824,7 @@ ARCHITECTURE_RULES = (
     BoundaryRule(
         source_package="pipy_harness.native.providers",
         forbidden_imports=_PROVIDER_UI_FORBIDDEN_IMPORTS,
-        reason="future Phase 5 provider transports must not depend on UI code",
+        reason="Phase 5 provider transports must not depend on UI code",
     ),
     BoundaryRule(
         source_package="pipy_harness.native.coding",
@@ -1288,7 +1289,7 @@ import pipy_harness.native.extension_runtime
 import pipy_harness.native.tui
 import pipy_harness.native.tool_loop_session
 import pipy_harness.native.provider_construction
-import pipy_harness.native.openai_provider
+import pipy_harness.native.providers.openai_responses
 import pipy_session
 """,
     )
@@ -1310,7 +1311,7 @@ import pipy_session
         (provider_turn_path, "pipy_harness.native.tui", 4),
         (provider_turn_path, "pipy_harness.native.tool_loop_session", 5),
         (provider_turn_path, "pipy_harness.native.provider_construction", 6),
-        (provider_turn_path, "pipy_harness.native.openai_provider", 7),
+        (provider_turn_path, "pipy_harness.native.providers.openai_responses", 7),
         (provider_turn_path, "pipy_session", 8),
     }
 
@@ -1331,7 +1332,7 @@ import pipy_harness.native.catalog
 import pipy_harness.native.provider
 import pipy_harness.native.models
 import pipy_harness.native.usage
-import pipy_harness.native.openai_provider
+import pipy_harness.native.providers.openai_responses
 import pipy_session
 import pipy_harness.native.chrome
 import pipy_harness.native.agent_adapters
@@ -1356,7 +1357,7 @@ import pipy_harness.native.repl_state
         (usage_path, "pipy_harness.capture", 1),
         (usage_path, "pipy_harness.native.tui", 2),
         (usage_path, "pipy_harness.native.tool_loop_session", 3),
-        (usage_path, "pipy_harness.native.openai_provider", 9),
+        (usage_path, "pipy_harness.native.providers.openai_responses", 9),
         (usage_path, "pipy_session", 10),
     }
     assert {
@@ -1371,7 +1372,7 @@ import pipy_harness.native.repl_state
         (usage_path, "pipy_harness.native.provider", 6),
         (usage_path, "pipy_harness.native.models", 7),
         (usage_path, "pipy_harness.native.usage", 8),
-        (usage_path, "pipy_harness.native.openai_provider", 9),
+        (usage_path, "pipy_harness.native.providers.openai_responses", 9),
         (usage_path, "pipy_session", 10),
         (usage_path, "pipy_harness.native.chrome", 11),
         (usage_path, "pipy_harness.native.agent_adapters", 12),
@@ -1396,7 +1397,7 @@ import pipy_harness.native.provider
 import pipy_harness.native.catalog
 import pipy_harness.native.models
 import pipy_harness.native.themes
-import pipy_harness.native.openai_provider
+import pipy_harness.native.providers.openai_responses
 import pipy_session
 """,
     )
@@ -1419,7 +1420,7 @@ import pipy_session
         (history_path, "pipy_harness.native.tui", 3),
         (history_path, "pipy_harness.native.tool_loop_session", 4),
         (history_path, "pipy_harness.native.session_tree", 5),
-        (history_path, "pipy_harness.native.openai_provider", 10),
+        (history_path, "pipy_harness.native.providers.openai_responses", 10),
         (history_path, "pipy_session", 11),
     }
     assert {
@@ -1435,7 +1436,7 @@ import pipy_session
         (history_path, "pipy_harness.native.catalog", 7),
         (history_path, "pipy_harness.native.models", 8),
         (history_path, "pipy_harness.native.themes", 9),
-        (history_path, "pipy_harness.native.openai_provider", 10),
+        (history_path, "pipy_harness.native.providers.openai_responses", 10),
         (history_path, "pipy_session", 11),
     }
 
@@ -2359,7 +2360,7 @@ def test_coding_agent_run_direct_imports_match_explicit_allowlist() -> None:
         "pipy_harness.native.coding.session",
         "pipy_harness.native.provider",
         "pipy_harness.native.tools.bash",
-        "pipy_harness.native.openai_provider",
+        "pipy_harness.native.providers.openai_responses",
         "pipy_harness.capture",
         "pipy_session",
     ),
@@ -2441,7 +2442,7 @@ def test_coding_accepted_input_direct_imports_match_explicit_allowlist() -> None
         "pipy_harness.native.coding.session",
         "pipy_harness.native.provider",
         "pipy_harness.native.tools.bash",
-        "pipy_harness.native.openai_provider",
+        "pipy_harness.native.providers.openai_responses",
         "pipy_harness.capture",
         "pipy_session",
     ),
@@ -2523,7 +2524,7 @@ def test_coding_result_direct_imports_match_explicit_allowlist() -> None:
         "pipy_harness.native.coding.session",
         "pipy_harness.native.provider",
         "pipy_harness.native.tools.bash",
-        "pipy_harness.native.openai_provider",
+        "pipy_harness.native.providers.openai_responses",
         "pipy_harness.capture",
         "pipy_session",
     ),
@@ -2601,7 +2602,7 @@ def test_coding_session_controller_direct_imports_match_explicit_allowlist() -> 
         "pipy_harness.native.coding.session",
         "pipy_harness.native.provider",
         "pipy_harness.native.tools.bash",
-        "pipy_harness.native.openai_provider",
+        "pipy_harness.native.providers.openai_responses",
         "pipy_harness.capture",
         "pipy_session",
     ),
@@ -3267,8 +3268,8 @@ def test_tool_loop_provider_access_is_state_backed_across_run_and_settings() -> 
         pytest.param(
             "pipy_harness.native.agent",
             "from pipy_harness.native.provider import ProviderPort\n",
-            "from pipy_harness.native.openai_provider import OpenAIProvider\n",
-            "pipy_harness.native.openai_provider",
+            "from pipy_harness.native.providers.openai_responses import OpenAIProvider\n",
+            "pipy_harness.native.providers.openai_responses",
             id="agent",
         ),
         pytest.param(

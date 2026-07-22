@@ -16,7 +16,7 @@ from pipy_harness.native.agent import AgentMessage, AgentUserMessage, ProductCon
 from pipy_harness.native.google_provider import _gemini_contents
 from pipy_harness.native.image_attachment import ProviderImageAttachment
 from pipy_harness.native.models import ProviderRequest
-from pipy_harness.native.openai_provider import _responses_input
+from pipy_harness.native.providers.openai_responses import _responses_input
 
 
 def _content(message: object) -> list[dict[str, Any]]:
