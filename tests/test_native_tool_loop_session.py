@@ -3177,10 +3177,13 @@ def test_command_dispatch_precedence_kernel_resource_extension_fallback(
     1. **Kernel is the sole built-in classifier.** ``/reload`` is claimed by
        the outcome kernel (it reloads settings/resources) even though a custom
        command *also* named ``reload`` exists on disk; no raw ``command_text ==
-       "/reload"`` branch survives to change that, and the collision is
-       resolved solely by kernel-before-resource ordering — not by
-       ``RESERVED_COMMAND_NAMES`` (``reload`` is deliberately absent from that
-       advertising set, whose completion is deferred to Phase 3.2).
+       "/reload"`` branch survives to change that. Runtime precedence is
+       resolved by kernel-before-resource ordering; independently, as of Phase
+       3.2 ``reload`` is also a member of the widened
+       ``RESERVED_COMMAND_NAMES`` (derived from the full declarative-registry
+       built-in set), so the colliding custom ``reload`` command is now also
+       kept out of slash discovery and can never be claimed by the resource
+       layer even if it were consulted.
     2. **UNHANDLED is the single delegation boundary**, in the fixed order
        ``dispatch_resource_command`` -> ``dispatch_extension_command`` -> the
        unknown-``/`` fallback diagnostic -> the provider turn.
@@ -3270,42 +3273,52 @@ def test_command_dispatch_precedence_kernel_resource_extension_fallback(
     # (settings/resources reloaded) rather than the colliding custom command.
     assert "reloaded settings, keybindings, and resources." in err
 
-    # The precedence here is enforced solely by kernel-before-resource
-    # ordering: ``reload`` is not reserved, so the resource layer WOULD claim
-    # ``/reload`` as a custom-command run if it were ever consulted for it. It
-    # never is, because the kernel classifies and continues first. This pins
-    # the Phase 3.2-deferred RESERVED_COMMAND_NAMES advertising gap.
+    # Runtime precedence is enforced by kernel-before-resource ordering: the
+    # kernel classifies ``/reload`` and continues first, so the resource layer
+    # is never consulted for it. As of Phase 3.2 the advertising gap is also
+    # closed: ``reload`` is a member of the widened ``RESERVED_COMMAND_NAMES``,
+    # so the colliding custom ``reload`` command is dropped from slash discovery
+    # and the resource layer returns ``None`` for ``/reload`` even if consulted
+    # directly — it is reserved, not claimable.
     from pipy_harness.native.resources import (
-        DISPATCH_COMMAND_RUN,
+        RESERVED_COMMAND_NAMES,
         WorkspaceResources,
         dispatch_resource_command,
     )
 
+    assert "reload" in RESERVED_COMMAND_NAMES
     resources = WorkspaceResources.discover(
         tmp_path,
         config_home_env={},
         home_dir=tmp_path,
         include_workspace_defaults=True,
     )
-    would_be_claimed = dispatch_resource_command("/reload", resources)
-    assert would_be_claimed is not None
-    assert would_be_claimed.kind == DISPATCH_COMMAND_RUN
+    # The colliding custom ``reload`` command is no longer advertised.
+    assert "/reload" not in resources.custom_command_slash_names()
+    # And resource dispatch never claims it: ``reload`` is reserved, so the line
+    # falls through to ``None`` (the caller's fail-closed unknown-command path).
+    assert dispatch_resource_command("/reload", resources) is None
 
     # (4a): the ``/greet`` prompt-template resource run wins over the
     # same-named extension command, which therefore never fires (a resource
     # claim guards out extension dispatch). This is only a real dispatch-order
     # check if the ``greet`` extension command genuinely coexists rather than
     # being silently disabled at registration: the extension reserved set is a
-    # union of built-ins with *custom-command* slash names only (not prompt
-    # templates), so the ``greet`` template does not reserve the ``greet``
-    # extension command. Pin that here so ``not greet_marker.exists()`` cannot
-    # pass vacuously if a future change ever folded template names into the
-    # reserved set.
+    # union of the widened built-in set with *custom-command* slash names only
+    # (not prompt templates), so the ``greet`` template does not reserve the
+    # ``greet`` extension command. Pin that here so ``not greet_marker.exists()``
+    # cannot pass vacuously if a future change ever folded template names into
+    # the reserved set.
     reserved = extension_reserved_command_names(
         resources.custom_command_slash_names()
     )
     assert "greet" not in reserved
     assert "extonly" not in reserved
+    # The extension reserved set is widened to the full built-in vocabulary as
+    # of Phase 3.2: a built-in like ``reload`` an extension could formerly have
+    # registered (it was absent from the completion-menu subset) is now reserved.
+    assert "reload" in reserved
+    assert "session" in reserved
     assert not greet_marker.exists()
 
     # (4b): ``/extonly`` reaches the extension command (before the fallback).

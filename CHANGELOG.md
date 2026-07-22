@@ -135,6 +135,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Changed
 
+- Custom commands, prompt templates, and extension commands can no longer be
+  advertised in slash discovery or registered by an extension when their name
+  collides with any built-in command. The reserved-name set now covers every
+  built-in (`reload`, `tree`, `new`, `fork`, `session`, `compact`, `export`,
+  `import`, `clone`, `resume`, `name`, `share`, `trust`, `scoped-models`,
+  `hotkeys`, `changelog`, and the previously covered names) rather than a
+  hand-maintained subset, closing an advertising gap where such a colliding
+  name was still shown even though the built-in always ran instead. Runtime
+  command dispatch is unchanged.
 - Provider requests now carry an exact request-local advertised-tool snapshot.
   Serial `before_provider_request` tool transforms can only narrow the current
   detached definitions in their prior order, while `ctx.set_active_tools(...)`

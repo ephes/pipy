@@ -2159,14 +2159,15 @@ declarative registry.
 This closure is characterization plus documentation only, with no production
 dispatch-logic change (matching the 3.1d.2b-test precedent). A single end-to-end
 characterization test in `tests/test_native_tool_loop_session.py` drives `run()`
-to pin all four orderings. It deliberately does not expand
+to pin all four orderings. It deliberately did not expand
 `RESERVED_COMMAND_NAMES` to the full built-in set: that set governs which
 colliding custom commands are advertised or dropped in slash discovery, so
 widening it is a behavior change (a colliding `reload`/`tree`/`new` custom
-command is still advertised even though the kernel prevents it running). That
-advertising-completeness correction — like names, aliases, descriptions,
-availability, help, completion, and menus — is deferred to Phase 3.2's
-declarative registry.
+command was still advertised even though the kernel prevents it running). That
+advertising-completeness correction was deferred to Phase 3.2 and is now shipped
+by the "reserve every built-in command name" sub-slice above, which derives both
+reserved sets from the declarative registry's full name+alias set unioned with
+the `skill`/`theme` adjuncts.
 
 ### Declarative command registry drives classification — SHIPPED (2026-07-22)
 
@@ -2211,9 +2212,37 @@ preserved. The independently typed description dict literal and both duplicated
 command-string tuples are deleted. Byte-identical behavior — every completion
 tuple's members/order and every description string are preserved, the divergent
 tuples are not unified, and the advertised set is unchanged. Availability
-enforcement in menus/help and the `RESERVED_COMMAND_NAMES` widening remain later
-sub-slices. No public CLI/JSON/RPC/session-format change, and no new runtime
-dependency, `Any`, or `type: ignore`.
+enforcement in menus/help remains a later sub-slice; the `RESERVED_COMMAND_NAMES`
+widening is the next sub-slice below. No public CLI/JSON/RPC/session-format
+change, and no new runtime dependency, `Any`, or `type: ignore`.
+
+### Reserve every built-in command name — SHIPPED (2026-07-22)
+
+The third Phase 3.2 sub-slice lands the one intended behavior change of the
+phase and closes the advertising-completeness gap deferred from Phase 3.1d.
+`RESERVED_COMMAND_NAMES` (`native.resources`) is now derived from the single
+declarative-registry source — `frozenset(name.lstrip("/") for name in
+builtin_command_names())` unioned with an explicit
+`_RESOURCE_ADJUNCT_COMMAND_NAMES = frozenset({"skill", "theme"})` — replacing the
+prior nine-name hand-maintained literal, and the built-in half of
+`extension_reserved_command_names` (`native.extension_provider_catalog`) reuses
+that same set (was the union of the two curated completion-menu subsets +
+`/skill`), still unioning discovered custom-command slash names on top. A
+colliding custom command, prompt template, or extension command named after ANY
+built-in (`reload`, `tree`, `new`, `fork`, `session`, `compact`, `export`,
+`import`, `clone`, `resume`, `name`, `share`, `trust`, `scoped-models`,
+`hotkeys`, `changelog`, plus the nine already covered) is no longer advertised in
+slash discovery / the menu and can no longer be registered by an extension.
+`template` stays unreserved (no `/template` built-in); `skill`/`theme` stay
+reserved. Runtime dispatch is unchanged: the kernel already intercepted every
+built-in before resource/extension dispatch, so this only widens which colliding
+resources are dropped from the advertised surface. Characterization landed first
+in `tests/test_native_resources.py` and the `tests/test_native_tool_loop_session.py`
+precedence test; the `extension_activation_conformance.py`,
+`extension_dispatch_conformance.py`, and `settings_config_conformance.py` gates
+add fixtures/checks exercising the widened set. No public
+CLI/JSON/RPC/session-format change beyond the intended advertising widening, and
+no new runtime dependency, `Any`, or `type: ignore`.
 
 ### Agent-run collaborator adapter relocation — IN PROGRESS (2026-07-21)
 

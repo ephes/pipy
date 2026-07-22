@@ -52,28 +52,32 @@ from pipy_harness.native._resource_files import (
     CLI_PATH_LABEL_PREFIX,
     safe_resource_metadata,
 )
+from pipy_harness.native.coding.command_registry import builtin_command_names
 
 SKILL_RESOURCE_COMMAND = "/skill"
 
+# Resource-owned adjunct command names (without the leading slash) that are
+# advertised in slash discovery but are not declarative-registry built-ins:
+# ``skill`` (the ``/skill`` resource command) and ``theme`` (the theme picker).
+# They are reserved explicitly so a custom command, prompt template, or
+# extension can never shadow them even though the command registry does not own
+# them.
+_RESOURCE_ADJUNCT_COMMAND_NAMES: frozenset[str] = frozenset({"skill", "theme"})
+
 # Built-in slash-command names (without the leading slash) that a custom
-# command or prompt template may never shadow. The dispatcher is always
-# consulted after the built-in handlers, but excluding collisions keeps
-# resource commands out of slash discovery / the menu so the surface stays
-# honest. ``template`` is intentionally absent: there is no ``/template``
-# built-in (templates are invoked as ``/<name>``), so a template/command may
-# use that name.
-RESERVED_COMMAND_NAMES: frozenset[str] = frozenset(
-    {
-        "settings",
-        "login",
-        "logout",
-        "model",
-        "theme",
-        "copy",
-        "exit",
-        "quit",
-        "skill",
-    }
+# command or prompt template may never shadow. Derived from the single
+# declarative command-registry source (every built-in ``/…`` name and alias)
+# unioned with the resource-owned adjuncts above, so every built-in the kernel
+# can classify -- ``reload``, ``tree``, ``new``, ``fork``, ``session``,
+# ``compact``, ``export`` and the rest -- is kept out of slash discovery / the
+# menu and can never be registered by an extension. The dispatcher is always
+# consulted after the built-in handlers, so excluding collisions keeps the
+# advertised surface honest. ``template`` is intentionally absent: there is no
+# ``/template`` built-in (templates are invoked as ``/<name>``), so a
+# template/command may use that name.
+RESERVED_COMMAND_NAMES: frozenset[str] = (
+    frozenset(name.lstrip("/") for name in builtin_command_names())
+    | _RESOURCE_ADJUNCT_COMMAND_NAMES
 )
 
 # Dispatch kinds.

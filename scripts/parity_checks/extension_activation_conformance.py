@@ -19,7 +19,10 @@ the real `discover_extensions`, then activates with the real
    one (`duplicate_command`);
 9. a discovery-disabled descriptor is NEVER imported (its top-level side
    effect must not run);
-10. `safe_activation_metadata` carries only safe labels (no handlers).
+10. `safe_activation_metadata` carries only safe labels (no handlers);
+11. the real widened reserved set (every declarative-registry built-in +
+    the skill/theme adjuncts) disables an extension registering any built-in
+    name -- not only the subset advertised in the completion menus.
 
 Exits 0 when every check passes, 1 otherwise. No network.
 
@@ -36,6 +39,9 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from pipy_harness.native.extension_provider_catalog import (
+    extension_reserved_command_names,
+)
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
     activate_extensions,
@@ -92,6 +98,15 @@ def _populate(workspace: Path) -> Path:
         "shadow",
         "def activate(api):\n"
         "    api.register_command('model', 'x', lambda ctx, args: None)\n",
+    )
+    # Registers a built-in name (``reload``) that was NOT in the pre-3.2
+    # completion-menu subset; it must be disabled once the widened reserved set
+    # (the full declarative-registry built-in vocabulary) is applied.
+    _single(
+        workspace,
+        "widenedshadow",
+        "def activate(api):\n"
+        "    api.register_command('reload', 'x', lambda ctx, args: None)\n",
     )
     _single(
         workspace,
@@ -217,6 +232,27 @@ def run_checks(workspace: Path) -> list[Check]:
             "reserved_command_disabled",
             reason_is("shadow", "disabled", "reserved_command"),
             "reserved command name disabled",
+        )
+    )
+    # Re-activate against the real widened reserved set (every declarative-
+    # registry built-in + the skill/theme adjuncts). A built-in name that was
+    # absent from the pre-3.2 completion-menu subset (``reload``) is now
+    # reserved, while a non-built-in extension command (``greet``) still
+    # activates.
+    widened = activate_extensions(
+        descriptors, reserved_command_names=extension_reserved_command_names()
+    )
+
+    def widened_reason(name: str, status: str, reason: str | None) -> bool:
+        item = _by_name(widened, name)
+        return item is not None and item.status == status and item.reason == reason
+
+    checks.append(
+        Check(
+            "widened_reserved_command_disabled",
+            widened_reason("widenedshadow", "disabled", "reserved_command")
+            and widened_reason("greeter", "activated", None),
+            "widened built-in name (reload) reserved out of extensions",
         )
     )
     aaa = _by_name(result, "aaa")

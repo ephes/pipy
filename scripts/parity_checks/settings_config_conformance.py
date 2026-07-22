@@ -454,6 +454,38 @@ def check_16_version_and_update_off(_root: Path) -> tuple[bool, str]:
     return off and offline, f"off={off} offline={offline}"
 
 
+def check_18_reserved_command_advertising(root: Path) -> tuple[bool, str]:
+    from pipy_harness.native.resources import (
+        RESERVED_COMMAND_NAMES,
+        WorkspaceResources,
+    )
+
+    # Phase 3.2 widened RESERVED_COMMAND_NAMES to the full declarative-registry
+    # built-in vocabulary (+ the skill/theme adjuncts). A custom command named
+    # after a built-in that was previously unreserved (``reload``) is now dropped
+    # from slash discovery; a non-colliding command (``deploy``) is still
+    # advertised.
+    ws = root / "ws18"
+    cmds = ws / ".pipy" / "commands"
+    cmds.mkdir(parents=True, exist_ok=True)
+    (cmds / "reload.md").write_text(
+        "---\nname: reload\ndescription: x\n---\n\nBODY\n", encoding="utf-8"
+    )
+    (cmds / "deploy.md").write_text(
+        "---\nname: deploy\ndescription: y\n---\n\nBODY\n", encoding="utf-8"
+    )
+    resources = WorkspaceResources.discover(ws, include_workspace_defaults=True)
+    slash = resources.custom_command_slash_names()
+    widened = all(
+        name in RESERVED_COMMAND_NAMES
+        for name in ("reload", "tree", "new", "fork", "session", "compact", "export")
+    )
+    dropped = "/reload" not in slash
+    kept = "/deploy" in slash
+    ok = widened and dropped and kept
+    return ok, f"widened={widened} dropped={dropped} kept={kept}"
+
+
 def check_17_no_secrets_in_report(root: Path) -> tuple[bool, str]:
     _write(root / "config" / "settings.json", {"theme": "dark", "defaultProvider": "openai"})
     mgr = _manager(root)
@@ -482,6 +514,7 @@ CHECKS: list[tuple[int, str, Callable[[Path], tuple[bool, str]]]] = [
     (15, "/changelog startup bump/first-run/resume/collapse", check_15_changelog),
     (16, "--version + update check off by default", check_16_version_and_update_off),
     (17, "no secrets in the /settings report", check_17_no_secrets_in_report),
+    (18, "reserved-command advertising widened to full registry", check_18_reserved_command_advertising),
 ]
 
 

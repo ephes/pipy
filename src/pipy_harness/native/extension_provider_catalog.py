@@ -21,25 +21,26 @@ def extension_reserved_command_names(
 ) -> tuple[str, ...]:
     """Return slash-command names extensions may not register.
 
-    This is intentionally a union of the REPL built-in command
-    vocabularies plus resource/custom commands. Provider-only catalog activation
-    uses the same reserved set as full extension activation, so an extension is
-    not listable as a provider when its activation would later be disabled by a
-    command collision.
+    The built-in half is the shared :data:`RESERVED_COMMAND_NAMES` set (every
+    declarative-registry built-in name and alias unioned with the ``skill`` and
+    ``theme`` resource adjuncts), so an extension can never register a command
+    named after any built-in the kernel can classify -- ``reload``, ``tree``,
+    ``new``, ``fork``, ``session``, ``compact``, ``export`` and the rest -- not
+    only the subset advertised in the completion menus. Discovered custom-command
+    slash names are unioned in so an extension cannot shadow a workspace command
+    either. Provider-only catalog activation uses the same reserved set as full
+    extension activation, so an extension is not listable as a provider when its
+    activation would later be disabled by a command collision.
     """
 
-    from pipy_harness.native.repl_input import DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS
-    from pipy_harness.native.tui import TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
+    from pipy_harness.native.resources import RESERVED_COMMAND_NAMES
 
-    names: list[str] = []
-    for slash_name in (
-        *DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS,
-        *TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
-        "/skill",
-        *custom_command_slash_names,
-    ):
+    names: list[str] = sorted(RESERVED_COMMAND_NAMES)
+    seen = set(names)
+    for slash_name in custom_command_slash_names:
         normalized = slash_name.lstrip("/")
-        if normalized and normalized not in names:
+        if normalized and normalized not in seen:
+            seen.add(normalized)
             names.append(normalized)
     return tuple(names)
 

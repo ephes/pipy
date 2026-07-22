@@ -13,7 +13,9 @@ from `docs/extension-api.md`:
 4. an extension cannot shadow a built-in command name (disabled at
    activation, so the built-in still resolves);
 5. `ctx.append_entry(...)` persists without a provider turn while its TUI-only
-   renderer stays inert on this captured/headless path.
+   renderer stays inert on this captured/headless path;
+6. the real widened reserved set blocks an extension command named after ANY
+   built-in (e.g. `session`), not only the completion-menu subset.
 
 Exits 0 when every check passes, 1 otherwise. No network.
 
@@ -35,6 +37,9 @@ from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
+from pipy_harness.native.extension_provider_catalog import (
+    extension_reserved_command_names,
+)
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
     extension_command_map,
@@ -103,6 +108,13 @@ def run_checks(workspace: Path) -> list[Check]:
     (ext / "shadow.py").write_text(
         "def activate(api):\n"
         "    api.register_command('help', 'x', lambda ctx, args: None)\n",
+        encoding="utf-8",
+    )
+    # Registers a built-in (``session``) that was absent from the pre-3.2
+    # completion-menu subset; the real widened reserved set must block it.
+    (ext / "widenedshadow.py").write_text(
+        "def activate(api):\n"
+        "    api.register_command('session', 'x', lambda ctx, args: None)\n",
         encoding="utf-8",
     )
     (ext / "card.py").write_text(
@@ -185,6 +197,22 @@ def run_checks(workspace: Path) -> list[Check]:
             "no_builtin_shadow",
             "help" not in command_map and "sayhi" in command_map,
             "extension cannot shadow a built-in command",
+        )
+    )
+    # The real widened reserved set (every declarative-registry built-in + the
+    # skill/theme adjuncts) blocks an extension command named after any built-in,
+    # not only the completion-menu subset: ``session`` is reserved out even
+    # though it was never advertised in a completion menu.
+    widened_map = extension_command_map(
+        activate_extensions(
+            descriptors, reserved_command_names=extension_reserved_command_names()
+        )
+    )
+    checks.append(
+        Check(
+            "widened_builtin_shadow_blocked",
+            "session" not in widened_map and "sayhi" in widened_map,
+            "widened built-in command name reserved out of extensions",
         )
     )
     return checks

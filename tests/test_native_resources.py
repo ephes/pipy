@@ -11,12 +11,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pipy_harness.native.coding.command_registry import builtin_command_names
 from pipy_harness.native.resources import (
     DISPATCH_COMMAND_RUN,
     DISPATCH_LIST,
     DISPATCH_REJECT,
     DISPATCH_SKILL_RUN,
     DISPATCH_TEMPLATE_RUN,
+    RESERVED_COMMAND_NAMES,
     WorkspaceResources,
     dispatch_resource_command,
 )
@@ -88,6 +90,73 @@ def test_custom_command_slash_names_excludes_reserved(tmp_path: Path) -> None:
     names = resources.custom_command_slash_names()
     assert "/deploy" in names
     assert "/model" not in names  # reserved built-in collision dropped
+
+
+def test_reserved_command_names_covers_full_registry_plus_adjuncts() -> None:
+    # RESERVED_COMMAND_NAMES is derived from the single declarative-registry
+    # source (every built-in ``/…`` name + alias, without the slash) unioned with
+    # the ``skill`` and ``theme`` resource adjuncts. This is the widened Phase 3.2
+    # advertising-completeness set: every built-in the kernel can classify is
+    # reserved, not just the subset advertised in the completion menus.
+    registry_names = {name.lstrip("/") for name in builtin_command_names()}
+    assert registry_names <= RESERVED_COMMAND_NAMES
+    assert RESERVED_COMMAND_NAMES == registry_names | {"skill", "theme"}
+    # Built-ins that were absent from the pre-3.2 hardcoded reserved set are now
+    # reserved (they can never be shadowed / advertised by a colliding resource).
+    for widened in ("reload", "tree", "new", "fork", "session", "compact", "export"):
+        assert widened in RESERVED_COMMAND_NAMES
+    # ``template`` remains unreserved: there is no ``/template`` built-in.
+    assert "template" not in RESERVED_COMMAND_NAMES
+
+
+def test_custom_command_colliding_with_widened_builtin_is_dropped(tmp_path: Path) -> None:
+    # A custom command named after a built-in that was NOT in the pre-3.2
+    # reserved set (e.g. ``reload``) is now dropped from slash discovery and is
+    # never claimed by resource dispatch.
+    workspace = tmp_path / "ws"
+    _write(
+        workspace / ".pipy" / "commands",
+        "reload.md",
+        name="reload",
+        description="should be ignored",
+        body="never runs\n",
+    )
+    workspace.mkdir(exist_ok=True)
+    resources = WorkspaceResources.discover(
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
+    )
+    # Discovered on disk, but not advertised (reserved built-in collision).
+    assert {c.name for c in resources.commands} == {"reload"}
+    assert "/reload" not in resources.custom_command_slash_names()
+    assert "/reload" not in resources.custom_command_descriptions()
+    # And never claimed by resource dispatch: it falls through to ``None`` so the
+    # caller's fail-closed unknown-command path handles it.
+    assert dispatch_resource_command("/reload", resources) is None
+
+
+def test_template_colliding_with_widened_builtin_is_dropped(tmp_path: Path) -> None:
+    # A prompt template named after a widened built-in (e.g. ``tree``) is not
+    # advertised and never dispatched as a template run.
+    workspace = tmp_path / "ws"
+    _write(
+        workspace / ".pipy" / "templates",
+        "tree.md",
+        name="tree",
+        description="should be ignored",
+        body="Please expand $ARGUMENTS.\n",
+    )
+    workspace.mkdir(exist_ok=True)
+    resources = WorkspaceResources.discover(
+        workspace,
+        config_home_env={},
+        home_dir=workspace,
+        include_workspace_defaults=True,
+    )
+    assert "/tree" not in resources.template_slash_names()
+    assert dispatch_resource_command("/tree the repo", resources) is None
 
 
 def test_dispatch_passthrough_for_non_resource(tmp_path: Path) -> None:
