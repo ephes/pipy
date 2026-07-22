@@ -87,7 +87,6 @@ from pipy_harness.native.terminal_driver import (
     TerminalDriver,
     _TITLE_MAX_CHARS,
 )
-from pipy_harness.native.terminal_input import read_terminal_utf8_char
 
 
 # Sentinel returned by the session-picker key handler to mean "stay open"
@@ -144,14 +143,6 @@ _MAX_UNDO_DEPTH = 200
 # Cap the in-memory prompt-recall history so a long session cannot grow it
 # without bound. History is session-scoped and never persisted.
 _MAX_HISTORY_DEPTH = 500
-# Bracketed-paste *decoding* markers. The terminal wraps pasted text in
-# ESC[200~ ... ESC[201~ so it can be inserted literally instead of being
-# interpreted keystroke-by-keystroke (which would submit on embedded
-# newlines). The enable/disable toggles the driver writes to the terminal
-# live in ``native.terminal_driver``; these start/end markers stay with the
-# key decoder here (Slice 4.2b).
-_BRACKETED_PASTE_START = "200~"
-_BRACKETED_PASTE_END = "\x1b[201~"
 # Single-width glyph shown in the input cell for a newline carried by a
 # multi-line paste. The buffer keeps the literal "\n" (so the exact multi-line
 # prompt is submitted on Enter); only the rendered cell substitutes the glyph,
@@ -1118,7 +1109,6 @@ class ToolLoopTerminalUi:
     _undo_stack: list[tuple[str, int]] = field(default_factory=list)
     _redo_stack: list[tuple[str, int]] = field(default_factory=list)
     _pending_paste: str = ""
-    _pending_input_bytes: bytearray = field(default_factory=bytearray)
     # Editor rehydration: a ``/tree`` user-message selection pre-fills the next
     # prompt with the selected text so the user can edit it into a new branch.
     _pending_initial_text: str | None = None
@@ -1414,7 +1404,9 @@ class ToolLoopTerminalUi:
                 # mid-turn: streamed chunks repaint at the live size, but a
                 # stalled stream would not, so poll here too.
                 self._poll_resize_repaint()
-                key = self._read_key_if_available(fd, poll_seconds)
+                key = self._read_driver_key(
+                    self._driver.read_key_if_available(fd, poll_seconds)
+                )
                 if key is None:
                     continue
                 if key == "esc":
@@ -5378,132 +5370,18 @@ class ToolLoopTerminalUi:
             return _clip_custom_overlay_text(text, width)
         return text + (" " * (width - visible_len))
 
-    def _read_key(self, fd: int) -> str | None:
-        ch = self._read_byte(fd)
-        if ch == "":
-            return None
-        if ch == "\x1b":
-            return self._read_escape_sequence(fd)
-        if ch in {"\r", "\n"}:
-            return "enter"
-        if ch == "\t":
-            return "tab"
-        if ch in {"\x7f", "\b"}:
-            return "backspace"
-        if ch == "\x03":
-            return "ctrl-c"
-        if ch == "\x04":
-            return "ctrl-d"
-        if ch == "\x15":
-            return "ctrl-u"
-        if ch == "\x19":
-            return "ctrl-y"
-        if ch == "\x1a":
-            return "ctrl-z"
-        if ch == "\x01":
-            return "home"
-        if ch == "\x05":
-            return "end"
-        if ch == "\x0f":
-            return "ctrl-o"
-        if ch == "\x10":
-            return "ctrl-p"
-        if ch == "\x14":
-            return "ctrl-t"
-        if ch == "\x16":
-            return "ctrl-v"
-        # Decode any remaining C0 control byte (Ctrl+letter) to a named
-        # "ctrl-<letter>" form so extension shortcuts can bind it. The explicit
-        # aliases above (home/end and the app/editor hotkeys) take precedence;
-        # an unbound control key still does nothing (it is not a length-1
-        # printable, so it is never inserted as text).
-        code = ord(ch)
-        if 1 <= code <= 26:
-            return f"ctrl-{chr(code + 96)}"
-        return ch
+    def _read_driver_key(self, key: str | None) -> str | None:
+        """Copy a decoded paste's body from the driver into the UI buffer.
 
-    def _read_escape_sequence(self, fd: int) -> str:
-        """Decode an escape sequence after the leading ESC has been read.
-
-        Handles bare ``Esc``, the CSI arrow/home/end keys, and a CSI
-        bracketed-paste introducer (``ESC[200~``). Parameterized CSI
-        sequences are read up to their final byte (``0x40``–``0x7e``) so a
-        multi-byte introducer like ``200~`` is consumed whole rather than
-        being mistaken for an arrow key.
+        The driver decodes keys over its owned fd and hands a bracketed-paste
+        body back through :meth:`TerminalDriver.consume_paste`; the durable
+        ``_pending_paste`` buffer that the key handlers consume stays owned by
+        the UI, so every decode call site funnels through here.
         """
 
-        next1 = self._read_byte_with_timeout(fd, 0.05)
-        if next1 == "":
-            return "esc"
-        # Alt+Enter (queue a follow-up) arrives as ESC followed by CR/LF.
-        if next1 in {"\r", "\n"}:
-            return "alt-enter"
-        if next1 != "[":
-            return "esc"
-        sequence = ""
-        while True:
-            byte = self._read_byte_with_timeout(fd, 0.05)
-            if byte == "":
-                break
-            sequence += byte
-            # Stop at any CSI final byte in 0x40–0x7e. This covers the legacy
-            # finals (``A``–``F``, ``Z``=0x5a), the bracketed-paste ``~`` (0x7e),
-            # AND the kitty keyboard-protocol ``u`` (0x75) — so CSI-u sequences
-            # like ``112;6u`` (Shift+Ctrl+P) are read whole and reach the
-            # matchers below, not timed out as a bare Esc.
-            if "\x40" <= byte <= "\x7e":
-                break
-        if sequence == _BRACKETED_PASTE_START:
-            self._pending_paste = self._read_bracketed_paste(fd)
-            return "paste"
-        # Alt-modified arrows / Enter arrive as CSI sequences with a `;3`
-        # (alt) modifier; map the ones this track binds. ``alt+up`` dequeues
-        # queued messages; ``alt+enter`` queues a follow-up.
-        if sequence in {"1;3A", "1;9A"}:
-            return "alt-up"
-        # Shift+Tab (CSI Z) cycles the thinking level. Shift+Ctrl+P arrives as
-        # CSI u with a ctrl+shift modifier (6) under the kitty keyboard protocol
-        # or as a modifyOtherKeys CSI ``~`` sequence under xterm. Terminals
-        # differ on whether the codepoint is the base lowercase ``p`` (112) or
-        # the shifted uppercase ``P`` (80), so accept all four forms. Legacy
-        # terminals with neither protocol cannot distinguish it from Ctrl+P and
-        # fall through to forward cycling; reverse cycling stays available via
-        # ``/scoped-models prev`` (documented limit).
-        if sequence == "Z":
-            return "shift-tab"
-        if sequence in {"13;2u", "27;2;13~"}:
-            return "shift-enter"
-        if sequence in {"112;6u", "27;6;112~", "80;6u", "27;6;80~"}:
-            return "shift-ctrl-p"
-        return {
-            "A": "up",
-            "B": "down",
-            "C": "right",
-            "D": "left",
-            "H": "home",
-            "F": "end",
-        }.get(sequence, "esc")
-
-    def _read_bracketed_paste(self, fd: int) -> str:
-        """Collect pasted bytes until the ``ESC[201~`` end marker.
-
-        Carriage returns are normalized to newlines so multi-line pastes hold
-        consistent line separators; the result is inserted literally and never
-        triggers command submission.
-        """
-
-        buffer = ""
-        while True:
-            # Pastes arrive as a burst; a bounded read keeps a truncated paste
-            # (no end marker) from blocking an active-turn watcher indefinitely.
-            byte = self._read_byte_with_timeout(fd, 2.0)
-            if byte == "":
-                break
-            buffer += byte
-            if buffer.endswith(_BRACKETED_PASTE_END):
-                buffer = buffer[: -len(_BRACKETED_PASTE_END)]
-                break
-        return buffer.replace("\r\n", "\n").replace("\r", "\n")
+        if key == "paste":
+            self._pending_paste = self._driver.consume_paste()
+        return key
 
     def _read_key_polling_resize(self, fd: int) -> str | None:
         """Block for the next key, repainting when the terminal is resized.
@@ -5511,18 +5389,20 @@ class ToolLoopTerminalUi:
         Returns the decoded key, or ``None`` on EOF. While waiting it polls the
         live terminal size every ``_RESIZE_POLL_SECONDS`` and repaints the frame
         if it changed (or a SIGWINCH flagged a pending resize), so the inline
-        layout stays coherent without entering the alternate screen.
+        layout stays coherent without entering the alternate screen. The
+        fd-level read and key decoding are delegated to the terminal driver,
+        which owns the input fd.
         """
 
         while True:
             self.poll_extension_footer_branch()
             self._poll_resize_repaint()
-            if self._pending_input_bytes:
-                return self._read_key(fd)
+            if self._driver.has_pending_input():
+                return self._read_driver_key(self._driver.read_key(fd))
             readable, _, _ = select.select([fd], [], [], _RESIZE_POLL_SECONDS)
             if fd not in readable:
                 continue
-            return self._read_key(fd)
+            return self._read_driver_key(self._driver.read_key(fd))
 
     def _poll_resize_repaint(self) -> bool:
         pending = self._resize_pending
@@ -5563,28 +5443,6 @@ class ToolLoopTerminalUi:
             self._live_height = 0
             self._live_input_row = 0
             self._paint_locked()
-
-    def _read_byte(self, fd: int) -> str:
-        return read_terminal_utf8_char(
-            fd,
-            pending_bytes=self._pending_input_bytes,
-        )
-
-    def _read_byte_with_timeout(self, fd: int, timeout: float) -> str:
-        if self._pending_input_bytes:
-            return self._read_byte(fd)
-        readable, _, _ = select.select([fd], [], [], timeout)
-        if fd not in readable:
-            return ""
-        return self._read_byte(fd)
-
-    def _read_key_if_available(self, fd: int, timeout: float) -> str | None:
-        if self._pending_input_bytes:
-            return self._read_key(fd)
-        readable, _, _ = select.select([fd], [], [], timeout)
-        if fd not in readable:
-            return None
-        return self._read_key(fd)
 
     def _insert_input_text(self, text: str) -> None:
         self._snapshot_for_undo()

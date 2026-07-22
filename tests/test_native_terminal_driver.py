@@ -263,3 +263,98 @@ def test_title_ops_noop_for_non_tty() -> None:
     driver.push_title()
     driver.restore_title()
     assert terminal.value == ""
+
+
+# --- input read primitives + key decoder ------------------------------------
+
+
+def _decode(driver: TerminalDriver, data: bytes) -> str | None:
+    """Feed ``data`` through the driver's decoder over a real OS pipe fd."""
+
+    import os
+
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, data)
+    os.close(write_fd)
+    try:
+        return driver.read_key(read_fd)
+    finally:
+        os.close(read_fd)
+
+
+def test_read_key_decodes_named_and_control_keys() -> None:
+    driver, _ = _driver()
+    assert _decode(driver, b"\r") == "enter"
+    assert _decode(driver, b"\t") == "tab"
+    assert _decode(driver, b"\x7f") == "backspace"
+    assert _decode(driver, b"\x03") == "ctrl-c"
+    assert _decode(driver, b"\x04") == "ctrl-d"
+    assert _decode(driver, b"\x10") == "ctrl-p"
+    # An unaliased C0 control byte decodes to its ctrl-<letter> name.
+    assert _decode(driver, b"\x02") == "ctrl-b"
+    assert _decode(driver, b"a") == "a"
+
+
+def test_read_key_returns_none_on_eof() -> None:
+    import os
+
+    driver, _ = _driver()
+    read_fd, write_fd = os.pipe()
+    os.close(write_fd)
+    try:
+        assert driver.read_key(read_fd) is None
+    finally:
+        os.close(read_fd)
+
+
+def test_read_key_decodes_complete_utf8_scalar() -> None:
+    driver, _ = _driver()
+    assert _decode(driver, "ö".encode()) == "ö"
+
+
+def test_read_key_decodes_escape_arrows_and_modified_keys() -> None:
+    driver, _ = _driver()
+    assert _decode(driver, b"\x1b[A") == "up"
+    assert _decode(driver, b"\x1b[D") == "left"
+    assert _decode(driver, b"\x1b[Z") == "shift-tab"
+    assert _decode(driver, b"\x1b[112;6u") == "shift-ctrl-p"
+    assert _decode(driver, b"\x1b[1;3A") == "alt-up"
+    assert _decode(driver, b"\x1b") == "esc"
+
+
+def test_read_key_paste_body_normalizes_and_is_consumed() -> None:
+    driver, _ = _driver()
+    assert _decode(driver, b"\x1b[200~a\r\nb\rc\x1b[201~") == "paste"
+    # The body is held for a single hand-off and cleared on consume.
+    assert driver.consume_paste() == "a\nb\nc"
+    assert driver.consume_paste() == ""
+
+
+def test_read_key_if_available_reads_pending_byte_without_fd_activity() -> None:
+    import os
+
+    driver, _ = _driver()
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"\xc3(")
+    try:
+        # The malformed lead byte over-reads and pushes back the stray "(",
+        # so a decoded scalar is waiting even though the fd is now idle.
+        assert driver.read_key(read_fd) == "�"
+        assert driver.has_pending_input() is True
+        assert driver.read_key_if_available(read_fd, 0.0) == "("
+        assert driver.has_pending_input() is False
+    finally:
+        os.close(write_fd)
+        os.close(read_fd)
+
+
+def test_read_key_if_available_returns_none_when_idle() -> None:
+    import os
+
+    driver, _ = _driver()
+    read_fd, write_fd = os.pipe()
+    try:
+        assert driver.read_key_if_available(read_fd, 0.0) is None
+    finally:
+        os.close(write_fd)
+        os.close(read_fd)

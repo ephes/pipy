@@ -2330,6 +2330,47 @@ session/extension formats; no key-decoding, resize/size-resolution,
 alternate-screen, or async work (Slices 4.2b/4.2c and later); no new runtime
 dependency, `Any`, or `type: ignore`.
 
+### Low-level input reading + key decoder onto the driver (Slice 4.2b) — DONE (2026-07-22)
+
+Phase 4.2b relocates the fd-level read primitives and key decoder onto
+`TerminalDriver`, which already owns the input fd. The driver gains
+`read_key`/`read_key_if_available` (public, replacing the UI's private
+`_read_key`/`_read_key_if_available`), the private `_read_escape_sequence`/
+`_read_bracketed_paste`/`_read_byte`/`_read_byte_with_timeout`, the
+`_pending_input_bytes` UTF-8 over-read buffer (exposed via
+`has_pending_input()`), and the relocated bracketed-paste *decode* markers
+`_BRACKETED_PASTE_START`/`_BRACKETED_PASTE_END` (joining the enable/disable
+toggles moved in 4.2). Decode logic is lifted verbatim, so every named key, C0
+`ctrl-<letter>`, CSI arrow/home/end, Shift+Tab, all four Shift+Ctrl+P forms,
+Alt+Up/Alt+Enter, and multi-byte UTF-8 scalar decode byte-identically, and the
+paste body keeps its `\r\n`/`\r` -> `\n` normalization and bounded 2.0s read.
+Because the durable `_pending_paste` buffer stays UI-owned, the driver returns a
+decoded paste body to the caller rather than storing it: the read returns
+`"paste"` and stashes the body in a transient `_last_paste` that the caller
+drains via `consume_paste()`. A new UI seam `_read_driver_key(key)` copies that
+body into `_pending_paste` on `"paste"` and is the single funnel every decode
+call site passes through. `_read_key_polling_resize` keeps its footer-branch and
+resize-polling loop in the UI but delegates the fd read+decode to
+`self._driver.read_key(fd)` (its over-read guard now asks
+`self._driver.has_pending_input()`), and the mid-turn
+`wait_for_active_turn_interrupt` call site delegates to
+`self._driver.read_key_if_available(fd, poll_seconds)`; both wrap the result in
+`_read_driver_key`. The six moved methods, the `_pending_input_bytes` field, the
+two decode-marker constants, and the now-unused `read_terminal_utf8_char` import
+are DELETED from `tui.py` with no alias or shadow copy. No key->action mapping
+inside `read_line`/`wait_for_active_turn_interrupt` changed; no resize/size,
+output, mode, or layout move. `tests/test_native_terminal_driver.py` gains
+PTY-free key-decoder coverage over a real pipe fd, and the four TUI-side call
+sites that drove the real decoder were repointed onto the driver (paste helper
+routed through `_read_driver_key`). Focused TUI/completion/image-paste/custom-
+editor/extension-custom-UI/PTY suites, `just test-pty-smoke` (8/8),
+`automation_rpc_conformance.py` (ALL PASS), `just check` (Ruff, mypy clean, 4457
+passed/2 skipped save three load-dependent PTY timing flakes that each pass in
+isolation off the decoder path), and `just docs-build` are green. Control-plane
+move only: no change to decoded keys, paste bodies, event ordering, or CLI/JSON/
+RPC/session/extension formats; no new runtime dependency, `Any`, or `type:
+ignore`.
+
 ### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
 
 Phase 4.1 introduces the terminal-free `native.ui` package. `native.ui.state`

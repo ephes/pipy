@@ -4,10 +4,20 @@
 :class:`~pipy_harness.native.tui.ToolLoopTerminalUi`: the error-swallowing
 write/flush sink (with a deferred, unflushed variant for screen-clears that
 must coalesce with the following frame's flush), the termios raw-mode
-lifecycle, ANSI bracketed-paste toggling, and the xterm terminal-title OSC
-push/write/restore. The UI shell composes frames and decides *what* to draw;
-every byte that reaches the terminal stream, and every raw-mode or title
-transition, flows through this driver.
+lifecycle, ANSI bracketed-paste toggling, the xterm terminal-title OSC
+push/write/restore, and the fd-level input read primitives plus the key
+decoder that turns raw bytes on the owned input fd into named keys
+(``enter``/``up``/``ctrl-c``/``paste``/…). The UI shell composes frames and
+decides *what* to draw; every byte that reaches the terminal stream, every
+raw-mode or title transition, and every decoded key read from the input fd
+flows through this driver.
+
+Key decoding returns a bracketed paste's body to the caller rather than
+storing it: :meth:`read_key`/:meth:`read_key_if_available` return the string
+``"paste"`` and stash the decoded body, which the caller retrieves with
+:meth:`consume_paste`. The UI keeps ownership of the durable ``_pending_paste``
+buffer that survives across the read loop; the driver only performs the
+transient decode handoff.
 
 Raw-mode transition typeahead policy: :meth:`TerminalDriver.enter_raw_mode`
 calls ``tty.setraw`` with the standard-library default ``when`` of
@@ -21,20 +31,29 @@ characterization.
 
 from __future__ import annotations
 
+import select
 import termios
 import tty
 from typing import Any, TextIO
 
 from pipy_harness.native.session_tree_commands import sanitize_label_text
+from pipy_harness.native.terminal_input import read_terminal_utf8_char
 
 # ANSI bracketed-paste mode toggles. While enabled the terminal wraps pasted
 # text in ESC[200~ ... ESC[201~ so it can be inserted literally instead of
 # being interpreted keystroke-by-keystroke (which would submit on embedded
-# newlines). The matching start/end *decoding* markers stay with the key
-# decoder in ``tui`` (Slice 4.2b); the driver only owns the enable/disable
-# toggle it writes to the terminal.
+# newlines). The driver owns both the enable/disable toggle it writes to the
+# terminal and the matching start/end *decoding* markers used by the relocated
+# key decoder (Slice 4.2b).
 _BRACKETED_PASTE_ENABLE = "\x1b[?2004h"
 _BRACKETED_PASTE_DISABLE = "\x1b[?2004l"
+
+# Bracketed-paste *decoding* markers. After the leading ``ESC[`` the terminal
+# sends ``200~`` to open a paste and ``ESC[201~`` to close it; the decoder
+# collects everything between them as a literal paste body rather than a stream
+# of keystrokes.
+_BRACKETED_PASTE_START = "200~"
+_BRACKETED_PASTE_END = "\x1b[201~"
 
 # Cap terminal-title text so a hostile or accidental long title cannot flood
 # the terminal's title buffer. Owned here because the driver performs the
@@ -58,6 +77,8 @@ class TerminalDriver:
         "_old_termios",
         "_bracketed_paste_active",
         "_title_pushed",
+        "_pending_input_bytes",
+        "_last_paste",
     )
 
     def __init__(self, input_stream: TextIO, terminal_stream: TextIO) -> None:
@@ -68,6 +89,16 @@ class TerminalDriver:
         self._old_termios: Any = None
         self._bracketed_paste_active = False
         self._title_pushed = False
+        # Bytes read from the fd but not yet decoded (a UTF-8 continuation
+        # over-read pushes the stray leading byte back here for the next
+        # decode). ``read_terminal_utf8_char`` drains it before touching the
+        # fd, so a decoded scalar can already be waiting even when ``select``
+        # would report the fd as not ready.
+        self._pending_input_bytes: bytearray = bytearray()
+        # Body of the most recently decoded bracketed paste, handed to the
+        # caller via :meth:`consume_paste`. The UI keeps the durable
+        # ``_pending_paste`` field; this is only the transient decode handoff.
+        self._last_paste = ""
 
     def write(self, text: str) -> bool:
         """Write ``text`` to the terminal stream and flush.
@@ -205,3 +236,187 @@ class TerminalDriver:
             self.terminal_stream.flush()
         except (OSError, ValueError):
             return
+
+    def has_pending_input(self) -> bool:
+        """Report whether an already-read byte is waiting to be decoded.
+
+        A UTF-8 continuation over-read can leave a stray leading byte buffered;
+        when it is present a decoded scalar is available immediately, so the
+        caller must decode instead of blocking on ``select``.
+        """
+
+        return bool(self._pending_input_bytes)
+
+    def consume_paste(self) -> str:
+        """Return and clear the body decoded by the last ``"paste"`` read.
+
+        The UI copies this into its own ``_pending_paste`` buffer; the driver
+        holds it only for the moment between decode and hand-off.
+        """
+
+        body = self._last_paste
+        self._last_paste = ""
+        return body
+
+    def read_key(self, fd: int) -> str | None:
+        """Block for and decode the next key from ``fd``.
+
+        Returns the named key (``enter``/``backspace``/``ctrl-c``/``up``/…), a
+        length-1 printable scalar, ``"paste"`` (body available via
+        :meth:`consume_paste`), or ``None`` on EOF.
+        """
+
+        ch = self._read_byte(fd)
+        if ch == "":
+            return None
+        if ch == "\x1b":
+            return self._read_escape_sequence(fd)
+        if ch in {"\r", "\n"}:
+            return "enter"
+        if ch == "\t":
+            return "tab"
+        if ch in {"\x7f", "\b"}:
+            return "backspace"
+        if ch == "\x03":
+            return "ctrl-c"
+        if ch == "\x04":
+            return "ctrl-d"
+        if ch == "\x15":
+            return "ctrl-u"
+        if ch == "\x19":
+            return "ctrl-y"
+        if ch == "\x1a":
+            return "ctrl-z"
+        if ch == "\x01":
+            return "home"
+        if ch == "\x05":
+            return "end"
+        if ch == "\x0f":
+            return "ctrl-o"
+        if ch == "\x10":
+            return "ctrl-p"
+        if ch == "\x14":
+            return "ctrl-t"
+        if ch == "\x16":
+            return "ctrl-v"
+        # Decode any remaining C0 control byte (Ctrl+letter) to a named
+        # "ctrl-<letter>" form so extension shortcuts can bind it. The explicit
+        # aliases above (home/end and the app/editor hotkeys) take precedence;
+        # an unbound control key still does nothing (it is not a length-1
+        # printable, so it is never inserted as text).
+        code = ord(ch)
+        if 1 <= code <= 26:
+            return f"ctrl-{chr(code + 96)}"
+        return ch
+
+    def read_key_if_available(self, fd: int, timeout: float) -> str | None:
+        """Decode the next key if one arrives within ``timeout`` seconds.
+
+        Returns the decoded key as :meth:`read_key`, or ``None`` when the fd
+        stays idle for the whole poll. A buffered continuation byte is decoded
+        immediately without polling.
+        """
+
+        if self._pending_input_bytes:
+            return self.read_key(fd)
+        readable, _, _ = select.select([fd], [], [], timeout)
+        if fd not in readable:
+            return None
+        return self.read_key(fd)
+
+    def _read_escape_sequence(self, fd: int) -> str:
+        """Decode an escape sequence after the leading ESC has been read.
+
+        Handles bare ``Esc``, the CSI arrow/home/end keys, and a CSI
+        bracketed-paste introducer (``ESC[200~``). Parameterized CSI
+        sequences are read up to their final byte (``0x40``-``0x7e``) so a
+        multi-byte introducer like ``200~`` is consumed whole rather than
+        being mistaken for an arrow key.
+        """
+
+        next1 = self._read_byte_with_timeout(fd, 0.05)
+        if next1 == "":
+            return "esc"
+        # Alt+Enter (queue a follow-up) arrives as ESC followed by CR/LF.
+        if next1 in {"\r", "\n"}:
+            return "alt-enter"
+        if next1 != "[":
+            return "esc"
+        sequence = ""
+        while True:
+            byte = self._read_byte_with_timeout(fd, 0.05)
+            if byte == "":
+                break
+            sequence += byte
+            # Stop at any CSI final byte in 0x40-0x7e. This covers the legacy
+            # finals (``A``-``F``, ``Z``=0x5a), the bracketed-paste ``~`` (0x7e),
+            # AND the kitty keyboard-protocol ``u`` (0x75) - so CSI-u sequences
+            # like ``112;6u`` (Shift+Ctrl+P) are read whole and reach the
+            # matchers below, not timed out as a bare Esc.
+            if "\x40" <= byte <= "\x7e":
+                break
+        if sequence == _BRACKETED_PASTE_START:
+            self._last_paste = self._read_bracketed_paste(fd)
+            return "paste"
+        # Alt-modified arrows / Enter arrive as CSI sequences with a `;3`
+        # (alt) modifier; map the ones this track binds. ``alt+up`` dequeues
+        # queued messages; ``alt+enter`` queues a follow-up.
+        if sequence in {"1;3A", "1;9A"}:
+            return "alt-up"
+        # Shift+Tab (CSI Z) cycles the thinking level. Shift+Ctrl+P arrives as
+        # CSI u with a ctrl+shift modifier (6) under the kitty keyboard protocol
+        # or as a modifyOtherKeys CSI ``~`` sequence under xterm. Terminals
+        # differ on whether the codepoint is the base lowercase ``p`` (112) or
+        # the shifted uppercase ``P`` (80), so accept all four forms. Legacy
+        # terminals with neither protocol cannot distinguish it from Ctrl+P and
+        # fall through to forward cycling; reverse cycling stays available via
+        # ``/scoped-models prev`` (documented limit).
+        if sequence == "Z":
+            return "shift-tab"
+        if sequence in {"13;2u", "27;2;13~"}:
+            return "shift-enter"
+        if sequence in {"112;6u", "27;6;112~", "80;6u", "27;6;80~"}:
+            return "shift-ctrl-p"
+        return {
+            "A": "up",
+            "B": "down",
+            "C": "right",
+            "D": "left",
+            "H": "home",
+            "F": "end",
+        }.get(sequence, "esc")
+
+    def _read_bracketed_paste(self, fd: int) -> str:
+        """Collect pasted bytes until the ``ESC[201~`` end marker.
+
+        Carriage returns are normalized to newlines so multi-line pastes hold
+        consistent line separators; the result is inserted literally and never
+        triggers command submission.
+        """
+
+        buffer = ""
+        while True:
+            # Pastes arrive as a burst; a bounded read keeps a truncated paste
+            # (no end marker) from blocking an active-turn watcher indefinitely.
+            byte = self._read_byte_with_timeout(fd, 2.0)
+            if byte == "":
+                break
+            buffer += byte
+            if buffer.endswith(_BRACKETED_PASTE_END):
+                buffer = buffer[: -len(_BRACKETED_PASTE_END)]
+                break
+        return buffer.replace("\r\n", "\n").replace("\r", "\n")
+
+    def _read_byte(self, fd: int) -> str:
+        return read_terminal_utf8_char(
+            fd,
+            pending_bytes=self._pending_input_bytes,
+        )
+
+    def _read_byte_with_timeout(self, fd: int, timeout: float) -> str:
+        if self._pending_input_bytes:
+            return self._read_byte(fd)
+        readable, _, _ = select.select([fd], [], [], timeout)
+        if fd not in readable:
+            return ""
+        return self._read_byte(fd)

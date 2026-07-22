@@ -47,7 +47,7 @@ def _decode_key(ui: ToolLoopTerminalUi, data: bytes) -> str | None:
     os.write(write_fd, data)
     os.close(write_fd)
     try:
-        return ui._read_key(read_fd)
+        return ui._driver.read_key(read_fd)
     finally:
         os.close(read_fd)
 

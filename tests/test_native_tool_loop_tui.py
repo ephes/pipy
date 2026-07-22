@@ -2778,7 +2778,7 @@ def _decode_key(ui: ToolLoopTerminalUi, data: bytes) -> str | None:
     os.write(write_fd, data)
     os.close(write_fd)
     try:
-        return ui._read_key(read_fd)
+        return ui._read_driver_key(ui._driver.read_key(read_fd))
     finally:
         os.close(read_fd)
 
@@ -2800,9 +2800,9 @@ def test_tui_key_if_available_reads_pending_byte_without_fd_activity(tmp_path: P
     read_fd, write_fd = os.pipe()
     os.write(write_fd, b"\xc3(")
     try:
-        assert ui._read_key(read_fd) == "�"
+        assert ui._driver.read_key(read_fd) == "�"
 
-        assert ui._read_key_if_available(read_fd, 0.0) == "("
+        assert ui._driver.read_key_if_available(read_fd, 0.0) == "("
     finally:
         os.close(write_fd)
         os.close(read_fd)

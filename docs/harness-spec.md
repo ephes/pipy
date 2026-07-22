@@ -2097,7 +2097,8 @@ to draw; the `TerminalDriver` collaborator (built once in `__post_init__` from
 the input/terminal streams) owns *how* bytes and mode/title transitions reach
 the terminal. It holds the input/terminal streams plus the terminal-side
 lifecycle state (saved termios attributes, bracketed-paste enabled flag, whether
-a title was pushed onto the xterm title stack) and exposes:
+a title was pushed onto the xterm title stack, the `_pending_input_bytes` UTF-8
+over-read buffer, and the transient decoded-paste hand-off) and exposes:
 
 - `write(text) -> bool`: the error-swallowing write/flush sink. It
   writes then flushes, swallows `OSError`/`ValueError` (closed stream, invalid
@@ -2126,6 +2127,22 @@ a title was pushed onto the xterm title stack) and exposes:
   `_TITLE_MAX_CHARS` cap applied before the OSC 0 write to block
   escape-sequence injection. `push_title` is idempotent (only the first push
   emits OSC 22), preserving the pre-extraction single-push guard.
+- `read_key(fd)`/`read_key_if_available(fd, timeout)`: the fd-level read
+  primitives and key decoder (Slice 4.2b), which the driver owns because it
+  owns the input fd. `read_key` blocks for and decodes the next key into a
+  named form (`enter`/`backspace`/`ctrl-c`/`up`/`shift-tab`/`shift-ctrl-p`/…),
+  a length-1 printable scalar, `"paste"`, or `None` on EOF; the escape/CSI/
+  kitty/bracketed-paste decode logic, the `_pending_input_bytes` UTF-8
+  over-read buffer, and the `_BRACKETED_PASTE_START`/`_END` decode markers all
+  live here. `read_key_if_available` polls `fd` for `timeout` seconds and
+  decodes if input arrives (a buffered continuation byte decodes immediately,
+  reported by `has_pending_input()`). Because the durable `_pending_paste`
+  buffer stays owned by the UI, a decoded bracketed paste is handed back rather
+  than stored: the read returns `"paste"` and stashes the body, retrieved once
+  via `consume_paste()`. The UI's `_read_key_polling_resize` keeps its
+  footer-branch and resize-polling loop but delegates the read+decode to the
+  driver, funnelling the result through the `_read_driver_key` seam that copies
+  a paste body into `_pending_paste`.
 
 Raw-mode transition typeahead policy (preserved, not changed): `enter_raw_mode`
 calls `tty.setraw(fd)` with no explicit `when`, relying on the standard-library

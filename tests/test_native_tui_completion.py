@@ -199,7 +199,7 @@ class TestKeyDecoding:
         os.close(write_fd)
         ui = _ui(tmp_path)
         try:
-            return ui._read_escape_sequence(read_fd)
+            return ui._driver._read_escape_sequence(read_fd)
         finally:
             os.close(read_fd)
 
