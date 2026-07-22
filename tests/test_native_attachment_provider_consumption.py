@@ -14,7 +14,7 @@ from typing import Any, cast
 from pipy_harness.native.providers.anthropic_messages import AnthropicResponseParseError
 from pipy_harness.native.providers.anthropic_messages_wire import messages_payload
 from pipy_harness.native.agent import AgentMessage, AgentUserMessage, ProductContent
-from pipy_harness.native.google_provider import _gemini_contents
+from pipy_harness.native.providers.google_generative_ai import _gemini_contents
 from pipy_harness.native.image_attachment import ProviderImageAttachment
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.providers.openai_responses import OpenAIResponseParseError

@@ -2907,7 +2907,7 @@ def _native_provider_for_selection(
 
         return AnthropicProvider(model_id=selection.model_id)
     if selection.provider_name == "google":
-        from pipy_harness.native.google_provider import GoogleGenerativeAIProvider
+        from pipy_harness.native.providers.google_generative_ai import GoogleGenerativeAIProvider
 
         return GoogleGenerativeAIProvider(model_id=selection.model_id)
     if selection.provider_name == "google-vertex":

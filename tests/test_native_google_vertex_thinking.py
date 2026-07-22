@@ -8,7 +8,7 @@ with thinking off/unset. Non-reasoning models (and the bare-default adapter)
 omit it.
 
 This is the `THINKING_LEVEL_MAP` variant of `google.ts` and diverges from
-`google_provider` in two places: no `2.5-flash-lite` budget table (flash-lite
+`google_generative_ai` in two places: no `2.5-flash-lite` budget table (flash-lite
 falls into the `2.5-flash` branch → minimal 128, not 512) and no Gemma 4
 special-casing.
 """

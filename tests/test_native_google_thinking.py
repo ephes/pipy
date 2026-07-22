@@ -15,7 +15,7 @@ from typing import Any
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest
-from pipy_harness.native.google_provider import (
+from pipy_harness.native.providers.google_generative_ai import (
     GoogleGenerativeAIProvider,
     JsonResponse,
     _build_thinking_config,

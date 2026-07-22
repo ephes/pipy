@@ -52,7 +52,7 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extensions",
     "pipy_harness.native.fake",
-    "pipy_harness.native.google_provider",
+    "pipy_harness.native.providers.google_generative_ai",
     "pipy_harness.native.google_vertex_provider",
     "pipy_harness.native.providers.mistral",
     "pipy_harness.native.models",

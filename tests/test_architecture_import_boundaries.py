@@ -59,7 +59,6 @@ class BoundaryViolation:
 
 
 _LEGACY_CONCRETE_PROVIDER_MODULES = (
-    "pipy_harness.native.google_provider",
     "pipy_harness.native.google_vertex_provider",
     "pipy_harness.native.openai_codex_provider",
 )

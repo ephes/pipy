@@ -593,7 +593,7 @@ def build_provider(
     http_kwargs = {} if http_client is None else {"http_client": http_client}
 
     if resolved.api == "google-generative-ai":
-        from pipy_harness.native.google_provider import (
+        from pipy_harness.native.providers.google_generative_ai import (
             GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE,
             GoogleGenerativeAIProvider,
         )

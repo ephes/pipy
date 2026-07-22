@@ -16,7 +16,7 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native import ProviderRequest, ProviderToolCall
-from pipy_harness.native.google_provider import (
+from pipy_harness.native.providers.google_generative_ai import (
     GoogleGenerativeAIProvider,
     JsonResponse,
 )

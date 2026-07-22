@@ -1082,8 +1082,16 @@ The bulk is mechanical duplication. pi-mono's
    `_transport_exception_retryable`/`_RETRYABLE_TRANSPORT_ERRNOS`, and
    `_extract_usage` copies are deleted); it keeps its own OAuth/WebSocket
    transports, HTTP-status normalizer, domain retry classifier, and
-   retry/fallback loop. Remaining: the per-family wire-shape modules under
-   `native.providers` (Slice 5.2).
+   retry/fallback loop. The Gemini `generateContent` adapter has since moved
+   verbatim to `pipy_harness.native.providers.google_generative_ai` (migration
+   Slice 5.2-gemini, cut 1), translation-only over the shared `native.http`
+   primitives, keeping `GoogleGenerativeAIProvider`, `google_http_client()`, the
+   `GoogleProviderError` hierarchy, the URL-embedded `?key=` auth, the per-model
+   `generationConfig.thinkingConfig` shape, and `GOOGLE_USAGE_FIELDS`
+   byte-for-byte; its Vertex sibling (`google_vertex_provider.py`) stays
+   top-level until its own sub-slice. Remaining: the per-family wire-shape
+   modules under `native.providers` (Slice 5.2), including the Gemini/Vertex
+   wire consolidation (cut 3).
 2. Extract a shared Chat-Completions wire translator for the Chat-Completions
    wire shape. Collapse OpenAI-Completions, OpenRouter, Mistral, and Cloudflare
    onto it. Refs: `02:F3`. **Done (migration Slice 5.2-chat, cuts 1–4):**

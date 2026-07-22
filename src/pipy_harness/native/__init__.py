@@ -81,7 +81,7 @@ from pipy_harness.native.openai_codex_provider import (
 from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
 from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
 from pipy_harness.native.providers.ds4 import Ds4ChatCompletionsProvider
-from pipy_harness.native.google_provider import GoogleGenerativeAIProvider
+from pipy_harness.native.providers.google_generative_ai import GoogleGenerativeAIProvider
 from pipy_harness.native.providers.mistral import MistralProvider
 from pipy_harness.native.providers.openai_responses import OpenAIResponsesProvider
 from pipy_harness.native.providers.openrouter import OpenRouterChatCompletionsProvider

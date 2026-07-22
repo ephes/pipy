@@ -2,7 +2,8 @@
 
 This provider targets Gemini models served via Google Cloud's Vertex AI
 ``generateContent`` endpoint. The request/response body shape is the same as
-the Google Generative AI surface (see ``google_provider.py``) because both
+the Google Generative AI surface (see ``providers/google_generative_ai.py``)
+because both
 front the same Gemini models. The two providers differ in:
 
 - **Endpoint**: Vertex uses
@@ -89,7 +90,8 @@ GOOGLE_VERTEX_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
 # ``generationConfig.thinkingConfig`` per model family: a ``thinkingLevel`` enum
 # for Gemini 3 Pro/Flash and a ``thinkingBudget`` token count otherwise. This is
 # the ``THINKING_LEVEL_MAP`` variant of the generative-language surface and
-# deliberately diverges from ``google_provider`` in two places (google-vertex.ts):
+# deliberately diverges from ``google_generative_ai`` in two places
+# (google-vertex.ts):
 #   * No ``2.5-flash-lite`` budget table — flash-lite falls into the ``2.5-flash``
 #     branch (``getGoogleBudget``: minimal ``128``, not ``512``).
 #   * No Gemma 4 special-casing — Gemma is not a Vertex Gemini model, so it never
@@ -481,7 +483,7 @@ class GoogleVertexResponseParseError(GoogleVertexProviderError):
 def _gemini_contents(request: ProviderRequest) -> list[dict[str, Any]]:
     """Build Gemini ``contents`` from a ProviderRequest.
 
-    Mirrors ``google_provider._gemini_contents``: when ``request.messages``
+    Mirrors ``google_generative_ai._gemini_contents``: when ``request.messages``
     is non-empty translate the envelope; otherwise fall back to
     ``no_tool_repl_context`` (if any) followed by the current
     ``user_prompt``.
