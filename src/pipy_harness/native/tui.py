@@ -24,7 +24,6 @@ import tempfile
 import textwrap
 import threading
 import time
-import tty
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -84,6 +83,10 @@ from pipy_harness.native.session_tree_commands import (
     format_session_picker_label,
     sanitize_label_text,
 )
+from pipy_harness.native.terminal_driver import (
+    TerminalDriver,
+    _TITLE_MAX_CHARS,
+)
 from pipy_harness.native.terminal_input import read_terminal_utf8_char
 
 
@@ -141,12 +144,12 @@ _MAX_UNDO_DEPTH = 200
 # Cap the in-memory prompt-recall history so a long session cannot grow it
 # without bound. History is session-scoped and never persisted.
 _MAX_HISTORY_DEPTH = 500
-# ANSI bracketed-paste mode toggles. While enabled the terminal wraps pasted
-# text in ESC[200~ ... ESC[201~ so it can be inserted literally instead of
-# being interpreted keystroke-by-keystroke (which would submit on embedded
-# newlines).
-_BRACKETED_PASTE_ENABLE = "\x1b[?2004h"
-_BRACKETED_PASTE_DISABLE = "\x1b[?2004l"
+# Bracketed-paste *decoding* markers. The terminal wraps pasted text in
+# ESC[200~ ... ESC[201~ so it can be inserted literally instead of being
+# interpreted keystroke-by-keystroke (which would submit on embedded
+# newlines). The enable/disable toggles the driver writes to the terminal
+# live in ``native.terminal_driver``; these start/end markers stay with the
+# key decoder here (Slice 4.2b).
 _BRACKETED_PASTE_START = "200~"
 _BRACKETED_PASTE_END = "\x1b[201~"
 # Single-width glyph shown in the input cell for a newline carried by a
@@ -314,7 +317,8 @@ _WIDGET_MAX_LINES = 10
 _WIDGET_MAX_COUNT = 16
 _HEADER_MAX_LINES = 8
 _FOOTER_MAX_LINES = 4
-_TITLE_MAX_CHARS = 256
+# ``_TITLE_MAX_CHARS`` is owned by and imported from ``native.terminal_driver``
+# (the terminal-title writer); the UI reuses it to cap its cached title state.
 _INDICATOR_MAX_FRAMES = 32
 _MIN_INPUT_ROWS = 1  # the input region is never starved below this
 
@@ -956,7 +960,6 @@ class ToolLoopTerminalUi:
     _footer_branch_last_check: float = 0.0
     _footer_branch_check_interval: float = 0.25
     extension_title: str | None = None
-    _extension_title_pushed: bool = False
     extension_indicator_frames: tuple[str, ...] | None = None
     extension_indicator_interval_ms: float | None = None
     assistant_text: str = ""
@@ -1086,7 +1089,10 @@ class ToolLoopTerminalUi:
     clipboard_temp_dir: Path | None = None
     _clipboard_image_count: int = 0
     _history_blocks: list[_HistoryBlock] = field(default_factory=list)
-    _old_termios: Any = None
+    # Low-level terminal I/O owner (write/flush sink, raw-mode lifecycle,
+    # bracketed-paste toggling, terminal-title OSC). Built in ``__post_init__``
+    # from the input/terminal streams.
+    _driver: TerminalDriver = field(init=False)
     _closed: bool = False
     # Inline scrollback rendering state: committed history is printed once into
     # the terminal's normal buffer (so native scrollback in Ghostty/zellij can
@@ -1132,8 +1138,10 @@ class ToolLoopTerminalUi:
     _resize_pending: bool = False
     _last_painted_size: tuple[int, int] = (0, 0)
     _prev_winch_handler: Any = None
-    _bracketed_paste_active: bool = False
     keybindings_manager: KeybindingsManager | None = None
+
+    def __post_init__(self) -> None:
+        self._driver = TerminalDriver(self.input_stream, self.terminal_stream)
 
     @classmethod
     def is_supported(cls, input_stream: TextIO, terminal_stream: TextIO) -> bool:
@@ -1184,7 +1192,7 @@ class ToolLoopTerminalUi:
         self.paint()
         fd = self.input_stream.fileno()
         try:
-            self._enter_raw_mode()
+            self._driver.enter_raw_mode()
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key is None:
@@ -1370,7 +1378,7 @@ class ToolLoopTerminalUi:
                     self._insert_input_text(key)
                     self.paint()
         finally:
-            self._restore_terminal_mode()
+            self._driver.restore_terminal_mode()
 
     def wait_for_active_turn_interrupt(
         self,
@@ -1400,7 +1408,7 @@ class ToolLoopTerminalUi:
 
         fd = self.input_stream.fileno()
         try:
-            self._enter_raw_mode()
+            self._driver.enter_raw_mode()
             while not done_event.is_set():
                 # Keep the streaming frame coherent if the terminal is resized
                 # mid-turn: streamed chunks repaint at the live size, but a
@@ -1522,7 +1530,7 @@ class ToolLoopTerminalUi:
                     self.paint()
             return TURN_SETTLED
         finally:
-            self._restore_terminal_mode()
+            self._driver.restore_terminal_mode()
 
     def _reset_mid_turn_input(self) -> None:
         self.input_text = ""
@@ -1563,7 +1571,7 @@ class ToolLoopTerminalUi:
         self.paint()
         fd = self.input_stream.fileno()
         try:
-            self._enter_raw_mode()
+            self._driver.enter_raw_mode()
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
@@ -1583,7 +1591,7 @@ class ToolLoopTerminalUi:
                         return index
                     continue
         finally:
-            self._restore_terminal_mode()
+            self._driver.restore_terminal_mode()
 
     def _navigate_model_selector(self, key: str) -> None:
         total = len(self.model_selector_options)
@@ -1630,7 +1638,7 @@ class ToolLoopTerminalUi:
         self.paint()
         fd = self.input_stream.fileno()
         try:
-            self._enter_raw_mode()
+            self._driver.enter_raw_mode()
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
@@ -1665,7 +1673,7 @@ class ToolLoopTerminalUi:
                     self._close_scoped_models_selector()
                     return chosen
         finally:
-            self._restore_terminal_mode()
+            self._driver.restore_terminal_mode()
 
     def _navigate_scoped_models(self, key: str) -> None:
         total = len(self.scoped_models_rows)
@@ -1792,7 +1800,7 @@ class ToolLoopTerminalUi:
         self.paint()
         fd = self.input_stream.fileno()
         try:
-            self._enter_raw_mode()
+            self._driver.enter_raw_mode()
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
@@ -1828,7 +1836,7 @@ class ToolLoopTerminalUi:
                     self.paint()
                     continue
         finally:
-            self._restore_terminal_mode()
+            self._driver.restore_terminal_mode()
 
     def _actionable_settings_indices(self) -> list[int]:
         return [
@@ -2231,7 +2239,7 @@ class ToolLoopTerminalUi:
         self.paint()
         fd = self.input_stream.fileno()
         try:
-            self._enter_raw_mode()
+            self._driver.enter_raw_mode()
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
@@ -2278,7 +2286,7 @@ class ToolLoopTerminalUi:
                     self._close_tree_selector()
                     return entry_id
         finally:
-            self._restore_terminal_mode()
+            self._driver.restore_terminal_mode()
 
     def _initial_tree_selection(self) -> int:
         """Default the highlight to the last active-path row, else the last row."""
@@ -2402,7 +2410,7 @@ class ToolLoopTerminalUi:
             self._notify_custom_handle(options, _CustomOverlayHandle(self))
             self.paint()
             fd = self.input_stream.fileno()
-            self._enter_raw_mode()
+            self._driver.enter_raw_mode()
             while not self._custom_done:
                 key = self._read_key_polling_resize(fd)
                 if key is None:
@@ -2447,7 +2455,7 @@ class ToolLoopTerminalUi:
                 self.paint()
             except (OSError, ValueError):
                 pass
-            self._restore_terminal_mode()
+            self._driver.restore_terminal_mode()
         return self._custom_result
 
     def _custom_component_width(self, options: object) -> int | None:
@@ -2588,17 +2596,13 @@ class ToolLoopTerminalUi:
                 handle.write(current_text)
 
             try:
-                self._restore_terminal_mode()
+                self._driver.restore_terminal_mode()
             except (OSError, termios.error, ValueError):
                 pass
-            try:
-                self.terminal_stream.write(
-                    f"Launching external editor: {editor_cmd}\n"
-                    "Pipy will resume when the editor exits.\n"
-                )
-                self.terminal_stream.flush()
-            except (OSError, ValueError):
-                pass
+            self._driver.write(
+                f"Launching external editor: {editor_cmd}\n"
+                "Pipy will resume when the editor exits.\n"
+            )
             try:
                 completed = subprocess.run(
                     [*argv, path],
@@ -2609,7 +2613,7 @@ class ToolLoopTerminalUi:
                 )
             finally:
                 try:
-                    self._enter_raw_mode()
+                    self._driver.enter_raw_mode()
                 except (OSError, termios.error, ValueError):
                     pass
                 self.paint()
@@ -2952,14 +2956,13 @@ class ToolLoopTerminalUi:
         with self._paint_lock:
             if title is None:
                 self.extension_title = None
-                self._restore_terminal_title()
+                self._driver.restore_title()
             else:
-                if not self._extension_title_pushed:
-                    self._push_terminal_title()
+                self._driver.push_title()
                 self.extension_title = sanitize_label_text(str(title))[
                     :_TITLE_MAX_CHARS
                 ]
-                self._write_terminal_title(self.extension_title)
+                self._driver.write_title(self.extension_title)
         # title is OS-level; no frame repaint needed.
 
     def set_extension_working_indicator(
@@ -3062,48 +3065,8 @@ class ToolLoopTerminalUi:
             self.extension_indicator_frames = None
             self._extension_terminal_input_listeners.clear()
             self.extension_indicator_interval_ms = None
-            self._restore_terminal_title()
+            self._driver.restore_title()
         self.paint()
-
-    def _write_terminal_title(self, title: str) -> None:
-        """Write an OSC 0 title sequence to a TTY; no-op for non-TTY streams."""
-        if not bool(getattr(self.terminal_stream, "isatty", lambda: False)()):
-            return
-        safe = sanitize_label_text(title).replace("\x07", "")[:_TITLE_MAX_CHARS]
-        try:
-            self.terminal_stream.write(f"\x1b]0;{safe}\x07")
-            self.terminal_stream.flush()
-        except (OSError, ValueError):
-            return
-
-    def _push_terminal_title(self) -> None:
-        """Save the current terminal title on the xterm title stack (OSC 22)."""
-        if not bool(getattr(self.terminal_stream, "isatty", lambda: False)()):
-            return
-        try:
-            self.terminal_stream.write("\x1b[22;2t")
-            self.terminal_stream.flush()
-        except (OSError, ValueError):
-            return
-        self._extension_title_pushed = True
-
-    def _restore_terminal_title(self) -> None:
-        """Restore the saved title from the xterm title stack (OSC 23).
-
-        Best-effort: this pops the title saved by ``_push_terminal_title`` so the
-        pre-extension title returns (not a blank title). Only acts when a save
-        was pushed; terminals that ignore the title stack simply keep the last
-        title set."""
-        if not self._extension_title_pushed:
-            return
-        self._extension_title_pushed = False
-        if not bool(getattr(self.terminal_stream, "isatty", lambda: False)()):
-            return
-        try:
-            self.terminal_stream.write("\x1b[23;2t")
-            self.terminal_stream.flush()
-        except (OSError, ValueError):
-            return
 
     def set_extension_working_message(self, message: str | None = None) -> None:
         """Set the sticky working label used by future provider turns."""
@@ -3193,7 +3156,7 @@ class ToolLoopTerminalUi:
         self.paint()
         fd = self.input_stream.fileno()
         try:
-            self._enter_raw_mode()
+            self._driver.enter_raw_mode()
             while True:
                 key = self._read_key_polling_resize(fd)
                 outcome = self._handle_session_picker_key(
@@ -3205,7 +3168,7 @@ class ToolLoopTerminalUi:
                 # Past the sentinel, the outcome is the chosen path or a cancel.
                 return cast("Path | None", outcome)
         finally:
-            self._restore_terminal_mode()
+            self._driver.restore_terminal_mode()
 
     def _rebuild_session_picker_rows(self) -> None:
         rows = build_session_picker_rows(
@@ -3523,25 +3486,21 @@ class ToolLoopTerminalUi:
         return lines
 
     def close(self) -> None:
-        self._restore_terminal_mode()
+        self._driver.restore_terminal_mode()
         self._remove_resize_handler()
         if self._closed:
             return
         self._closed = True
-        try:
-            out: list[str] = []
-            # Move below the live region so the next shell prompt does not
-            # overwrite the footer, then restore the cursor.
-            if self._live_height > 0:
-                lines_below = (self._live_height - 1) - self._live_input_row
-                if lines_below > 0:
-                    out.append(f"\x1b[{lines_below}B")
-                out.append("\r")
-            out.append("\x1b[?25h\n")
-            self.terminal_stream.write("".join(out))
-            self.terminal_stream.flush()
-        except (OSError, ValueError):
-            return
+        out: list[str] = []
+        # Move below the live region so the next shell prompt does not
+        # overwrite the footer, then restore the cursor.
+        if self._live_height > 0:
+            lines_below = (self._live_height - 1) - self._live_input_row
+            if lines_below > 0:
+                out.append(f"\x1b[{lines_below}B")
+            out.append("\r")
+        out.append("\x1b[?25h\n")
+        self._driver.write("".join(out))
 
     def set_footer_text(self, text: str) -> None:
         lines = text.splitlines()
@@ -3998,9 +3957,10 @@ class ToolLoopTerminalUi:
             self.paint()
 
     def _force_full_redraw(self) -> None:
-        try:
-            self.terminal_stream.write("\x1b[2J\x1b[H")
-        except (OSError, ValueError):
+        # Deferred (unflushed) write so the clear-screen coalesces with the
+        # flush of the immediately-following paint(), matching the buffered
+        # pre-extraction behavior (no separate flush, no full-redraw flash).
+        if not self._driver.write_deferred("\x1b[2J\x1b[H"):
             return
         self._painted_block_count = 0
         self._live_height = 0
@@ -4336,11 +4296,7 @@ class ToolLoopTerminalUi:
         self._live_height = len(live)
         self._live_input_row = input_index
         self._last_painted_size = (width, height)
-        try:
-            self.terminal_stream.write("".join(output))
-            self.terminal_stream.flush()
-        except (OSError, ValueError):
-            return
+        self._driver.write("".join(output))
 
     def _live_region_lines(self, *, width: int, height: int) -> list[_FrameLine]:
         """Compose the pinned bottom region drawn below committed history.
@@ -4936,38 +4892,6 @@ class ToolLoopTerminalUi:
         if line.kind == "chrome_custom":
             return style.tool_custom(line.text, width=width)
         return text
-
-    def _restore_terminal_mode(self) -> None:
-        if self._old_termios is None:
-            return
-        self._set_bracketed_paste(False)
-        try:
-            termios.tcsetattr(
-                self.input_stream.fileno(), termios.TCSADRAIN, self._old_termios
-            )
-        except (OSError, termios.error, ValueError):
-            pass
-        self._old_termios = None
-
-    def _enter_raw_mode(self) -> None:
-        if self._old_termios is not None:
-            return
-        fd = self.input_stream.fileno()
-        self._old_termios = termios.tcgetattr(fd)
-        tty.setraw(fd)
-        self._set_bracketed_paste(True)
-
-    def _set_bracketed_paste(self, enabled: bool) -> None:
-        if enabled == self._bracketed_paste_active:
-            return
-        self._bracketed_paste_active = enabled
-        try:
-            self.terminal_stream.write(
-                _BRACKETED_PASTE_ENABLE if enabled else _BRACKETED_PASTE_DISABLE
-            )
-            self.terminal_stream.flush()
-        except (OSError, ValueError):
-            pass
 
     def _install_resize_handler(self) -> None:
         """Best-effort SIGWINCH handler that flags a pending resize.
@@ -5626,13 +5550,14 @@ class ToolLoopTerminalUi:
         with self._paint_lock:
             if self._closed:
                 return
-            try:
-                # Clear the visible screen and home the cursor (no \x1b[3J, so
-                # the terminal's scrollback is preserved). Then force a full
-                # redraw by resetting the committed-block and live-region
-                # bookkeeping so _paint_locked re-emits every history block.
-                self.terminal_stream.write("\x1b[2J\x1b[H")
-            except (OSError, ValueError):
+            # Clear the visible screen and home the cursor (no \x1b[3J, so
+            # the terminal's scrollback is preserved). Then force a full
+            # redraw by resetting the committed-block and live-region
+            # bookkeeping so _paint_locked re-emits every history block. The
+            # clear is a deferred (unflushed) write so it coalesces with the
+            # flush of the following _paint_locked(), matching the buffered
+            # pre-extraction behavior (no separate flush, no resize flash).
+            if not self._driver.write_deferred("\x1b[2J\x1b[H"):
                 return
             self._painted_block_count = 0
             self._live_height = 0
@@ -5894,18 +5819,14 @@ class ToolLoopTerminalUi:
         """
 
         with self._paint_lock:
-            self._restore_terminal_mode()
+            self._driver.restore_terminal_mode()
             output: list[str] = []
             if self._live_height > 0:
                 if self._live_input_row > 0:
                     output.append(f"\x1b[{self._live_input_row}A")
                 output.append("\r\x1b[J")
             output.append("\x1b[?25h")
-            try:
-                self.terminal_stream.write("".join(output))
-                self.terminal_stream.flush()
-            except (OSError, ValueError):
-                pass
+            self._driver.write("".join(output))
             self._live_height = 0
             self._live_input_row = 0
 

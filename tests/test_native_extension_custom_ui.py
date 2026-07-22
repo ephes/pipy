@@ -25,6 +25,7 @@ from pipy_harness.native.extension_runtime import (
     _CollectingUi,
     dispatch_extension_command,
 )
+from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.tui import (
     _ExtensionConfirmComponent,
@@ -91,11 +92,11 @@ def test_extension_external_editor_guards_exact_mode_transition_calls(
     ui = _ui(tmp_path)
     mode_calls: list[str] = []
 
-    def raise_restore(_self: ToolLoopTerminalUi) -> None:
+    def raise_restore(_self: TerminalDriver) -> None:
         mode_calls.append("restore")
         raise OSError("restore unavailable")
 
-    def raise_enter(_self: ToolLoopTerminalUi) -> None:
+    def raise_enter(_self: TerminalDriver) -> None:
         mode_calls.append("enter")
         raise OSError("raw mode unavailable")
 
@@ -105,8 +106,8 @@ def test_extension_external_editor_guards_exact_mode_transition_calls(
         path.write_text("edited\n", encoding="utf-8")
         return subprocess.CompletedProcess(argv, 0)
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", raise_restore)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", raise_enter)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", raise_restore)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", raise_enter)
     monkeypatch.setattr("pipy_harness.native.tui.subprocess.run", fake_run)
 
     assert ui._run_extension_external_editor("fake-editor", "seed") == "edited"
@@ -327,8 +328,8 @@ def test_tui_custom_component_options_width_handle_and_dispose(
 ) -> None:
     ui = _ui(tmp_path)
     ui.input_stream = cast(TextIO, _InputBuffer())
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda _self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda _self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 
     keys = iter(["enter"])
     monkeypatch.setattr(
@@ -389,8 +390,8 @@ def test_tui_custom_component_callable_snake_case_options(
 ) -> None:
     ui = _ui(tmp_path)
     ui.input_stream = cast(TextIO, _InputBuffer())
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda _self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda _self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 
     keys = iter(["enter"])
     monkeypatch.setattr(
@@ -422,8 +423,8 @@ def test_tui_custom_component_callable_snake_case_options(
 def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -> None:
     ui = _ui(tmp_path)
     ui.input_stream = cast(TextIO, _InputBuffer())
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda _self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda _self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 
     def fail_read(_self, _fd):
         raise AssertionError("hide should finish before reading input")
@@ -442,8 +443,8 @@ def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -
 def test_tui_custom_component_handle_visibility_and_focus(monkeypatch, tmp_path: Path) -> None:
     ui = _ui(tmp_path)
     ui.input_stream = cast(TextIO, _InputBuffer())
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda _self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda _self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
 
     keys = iter(["hidden-key", "shown-key", "unfocused-key", "focused-key"])
 

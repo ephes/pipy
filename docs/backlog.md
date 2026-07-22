@@ -2287,6 +2287,49 @@ coordinator; the raw native tree stays distinct from the counts-only archive
 session-integration assertions were retargeted onto `outcome.final_history` and
 the projection action sink. No new runtime dependency, `Any`, or `type: ignore`.
 
+### Terminal output + raw-mode + restoration driver (Slice 4.2) — IN PROGRESS (2026-07-22)
+
+Phase 4.2's first cut extracts `native.terminal_driver`. The new strict-typed
+`TerminalDriver` owns `ToolLoopTerminalUi`'s terminal I/O: the input/terminal
+streams, the error-swallowing `write(text) -> bool` write/flush sink, the termios
+raw-mode lifecycle (`_old_termios`/`enter_raw_mode`/`restore_terminal_mode`),
+bracketed-paste toggling (`_set_bracketed_paste` + the relocated
+`_BRACKETED_PASTE_ENABLE`/`_DISABLE` toggle sequences), and the xterm
+terminal-title OSC push/write/restore (`push_title`/`write_title`/`restore_title`
++ the relocated `_TITLE_MAX_CHARS` cap and control-character sanitization). The
+UI builds the driver once in `__post_init__` and routes every terminal
+write/flush through it (paint, forced full redraw, resize screen-clear, `close`
+teardown, `suspend_for_external_io`, external-editor notice), with
+`_force_full_redraw` and the resize handler branching on the returned `bool` to
+keep the exact skip-bookkeeping-on-failed-frame behavior. The two `\x1b[2J\x1b[H`
+screen-clear sites route through a write-without-flush `write_deferred(text) ->
+bool` (not the flushing `write`) because the pre-extraction code wrote those
+clears unflushed so they coalesced with the flush of the immediately-following
+paint; a separate flush there could reintroduce a resize/full-redraw flash the
+buffered original avoided. The six superseded
+methods, the three fields (`_old_termios`/`_bracketed_paste_active`/
+`_extension_title_pushed`), the two toggle constants, the `_TITLE_MAX_CHARS`
+definition, and the now-unused `import tty` are DELETED from `tui.py` with no
+alias or second write path; the bracketed-paste `_START`/`_END` decoding markers
+stay with the key decoder (Slice 4.2b). `push_title` is now internally idempotent,
+so the set-extension-title single-push guard is dropped without changing OSC
+emission. Typeahead policy is characterized and preserved: `enter_raw_mode` calls
+`tty.setraw(fd)` with the stdlib default `termios.TCSAFLUSH`, which flushes
+input queued before the transition, so consumers sync on prompt readiness. The
+agent/coding import-boundary gates forbid depending on `native.terminal_driver`.
+PTY-free `tests/test_native_terminal_driver.py` (15 tests, including the
+deferred-write no-flush/coalesce characterization) plus focused TUI,
+editor, custom-UI, PTY, and import-boundary suites pass; `just test-pty-smoke`
+(restoration after success/error/cancellation), `automation_rpc_conformance.py`,
+`just check` (Ruff, mypy, 4453 passed/2 skipped clean off the driver path save
+the documented rotating load-dependent PTY timing flakes that each pass in
+isolation, parity 49/49), and
+`just docs-build` are green. Behavior-preserving control-plane move only: no
+change to which bytes are written or when, event ordering, or CLI/JSON/RPC/
+session/extension formats; no key-decoding, resize/size-resolution,
+alternate-screen, or async work (Slices 4.2b/4.2c and later); no new runtime
+dependency, `Any`, or `type: ignore`.
+
 ### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
 
 Phase 4.1 introduces the terminal-free `native.ui` package. `native.ui.state`

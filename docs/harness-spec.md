@@ -2086,8 +2086,56 @@ projection remain deferred behind this boundary. Because a UI projection now liv
 adapter and is import-gated to forbid depending on `native.ui`; the `native.ui`
 import boundary forbids depending on `coding.state`, `coding.session`, or
 `tool_loop_session`. No CLI/JSON/RPC/session/extension format, event ordering, or
-terminal behavior changes; the terminal driver relocation is Phase 4.2 and
+terminal behavior changes; the terminal driver is Slice 4.2 (below) and
 extension-UI relocation is Slice 6.4.
+
+### Terminal Output and Restoration Driver
+
+Slice 4.2 introduces `native.terminal_driver`, the terminal-I/O ownership
+boundary for `ToolLoopTerminalUi`. The shell composes frames and decides *what*
+to draw; the `TerminalDriver` collaborator (built once in `__post_init__` from
+the input/terminal streams) owns *how* bytes and mode/title transitions reach
+the terminal. It holds the input/terminal streams plus the terminal-side
+lifecycle state (saved termios attributes, bracketed-paste enabled flag, whether
+a title was pushed onto the xterm title stack) and exposes:
+
+- `write(text) -> bool`: the error-swallowing write/flush sink. It
+  writes then flushes, swallows `OSError`/`ValueError` (closed stream, invalid
+  fd), and returns `True` only when both succeeded so paint/resize callers can
+  skip follow-up bookkeeping on a failed frame exactly as before. Every current
+  `terminal_stream.write`/`flush` — paint, close teardown,
+  `suspend_for_external_io`, and the external-editor notice — routes through
+  it; there is no second write path.
+- `write_deferred(text) -> bool`: the write-without-flush variant used only by
+  the two `\x1b[2J\x1b[H` screen-clear sites (the forced full redraw and the
+  resize repaint). The pre-extraction code wrote those clears *unflushed* so
+  they coalesced with the flush of the immediately-following
+  `paint()`/`_paint_locked()`; routing them through the flushing `write` would
+  have added a separate flush and could reintroduce a resize/full-redraw flash
+  the buffered original avoided. `write_deferred` writes the bytes but leaves
+  the flush to the following frame, swallowing the same errors and returning
+  `True` only when the write succeeded, keeping the "no change to when bytes
+  are written" invariant exact.
+- `enter_raw_mode`/`restore_terminal_mode`: the termios raw-mode lifecycle.
+  `enter_raw_mode` saves the current attributes, calls `tty.setraw(fd)`, and
+  enables bracketed paste; `restore_terminal_mode` disables bracketed paste and
+  restores the saved attributes with `TCSADRAIN`. Both are idempotent no-ops
+  when already in the target mode.
+- `write_title`/`push_title`/`restore_title`: the xterm terminal-title OSC
+  push/write/restore, with control-character sanitization and the
+  `_TITLE_MAX_CHARS` cap applied before the OSC 0 write to block
+  escape-sequence injection. `push_title` is idempotent (only the first push
+  emits OSC 22), preserving the pre-extraction single-push guard.
+
+Raw-mode transition typeahead policy (preserved, not changed): `enter_raw_mode`
+calls `tty.setraw(fd)` with no explicit `when`, relying on the standard-library
+default `termios.TCSAFLUSH`, which discards input queued before the raw-mode
+switch. Consumers therefore synchronize on a fresh prompt (prompt readiness)
+rather than on bytes typed ahead of the transition. The extraction deliberately
+keeps that flush unchanged rather than silently altering terminal semantics in a
+control-plane move; `tests/test_native_terminal_driver.py` characterizes it
+explicitly. The agent and coding import-boundary gates forbid depending on
+`native.terminal_driver`.
 
 ### Canonical Agent Tool-Capability Port
 

@@ -10,6 +10,7 @@ from typing import TextIO, cast
 
 from pipy_harness.native.clipboard import ImageClipboardResult
 from pipy_harness.native.keybindings import DEFAULT_KEYBINDINGS, KeybindingsManager
+from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.tui import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
     HOTKEY_MODEL_SELECT,
@@ -124,8 +125,8 @@ def test_custom_editor_read_line_routes_keys_only_to_custom_component(
         return component
 
     keys: Iterator[str] = iter(("x", "enter"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
@@ -174,8 +175,8 @@ def test_custom_editor_read_line_wires_camel_action_handlers_with_pi_key_specs(
 
     component.handle_input = handle_input  # type: ignore[method-assign]
     keys: Iterator[str] = iter(("draft", "ctrl+p"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
@@ -203,8 +204,8 @@ def test_custom_editor_read_line_forwards_resolved_autocomplete_provider(
     component = _CustomEditor()
     provider = _IdentityAutocompleteProvider()
     keys: Iterator[str] = iter(("tab", "enter"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
@@ -311,8 +312,8 @@ def test_custom_editor_component_app_action_preserves_text_for_next_prompt(
 
     component.handle_input = handle_input  # type: ignore[method-assign]
     keys: Iterator[str] = iter(("a", "shift-tab"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
@@ -400,8 +401,8 @@ def test_custom_editor_component_model_select_preserves_draft(
 
     component.handle_input = handle_input  # type: ignore[method-assign]
     keys: Iterator[str] = iter(("draft", "ctrl-l"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
@@ -434,8 +435,8 @@ def test_custom_editor_component_follow_up_queues_and_clears_draft(
 
     component.handle_input = handle_input  # type: ignore[method-assign]
     keys: Iterator[str] = iter(("later", "alt-enter", "enter"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
@@ -561,8 +562,8 @@ def test_custom_editor_component_restore_survives_next_read_line(
     ui.restore_pending_to_editor()
 
     keys: Iterator[str] = iter(("enter",))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
@@ -593,8 +594,8 @@ def test_custom_editor_component_exit_only_when_empty(
 
     component.handle_input = handle_input  # type: ignore[method-assign]
     keys: Iterator[str] = iter(("x", "ctrl-d", "enter"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
@@ -701,8 +702,8 @@ def test_custom_editor_component_extension_shortcut_routes_to_session(
 
     component.handle_input = handle_input  # type: ignore[method-assign]
     keys: Iterator[str] = iter(("ctrl+x",))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
@@ -889,8 +890,8 @@ def test_custom_editor_external_editor_action_updates_draft_on_success(
     monkeypatch.setenv(
         "EDITOR", f"{shlex.quote(sys.executable)} {shlex.quote(str(editor))}"
     )
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     paints: list[str] = []
     monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda self: paints.append("paint"))
 
@@ -965,8 +966,8 @@ def test_custom_editor_external_editor_action_preserves_draft_on_failure(
     monkeypatch.setenv(
         "VISUAL", f"{shlex.quote(sys.executable)} {shlex.quote(str(editor))}"
     )
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda self: None)
     with (
         open(os.devnull, "r", encoding="utf-8") as input_file,
@@ -1003,8 +1004,8 @@ def test_default_editor_external_editor_action_updates_draft_on_success(
     monkeypatch.setenv(
         "EDITOR", f"{shlex.quote(sys.executable)} {shlex.quote(str(editor))}"
     )
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     keys: Iterator[str] = iter(("ctrl-g", "enter"))
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
@@ -1029,8 +1030,8 @@ def test_default_editor_external_editor_action_honors_empty_user_binding(
 ) -> None:
     calls: list[str] = []
     keys: Iterator[str] = iter(("ctrl-g", "enter"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
@@ -1060,8 +1061,8 @@ def test_default_editor_external_editor_action_is_undoable(
 ) -> None:
     calls: list[str] = []
     keys: Iterator[str] = iter(("ctrl-g", "ctrl-z", "enter"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
@@ -1086,8 +1087,8 @@ def test_default_editor_external_editor_action_honors_user_override(
 ) -> None:
     calls: list[str] = []
     keys: Iterator[str] = iter(("ctrl-x", "enter"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
@@ -1117,8 +1118,8 @@ def test_default_editor_external_editor_action_precedes_extension_shortcut(
 ) -> None:
     calls: list[str] = []
     keys: Iterator[str] = iter(("ctrl-x", "enter"))
-    monkeypatch.setattr(ToolLoopTerminalUi, "_enter_raw_mode", lambda self: None)
-    monkeypatch.setattr(ToolLoopTerminalUi, "_restore_terminal_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )

@@ -42,6 +42,7 @@ from pipy_harness.native.repl_state import (
     StaticNativeReplProviderState,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
@@ -2194,16 +2195,16 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
         cwd=tmp_path,
     )
     post_cancel_raw_mode_ready = threading.Event()
-    original_enter_raw_mode = ToolLoopTerminalUi._enter_raw_mode
+    original_enter_raw_mode = TerminalDriver.enter_raw_mode
 
-    def _enter_raw_mode_with_readiness(active_ui: ToolLoopTerminalUi) -> None:
-        original_enter_raw_mode(active_ui)
-        if active_ui is ui:
+    def _enter_raw_mode_with_readiness(active_driver: TerminalDriver) -> None:
+        original_enter_raw_mode(active_driver)
+        if active_driver is ui._driver:
             post_cancel_raw_mode_ready.set()
 
     monkeypatch.setattr(
-        ToolLoopTerminalUi,
-        "_enter_raw_mode",
+        TerminalDriver,
+        "enter_raw_mode",
         _enter_raw_mode_with_readiness,
     )
     session = NativeToolReplSession(
