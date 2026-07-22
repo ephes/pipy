@@ -62,64 +62,6 @@ class CodingCommandOutcome:
         require_exact_coding_command_outcome(self)
 
 
-def classify_coding_command(content: ProductContent) -> CodingCommandOutcome:
-    """Classify one already-stripped product input without performing effects."""
-
-    _require_exact_product_content(content)
-    value = content.value
-    if value == "":
-        return _continue_outcome()
-    if value == "/exit":
-        return CodingCommandOutcome(CodingCommandOutcomeKind.EXIT)
-    if value == "/quit":
-        return CodingCommandOutcome(CodingCommandOutcomeKind.EXIT)
-    for command, action in (
-        ("/hotkeys", CodingCommandAction.SHOW_HOTKEYS),
-        ("/changelog", CodingCommandAction.SHOW_CHANGELOG),
-        ("/copy", CodingCommandAction.COPY_LAST_ANSWER),
-        ("/session", CodingCommandAction.SHOW_SESSION_STATUS),
-        ("/compact", CodingCommandAction.COMPACT),
-        ("/new", CodingCommandAction.NEW_SESSION),
-        ("/clone", CodingCommandAction.SESSION_CLONE),
-        ("/settings", CodingCommandAction.SETTINGS),
-        ("/trust", CodingCommandAction.TRUST_PROJECT),
-        ("/share", CodingCommandAction.SESSION_SHARE),
-        ("/reload", CodingCommandAction.RELOAD),
-    ):
-        if value == command:
-            return _continue_outcome(action)
-    for command, action in (
-        ("/tree", CodingCommandAction.SESSION_TREE),
-        ("/resume", CodingCommandAction.SESSION_RESUME),
-        ("/name", CodingCommandAction.SESSION_NAME),
-        ("/fork", CodingCommandAction.SESSION_FORK),
-        ("/export", CodingCommandAction.SESSION_EXPORT),
-        ("/import", CodingCommandAction.SESSION_IMPORT),
-    ):
-        if value == command or (
-            value == value.strip() and value.startswith(f"{command} ")
-        ):
-            return _continue_outcome(
-                action,
-                ProductContent(value[len(command) :].strip()),
-            )
-    for command, action in (
-        ("/model", CodingCommandAction.MODEL),
-        ("/scoped-models", CodingCommandAction.SCOPED_MODELS),
-        ("/login", CodingCommandAction.LOGIN),
-        ("/logout", CodingCommandAction.LOGOUT),
-    ):
-        if value == command or (
-            value == value.strip() and value.startswith(f"{command} ")
-        ):
-            return _continue_outcome(
-                action,
-                ProductContent(value[len(command) :].strip()),
-                footer_policy=CodingCommandFooterPolicy.USAGE_AWARE,
-            )
-    return CodingCommandOutcome(CodingCommandOutcomeKind.UNHANDLED)
-
-
 def require_exact_coding_command_outcome(outcome: object) -> None:
     """Reject non-canonical, corrupted, or internally inconsistent outcomes."""
 
@@ -319,20 +261,6 @@ class CommandDispatchResolution:
             resource_provider_text,
             selected_provider_content,
         )
-
-
-def _continue_outcome(
-    action: CodingCommandAction | None = None,
-    argument: ProductContent | None = None,
-    *,
-    footer_policy: CodingCommandFooterPolicy = CodingCommandFooterPolicy.STANDARD,
-) -> CodingCommandOutcome:
-    return CodingCommandOutcome(
-        CodingCommandOutcomeKind.CONTINUE,
-        action,
-        footer_policy,
-        argument,
-    )
 
 
 def _require_exact_product_content(content: object) -> None:

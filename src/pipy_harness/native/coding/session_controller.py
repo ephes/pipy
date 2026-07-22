@@ -49,6 +49,7 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputPort,
 )
+from pipy_harness.native.coding.command_registry import classify_coding_command
 from pipy_harness.native.coding.commands import (
     CodingCommandOutcome,
     CodingCommandOutcomeKind,
@@ -56,7 +57,6 @@ from pipy_harness.native.coding.commands import (
     ExtensionDispatchResolution,
     ResourceDispatchKind,
     ResourceDispatchResolution,
-    classify_coding_command,
 )
 from pipy_harness.native.coding.input_queue import (
     CodingInputQueue,

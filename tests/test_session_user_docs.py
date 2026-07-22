@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from pipy_harness.native.agent import ProductContent
+from pipy_harness.native.coding.command_registry import classify_coding_command
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
     CodingCommandOutcomeKind,
-    classify_coding_command,
 )
 
 

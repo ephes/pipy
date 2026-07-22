@@ -345,6 +345,7 @@ _CODING_PRODUCT_SESSION_ALLOWED_DIRECT_IMPORTS = frozenset(
 _CODING_COMMANDS_FORBIDDEN_IMPORTS = (
     *_CODING_STATE_FORBIDDEN_IMPORTS,
     "pipy_harness.native.cancellation",
+    "pipy_harness.native.coding.command_registry",
     "pipy_harness.native.coding.input_queue",
     "pipy_harness.native.coding.product_session",
     "pipy_harness.native.coding.session",
@@ -365,6 +366,36 @@ _CODING_COMMANDS_ALLOWED_DIRECT_IMPORTS = frozenset(
         "enum.StrEnum",
         "pipy_harness.native.agent.content",
         "pipy_harness.native.agent.content.ProductContent",
+    }
+)
+
+# The declarative command registry owns built-in command classification: it
+# enumerates every built-in in one frozen table and iterates it in
+# `classify_coding_command`. It depends on the pure `native.coding.commands`
+# outcome kernel (value objects + validator) and canonical product content only;
+# the reverse dependency (`commands` -> `command_registry`) is forbidden above so
+# the kernel stays a leaf.
+_CODING_COMMAND_REGISTRY_FORBIDDEN_IMPORTS = _CODING_COMMANDS_FORBIDDEN_IMPORTS
+
+_CODING_COMMAND_REGISTRY_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "collections.abc",
+        "collections.abc.Callable",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "dataclasses.field",
+        "enum",
+        "enum.StrEnum",
+        "pipy_harness.native.agent.content",
+        "pipy_harness.native.agent.content.ProductContent",
+        "pipy_harness.native.coding.commands",
+        "pipy_harness.native.coding.commands.CodingCommandAction",
+        "pipy_harness.native.coding.commands.CodingCommandFooterPolicy",
+        "pipy_harness.native.coding.commands.CodingCommandOutcome",
+        "pipy_harness.native.coding.commands.CodingCommandOutcomeKind",
+        "pipy_harness.native.coding.commands._require_exact_product_content",
     }
 )
 
@@ -522,6 +553,8 @@ _CODING_SESSION_CONTROLLER_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.runtime_ports",
         "pipy_harness.native.agent.runtime_ports.AgentQueuedInput",
         "pipy_harness.native.agent.runtime_ports.AgentQueuedInputPort",
+        "pipy_harness.native.coding.command_registry",
+        "pipy_harness.native.coding.command_registry.classify_coding_command",
         "pipy_harness.native.coding.commands",
         "pipy_harness.native.coding.commands.CodingCommandOutcome",
         "pipy_harness.native.coding.commands.CodingCommandOutcomeKind",
@@ -529,7 +562,6 @@ _CODING_SESSION_CONTROLLER_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.coding.commands.ExtensionDispatchResolution",
         "pipy_harness.native.coding.commands.ResourceDispatchKind",
         "pipy_harness.native.coding.commands.ResourceDispatchResolution",
-        "pipy_harness.native.coding.commands.classify_coding_command",
         "pipy_harness.native.coding.input_queue",
         "pipy_harness.native.coding.input_queue.CodingInputQueue",
         "pipy_harness.native.coding.input_queue.CodingInputSelection",
@@ -820,6 +852,16 @@ ARCHITECTURE_RULES = (
             "headless imperative command outcomes may depend only on canonical "
             "product content, never composition, UI, persistence, providers, "
             "tools, extensions, automation, capture, or archive implementations"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.coding.command_registry",
+        forbidden_imports=_CODING_COMMAND_REGISTRY_FORBIDDEN_IMPORTS,
+        reason=(
+            "the declarative command registry may depend only on the pure "
+            "command-outcome kernel and canonical product content, never "
+            "composition, UI, persistence, providers, tools, extensions, "
+            "automation, capture, or archive implementations"
         ),
     ),
     BoundaryRule(
@@ -2266,6 +2308,22 @@ def test_coding_commands_direct_imports_match_explicit_allowlist() -> None:
     ), "remove stale allowances when headless command outcomes drop imports"
 
 
+def test_coding_command_registry_direct_imports_match_explicit_allowlist() -> None:
+    registry_path = (
+        SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "command_registry.py"
+    )
+    references = _import_references(SOURCE_ROOT, registry_path)
+
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT,
+        registry_path,
+        allowed_imports=_CODING_COMMAND_REGISTRY_ALLOWED_DIRECT_IMPORTS,
+    ), "the declarative command registry gained a dependency outside its allowlist"
+    assert {reference.module for reference in references} == (
+        _CODING_COMMAND_REGISTRY_ALLOWED_DIRECT_IMPORTS
+    ), "remove stale allowances when the command registry drops imports"
+
+
 def test_coding_agent_run_direct_imports_match_explicit_allowlist() -> None:
     agent_run_path = (
         SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "agent_run.py"
@@ -2655,6 +2713,43 @@ import pipy_harness.native.tui
     }
 
 
+def test_coding_command_registry_rule_blocks_outer_runtime_imports(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    registry_path = _write_module(
+        source_root,
+        "pipy_harness.native.coding.command_registry",
+        """\
+import pipy_harness.native.agent.content
+import pipy_harness.native.coding.commands
+import pipy_harness.native.coding.state
+import pipy_harness.native.export_distribution
+import pipy_harness.native.extension_runtime
+import pipy_harness.native.project_trust
+import pipy_harness.native.session_tree
+import pipy_harness.native.tui
+""",
+    )
+    registry_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.coding.command_registry"
+    )
+
+    assert {
+        (violation.path, violation.imported_module, violation.line)
+        for violation in _evaluate_rule(source_root, registry_rule)
+    } == {
+        (registry_path, "pipy_harness.native.coding.state", 3),
+        (registry_path, "pipy_harness.native.export_distribution", 4),
+        (registry_path, "pipy_harness.native.extension_runtime", 5),
+        (registry_path, "pipy_harness.native.project_trust", 6),
+        (registry_path, "pipy_harness.native.session_tree", 7),
+        (registry_path, "pipy_harness.native.tui", 8),
+    }
+
+
 def test_coding_state_rule_recursively_blocks_composition_laundering(
     tmp_path: Path,
 ) -> None:
@@ -2979,6 +3074,84 @@ native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
 pipy_package.native = native_package
 
 module = importlib.import_module("pipy_harness.native.coding.commands")
+assert hasattr(module, "CodingCommandOutcome")
+forbidden = {forbidden_prefixes!r}
+loaded = sorted(
+    name
+    for name in sys.modules
+    if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
+)
+assert loaded == [], loaded
+allowed_prefixes = {allowed_prefixes!r}
+allowed_exact = {allowed_exact!r}
+unexpected = sorted(
+    name
+    for name in sys.modules
+    if name.startswith("pipy_harness")
+    and name not in allowed_exact
+    and not any(
+        name == prefix or name.startswith(prefix + ".")
+        for prefix in allowed_prefixes
+    )
+)
+assert unexpected == [], unexpected
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_coding_command_registry_import_stays_headless_in_a_fresh_process() -> None:
+    package_root = SOURCE_ROOT / "pipy_harness"
+    native_root = package_root / "native"
+    forbidden_prefixes = (
+        *_CODING_STATE_FORBIDDEN_IMPORTS,
+        "pipy_harness.native.cancellation",
+        "pipy_harness.native.coding.product_session",
+        "pipy_harness.native.coding.session",
+        "pipy_harness.native.coding.state",
+        "pipy_harness.native.export_distribution",
+        "pipy_harness.native.models",
+        "pipy_harness.native.provider",
+        "pipy_harness.native.tools",
+    )
+    allowed_prefixes = (
+        "pipy_harness.native.agent",
+        "pipy_harness.native.coding.command_registry",
+        "pipy_harness.native.coding.commands",
+        "pipy_harness.native.coding.input_queue",
+    )
+    allowed_exact = frozenset(
+        {
+            "pipy_harness",
+            "pipy_harness.native",
+            "pipy_harness.native.coding",
+        }
+    )
+    script = f"""\
+import importlib
+import sys
+import types
+
+def namespace_package(name, path):
+    module = types.ModuleType(name)
+    module.__package__ = name
+    module.__path__ = [path]
+    sys.modules[name] = module
+    return module
+
+pipy_package = namespace_package("pipy_harness", {str(package_root)!r})
+native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
+pipy_package.native = native_package
+
+module = importlib.import_module("pipy_harness.native.coding.command_registry")
 assert hasattr(module, "classify_coding_command")
 forbidden = {forbidden_prefixes!r}
 loaded = sorted(
@@ -3036,6 +3209,7 @@ import pipy_harness.native.coding
 assert "pipy_harness.native.coding.state" not in sys.modules
 assert "pipy_harness.native.coding.product_session" not in sys.modules
 assert "pipy_harness.native.coding.commands" not in sys.modules
+assert "pipy_harness.native.coding.command_registry" not in sys.modules
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],

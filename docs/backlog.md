@@ -2168,6 +2168,32 @@ advertising-completeness correction — like names, aliases, descriptions,
 availability, help, completion, and menus — is deferred to Phase 3.2's
 declarative registry.
 
+### Declarative command registry drives classification — SHIPPED (2026-07-22)
+
+Phase 3.2 begins by making a declarative registry the sole classification
+source. The new `native.coding.command_registry` holds a frozen
+`BuiltinCommandSpec` table (`_BUILTIN_COMMANDS`) that enumerates every built-in
+exactly once — the blank-input spec, the two `/exit`/`/quit` EXIT specs, and one
+ACTION spec per `CodingCommandAction` — each carrying `name`, an `aliases` tuple,
+an always-true `availability` predicate, a closed `BuiltinArgumentContract`
+(`NONE`/`OPTIONAL_ARG`/`USAGE_AWARE`), and a `BuiltinCommandKind`
+(`ACTION`/`EXIT`/`BLANK`). `classify_coding_command` moves out of the pure
+`native.coding.commands` outcome kernel (whose AST/import gate keeps it a leaf
+that cannot import the registry) into the registry, where it iterates that single
+table through `_match_builtin` and builds the byte-identical
+`CodingCommandOutcome` for every input. The three hardcoded if/elif tuple loops,
+the inline `/exit`/`/quit` literals, and the kernel's now-unused
+`_continue_outcome` helper are deleted; no second dispatcher or metadata table
+survives. The import-boundary gate adds a `command_registry` rule + exact
+allowlist, forbids the reverse `commands` -> `command_registry` edge, and points
+the `session_controller` allowlist and fresh-process checks at the new owner.
+This first sub-slice deliberately adds no description field, no
+completion/menu/help consumption, no availability enforcement (the predicate
+stays trivially true; gating remains in the interpreter), and no
+`RESERVED_COMMAND_NAMES` widening — those remain later Phase 3.2 sub-slices. No
+public CLI/JSON/RPC/session-format change, and no new runtime dependency, `Any`,
+or `type: ignore`.
+
 ### Agent-run collaborator adapter relocation — IN PROGRESS (2026-07-21)
 
 Phase 3.1e (accepted-input and agent-run coordinator) begins with sub-slice

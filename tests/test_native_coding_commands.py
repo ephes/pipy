@@ -8,12 +8,19 @@ from typing import cast
 import pytest
 
 from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.coding import commands as commands_module
+from pipy_harness.native.coding.command_registry import (
+    _BUILTIN_COMMANDS,
+    BuiltinArgumentContract,
+    BuiltinCommandKind,
+    BuiltinCommandSpec,
+    classify_coding_command,
+)
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
     CodingCommandFooterPolicy,
     CodingCommandOutcome,
     CodingCommandOutcomeKind,
-    classify_coding_command,
     require_exact_coding_command_outcome,
 )
 
@@ -1054,3 +1061,127 @@ def test_kernel_has_only_its_declared_headless_dependencies() -> None:
         "enum",
         "pipy_harness.native.agent.content",
     }
+
+
+def test_superseded_classifier_left_the_outcome_kernel() -> None:
+    assert not hasattr(commands_module, "classify_coding_command")
+    assert not hasattr(commands_module, "_continue_outcome")
+
+
+def test_registry_table_enumerates_every_builtin_exactly_once() -> None:
+    names = [spec.name for spec in _BUILTIN_COMMANDS]
+
+    assert names == [
+        "",
+        "/exit",
+        "/quit",
+        "/hotkeys",
+        "/changelog",
+        "/copy",
+        "/session",
+        "/compact",
+        "/new",
+        "/clone",
+        "/settings",
+        "/trust",
+        "/share",
+        "/reload",
+        "/tree",
+        "/resume",
+        "/name",
+        "/fork",
+        "/export",
+        "/import",
+        "/model",
+        "/scoped-models",
+        "/login",
+        "/logout",
+    ]
+    assert len(names) == len(set(names))
+
+
+def test_registry_binds_every_coding_command_action_exactly_once() -> None:
+    bound_actions = [
+        spec.action
+        for spec in _BUILTIN_COMMANDS
+        if spec.kind is BuiltinCommandKind.ACTION
+    ]
+
+    assert None not in bound_actions
+    assert set(bound_actions) == set(CodingCommandAction)
+    assert len(bound_actions) == len(set(bound_actions))
+
+
+def test_registry_has_exactly_two_exit_specs_and_one_blank_spec() -> None:
+    exit_specs = [
+        spec for spec in _BUILTIN_COMMANDS if spec.kind is BuiltinCommandKind.EXIT
+    ]
+    blank_specs = [
+        spec for spec in _BUILTIN_COMMANDS if spec.kind is BuiltinCommandKind.BLANK
+    ]
+
+    assert {spec.name for spec in exit_specs} == {"/exit", "/quit"}
+    assert [spec.name for spec in blank_specs] == [""]
+    assert all(
+        spec.argument_contract is BuiltinArgumentContract.NONE
+        for spec in (*exit_specs, *blank_specs)
+    )
+
+
+def test_registry_usage_aware_contract_only_covers_provider_control_actions() -> None:
+    usage_aware = {
+        spec.action
+        for spec in _BUILTIN_COMMANDS
+        if spec.argument_contract is BuiltinArgumentContract.USAGE_AWARE
+    }
+
+    assert usage_aware == {
+        CodingCommandAction.MODEL,
+        CodingCommandAction.SCOPED_MODELS,
+        CodingCommandAction.LOGIN,
+        CodingCommandAction.LOGOUT,
+    }
+
+
+def test_registry_specs_are_frozen_and_slotted() -> None:
+    spec = _BUILTIN_COMMANDS[0]
+
+    assert not hasattr(spec, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        setattr(spec, "name", "/mutated")
+
+
+def test_registry_spec_validation_rejects_action_spec_without_action() -> None:
+    with pytest.raises(ValueError, match="ACTION specs require"):
+        BuiltinCommandSpec(
+            "/x",
+            BuiltinCommandKind.ACTION,
+            BuiltinArgumentContract.NONE,
+        )
+
+
+def test_registry_spec_validation_rejects_non_action_spec_with_action() -> None:
+    with pytest.raises(ValueError, match="only ACTION specs"):
+        BuiltinCommandSpec(
+            "/x",
+            BuiltinCommandKind.EXIT,
+            BuiltinArgumentContract.NONE,
+            CodingCommandAction.RELOAD,
+        )
+
+
+@pytest.mark.parametrize("kind", [BuiltinCommandKind.EXIT, BuiltinCommandKind.BLANK])
+def test_registry_spec_validation_forces_none_contract_for_exit_and_blank(
+    kind: BuiltinCommandKind,
+) -> None:
+    with pytest.raises(ValueError, match="EXIT and BLANK specs require the NONE"):
+        BuiltinCommandSpec("/x", kind, BuiltinArgumentContract.OPTIONAL_ARG)
+
+
+def test_registry_spec_validation_rejects_non_exact_field_types() -> None:
+    with pytest.raises(TypeError, match="spec.name"):
+        BuiltinCommandSpec(
+            cast(str, []),
+            BuiltinCommandKind.EXIT,
+            BuiltinArgumentContract.NONE,
+        )
