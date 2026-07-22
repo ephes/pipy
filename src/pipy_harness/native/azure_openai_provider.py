@@ -21,7 +21,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_responses, decode_json_object, extract_responses_tool_calls, urlopen_read_cancellable
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_responses, extract_responses_tool_calls
+from pipy_harness.native.http import JsonResponse, JsonHTTPClient, decode_json_object, urlopen_read_cancellable
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolResultMessage,

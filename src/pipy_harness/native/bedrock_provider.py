@@ -29,7 +29,8 @@ from pipy_harness.native.anthropic_provider import (
     ANTHROPIC_THINKING_DISPLAY_DEFAULT,
     supports_adaptive_thinking,
 )
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, JsonResponse, JsonHTTPClient, serialize_tool_for_anthropic, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_anthropic
+from pipy_harness.native.http import JsonResponse, JsonHTTPClient, decode_json_object, urlopen_read_cancellable
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolResultMessage,

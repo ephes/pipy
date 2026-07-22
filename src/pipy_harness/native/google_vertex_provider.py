@@ -40,7 +40,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result
+from pipy_harness.native.http import JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object, urlopen_read_cancellable
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolResultMessage,

@@ -1056,7 +1056,15 @@ The bulk is mechanical duplication. pi-mono's
 1. Extract a single `pipy_harness.native.http` module owning the
    `JsonHTTPClient` / `UrllibJsonHTTPClient` boundary and the four-class
    exception hierarchy. Delete the per-provider copies. Refs:
-   `02:F1`, `02:F2`.
+   `02:F1`, `02:F2`. **Partly landed (migration Slice 5.1):**
+   `native.http` now owns the transport boundary — the
+   `JsonHTTPClient`/`JsonResponse` contract, cancellable request
+   execution (`open_url_cancellable`/`urlopen_read_cancellable` plus the
+   connection-registration machinery), JSON body decoding, HTTP-error
+   metadata, and safe usage-field extraction — and `_provider_helpers`
+   no longer holds them. Remaining: fold the per-provider
+   `UrllibJsonHTTPClient` copies and the per-provider exception
+   hierarchies/`from_http_error` onto shared implementations (Slice 5.2).
 2. Extract `pipy_harness.native.providers._chat_completions_shared` for
    the Chat-Completions wire shape. Collapse OpenAI-Completions,
    OpenRouter, Mistral, and Cloudflare onto it (~760 L removed). Refs:

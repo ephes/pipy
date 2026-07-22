@@ -334,6 +334,15 @@ does not enable built-in tools, function calling, web search, file search, code
 interpreter, computer use, conversation state, background mode, streaming,
 retries, model fallback, or OAuth.
 
+That transport boundary is owned by `pipy_harness.native.http`: it holds the
+injectable `JsonHTTPClient`/`JsonResponse` contract, the cancellable
+`open_url_cancellable`/`urlopen_read_cancellable` request execution that lets an
+Escape/Ctrl-C during a turn shut the in-flight socket down, the JSON body
+decoder, and the safe usage-field extractor. Each provider adapter keeps its own
+`UrllibJsonHTTPClient` implementation of that contract; the remaining
+`_provider_helpers` module owns result/tool serialization and the
+`HarnessStatus.FAILED` result builder.
+
 Native provider/model ids and coarse capability flags are registered in
 `pipy_harness.native.provider_registry`. The registry owns default models,
 credential/local availability checks, whether one-shot `pipy run` can omit

@@ -31,11 +31,13 @@ from typing import Any, Protocol, TextIO
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import (
-    decode_json_object,
     failed_provider_result,
-    open_url_cancellable,
     serialize_tool_for_responses,
     utc_now,
+)
+from pipy_harness.native.http import (
+    decode_json_object,
+    open_url_cancellable,
 )
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
 from pipy_harness.native.agent import (

@@ -32,7 +32,7 @@ from pipy_harness.native.session_tree import (
     _entry_to_json,
     _load_file_entries,
 )
-from pipy_harness.native._provider_helpers import urlopen_read_cancellable
+from pipy_harness.native.http import urlopen_read_cancellable
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 
 _SENSITIVE_KEY_RE = r"api[_-]?key|apikey|secret|token|password|credential"

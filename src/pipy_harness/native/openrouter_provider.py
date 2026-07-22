@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, extract_text_content, safe_http_status_metadata, JsonResponse, JsonHTTPClient, envelope_to_chat_message, extract_chat_completions_tool_calls, serialize_tool_for_chat_completions, extract_usage_from_fields, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, extract_text_content, envelope_to_chat_message, extract_chat_completions_tool_calls, serialize_tool_for_chat_completions
+from pipy_harness.native.http import safe_http_status_metadata, JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object, urlopen_read_cancellable
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-from pipy_harness.native._provider_helpers import JsonHTTPClient
+from pipy_harness.native.http import JsonHTTPClient
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.openai_completions_provider import (

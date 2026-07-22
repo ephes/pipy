@@ -522,7 +522,7 @@ boundaries:
    `JsonHTTPClient.post_json` / `SseHTTPClient.post_sse` boundaries take an
    optional keyword-only `cancel_token`.
 2. The shared `open_url_cancellable` / `urlopen_read_cancellable` helpers (in
-   `_provider_helpers.py`) open the request through a custom `urllib` opener
+   `native/http.py`) open the request through a custom `urllib` opener
    whose connection **registers itself on the token at `connect()` time** — so
    the registered closeable exists before any response object does. This is
    load-bearing: a non-streaming JSON API does not send response headers until

@@ -19,7 +19,7 @@ from typing import Any, cast
 
 import pytest
 
-from pipy_harness.native._provider_helpers import (
+from pipy_harness.native.http import (
     JsonResponse,
     open_url_cancellable,
     urlopen_read_cancellable,
@@ -296,7 +296,7 @@ def test_urlopen_read_cancellable_maps_attributeerror_when_cancelled(
     is taken instead of leaking a spurious provider error.
     """
 
-    import pipy_harness.native._provider_helpers as helpers
+    import pipy_harness.native.http as helpers
 
     monkeypatch.setattr(
         helpers,
@@ -321,7 +321,7 @@ def test_urlopen_read_cancellable_attributeerror_propagates_without_cancel(
     itself, never be silently swallowed as a cancellation.
     """
 
-    import pipy_harness.native._provider_helpers as helpers
+    import pipy_harness.native.http as helpers
 
     monkeypatch.setattr(
         helpers,
@@ -552,7 +552,7 @@ def test_cancellable_https_handler_https_open_has_no_missing_attribute() -> None
     and the SSL context is forwarded.
     """
 
-    from pipy_harness.native._provider_helpers import _build_cancellable_opener
+    from pipy_harness.native.http import _build_cancellable_opener
 
     token = CancelToken()
     opener = _build_cancellable_opener(token)

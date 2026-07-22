@@ -14,9 +14,11 @@ from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import (
     utc_now,
     failed_provider_result,
+    serialize_tool_for_anthropic,
+)
+from pipy_harness.native.http import (
     JsonResponse,
     JsonHTTPClient,
-    serialize_tool_for_anthropic,
     decode_json_object,
     urlopen_read_cancellable,
 )

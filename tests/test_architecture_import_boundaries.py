@@ -74,12 +74,14 @@ _LEGACY_CONCRETE_PROVIDER_MODULES = (
 )
 
 # These modules are provider-facing architecture sources even though their
-# filenames are not concrete ``*_provider.py`` transports: the shared helper
-# owns HTTP adapter utilities, construction selects transports, the port defines
+# filenames are not concrete ``*_provider.py`` transports: ``http`` owns the
+# request/cancellation/JSON transport boundary, the shared helper owns the
+# result/tool serializers, construction selects transports, the port defines
 # their contract, the fake implements that contract for headless tests, and the
 # deferred-tool adapter projects canonical history into provider requests.
 _PROVIDER_UI_SUPPORT_MODULES = (
     "pipy_harness.native._provider_helpers",
+    "pipy_harness.native.http",
     "pipy_harness.native.deferred_tools",
     "pipy_harness.native.fake",
     "pipy_harness.native.provider",
@@ -166,6 +168,7 @@ _AGENT_HISTORY_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.provider_registry",
     "pipy_harness.native.providers",
     "pipy_harness.native._provider_helpers",
+    "pipy_harness.native.http",
     "pipy_harness.native.deferred_tools",
     "pipy_harness.native.fake",
     "pipy_harness.native.models",
@@ -225,6 +228,7 @@ _CODING_STATE_FORBIDDEN_IMPORTS = (
     "pipy_harness.runner",
     *_CODING_FORBIDDEN_IMPORTS,
     "pipy_harness.native._provider_helpers",
+    "pipy_harness.native.http",
     "pipy_harness.native.agent_adapters",
     "pipy_harness.native.agent_loop_policy",
     "pipy_harness.native.agent_request",
