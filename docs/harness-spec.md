@@ -1479,25 +1479,38 @@ JSON/RPC/SDK/session/extension, retry, budget, or queue behavior. Later ordered
 cuts move agent-history compaction (2.2b.2), add the tool-capability port
 (2.2b.3), establish provider-request/run-effect/usage/active-input seams
 (2.2b.4), and perform the full headless `AgentLoop` cutover (2.2b.5). Product
-queue/lifecycle ownership remains Phase 3 and persistence write relocation
-remains Phase 3.3.
+queue/lifecycle ownership remains Phase 3; persistence write relocation
+completed in Phase 3.3.
 
 ### Canonical Agent Runtime Ports
 
-Slice 2.2b.4c adds three narrow synchronous contracts in
-`native.agent.runtime_ports`. `AgentRunEffectSink` accepts the closed
-`AppendAgentMessage` effect; `AgentUsagePublisher` accepts one normalized
-provider sample together with the cumulative run snapshot and exact last-turn
-context total; and `AgentQueuedInputPort` takes at most one product-selected
-steering or follow-up value. The queued value is full-content `ProductContent`
-because it remains outside canonical conversation history until the next run
-accepts it as an `AgentUserMessage`.
+Slice 2.2b.4c added three narrow synchronous contracts in
+`native.agent.runtime_ports`, of which two remain. `AgentUsagePublisher`
+accepts one normalized provider sample together with the cumulative run
+snapshot and exact last-turn context total; and `AgentQueuedInputPort` takes at
+most one product-selected steering or follow-up value. The queued value is
+full-content `ProductContent` because it remains outside canonical conversation
+history until the next run accepts it as an `AgentUserMessage`.
+
+The third original contract — `AgentRunEffectSink` accepting the closed
+`AppendAgentMessage` effect — was removed in Phase 3.3. Durable product-session
+persistence is no longer a reusable-loop effect: it is a live projection inside
+each mode's fixed agent-event composite. `ProductSessionEventProjection` turns
+each canonical completion event into an `AppendProductMessage`, and the
+`NativeProductSessionActionSink` (in `native.agent_adapters`) forwards it to
+`product_session.append_message`. Accordingly `AgentRunEffectSink`,
+`AgentRunEffect`, and `AppendAgentMessage` no longer exist in
+`native.agent.runtime_ports`, and `NativeAgentRunEffectSink` was deleted from
+`native.agent_runtime`.
 
 The product adapters are callback-composed and late-bound so `/new`, resume,
 model changes, and other session/usage resets cannot leave them pointing at a
-stale session tree or accumulator. Effects and publications are synchronous:
-an append finishes before the following canonical event; session usage absorbs
-before `UsageUpdated`; and callback failure propagates before later loop work.
+stale accumulator. Publications are synchronous: session usage absorbs
+before `UsageUpdated`, and callback failure propagates before later loop work.
+Durable persistence is no longer one of these adapters — since Phase 3.3 the
+append happens during a canonical completion event's dispatch, inside the
+composite's `ProductSessionEventProjection`, rather than as a separate effect
+between events.
 Provider telemetry is normalized once into `AgentProviderUsageSample`, retaining
 the established integer coercion, cache-counter classification, explicit-total
 fallback, cumulative totals, and footer/context behavior.
@@ -1509,7 +1522,9 @@ continuations; RPC retains its queue reservation, idle transition, abort clear,
 has no enqueue, peek, count, mode, clear, reserve, settle, or lifecycle method.
 It can ask for one already eligible controller-selected item after a run
 settles, and `None` hands control back to the product input lifecycle. Durable
-session-tree writes still execute in the product callback until Phase 3.3.
+session-tree writes still execute in the product callback (`append_message`),
+but since Phase 3.3 the trigger is the persistence projection rather than a
+reusable-loop effect.
 The closed queued-input kind remains attached through terminal, extension, and
 RPC delivery, so a queued value beginning with `/` or `!` bypasses local command
 and shell dispatch and reaches the provider verbatim.
@@ -1620,8 +1635,12 @@ fresh terminal/RPC provider wait binding, renderer refresh, diagnostics/footer,
 prompt history, durable writes, and counter synchronization remain callback-
 composed product responsibilities. Typed state callbacks preserve the historical
 budget/unauthorized/blocked/settled/malformed counter-update points and publish
-the final state before `AgentRunCompleted`; append effects update the live product
-message mirror before the durable session-tree append. `NativeToolReplSession.run()` now invokes
+the final state before `AgentRunCompleted`. Since Phase 3.3 the loop no longer
+emits a run-effect append: durable product-session persistence is a live
+projection inside each mode's fixed agent-event composite
+(`ProductSessionEventProjection` forwarding each `AppendProductMessage` through
+the `NativeProductSessionActionSink` to `product_session.append_message`), not a
+reusable-loop effect. `NativeToolReplSession.run()` now invokes
 the canonical loop instead of containing a second provider/tool cycle. The
 canonical module imports no terminal/UI, extension runtime, automation/archive,
 session/persistence, provider construction, concrete provider/tool, or product
@@ -1741,10 +1760,12 @@ The coordinator owns no `NativeSessionTree`, filesystem, compaction-summary
 formatting, command policy, extension implementation, RPC lifecycle, rendering,
 provider construction, concrete provider/tool, SDK, capture, or archive code.
 The composition root supplies named callbacks closing over its active concrete
-tree. The Phase 1.2 `ProductSessionEventProjection` remains inactive as a writer
-until Phase 3.3 relocates write ownership, preventing duplicate or earlier
-writes. Static exact-allowlist, recursive, fresh-process, and no-eager-export
-tests enforce the boundary.
+tree. Since Phase 3.3 relocated write ownership, the
+`ProductSessionEventProjection` is the live durable writer inside each mode's
+fixed composite, forwarding each projected append through the typed
+`NativeProductSessionActionSink` to the tree callback without duplicate or
+earlier writes. Static exact-allowlist, recursive, fresh-process, and
+no-eager-export tests enforce the boundary.
 
 ### Headless Coding-Command Outcomes
 
@@ -2095,7 +2116,7 @@ This correctness slice preserves synchronous sequential scheduling, public
 JSON/RPC/SDK/extension/session shapes, callback ordering, provider correlation
 and pipy request identity, and the metadata-only workflow archive allowlist.
 Active-input cleanup/compaction closure remains 2.2b.4b; effect, usage, and
-queue-facing ports remain 2.2b.4c; persistence relocation remains Phase 3.3.
+queue-facing ports remain 2.2b.4c; persistence relocation landed in Phase 3.3.
 
 ### Read-Only Tool Request Value Objects
 

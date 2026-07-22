@@ -23,6 +23,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     FollowUpConsumed,
     MessageCompleted,
+    MessageStarted,
     ProductContent,
     ProviderFailed,
     RunCancelled,
@@ -34,9 +35,9 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputKind,
-    AgentRunEffect,
     AgentUsagePublication,
 )
+from pipy_harness.native.agent_adapters import AppendProductMessage
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
 )
@@ -393,23 +394,25 @@ def _assert_usage_publications(
     assert [publication.context_tokens for publication in publications] == [3, 4, 9]
 
 
-def test_product_session_traverses_run_effect_port_with_exact_message_identity(
+def test_product_session_projection_action_sink_persists_exact_message_identity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.tool_loop_session as loop_module
 
     trace: list[tuple[str, object]] = []
-    original = loop_module.NativeAgentRunEffectSink
+    original = loop_module.NativeProductSessionActionSink
 
-    class RecordingRunEffectSink:
+    class RecordingActionSink:
         def __init__(self, append_message: Callable[[AgentMessage], object]) -> None:
             self._delegate = original(append_message)
 
-        def emit(self, effect: AgentRunEffect) -> None:
-            trace.append(("effect", effect.message))
-            self._delegate.emit(effect)
+        def append(self, action: AppendProductMessage) -> None:
+            trace.append(("effect", action.message))
+            self._delegate.append(action)
 
-    monkeypatch.setattr(loop_module, "NativeAgentRunEffectSink", RecordingRunEffectSink)
+    monkeypatch.setattr(
+        loop_module, "NativeProductSessionActionSink", RecordingActionSink
+    )
     call = ProviderToolCall("provider-call", "echo", '{"text":"tool-result"}')
     provider = _ScriptProvider(
         (_result("using tool", tool_calls=(call,)), _result("done"))
@@ -451,31 +454,35 @@ def test_product_session_traverses_run_effect_port_with_exact_message_identity(
     assert isinstance(assistant_with_call, AgentAssistantMessage)
     assert isinstance(tool_result, AgentToolResultMessage)
     assert isinstance(final_assistant, AgentAssistantMessage)
-    assert _effect_index(trace, user) < next(
-        index for index, (_, item) in enumerate(trace) if isinstance(item, TurnStarted)
-    )
-    for message in (assistant_with_call, tool_result, final_assistant):
-        assert _message_event_index(trace, message) < _effect_index(trace, message)
+    # Persistence is now a live projection inside the fixed composite: each
+    # message is written synchronously when its completion event reaches the
+    # projection (composite position before the caller's `agent_event_sink`),
+    # so the durable append is recorded ahead of the same event on the caller
+    # sink for every message, including the accepted user turn.
+    for message in (user, assistant_with_call, tool_result, final_assistant):
+        assert _effect_index(trace, message) < _message_event_index(trace, message)
 
 
 @pytest.mark.parametrize("cancelled", [False, True])
-def test_run_effect_port_excludes_synthetic_failure_and_cancel_assistant(
+def test_projection_action_sink_excludes_synthetic_failure_and_cancel_assistant(
     cancelled: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.tool_loop_session as loop_module
 
     effects: list[object] = []
-    original = loop_module.NativeAgentRunEffectSink
+    original = loop_module.NativeProductSessionActionSink
 
-    class RecordingRunEffectSink:
+    class RecordingActionSink:
         def __init__(self, append_message: Callable[[AgentMessage], object]) -> None:
             self._delegate = original(append_message)
 
-        def emit(self, effect: AgentRunEffect) -> None:
-            effects.append(effect.message)
-            self._delegate.emit(effect)
+        def append(self, action: AppendProductMessage) -> None:
+            effects.append(action.message)
+            self._delegate.append(action)
 
-    monkeypatch.setattr(loop_module, "NativeAgentRunEffectSink", RecordingRunEffectSink)
+    monkeypatch.setattr(
+        loop_module, "NativeProductSessionActionSink", RecordingActionSink
+    )
     provider = (
         _CancelledProvider()
         if cancelled
@@ -812,43 +819,21 @@ def test_retained_handoffs_survive_higher_priority_resource_run_fifo(
     assert consumed[1].content is second.content
 
 
-def test_run_effect_failure_prevents_turn_start_and_provider_call(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
-
-    class FailingRunEffectSink:
-        def __init__(self, _append_message: Callable[[AgentMessage], object]) -> None:
-            pass
-
-        def emit(self, effect: AgentRunEffect) -> None:
-            assert isinstance(effect.message, AgentUserMessage)
-            raise RuntimeError("effect refused append")
-
-    monkeypatch.setattr(loop_module, "NativeAgentRunEffectSink", FailingRunEffectSink)
-    provider = _ScriptProvider((_result("unused"),))
-    canonical = _CollectingSink()
-    with pytest.raises(RuntimeError, match="effect refused append"):
-        _run(
-            NativeToolReplSession(provider=provider, agent_event_sink=canonical),
-            tmp_path,
-            "prompt\n",
-        )
-
-    assert provider.requests == []
-    assert [type(event) for event in canonical.events] == [AgentRunStarted]
-
-
 def test_product_persistence_failure_observes_state_first_append(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     provider = _ScriptProvider((_result("unused"),))
     tree = NativeSessionTree.create(tmp_path, persist=False)
-    session = NativeToolReplSession(provider=provider, native_session=tree)
+    canonical = _CollectingSink()
+    session = NativeToolReplSession(
+        provider=provider, native_session=tree, agent_event_sink=canonical
+    )
     observed: list[AgentMessage] = []
 
     def fail_persistence(message: AgentMessage) -> None:
         observed.append(message)
+        # State-first ordering: the live coding-state mirror already carries the
+        # appended message (as its last entry) before the durable tree write.
         assert session._coding_state.messages[-1] is message
         assert tree.build_context().messages == ()
         raise RuntimeError("product persistence refused append")
@@ -858,10 +843,31 @@ def test_product_persistence_failure_observes_state_first_append(
     with pytest.raises(RuntimeError, match="product persistence refused append"):
         _run(session, tmp_path, "prompt\n")
 
+    # Persistence is now a projection of the canonical `MessageCompleted(user)`
+    # event, which fires after the per-turn `mirror_history` seeds the accepted
+    # message into live state for request building; the projection append (which
+    # triggered the failing durable write) is therefore the last live-state entry
+    # rather than the only one. The durable tree stayed empty and the failure
+    # surfaced before any provider request.
     assert len(observed) == 1
-    assert session._coding_state.messages == tuple(observed)
+    assert session._coding_state.messages[-1] is observed[0]
     assert tree.build_context().messages == ()
     assert provider.requests == []
+    # Relocating persistence to the event-driven projection (which sits before
+    # the caller's `agent_event_sink` in the fixed composite and fires at
+    # `MessageCompleted(user)`) changes the observable failure-path prefix: the
+    # caller now sees the run/turn/user-start lifecycle before the durable write
+    # aborts the run at `MessageCompleted(user)` — that completion event never
+    # reaches the caller sink because the earlier projection raises first.
+    assert [type(event) for event in canonical.events] == [
+        AgentRunStarted,
+        TurnStarted,
+        MessageStarted,
+    ]
+    last_started = canonical.events[-1]
+    assert isinstance(last_started, MessageStarted)
+    assert isinstance(last_started.message, AgentUserMessage)
+    assert last_started.message is observed[0]
 
 
 @pytest.mark.parametrize("status", [HarnessStatus.SUCCEEDED, HarnessStatus.FAILED])

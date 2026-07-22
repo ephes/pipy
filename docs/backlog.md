@@ -2244,6 +2244,49 @@ add fixtures/checks exercising the widened set. No public
 CLI/JSON/RPC/session-format change beyond the intended advertising widening, and
 no new runtime dependency, `Any`, or `type: ignore`.
 
+### Persistence subscriber (Slice 3.3) — SHIPPED (2026-07-22)
+
+Phase 3.3 makes durable product-session persistence a live projection inside
+each mode's fixed composite instead of a reusable-loop effect, as one atomic
+ownership cut. `_ExtensionAwareAgentEventSink` constructs its
+`ProductSessionEventProjection` with a typed `NativeProductSessionActionSink`
+(new, in `native.agent_adapters` beside the projection,
+`ProductSessionActionSink`, and `AppendProductMessage`, because the
+`native.agent_runtime` import boundary forbids depending on `agent_adapters`);
+the sink forwards each projected `AppendProductMessage` to
+`product_session.append_message`, preserving the coordinator's exact
+coding-state-then-session-tree write. The emitter construction moved just below
+the session-tree/`ctl`/product-session setup band so the composite can hold the
+live sink — a construction-order change only; the composite's fixed emission
+order (renderer, automation, persistence projection, workflow archive, caller
+sink, lifecycle hooks) is unchanged and no event is added or removed. In the
+same change the superseded effect path is DELETED with no alias:
+`AgentLoop._append_message` keeps `state.history` maintenance but no longer emits
+an append effect; the `run_effect_sink` port/field/validation is removed from
+`AgentLoop` and `CodingAgentRunCoordinator` (and its loop construction);
+`NativeAgentRunEffectSink` construction/wiring is removed from
+`tool_loop_session`; and `AppendAgentMessage`/`AgentRunEffect`/
+`AgentRunEffectSink` are removed from `native.agent.runtime_ports` with
+`NativeAgentRunEffectSink` deleted from `native.agent_runtime`. Provider requests
+are byte-identical: the loop still appends the accepted user message to
+`state.history` before the turn loop, and `_prepare_loop_request` still mirrors
+that authoritative history into coding-state (and compacts) before each request,
+so event-driven persistence never feeds request construction; the final coding
+state stays authoritative through the coordinator's per-turn and end-of-run
+`mirror_history`. The only divergence from the deleted effect path is a
+transient, mirror-vs-projection double of the accepted user message in live
+coding-state within its own turn — cleared by the next `mirror_history`, never
+durable, never fed to a provider request, and unobserved across the full suite
+(extension `agent_end`/lifecycle hooks, footers, `/tree`, resume, compaction, and
+the metadata-only archive all read the corrected state). The interactive
+`!`-shell-message append and durable compaction stay imperative through the
+coordinator; the raw native tree stays distinct from the counts-only archive
+(allowlist unchanged). Boundary gates updated for the removed ports; new
+`NativeProductSessionActionSink` characterization lives in
+`tests/test_native_agent_event_adapters.py`, and the effect-timing loop and
+session-integration assertions were retargeted onto `outcome.final_history` and
+the projection action sink. No new runtime dependency, `Any`, or `type: ignore`.
+
 ### Agent-run collaborator adapter relocation — IN PROGRESS (2026-07-21)
 
 Phase 3.1e (accepted-input and agent-run coordinator) begins with sub-slice

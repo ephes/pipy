@@ -5,31 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from pipy_harness.native.agent.events import UsageUpdated
-from pipy_harness.native.agent.messages import AgentMessage
 from pipy_harness.native.agent.ports import AgentEventSink
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
-    AgentRunEffect,
     AgentUsagePublication,
-    AppendAgentMessage,
 )
 from pipy_harness.native.agent.usage import AgentProviderUsageSample
-
-
-class NativeAgentRunEffectSink:
-    """Apply canonical run effects through current product callbacks."""
-
-    __slots__ = ("_append_message",)
-
-    def __init__(self, append_message: Callable[[AgentMessage], object]) -> None:
-        if not callable(append_message):
-            raise TypeError("append_message must be callable")
-        self._append_message = append_message
-
-    def emit(self, effect: AgentRunEffect) -> None:
-        if not isinstance(effect, AppendAgentMessage):
-            raise TypeError("effect must be an AgentRunEffect")
-        self._append_message(effect.message)
 
 
 class NativeAgentUsagePublisher:

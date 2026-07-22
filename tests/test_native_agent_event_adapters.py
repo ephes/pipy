@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import cast
+
 import pytest
 
 from pipy_harness.native.agent import (
@@ -9,6 +12,7 @@ from pipy_harness.native.agent import (
     AgentCancellationReason,
     AgentEvent,
     AgentFailure,
+    AgentMessage,
     AgentRunCompleted,
     AgentRunOutcome,
     AgentRunResult,
@@ -40,6 +44,7 @@ from pipy_harness.native.automation.agent_events import AutomationAgentEventAdap
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.agent_adapters import (
     AppendProductMessage,
+    NativeProductSessionActionSink,
     ProductSessionEventProjection,
     RenderingAgentEventAdapter,
     SdkAgentEventAdapter,
@@ -698,9 +703,10 @@ def test_product_projection_synthetic_suppression_is_one_shot_and_reset_scoped()
 
 
 def test_product_projection_with_default_sink_stays_inert_across_a_full_stream() -> None:
-    # Production wires this projection with ``sink=None`` (Slice 3.3 owns the
-    # cutover); the default construction must accept the full canonical stream
-    # without writing or raising while the live loop still performs the writes.
+    # Production now wires this projection with a live
+    # ``NativeProductSessionActionSink`` (Slice 3.3 cutover); the default
+    # ``sink=None`` construction remains a safe inert fallback that accepts the
+    # full canonical stream without writing or raising.
     projection = ProductSessionEventProjection()
     user = AgentUserMessage(ProductContent("prompt"))
     call = AgentToolCall("provider-call", "read", ProductContent('{"path":"x"}'))
@@ -720,6 +726,47 @@ def test_product_projection_with_default_sink_stays_inert_across_a_full_stream()
     projection.emit(
         RunCancelled(AgentCancellationReason.OPERATOR_ABORT, ProductContent("detail"))
     )
+
+
+def test_native_product_action_sink_forwards_each_append_to_current_callback() -> None:
+    first: list[AgentMessage] = []
+    second: list[AgentMessage] = []
+    current = {"messages": first}
+    sink = NativeProductSessionActionSink(
+        lambda message: current["messages"].append(message)
+    )
+    user = AgentUserMessage(ProductContent("first"))
+    assistant = AgentAssistantMessage(ProductContent("second"))
+
+    sink.append(AppendProductMessage(user))
+    current["messages"] = second
+    sink.append(AppendProductMessage(assistant))
+
+    assert first == [user]
+    assert second == [assistant]
+
+
+def test_native_product_action_sink_rejects_non_action_and_propagates_failure() -> None:
+    with pytest.raises(TypeError, match="append_message must be callable"):
+        NativeProductSessionActionSink(cast(Callable[[AgentMessage], object], None))
+
+    recorded: list[AgentMessage] = []
+    sink = NativeProductSessionActionSink(recorded.append)
+    with pytest.raises(TypeError, match="must be an AppendProductMessage"):
+        sink.append(cast(AppendProductMessage, object()))
+    assert recorded == []
+
+    failure = RuntimeError("append failed")
+
+    def fail(message: AgentMessage) -> object:
+        del message
+        raise failure
+
+    with pytest.raises(RuntimeError, match="append failed") as raised:
+        NativeProductSessionActionSink(fail).append(
+            AppendProductMessage(AgentUserMessage(ProductContent("x")))
+        )
+    assert raised.value is failure
 
 
 def test_workflow_projection_exposes_only_fixed_numeric_counts() -> None:

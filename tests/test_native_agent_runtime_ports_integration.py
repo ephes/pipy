@@ -10,15 +10,12 @@ import pytest
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import AgentEvent, UsageUpdated
-from pipy_harness.native.agent.messages import AgentMessage, AgentUserMessage
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputKind,
     AgentQueuedInputPort,
-    AgentRunEffectSink,
     AgentUsagePublication,
     AgentUsagePublisher,
-    AppendAgentMessage,
 )
 from pipy_harness.native.agent.results import AgentUsage
 from pipy_harness.native.agent.usage import (
@@ -27,7 +24,6 @@ from pipy_harness.native.agent.usage import (
 )
 from pipy_harness.native.agent_runtime import (
     NativeAgentQueuedInputPort,
-    NativeAgentRunEffectSink,
     NativeAgentUsagePublisher,
 )
 
@@ -45,10 +41,6 @@ class _EventSink:
         self.events.append(event)
 
 
-def _message(value: str = "hello") -> AgentUserMessage:
-    return AgentUserMessage(ProductContent(value))
-
-
 def _publication() -> AgentUsagePublication:
     sample = AgentProviderUsageSample(input_tokens=4, output_tokens=2)
     return AgentUsagePublication(
@@ -56,39 +48,6 @@ def _publication() -> AgentUsagePublication:
         AgentUsage(input_tokens=9, output_tokens=3),
         sample.effective_total_tokens,
     )
-
-
-def test_effect_sink_calls_current_append_callback_synchronously() -> None:
-    first: list[AgentMessage] = []
-    second: list[AgentMessage] = []
-    current = {"messages": first}
-    sink = NativeAgentRunEffectSink(lambda message: current["messages"].append(message))
-    first_message = _message("first")
-    second_message = _message("second")
-
-    sink.emit(AppendAgentMessage(first_message))
-    current["messages"] = second
-    sink.emit(AppendAgentMessage(second_message))
-
-    assert first == [first_message]
-    assert second == [second_message]
-    assert isinstance(sink, AgentRunEffectSink)
-    with pytest.raises(TypeError, match="effect must be an AgentRunEffect"):
-        sink.emit(cast(AppendAgentMessage, object()))
-
-
-def test_effect_sink_propagates_append_failure() -> None:
-    failure = RuntimeError("append failed")
-
-    def fail(message: AgentMessage) -> object:
-        del message
-        raise failure
-
-    sink = NativeAgentRunEffectSink(fail)
-
-    with pytest.raises(RuntimeError, match="append failed") as raised:
-        sink.emit(AppendAgentMessage(_message()))
-    assert raised.value is failure
 
 
 def test_usage_publisher_absorbs_before_exact_event_and_tracks_current_target() -> None:
@@ -196,12 +155,6 @@ def test_queue_port_rejects_untyped_callback_result() -> None:
 @pytest.mark.parametrize(
     ("factory", "message"),
     [
-        (
-            lambda: NativeAgentRunEffectSink(
-                cast(Callable[[AgentMessage], object], None)
-            ),
-            "append_message",
-        ),
         (
             lambda: NativeAgentUsagePublisher(
                 cast(Callable[[AgentProviderUsageSample], None], None),

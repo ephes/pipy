@@ -122,6 +122,8 @@ from pipy_harness.native.agent.usage import (
     AgentUsageAccumulator,
 )
 from pipy_harness.native.agent_adapters import (
+    NativeProductSessionActionSink,
+    ProductSessionActionSink,
     ProductSessionEventProjection,
     RenderingAgentEventAdapter,
     SynchronousAgentEventComposite,
@@ -129,7 +131,6 @@ from pipy_harness.native.agent_adapters import (
 )
 from pipy_harness.native.agent_runtime import (
     NativeAgentQueuedInputPort,
-    NativeAgentRunEffectSink,
     NativeAgentUsagePublisher,
 )
 from pipy_harness.native.cancellation import CancelToken
@@ -1288,6 +1289,7 @@ class _ExtensionAwareAgentEventSink:
         *,
         renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
         agent_event_sink: AgentEventSink | None,
+        product_action_sink: ProductSessionActionSink | None,
         lifecycle_hooks: dict[str, tuple[HookHandler, ...]],
         cwd: Path,
         has_ui: bool,
@@ -1301,7 +1303,7 @@ class _ExtensionAwareAgentEventSink:
             immediate_sinks.append(AutomationAgentEventAdapter(sink))
         immediate_sinks.extend(
             (
-                ProductSessionEventProjection(),
+                ProductSessionEventProjection(product_action_sink),
                 WorkflowArchiveAgentEventAdapter(),
             )
         )
@@ -2888,7 +2890,6 @@ class _ReplLoopStep:
         input_queued_input_port: NativeAgentQueuedInputPort | None,
         provider_request_policy: NativeAgentProviderRequestPolicy,
         provider_turn_executor: ProviderTurnExecutor,
-        run_effect_sink: NativeAgentRunEffectSink,
         usage_publisher: NativeAgentUsagePublisher,
         extension_ui_driver: _LiveExtensionUiDriver | None,
         diag: Callable[[str], None],
@@ -3408,7 +3409,6 @@ class _ReplLoopStep:
             tool_capabilities=tool_capabilities,
             tool_policy=agent_tool_policy,
             event_sink=emitter,
-            run_effect_sink=run_effect_sink,
             usage_publisher=usage_publisher,
             queued_input_port=coding_input_queue.agent_loop_port,
             coding_state=coding_state,
@@ -4416,26 +4416,6 @@ class NativeToolReplSession:
                 tool_renderers=extension_tool_renderers,
                 render_details_sink=extension_render_details,
             )
-        # Pi-shaped session-event emitter for the headless automation transports.
-        # A no-op when no observer is attached (CLI/TUI), so the interactive path
-        # is unchanged; otherwise it serializes this real loop's lifecycle onto
-        # Pi's AgentSessionEvent vocabulary.
-        # Extension-aware emitter: also fires the lifecycle `@api.on(...)`
-        # observers at the existing agent/turn emit points (no-op when no
-        # lifecycle hooks were registered).
-        emitter = _ExtensionAwareAgentEventSink(
-            self.automation_observer,
-            renderer=renderer,
-            agent_event_sink=self.agent_event_sink,
-            lifecycle_hooks=extension_lifecycle_hooks,
-            cwd=cwd,
-            has_ui=terminal_ui is not None,
-            notify_sink=_extension_notify,
-            ui_driver=extension_ui_driver,
-            flags=extension_flag_values,
-            project_trusted=settings.project_trusted,
-        )
-
         # `session_start` fires once the session is set up (reason "startup");
         # `session_shutdown` fires when the run ends.
         started_at = datetime.now(UTC)
@@ -4533,10 +4513,32 @@ class NativeToolReplSession:
 
         append_agent_message = product_session.append_message
 
+        # Slice 3.3: durable product-session persistence is a live projection in
+        # the mode's fixed composite. This sink forwards each projected
+        # `AppendProductMessage` to `product_session.append_message` (the same
+        # coding-state + session-tree write the deleted run-effect append used).
+        # It is built after `product_session`, so the emitter (Pi-shaped
+        # automation transport plus extension `@api.on(...)` lifecycle observers,
+        # both no-ops when unattached) is composed here rather than before the
+        # session-tree/product-session setup band.
+        product_action_sink = NativeProductSessionActionSink(append_agent_message)
+        emitter = _ExtensionAwareAgentEventSink(
+            self.automation_observer,
+            renderer=renderer,
+            agent_event_sink=self.agent_event_sink,
+            product_action_sink=product_action_sink,
+            lifecycle_hooks=extension_lifecycle_hooks,
+            cwd=cwd,
+            has_ui=terminal_ui is not None,
+            notify_sink=_extension_notify,
+            ui_driver=extension_ui_driver,
+            flags=extension_flag_values,
+            project_trusted=settings.project_trusted,
+        )
+
         def absorb_session_usage(sample: AgentProviderUsageSample) -> None:
             coding_state.absorb_usage(sample)
 
-        run_effect_sink = NativeAgentRunEffectSink(append_agent_message)
         usage_publisher = NativeAgentUsagePublisher(absorb_session_usage, emitter)
 
         input_queued_input_source = (
@@ -4862,7 +4864,6 @@ class NativeToolReplSession:
                 input_queued_input_port=input_queued_input_port,
                 provider_request_policy=provider_request_policy,
                 provider_turn_executor=provider_turn_executor,
-                run_effect_sink=run_effect_sink,
                 usage_publisher=usage_publisher,
                 extension_ui_driver=extension_ui_driver,
                 diag=collaborators.diag,

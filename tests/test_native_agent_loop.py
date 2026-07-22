@@ -60,9 +60,7 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputKind,
     AgentQueuedInputPort,
-    AgentRunEffect,
     AgentUsagePublication,
-    AppendAgentMessage,
 )
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
@@ -179,19 +177,6 @@ class _EventSink:
         if self._fail_on is not None and isinstance(event, self._fail_on):
             raise RuntimeError("event callback failed")
         self.events.append(event)
-
-
-class _EffectSink:
-    def __init__(self, order: list[str], fail_after: int | None = None) -> None:
-        self.effects: list[AgentRunEffect] = []
-        self._order = order
-        self._fail_after = fail_after
-
-    def emit(self, effect: AgentRunEffect) -> None:
-        self._order.append(f"effect:{type(effect).__name__}")
-        if self._fail_after is not None and len(self.effects) == self._fail_after:
-            raise RuntimeError("effect callback failed")
-        self.effects.append(effect)
 
 
 class _UsagePublisher:
@@ -416,7 +401,6 @@ class _StatusPolicy:
 @dataclass(frozen=True)
 class _FailureOverrides:
     event_sink: _EventSink | None = None
-    effect_sink: _EffectSink | None = None
     usage_publisher: _UsagePublisher | None = None
     tool_policy: _ToolPolicy | None = None
 
@@ -430,14 +414,12 @@ def _make_loop(
     tool_policy: _ToolPolicy | None = None,
     status_policy: _StatusPolicy | None = None,
     event_sink: _EventSink | None = None,
-    effect_sink: _EffectSink | None = None,
     usage_publisher: _UsagePublisher | None = None,
     queued_input_port: AgentQueuedInputPort | None = None,
     emit_delta: bool = False,
-) -> tuple[AgentLoop, _ProviderTurn, _EventSink, _EffectSink, _UsagePublisher]:
+) -> tuple[AgentLoop, _ProviderTurn, _EventSink, _UsagePublisher]:
     provider_turn = _ProviderTurn(order, outcomes, emit_delta=emit_delta)
     events = event_sink or _EventSink(order)
-    effects = effect_sink or _EffectSink(order)
     usage = usage_publisher or _UsagePublisher(order)
     loop = AgentLoop(
         request_source=request_source or _RequestSource(order),
@@ -445,12 +427,11 @@ def _make_loop(
         tool_capabilities=tools or _Tools(order),
         tool_policy=tool_policy or _ToolPolicy(order),
         event_sink=events,
-        run_effect_sink=effects,
         usage_publisher=usage,
         queued_input_port=queued_input_port or _QueuedInputs(),
         status_policy=status_policy or _StatusPolicy(order),
     )
-    return loop, provider_turn, events, effects, usage
+    return loop, provider_turn, events, usage
 
 
 def _run_input(
@@ -486,7 +467,7 @@ def _event_names(events: Sequence[AgentEvent]) -> list[str]:
 def test_no_tool_success_is_headless_typed_and_strictly_ordered() -> None:
     order: list[str] = []
     status = _StatusPolicy(order)
-    loop, provider, events, effects, usage = _make_loop(
+    loop, provider, events, usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -536,25 +517,13 @@ def test_no_tool_success_is_headless_typed_and_strictly_ordered() -> None:
         event for event in events.events if isinstance(event, SteeringConsumed)
     )
     assert consumed.content == ProductContent("original queued input")
-    assert [
-        effect.message
-        for effect in effects.effects
-        if isinstance(effect, AppendAgentMessage)
-    ] == list(outcome.final_history)
     assert len(usage.publications) == 1
-    assert order.index("status:run_entered") < order.index("effect:AppendAgentMessage")
-    assert order.index("effect:AppendAgentMessage") < order.index(
-        "status:input_accepted"
-    )
     assert order.index("status:provider_result") < order.index("usage:publish")
     last_message_completed = max(
         index for index, label in enumerate(order) if label == "event:MessageCompleted"
     )
     assert order.index("usage:publish") < order.index("status:provider_succeeded")
     assert order.index("status:provider_succeeded") < last_message_completed
-    assert order.index("effect:AppendAgentMessage", 4) < order.index(
-        "status:final_assistant"
-    )
     assert order.index("status:final_assistant") < order.index("event:TurnCompleted")
     assert status.tool_states == [outcome.final_tool_state]
     assert order[-2:] == ["status:tool_state", "event:AgentRunCompleted"]
@@ -567,7 +536,7 @@ def test_completed_run_takes_exactly_one_next_input_after_terminal_event() -> No
         AgentQueuedInputKind.FOLLOW_UP,
     )
     queued_inputs = _QueuedInputs((next_input,), order=order)
-    loop, _provider, _events, _effects, _usage = _make_loop(
+    loop, _provider, _events, _usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=_provider_result())],
         queued_input_port=queued_inputs,
@@ -586,7 +555,7 @@ def test_tool_cycle_runs_sequentially_and_carries_results_to_next_request() -> N
     tools = _Tools(order)
     request_source = _RequestSource(order)
     status = _StatusPolicy(order)
-    loop, provider, events, _effects, _usage = _make_loop(
+    loop, provider, events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(result=_provider_result("calling", calls=(call,))),
@@ -617,13 +586,6 @@ def test_tool_cycle_runs_sequentially_and_carries_results_to_next_request() -> N
     assert order.index("policy:transform:provider-1") < order.index(
         "event:ToolCallCompleted"
     )
-    first_tool_state = order.index("status:tool_state")
-    tool_result_effect = [
-        index
-        for index, label in enumerate(order)
-        if label == "effect:AppendAgentMessage"
-    ][2]
-    assert first_tool_state + 1 == tool_result_effect
     assert status.tool_states[0].tool_invocation_count == 1
 
 
@@ -648,7 +610,7 @@ def test_unauthorized_and_policy_blocked_calls_are_normal_error_results(
     policy = _ToolPolicy(order, blocked=blocked)
     tools = _Tools(order)
     status = _StatusPolicy(order)
-    loop, _provider, events, _effects, _usage = _make_loop(
+    loop, _provider, events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -674,12 +636,6 @@ def test_unauthorized_and_policy_blocked_calls_are_normal_error_results(
     assert outcome.result.outcome is AgentRunOutcome.SUCCEEDED
     assert outcome.final_tool_state.invocations_this_turn == 1
     assert outcome.final_tool_state.tool_invocation_count == 0
-    policy_result_effect = [
-        index
-        for index, label in enumerate(order)
-        if label == "effect:AppendAgentMessage"
-    ][2]
-    assert policy_result_effect + 1 == order.index("status:tool_state")
     assert status.tool_states[0].invocations_this_turn == 1
 
 
@@ -687,7 +643,7 @@ def test_budget_exhaustion_is_an_error_observation_not_a_terminal_outcome() -> N
     order: list[str] = []
     tools = _Tools(order)
     status = _StatusPolicy(order)
-    loop, _provider, events, _effects, _usage = _make_loop(
+    loop, _provider, events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -741,7 +697,7 @@ def test_third_malformed_call_is_a_typed_fatal_loop_failure() -> None:
             ),
         )
     )
-    loop, provider, events, _effects, _usage = _make_loop(
+    loop, provider, events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -770,17 +726,7 @@ def test_third_malformed_call_is_a_typed_fatal_loop_failure() -> None:
     assert outcome.final_tool_state.consecutive_malformed_streak == 3
     turn = next(event for event in events.events if isinstance(event, TurnCompleted))
     assert turn.outcome is AgentTurnOutcome.FAILED
-    assert order.index("effect:AppendAgentMessage", 5) < order.index(
-        "status:loop_failed"
-    )
     assert order.index("status:loop_failed") < order.index("event:TurnCompleted")
-    malformed_state_index = order.index("status:tool_state")
-    malformed_result_effect = [
-        index
-        for index, label in enumerate(order)
-        if label == "effect:AppendAgentMessage"
-    ][2]
-    assert malformed_state_index + 1 == malformed_result_effect
     assert status.tool_states[0].consecutive_malformed_streak == 3
 
 
@@ -802,7 +748,7 @@ def test_malformed_streak_spans_iterations_and_a_settled_call_resets_it() -> Non
         order,
         [*malformed_outcomes, ToolExecutionOutcome(_tool_result(settled_call))],
     )
-    loop, provider, _events, _effects, _usage = _make_loop(
+    loop, provider, _events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -851,7 +797,7 @@ def test_provider_cancellation_polls_once_after_terminal_event(
         (next_input,) if next_input is not None else (),
         order=order,
     )
-    loop, provider, events, _effects, usage = _make_loop(
+    loop, provider, events, usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -908,7 +854,7 @@ def test_tool_interruption_appends_skipped_results_and_cancels_run(
         [ToolExecutionOutcome(_tool_result(first), interruption=interruption)],
     )
     status = _StatusPolicy(order)
-    loop, _provider, events, effects, _usage = _make_loop(
+    loop, _provider, events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -930,7 +876,7 @@ def test_tool_interruption_appends_skipped_results_and_cancels_run(
         event for event in events.events if isinstance(event, ToolCallCompleted)
     ]
     assert len(completed) == 1
-    appended = [effect.message for effect in effects.effects]
+    appended = list(outcome.final_history)
     assert isinstance(appended[-1], AgentToolResultMessage)
     assert appended[-1].content.value == "tool skipped because the turn was interrupted"
     assert len(tools.executed) == 1
@@ -944,7 +890,7 @@ def test_tool_interruption_appends_skipped_results_and_cancels_run(
 
 def test_provider_failure_publishes_usage_then_fails_without_retry() -> None:
     order: list[str] = []
-    loop, provider, events, _effects, usage = _make_loop(
+    loop, provider, events, usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -983,7 +929,7 @@ def test_iteration_guard_falls_through_as_success_without_new_termination_policy
         "again", calls=(_provider_call("missing", name="missing"),)
     )
     request = _RequestSource(order, authorized_names=())
-    loop, provider, _events, _effects, _usage = _make_loop(
+    loop, provider, _events, _usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=repeated) for _ in range(tool_budget + 2)],
         request_source=request,
@@ -1011,7 +957,7 @@ def test_status_callback_failure_propagates_before_later_work(
     failure_point: str,
 ) -> None:
     order: list[str] = []
-    loop, _provider, _events, _effects, _usage = _make_loop(
+    loop, _provider, _events, _usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=_provider_result())],
         status_policy=_StatusPolicy(order, fail_on=failure_point),
@@ -1025,7 +971,7 @@ def test_status_callback_failure_propagates_before_later_work(
 
 def test_provider_cancellation_callback_failure_cuts_off_terminal_events() -> None:
     order: list[str] = []
-    loop, provider, events, _effects, usage = _make_loop(
+    loop, provider, events, usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -1047,7 +993,7 @@ def test_provider_cancellation_callback_failure_cuts_off_terminal_events() -> No
 
 def test_provider_failed_callback_failure_cuts_off_terminal_events() -> None:
     order: list[str] = []
-    loop, provider, events, _effects, usage = _make_loop(
+    loop, provider, events, usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=_provider_result(status=HarnessStatus.FAILED))],
         status_policy=_StatusPolicy(order, fail_on="provider_failed"),
@@ -1075,7 +1021,7 @@ def test_malformed_fatal_callback_failure_cuts_off_terminal_events() -> None:
             )
         ],
     )
-    loop, provider, events, _effects, _usage = _make_loop(
+    loop, provider, events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -1097,18 +1043,12 @@ def test_malformed_fatal_callback_failure_cuts_off_terminal_events() -> None:
     assert not any(isinstance(event, AgentRunCompleted) for event in events.events)
 
 
-def test_event_effect_usage_and_tool_policy_callback_failures_propagate() -> None:
+def test_event_usage_and_tool_policy_callback_failures_propagate() -> None:
     factories: tuple[tuple[str, Callable[[list[str]], _FailureOverrides]], ...] = (
         (
             "event callback failed",
             lambda order: _FailureOverrides(
                 event_sink=_EventSink(order, fail_on=TurnStarted)
-            ),
-        ),
-        (
-            "effect callback failed",
-            lambda order: _FailureOverrides(
-                effect_sink=_EffectSink(order, fail_after=0)
             ),
         ),
         (
@@ -1139,11 +1079,10 @@ def test_event_effect_usage_and_tool_policy_callback_failures_propagate() -> Non
             else _provider_result()
         )
         overrides = make_overrides(order)
-        loop, _provider, _events, _effects, _usage = _make_loop(
+        loop, _provider, _events, _usage = _make_loop(
             order,
             [ProviderTurnOutcome(result=result)],
             event_sink=overrides.event_sink,
-            effect_sink=overrides.effect_sink,
             usage_publisher=overrides.usage_publisher,
             tool_policy=overrides.tool_policy,
         )
@@ -1162,7 +1101,7 @@ def test_recursive_invalid_run_input_is_rejected_before_side_effects(
     invalid_surface: str,
 ) -> None:
     order: list[str] = []
-    loop, provider, events, effects, usage = _make_loop(
+    loop, provider, events, usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=_provider_result())],
     )
@@ -1205,7 +1144,6 @@ def test_recursive_invalid_run_input_is_rejected_before_side_effects(
     assert order == []
     assert provider.calls == 0
     assert events.events == []
-    assert effects.effects == []
     assert usage.publications == []
 
 
@@ -1223,7 +1161,7 @@ def test_semantically_mutated_run_input_is_rejected_before_side_effects(
     invalid_semantics: str,
 ) -> None:
     order: list[str] = []
-    loop, provider, events, effects, usage = _make_loop(
+    loop, provider, events, usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=_provider_result())],
     )
@@ -1260,7 +1198,6 @@ def test_semantically_mutated_run_input_is_rejected_before_side_effects(
     assert order == []
     assert provider.calls == 0
     assert events.events == []
-    assert effects.effects == []
     assert usage.publications == []
 
 
@@ -1288,7 +1225,7 @@ def test_recursive_invalid_prepared_history_stops_before_turn_and_provider() -> 
             )
 
     order: list[str] = []
-    loop, provider, events, _effects, _usage = _make_loop(
+    loop, provider, events, _usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=_provider_result())],
         request_source=_InvalidPreparedHistorySource(order),
@@ -1328,7 +1265,7 @@ def test_prepared_history_requires_one_accepted_identity_before_provider(
             )
 
     order: list[str] = []
-    loop, provider, events, _effects, _usage = _make_loop(
+    loop, provider, events, _usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=_provider_result())],
         request_source=_InvalidAnchorSource(order),
@@ -1373,7 +1310,7 @@ def test_prepared_history_rejects_request_overlay_before_provider() -> None:
         "active_input",
         AgentActiveInput(run_input.active_input.accepted_message, (overlay,)),
     )
-    loop, provider, events, _effects, _usage = _make_loop(
+    loop, provider, events, _usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=_provider_result())],
         request_source=_LeakingOverlaySource(order),
@@ -1388,7 +1325,7 @@ def test_prepared_history_rejects_request_overlay_before_provider() -> None:
 
 def test_invalid_provider_usage_semantics_stop_before_status_callback() -> None:
     order: list[str] = []
-    loop, provider, events, _effects, usage = _make_loop(
+    loop, provider, events, usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=_provider_result(usage={"input_tokens": -1}))],
     )
@@ -1426,7 +1363,7 @@ def test_semantically_invalid_provider_result_stops_before_callbacks(
     else:
         result = replace(_provider_result(), model_id="other-model")
     order: list[str] = []
-    loop, provider, events, effects, usage = _make_loop(
+    loop, provider, events, usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=result)],
     )
@@ -1439,7 +1376,6 @@ def test_semantically_invalid_provider_result_stops_before_callbacks(
     assert "status:provider_succeeded" not in order
     assert "status:provider_failed" not in order
     assert usage.publications == []
-    assert len(effects.effects) == 1
     assert not any(isinstance(event, ProviderFailed) for event in events.events)
     assert not any(isinstance(event, TurnCompleted) for event in events.events)
     assert not any(isinstance(event, AgentRunCompleted) for event in events.events)
@@ -1503,7 +1439,7 @@ def test_recursive_invalid_provider_result_stops_before_status_and_usage(
     invalid_result: ProviderResult,
 ) -> None:
     order: list[str] = []
-    loop, provider, events, _effects, usage = _make_loop(
+    loop, provider, events, usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=invalid_result)],
     )
@@ -1552,7 +1488,7 @@ def test_port_outputs_require_exact_runtime_values_before_publication() -> None:
             )
 
     order: list[str] = []
-    loop, _provider, _events, _effects, _usage = _make_loop(
+    loop, _provider, _events, _usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=_provider_result())],
         tools=_InvalidDefinitionTools(order),
@@ -1570,7 +1506,7 @@ def test_port_outputs_require_exact_runtime_values_before_publication() -> None:
         final_text=exact.final_text,
     )
     order = []
-    loop, _provider, _events, _effects, usage = _make_loop(
+    loop, _provider, _events, usage = _make_loop(
         order,
         [ProviderTurnOutcome(result=subclass_result)],
     )
@@ -1580,7 +1516,7 @@ def test_port_outputs_require_exact_runtime_values_before_publication() -> None:
     assert "status:provider_result" not in order
 
     order = []
-    loop, _provider, events, _effects, _usage = _make_loop(
+    loop, _provider, events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -1631,7 +1567,7 @@ def test_invalid_executed_tool_result_stops_before_completion_and_effect(
 
     order: list[str] = []
     tools = _InvalidExecutionTools(order)
-    loop, provider, events, effects, _usage = _make_loop(
+    loop, provider, events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -1647,15 +1583,10 @@ def test_invalid_executed_tool_result_stops_before_completion_and_effect(
     assert provider.calls == 1
     assert len(tools.executed) == 1
     assert not any(isinstance(event, ToolCallCompleted) for event in events.events)
-    assert not any(
-        isinstance(effect.message, AgentToolResultMessage)
-        for effect in effects.effects
-        if isinstance(effect, AppendAgentMessage)
-    )
     assert not any(isinstance(event, TurnCompleted) for event in events.events)
 
 
-def test_invalid_policy_error_result_stops_before_completion_and_effect() -> None:
+def test_invalid_policy_error_result_stops_before_completion() -> None:
     class _MismatchedErrorResultTools(_Tools):
         def error_result(
             self,
@@ -1669,7 +1600,7 @@ def test_invalid_policy_error_result_stops_before_completion_and_effect() -> Non
 
     order: list[str] = []
     tools = _MismatchedErrorResultTools(order)
-    loop, provider, events, effects, _usage = _make_loop(
+    loop, provider, events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -1685,15 +1616,10 @@ def test_invalid_policy_error_result_stops_before_completion_and_effect() -> Non
 
     assert provider.calls == 1
     assert not any(isinstance(event, ToolCallCompleted) for event in events.events)
-    assert not any(
-        isinstance(effect.message, AgentToolResultMessage)
-        for effect in effects.effects
-        if isinstance(effect, AppendAgentMessage)
-    )
     assert not any(isinstance(event, TurnCompleted) for event in events.events)
 
 
-def test_invalid_skipped_tool_result_stops_before_effect_and_turn_completion() -> None:
+def test_invalid_skipped_tool_result_stops_before_turn_completion() -> None:
     class _InvalidSkippedResultTools(_Tools):
         def error_result(
             self,
@@ -1716,7 +1642,7 @@ def test_invalid_skipped_tool_result_stops_before_effect_and_turn_completion() -
             )
         ],
     )
-    loop, provider, events, effects, _usage = _make_loop(
+    loop, provider, events, _usage = _make_loop(
         order,
         [
             ProviderTurnOutcome(
@@ -1739,11 +1665,4 @@ def test_invalid_skipped_tool_result_stops_before_effect_and_turn_completion() -
         event for event in events.events if isinstance(event, ToolCallCompleted)
     ]
     assert len(completed) == 1
-    persisted_results = [
-        effect.message
-        for effect in effects.effects
-        if isinstance(effect, AppendAgentMessage)
-        and isinstance(effect.message, AgentToolResultMessage)
-    ]
-    assert persisted_results == [completed[0].result]
     assert not any(isinstance(event, TurnCompleted) for event in events.events)

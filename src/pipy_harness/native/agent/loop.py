@@ -66,10 +66,8 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputKind,
     AgentQueuedInputPort,
-    AgentRunEffectSink,
     AgentUsagePublication,
     AgentUsagePublisher,
-    AppendAgentMessage,
 )
 from pipy_harness.native.agent.tools import (
     AgentToolCapabilities,
@@ -283,7 +281,6 @@ class AgentLoop:
         tool_capabilities: AgentToolCapabilities,
         tool_policy: AgentToolPolicy,
         event_sink: AgentEventSink,
-        run_effect_sink: AgentRunEffectSink,
         usage_publisher: AgentUsagePublisher,
         queued_input_port: AgentQueuedInputPort,
         status_policy: AgentLoopStatusPolicy,
@@ -294,7 +291,6 @@ class AgentLoop:
         _require_protocol(tool_capabilities, AgentToolCapabilities, "tool_capabilities")
         _require_protocol(tool_policy, AgentToolPolicy, "tool_policy")
         _require_protocol(event_sink, AgentEventSink, "event_sink")
-        _require_protocol(run_effect_sink, AgentRunEffectSink, "run_effect_sink")
         _require_protocol(usage_publisher, AgentUsagePublisher, "usage_publisher")
         _require_protocol(
             queued_input_port,
@@ -309,7 +305,6 @@ class AgentLoop:
         self._tools = tool_capabilities
         self._tool_policy = tool_policy
         self._events = event_sink
-        self._effects = run_effect_sink
         self._usage_publisher = usage_publisher
         self._queued_inputs = queued_input_port
         self._status = status_policy
@@ -677,7 +672,6 @@ class AgentLoop:
 
     def _append_message(self, state: _RunState, message: AgentMessage) -> None:
         state.history = (*state.history, message)
-        self._effects.emit(AppendAgentMessage(message))
 
     @staticmethod
     def _build_result(

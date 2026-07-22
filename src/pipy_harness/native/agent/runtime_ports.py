@@ -7,24 +7,8 @@ from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.messages import AgentMessage
 from pipy_harness.native.agent.results import AgentUsage
 from pipy_harness.native.agent.usage import AgentProviderUsageSample
-
-
-@dataclass(frozen=True, slots=True)
-class AppendAgentMessage:
-    """Request that the product append one canonical message durably."""
-
-    message: AgentMessage
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.message, AgentMessage):
-            raise TypeError("AppendAgentMessage.message must be an AgentMessage")
-
-
-AgentRunEffect = AppendAgentMessage
-"""Closed union of product-owned effects requested by the agent loop."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,13 +56,6 @@ class AgentQueuedInput:
             raise TypeError("AgentQueuedInput.content must be ProductContent")
         if not isinstance(self.kind, AgentQueuedInputKind):
             raise TypeError("AgentQueuedInput.kind must be AgentQueuedInputKind")
-
-
-@runtime_checkable
-class AgentRunEffectSink(Protocol):
-    """Applies one product-owned run effect synchronously."""
-
-    def emit(self, effect: AgentRunEffect) -> None: ...
 
 
 @runtime_checkable

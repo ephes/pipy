@@ -52,7 +52,6 @@ from pipy_harness.native.agent.results import (
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputKind,
-    AgentRunEffect,
     AgentUsagePublication,
 )
 from pipy_harness.native.agent.tools import (
@@ -364,14 +363,6 @@ class _EventSink:
         self.events.append(event)
 
 
-class _EffectSink:
-    def __init__(self) -> None:
-        self.effects: list[AgentRunEffect] = []
-
-    def emit(self, effect: AgentRunEffect) -> None:
-        self.effects.append(effect)
-
-
 class _UsagePublisher:
     def publish(self, publication: AgentUsagePublication) -> None:
         del publication
@@ -415,7 +406,6 @@ def _make_coordinator(
         tool_capabilities=_Tools(),
         tool_policy=_ToolPolicy(),
         event_sink=event_sink or _EventSink(),
-        run_effect_sink=_EffectSink(),
         usage_publisher=_UsagePublisher(),
         queued_input_port=queued_input_port or _QueuedInputs(),
         coding_state=coding_state,

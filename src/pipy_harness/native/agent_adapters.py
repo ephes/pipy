@@ -7,6 +7,7 @@ projections and the fixed serial composite used by current run modes.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -15,6 +16,7 @@ from pipy_harness.native.agent import (
     AgentCancellationReason,
     AgentEvent,
     AgentEventSink,
+    AgentMessage,
     AgentRunCompleted,
     AgentRunResult,
     AgentRunStarted,
@@ -168,12 +170,15 @@ class ProductSessionActionSink(Protocol):
 
 
 class ProductSessionEventProjection:
-    """Define today's event-to-session append behavior for Phase 3.3.
+    """Own event-to-session durable append behavior.
 
-    The current loop still performs the actual writes.  This stateful
-    projection distinguishes synthetic balance-only assistant completions from
-    real provider completions and recovers skipped tool results from
-    ``TurnCompleted`` without duplicating already completed tool calls.
+    Since Phase 3.3 this projection is the live durable writer: each canonical
+    completion event it accepts is forwarded through a
+    ``ProductSessionActionSink`` to ``product_session.append_message``.  This
+    stateful projection distinguishes synthetic balance-only assistant
+    completions from real provider completions and recovers skipped tool
+    results from ``TurnCompleted`` without duplicating already completed tool
+    calls.
     """
 
     def __init__(self, sink: ProductSessionActionSink | None = None) -> None:
@@ -222,6 +227,30 @@ class ProductSessionEventProjection:
     def _reset_turn_state(self) -> None:
         self._suppress_next_assistant = False
         self._completed_tool_request_ids.clear()
+
+
+class NativeProductSessionActionSink:
+    """Persist projected product-session appends through current callbacks.
+
+    :class:`ProductSessionEventProjection` turns each canonical completion
+    event into an :class:`AppendProductMessage`; this concrete sink forwards
+    the carried message to the product session's synchronous
+    ``append_message`` callback, which maintains the live coding-state mirror
+    and the durable native session tree.  It is the live projection wiring that
+    replaced the reusable loop's run-effect append path.
+    """
+
+    __slots__ = ("_append_message",)
+
+    def __init__(self, append_message: Callable[[AgentMessage], object]) -> None:
+        if not callable(append_message):
+            raise TypeError("append_message must be callable")
+        self._append_message = append_message
+
+    def append(self, action: AppendProductMessage) -> None:
+        if not isinstance(action, AppendProductMessage):
+            raise TypeError("action must be an AppendProductMessage")
+        self._append_message(action.message)
 
 
 @dataclass(frozen=True, slots=True)

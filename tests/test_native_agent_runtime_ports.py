@@ -8,23 +8,15 @@ from typing import cast
 import pytest
 
 from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.messages import AgentUserMessage
 from pipy_harness.native.agent.results import AgentUsage
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputKind,
     AgentQueuedInputPort,
-    AgentRunEffect,
-    AgentRunEffectSink,
     AgentUsagePublication,
     AgentUsagePublisher,
-    AppendAgentMessage,
 )
 from pipy_harness.native.agent.usage import AgentProviderUsageSample
-
-
-def _message(value: str = "hello") -> AgentUserMessage:
-    return AgentUserMessage(ProductContent(value))
 
 
 def _publication() -> AgentUsagePublication:
@@ -34,17 +26,6 @@ def _publication() -> AgentUsagePublication:
         cumulative_usage=AgentUsage(input_tokens=3, output_tokens=2),
         context_tokens=5,
     )
-
-
-def test_run_effect_is_a_closed_frozen_slotted_message_append() -> None:
-    effect = AppendAgentMessage(_message())
-
-    assert AgentRunEffect is AppendAgentMessage
-    assert not hasattr(effect, "__dict__")
-    with pytest.raises(FrozenInstanceError):
-        setattr(effect, "message", _message("changed"))
-    with pytest.raises(TypeError, match="must be an AgentMessage"):
-        AppendAgentMessage(cast(AgentUserMessage, object()))
 
 
 def test_usage_publication_is_frozen_slotted_and_matches_effective_total() -> None:
@@ -88,10 +69,6 @@ def test_queued_input_is_pre_acceptance_content_and_closed_kind(
 
 
 def test_runtime_ports_are_structural_and_expose_only_narrow_operations() -> None:
-    class EffectSink:
-        def emit(self, effect: AgentRunEffect) -> None:
-            del effect
-
     class UsagePublisher:
         def publish(self, publication: AgentUsagePublication) -> None:
             del publication
@@ -100,14 +77,11 @@ def test_runtime_ports_are_structural_and_expose_only_narrow_operations() -> Non
         def take_next(self) -> AgentQueuedInput | None:
             return None
 
-    effect_sink = EffectSink()
     usage_publisher = UsagePublisher()
     queued_input_port = QueuedInputPort()
 
-    assert isinstance(effect_sink, AgentRunEffectSink)
     assert isinstance(usage_publisher, AgentUsagePublisher)
     assert isinstance(queued_input_port, AgentQueuedInputPort)
-    assert not isinstance(object(), AgentRunEffectSink)
     assert not isinstance(object(), AgentUsagePublisher)
     assert not isinstance(object(), AgentQueuedInputPort)
     for forbidden in ("append", "reserve", "settle", "mark_idle", "peek", "put"):

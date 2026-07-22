@@ -441,7 +441,6 @@ _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.runtime_ports",
         "pipy_harness.native.agent.runtime_ports.AgentQueuedInput",
         "pipy_harness.native.agent.runtime_ports.AgentQueuedInputPort",
-        "pipy_harness.native.agent.runtime_ports.AgentRunEffectSink",
         "pipy_harness.native.agent.runtime_ports.AgentUsagePublisher",
         "pipy_harness.native.agent.tools",
         "pipy_harness.native.agent.tools.AgentToolCapabilities",

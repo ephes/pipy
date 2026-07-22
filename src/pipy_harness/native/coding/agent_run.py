@@ -48,7 +48,6 @@ from pipy_harness.native.agent.results import (
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputPort,
-    AgentRunEffectSink,
     AgentUsagePublisher,
 )
 from pipy_harness.native.agent.tools import (
@@ -214,7 +213,6 @@ class CodingAgentRunCoordinator:
         tool_capabilities: AgentToolCapabilities,
         tool_policy: AgentToolPolicy,
         event_sink: AgentEventSink,
-        run_effect_sink: AgentRunEffectSink,
         usage_publisher: AgentUsagePublisher,
         queued_input_port: AgentQueuedInputPort,
         coding_state: CodingSessionState,
@@ -231,7 +229,6 @@ class CodingAgentRunCoordinator:
         self._tool_capabilities = tool_capabilities
         self._tool_policy = tool_policy
         self._event_sink = event_sink
-        self._run_effect_sink = run_effect_sink
         self._usage_publisher = usage_publisher
         self._queued_input_port = queued_input_port
         self._coding_state = coding_state
@@ -252,7 +249,6 @@ class CodingAgentRunCoordinator:
             tool_capabilities=self._tool_capabilities,
             tool_policy=self._tool_policy,
             event_sink=self._event_sink,
-            run_effect_sink=self._run_effect_sink,
             usage_publisher=self._usage_publisher,
             queued_input_port=self._queued_input_port,
             status_policy=self._status_policy,
