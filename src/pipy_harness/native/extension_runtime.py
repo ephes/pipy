@@ -65,15 +65,10 @@ from pipy_harness.native.extension_types import (
     BeforeProviderHeadersEvent,
     BeforeProviderRequestEvent,
     ExtensionFlag,
-    ExtensionMode,
     ExtensionTool,
     InputEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     InputTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
     LifecycleEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ProjectTrustContext,
-    ProjectTrustDispatchResult,
-    ProjectTrustEvent,
-    ProjectTrustHandlerError,
     ProviderRequestTransform,
     QueuedCustomMessage,
     QueuedUserMessage,
@@ -100,16 +95,16 @@ from pipy_harness.native.extension_types import (
     RESERVED_SHORTCUT_KEYS,
     RegisteredFlag,
     RegisteredTool,
-    SessionBeforeEvent,
-    SessionDecision,
+    SessionBeforeEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    SessionDecision,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolBlock,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolCallEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolResult,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolResultEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolResultTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
-    UserBashDecision,
-    UserBashDispatch,
-    UserBashEvent,
+    UserBashDecision,  # noqa: F401 - re-exported via pipy_harness.extensions
+    UserBashDispatch,  # noqa: F401 - re-exported via pipy_harness.extensions
+    UserBashEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     _ActivationError,
     _is_valid_command_name,
     _safe_diagnostic,
@@ -3228,138 +3223,6 @@ def _activate_one(
     )
 
 
-def dispatch_project_trust_hooks(
-    activated: Sequence[ActivatedExtension],
-    *,
-    cwd: str,
-    mode: ExtensionMode,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None] | None = None,
-    ui_driver: ExtensionUiDriver | None = None,
-) -> ProjectTrustDispatchResult:
-    """Run pre-trust handlers serially until the first valid yes/no result."""
-
-    ui = _CollectingUi(has_ui, notify_sink=notify_sink, ui_driver=ui_driver)
-    event = ProjectTrustEvent(cwd=cwd)
-    ctx = ProjectTrustContext(cwd=cwd, mode=mode, has_ui=has_ui, ui=ui)
-    errors: list[ProjectTrustHandlerError] = []
-    for extension in activated:
-        if extension.status != "activated":
-            continue
-        for handler in extension.hooks.get(EVENT_PROJECT_TRUST, ()):
-            try:
-                result = handler(event, ctx)
-                if inspect.isawaitable(result):
-                    result = _drive_awaitable(result)
-                if not isinstance(result, Mapping):
-                    raise ValueError("project_trust handler must return a mapping")
-                trusted = result.get("trusted")
-                if trusted == "undecided":
-                    continue
-                if trusted not in ("yes", "no"):
-                    raise ValueError(
-                        "project_trust trusted must be yes, no, or undecided"
-                    )
-                return ProjectTrustDispatchResult(
-                    trusted=cast(Literal["yes", "no"], trusted),
-                    remember=result.get("remember") is True,
-                    errors=tuple(errors),
-                )
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException as err:  # noqa: BLE001 - fail-soft extension hook
-                errors.append(
-                    ProjectTrustHandlerError(
-                        extension=extension.path_label,
-                        error=_safe_diagnostic(err),
-                    )
-                )
-    return ProjectTrustDispatchResult(errors=tuple(errors))
-
-
-def dispatch_user_bash_hooks(
-    hooks: Sequence[HookHandler],
-    *,
-    command: str,
-    exclude_from_context: bool,
-    cwd: str,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None] | None = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
-    flags: Mapping[str, object] | None = None,
-    project_trusted: bool = False,
-) -> UserBashDispatch:
-    """Run `user_bash` hooks for one local shell shortcut.
-
-    Hooks run in registration order. A `UserBashDecision` may block,
-    replace the command, flip context recording, or provide a synthetic
-    result that skips shell execution. A crashing hook fails closed and
-    blocks the shell command. `KeyboardInterrupt` / `SystemExit` propagate.
-    """
-
-    current_command = command
-    current_exclude = bool(exclude_from_context)
-    ctx = _CommandContext(
-        cwd,
-        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
-        flags=flags,
-        project_trusted=project_trusted,
-    )
-    for hook in hooks:
-        event = UserBashEvent(
-            command=current_command,
-            exclude_from_context=current_exclude,
-            cwd=cwd,
-        )
-        try:
-            result = hook(event, ctx)
-            if inspect.isawaitable(result):
-                result = _drive_awaitable(result)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - fail closed on a shell gate
-            return UserBashDispatch(
-                allowed=False,
-                command=current_command,
-                exclude_from_context=current_exclude,
-                reason="extension user_bash hook error",
-            )
-        if not isinstance(result, UserBashDecision):
-            continue
-        if not result.allow:
-            return UserBashDispatch(
-                allowed=False,
-                command=current_command,
-                exclude_from_context=current_exclude,
-                reason=result.reason or "blocked by extension",
-            )
-        if isinstance(result.command, str) and result.command.strip():
-            current_command = result.command.strip()
-        if isinstance(result.exclude_from_context, bool):
-            current_exclude = result.exclude_from_context
-        if isinstance(result.result, str):
-            return UserBashDispatch(
-                allowed=True,
-                command=current_command,
-                exclude_from_context=current_exclude,
-                result=result.result,
-                exit_code=int(result.exit_code)
-                if isinstance(result.exit_code, int)
-                else 0,
-            )
-    return UserBashDispatch(
-        allowed=True,
-        command=current_command,
-        exclude_from_context=current_exclude,
-    )
-
-
 def dispatch_before_provider_request_hooks(
     hooks: Sequence[HookHandler],
     request: object,
@@ -3476,59 +3339,6 @@ def dispatch_before_provider_headers_hooks(
             raise
         except BaseException:  # noqa: BLE001 - Pi-compatible fail-soft observer
             continue
-
-
-def dispatch_session_before_hooks(
-    hooks: Sequence[HookHandler],
-    *,
-    operation: str,
-    cwd: str,
-    has_ui: bool,
-    target: str | None = None,
-    trigger: str | None = None,
-    notify_sink: Callable[[str, str], None] | None = None,
-    ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
-    flags: Mapping[str, object] | None = None,
-    project_trusted: bool = False,
-) -> SessionDecision:
-    """Run session-operation gates and return the first blocking decision.
-
-    A crashing hook fails closed, because session switching/forking/tree
-    navigation/compaction are stateful operations. Observe-only or
-    `SessionDecision(allow=True)` returns allow the operation.
-    """
-
-    if not hooks:
-        return SessionDecision()
-    event = SessionBeforeEvent(operation=operation, target=target, trigger=trigger)
-    ctx = _CommandContext(
-        cwd,
-        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
-        flags=flags,
-        project_trusted=project_trusted,
-    )
-    for hook in hooks:
-        try:
-            result = hook(event, ctx)
-            if inspect.isawaitable(result):
-                result = _drive_awaitable(result)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - fail closed on a session gate
-            return SessionDecision(
-                allow=False, reason=f"extension {operation} hook error"
-            )
-        if isinstance(result, SessionDecision) and not result.allow:
-            return SessionDecision(
-                allow=False, reason=result.reason or "blocked by extension"
-            )
-    return SessionDecision()
 
 
 def _bounded_provider_field(value: str) -> str:

@@ -2655,8 +2655,37 @@ skipped) and `just docs-build` are green. Review: Claude Opus panel
 (user-directed substitution for the different-family gate) — 1 round, 0 findings,
 final round clean, both lenses (behavior; invariants).
 
-Host/provider ports (6.3) and the UI bridge (6.4), plus the remaining 6.2 gate
-and provider-request/headers dispatch cuts, remain deferred.
+### Gate hook-dispatch family (Slice 6.2b) — DONE (2026-07-22)
+
+Sub-slice 6.2b relocates the serial fail-closed gate dispatchers verbatim out of
+`extension_runtime.py` into `native.extension_hooks`:
+`dispatch_project_trust_hooks`, `dispatch_user_bash_hooks`, and
+`dispatch_session_before_hooks`. The originals are deleted with no shadow copy or
+alias. The move reuses the `extension_hooks` -> `extension_loader`/
+`extension_types`/`extension_runtime` dependency established in 6.2a, adding only
+`EVENT_PROJECT_TRUST` from `extension_runtime` and the project-trust/user-bash/
+session value objects (`ProjectTrust*`, `UserBash*`, `SessionDecision`,
+`SessionBeforeEvent`, `ExtensionMode`) plus `_safe_diagnostic` from
+`extension_types`, so no new import edge or cycle appears. `tool_loop_session`,
+the `pipy_harness.extensions` re-export block, and the `cli.py` local import are
+repointed to `extension_hooks`; the direct-import tests
+(`test_native_extension_project_trust`, `test_native_extension_live_session_hooks`)
+follow. The now-unused `extension_types` re-imports that stay part of the public
+subset (`SessionBeforeEvent`, `SessionDecision`, `UserBash*`) become explicit
+`# noqa: F401` re-exports; the private-only `ProjectTrust*`/`ExtensionMode`
+imports (not re-exported) are dropped. No change to serial ordering,
+first-blocking-decision semantics, fail-closed-on-crash behavior, remember/
+undecided handling, or public imports; no new dependency, `Any`, or `type:
+ignore`. Focused project-trust/live-session/dispatch/import-boundary suites
+passed (230); `extension_live_session_conformance`, `extension_dispatch_conformance`,
+and `extension_conformance_gate` reported ALL PASS; the 49-test TUI PTY file and
+PTY smoke (8) passed; `just check` (Ruff, mypy clean, full suite green) and `just
+docs-build` are green. The provider-request/headers dispatchers stay in
+`extension_runtime` for the next 6.2 cut. Review: Claude Opus panel (user-directed
+substitution for the different-family gate). Pending review.
+
+Host/provider ports (6.3) and the UI bridge (6.4), plus the remaining 6.2
+provider-request/headers dispatch cut, remain deferred.
 
 ### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
 

@@ -1964,7 +1964,7 @@ def _resolve_runtime_project_trust_startup(
         resolved_cwd: Path,
     ) -> ProjectTrustExtensionDecision | None:
         nonlocal pending_batch
-        from pipy_harness.native.extension_runtime import (
+        from pipy_harness.native.extension_hooks import (
             dispatch_project_trust_hooks,
         )
 

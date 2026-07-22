@@ -1,4 +1,4 @@
-"""Turn hook-dispatch families for activated extensions.
+"""Turn hook-dispatch and gate families for activated extensions.
 
 This module owns the per-turn hook collectors and dispatchers that run
 activated extension hooks over one submitted prompt, one system-prompt
@@ -9,6 +9,13 @@ are fail-safe (a raising or non-conforming hook is ignored and the current
 value is kept), `tool_call` hooks fail closed (a raising gate blocks the
 call), and lifecycle hooks observe only (a raising observer is bounded and
 ignored). `KeyboardInterrupt` / `SystemExit` always propagate.
+
+It also owns the serial gate dispatchers that decide whether a stateful
+operation may proceed: `dispatch_project_trust_hooks` runs pre-trust
+handlers until the first valid `yes`/`no` (a raising handler is fail-soft
+and recorded), while `dispatch_user_bash_hooks` and
+`dispatch_session_before_hooks` fail closed — a raising local-shell or
+session-operation gate blocks the command or operation.
 
 It depends only on the `_drive_awaitable` coroutine driver from
 `extension_loader`, the hook value objects from `extension_types`, and the
@@ -25,9 +32,11 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping, Sequence
+from typing import Literal, cast
 
 from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_runtime import (
+    EVENT_PROJECT_TRUST,
     EVENT_TOOL_CALL,
     ActivatedExtension,
     ControlSetActiveToolsFn,
@@ -41,13 +50,24 @@ from pipy_harness.native.extension_runtime import (
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,
     BeforeAgentStartResult,
+    ExtensionMode,
     InputEvent,
     InputTransform,
     LifecycleEvent,
+    ProjectTrustContext,
+    ProjectTrustDispatchResult,
+    ProjectTrustEvent,
+    ProjectTrustHandlerError,
+    SessionBeforeEvent,
+    SessionDecision,
     ToolBlock,
     ToolCallEvent,
     ToolResultEvent,
     ToolResultTransform,
+    UserBashDecision,
+    UserBashDispatch,
+    UserBashEvent,
+    _safe_diagnostic,
 )
 
 # Bound a transformed tool-result observation before it reaches the model.
@@ -350,3 +370,188 @@ def dispatch_tool_call_hooks(
         if isinstance(result, ToolBlock):
             return result
     return None
+
+
+def dispatch_project_trust_hooks(
+    activated: Sequence[ActivatedExtension],
+    *,
+    cwd: str,
+    mode: ExtensionMode,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: ExtensionUiDriver | None = None,
+) -> ProjectTrustDispatchResult:
+    """Run pre-trust handlers serially until the first valid yes/no result."""
+
+    ui = _CollectingUi(has_ui, notify_sink=notify_sink, ui_driver=ui_driver)
+    event = ProjectTrustEvent(cwd=cwd)
+    ctx = ProjectTrustContext(cwd=cwd, mode=mode, has_ui=has_ui, ui=ui)
+    errors: list[ProjectTrustHandlerError] = []
+    for extension in activated:
+        if extension.status != "activated":
+            continue
+        for handler in extension.hooks.get(EVENT_PROJECT_TRUST, ()):
+            try:
+                result = handler(event, ctx)
+                if inspect.isawaitable(result):
+                    result = _drive_awaitable(result)
+                if not isinstance(result, Mapping):
+                    raise ValueError("project_trust handler must return a mapping")
+                trusted = result.get("trusted")
+                if trusted == "undecided":
+                    continue
+                if trusted not in ("yes", "no"):
+                    raise ValueError(
+                        "project_trust trusted must be yes, no, or undecided"
+                    )
+                return ProjectTrustDispatchResult(
+                    trusted=cast(Literal["yes", "no"], trusted),
+                    remember=result.get("remember") is True,
+                    errors=tuple(errors),
+                )
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException as err:  # noqa: BLE001 - fail-soft extension hook
+                errors.append(
+                    ProjectTrustHandlerError(
+                        extension=extension.path_label,
+                        error=_safe_diagnostic(err),
+                    )
+                )
+    return ProjectTrustDispatchResult(errors=tuple(errors))
+
+
+def dispatch_user_bash_hooks(
+    hooks: Sequence[HookHandler],
+    *,
+    command: str,
+    exclude_from_context: bool,
+    cwd: str,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
+) -> UserBashDispatch:
+    """Run `user_bash` hooks for one local shell shortcut.
+
+    Hooks run in registration order. A `UserBashDecision` may block,
+    replace the command, flip context recording, or provide a synthetic
+    result that skips shell execution. A crashing hook fails closed and
+    blocks the shell command. `KeyboardInterrupt` / `SystemExit` propagate.
+    """
+
+    current_command = command
+    current_exclude = bool(exclude_from_context)
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
+        set_active_tools_fn=set_active_tools_fn,
+        set_model_fn=set_model_fn,
+        set_thinking_level_fn=set_thinking_level_fn,
+        flags=flags,
+        project_trusted=project_trusted,
+    )
+    for hook in hooks:
+        event = UserBashEvent(
+            command=current_command,
+            exclude_from_context=current_exclude,
+            cwd=cwd,
+        )
+        try:
+            result = hook(event, ctx)
+            if inspect.isawaitable(result):
+                result = _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - fail closed on a shell gate
+            return UserBashDispatch(
+                allowed=False,
+                command=current_command,
+                exclude_from_context=current_exclude,
+                reason="extension user_bash hook error",
+            )
+        if not isinstance(result, UserBashDecision):
+            continue
+        if not result.allow:
+            return UserBashDispatch(
+                allowed=False,
+                command=current_command,
+                exclude_from_context=current_exclude,
+                reason=result.reason or "blocked by extension",
+            )
+        if isinstance(result.command, str) and result.command.strip():
+            current_command = result.command.strip()
+        if isinstance(result.exclude_from_context, bool):
+            current_exclude = result.exclude_from_context
+        if isinstance(result.result, str):
+            return UserBashDispatch(
+                allowed=True,
+                command=current_command,
+                exclude_from_context=current_exclude,
+                result=result.result,
+                exit_code=int(result.exit_code)
+                if isinstance(result.exit_code, int)
+                else 0,
+            )
+    return UserBashDispatch(
+        allowed=True,
+        command=current_command,
+        exclude_from_context=current_exclude,
+    )
+
+
+def dispatch_session_before_hooks(
+    hooks: Sequence[HookHandler],
+    *,
+    operation: str,
+    cwd: str,
+    has_ui: bool,
+    target: str | None = None,
+    trigger: str | None = None,
+    notify_sink: Callable[[str, str], None] | None = None,
+    ui_driver: "ExtensionUiDriver | None" = None,
+    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
+    set_model_fn: "ControlSetModelFn | None" = None,
+    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    flags: Mapping[str, object] | None = None,
+    project_trusted: bool = False,
+) -> SessionDecision:
+    """Run session-operation gates and return the first blocking decision.
+
+    A crashing hook fails closed, because session switching/forking/tree
+    navigation/compaction are stateful operations. Observe-only or
+    `SessionDecision(allow=True)` returns allow the operation.
+    """
+
+    if not hooks:
+        return SessionDecision()
+    event = SessionBeforeEvent(operation=operation, target=target, trigger=trigger)
+    ctx = _CommandContext(
+        cwd,
+        _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
+        set_active_tools_fn=set_active_tools_fn,
+        set_model_fn=set_model_fn,
+        set_thinking_level_fn=set_thinking_level_fn,
+        flags=flags,
+        project_trusted=project_trusted,
+    )
+    for hook in hooks:
+        try:
+            result = hook(event, ctx)
+            if inspect.isawaitable(result):
+                result = _drive_awaitable(result)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - fail closed on a session gate
+            return SessionDecision(
+                allow=False, reason=f"extension {operation} hook error"
+            )
+        if isinstance(result, SessionDecision) and not result.allow:
+            return SessionDecision(
+                allow=False, reason=result.reason or "blocked by extension"
+            )
+    return SessionDecision()
