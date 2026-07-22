@@ -2544,7 +2544,7 @@ Control-plane move only: no change to resolved sizes, resize repaint behavior
 RPC/session/extension formats; no new runtime dependency, `Any`, or `type:
 ignore`.
 
-### Extension API vocabulary + value-object leaf (Slices 6.1a/6.1b) — DONE (2026-07-22)
+### Extension API vocabulary + value-object leaf + sandbox loader (Slices 6.1a/6.1b/6.1c) — DONE (2026-07-22)
 
 Phase 6.1 begins with sub-slice 6.1a: the new stdlib-only leaf
 `native.extension_types` takes sole ownership of the fail-closed extension
@@ -2595,6 +2595,33 @@ or public import change; no new dependency, `Any`, or `type: ignore`. Focused
 clean, 4,500 passed/2 skipped) plus `just docs-build` are green. Review: Claude
 Opus panel (user-directed substitution for the different-family gate) — 2 rounds,
 2 findings total, final round clean across both lenses (behavior; invariants).
+
+Sub-slice 6.1c then creates `native.extension_loader` and moves the low-level
+extension sandbox out of `extension_runtime.py`: the on-disk import path
+(`_import_entry_module`, `_load_standalone_module`, `_load_package_submodule`,
+`_purge_modules`, `_safe_module_segment`) and the awaitable driver
+(`_run_awaitable`, `_drive_awaitable`, `_event_loop_is_running`,
+`_as_coroutine`) move verbatim, originals deleted with no alias. The loader
+imports only stdlib plus `_ActivationError`/`REASON_IMPORT_ERROR`/
+`_safe_diagnostic` from `extension_types` and `ExtensionDescriptor` from
+`native.extensions`, so there is no cycle back to `extension_runtime`, which
+imports the three still-called entry points (`_import_entry_module`/
+`_run_awaitable`/`_drive_awaitable`); activation orchestration stays in
+`extension_runtime`. The now-unused `hashlib`/`importlib.machinery`/
+`importlib.util`/`sys` imports and the non-re-exported `REASON_IMPORT_ERROR` are
+dropped from the runtime. The import-boundary suite adds
+`native.extension_loader` beside `extension_runtime`/`extension_types` in every
+agent- and coding-layer rule (10 rules). Behavior-preserving move only: no
+change to `sys.modules` namespacing, fail-closed import, relative-import
+isolation, coroutine-driving behavior, public imports, dependencies, `Any`, or
+`type: ignore`. Focused extension discovery/activation/packages/answer-example
+plus the import-boundary suite passed (244);
+`extension_discovery_conformance.py`/`extension_activation_conformance.py`
+reported ALL PASS (`extension_package_conformance.py` fails identically on the
+pristine tree — a pre-existing environment-specific `agent/loop.py` error, its
+pytest green); `just check` (Ruff, mypy clean, 4,503 passed/2 skipped) plus
+`just docs-build` are green. Review: Claude Opus panel (user-directed
+substitution for the different-family gate) — pending review.
 
 Hook dispatch (6.2), host/provider ports (6.3), and the UI bridge (6.4) remain
 deferred.
