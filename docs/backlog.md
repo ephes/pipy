@@ -2790,6 +2790,37 @@ gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
 
+### Extension UI protocol contracts leaf relocation (Slice 6.4a) — DONE (2026-07-23)
+
+First Phase 6.4 cut: the extension UI protocol contracts move verbatim out of
+`extension_runtime.py` into the `native.extension_types` leaf, originals deleted
+with no alias. Moved: the `ExtensionUi` / `ExtensionUiDriver`
+`@runtime_checkable` protocols, the `ToolRenderContext` frozen dataclass, the
+`CustomComponent` protocol plus its `CustomComponentFactory` /
+`CustomComponentOptions` / `CustomComponentDriver` aliases, and the
+`WidgetPlacement` literal. This discharges the Slice 6.1b promise:
+`ProjectTrustContext.ui` and `ExtensionTool.render_call` / `render_result` now
+annotate leaf-local `ExtensionUi` / `ToolRenderContext`, so the
+type-checking-only edge that imported those names from `extension_runtime` into
+the leaf is DELETED, leaving only the `NativeSessionTree` forward reference.
+`ChromePalette` (the `ExtensionUi.theme` / `get_theme` / `set_theme` annotation)
+becomes a `TYPE_CHECKING`-only import from `native.themes` — annotation-only,
+cycle-free. `extension_runtime` re-imports every moved name (`CustomComponent` /
+`ToolRenderContext` body-unused → `# noqa: F401 - re-exported via
+pipy_harness.extensions`; the rest stay body-used) and drops its now-unused
+`MutableMapping` import; `pipy_harness.extensions` re-exports the public subset
+byte-identically. `_CollectingUi`, `_LiveExtensionUiDriver`, the message/entry
+renderers, and the remaining render/theme/component value objects stay in
+`extension_runtime` for 6.4b. No signature, callback, default, hook-ordering, or
+public-surface change; no new dependency, `Any`, or `type: ignore`. Focused
+custom-ui/tool-renderer/project-trust/tools/headless-host/chrome-contract/
+chrome-driver/theme-controls/autocomplete-provider/import-boundary suites passed
+(257); `extension_conformance_gate`, `extension_tool_renderer_conformance`,
+`extension_tools_conformance`, and `extension_ui_notify_conformance` reported ALL
+PASS; `just check` (Ruff, mypy clean, full suite green) and `just docs-build` are
+green. Review: Pending review — Claude Opus panel (user-directed substitution for
+the different-family gate). The UI implementations/renderers remain 6.4b.
+
 ### Typed extension coding-session host port + headless fake-host coverage (Slice 6.3c) — DONE (2026-07-23)
 
 Sub-slice 6.3c groups the eight loose coding-session parameters

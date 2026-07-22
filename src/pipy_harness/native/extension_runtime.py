@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -64,12 +64,18 @@ from pipy_harness.native.extension_types import (
     BeforeProviderHeadersEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     BeforeProviderRequestEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     CompletionFn,  # noqa: F401 - re-exported via pipy_harness.extensions
+    CustomComponent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    CustomComponentDriver,
+    CustomComponentFactory,
+    CustomComponentOptions,
     ExtensionCodingSessionControl,
     ExtensionFlag,
     ExtensionModelRuntimeControl,
     ExtensionOAuthConfig,
     ExtensionProvider,
     ExtensionTool,
+    ExtensionUi,
+    ExtensionUiDriver,
     InputEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     InputTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
     LifecycleEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
@@ -105,12 +111,14 @@ from pipy_harness.native.extension_types import (
     SessionDecision,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolBlock,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolCallEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    ToolRenderContext,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolResult,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolResultEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     ToolResultTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
     UserBashDecision,  # noqa: F401 - re-exported via pipy_harness.extensions
     UserBashDispatch,  # noqa: F401 - re-exported via pipy_harness.extensions
     UserBashEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    WidgetPlacement,
     _ActivationError,
     _is_valid_command_name,
     _safe_diagnostic,
@@ -360,31 +368,6 @@ class ExtensionActivationBatch:
     pending: bool = False
 
 
-@runtime_checkable
-class CustomComponent(Protocol):
-    """A trusted extension component driven by `ctx.ui.custom`.
-
-    `render(width)` returns the full-screen overlay lines (the component owns
-    its own styling/layout). `handle_input(key)` consumes one decoded key
-    string (e.g. ``"enter"``, ``"up"``, ``"tab"``, ``"esc"``, or a printable
-    character); the component finishes by calling the `done` callback it was
-    built with.
-    """
-
-    def render(self, width: int) -> list[str]: ...
-
-    def handle_input(self, key: str) -> None: ...
-
-
-# A factory that builds a CustomComponent given a `done(result)` callback.
-CustomComponentFactory = Callable[[Callable[..., None]], CustomComponent]
-# The live driver that takes over the terminal to run a custom component.
-CustomComponentOptions = Mapping[str, object]
-CustomComponentDriver = Callable[
-    [CustomComponentFactory, CustomComponentOptions | None], object
-]
-
-
 ThemeColor = Literal["text", "accent", "success", "warning", "error", "dim"]
 
 
@@ -410,26 +393,6 @@ class ToolRenderComponent(Protocol):
     called here."""
 
     def render(self, width: int) -> Sequence[str]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ToolRenderContext:
-    """Read-only context passed to an extension tool renderer.
-
-    `state` is a single mutable mapping shared across render_call ->
-    render_result for one tool execution. `details` is the extension's
-    ToolResult.details (None at call phase). `theme` is a ToolRenderTheme."""
-
-    tool_name: str
-    args: Mapping[str, object]
-    is_result: bool
-    is_error: bool
-    content: str | None
-    details: Mapping[str, object] | None
-    expanded: bool
-    width: int
-    theme: object  # ToolRenderTheme | None (None only in unit tests)
-    state: MutableMapping[str, object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -473,9 +436,6 @@ class RenderedCustomEntry:
 
     lines: tuple[str, ...]
     styled: bool
-
-
-WidgetPlacement = Literal["above_editor", "below_editor"]
 
 
 @runtime_checkable
@@ -598,157 +558,6 @@ def lines_component(lines: str | Sequence[str]) -> ToolRenderComponent:
     if coerced is None:
         coerced = (str(lines),)
     return _LinesComponent(coerced)
-
-
-@runtime_checkable
-class ExtensionUiDriver(Protocol):
-    """Live UI operations backed by the product TUI."""
-
-    def select(self, title: str, options: Sequence[str]) -> str | None: ...
-
-    def input(self, title: str, placeholder: str | None = None) -> str | None: ...
-
-    def editor(self, title: str, prefill: str | None = None) -> str | None: ...
-
-    def confirm(self, title: str, message: str) -> bool: ...
-
-    def set_status(self, key: str, text: str | None) -> None: ...
-
-    def set_working_message(self, message: str | None = None) -> None: ...
-
-    def set_working_visible(self, visible: bool) -> None: ...
-
-    def set_widget(self, key: str, content: object, placement: str) -> None: ...
-
-    def set_header(self, factory: object | None) -> None: ...
-
-    def set_footer(self, factory: object | None) -> None: ...
-
-    def set_title(self, title: str) -> None: ...
-
-    def set_working_indicator(
-        self, frames: Sequence[str] | None, interval_ms: int | None
-    ) -> None: ...
-
-    def set_hidden_thinking_label(self, label: str | None = None) -> None: ...
-
-    def get_editor_text(self) -> str: ...
-
-    def set_editor_text(self, text: str) -> None: ...
-
-    def paste_to_editor(self, text: str) -> None: ...
-
-    def apply_theme(self, name: str) -> tuple[bool, str | None]: ...
-
-
-@runtime_checkable
-class ExtensionUi(Protocol):
-    """Mode-aware UI handed to a command handler.
-
-    Exposes transient notifications, simple dialogs, live status/working
-    controls, and `custom` (take over the terminal with a custom interactive
-    component). In non-interactive mode the methods behave deterministically:
-    notifications are recorded, dialogs return cancel/default values, and
-    `custom` is a no-op returning ``None`` (never blocks).
-    """
-
-    has_ui: bool
-
-    def notify(self, message: str, kind: str = "info") -> None: ...
-
-    def select(self, title: str, options: Sequence[str]) -> str | None: ...
-
-    def input(self, title: str, placeholder: str | None = None) -> str | None: ...
-
-    def editor(self, title: str, prefill: str | None = None) -> str | None: ...
-
-    def confirm(self, title: str, message: str) -> bool: ...
-
-    def set_status(self, key: str, text: str | None) -> None: ...
-
-    def set_working_message(self, message: str | None = None) -> None: ...
-
-    def set_working_visible(self, visible: bool) -> None: ...
-
-    def custom(
-        self,
-        factory: CustomComponentFactory,
-        options: CustomComponentOptions | None = None,
-    ) -> object: ...
-
-    def set_widget(
-        self,
-        key: str,
-        content: object,
-        *,
-        placement: WidgetPlacement = "above_editor",
-    ) -> None: ...
-
-    def set_header(self, factory: object | None) -> None: ...
-
-    def set_footer(self, factory: object | None) -> None: ...
-
-    def set_title(self, title: str) -> None: ...
-
-    def set_working_indicator(
-        self,
-        frames: Sequence[str] | None = None,
-        *,
-        interval_ms: int | None = None,
-    ) -> None: ...
-
-    def set_hidden_thinking_label(self, label: str | None = None) -> None: ...
-
-    def setHiddenThinkingLabel(self, label: str | None = None) -> None: ...
-
-    def get_editor_text(self) -> str: ...
-
-    def getEditorText(self) -> str: ...
-
-    def set_editor_text(self, text: str) -> None: ...
-
-    def setEditorText(self, text: str) -> None: ...
-
-    def paste_to_editor(self, text: str) -> None: ...
-
-    def pasteToEditor(self, text: str) -> None: ...
-
-    @property
-    def theme(self) -> ChromePalette: ...
-
-    def get_all_themes(self) -> list[dict[str, str | None]]: ...
-
-    def get_theme(self, name: str) -> ChromePalette | None: ...
-
-    def set_theme(self, theme: "str | ChromePalette") -> dict[str, object]: ...
-
-    def add_autocomplete_provider(self, factory: object) -> None: ...
-
-    def addAutocompleteProvider(self, factory: object) -> None: ...
-
-    def on_terminal_input(
-        self, handler: Callable[[str], object]
-    ) -> Callable[[], None]: ...
-
-    def onTerminalInput(
-        self, handler: Callable[[str], object]
-    ) -> Callable[[], None]: ...
-
-    def set_editor_component(self, factory: object | None) -> None: ...
-
-    def setEditorComponent(self, factory: object | None) -> None: ...
-
-    def get_editor_component(self) -> object | None: ...
-
-    def getEditorComponent(self) -> object | None: ...
-
-    def get_tools_expanded(self) -> bool: ...
-
-    def getToolsExpanded(self) -> bool: ...
-
-    def set_tools_expanded(self, expanded: bool) -> None: ...
-
-    def setToolsExpanded(self, expanded: bool) -> None: ...
 
 
 class ExtensionCapabilityError(RuntimeError):

@@ -8,6 +8,14 @@ character rules (`_is_valid_command_name` / `is_valid_custom_entry_type`), the
 reserved-shortcut layer (`RESERVED_SHORTCUT_KEYS`, `_SHORTCUT_MODIFIERS`,
 `normalize_shortcut_key`), and the bounded-length constants they rely on.
 
+It also owns the extension UI protocol contracts that command handlers and tool
+renderers annotate against — `ExtensionUi`, `ExtensionUiDriver`,
+`ToolRenderContext`, the `CustomComponent` Protocol plus its
+`CustomComponentFactory`/`CustomComponentOptions`/`CustomComponentDriver`
+aliases, and the `WidgetPlacement` literal — so `ProjectTrustContext.ui` and
+`ExtensionTool.render_call`/`render_result` resolve to leaf-local types. The
+concrete UI implementations and renderers stay in `extension_runtime`.
+
 It has no project imports, so it can never participate in an import cycle with
 the runtime or loader that import it. `normalize_shortcut_key` remains
 re-exported from `pipy_harness.extensions` (via `extension_runtime`) unchanged.
@@ -17,17 +25,16 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
-    # The UI protocol and renderer context still live in ``extension_runtime``
-    # (they move in Slice 6.4). They are imported here only to resolve the two
-    # forward-referenced annotations on ``ProjectTrustContext.ui`` and
-    # ``ExtensionTool.render_call`` / ``render_result``. This is a
-    # type-checking-only edge: there is no runtime import, so
-    # ``extension_types`` remains a runtime leaf with no import cycle.
-    from pipy_harness.native.extension_runtime import ExtensionUi, ToolRenderContext
+    # ``ChromePalette`` is the theme value object returned by ``ExtensionUi``'s
+    # ``theme`` / ``get_theme`` and accepted by ``set_theme``. It is imported
+    # here only to resolve those annotations: a type-checking-only edge with no
+    # runtime import, so ``extension_types`` remains a runtime leaf with no
+    # import cycle.
     from pipy_harness.native.session_tree import NativeSessionTree
+    from pipy_harness.native.themes import ChromePalette
 
 # Activation reason codes (safe, enumerable labels).
 REASON_IMPORT_ERROR: str = "import_error"
@@ -243,6 +250,205 @@ class ExtensionCodingSessionControl:
     send_message_fn: SendMessageFn | None = None
     session_tree: "NativeSessionTree | None" = None
     messages: Sequence[object] = ()
+
+
+@runtime_checkable
+class CustomComponent(Protocol):
+    """A trusted extension component driven by `ctx.ui.custom`.
+
+    `render(width)` returns the full-screen overlay lines (the component owns
+    its own styling/layout). `handle_input(key)` consumes one decoded key
+    string (e.g. ``"enter"``, ``"up"``, ``"tab"``, ``"esc"``, or a printable
+    character); the component finishes by calling the `done` callback it was
+    built with.
+    """
+
+    def render(self, width: int) -> list[str]: ...
+
+    def handle_input(self, key: str) -> None: ...
+
+
+# A factory that builds a CustomComponent given a `done(result)` callback.
+CustomComponentFactory = Callable[[Callable[..., None]], CustomComponent]
+# The live driver that takes over the terminal to run a custom component.
+CustomComponentOptions = Mapping[str, object]
+CustomComponentDriver = Callable[
+    [CustomComponentFactory, CustomComponentOptions | None], object
+]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolRenderContext:
+    """Read-only context passed to an extension tool renderer.
+
+    `state` is a single mutable mapping shared across render_call ->
+    render_result for one tool execution. `details` is the extension's
+    ToolResult.details (None at call phase). `theme` is a ToolRenderTheme."""
+
+    tool_name: str
+    args: Mapping[str, object]
+    is_result: bool
+    is_error: bool
+    content: str | None
+    details: Mapping[str, object] | None
+    expanded: bool
+    width: int
+    theme: object  # ToolRenderTheme | None (None only in unit tests)
+    state: MutableMapping[str, object]
+
+
+WidgetPlacement = Literal["above_editor", "below_editor"]
+
+
+@runtime_checkable
+class ExtensionUiDriver(Protocol):
+    """Live UI operations backed by the product TUI."""
+
+    def select(self, title: str, options: Sequence[str]) -> str | None: ...
+
+    def input(self, title: str, placeholder: str | None = None) -> str | None: ...
+
+    def editor(self, title: str, prefill: str | None = None) -> str | None: ...
+
+    def confirm(self, title: str, message: str) -> bool: ...
+
+    def set_status(self, key: str, text: str | None) -> None: ...
+
+    def set_working_message(self, message: str | None = None) -> None: ...
+
+    def set_working_visible(self, visible: bool) -> None: ...
+
+    def set_widget(self, key: str, content: object, placement: str) -> None: ...
+
+    def set_header(self, factory: object | None) -> None: ...
+
+    def set_footer(self, factory: object | None) -> None: ...
+
+    def set_title(self, title: str) -> None: ...
+
+    def set_working_indicator(
+        self, frames: Sequence[str] | None, interval_ms: int | None
+    ) -> None: ...
+
+    def set_hidden_thinking_label(self, label: str | None = None) -> None: ...
+
+    def get_editor_text(self) -> str: ...
+
+    def set_editor_text(self, text: str) -> None: ...
+
+    def paste_to_editor(self, text: str) -> None: ...
+
+    def apply_theme(self, name: str) -> tuple[bool, str | None]: ...
+
+
+@runtime_checkable
+class ExtensionUi(Protocol):
+    """Mode-aware UI handed to a command handler.
+
+    Exposes transient notifications, simple dialogs, live status/working
+    controls, and `custom` (take over the terminal with a custom interactive
+    component). In non-interactive mode the methods behave deterministically:
+    notifications are recorded, dialogs return cancel/default values, and
+    `custom` is a no-op returning ``None`` (never blocks).
+    """
+
+    has_ui: bool
+
+    def notify(self, message: str, kind: str = "info") -> None: ...
+
+    def select(self, title: str, options: Sequence[str]) -> str | None: ...
+
+    def input(self, title: str, placeholder: str | None = None) -> str | None: ...
+
+    def editor(self, title: str, prefill: str | None = None) -> str | None: ...
+
+    def confirm(self, title: str, message: str) -> bool: ...
+
+    def set_status(self, key: str, text: str | None) -> None: ...
+
+    def set_working_message(self, message: str | None = None) -> None: ...
+
+    def set_working_visible(self, visible: bool) -> None: ...
+
+    def custom(
+        self,
+        factory: CustomComponentFactory,
+        options: CustomComponentOptions | None = None,
+    ) -> object: ...
+
+    def set_widget(
+        self,
+        key: str,
+        content: object,
+        *,
+        placement: WidgetPlacement = "above_editor",
+    ) -> None: ...
+
+    def set_header(self, factory: object | None) -> None: ...
+
+    def set_footer(self, factory: object | None) -> None: ...
+
+    def set_title(self, title: str) -> None: ...
+
+    def set_working_indicator(
+        self,
+        frames: Sequence[str] | None = None,
+        *,
+        interval_ms: int | None = None,
+    ) -> None: ...
+
+    def set_hidden_thinking_label(self, label: str | None = None) -> None: ...
+
+    def setHiddenThinkingLabel(self, label: str | None = None) -> None: ...
+
+    def get_editor_text(self) -> str: ...
+
+    def getEditorText(self) -> str: ...
+
+    def set_editor_text(self, text: str) -> None: ...
+
+    def setEditorText(self, text: str) -> None: ...
+
+    def paste_to_editor(self, text: str) -> None: ...
+
+    def pasteToEditor(self, text: str) -> None: ...
+
+    @property
+    def theme(self) -> ChromePalette: ...
+
+    def get_all_themes(self) -> list[dict[str, str | None]]: ...
+
+    def get_theme(self, name: str) -> ChromePalette | None: ...
+
+    def set_theme(self, theme: "str | ChromePalette") -> dict[str, object]: ...
+
+    def add_autocomplete_provider(self, factory: object) -> None: ...
+
+    def addAutocompleteProvider(self, factory: object) -> None: ...
+
+    def on_terminal_input(
+        self, handler: Callable[[str], object]
+    ) -> Callable[[], None]: ...
+
+    def onTerminalInput(
+        self, handler: Callable[[str], object]
+    ) -> Callable[[], None]: ...
+
+    def set_editor_component(self, factory: object | None) -> None: ...
+
+    def setEditorComponent(self, factory: object | None) -> None: ...
+
+    def get_editor_component(self) -> object | None: ...
+
+    def getEditorComponent(self) -> object | None: ...
+
+    def get_tools_expanded(self) -> bool: ...
+
+    def getToolsExpanded(self) -> bool: ...
+
+    def set_tools_expanded(self, expanded: bool) -> None: ...
+
+    def setToolsExpanded(self, expanded: bool) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
