@@ -16,7 +16,8 @@ from pipy_harness.native.agent import AgentMessage, AgentUserMessage, ProductCon
 from pipy_harness.native.google_provider import _gemini_contents
 from pipy_harness.native.image_attachment import ProviderImageAttachment
 from pipy_harness.native.models import ProviderRequest
-from pipy_harness.native.providers.openai_responses import _responses_input
+from pipy_harness.native.providers.openai_responses import OpenAIResponseParseError
+from pipy_harness.native.providers.openai_responses_wire import responses_input
 
 
 def _content(message: object) -> list[dict[str, Any]]:
@@ -73,7 +74,11 @@ def test_anthropic_attaches_to_messages_envelope() -> None:
 
 
 def test_openai_responses_attaches_input_image() -> None:
-    items = _responses_input(_request())
+    items = responses_input(
+        _request(),
+        parse_error_class=OpenAIResponseParseError,
+        attach_images=True,
+    )
     assert isinstance(items, list)
     user = items[-1]
     image_parts = [c for c in _content(user) if c.get("type") == "input_image"]
@@ -82,8 +87,10 @@ def test_openai_responses_attaches_input_image() -> None:
 
 
 def test_openai_responses_attaches_with_messages() -> None:
-    items = _responses_input(
-        _request(messages=(AgentUserMessage(content=ProductContent("hi")),))
+    items = responses_input(
+        _request(messages=(AgentUserMessage(content=ProductContent("hi")),)),
+        parse_error_class=OpenAIResponseParseError,
+        attach_images=True,
     )
     assert isinstance(items, list)
     user = items[-1]

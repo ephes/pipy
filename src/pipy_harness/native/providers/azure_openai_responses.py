@@ -4,9 +4,10 @@ Azure OpenAI exposes the same Responses-style request/response shape as
 OpenAI's first-party endpoint, but reaches it through a per-deployment URL
 and authenticates with an ``api-key`` header instead of a bearer token.
 
-This adapter intentionally duplicates the parsing helpers from
-``providers/openai_responses`` so the two providers remain decoupled and can
-drift independently.
+This adapter shares the Responses wire-translation helpers with
+``providers/openai_responses`` through ``providers/openai_responses_wire``; the
+two adapters keep their own auth/URL/deployment resolution, provider dataclass,
+and error hierarchy so they can drift independently.
 """
 
 from __future__ import annotations
@@ -17,25 +18,22 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_responses, extract_responses_tool_calls
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_responses
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
     JsonHTTPClient,
     ProviderHTTPError,
     UrllibJsonHTTPClient,
-    extract_responses_usage,
-)
-from pipy_harness.native.agent import (
-    AgentAssistantMessage,
-    AgentToolResultMessage,
-    AgentUserMessage,
 )
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.providers.openai_responses_wire import (
+    parse_response,
+    responses_input,
+)
 
 DEFAULT_AZURE_OPENAI_API_VERSION = "v1"
 # Azure host suffixes for which the base URL is normalized to ``/openai/v1``,
@@ -252,7 +250,10 @@ class AzureOpenAIResponsesProvider:
             # ``model`` field (buildParams: ``model: deploymentName``).
             "model": deployment,
             "instructions": request.system_prompt,
-            "input": _responses_input(request),
+            "input": responses_input(
+                request,
+                parse_error_class=AzureOpenAIResponseParseError,
+            ),
             "store": False,
         }
         if request.available_tools:
@@ -287,7 +288,13 @@ class AzureOpenAIResponsesProvider:
                     f"{response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
-            result = _parse_response(response.body)
+            result = parse_response(
+                response.body,
+                parse_error_class=AzureOpenAIResponseParseError,
+                response_label="Azure OpenAI",
+                nested_usage_fields=AZURE_OPENAI_NESTED_USAGE_FIELDS,
+                tool_call_provider_prefix="azure-openai",
+            )
         except AzureOpenAIProviderError as exc:
             return failed_provider_result(
                 request,
@@ -314,91 +321,6 @@ class AzureOpenAIResponsesProvider:
         )
 
 
-def _responses_input(request: ProviderRequest) -> str | list[dict[str, object]]:
-    if request.messages:
-        items: list[dict[str, object]] = []
-        for envelope in request.messages:
-            items.extend(_envelope_to_input_items(envelope))
-        return items
-    if (
-        request.no_tool_repl_context is None
-        or not request.no_tool_repl_context.exchanges
-    ):
-        return request.user_prompt
-    messages: list[dict[str, object]] = []
-    for exchange in request.no_tool_repl_context.exchanges:
-        messages.append(
-            {
-                "role": "user",
-                "content": [{"type": "input_text", "text": exchange.user_prompt}],
-            }
-        )
-        messages.append(
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "output_text", "text": exchange.provider_final_text}
-                ],
-            }
-        )
-    messages.append(
-        {
-            "role": "user",
-            "content": [{"type": "input_text", "text": request.user_prompt}],
-        }
-    )
-    return messages
-
-
-def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
-    """Translate one ``AgentMessage`` into Responses API input items."""
-
-    if isinstance(envelope, AgentUserMessage):
-        return [
-            {
-                "role": "user",
-                "content": [{"type": "input_text", "text": envelope.content.value}],
-            }
-        ]
-    if isinstance(envelope, AgentAssistantMessage):
-        items: list[dict[str, object]] = []
-        if envelope.content.value:
-            items.append(
-                {
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": envelope.content.value}],
-                }
-            )
-        for call in envelope.tool_calls:
-            items.append(
-                {
-                    "type": "function_call",
-                    "call_id": call.provider_correlation_id,
-                    "name": call.tool_name,
-                    "arguments": call.arguments_json.value,
-                }
-            )
-        return items
-    if isinstance(envelope, AgentToolResultMessage):
-        return [
-            {
-                "type": "function_call_output",
-                "call_id": envelope.provider_correlation_id,
-                "output": envelope.content.value,
-            }
-        ]
-    raise AzureOpenAIResponseParseError(
-        f"unsupported message envelope: {type(envelope).__name__}"
-    )
-
-@dataclass(frozen=True, slots=True)
-class ParsedAzureOpenAIResponse:
-    final_text: str | None
-    usage: dict[str, int | float]
-    response_status: str
-    tool_calls: tuple[ProviderToolCall, ...] = ()
-
-
 class AzureOpenAIProviderError(ProviderHTTPError):
     """Base class for sanitized Azure OpenAI provider errors."""
 
@@ -419,68 +341,3 @@ class AzureOpenAITransportError(AzureOpenAIProviderError):
 
 class AzureOpenAIResponseParseError(AzureOpenAIProviderError):
     """Raised when the Azure OpenAI response shape is unsupported."""
-
-
-def _parse_response(body: Mapping[str, Any]) -> ParsedAzureOpenAIResponse:
-    status = body.get("status")
-    response_status = (
-        sanitize_text(status) if isinstance(status, str) else "unknown"
-    )
-    if response_status and response_status != "completed":
-        raise AzureOpenAIResponseParseError(
-            f"Azure OpenAI response status was {response_status}.",
-            metadata={
-                "provider_response_store_requested": False,
-                "response_status": response_status,
-            },
-        )
-
-    final_text = _extract_final_text(body)
-    tool_calls = extract_responses_tool_calls(body.get("output"), provider_prefix="azure-openai")
-    if not final_text and not tool_calls:
-        raise AzureOpenAIResponseParseError(
-            "Azure OpenAI response did not include final output text or tool calls.",
-            metadata={
-                "provider_response_store_requested": False,
-                "response_status": response_status,
-            },
-        )
-
-    return ParsedAzureOpenAIResponse(
-        final_text=final_text,
-        usage=extract_responses_usage(
-            body.get("usage"), AZURE_OPENAI_NESTED_USAGE_FIELDS
-        ),
-        response_status=response_status,
-        tool_calls=tool_calls,
-    )
-
-
-def _extract_final_text(body: Mapping[str, Any]) -> str | None:
-    output_text = body.get("output_text")
-    if isinstance(output_text, str) and output_text:
-        return output_text
-
-    output = body.get("output")
-    if not isinstance(output, list):
-        return None
-
-    chunks: list[str] = []
-    for item in output:
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("type") not in (None, "message"):
-            continue
-        content = item.get("content")
-        if not isinstance(content, list):
-            continue
-        for content_item in content:
-            if not isinstance(content_item, Mapping):
-                continue
-            if content_item.get("type") == "output_text" and isinstance(
-                content_item.get("text"), str
-            ):
-                chunks.append(content_item["text"])
-    if not chunks:
-        return None
-    return "".join(chunks)

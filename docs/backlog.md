@@ -1088,10 +1088,18 @@ The bulk is mechanical duplication. pi-mono's
    the Chat-Completions wire shape. Collapse OpenAI-Completions,
    OpenRouter, Mistral, and Cloudflare onto it (~760 L removed). Refs:
    `02:F3`.
-3. Extract `pipy_harness.native.providers._responses_shared` for the
-   OpenAI Responses wire shape and collapse the three current copies
-   (`providers.openai_responses`, `openai_codex_provider`, plus the Codex
-   SSE path). Refs: `02:F16`.
+3. Extract a shared OpenAI Responses wire-shape translator and collapse
+   the copies. **Done for the two relocated Responses adapters:**
+   `pipy_harness.native.providers.openai_responses_wire` now owns the
+   `responses_input` / `envelope_to_input_items` / `parse_response` /
+   `extract_final_text` / `ParsedResponse` translation, parameterized on the
+   OpenAI-only deferred-tools/attachment extension, the per-provider
+   parse-error class, the response label, the nested-usage field tuple, and the
+   tool-call provider prefix; `providers.openai_responses` and
+   `providers.azure_openai_responses` are thin auth/URL + dataclass shells over
+   it (their duplicate copies deleted). Remaining: fold the
+   `openai_codex_provider` Responses/SSE path onto the same translator once its
+   streaming contract is characterized. Refs: `02:F16`.
 4. Extract `pipy_harness.native.providers._anthropic_shared` and
    collapse Anthropic + Bedrock onto it. Refs: `02:F4`.
 5. Move `_safe_response_label`, `_extract_usage`, and `_utc_now` into

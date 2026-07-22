@@ -7,30 +7,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_responses, extract_responses_tool_calls
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_responses
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
     JsonHTTPClient,
     ProviderHTTPError,
     UrllibJsonHTTPClient,
-    extract_responses_usage,
-)
-from pipy_harness.native.agent import (
-    AgentAssistantMessage,
-    AgentToolResultMessage,
-    AgentUserMessage,
 )
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.deferred_tools import (
-    responses_tool_search_items,
-    split_deferred_tools,
-)
-from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.deferred_tools import split_deferred_tools
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.native.providers.openai_responses_wire import (
+    parse_response,
+    responses_input,
+)
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -125,9 +118,11 @@ class OpenAIResponsesProvider:
         body: dict[str, Any] = {
             "model": self.model_id,
             "instructions": request.system_prompt,
-            "input": _responses_input(
+            "input": responses_input(
                 request,
+                parse_error_class=OpenAIResponseParseError,
                 deferred_tools={tool.name: tool for tool in deferred_tools},
+                attach_images=True,
             ),
             "store": False,
         }
@@ -161,7 +156,13 @@ class OpenAIResponsesProvider:
                     f"OpenAI API request failed with HTTP status {response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
-            result = _parse_response(response.body)
+            result = parse_response(
+                response.body,
+                parse_error_class=OpenAIResponseParseError,
+                response_label="OpenAI",
+                nested_usage_fields=OPENAI_NESTED_USAGE_FIELDS,
+                tool_call_provider_prefix="openai",
+            )
         except OpenAIProviderError as exc:
             return failed_provider_result(
                 request,
@@ -188,141 +189,6 @@ class OpenAIResponsesProvider:
         )
 
 
-def _responses_input(
-    request: ProviderRequest,
-    *,
-    deferred_tools: Mapping[str, ToolDefinition] | None = None,
-) -> str | list[dict[str, object]]:
-    if request.messages:
-        items: list[dict[str, object]] = []
-        loaded_tool_names: set[str] = set()
-        for envelope in request.messages:
-            items.extend(_envelope_to_input_items(envelope))
-            if isinstance(envelope, AgentToolResultMessage) and deferred_tools:
-                items.extend(
-                    responses_tool_search_items(
-                        envelope,
-                        deferred_tools=deferred_tools,
-                        loaded_tool_names=loaded_tool_names,
-                    )
-                )
-        _attach_images(items, request)
-        return items
-    if request.no_tool_repl_context is None or not request.no_tool_repl_context.exchanges:
-        if not request.attachments:
-            return request.user_prompt
-        single: list[dict[str, object]] = [
-            {
-                "role": "user",
-                "content": [{"type": "input_text", "text": request.user_prompt}],
-            }
-        ]
-        _attach_images(single, request)
-        return single
-    messages: list[dict[str, object]] = []
-    for exchange in request.no_tool_repl_context.exchanges:
-        messages.append(
-            {
-                "role": "user",
-                "content": [{"type": "input_text", "text": exchange.user_prompt}],
-            }
-        )
-        messages.append(
-            {
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": exchange.provider_final_text}],
-            }
-        )
-    messages.append(
-        {
-            "role": "user",
-            "content": [{"type": "input_text", "text": request.user_prompt}],
-        }
-    )
-    _attach_images(messages, request)
-    return messages
-
-
-def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> None:
-    """Append ``input_image`` data-URL blocks to the latest user message.
-
-    Image attachments belong to the current user turn, so they ride on the last
-    user message. The Responses API accepts ``input_image`` content parts with a
-    base64 ``data:`` URL alongside ``input_text``.
-    """
-
-    if not request.attachments:
-        return
-    for item in reversed(items):
-        if item.get("role") != "user":
-            continue
-        content = item.get("content")
-        if not isinstance(content, list):
-            return
-        for attachment in request.attachments:
-            content.append(
-                {
-                    "type": "input_image",
-                    "image_url": (
-                        f"data:{attachment.media_type};base64,"
-                        f"{attachment.data_base64}"
-                    ),
-                }
-            )
-        return
-
-
-def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
-    """Translate one ``AgentMessage`` into Responses API input items."""
-
-    if isinstance(envelope, AgentUserMessage):
-        return [
-            {
-                "role": "user",
-                "content": [{"type": "input_text", "text": envelope.content.value}],
-            }
-        ]
-    if isinstance(envelope, AgentAssistantMessage):
-        items: list[dict[str, object]] = []
-        if envelope.content.value:
-            items.append(
-                {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "output_text", "text": envelope.content.value}
-                    ],
-                }
-            )
-        for call in envelope.tool_calls:
-            items.append(
-                {
-                    "type": "function_call",
-                    "call_id": call.provider_correlation_id,
-                    "name": call.tool_name,
-                    "arguments": call.arguments_json.value,
-                }
-            )
-        return items
-    if isinstance(envelope, AgentToolResultMessage):
-        return [
-            {
-                "type": "function_call_output",
-                "call_id": envelope.provider_correlation_id,
-                "output": envelope.content.value,
-            }
-        ]
-    raise OpenAIResponseParseError(
-        f"unsupported message envelope: {type(envelope).__name__}"
-    )
-
-@dataclass(frozen=True, slots=True)
-class ParsedOpenAIResponse:
-    final_text: str | None
-    usage: dict[str, int | float]
-    response_status: str
-    tool_calls: tuple[ProviderToolCall, ...] = ()
-
-
 class OpenAIProviderError(ProviderHTTPError):
     """Base class for sanitized OpenAI provider errors."""
 
@@ -343,62 +209,3 @@ class OpenAITransportError(OpenAIProviderError):
 
 class OpenAIResponseParseError(OpenAIProviderError):
     """Raised when the OpenAI response shape is unsupported."""
-
-
-def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAIResponse:
-    status = body.get("status")
-    response_status = sanitize_text(status) if isinstance(status, str) else "unknown"
-    if response_status and response_status != "completed":
-        raise OpenAIResponseParseError(
-            f"OpenAI response status was {response_status}.",
-            metadata={
-                "provider_response_store_requested": False,
-                "response_status": response_status,
-            },
-        )
-
-    final_text = _extract_final_text(body)
-    tool_calls = extract_responses_tool_calls(body.get("output"), provider_prefix="openai")
-    if not final_text and not tool_calls:
-        raise OpenAIResponseParseError(
-            "OpenAI response did not include final output text or tool calls.",
-            metadata={
-                "provider_response_store_requested": False,
-                "response_status": response_status,
-            },
-        )
-
-    return ParsedOpenAIResponse(
-        final_text=final_text,
-        usage=extract_responses_usage(body.get("usage"), OPENAI_NESTED_USAGE_FIELDS),
-        response_status=response_status,
-        tool_calls=tool_calls,
-    )
-
-
-def _extract_final_text(body: Mapping[str, Any]) -> str | None:
-    output_text = body.get("output_text")
-    if isinstance(output_text, str) and output_text:
-        return output_text
-
-    output = body.get("output")
-    if not isinstance(output, list):
-        return None
-
-    chunks: list[str] = []
-    for item in output:
-        if not isinstance(item, Mapping):
-            continue
-        if item.get("type") not in (None, "message"):
-            continue
-        content = item.get("content")
-        if not isinstance(content, list):
-            continue
-        for content_item in content:
-            if not isinstance(content_item, Mapping):
-                continue
-            if content_item.get("type") == "output_text" and isinstance(content_item.get("text"), str):
-                chunks.append(content_item["text"])
-    if not chunks:
-        return None
-    return "".join(chunks)
