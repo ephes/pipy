@@ -1199,9 +1199,22 @@ The bulk is mechanical duplication. pi-mono's
    solely through the catalog-backed `ModelRuntime`; the legacy
    one-default-per-provider registry branches and the
    `_provider_available`/`_provider_unavailable_message`/`_resolve_model_reference`
-   helpers are deleted, with `native_provider_available` remaining the catalog's
-   single availability owner. The per-model capability/default de-hardcoding above
-   is still open.
+   helpers are deleted, with `ProviderCatalogState.provider_available`
+   (resolving through `auth_store.provider_available`, Pi's `hasAuth`, plus the
+   `fake`/`openai-codex`/extension-OAuth special-cases) remaining the catalog's
+   single availability owner and `native_provider_available` staying as the
+   deliberately separate startup auto-default env probe (reached only via
+   `repl_state._provider_available_in_env`). The per-model capability/default de-hardcoding above
+   is still open. **Phase 5 accepted (2026-07-22):** all five Phase 5 acceptance
+   criteria are met (see the migration doc's "Phase 5 acceptance closure"), and
+   the fresh Pi-head audit note there records the later Pi feature gaps —
+   remote/generated catalog refresh plus Pi's reset-of-dynamic-registrations
+   semantics (the `refresh()`/dynamic-registration mechanism itself is already
+   shipped and wired on `/reload`), extension-provider OAuth resolution on the
+   request/construction path (`get_api_key`/`refresh_token`; the registration
+   surface and `/login` are already implemented), Chat Completions (Kimi)
+   deferred tools, and local-model routing — as explicit future work that was
+   deliberately kept out of the consolidation commits, not shipped behavior.
 9. Fix `GoogleProvider` / `GoogleVertexProvider` tool-call id
    fabrication: stop synthesizing ids from loop index and propagate the
    real id from the response. Refs: `02:F5`.
