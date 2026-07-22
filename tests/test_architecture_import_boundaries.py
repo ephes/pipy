@@ -59,7 +59,6 @@ class BoundaryViolation:
 
 
 _LEGACY_CONCRETE_PROVIDER_MODULES = (
-    "pipy_harness.native.bedrock_provider",
     "pipy_harness.native.google_provider",
     "pipy_harness.native.google_vertex_provider",
     "pipy_harness.native.openai_codex_provider",
@@ -94,8 +93,9 @@ _PROVIDER_UI_FORBIDDEN_IMPORTS = (
 # Mistral and OpenRouter Chat Completions clones live in
 # ``native.providers.mistral``/``native.providers.openrouter``, the
 # Cloudflare Workers AI Chat Completions adapter lives in
-# ``native.providers.cloudflare``, and the Anthropic Messages adapter now lives
-# in ``native.providers.anthropic_messages`` — all governed
+# ``native.providers.cloudflare``, the Anthropic Messages adapter lives in
+# ``native.providers.anthropic_messages``, and its Bedrock sibling now lives in
+# ``native.providers.bedrock`` — all governed
 # by the ``native.providers`` package rule below).  For every transport still at
 # the top level, enforce the
 # same boundary here alongside the provider-facing ports, fakes, deferred-tool

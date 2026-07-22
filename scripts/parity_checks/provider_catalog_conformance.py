@@ -1402,7 +1402,7 @@ def _check_tier3_construction(checks, tmp: Path):
     # Vertex Express api-key mode (global host + x-goog-api-key); see 22c/22e.
     from datetime import UTC, datetime
 
-    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+    from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
     from pipy_harness.native.google_vertex_provider import GoogleVertexProvider
     from pipy_harness.native.repl_state import (
         NativeModelSelection,

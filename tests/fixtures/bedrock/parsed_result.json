@@ -1,0 +1,14 @@
+{
+  "final_text": "config.toml sets port 8080.",
+  "usage": {
+    "input_tokens": 42,
+    "output_tokens": 8,
+    "total_tokens": 67,
+    "cached_tokens": 12,
+    "cache_write_tokens": 5
+  },
+  "metadata": {
+    "stop_reason": "end_turn",
+    "aws_region": "us-east-1"
+  }
+}

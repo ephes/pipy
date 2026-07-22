@@ -54,7 +54,7 @@ ANTHROPIC_THINKING_DISPLAY_DEFAULT = "summarized"
 # ``output_config.effort``) rather than the ``budget_tokens`` path. These are the
 # anthropic provider models Pi marks ``compat.forceAdaptiveThinking: true``
 # (models.generated.ts) and the same set the bedrock adapter matches
-# (Pi: supportsAdaptiveThinking). Shared with ``bedrock_provider``.
+# (Pi: supportsAdaptiveThinking). Shared with the ``providers.bedrock`` adapter.
 ANTHROPIC_ADAPTIVE_MODEL_MARKERS = ("opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6")
 # Adaptive effort accepts low/medium/high/xhigh/max; minimal clamps to low
 # (Pi: mapThinkingLevelToEffort). Other levels pass through unchanged.

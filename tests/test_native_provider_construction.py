@@ -1737,7 +1737,7 @@ def _bedrock_spec(**over: Any) -> NativeModelSpec:
 
 
 def test_bedrock_catalog_construction_type_and_thinking_wired(tmp_path):
-    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+    from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
 
     resolved = _resolve(
         _bedrock_spec(),
@@ -1756,7 +1756,7 @@ def test_bedrock_catalog_construction_type_and_thinking_wired(tmp_path):
 def _bedrock_adapter(model_id, **over):
     from datetime import UTC, datetime
 
-    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+    from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
 
     defaults = dict(
         model_id=model_id,
@@ -1938,7 +1938,7 @@ def test_codex_stays_on_legacy_factory(tmp_path):
 
 
 def test_tier3_boundary_constructs_bedrock_from_catalog(tmp_path):
-    from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+    from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
     from pipy_harness.native.catalog_state import ProviderCatalogState
     from pipy_harness.native.repl_state import (
         NativeModelSelection,

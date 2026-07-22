@@ -1,0 +1,10 @@
+{
+  "url": "https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-3-5-sonnet-20240620-v1%3A0/invoke",
+  "signed_headers": "accept;content-type;host;x-amz-content-sha256;x-amz-date",
+  "headers": {
+    "Authorization": "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20240115/us-east-1/bedrock/aws4_request, SignedHeaders=accept;content-type;host;x-amz-content-sha256;x-amz-date, Signature=56084e448345e99b516afbb2beb4d310bfef659fdd53aff8f182c4c5e60a264b",
+    "X-Amz-Date": "20240115T120000Z",
+    "Host": "bedrock-runtime.us-east-1.amazonaws.com",
+    "X-Amz-Content-Sha256": "7b4d3e3a3ef3abd679db23c0870920a8c74cac00a6164144d5a39e770cf0ee45"
+  }
+}

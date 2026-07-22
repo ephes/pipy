@@ -736,7 +736,7 @@ def _build_iam_provider(
     """
 
     if resolved.api == "amazon-bedrock":
-        from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+        from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
 
         return AmazonBedrockProvider(
             model_id=resolved.model_id,

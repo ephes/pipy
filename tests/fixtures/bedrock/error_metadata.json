@@ -1,0 +1,4 @@
+{
+  "http_status": 429,
+  "api_error_type": "Rate exceeded"
+}

@@ -19,7 +19,7 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native import ProviderRequest
-from pipy_harness.native.bedrock_provider import (
+from pipy_harness.native.providers.bedrock import (
     AmazonBedrockProvider,
     BedrockHTTPStatusError,
     JsonResponse,

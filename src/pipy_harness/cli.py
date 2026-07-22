@@ -2919,7 +2919,7 @@ def _native_provider_for_selection(
 
         return MistralProvider(model_id=selection.model_id)
     if selection.provider_name == "amazon-bedrock":
-        from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
+        from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
 
         return AmazonBedrockProvider(model_id=selection.model_id)
     if selection.provider_name == "azure-openai":

@@ -107,7 +107,7 @@ that defines a provider class (excluding shared helpers `*-shared.ts`,
 | A6 | google (Gemini Generative AI) | ✅ | `test -f src/pipy_harness/native/google_provider.py` |
 | A7 | google-vertex | ✅ | `test -f src/pipy_harness/native/google_vertex_provider.py` |
 | A8 | mistral | ✅ | `test -f src/pipy_harness/native/providers/mistral.py` |
-| A9 | amazon-bedrock | ✅ | `test -f src/pipy_harness/native/bedrock_provider.py` |
+| A9 | amazon-bedrock | ✅ | `test -f src/pipy_harness/native/providers/bedrock.py` |
 | A10 | azure-openai-responses | ✅ | `test -f src/pipy_harness/native/providers/azure_openai_responses.py` |
 | A11 | cloudflare | ✅ | `test -f src/pipy_harness/native/providers/cloudflare.py` |
 
