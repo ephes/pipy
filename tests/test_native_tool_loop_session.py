@@ -63,7 +63,11 @@ from pipy_harness.native.tool_loop_session import (
     _wait_for_provider_interrupt,
 )
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
+from pipy_harness.native.repl_state import (
+    ModelRuntime,
+    NativeModelSelection,
+    NativeReplProviderState,
+)
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
@@ -2163,7 +2167,7 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
         provider_factory=lambda _selection: (_ for _ in ()).throw(
             AssertionError("extension provider should be built from the catalog")
         ),
-        catalog_state=catalog_state,
+        model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )
     provider = state.current_provider()
@@ -2251,7 +2255,7 @@ def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator
         provider_factory=lambda _selection: (_ for _ in ()).throw(
             AssertionError("extension provider should be built from the catalog")
         ),
-        catalog_state=catalog_state,
+        model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )
     session = NativeToolReplSession(
@@ -2331,7 +2335,7 @@ def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
         ),
         env={"OPENAI_API_KEY": "sk-test"},
         openai_codex_auth_path=tmp_path / "missing-codex.json",
-        catalog_state=catalog_state,
+        model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )
     session = NativeToolReplSession(
@@ -2417,7 +2421,7 @@ def test_reload_fail_closes_removed_extension_provider_when_no_fallback(
         ),
         env={},
         openai_codex_auth_path=tmp_path / "missing-codex.json",
-        catalog_state=catalog_state,
+        model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )
     session = NativeToolReplSession(

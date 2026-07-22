@@ -30,6 +30,7 @@ from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import (
+    ModelRuntime,
     NativeModelSelection,
     NativeReplProviderState,
 )
@@ -232,7 +233,7 @@ def _native_state(
     return NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-tools"),
         provider_factory=factory,
-        catalog_state=catalog,
+        model_runtime=ModelRuntime(catalog=catalog),
         env={"OPENAI_API_KEY": "test-only"},
         openai_codex_auth_path=tmp_path / "missing-codex.json",
         persist_defaults=False,

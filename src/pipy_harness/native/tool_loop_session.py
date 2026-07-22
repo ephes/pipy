@@ -2130,13 +2130,14 @@ class _BuiltinCommandInterpreter:
                     emitter.set_flags(ctl.extension_flag_values)
                 state = session.provider_state
                 if isinstance(state, NativeReplProviderState):
-                    catalog_state = state.catalog_state
-                    if catalog_state is not None:
+                    runtime = state.model_runtime
+                    if runtime is not None:
+                        catalog_state = runtime.catalog
                         was_extension_selection = (
                             state.current_selection_uses_extension_provider()
                         )
-                        catalog_state.refresh()  # type: ignore[attr-defined]
-                        catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
+                        catalog_state.refresh()
+                        catalog_state.set_extension_provider_contributions(
                             ctl._ext_runtime.providers,
                             ctl._ext_runtime.unregistered_providers,
                         )
@@ -4242,12 +4243,13 @@ class NativeToolReplSession:
                 error_message=extension_flag_error,
             )
         if isinstance(self.provider_state, NativeReplProviderState):
-            catalog_state = self.provider_state.catalog_state
-            if catalog_state is not None:
+            runtime = self.provider_state.model_runtime
+            if runtime is not None:
+                catalog_state = runtime.catalog
                 was_extension_selection = (
                     self.provider_state.current_selection_uses_extension_provider()
                 )
-                catalog_state.set_extension_provider_contributions(  # type: ignore[attr-defined]
+                catalog_state.set_extension_provider_contributions(
                     _ext_runtime.providers,
                     _ext_runtime.unregistered_providers,
                 )

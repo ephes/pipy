@@ -31,6 +31,7 @@ from pipy_harness.native.extension_provider_catalog import (
     load_extension_provider_contributions,
 )
 from pipy_harness.native.repl_state import (
+    ModelRuntime,
     NativeModelSelection,
     NativeReplProviderState,
     default_selection_for,
@@ -155,7 +156,7 @@ def test_extension_oauth_provider_login_and_logout_wires_auth_store(tmp_path: Pa
         provider_factory=lambda _selection: (_ for _ in ()).throw(
             AssertionError("legacy factory must not build extension providers")
         ),
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
 
@@ -318,7 +319,7 @@ def test_extension_provider_appears_in_catalog_options_and_list_output(
         provider_factory=lambda _selection: (_ for _ in ()).throw(
             AssertionError("legacy factory must not build extension providers")
         ),
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
 
@@ -343,7 +344,7 @@ def test_selecting_extension_provider_constructs_selected_provider_port(
         provider_factory=lambda _selection: (_ for _ in ()).throw(
             AssertionError("legacy factory must not build extension providers")
         ),
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
 
@@ -416,7 +417,7 @@ def test_removed_active_extension_provider_resets_to_available_catalog_model(
         provider_factory=lambda _selection: (_ for _ in ()).throw(
             AssertionError("legacy factory must not build extension providers")
         ),
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
     assert repl_state.current_selection_supported() is True
@@ -501,7 +502,7 @@ def test_failing_extension_provider_factory_fails_closed_from_catalog(
         provider_factory=lambda _selection: (_ for _ in ()).throw(
             AssertionError("legacy factory must not build extension providers")
         ),
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
 

@@ -1181,7 +1181,14 @@ The bulk is mechanical duplication. pi-mono's
    hard-coding `gpt-5.5` and `gpt-5.1-codex` as defaults, and let
    `Cloudflare` only advertise `supports_tool_calls=True` for models
    that actually support function calling. Refs: `02:F8`, `02:F9`,
-   `02:F17`, `07:F9`.
+   `02:F17`, `07:F9`. **Foundation (migration Slice 5.3a):** the
+   `ModelRuntime` construction/spec owner now composes `ProviderCatalogState`
+   (the merged built-in + `models.json` + auth catalog) with the
+   `provider_construction` boundary as the single owner of spec resolution and
+   provider construction, extracted out of `NativeReplProviderState` (which
+   holds a typed `model_runtime` and delegates). This gives the Phase 5.3
+   catalog/model-facts consolidation one construction owner to build on; the
+   per-model capability/default de-hardcoding above is still open.
 9. Fix `GoogleProvider` / `GoogleVertexProvider` tool-call id
    fabrication: stop synthesizing ids from loop index and propagate the
    real id from the response. Refs: `02:F5`.

@@ -1941,6 +1941,7 @@ def test_tier3_boundary_constructs_bedrock_from_catalog(tmp_path):
     from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
     from pipy_harness.native.catalog_state import ProviderCatalogState
     from pipy_harness.native.repl_state import (
+        ModelRuntime,
         NativeModelSelection,
         NativeReplProviderState,
     )
@@ -1960,7 +1961,7 @@ def test_tier3_boundary_constructs_bedrock_from_catalog(tmp_path):
             "amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"
         ),
         provider_factory=_no_legacy,
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
     provider = repl_state.current_provider()

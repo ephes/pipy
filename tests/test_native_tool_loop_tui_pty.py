@@ -38,6 +38,7 @@ from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.models import ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl_state import (
+    ModelRuntime,
     NativeReplProviderState,
     StaticNativeReplProviderState,
 )
@@ -2585,7 +2586,7 @@ def _reasoning_catalog_state(tmp_path: Path, provider: ProviderPort, model_id: s
     return NativeReplProviderState(
         selection=NativeModelSelection("openai", model_id),
         provider_factory=lambda sel: provider,
-        catalog_state=catalog,
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
 

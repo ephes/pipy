@@ -1570,6 +1570,7 @@ def test_model_command_refusal_preserves_resolved_thinking_level_mutation(
     tmp_path: Path,
 ) -> None:
     from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import ModelRuntime
 
     seen: list[tuple[str, str]] = []
     provider_state = _recording_provider_state(
@@ -1579,9 +1580,11 @@ def test_model_command_refusal_preserves_resolved_thinking_level_mutation(
         model_id="openai/gpt",
         env={"OPENROUTER_API_KEY": "k"},
     )
-    provider_state.catalog_state = ProviderCatalogState(
-        models_json_path=tmp_path / "absent-models.json",
-        env={"OPENROUTER_API_KEY": "k"},
+    provider_state.model_runtime = ModelRuntime(
+        catalog=ProviderCatalogState(
+            models_json_path=tmp_path / "absent-models.json",
+            env={"OPENROUTER_API_KEY": "k"},
+        )
     )
     provider_state.thinking_level = "low"
     previous_selection = provider_state.current_selection()

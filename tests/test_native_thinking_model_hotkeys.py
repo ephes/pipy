@@ -16,6 +16,7 @@ from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.repl_state import (
+    ModelRuntime,
     NativeModelSelection,
     NativeReplProviderState,
 )
@@ -32,7 +33,7 @@ def _state(tmp_path: Path, model_id: str) -> NativeReplProviderState:
     return NativeReplProviderState(
         selection=NativeModelSelection("openai", model_id),
         provider_factory=lambda sel: FakeNativeProvider(supports_tool_calls=True),
-        catalog_state=catalog,
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
 
@@ -59,7 +60,7 @@ def _codex_state(tmp_path: Path, model_id: str) -> NativeReplProviderState:
     return NativeReplProviderState(
         selection=NativeModelSelection("openai-codex", model_id),
         provider_factory=lambda sel: FakeNativeProvider(supports_tool_calls=True),
-        catalog_state=catalog,
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
 

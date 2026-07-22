@@ -55,7 +55,7 @@ from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.session_tree_commands import StartupSessionAborted
-from pipy_harness.native.repl_state import NativeProviderFactory
+from pipy_harness.native.repl_state import ModelRuntime, NativeProviderFactory
 from pipy_harness.native.retry import RetryPolicy
 from pipy_harness.native.export_distribution import (
     NativeExportError,
@@ -1600,7 +1600,7 @@ def _run_provider_for_selection(
         provider_factory=_provider_factory_for(settings_manager),
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
-        catalog_state=catalog_state,
+        model_runtime=ModelRuntime(catalog=catalog_state),
         thinking_level=_validated_thinking_level(thinking),
         persist_defaults=False,
     )
@@ -2212,7 +2212,7 @@ def _tool_repl_adapter_for(
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
-        catalog_state=catalog_state,
+        model_runtime=ModelRuntime(catalog=catalog_state),
         thinking_level=_validated_thinking_level(thinking),
     )
     if using_stored_default and not provider_state.provider_available(

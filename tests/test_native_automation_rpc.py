@@ -43,7 +43,11 @@ from pipy_harness.native.automation.rpc import NativeRpcServer, _PromptChannel
 from pipy_harness.native.fake import AutomationFakeProvider
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
-from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
+from pipy_harness.native.repl_state import (
+    ModelRuntime,
+    NativeModelSelection,
+    NativeReplProviderState,
+)
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
@@ -240,7 +244,7 @@ def _provider_state_adapter(tmp_path: Path) -> PipyNativeToolReplAdapter:
     state = NativeReplProviderState(
         selection=NativeModelSelection("openai", "gpt-5.5"),
         provider_factory=lambda _sel: AutomationFakeProvider(),
-        catalog_state=catalog,
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
     return PipyNativeToolReplAdapter(provider_state=state)

@@ -77,6 +77,7 @@ from pipy_harness.native.agent import (  # noqa: E402
 from pipy_harness.native.models import ProviderRequest, ProviderResult  # noqa: E402
 from pipy_harness.native.provider import ProviderPort  # noqa: E402
 from pipy_harness.native.repl_state import (  # noqa: E402
+    ModelRuntime,
     NativeModelSelection,
     NativeReplProviderState,
 )
@@ -177,7 +178,7 @@ def _reasoning_state(tmp_path: Path, provider: ProviderPort) -> NativeReplProvid
     return NativeReplProviderState(
         selection=NativeModelSelection("openai", "gpt-5.5"),
         provider_factory=lambda sel: provider,
-        catalog_state=catalog,
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
 

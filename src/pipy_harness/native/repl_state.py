@@ -18,6 +18,8 @@ from pipy_harness.native.openai_codex_provider import (
     default_openai_codex_auth_path,
 )
 from pipy_harness.native.fake import AUTOMATION_FAKE_MODEL_ID
+from pipy_harness.native.catalog import NativeModelSpec
+from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.provider_registry import (
     DEFAULT_NATIVE_MODELS,
     NATIVE_PROVIDER_REGISTRY,
@@ -160,6 +162,178 @@ class NativeProviderFactory(Protocol):
         """Build a provider for the selected provider/model."""
 
 
+@dataclass(frozen=True, slots=True)
+class ModelRuntime:
+    """Single owner of catalog spec resolution and provider construction.
+
+    Composes the merged provider/model catalog (:class:`ProviderCatalogState`)
+    with the catalog-driven ``provider_construction`` boundary so one object
+    resolves *which* :class:`~pipy_harness.native.catalog.NativeModelSpec` a
+    selection maps to and constructs the concrete ``ProviderPort`` for it. It
+    covers the three construction shapes:
+
+    * a catalog-wired API family (built from the resolved spec + auth + routing +
+      mapped thinking through :func:`build_provider`);
+    * an extension-provider row (built through the extension runtime); and
+    * the legacy per-provider factory fallback (``fake``/``openai-codex`` and any
+      not-yet-catalog-wired family), with Codex ``supportsToolSearch`` /
+      ``reasoning_effort`` options injected onto the legacy-built provider.
+
+    The legacy factory is injected into :meth:`construct` rather than stored, so
+    it is reached only through the runtime. :class:`NativeReplProviderState` holds
+    one and delegates to it; when a state has no runtime it keeps the plain
+    legacy-factory fallback.
+    """
+
+    catalog: ProviderCatalogState
+
+    def resolve_spec(self, selection: NativeModelSelection) -> NativeModelSpec | None:
+        """Resolve the catalog spec (with thinking map) for a selection, or None.
+
+        Falls back to a synthesized row cloned from the provider's catalog base
+        (baseUrl/headers/auth) for a not-yet-cataloged model id on a known
+        provider, mirroring the prior ``_spec_for`` behavior.
+        """
+
+        from pipy_harness.native.model_resolver import build_fallback_model
+
+        spec = self.catalog.find(selection.provider_name, selection.model_id)
+        if spec is None:
+            spec = build_fallback_model(
+                selection.provider_name, selection.model_id, self.catalog.get_all()
+            )
+        return spec
+
+    def thinking_levels(self, selection: NativeModelSelection) -> list[str]:
+        """Ordered Shift+Tab cycle levels for a selection (Pi-aware).
+
+        Returns the model's ``available_thinking_levels`` (``off`` plus the
+        ordinary tier, with ``xhigh``/``max`` appended only when the row maps
+        them). Falls back to the ordinary tier when the spec is unavailable so a
+        custom or not-yet-cataloged reasoning model still cycles.
+        """
+
+        spec = self.resolve_spec(selection)
+        if spec is None:
+            return ["off", "minimal", "low", "medium", "high"]
+        from pipy_harness.native.thinking import available_thinking_levels
+
+        return available_thinking_levels(spec)
+
+    def construct(
+        self,
+        selection: NativeModelSelection,
+        *,
+        thinking_level: str | None,
+        provider_factory: NativeProviderFactory,
+    ) -> ProviderPort:
+        """Construct the provider for any selection (catalog-first).
+
+        A catalog-wired family or extension-provider row is built from the
+        catalog; otherwise the injected legacy ``provider_factory`` builds it and
+        Codex catalog options are injected onto the result.
+        """
+
+        catalog_provider = self._catalog_provider(selection, thinking_level)
+        if catalog_provider is not None:
+            return catalog_provider
+        provider = provider_factory(selection)
+        return self._apply_codex_catalog_options(selection, provider, thinking_level)
+
+    def _apply_codex_catalog_options(
+        self,
+        selection: NativeModelSelection,
+        provider: ProviderPort,
+        thinking_level: str | None,
+    ) -> ProviderPort:
+        """Inject selected catalog options into a legacy Codex provider.
+
+        The Codex adapter is built through the legacy factory (not the catalog
+        construction boundary), so thinking and ``supportsToolSearch`` do not
+        reach it automatically. Resolve both on each build. The frozen provider
+        is replaced while preserving every other field, including retry policy.
+        """
+
+        if selection.provider_name != "openai-codex":
+            return provider
+        spec = self.resolve_spec(selection)
+        if spec is None:
+            return provider
+        from pipy_harness.native.provider_construction import resolve_openai_tool_search
+
+        changes: dict[str, object] = {}
+        if hasattr(provider, "supports_tool_search"):
+            changes["supports_tool_search"] = resolve_openai_tool_search(spec)
+        if thinking_level and hasattr(provider, "reasoning_effort"):
+            from pipy_harness.native.thinking import resolve_codex_effort
+
+            effort = resolve_codex_effort(spec, thinking_level)
+            if effort is not None:
+                changes["reasoning_effort"] = effort
+        if not changes:
+            return provider
+        if dataclasses.is_dataclass(provider) and not isinstance(provider, type):
+            return dataclasses.replace(provider, **changes)  # type: ignore[type-var]
+        for name, value in changes.items():
+            setattr(provider, name, value)
+        return provider
+
+    def _catalog_provider(
+        self, selection: NativeModelSelection, thinking_level: str | None
+    ) -> ProviderPort | None:
+        """Construct a provider from the catalog (spec item 18).
+
+        Returns ``None`` when the selection is not a catalog row or its API
+        family is not catalog-wired, so the caller falls back to the legacy
+        factory (preserving built-in providers like openai-codex/fake). A
+        catalog-wired family whose auth fails returns a fail-closed provider
+        (no silent legacy fallback).
+        """
+
+        from pipy_harness.native.provider_construction import (
+            build_provider,
+            resolve_construction,
+        )
+
+        state = self.catalog
+        spec = self.resolve_spec(selection)
+        if spec is None:
+            return None
+        if spec.api == "extension-provider":
+            registered = state.extension_provider_for(spec.provider_name)
+            if registered is None:
+                return None
+            from pipy_harness.native.extension_runtime import (
+                try_build_extension_provider_port,
+            )
+
+            build_result = try_build_extension_provider_port(
+                registered, model_id=spec.model_id
+            )
+            if build_result.port is None:
+                diagnostic = (
+                    f"extension provider factory failed: {build_result.diagnostic}"
+                    if build_result.diagnostic
+                    else "extension provider factory failed"
+                )
+                return _FailedExtensionProvider(
+                    provider_name=spec.provider_name,
+                    model_id=spec.model_id,
+                    error=diagnostic,
+                )
+            return cast(ProviderPort, build_result.port)
+        assert state.auth_store is not None
+        resolved = resolve_construction(
+            spec,
+            store=state.auth_store,
+            env=state._env(),
+            runtime_api_key=state.runtime_api_key,
+            models_json_auth=state._models_json_auth(spec.provider_name),
+            thinking_level=thinking_level,
+        )
+        return build_provider(resolved)
+
+
 class NativeDefaultsStore:
     """Private JSON store for non-secret native provider/model defaults."""
 
@@ -217,12 +391,21 @@ class NativeReplProviderState:
     env: Mapping[str, str] | None = None
     openai_codex_auth_path: Path | None = None
     persist_defaults: bool = True
-    # When set, model_options() and select_model() read the full pipy catalog
-    # (built-in + models.json) with the shared matcher and availability gate,
-    # mirroring Pi's /model selector over getAvailable(). When None, the legacy
-    # one-default-per-provider registry path is used (backward compatible).
-    catalog_state: "object | None" = None
+    # When set, the runtime composes the full pipy catalog (built-in +
+    # models.json) with the catalog-driven construction boundary: model_options()
+    # and select_model() read the merged catalog with the shared matcher and
+    # availability gate (mirroring Pi's /model selector over getAvailable()), and
+    # current_provider()/provider_for() construct through the runtime. When None,
+    # the legacy one-default-per-provider registry path and plain legacy factory
+    # are used (backward compatible).
+    model_runtime: ModelRuntime | None = None
     thinking_level: str | None = None
+
+    @property
+    def _catalog(self) -> ProviderCatalogState | None:
+        """The merged catalog owned by the runtime, or None in the legacy path."""
+
+        return self.model_runtime.catalog if self.model_runtime is not None else None
 
     def current_selection(self) -> NativeModelSelection:
         return self.selection
@@ -236,148 +419,32 @@ class NativeReplProviderState:
         Used by ``current_provider`` and by the ``/model`` selector's
         tool-capability probe so a ``models.json`` custom provider/model is
         constructed the same way it will be used (not via the legacy factory).
+        When no runtime is bound, the plain legacy factory builds the provider.
         """
 
-        if self.catalog_state is not None:
-            catalog_provider = self._catalog_provider(selection)
-            if catalog_provider is not None:
-                return catalog_provider
-        provider = self.provider_factory(selection)
-        return self._apply_codex_catalog_options(selection, provider)
-
-    def _apply_codex_catalog_options(
-        self, selection: NativeModelSelection, provider: ProviderPort
-    ) -> ProviderPort:
-        """Inject selected catalog options into a legacy Codex provider.
-
-        The Codex adapter is built through the legacy factory (not the catalog
-        construction boundary), so thinking and ``supportsToolSearch`` do not
-        reach it automatically. Resolve both on each build. The frozen provider
-        is replaced while preserving every other field, including retry policy.
-        """
-
-        if selection.provider_name != "openai-codex":
-            return provider
-        spec = self._spec_for(selection)
-        if spec is None:
-            return provider
-        from pipy_harness.native.provider_construction import resolve_openai_tool_search
-
-        changes: dict[str, object] = {}
-        if hasattr(provider, "supports_tool_search"):
-            changes["supports_tool_search"] = resolve_openai_tool_search(spec)
-        if self.thinking_level and hasattr(provider, "reasoning_effort"):
-            from pipy_harness.native.thinking import resolve_codex_effort
-
-            effort = resolve_codex_effort(spec, self.thinking_level)
-            if effort is not None:
-                changes["reasoning_effort"] = effort
-        if not changes:
-            return provider
-        if dataclasses.is_dataclass(provider) and not isinstance(provider, type):
-            return dataclasses.replace(provider, **changes)  # type: ignore[type-var]
-        for name, value in changes.items():
-            setattr(provider, name, value)
-        return provider
-
-    def _spec_for(self, selection: NativeModelSelection):
-        """Resolve the catalog spec (with thinking map) for a selection, or None."""
-
-        state = self.catalog_state
-        if state is None:
-            return None
-        from pipy_harness.native.model_resolver import build_fallback_model
-
-        spec = state.find(selection.provider_name, selection.model_id)  # type: ignore[attr-defined]
-        if spec is None:
-            spec = build_fallback_model(
-                selection.provider_name, selection.model_id, state.get_all()  # type: ignore[attr-defined]
+        if self.model_runtime is not None:
+            return self.model_runtime.construct(
+                selection,
+                thinking_level=self.thinking_level,
+                provider_factory=self.provider_factory,
             )
-        return spec
+        return self.provider_factory(selection)
 
     def current_thinking_levels(self) -> list[str]:
-        """Ordered Shift+Tab cycle levels for the current model (Pi-aware).
+        """Ordered Shift+Tab cycle levels for the current model (Pi-aware)."""
 
-        Returns the model's ``available_thinking_levels`` (``off`` plus the
-        ordinary tier, with ``xhigh``/``max`` appended only when the row maps
-        them). Falls back to the ordinary tier when the spec is unavailable so a
-        custom or not-yet-cataloged reasoning model still cycles.
-        """
-
-        spec = self._spec_for(self.selection)
-        if spec is None:
+        if self.model_runtime is None:
             return ["off", "minimal", "low", "medium", "high"]
-        from pipy_harness.native.thinking import available_thinking_levels
-
-        return available_thinking_levels(spec)
-
-    def _catalog_provider(self, selection: NativeModelSelection) -> ProviderPort | None:
-        """Construct a provider from the catalog (spec item 18).
-
-        Returns ``None`` when the selection is not a catalog row or its API
-        family is not catalog-wired, so the caller falls back to the legacy
-        factory (preserving built-in providers like openai-codex/fake). A
-        catalog-wired family whose auth fails returns a fail-closed provider
-        (no silent legacy fallback).
-        """
-
-        from pipy_harness.native.model_resolver import build_fallback_model
-        from pipy_harness.native.provider_construction import (
-            build_provider,
-            resolve_construction,
-        )
-
-        state = self.catalog_state
-        spec = state.find(selection.provider_name, selection.model_id)  # type: ignore[attr-defined]
-        if spec is None:
-            # A synthesized fallback selection (e.g. a not-yet-cataloged model on
-            # a known provider) must still construct from the provider's catalog
-            # base (baseUrl/headers/auth), not fall back to the legacy factory.
-            spec = build_fallback_model(
-                selection.provider_name, selection.model_id, state.get_all()  # type: ignore[attr-defined]
-            )
-        if spec is None:
-            return None
-        if spec.api == "extension-provider":
-            registered = state.extension_provider_for(spec.provider_name)  # type: ignore[attr-defined]
-            if registered is None:
-                return None
-            from pipy_harness.native.extension_runtime import (
-                try_build_extension_provider_port,
-            )
-
-            build_result = try_build_extension_provider_port(
-                registered, model_id=spec.model_id
-            )
-            if build_result.port is None:
-                diagnostic = (
-                    f"extension provider factory failed: {build_result.diagnostic}"
-                    if build_result.diagnostic
-                    else "extension provider factory failed"
-                )
-                return _FailedExtensionProvider(
-                    provider_name=spec.provider_name,
-                    model_id=spec.model_id,
-                    error=diagnostic,
-                )
-            return cast(ProviderPort, build_result.port)
-        resolved = resolve_construction(
-            spec,
-            store=state.auth_store,  # type: ignore[attr-defined]
-            env=state._env(),  # type: ignore[attr-defined]
-            runtime_api_key=state.runtime_api_key,  # type: ignore[attr-defined]
-            models_json_auth=state._models_json_auth(spec.provider_name),  # type: ignore[attr-defined]
-            thinking_level=self.thinking_level,
-        )
-        return build_provider(resolved)
+        return self.model_runtime.thinking_levels(self.selection)
 
     def provider_available(self, provider_name: str) -> bool:
-        if self.catalog_state is not None:
-            return self.catalog_state.provider_available(provider_name)  # type: ignore[attr-defined]
+        catalog = self._catalog
+        if catalog is not None:
+            return catalog.provider_available(provider_name)
         return self._provider_available(provider_name)
 
     def model_options(self) -> list[NativeModelOption]:
-        if self.catalog_state is not None:
+        if self._catalog is not None:
             return self._catalog_model_options()
         options: list[NativeModelOption] = []
         for provider_name, spec in NATIVE_PROVIDER_REGISTRY.items():
@@ -392,14 +459,15 @@ class NativeReplProviderState:
         return options
 
     def _catalog_model_options(self) -> list[NativeModelOption]:
-        state = self.catalog_state
+        state = self._catalog
+        assert state is not None
         options: list[NativeModelOption] = []
-        for row in state.get_all():  # type: ignore[attr-defined]
-            available = state.provider_available(row.provider_name)  # type: ignore[attr-defined]
+        for row in state.get_all():
+            available = state.provider_available(row.provider_name)
             reason = (
                 None
                 if available
-                else state.availability_reason(row.provider_name)  # type: ignore[attr-defined]
+                else state.availability_reason(row.provider_name)
             )
             options.append(
                 NativeModelOption(
@@ -419,7 +487,7 @@ class NativeReplProviderState:
         if not parsed:
             return False, "pipy: malformed /model command. Provide <provider>/<model> or <model>."
 
-        if self.catalog_state is not None:
+        if self._catalog is not None:
             return self._catalog_select_model(parsed)
 
         selection, reason = self._resolve_model_reference(parsed)
@@ -433,21 +501,22 @@ class NativeReplProviderState:
     def current_selection_supported(self) -> bool:
         """Return whether the current selection is still backed by catalog rows."""
 
-        if self.catalog_state is None:
+        state = self._catalog
+        if state is None:
             return True
-        state = self.catalog_state
-        if state.find(self.selection.provider_name, self.selection.model_id):  # type: ignore[attr-defined]
+        if state.find(self.selection.provider_name, self.selection.model_id):
             return True
         # A user-selected custom model id on a known provider is supported via a
         # fallback row cloned from that provider's catalog defaults.
-        return bool(state.models_for(self.selection.provider_name))  # type: ignore[attr-defined]
+        return bool(state.models_for(self.selection.provider_name))
 
     def current_selection_uses_extension_provider(self) -> bool:
         """Return whether the current selection is backed by an extension row."""
 
-        if self.catalog_state is None:
+        state = self._catalog
+        if state is None:
             return False
-        spec = self.catalog_state.find(  # type: ignore[attr-defined]
+        spec = state.find(
             self.selection.provider_name,
             self.selection.model_id,
         )
@@ -487,9 +556,10 @@ class NativeReplProviderState:
 
         from pipy_harness.native.model_resolver import resolve_cli_model
 
-        state = self.catalog_state
+        state = self._catalog
+        assert state is not None
         result = resolve_cli_model(
-            cli_provider=None, cli_model=reference, rows=state.get_all()  # type: ignore[attr-defined]
+            cli_provider=None, cli_model=reference, rows=state.get_all()
         )
         if result.error is not None:
             return False, f"pipy: {sanitize_text(result.error)}"
@@ -497,8 +567,8 @@ class NativeReplProviderState:
         if model is None:
             return False, "pipy: unsupported or unknown model reference."
 
-        if not state.provider_available(model.provider_name):  # type: ignore[attr-defined]
-            reason = state.availability_reason(model.provider_name)  # type: ignore[attr-defined]
+        if not state.provider_available(model.provider_name):
+            reason = state.availability_reason(model.provider_name)
             return False, (
                 f"pipy: {model.provider_name} is unavailable ({reason or 'unknown'}); "
                 "selection unchanged."
@@ -527,8 +597,9 @@ class NativeReplProviderState:
                 open_browser=True,
             )
             return True, "pipy: openai-codex OAuth login stored."
-        if self.catalog_state is not None:
-            registered = self.catalog_state.extension_oauth_provider_for(provider)  # type: ignore[attr-defined]
+        catalog = self._catalog
+        if catalog is not None:
+            registered = catalog.extension_oauth_provider_for(provider)
             if registered is not None:
                 return self._extension_oauth_login(
                     registered, input_stream=input_stream, output_stream=output_stream
@@ -547,8 +618,9 @@ class NativeReplProviderState:
             if removed:
                 return True, "pipy: openai-codex OAuth credentials removed."
             return True, "pipy: no openai-codex OAuth credentials were stored."
-        if self.catalog_state is not None:
-            registered = self.catalog_state.extension_oauth_provider_for(provider)  # type: ignore[attr-defined]
+        catalog = self._catalog
+        if catalog is not None:
+            registered = catalog.extension_oauth_provider_for(provider)
             if registered is not None:
                 return self._extension_oauth_logout(registered)
         return False, "pipy: unsupported logout provider."
@@ -577,15 +649,20 @@ class NativeReplProviderState:
             return False, "pipy: extension OAuth login returned unsupported awaitable."
         if not isinstance(credentials, Mapping):
             return False, "pipy: extension OAuth login returned invalid credentials."
-        assert self.catalog_state is not None
-        store = self.catalog_state.auth_store  # type: ignore[attr-defined]
+        catalog = self._catalog
+        assert catalog is not None
+        store = catalog.auth_store
+        assert store is not None
         store.set(provider_name, {"type": "oauth", **dict(credentials)})
         return True, f"pipy: {provider_name} OAuth login stored."
 
     def _extension_oauth_logout(self, registered: object) -> tuple[bool, str]:
         provider_name = registered.provider.name  # type: ignore[attr-defined]
-        assert self.catalog_state is not None
-        removed = self.catalog_state.auth_store.remove(provider_name)  # type: ignore[attr-defined]
+        catalog = self._catalog
+        assert catalog is not None
+        store = catalog.auth_store
+        assert store is not None
+        removed = store.remove(provider_name)
         if self.selection.provider_name == provider_name:
             self.reset_to_first_available_model(require_tool_calls=False)
         if removed:
@@ -600,8 +677,8 @@ class NativeReplProviderState:
             if provider_name not in SUPPORTED_NATIVE_PROVIDERS or not model_id:
                 return None, "pipy: unsupported model reference."
             # Availability is checked through the public gate (catalog-aware when
-            # a catalog_state is set, registry-based otherwise) so it agrees with
-            # model_options(); the diagnostic keeps the provider-named message.
+            # a model runtime is bound, registry-based otherwise) so it agrees
+            # with model_options(); the diagnostic keeps the provider-named message.
             if not self.provider_available(provider_name):
                 return None, self._provider_unavailable_message(provider_name)
             return NativeModelSelection(provider_name, model_id), ""

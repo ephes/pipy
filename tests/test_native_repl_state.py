@@ -13,6 +13,7 @@ from pipy_harness.native.catalog import (
 )
 from pipy_harness.native.repl_state import (
     AUTO_DEFAULT_PROVIDER_PRIORITY,
+    ModelRuntime,
     NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
@@ -267,7 +268,7 @@ def test_catalog_backed_model_options_and_select(tmp_path, monkeypatch):
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
         provider_factory=lambda sel: None,
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
 
@@ -337,7 +338,7 @@ def test_current_provider_catalog_constructs_custom_completions_provider(tmp_pat
         provider_factory=lambda sel: (_ for _ in ()).throw(
             AssertionError("legacy factory must not be used for a catalog model")
         ),
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         thinking_level="high",
         persist_defaults=False,
     )
@@ -368,7 +369,7 @@ def test_current_provider_falls_back_to_legacy_for_unwired_family(tmp_path):
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
         provider_factory=lambda sel: sentinel,
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
     # the deterministic fake bootstrap is not catalog-constructed -> legacy factory.
@@ -399,7 +400,7 @@ def test_current_provider_constructs_anthropic_from_catalog(tmp_path):
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("anthropic", "claude-opus-4-7"),
         provider_factory=_no_legacy,
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         thinking_level="xhigh",
         persist_defaults=False,
     )
@@ -434,7 +435,7 @@ def _catalog_repl_state(tmp_path, env, *, models_json=None):
     return NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
         provider_factory=lambda sel: None,
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
 
@@ -590,7 +591,7 @@ def _codex_repl_state(tmp_path, model_id, thinking_level):
         provider_factory=lambda sel: OpenAICodexResponsesProvider(
             model_id=sel.model_id, retry_policy=policy
         ),
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         thinking_level=thinking_level,
         persist_defaults=False,
     )

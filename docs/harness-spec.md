@@ -660,7 +660,11 @@ choice the session calls `NativeReplProviderState.select_model` (the shared
 provider-state boundary), rebinds the live provider,
 clears the in-memory conversation context, rebinds the usage meter, refreshes
 the footer/status model label, and persists the non-secret default; the next
-provider turn is constructed with the new provider/model. A direct
+provider turn is constructed with the new provider/model. Construction and
+catalog spec resolution behind that boundary are owned by `ModelRuntime`
+(`native/repl_state.py`), which composes the merged provider catalog with the
+`provider_construction` boundary; the `select_model`/`model_options`/auth surface
+and its behavior are unchanged. A direct
 `/model <provider>/<model>` (or `<model>`) form switches without opening the
 selector and works in both the product TUI and the captured-stream fallback. A
 switch to a provider that does not advertise tool-call support is refused and

@@ -95,7 +95,11 @@ from pipy_harness.native.provider_construction import (
     build_provider,
     resolve_construction,
 )
-from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
+from pipy_harness.native.repl_state import (
+    ModelRuntime,
+    NativeModelSelection,
+    NativeReplProviderState,
+)
 from pipy_harness.native.oauth_providers import (
     AnthropicOAuthProvider,
     GitHubCopilotOAuthProvider,
@@ -1041,7 +1045,7 @@ def _check_product_construction(checks, tmp: Path):
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("acme", "rocket-1"),
         provider_factory=_no_legacy,
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         thinking_level="high",
         persist_defaults=False,
     )
@@ -1213,7 +1217,7 @@ def _check_tier1_construction(checks, tmp: Path):
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("anthropic", "claude-opus-4-7"),
         provider_factory=_no_legacy,
-        catalog_state=builtin_state,
+        model_runtime=ModelRuntime(catalog=builtin_state),
         thinking_level="xhigh",
         persist_defaults=False,
     )
@@ -1376,7 +1380,7 @@ def _check_tier2_construction(checks, tmp: Path):
     az_repl = NativeReplProviderState(
         selection=NativeModelSelection("azure-openai", "gpt-5.4"),
         provider_factory=_no_legacy,
-        catalog_state=az_boundary_state,
+        model_runtime=ModelRuntime(catalog=az_boundary_state),
         thinking_level="high",
         persist_defaults=False,
     )
@@ -1552,7 +1556,7 @@ def _check_tier3_construction(checks, tmp: Path):
     bnd_repl = NativeReplProviderState(
         selection=NativeModelSelection("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"),
         provider_factory=_no_legacy,
-        catalog_state=bnd_state,
+        model_runtime=ModelRuntime(catalog=bnd_state),
         thinking_level="high",
         persist_defaults=False,
     )
@@ -1789,7 +1793,7 @@ def _check_extension_provider_catalog_wiring(checks, tmp: Path):
     repl = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
         provider_factory=lambda _selection: None,
-        catalog_state=state,
+        model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
     list_output = format_list_models(
