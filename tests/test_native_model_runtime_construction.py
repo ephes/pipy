@@ -1,11 +1,13 @@
 """Characterization tests for the ``ModelRuntime`` construction/spec owner.
 
-Slice 5.3a extracts catalog spec resolution and catalog-driven provider
-construction out of ``NativeReplProviderState`` into ``ModelRuntime``. These
-tests pin the three construction shapes the runtime now owns — a catalog-wired
-API family, the legacy-factory fallback with Codex option injection, and the
-plain legacy-factory passthrough — plus ``resolve_spec`` and ``thinking_levels``,
-so the extraction is proven byte-for-byte behavior preserving at the new seam.
+Slice 5.3a extracted catalog spec resolution and catalog-driven provider
+construction into ``ModelRuntime``; slice 5.3b made ``construct`` total by
+folding ``openai-codex``, ``fake`` and the bare built-in ``ds4`` into the
+construction boundary and threading the settings-derived ``ConstructionOptions``.
+These tests pin the construction shapes the runtime owns — a catalog-wired API
+family, the codex adapter (options + spec-resolved effort/tool-search), and the
+deterministic fake bootstrap — plus ``resolve_spec`` and ``thinking_levels``, so
+construction is proven byte-for-byte behavior preserving at the seam.
 
 The equivalent behavior is also pinned through the stable public surface
 (``NativeReplProviderState.current_provider``/``provider_for``) in
@@ -26,13 +28,9 @@ from pipy_harness.native.providers.openai_completions import (
     OpenAIChatCompletionsProvider,
 )
 from pipy_harness.native.fake import FakeNativeProvider
+from pipy_harness.native.provider_construction import ConstructionOptions
 from pipy_harness.native.repl_state import ModelRuntime, NativeModelSelection
 from pipy_harness.native.retry import RetryPolicy
-
-# Inline lambdas (contextually typed against ``NativeProviderFactory``) are used
-# for the ``provider_factory`` argument throughout; a catalog-wired selection
-# must never reach it.
-_NO_LEGACY = "legacy factory must not be used for a catalog model"
 
 
 def _catalog(
@@ -108,9 +106,7 @@ def test_construct_catalog_wired_completions_family(tmp_path: Path) -> None:
     provider = runtime.construct(
         NativeModelSelection("ds4", "deepseek-v4-flash"),
         thinking_level="high",
-        provider_factory=lambda selection: (_ for _ in ()).throw(
-            AssertionError(_NO_LEGACY)
-        ),
+        options=ConstructionOptions(),
     )
     assert isinstance(provider, OpenAIChatCompletionsProvider)
     assert provider.endpoint == "http://127.0.0.1:9000/v1/chat/completions"
@@ -127,24 +123,23 @@ def test_construct_catalog_wired_anthropic_maps_thinking(tmp_path: Path) -> None
     provider = runtime.construct(
         NativeModelSelection("anthropic", "claude-opus-4-7"),
         thinking_level="xhigh",
-        provider_factory=lambda selection: (_ for _ in ()).throw(
-            AssertionError(_NO_LEGACY)
-        ),
+        options=ConstructionOptions(),
     )
     assert isinstance(provider, AnthropicProvider)
     assert provider.reasoning_effort == "xhigh"
 
 
-def test_construct_fake_falls_through_to_legacy_factory(tmp_path: Path) -> None:
+def test_construct_fake_builds_deterministic_bootstrap(tmp_path: Path) -> None:
     runtime = ModelRuntime(catalog=_catalog(tmp_path))
-    sentinel = FakeNativeProvider(supports_tool_calls=True)
     provider = runtime.construct(
         NativeModelSelection("fake", "fake-native-bootstrap"),
         thinking_level=None,
-        provider_factory=lambda selection: sentinel,
+        options=ConstructionOptions(),
     )
-    # The deterministic fake bootstrap is not catalog-constructed.
-    assert provider is sentinel
+    # The deterministic fake bootstrap is built directly by the construction
+    # boundary (build_fake_provider), not through any legacy factory.
+    assert isinstance(provider, FakeNativeProvider)
+    assert provider.model_id == "fake-native-bootstrap"
 
 
 def test_construct_codex_injects_options_and_keeps_retry(tmp_path: Path) -> None:
@@ -155,15 +150,13 @@ def test_construct_codex_injects_options_and_keeps_retry(tmp_path: Path) -> None
     provider = runtime.construct(
         NativeModelSelection("openai-codex", "gpt-5.6-sol"),
         thinking_level="max",
-        provider_factory=lambda sel: OpenAICodexResponsesProvider(
-            model_id=sel.model_id, retry_policy=policy
-        ),
+        options=ConstructionOptions(retry_policy=policy),
     )
     assert isinstance(provider, OpenAICodexResponsesProvider)
-    # Codex catalog options are injected onto the legacy-built provider ...
+    # Codex catalog options are injected onto the boundary-built provider ...
     assert provider.reasoning_effort == "max"
     assert provider.supports_tool_search is True
-    # ... while the legacy-factory retry policy survives the option injection.
+    # ... while the settings-derived retry policy is threaded through options.
     assert provider.retry_policy is policy
 
 
@@ -172,16 +165,12 @@ def test_construct_codex_tool_search_is_model_specific(tmp_path: Path) -> None:
     supported = runtime.construct(
         NativeModelSelection("openai-codex", "gpt-5.4"),
         thinking_level=None,
-        provider_factory=lambda selection: OpenAICodexResponsesProvider(
-            model_id=selection.model_id
-        ),
+        options=ConstructionOptions(),
     )
     unsupported = runtime.construct(
         NativeModelSelection("openai-codex", "gpt-5.1-codex"),
         thinking_level=None,
-        provider_factory=lambda selection: OpenAICodexResponsesProvider(
-            model_id=selection.model_id
-        ),
+        options=ConstructionOptions(),
     )
     assert isinstance(supported, OpenAICodexResponsesProvider)
     assert isinstance(unsupported, OpenAICodexResponsesProvider)

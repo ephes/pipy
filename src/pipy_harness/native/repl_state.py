@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import inspect
 import json
 import os
@@ -10,7 +9,7 @@ import stat
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, TextIO, cast
+from typing import TextIO, cast
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native.openai_codex_provider import (
@@ -20,6 +19,7 @@ from pipy_harness.native.openai_codex_provider import (
 from pipy_harness.native.fake import AUTOMATION_FAKE_MODEL_ID
 from pipy_harness.native.catalog import NativeModelSpec
 from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.provider_construction import ConstructionOptions
 from pipy_harness.native.provider_registry import (
     DEFAULT_NATIVE_MODELS,
     NATIVE_PROVIDER_REGISTRY,
@@ -157,11 +157,6 @@ class NativeModelOption:
     image_input: bool | None = None
 
 
-class NativeProviderFactory(Protocol):
-    def __call__(self, selection: NativeModelSelection) -> ProviderPort:
-        """Build a provider for the selected provider/model."""
-
-
 @dataclass(frozen=True, slots=True)
 class ModelRuntime:
     """Single owner of catalog spec resolution and provider construction.
@@ -169,20 +164,21 @@ class ModelRuntime:
     Composes the merged provider/model catalog (:class:`ProviderCatalogState`)
     with the catalog-driven ``provider_construction`` boundary so one object
     resolves *which* :class:`~pipy_harness.native.catalog.NativeModelSpec` a
-    selection maps to and constructs the concrete ``ProviderPort`` for it. It
-    covers the three construction shapes:
+    selection maps to and constructs the concrete ``ProviderPort`` for it.
+    :meth:`construct` is total — every selection yields a provider through the
+    construction boundary, threading the settings-derived
+    :class:`ConstructionOptions`. It covers the construction shapes:
 
     * a catalog-wired API family (built from the resolved spec + auth + routing +
       mapped thinking through :func:`build_provider`);
+    * ``openai-codex-responses`` and the deterministic ``fake`` bootstrap (built
+      directly in :func:`build_provider`, codex from the spec + options);
     * an extension-provider row (built through the extension runtime); and
-    * the legacy per-provider factory fallback (``fake``/``openai-codex`` and any
-      not-yet-catalog-wired family), with Codex ``supportsToolSearch`` /
-      ``reasoning_effort`` options injected onto the legacy-built provider.
+    * the bare built-in ``ds4`` selection that has no catalog spec (built by name
+      in :func:`build_builtin_provider`).
 
-    The legacy factory is injected into :meth:`construct` rather than stored, so
-    it is reached only through the runtime. :class:`NativeReplProviderState` holds
-    one and delegates to it; when a state has no runtime it keeps the plain
-    legacy-factory fallback.
+    :class:`NativeReplProviderState` holds one and delegates every provider build
+    to it; there is no separate legacy provider factory.
     """
 
     catalog: ProviderCatalogState
@@ -225,72 +221,21 @@ class ModelRuntime:
         selection: NativeModelSelection,
         *,
         thinking_level: str | None,
-        provider_factory: NativeProviderFactory,
+        options: ConstructionOptions,
     ) -> ProviderPort:
-        """Construct the provider for any selection (catalog-first).
+        """Construct the provider for any selection (total, catalog-owned).
 
-        A catalog-wired family or extension-provider row is built from the
-        catalog; otherwise the injected legacy ``provider_factory`` builds it and
-        Codex catalog options are injected onto the result.
-        """
-
-        catalog_provider = self._catalog_provider(selection, thinking_level)
-        if catalog_provider is not None:
-            return catalog_provider
-        provider = provider_factory(selection)
-        return self._apply_codex_catalog_options(selection, provider, thinking_level)
-
-    def _apply_codex_catalog_options(
-        self,
-        selection: NativeModelSelection,
-        provider: ProviderPort,
-        thinking_level: str | None,
-    ) -> ProviderPort:
-        """Inject selected catalog options into a legacy Codex provider.
-
-        The Codex adapter is built through the legacy factory (not the catalog
-        construction boundary), so thinking and ``supportsToolSearch`` do not
-        reach it automatically. Resolve both on each build. The frozen provider
-        is replaced while preserving every other field, including retry policy.
-        """
-
-        if selection.provider_name != "openai-codex":
-            return provider
-        spec = self.resolve_spec(selection)
-        if spec is None:
-            return provider
-        from pipy_harness.native.provider_construction import resolve_openai_tool_search
-
-        changes: dict[str, object] = {}
-        if hasattr(provider, "supports_tool_search"):
-            changes["supports_tool_search"] = resolve_openai_tool_search(spec)
-        if thinking_level and hasattr(provider, "reasoning_effort"):
-            from pipy_harness.native.thinking import resolve_codex_effort
-
-            effort = resolve_codex_effort(spec, thinking_level)
-            if effort is not None:
-                changes["reasoning_effort"] = effort
-        if not changes:
-            return provider
-        if dataclasses.is_dataclass(provider) and not isinstance(provider, type):
-            return dataclasses.replace(provider, **changes)  # type: ignore[type-var]
-        for name, value in changes.items():
-            setattr(provider, name, value)
-        return provider
-
-    def _catalog_provider(
-        self, selection: NativeModelSelection, thinking_level: str | None
-    ) -> ProviderPort | None:
-        """Construct a provider from the catalog (spec item 18).
-
-        Returns ``None`` when the selection is not a catalog row or its API
-        family is not catalog-wired, so the caller falls back to the legacy
-        factory (preserving built-in providers like openai-codex/fake). A
-        catalog-wired family whose auth fails returns a fail-closed provider
-        (no silent legacy fallback).
+        Resolves the catalog spec and builds through the construction boundary:
+        an extension-provider row via the extension runtime; ``openai-codex`` /
+        ``fake`` / a catalog-wired API family via :func:`build_provider` (codex
+        threading the settings-derived ``options``); and the spec-less bare
+        built-in ``ds4`` selection by name via :func:`build_builtin_provider`.
+        A catalog-wired family whose auth fails yields a fail-closed provider
+        (no silent fallback). There is no legacy provider factory.
         """
 
         from pipy_harness.native.provider_construction import (
+            build_builtin_provider,
             build_provider,
             resolve_construction,
         )
@@ -298,11 +243,11 @@ class ModelRuntime:
         state = self.catalog
         spec = self.resolve_spec(selection)
         if spec is None:
-            return None
+            return build_builtin_provider(selection, options)
         if spec.api == "extension-provider":
             registered = state.extension_provider_for(spec.provider_name)
             if registered is None:
-                return None
+                return build_builtin_provider(selection, options)
             from pipy_harness.native.extension_runtime import (
                 try_build_extension_provider_port,
             )
@@ -331,7 +276,9 @@ class ModelRuntime:
             models_json_auth=state._models_json_auth(spec.provider_name),
             thinking_level=thinking_level,
         )
-        return build_provider(resolved)
+        return build_provider(
+            resolved, spec=spec, thinking_level=thinking_level, options=options
+        )
 
 
 class NativeDefaultsStore:
@@ -385,7 +332,10 @@ class NativeReplProviderState:
     """Late-bound provider state for local REPL auth/model commands."""
 
     selection: NativeModelSelection
-    provider_factory: NativeProviderFactory
+    # Settings-derived knobs threaded into every provider build (codex
+    # retry/transport/timeouts). The default reproduces the built-in provider
+    # defaults for callers that pass no settings.
+    construction_options: ConstructionOptions = ConstructionOptions()
     defaults_store: NativeDefaultsStore | None = None
     auth_manager_factory: Callable[[], OpenAICodexAuthManager] = OpenAICodexAuthManager
     env: Mapping[str, str] | None = None
@@ -396,8 +346,8 @@ class NativeReplProviderState:
     # and select_model() read the merged catalog with the shared matcher and
     # availability gate (mirroring Pi's /model selector over getAvailable()), and
     # current_provider()/provider_for() construct through the runtime. When None,
-    # the legacy one-default-per-provider registry path and plain legacy factory
-    # are used (backward compatible).
+    # the legacy one-default-per-provider registry path drives model_options() /
+    # select_model() (no catalog); provider construction always requires a runtime.
     model_runtime: ModelRuntime | None = None
     thinking_level: str | None = None
 
@@ -414,21 +364,23 @@ class NativeReplProviderState:
         return self.provider_for(self.selection)
 
     def provider_for(self, selection: NativeModelSelection) -> ProviderPort:
-        """Construct the provider for any selection (catalog-first).
+        """Construct the provider for any selection through the runtime.
 
         Used by ``current_provider`` and by the ``/model`` selector's
         tool-capability probe so a ``models.json`` custom provider/model is
-        constructed the same way it will be used (not via the legacy factory).
-        When no runtime is bound, the plain legacy factory builds the provider.
+        constructed the same way it will be used. Provider construction requires
+        a bound :class:`ModelRuntime` (always present in production); the runtime
+        owns the whole construction switch, threading ``construction_options``.
         """
 
-        if self.model_runtime is not None:
-            return self.model_runtime.construct(
-                selection,
-                thinking_level=self.thinking_level,
-                provider_factory=self.provider_factory,
-            )
-        return self.provider_factory(selection)
+        assert self.model_runtime is not None, (
+            "provider construction requires a bound ModelRuntime"
+        )
+        return self.model_runtime.construct(
+            selection,
+            thinking_level=self.thinking_level,
+            options=self.construction_options,
+        )
 
     def current_thinking_levels(self) -> list[str]:
         """Ordered Shift+Tab cycle levels for the current model (Pi-aware)."""

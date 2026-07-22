@@ -1230,10 +1230,12 @@ def test_auth_failure_returns_fail_closed_provider(tmp_path):
     assert result.error_type == "CatalogAuthError"
 
 
-def test_build_provider_returns_none_for_unwired_api_family(tmp_path):
-    # The deterministic ``fake`` bootstrap is not catalog-constructed; it falls
-    # back to the legacy factory (build returns None to signal "not
-    # catalog-constructed here").
+def test_build_provider_builds_fake_bootstrap_from_fake_family(tmp_path):
+    # The deterministic ``fake`` bootstrap is built directly by the construction
+    # boundary (before the auth gate); build_provider is total and never returns
+    # None.
+    from pipy_harness.native.fake import FakeNativeProvider
+
     spec = NativeModelSpec(
         provider_name="fake",
         model_id="fake-native-bootstrap",
@@ -1250,7 +1252,9 @@ def test_build_provider_returns_none_for_unwired_api_family(tmp_path):
         models_json_auth=None,
         thinking_level=None,
     )
-    assert build_provider(resolved, http_client=None) is None
+    provider = build_provider(resolved, http_client=None)
+    assert isinstance(provider, FakeNativeProvider)
+    assert provider.model_id == "fake-native-bootstrap"
 
 
 # ---- Slice C: Tier 1 non-completions families (catalog construction) --------
@@ -1921,10 +1925,14 @@ def test_vertex_catalog_no_key_resolves_to_adc(tmp_path):
     assert provider._resolve_express_api_key() is None
 
 
-def test_codex_stays_on_legacy_factory(tmp_path):
-    # openai-codex-responses is deliberately NOT catalog-constructed (the legacy
-    # factory injects a settings-derived RetryPolicy that catalog construction
-    # would drop); build_provider returns None so the caller falls back.
+def test_codex_built_by_boundary_before_auth_gate(tmp_path):
+    # openai-codex-responses is built directly by the construction boundary (its
+    # OAuth/SSE transport + settings-derived RetryPolicy come from options, not
+    # the catalog auth path); build_provider dispatches it before the auth gate,
+    # so the resolved auth outcome is irrelevant and it is never None.
+    from pipy_harness.native.openai_codex_provider import OpenAICodexResponsesProvider
+    from pipy_harness.native.provider_construction import ConstructionOptions
+
     spec = NativeModelSpec(
         provider_name="openai-codex",
         model_id="gpt-5.5",
@@ -1934,7 +1942,11 @@ def test_codex_stays_on_legacy_factory(tmp_path):
         cost=NativeModelCost(),
     )
     resolved = _resolve(spec, tmp_path, {})
-    assert build_provider(resolved, http_client=None) is None
+    provider = build_provider(
+        resolved, spec=spec, options=ConstructionOptions(), http_client=None
+    )
+    assert isinstance(provider, OpenAICodexResponsesProvider)
+    assert provider.model_id == "gpt-5.5"
 
 
 def test_tier3_boundary_constructs_bedrock_from_catalog(tmp_path):
@@ -1952,15 +1964,10 @@ def test_tier3_boundary_constructs_bedrock_from_catalog(tmp_path):
         env={"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"},
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
-
-    def _no_legacy(_sel):
-        raise AssertionError("legacy factory must not be used for a catalog model")
-
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection(
             "amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"
         ),
-        provider_factory=_no_legacy,
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )

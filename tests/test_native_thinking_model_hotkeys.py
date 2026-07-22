@@ -32,7 +32,6 @@ def _state(tmp_path: Path, model_id: str) -> NativeReplProviderState:
     )
     return NativeReplProviderState(
         selection=NativeModelSelection("openai", model_id),
-        provider_factory=lambda sel: FakeNativeProvider(supports_tool_calls=True),
         model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
@@ -59,7 +58,6 @@ def _codex_state(tmp_path: Path, model_id: str) -> NativeReplProviderState:
     )
     return NativeReplProviderState(
         selection=NativeModelSelection("openai-codex", model_id),
-        provider_factory=lambda sel: FakeNativeProvider(supports_tool_calls=True),
         model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )

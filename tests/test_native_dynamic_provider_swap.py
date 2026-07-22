@@ -66,12 +66,31 @@ class _Probe:
         )
 
 
+class _ProbeReplState(NativeReplProviderState):
+    """Legacy-path (no-runtime) state whose provider build is a recording probe.
+
+    Provider construction is otherwise owned by the runtime; this double lets the
+    mid-session-swap test observe the provider request each ``/model`` rebind
+    builds while ``/model`` resolution/availability run through the legacy
+    registry path (``model_runtime=None``).
+    """
+
+    def __init__(self, probe: _Probe, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._probe = probe
+
+    def provider_for(
+        self, selection: NativeModelSelection
+    ) -> _RecordingToolProvider:
+        return self._probe.factory(selection)
+
+
 def test_tool_loop_switch_clears_then_refusal_preserves(tmp_path: Path) -> None:
     probe = _Probe()
     initial = NativeModelSelection("fake", "model-a")
-    state = NativeReplProviderState(
+    state = _ProbeReplState(
+        probe,
         selection=initial,
-        provider_factory=probe.factory,
         defaults_store=None,
         persist_defaults=False,
         env={},

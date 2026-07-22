@@ -82,9 +82,6 @@ def test_ds4_registry_entry_defaults_and_advertises_tool_loop(tmp_path: Path):
 
     state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda selection: Ds4ChatCompletionsProvider(
-            model_id=selection.model_id
-        ),
         env={},
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
         persist_defaults=False,

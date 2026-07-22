@@ -1416,12 +1416,19 @@ def _scoped_models_state(tmp_path, seen):
                 final_text="ok",
             )
 
-    def factory(selection):
-        return _Rec(selection.provider_name, selection.model_id)
+    class _RecReplState(NativeReplProviderState):
+        """Legacy-path state whose provider build is the recording ``_Rec``.
 
-    return NativeReplProviderState(
+        Provider construction is otherwise runtime-owned; this double lets the
+        scoped-models tests probe/rebind (registry availability path,
+        ``model_runtime=None``) while recording any provider turn into ``seen``.
+        """
+
+        def provider_for(self, selection):
+            return _Rec(selection.provider_name, selection.model_id)
+
+    return _RecReplState(
         selection=NativeModelSelection("openai", "gpt-5.5"),
-        provider_factory=factory,
         env={"OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "x"},
         openai_codex_auth_path=tmp_path / "missing.json",
         persist_defaults=False,
@@ -2164,9 +2171,6 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
     catalog_state.set_extension_provider_contributions(providers, unregistered)
     state = NativeReplProviderState(
         selection=NativeModelSelection("reloadext", "m"),
-        provider_factory=lambda _selection: (_ for _ in ()).throw(
-            AssertionError("extension provider should be built from the catalog")
-        ),
         model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )
@@ -2252,9 +2256,6 @@ def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator
     catalog_state.set_extension_provider_contributions(providers, unregistered)
     state = NativeReplProviderState(
         selection=NativeModelSelection("capabilityext", "active"),
-        provider_factory=lambda _selection: (_ for _ in ()).throw(
-            AssertionError("extension provider should be built from the catalog")
-        ),
         model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )
@@ -2330,9 +2331,6 @@ def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
     catalog_state.set_extension_provider_contributions(providers, unregistered)
     state = NativeReplProviderState(
         selection=NativeModelSelection("openai", "ext"),
-        provider_factory=lambda _selection: (_ for _ in ()).throw(
-            AssertionError("selection should be built from the catalog")
-        ),
         env={"OPENAI_API_KEY": "sk-test"},
         openai_codex_auth_path=tmp_path / "missing-codex.json",
         model_runtime=ModelRuntime(catalog=catalog_state),
@@ -2416,9 +2414,6 @@ def test_reload_fail_closes_removed_extension_provider_when_no_fallback(
     catalog_state.set_extension_provider_contributions(providers, unregistered)
     state = NativeReplProviderState(
         selection=NativeModelSelection("uniqueext", "m"),
-        provider_factory=lambda _selection: (_ for _ in ()).throw(
-            AssertionError("selection should be built from the catalog")
-        ),
         env={},
         openai_codex_auth_path=tmp_path / "missing-codex.json",
         model_runtime=ModelRuntime(catalog=catalog_state),

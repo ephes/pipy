@@ -48,7 +48,7 @@ _run_counter = [0]
 def _repl(
     monkeypatch, tmp_path: Path, cwd: Path, *extra: str, stdin: str = "/exit\n"
 ) -> int:
-    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", _FakeReplProvider)
+    monkeypatch.setattr("pipy_harness.native.fake.FakeNativeProvider", _FakeReplProvider)
     monkeypatch.setattr(sys, "stdin", StringIO(stdin))
     _run_counter[0] += 1
     return main(

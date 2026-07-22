@@ -360,7 +360,7 @@ def test_cli_bare_pipy_starts_native_repl_with_default_slug(
     monkeypatch.setenv("PIPY_SESSION_DIR", str(root))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "pipy_harness.cli.AutomationFakeProvider",
+        "pipy_harness.native.fake.AutomationFakeProvider",
         _capturing_repl_provider(captured_requests),
     )
     monkeypatch.setattr(sys, "stdin", StringIO("hello there\n/exit\n"))
@@ -672,7 +672,7 @@ def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
             )
 
     monkeypatch.setattr(
-        "pipy_harness.cli.OpenAICodexResponsesProvider", CliFakeOpenAICodexProvider
+        "pipy_harness.native.openai_codex_provider.OpenAICodexResponsesProvider", CliFakeOpenAICodexProvider
     )
 
     exit_code = main(
@@ -1390,7 +1390,7 @@ def test_cli_stream_with_fake_provider_streams_chunks_to_stdout_and_keeps_archiv
                 metadata=None,
             )
 
-    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliStreamingFakeProvider)
+    monkeypatch.setattr("pipy_harness.native.fake.FakeNativeProvider", CliStreamingFakeProvider)
 
     exit_code = main(
         [
@@ -1456,7 +1456,7 @@ def test_cli_stream_off_keeps_existing_buffered_stdout_behavior(
                 metadata=None,
             )
 
-    monkeypatch.setattr("pipy_harness.cli.FakeNativeProvider", CliBufferedFakeProvider)
+    monkeypatch.setattr("pipy_harness.native.fake.FakeNativeProvider", CliBufferedFakeProvider)
 
     exit_code = main(
         [
@@ -1678,7 +1678,7 @@ def _capturing_repl_provider(captured: list) -> type:
 def test_cli_system_prompt_flag_replaces_base_prompt(tmp_path, monkeypatch) -> None:
     captured: list = []
     monkeypatch.setattr(
-        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
     )
     monkeypatch.setattr(sys, "stdin", StringIO("hello\n/exit\n"))
     main(
@@ -1708,7 +1708,7 @@ def test_cli_system_prompt_flag_replaces_base_prompt(tmp_path, monkeypatch) -> N
 def test_cli_append_system_prompt_flag_appends(tmp_path, monkeypatch) -> None:
     captured: list = []
     monkeypatch.setattr(
-        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
     )
     monkeypatch.setattr(sys, "stdin", StringIO("hello\n/exit\n"))
     main(
@@ -1739,7 +1739,7 @@ def test_positional_prompt_seeds_interactive_first_message(
 ) -> None:
     captured: list = []
     monkeypatch.setattr(
-        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
     )
     # Only `/exit` on stdin: the seeded positional prompt must be the first user
     # turn, so the provider sees it before the interactive loop reads stdin.
@@ -1774,7 +1774,7 @@ def test_bare_positional_prompt_routes_and_seeds_interactive(
     monkeypatch.setenv("PIPY_SESSION_DIR", str(root))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
     )
     monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
     exit_code = main(["summarize this repo"])
@@ -1785,7 +1785,7 @@ def test_bare_positional_prompt_routes_and_seeds_interactive(
 
 def test_mode_rpc_still_rejects_positional_prompt(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider([])
+        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider([])
     )
     exit_code = main(
         [
@@ -1862,7 +1862,7 @@ def test_cli_system_md_auto_discovery_replaces(tmp_path, monkeypatch) -> None:
     )
     captured: list = []
     monkeypatch.setattr(
-        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
     )
     monkeypatch.setattr(sys, "stdin", StringIO("hi\n/exit\n"))
     main(
@@ -1887,7 +1887,7 @@ def test_cli_no_context_files_disables_discovery(tmp_path, monkeypatch) -> None:
     (tmp_path / "AGENTS.md").write_text("SECRET PROJECT INSTRUCTIONS", encoding="utf-8")
     captured: list = []
     monkeypatch.setattr(
-        "pipy_harness.cli.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
     )
     monkeypatch.setattr(sys, "stdin", StringIO("hi\n/exit\n"))
     main(
@@ -1909,9 +1909,25 @@ def test_cli_no_context_files_disables_discovery(tmp_path, monkeypatch) -> None:
     assert "SECRET PROJECT INSTRUCTIONS" not in captured[0].system_prompt
 
 
-def test_provider_factory_applies_retry_settings_to_openai_codex(tmp_path) -> None:
-    from pipy_harness.cli import _provider_factory_for
-    from pipy_harness.native import NativeModelSelection
+def _build_codex_from_settings(manager, model_id="gpt-5.5"):
+    """Build the openai-codex provider the way ``pipy run``/REPL startup does.
+
+    Threads the settings-derived ``ConstructionOptions`` into the catalog
+    construction boundary (``build_openai_codex_provider``) for the resolved
+    catalog spec — the total replacement for the deleted legacy provider factory.
+    """
+
+    from pipy_harness.cli import _construction_options_for
+    from pipy_harness.native.catalog import build_builtin_catalog
+    from pipy_harness.native.provider_construction import build_openai_codex_provider
+
+    options = _construction_options_for(manager)
+    spec = build_builtin_catalog().find("openai-codex", model_id)
+    assert spec is not None
+    return build_openai_codex_provider(spec, None, options)
+
+
+def test_construction_options_apply_retry_settings_to_openai_codex(tmp_path) -> None:
     from pipy_harness.native.settings import SettingsManager
 
     (tmp_path / "config").mkdir()
@@ -1938,8 +1954,7 @@ def test_provider_factory_applies_retry_settings_to_openai_codex(tmp_path) -> No
         global_path=tmp_path / "config" / "settings.json",
         project_path=tmp_path / ".pipy" / "settings.json",
     )
-    factory = _provider_factory_for(manager)
-    provider = factory(NativeModelSelection("openai-codex", "gpt-5.5"))
+    provider = _build_codex_from_settings(manager)
     policy = provider.retry_policy  # type: ignore[attr-defined]
     assert policy.max_attempts == 3
     assert policy.initial_delay_seconds == 0.5
@@ -1949,13 +1964,8 @@ def test_provider_factory_applies_retry_settings_to_openai_codex(tmp_path) -> No
     assert provider.websocket_connect_timeout_seconds == 3.0  # type: ignore[attr-defined]
 
 
-def test_provider_factory_without_settings_keeps_provider_default(tmp_path) -> None:
-    from pipy_harness.cli import _provider_factory_for
-    from pipy_harness.native import NativeModelSelection
-
-    provider = _provider_factory_for(None)(
-        NativeModelSelection("openai-codex", "gpt-5.5")
-    )
+def test_construction_options_without_settings_keeps_provider_default(tmp_path) -> None:
+    provider = _build_codex_from_settings(None)
     # Built-in openai-codex default policy (unchanged when no settings).
     policy = provider.retry_policy  # type: ignore[attr-defined]
     assert policy.max_attempts == 4
@@ -1966,9 +1976,7 @@ def test_provider_factory_without_settings_keeps_provider_default(tmp_path) -> N
     assert provider.websocket_connect_timeout_seconds == 15.0  # type: ignore[attr-defined]
 
 
-def test_provider_factory_maps_disabled_timeouts_to_none(tmp_path) -> None:
-    from pipy_harness.cli import _provider_factory_for
-    from pipy_harness.native import NativeModelSelection
+def test_construction_options_map_disabled_timeouts_to_none(tmp_path) -> None:
     from pipy_harness.native.settings import SettingsManager
 
     (tmp_path / "settings.json").write_text(
@@ -1985,9 +1993,7 @@ def test_provider_factory_maps_disabled_timeouts_to_none(tmp_path) -> None:
         project_path=None,
     )
 
-    provider = _provider_factory_for(manager)(
-        NativeModelSelection("openai-codex", "gpt-5.5")
-    )
+    provider = _build_codex_from_settings(manager)
 
     assert provider.timeout_seconds is None  # type: ignore[attr-defined]
     assert provider.websocket_connect_timeout_seconds is None  # type: ignore[attr-defined]
@@ -2001,11 +2007,10 @@ def test_provider_factory_maps_disabled_timeouts_to_none(tmp_path) -> None:
         {"websocketConnectTimeoutMs": None},
     ],
 )
-def test_provider_factory_rejects_explicit_null_timeouts_before_instantiation(
+def test_construction_options_reject_explicit_null_timeouts_before_instantiation(
     tmp_path, monkeypatch, settings_body
 ) -> None:
-    from pipy_harness.cli import _provider_factory_for
-    from pipy_harness.native import NativeModelSelection
+    from pipy_harness.cli import _construction_options_for
     from pipy_harness.native.settings import SettingsManager
 
     (tmp_path / "settings.json").write_text(json.dumps(settings_body), encoding="utf-8")
@@ -2021,11 +2026,14 @@ def test_provider_factory_rejects_explicit_null_timeouts_before_instantiation(
         raise AssertionError("provider must not be instantiated")
 
     monkeypatch.setattr(
-        "pipy_harness.cli.OpenAICodexResponsesProvider", unexpected_provider
+        "pipy_harness.native.openai_codex_provider.OpenAICodexResponsesProvider",
+        unexpected_provider,
     )
 
+    # The explicit-null timeout is rejected while resolving the options value
+    # object, before any provider is instantiated.
     with pytest.raises(ValueError, match="non-negative integer"):
-        _provider_factory_for(manager)(NativeModelSelection("openai-codex", "gpt-5.5"))
+        _construction_options_for(manager)
     assert instantiated is False
 
 
@@ -2234,11 +2242,17 @@ def test_tool_filter_flags_parse_pi_aliases():
     assert options.no_builtin_tools is True
 
 
-def test_openai_codex_factory_default_transport_is_auto() -> None:
-    from pipy_harness.cli import NativeModelSelection, _native_provider_for_selection
-
-    provider = _native_provider_for_selection(
-        NativeModelSelection(provider_name="openai-codex", model_id="gpt-test")
+def test_openai_codex_default_transport_is_auto() -> None:
+    from pipy_harness.native.catalog import build_builtin_catalog
+    from pipy_harness.native.provider_construction import (
+        ConstructionOptions,
+        build_openai_codex_provider,
     )
+
+    # The built-in ``openai-codex``/``gpt-5.5`` catalog row builds a codex
+    # provider whose transport defaults to ``auto``.
+    spec = build_builtin_catalog().find("openai-codex", "gpt-5.5")
+    assert spec is not None
+    provider = build_openai_codex_provider(spec, None, ConstructionOptions())
 
     assert provider.transport == "auto"  # type: ignore[attr-defined]

@@ -6063,22 +6063,16 @@ class NativeToolReplSession:
     ) -> bool:
         """Return whether the provider for ``selection`` advertises tool calls.
 
-        Builds the provider through the state's factory (cheap, side-effect-free
-        construction) only to read ``supports_tool_calls``. Any construction
+        Builds the provider through the state's catalog-aware construction
+        boundary (cheap, side-effect-free construction) only to read
+        ``supports_tool_calls`` — so a models.json custom provider/model (api:
+        openai-completions) is probed the way it will be used. Any construction
         failure is treated as "not tool-capable" so a broken selection is never
         offered as choosable.
         """
 
-        # Prefer the catalog-aware construction boundary so a models.json custom
-        # provider/model (api: openai-completions) is probed the way it will be
-        # used, not via the legacy hardcoded factory.
-        builder = getattr(state, "provider_for", None) or getattr(
-            state, "provider_factory", None
-        )
-        if builder is None:
-            return False
         try:
-            provider = builder(selection)
+            provider = state.provider_for(selection)
         except Exception:
             return False
         return bool(getattr(provider, "supports_tool_calls", False))

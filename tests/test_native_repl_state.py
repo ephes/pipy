@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
 
-from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.catalog import (
     NativeModelCost,
     NativeModelSpec,
@@ -164,7 +162,6 @@ def test_logout_persists_shared_bootstrap_default_not_fake_tools(tmp_path):
     store = NativeDefaultsStore(tmp_path / "defaults.json")
     state = NativeReplProviderState(
         selection=NativeModelSelection("openai-codex", "gpt-5.5"),
-        provider_factory=lambda sel: _StubProvider(),
         defaults_store=store,
         auth_manager_factory=lambda: _StubAuthManager(),
     )
@@ -199,7 +196,6 @@ def test_settings_overlay_lines_renders_active_and_single_static_option():
 def test_settings_overlay_lines_reports_availability_reasons(tmp_path: Path):
     state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda selection: cast(ProviderPort, _StubProvider()),
         env={},
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
         persist_defaults=False,
@@ -267,7 +263,6 @@ def test_catalog_backed_model_options_and_select(tmp_path, monkeypatch):
     )
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda sel: None,
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
@@ -335,9 +330,6 @@ def test_current_provider_catalog_constructs_custom_completions_provider(tmp_pat
     )
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("ds4", "deepseek-v4-flash"),
-        provider_factory=lambda sel: (_ for _ in ()).throw(
-            AssertionError("legacy factory must not be used for a catalog model")
-        ),
         model_runtime=ModelRuntime(catalog=state),
         thinking_level="high",
         persist_defaults=False,
@@ -351,9 +343,10 @@ def test_current_provider_catalog_constructs_custom_completions_provider(tmp_pat
     assert provider.provider_name == "ds4"
 
 
-def test_current_provider_falls_back_to_legacy_for_unwired_family(tmp_path):
+def test_current_provider_constructs_fake_bootstrap(tmp_path):
     from pipy_harness.native.auth_store import AuthStore
     from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.fake import FakeNativeProvider
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
         NativeReplProviderState,
@@ -365,15 +358,16 @@ def test_current_provider_falls_back_to_legacy_for_unwired_family(tmp_path):
         env={},
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
-    sentinel = object()
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda sel: sentinel,
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
-    # the deterministic fake bootstrap is not catalog-constructed -> legacy factory.
-    assert repl_state.current_provider() is sentinel
+    # The deterministic fake bootstrap is built by the construction boundary
+    # (build_fake_provider) — there is no separate legacy factory.
+    provider = repl_state.current_provider()
+    assert isinstance(provider, FakeNativeProvider)
+    assert provider.model_id == "fake-native-bootstrap"
 
 
 def test_current_provider_constructs_anthropic_from_catalog(tmp_path):
@@ -392,14 +386,10 @@ def test_current_provider_constructs_anthropic_from_catalog(tmp_path):
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
 
-    def _no_legacy(_sel):
-        raise AssertionError("legacy factory must not be used for a catalog model")
-
     # claude-opus-4-7's catalog row maps only xhigh (thinking_level_map keys
     # override the default reasoning levels).
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("anthropic", "claude-opus-4-7"),
-        provider_factory=_no_legacy,
         model_runtime=ModelRuntime(catalog=state),
         thinking_level="xhigh",
         persist_defaults=False,
@@ -434,7 +424,6 @@ def _catalog_repl_state(tmp_path, env, *, models_json=None):
     )
     return NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda sel: None,
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
@@ -570,9 +559,7 @@ def test_fallback_selection_constructs_from_catalog_base(tmp_path):
 def _codex_repl_state(tmp_path, model_id, thinking_level):
     from pipy_harness.native.auth_store import AuthStore
     from pipy_harness.native.catalog_state import ProviderCatalogState
-    from pipy_harness.native.openai_codex_provider import (
-        OpenAICodexResponsesProvider,
-    )
+    from pipy_harness.native.provider_construction import ConstructionOptions
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
         NativeReplProviderState,
@@ -588,9 +575,7 @@ def _codex_repl_state(tmp_path, model_id, thinking_level):
     )
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("openai-codex", model_id),
-        provider_factory=lambda sel: OpenAICodexResponsesProvider(
-            model_id=sel.model_id, retry_policy=policy
-        ),
+        construction_options=ConstructionOptions(retry_policy=policy),
         model_runtime=ModelRuntime(catalog=state),
         thinking_level=thinking_level,
         persist_defaults=False,
@@ -602,7 +587,7 @@ def test_codex_provider_receives_mapped_effort_and_keeps_retry_policy(tmp_path):
     repl_state, policy = _codex_repl_state(tmp_path, "gpt-5.6-sol", "max")
     provider = repl_state.current_provider()
     assert provider.reasoning_effort == "max"
-    # the legacy-factory-injected retry policy must survive effort injection
+    # the options-threaded retry policy must survive effort injection
     assert provider.retry_policy is policy
     assert provider.supports_tool_search is True
 

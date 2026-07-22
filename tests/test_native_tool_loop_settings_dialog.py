@@ -214,6 +214,26 @@ def _settings(tmp_path: Path) -> SettingsManager:
     )
 
 
+class _RecordingReplState(NativeReplProviderState):
+    """State whose provider build is an observable ``_RecordingProvider``.
+
+    Provider construction is otherwise runtime-owned; this double lets the
+    settings-dialog tests inspect the built provider (``completions``) and its
+    rebinds while ``/model`` listing/availability run through the bound catalog.
+    """
+
+    def __init__(
+        self, built: list[_RecordingProvider], **kwargs: object
+    ) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._built = built
+
+    def provider_for(self, selection: NativeModelSelection) -> ProviderPort:
+        provider = _RecordingProvider(selection.provider_name, selection.model_id)
+        self._built.append(provider)
+        return provider
+
+
 def _native_state(
     tmp_path: Path, built: list[_RecordingProvider] | None = None
 ) -> NativeReplProviderState:
@@ -224,15 +244,9 @@ def _native_state(
         env={"OPENAI_API_KEY": "test-only"},
         openai_codex_auth_path=tmp_path / "missing-codex.json",
     )
-
-    def factory(selection: NativeModelSelection) -> ProviderPort:
-        provider = _RecordingProvider(selection.provider_name, selection.model_id)
-        providers.append(provider)
-        return provider
-
-    return NativeReplProviderState(
+    return _RecordingReplState(
+        providers,
         selection=NativeModelSelection("fake", "fake-tools"),
-        provider_factory=factory,
         model_runtime=ModelRuntime(catalog=catalog),
         env={"OPENAI_API_KEY": "test-only"},
         openai_codex_auth_path=tmp_path / "missing-codex.json",

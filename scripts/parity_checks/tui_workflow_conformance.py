@@ -175,9 +175,14 @@ def _reasoning_state(tmp_path: Path, provider: ProviderPort) -> NativeReplProvid
         env={"OPENAI_API_KEY": "sk"},
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
-    return NativeReplProviderState(
+    class _FixedProviderReplState(NativeReplProviderState):
+        """State whose provider build is a fixed double (runtime-owned otherwise)."""
+
+        def provider_for(self, selection: NativeModelSelection) -> ProviderPort:
+            return provider
+
+    return _FixedProviderReplState(
         selection=NativeModelSelection("openai", "gpt-5.5"),
-        provider_factory=lambda sel: provider,
         model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )

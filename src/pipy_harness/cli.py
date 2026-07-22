@@ -26,12 +26,6 @@ from pipy_harness.native import (
     NativeReplProviderState,
     OpenAICodexAuthManager,
     OpenAICodexProviderError,
-    OpenAICodexResponsesProvider,
-    AUTOMATION_FAKE_MODEL_ID,
-    AutomationFakeProvider,
-    FakeNativeProvider,
-    OpenAIResponsesProvider,
-    OpenRouterChatCompletionsProvider,
     ProviderPort,
     ReplInputUnavailableError,
     SUPPORTED_REPL_INPUT_RUNTIMES,
@@ -55,8 +49,8 @@ from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.session_tree_commands import StartupSessionAborted
-from pipy_harness.native.repl_state import ModelRuntime, NativeProviderFactory
-from pipy_harness.native.retry import RetryPolicy
+from pipy_harness.native.repl_state import ModelRuntime
+from pipy_harness.native.provider_construction import ConstructionOptions
 from pipy_harness.native.export_distribution import (
     NativeExportError,
     export_from_file,
@@ -71,8 +65,6 @@ from pipy_harness.native.version_check import (
     self_update_plan,
 )
 from pipy_harness.native.settings import (
-    DEFAULT_HTTP_IDLE_TIMEOUT_MS,
-    DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS,
     SettingsManager,
     local_state_base_defaults,
     retry_policy_from_settings,
@@ -1588,16 +1580,17 @@ def _run_provider_for_selection(
     (:class:`NativeReplProviderState`): catalog-wired families are built from the
     selected ``NativeModelSpec`` plus resolved auth/headers/thinking, so a custom
     ``models.json`` provider, ``--api-key``, base URLs, headers and ``--thinking``
-    all reach the one-shot turn the same way they reach a REPL turn. ``fake`` and
-    ``openai-codex`` fall back to the legacy factory (codex keeps its
-    settings-derived ``RetryPolicy``).
+    all reach the one-shot turn the same way they reach a REPL turn. Every
+    family, including ``fake`` and ``openai-codex``, is built by the total
+    construction boundary from the settings-derived ``ConstructionOptions``
+    (codex keeps its settings-derived ``RetryPolicy``).
     """
 
     if catalog_state is None:
         catalog_state = _build_catalog_state(runtime_api_key=api_key)
     provider_state = NativeReplProviderState(
         selection=selection,
-        provider_factory=_provider_factory_for(settings_manager),
+        construction_options=_construction_options_for(settings_manager),
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
         model_runtime=ModelRuntime(catalog=catalog_state),
@@ -2208,7 +2201,7 @@ def _tool_repl_adapter_for(
     using_stored_default = native_provider is None and native_model is None
     provider_state = NativeReplProviderState(
         selection=selection,
-        provider_factory=_provider_factory_for(settings_manager),
+        construction_options=_construction_options_for(settings_manager),
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
         openai_codex_auth_path=default_openai_codex_auth_path(),
@@ -2826,123 +2819,33 @@ def _build_extension_activation_batch(
     )
 
 
-def _provider_factory_for(
+def _construction_options_for(
     settings_manager: SettingsManager | None,
-) -> NativeProviderFactory:
-    """Return the provider factory, binding the settings-derived retry policy.
+) -> ConstructionOptions:
+    """Build the settings-derived :class:`ConstructionOptions` for a run.
 
-    The ``retry.*`` settings feed the provider HTTP retry policy. In normal REPL
-    startup a settings manager is always present, so retry-aware providers (e.g.
-    openai-codex) are built from the settings-derived ``RetryPolicy`` (its
+    The ``retry.*`` settings feed the provider HTTP retry policy and the
+    idle-timeout/transport/websocket-connect knobs feed the openai-codex
+    adapter. In normal REPL startup a settings manager is always present, so the
+    codex provider is built from the settings-derived ``RetryPolicy`` (its
     defaults honor the documented ``baseDelayMs``/``maxRetryDelayMs``). The
-    ``None`` branch — provider keeps its built-in field default — is for direct
-    or test callers that pass no settings manager.
+    ``None`` branch returns the default options (built-in provider field
+    defaults) for direct or test callers that pass no settings manager. Explicit
+    ``null`` timeout settings raise here, before any provider is instantiated.
     """
 
     if settings_manager is None:
-        return _native_provider_for_selection
-    policy = retry_policy_from_settings(settings_manager)
-    timeout_seconds = timeout_ms_to_seconds(
-        settings_manager.get_effective_provider_timeout_ms()
+        return ConstructionOptions()
+    return ConstructionOptions(
+        retry_policy=retry_policy_from_settings(settings_manager),
+        openai_codex_timeout_seconds=timeout_ms_to_seconds(
+            settings_manager.get_effective_provider_timeout_ms()
+        ),
+        openai_codex_transport=settings_manager.get_transport(),
+        openai_codex_websocket_connect_timeout_seconds=timeout_ms_to_seconds(
+            settings_manager.get_websocket_connect_timeout_ms()
+        ),
     )
-    websocket_connect_timeout_seconds = timeout_ms_to_seconds(
-        settings_manager.get_websocket_connect_timeout_ms()
-    )
-    transport = settings_manager.get_transport()
-
-    def _factory(selection: NativeModelSelection) -> ProviderPort:
-        return _native_provider_for_selection(
-            selection,
-            retry_policy=policy,
-            openai_codex_timeout_seconds=timeout_seconds,
-            openai_codex_transport=transport,
-            openai_codex_websocket_connect_timeout_seconds=(
-                websocket_connect_timeout_seconds
-            ),
-        )
-
-    return _factory
-
-
-def _native_provider_for_selection(
-    selection: NativeModelSelection,
-    *,
-    retry_policy: "RetryPolicy | None" = None,
-    openai_codex_timeout_seconds: float | None = (
-        DEFAULT_HTTP_IDLE_TIMEOUT_MS / 1000.0
-    ),
-    openai_codex_transport: str = "auto",
-    openai_codex_websocket_connect_timeout_seconds: float | None = (
-        DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS / 1000.0
-    ),
-) -> ProviderPort:
-    if selection.provider_name == "openai":
-        return OpenAIResponsesProvider(model_id=selection.model_id)
-    if selection.provider_name == "openai-completions":
-        from pipy_harness.native.providers.openai_completions import (
-            OpenAIChatCompletionsProvider,
-        )
-
-        return OpenAIChatCompletionsProvider(model_id=selection.model_id)
-    if selection.provider_name == "ds4":
-        from pipy_harness.native.providers.ds4 import Ds4ChatCompletionsProvider
-
-        return Ds4ChatCompletionsProvider(model_id=selection.model_id)
-    if selection.provider_name == "openai-codex":
-        options: dict[str, Any] = {
-            "model_id": selection.model_id,
-            "timeout_seconds": openai_codex_timeout_seconds,
-            "transport": openai_codex_transport,
-            "websocket_connect_timeout_seconds": (
-                openai_codex_websocket_connect_timeout_seconds
-            ),
-        }
-        if retry_policy is not None:
-            options["retry_policy"] = retry_policy
-        return OpenAICodexResponsesProvider(**options)
-    if selection.provider_name == "openrouter":
-        return OpenRouterChatCompletionsProvider(model_id=selection.model_id)
-    if selection.provider_name == "anthropic":
-        from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
-
-        return AnthropicProvider(model_id=selection.model_id)
-    if selection.provider_name == "google":
-        from pipy_harness.native.providers.google_generative_ai import GoogleGenerativeAIProvider
-
-        return GoogleGenerativeAIProvider(model_id=selection.model_id)
-    if selection.provider_name == "google-vertex":
-        from pipy_harness.native.providers.google_vertex import GoogleVertexProvider
-
-        return GoogleVertexProvider(model_id=selection.model_id)
-    if selection.provider_name == "mistral":
-        from pipy_harness.native.providers.mistral import MistralProvider
-
-        return MistralProvider(model_id=selection.model_id)
-    if selection.provider_name == "amazon-bedrock":
-        from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
-
-        return AmazonBedrockProvider(model_id=selection.model_id)
-    if selection.provider_name == "azure-openai":
-        from pipy_harness.native.providers.azure_openai_responses import (
-            AzureOpenAIResponsesProvider,
-        )
-
-        return AzureOpenAIResponsesProvider(model_id=selection.model_id)
-    if selection.provider_name == "cloudflare":
-        from pipy_harness.native.providers.cloudflare import (
-            CloudflareWorkersAIProvider,
-        )
-
-        return CloudflareWorkersAIProvider(model_id=selection.model_id)
-    if selection.provider_name == "fake":
-        if selection.model_id == AUTOMATION_FAKE_MODEL_ID:
-            # Deterministic, tool-capable, streaming fake for the headless
-            # automation surfaces and the conformance gate (offline).
-            return AutomationFakeProvider(model_id=selection.model_id)
-        return FakeNativeProvider(
-            model_id=selection.model_id or DEFAULT_NATIVE_MODELS["fake"]
-        )
-    raise ValueError(f"unsupported native provider: {selection.provider_name}")
 
 
 if __name__ == "__main__":

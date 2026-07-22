@@ -321,6 +321,37 @@ class _RecordingProvider:
         )
 
 
+class _FixedProviderReplState(NativeReplProviderState):
+    """State whose provider build is a fixed double (runtime-owned otherwise)."""
+
+    def __init__(self, fixed_provider: ProviderPort, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._fixed_provider = fixed_provider
+
+    def provider_for(self, selection: object) -> ProviderPort:
+        return self._fixed_provider
+
+
+class _RecordingProviderReplState(NativeReplProviderState):
+    """Legacy-path state whose provider build is a recording double."""
+
+    def __init__(
+        self, seen: list[tuple[str, str]], **kwargs: object
+    ) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._seen_ref = seen
+
+    def provider_for(self, selection: object) -> ProviderPort:
+        return cast(
+            ProviderPort,
+            _RecordingProvider(
+                selection.provider_name,  # type: ignore[attr-defined]
+                selection.model_id,  # type: ignore[attr-defined]
+                self._seen_ref,
+            ),
+        )
+
+
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
 def test_pty_inline_tui_model_selector_selects_and_rebinds(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -334,7 +365,7 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
     provider/model.
     """
 
-    from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+    from pipy_harness.native import NativeModelSelection
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
@@ -349,12 +380,9 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
 
     seen: list[tuple[str, str]] = []
 
-    def factory(selection: NativeModelSelection) -> _RecordingProvider:
-        return _RecordingProvider(selection.provider_name, selection.model_id, seen)
-
-    provider_state = NativeReplProviderState(
+    provider_state = _RecordingProviderReplState(
+        seen,
         selection=NativeModelSelection("openrouter", "openai/gpt-5.1-codex"),
-        provider_factory=factory,
         env={"OPENROUTER_API_KEY": "k", "OPENAI_API_KEY": "k2"},
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
         persist_defaults=False,
@@ -917,7 +945,7 @@ class _FileBackedAuthManager:
 def test_pty_login_then_logout_updates_availability_without_provider_turn(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
-    from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+    from pipy_harness.native import NativeModelSelection
     from pipy_harness.native.openai_codex_provider import OpenAICodexAuthManager
 
     monkeypatch.delenv("NO_COLOR", raising=False)
@@ -934,13 +962,10 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
     auth_path = tmp_path / "openai-codex.json"
     seen: list[tuple[str, str]] = []
 
-    def factory(selection: NativeModelSelection) -> _RecordingProvider:
-        return _RecordingProvider(selection.provider_name, selection.model_id, seen)
-
     manager = _FileBackedAuthManager(auth_path)
-    provider_state = NativeReplProviderState(
+    provider_state = _RecordingProviderReplState(
+        seen,
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=factory,
         auth_manager_factory=lambda: cast(OpenAICodexAuthManager, manager),
         env={},
         openai_codex_auth_path=auth_path,
@@ -1438,9 +1463,9 @@ def _native_state_logged_out(
 ) -> NativeReplProviderState:
     from pipy_harness.native import NativeModelSelection
 
-    return NativeReplProviderState(
+    return _FixedProviderReplState(
+        provider,
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda selection: provider,
         env={},
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
         persist_defaults=False,
@@ -2583,9 +2608,9 @@ def _reasoning_catalog_state(tmp_path: Path, provider: ProviderPort, model_id: s
         env={"OPENAI_API_KEY": "sk"},
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
-    return NativeReplProviderState(
+    return _FixedProviderReplState(
+        provider,
         selection=NativeModelSelection("openai", model_id),
-        provider_factory=lambda sel: provider,
         model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )

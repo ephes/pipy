@@ -243,7 +243,6 @@ def _provider_state_adapter(tmp_path: Path) -> PipyNativeToolReplAdapter:
     )
     state = NativeReplProviderState(
         selection=NativeModelSelection("openai", "gpt-5.5"),
-        provider_factory=lambda _sel: AutomationFakeProvider(),
         model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )

@@ -28,11 +28,15 @@ the adaptive Claude models and ``thinking.budget_tokens`` otherwise;
 google-generative-ai and google-vertex: per-model
 ``generationConfig.thinkingConfig`` (level enum vs token budget; vertex uses the
 ``THINKING_LEVEL_MAP`` variant — no flash-lite table, no Gemma 4)).
-``openai-codex-responses``
-and the deterministic ``fake`` bootstrap are not catalog-constructed (codex keeps
-the legacy factory's settings-derived ``RetryPolicy`` injection): they return
-``None`` from :func:`build_provider` so the caller falls back to the legacy
-factory. No secret value is placed on any archived field.
+``openai-codex-responses`` and the deterministic ``fake`` bootstrap resolve their
+transport outside the catalog auth path: :func:`build_provider` builds them
+directly (codex from ``spec`` + the settings-derived
+:class:`ConstructionOptions`, keeping its self-contained OAuth/SSE transport and
+retry policy) rather than through the resolved api key. The bare
+``--native-provider ds4`` selection has no catalog spec and is built by name in
+:func:`build_builtin_provider`. This module is the single construction owner —
+there is no separate legacy provider factory. No secret value is placed on any
+archived field.
 """
 
 from __future__ import annotations
@@ -40,6 +44,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 from pipy_harness.native.auth_store import (
     AuthStore,
@@ -48,8 +53,16 @@ from pipy_harness.native.auth_store import (
 )
 from pipy_harness.native.catalog import NativeModelSpec
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.retry import RetryPolicy
 from pipy_harness.native.routing import model_request_routing
+from pipy_harness.native.settings import (
+    DEFAULT_HTTP_IDLE_TIMEOUT_MS,
+    DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS,
+)
 from pipy_harness.native.thinking import map_thinking_level
+
+if TYPE_CHECKING:
+    from pipy_harness.native.repl_state import NativeModelSelection
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,9 +93,33 @@ class ResolvedConstruction:
     # this value.
     supports_tool_references: bool = False
     # OpenAI Responses client tool search is an explicit per-model compat bit.
-    # Only openai-responses is built here; Codex receives it in repl_state.
+    # Only openai-responses reads it from the resolved value; Codex resolves it
+    # from ``spec`` directly in :func:`build_openai_codex_provider`.
     supports_tool_search: bool = False
     error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ConstructionOptions:
+    """Settings-derived knobs threaded into per-turn provider construction.
+
+    The one value object carrying the request-shaping settings the catalog spec
+    does not itself encode: the provider HTTP ``retry`` policy plus the
+    ``openai-codex`` transport/timeout knobs (idle timeout, ``auto|sse|websocket``
+    transport, websocket-connect timeout). Only the ``openai-codex-responses``
+    adapter consumes the codex fields today (its OAuth/SSE transport is built here
+    rather than through the catalog auth path); the ``retry_policy`` is likewise
+    forwarded only to that adapter. The field defaults reproduce the built-in
+    provider defaults for the no-settings caller (:class:`ConstructionOptions`
+    with no arguments == the legacy ``settings_manager is None`` construction).
+    """
+
+    retry_policy: RetryPolicy | None = None
+    openai_codex_timeout_seconds: float | None = DEFAULT_HTTP_IDLE_TIMEOUT_MS / 1000.0
+    openai_codex_transport: str = "auto"
+    openai_codex_websocket_connect_timeout_seconds: float | None = (
+        DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS / 1000.0
+    )
 
 
 def resolve_construction(
@@ -499,11 +536,10 @@ def _ant_ling_effort(spec: NativeModelSpec, thinking_level: str | None) -> str |
     return value if isinstance(value, str) else None
 
 
-# API families that are fully catalog-constructed here, mapped to the path
-# suffix appended to the catalog ``base_url`` to form the request endpoint (Pi
-# delegates this to each provider SDK; pipy's hand-rolled adapters own the
-# suffix). Other pipy adapters keep their existing (legacy-factory) construction
-# for now and return ``None`` from :func:`build_provider`.
+# API families whose endpoint is the catalog ``base_url`` plus a fixed path
+# suffix (Pi delegates this to each provider SDK; pipy's hand-rolled adapters own
+# the suffix). The remaining catalog families (Tier 2/3 below, plus codex and
+# fake) are built explicitly in :func:`build_provider`.
 _ENDPOINT_SUFFIX: dict[str, str] = {
     "openai-completions": "/chat/completions",
     "anthropic-messages": "/v1/messages",
@@ -519,10 +555,11 @@ _ENDPOINT_SUFFIX: dict[str, str] = {
 # thinking where the body shape is known. Exception: google-vertex also receives
 # the forwarded api key so it can use Pi's Vertex Express api-key mode.
 #
-# ``openai-codex-responses`` is deliberately NOT catalog-constructed: the legacy
-# factory builds it with a settings-derived ``RetryPolicy`` (cli.py), which
-# catalog construction would drop, and its OAuth/SSE auth is fully self-contained.
-# It stays on the legacy factory (``build_provider`` returns ``None`` for it).
+# ``openai-codex-responses`` is built by :func:`build_openai_codex_provider` (its
+# OAuth/SSE transport, settings-derived ``RetryPolicy``/timeout knobs, and
+# spec-resolved tool-search/effort are threaded through :class:`ConstructionOptions`
+# rather than the catalog auth path), and ``fake`` by :func:`build_fake_provider`;
+# both are dispatched at the top of :func:`build_provider` before the auth gate.
 _IAM_FAMILIES = frozenset({"amazon-bedrock", "google-vertex"})
 _CATALOG_WIRED_FAMILIES = frozenset(
     {
@@ -566,19 +603,35 @@ def _endpoint_for(api: str, base_url: str | None) -> str:
 def build_provider(
     resolved: ResolvedConstruction,
     *,
+    spec: NativeModelSpec | None = None,
+    thinking_level: str | None = None,
+    options: ConstructionOptions | None = None,
     http_client: object | None = None,
-) -> ProviderPort | None:
+) -> ProviderPort:
     """Construct a ``ProviderPort`` from a resolved catalog model.
 
-    Returns ``None`` for API families not yet catalog-wired so the caller can
-    fall back to the legacy provider factory. For a catalog-wired family whose
+    Total over every catalog API family: the auth-shaped families are built from
+    the resolved auth/headers/thinking, and the two families whose transport is
+    self-contained rather than catalog-resolved — ``openai-codex-responses`` (its
+    OAuth/SSE transport + settings-derived retry/timeout knobs from ``options``,
+    its ``supports_tool_search``/``reasoning_effort`` from ``spec``) and the
+    deterministic ``fake`` bootstrap — are constructed directly, before the
+    auth gate (they require no resolved api key). For a catalog-wired family whose
     auth resolution FAILED, returns a fail-closed provider that reports the auth
     error (Pi fails closed on ``getApiKeyAndHeaders`` errors rather than silently
-    using a different construction).
+    using a different construction). A models.json row naming an unimplemented API
+    family raises ``ValueError`` (the former legacy-factory ``raise``).
     """
 
+    if resolved.api == "openai-codex-responses":
+        assert spec is not None
+        return build_openai_codex_provider(
+            spec, thinking_level, options or ConstructionOptions()
+        )
+    if resolved.api == "fake":
+        return build_fake_provider(resolved.model_id)
     if resolved.api not in _CATALOG_WIRED_FAMILIES:
-        return None
+        raise ValueError(f"unsupported native provider: {resolved.provider_name}")
     if not resolved.ok:
         return _FailedAuthProvider(
             provider_name=resolved.provider_name,
@@ -757,6 +810,89 @@ def _build_iam_provider(
         thinking_disabled=resolved.thinking_disabled,
         **http_kwargs,  # type: ignore[arg-type]
     )
+
+
+def build_openai_codex_provider(
+    spec: NativeModelSpec,
+    thinking_level: str | None,
+    options: ConstructionOptions,
+) -> ProviderPort:
+    """Construct the ``openai-codex-responses`` adapter (catalog spec + options).
+
+    Codex is not built from the resolved catalog auth: its OAuth/SSE transport
+    and settings-derived retry/idle-timeout/websocket knobs come from
+    ``options``, and its ``supports_tool_search``/``reasoning_effort`` are
+    resolved from ``spec`` directly (``resolve_codex_effort`` clamp-then-maps the
+    stored thinking level; ``resolve_openai_tool_search`` reads the explicit
+    ``compat.supportsToolSearch`` bit). Field order and value derivation exactly
+    reproduce the former legacy-factory build plus the ``_apply_codex_catalog_options``
+    injection, so the codex request bytes are unchanged.
+    """
+
+    from pipy_harness.native.openai_codex_provider import OpenAICodexResponsesProvider
+    from pipy_harness.native.thinking import resolve_codex_effort
+
+    codex_options: dict[str, Any] = {
+        "model_id": spec.model_id,
+        "timeout_seconds": options.openai_codex_timeout_seconds,
+        "transport": options.openai_codex_transport,
+        "websocket_connect_timeout_seconds": (
+            options.openai_codex_websocket_connect_timeout_seconds
+        ),
+        "supports_tool_search": resolve_openai_tool_search(spec),
+    }
+    if thinking_level:
+        effort = resolve_codex_effort(spec, thinking_level)
+        if effort is not None:
+            codex_options["reasoning_effort"] = effort
+    if options.retry_policy is not None:
+        codex_options["retry_policy"] = options.retry_policy
+    return OpenAICodexResponsesProvider(**codex_options)
+
+
+def build_fake_provider(model_id: str) -> ProviderPort:
+    """Construct the deterministic bootstrap fake (both variants).
+
+    ``fake-tools`` (:data:`AUTOMATION_FAKE_MODEL_ID`) yields the streaming,
+    tool-capable ``AutomationFakeProvider`` used by the headless automation
+    surfaces and the offline conformance gate; every other id yields the inert
+    ``FakeNativeProvider`` (defaulting to the ``fake`` provider's registry model),
+    byte-for-byte as the former legacy factory did.
+    """
+
+    from pipy_harness.native.fake import (
+        AUTOMATION_FAKE_MODEL_ID,
+        AutomationFakeProvider,
+        FakeNativeProvider,
+    )
+    from pipy_harness.native.provider_registry import DEFAULT_NATIVE_MODELS
+
+    if model_id == AUTOMATION_FAKE_MODEL_ID:
+        return AutomationFakeProvider(model_id=model_id)
+    return FakeNativeProvider(model_id=model_id or DEFAULT_NATIVE_MODELS["fake"])
+
+
+def build_builtin_provider(
+    selection: NativeModelSelection,
+    options: ConstructionOptions,
+) -> ProviderPort:
+    """Construct a built-in provider that has no catalog spec (ds4).
+
+    Reached only when catalog resolution yields no spec — the sole such built-in
+    is ds4 (a local ``models.json``-less DeepSeek server; the built-in catalog
+    deliberately omits it). A ds4 model already declared through ``models.json``
+    resolves to an ``openai-completions`` spec and is catalog-constructed instead;
+    this by-name path covers the bare ``--native-provider ds4`` selection. Any
+    other unknown provider raises ``ValueError`` (the former legacy-factory
+    ``raise``).
+    """
+
+    del options
+    if selection.provider_name == "ds4":
+        from pipy_harness.native.providers.ds4 import Ds4ChatCompletionsProvider
+
+        return Ds4ChatCompletionsProvider(model_id=selection.model_id)
+    raise ValueError(f"unsupported native provider: {selection.provider_name}")
 
 
 @dataclass(frozen=True, slots=True)

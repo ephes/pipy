@@ -32,7 +32,11 @@ from pipy_harness.native.project_trust import (
     ProjectTrustStore,
     get_project_trust_options,
 )
-from pipy_harness.native.repl_state import NativeModelOption
+from pipy_harness.native.repl_state import (
+    NativeModelOption,
+    NativeModelSelection,
+    NativeReplProviderState,
+)
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.terminal_screen import parse_ansi_screen
@@ -44,6 +48,22 @@ from pipy_harness.native.tui import (
     _visible_len_allow_sgr,
     run_project_trust_selector,
 )
+
+
+class _FixedProviderReplState(NativeReplProviderState):
+    """Legacy-path (no-runtime) state whose provider build is a fixed double.
+
+    Provider construction is otherwise runtime-owned; these TUI helpers pin a
+    specific provider instance so auth/read-only flows can observe it without a
+    catalog.
+    """
+
+    def __init__(self, fixed_provider: ProviderPort, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._fixed_provider = fixed_provider
+
+    def provider_for(self, selection: NativeModelSelection) -> ProviderPort:
+        return self._fixed_provider
 
 
 class _TtyBuffer:
@@ -1213,11 +1233,9 @@ class _CountingProvider:
 
 
 def _read_only_provider_state(tmp_path: Path, provider: ProviderPort):
-    from pipy_harness.native import NativeModelSelection, NativeReplProviderState
-
-    return NativeReplProviderState(
+    return _FixedProviderReplState(
+        provider,
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda selection: provider,
         env={},
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
         persist_defaults=False,
@@ -1276,19 +1294,24 @@ def _recording_provider_state(
 ):
     from pipy_harness.native import NativeModelSelection, NativeReplProviderState
 
-    def factory(selection):
-        # `fake` mirrors production (no tool-call support); everything else is
-        # a tool-capable recording provider.
-        return _RecordingProvider(
-            selection.provider_name,
-            selection.model_id,
-            seen,
-            supports_tool_calls=selection.provider_name != "fake",
-        )
+    class _RecordingProviderState(NativeReplProviderState):
+        """Legacy-path state whose provider build is a recording double.
 
-    return NativeReplProviderState(
+        ``fake`` mirrors production (no tool-call support); everything else is a
+        tool-capable recording provider, so the selector's tool-capability gate
+        is exercised the way it is in production.
+        """
+
+        def provider_for(self, selection: NativeModelSelection) -> ProviderPort:
+            return _RecordingProvider(
+                selection.provider_name,
+                selection.model_id,
+                seen,
+                supports_tool_calls=selection.provider_name != "fake",
+            )
+
+    return _RecordingProviderState(
         selection=NativeModelSelection(provider_name, model_id),
-        provider_factory=factory,
         env=env,
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
         persist_defaults=False,
@@ -3155,13 +3178,13 @@ class _RaisingOpenAICodexAuthManager:
 
 
 def _auth_provider_state(tmp_path: Path, provider: ProviderPort, auth_path: Path):
-    from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+    from pipy_harness.native import NativeModelSelection
     from pipy_harness.native.openai_codex_provider import OpenAICodexAuthManager
 
     manager = _FakeOpenAICodexAuthManager(auth_path)
-    state = NativeReplProviderState(
+    state = _FixedProviderReplState(
+        provider,
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda selection: provider,
         auth_manager_factory=lambda: cast(OpenAICodexAuthManager, manager),
         env={},
         openai_codex_auth_path=auth_path,
@@ -3178,14 +3201,13 @@ def _raising_auth_session(
     from pipy_harness.native.openai_codex_provider import OpenAICodexAuthManager
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
-        NativeReplProviderState,
     )
 
     provider = _CountingProvider()
     manager = _RaisingOpenAICodexAuthManager(trace, failure)
-    provider_state = NativeReplProviderState(
+    provider_state = _FixedProviderReplState(
+        provider,
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda selection: provider,
         auth_manager_factory=lambda: cast(OpenAICodexAuthManager, manager),
         env={},
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",

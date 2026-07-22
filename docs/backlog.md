@@ -1186,9 +1186,15 @@ The bulk is mechanical duplication. pi-mono's
    (the merged built-in + `models.json` + auth catalog) with the
    `provider_construction` boundary as the single owner of spec resolution and
    provider construction, extracted out of `NativeReplProviderState` (which
-   holds a typed `model_runtime` and delegates). This gives the Phase 5.3
-   catalog/model-facts consolidation one construction owner to build on; the
-   per-model capability/default de-hardcoding above is still open.
+   holds a typed `model_runtime` and delegates). **Foundation (migration Slice
+   5.3b):** `ModelRuntime.construct` is now total — the by-name legacy provider
+   factory (`_native_provider_for_selection`/`_provider_factory_for`/the
+   `NativeProviderFactory` protocol) is deleted and every selection (including
+   `openai-codex`, `fake`, and the bare built-in `ds4`) is built through
+   `provider_construction`, threading the settings-derived `ConstructionOptions`.
+   This gives the Phase 5.3 catalog/model-facts consolidation one construction
+   owner to build on; the per-model capability/default de-hardcoding above is
+   still open.
 9. Fix `GoogleProvider` / `GoogleVertexProvider` tool-call id
    fabrication: stop synthesizing ids from loop index and propagate the
    real id from the response. Refs: `02:F5`.

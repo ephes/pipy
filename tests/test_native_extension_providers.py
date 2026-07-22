@@ -153,9 +153,6 @@ def test_extension_oauth_provider_login_and_logout_wires_auth_store(tmp_path: Pa
     state.set_extension_provider_contributions(extension_providers(activated), ())
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda _selection: (_ for _ in ()).throw(
-            AssertionError("legacy factory must not build extension providers")
-        ),
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
@@ -316,9 +313,6 @@ def test_extension_provider_appears_in_catalog_options_and_list_output(
     state.set_extension_provider_contributions(providers, ())
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda _selection: (_ for _ in ()).throw(
-            AssertionError("legacy factory must not build extension providers")
-        ),
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
@@ -341,9 +335,6 @@ def test_selecting_extension_provider_constructs_selected_provider_port(
     state.set_extension_provider_contributions(extension_providers(_activate(workspace)), ())
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda _selection: (_ for _ in ()).throw(
-            AssertionError("legacy factory must not build extension providers")
-        ),
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
@@ -414,9 +405,6 @@ def test_removed_active_extension_provider_resets_to_available_catalog_model(
     state.set_extension_provider_contributions(providers, unregistered)
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("extprov", "small"),
-        provider_factory=lambda _selection: (_ for _ in ()).throw(
-            AssertionError("legacy factory must not build extension providers")
-        ),
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
@@ -499,9 +487,6 @@ def test_failing_extension_provider_factory_fails_closed_from_catalog(
     state.set_extension_provider_contributions(extension_providers(_activate(workspace)), ())
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("crashy", "m"),
-        provider_factory=lambda _selection: (_ for _ in ()).throw(
-            AssertionError("legacy factory must not build extension providers")
-        ),
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )

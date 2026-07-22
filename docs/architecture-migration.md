@@ -3718,6 +3718,96 @@ files), full suite green, 2 skipped; `just docs-build` passed. Review: Claude
 Opus panel (user-directed substitution for the different-family gate) — pending
 review.
 
+Slice 5.3b (collapse the legacy provider factory into total runtime
+construction) completes the construction half of Phase 5.3 by making
+`ModelRuntime.construct` **total**: every selection now yields a provider through
+the `provider_construction` boundary, so the two construction copies of the
+built-in provider switch (the catalog boundary plus cli's by-name legacy factory)
+collapse to one owner. A new frozen `ConstructionOptions` value object
+(`provider_construction.py`) carries the settings-derived knobs the catalog spec
+does not encode — the provider HTTP `retry_policy` plus the `openai-codex`
+idle-timeout / `auto|sse|websocket` transport / websocket-connect-timeout — with
+field defaults reproducing the built-in provider defaults for the no-settings
+caller. `build_provider` becomes total (`-> ProviderPort`, no `None`): it
+dispatches `openai-codex-responses` (built by the new `build_openai_codex_provider`
+from `spec` + `options`, its `supports_tool_search`/`reasoning_effort` resolved
+from the spec by `resolve_openai_tool_search`/`resolve_codex_effort` exactly as
+the deleted `_apply_codex_catalog_options` did, its retry/timeout/transport bytes
+byte-identical to the deleted factory) and the deterministic `fake` bootstrap
+(both variants via `build_fake_provider`) at the top, before the auth gate (both
+require no resolved api key); a models.json row naming an unimplemented API family
+now raises `ValueError` (the former legacy `raise`). The spec-less bare
+`--native-provider ds4` selection is built by name in the new
+`build_builtin_provider` (a models.json ds4 with an `openai-completions` spec is
+still catalog-constructed, unchanged). `ModelRuntime.construct` drops its
+`provider_factory` parameter, takes `options: ConstructionOptions`, folds
+`_catalog_provider`/`_apply_codex_catalog_options` into one total switch (extension
+runtime → codex/fake/catalog-wired via `build_provider` → ds4/no-spec via
+`build_builtin_provider`), and `NativeReplProviderState` swaps its
+`provider_factory` field for a defaulted `construction_options` field with
+`provider_for` requiring a bound runtime. Cli's `_native_provider_for_selection`
+(the by-name legacy factory over 13 provider names — all of which except
+codex/fake/ds4 were already unreachable in production because a runtime is always
+bound), `_provider_factory_for`, the `NativeProviderFactory` protocol, the
+`provider_factory` field, `provider_for`'s legacy fallback, and
+`_apply_codex_catalog_options` are DELETED with no alias; cli gains
+`_construction_options_for` (the settings→`ConstructionOptions` resolver that now
+raises the explicit-`null`-timeout `ValueError` before any provider is built), and
+`tool_loop_session`'s `_selection_supports_tool_calls` probe drops its dead
+`provider_factory` fallback. `normalize_repl_fake_selection` stays adjacent to the
+`NativeModelSelection` type it operates on (moving it would invert the
+repl_state→provider_construction import direction). No availability/provider-facts,
+`provider_registry`, model-resolution, `--api-key`, thinking-mapping, routing, or
+CLI/JSON/RPC/session/event/TUI change; the sole moved `dict[str, Any]` mirrors the
+pre-existing codex-options dict from the deleted factory (no new unchecked `Any`).
+Characterization is through the same public surfaces: `test_native_repl_state.py`
+and `test_native_model_runtime_construction.py` repoint to `options=`/
+`construction_options=` (codex retry/effort/tool-search assertions unchanged, the
+former "fake falls through to legacy" cases rewritten to assert the boundary-built
+`FakeNativeProvider`), the cli retry/timeout tests re-express the deleted factory
+through `_construction_options_for` + `build_openai_codex_provider`, and the many
+`provider_factory=`-injecting session/TUI/settings tests migrate to thin
+`NativeReplProviderState` subclasses overriding `provider_for` (the only remaining
+way to inject a recording/fixed provider on the legacy no-runtime path). Focused
+`test_native_provider_construction`, `test_native_model_runtime_construction`,
+`test_native_repl_state`, `test_native_openai_codex_provider`,
+`test_openai_codex_retry`, `test_native_ds4_provider`, `test_native_automation_rpc`,
+`test_native_extension_providers`, `test_native_thinking_model_hotkeys`,
+`test_native_tool_loop_settings_dialog`, `test_native_dynamic_provider_swap`,
+`test_native_tool_loop_session`, `test_native_tool_loop_tui`,
+`test_native_tool_loop_tui_pty`, `test_harness_native_cli`,
+`test_native_startup_session_cli`, and `test_architecture_import_boundaries`
+passed; `provider_catalog_conformance.py` and `automation_rpc_conformance.py` ALL
+PASS, `scripts/parity_score.sh` 49/49 (E5 green), and `just test-pty-smoke` 8/8.
+Final `just check`: Ruff and mypy clean (414 source files), 4,497 passed and 2
+skipped; `just docs-build` passed. Review: Claude Opus panel (user-directed
+substitution for the different-family gate) — 2 rounds, 2 findings, final round
+clean across both lenses (behavior; invariants). Round one raised one warning (a
+stale `_run_provider_for_selection` docstring in `cli.py` still naming the deleted
+legacy factory) and one suggestion (a misleading `test_openai_codex_default_
+transport_is_auto` comment), both addressed; the re-review round was clean.
+
+Deferred (reasoned): the honest-docs grep confirmed that after excluding this
+ledger and the parity-loop run logs, the only surviving docs/ references to the
+deleted legacy provider factory (`_native_provider_for_selection` /
+`_provider_factory_for` / the `NativeProviderFactory` protocol) live in four
+dated, frozen point-in-time artifacts — `docs/gpt-5-6-sol-plan.md` ("Status:
+shipped 2026-07-14"; the "Keep Codex on the legacy provider factory" plan step),
+`docs/plans/2026-07-13-openai-codex-transport-reliability.md` (Date: 2026-07-13),
+`docs/specs/2026-07-13-openai-codex-transport-reliability-research.md` ("research
+complete", Date: 2026-07-13), and `docs/audit/2026-05-26/code-quality-audit/
+04-cli-runner.md` (dated audit F3/F9). These are historical shipped-plan / spec /
+audit records that accurately describe the code as it stood on their date;
+rewriting them would falsify the historical record, and Slice 5.3a left the same
+class of dated artifacts untouched under this convention. No living current-state
+doc still presents the deleted seam as current — `architecture.md`,
+`provider-catalog.md`, `harness-spec.md`, `pi-parity.md`, and `backlog.md` all
+describe the total construction boundary / `ConstructionOptions`, and the only
+other dated specs matching the grep (the 2026-06-30 thinking/auth designs and the
+2026-07-01 string-thinking design) reference only the still-present
+`build_provider`, not the deleted factory — so the surviving references are left
+as-is by design.
+
 ## Phase 6: Extension and Package Runtime Boundaries
 
 ### Slice 6.1: API types and activation
@@ -3887,6 +3977,7 @@ The default sequence is:
 
 | 5.2 (Gemini family, cut 3: consolidate the shared Gemini generateContent wire-translation helpers) | This commit — `refactor: share gemini generatecontent wire translation` | Thirteenth Phase 5.2 protocol-family cut, third and final Gemini family cut: new `native/providers/google_generate_content_wire.py` becomes the sole owner of the byte-identical Gemini `generateContent` request/response translation the Google Generative AI and Google Vertex adapters duplicated — `gemini_contents`, `envelope_to_content`, `serialize_tool_for_gemini`, `parse_response`, `extract_final_text`, `extract_tool_calls`, and the shared `ParsedGeminiResponse` dataclass — mirroring the earlier `chat_completions_wire`/`openai_responses_wire`/`anthropic_messages_wire` seams. The translator is parameterized ONLY where the two adapters genuinely differ: the per-provider parse-error class (`parse_error_class`), the response label in parse-error messages (`response_label`: `"Google"` vs `"Google Vertex AI"`), the `usageMetadata` remap tuple (`GOOGLE_USAGE_FIELDS` vs `GOOGLE_VERTEX_USAGE_FIELDS`), the tool-call provider prefix that synthesizes a correlation id (`tool_call_provider_prefix`: `"google"` vs `"google-vertex"`), and the Google-only `inlineData` image attachment (`attach_images`, on for the Generative AI adapter, off for Vertex which omits image attachment entirely). Both adapters DELETE their superseded copies — each `_gemini_contents`, `_envelope_to_content`, `_serialize_tool_for_gemini`, `_parse_response`, `_extract_final_text`, `_extract_tool_calls` (Google also `_attach_images`) plus the `ParsedGoogleResponse`/`ParsedGoogleVertexResponse` dataclasses — and each is now a thin auth/URL/thinking + provider-dataclass shell binding the shared translator with its own parameters; the two provider dataclasses (`GoogleGenerativeAIProvider`, `GoogleVertexProvider`), the separate error hierarchies (`GoogleProviderError…` vs `GoogleVertexProviderError…`), the Express-vs-ADC auth switch, the URL/region resolution, and the two per-adapter thinking-config mappings (the Gemma 4 and `2.5-flash-lite` budget tables live only in the Generative AI adapter) stay unmerged and unchanged. Each adapter's now-unused `json`/`safe_response_label`/`extract_usage_from_fields`/`AgentUserMessage`/`AgentAssistantMessage`/`AgentToolResultMessage`/`ProviderToolCall`/`materialize_tool_input_schema` imports are removed. The two external importers of a deleted symbol repoint: `test_native_attachment_provider_consumption`'s D8 Google case moves off `google_generative_ai._gemini_contents` onto the shared `gemini_contents` invoked with the Google parameters (`attach_images=True`), and `test_native_provider_tool_schema_serialization` moves its two `_serialize_tool_for_gemini` imports onto the single shared `serialize_tool_for_gemini`. The new module lives under the already-registered `native.providers` package rule, so no import-boundary inventory changes; `openai_codex`'s streaming path is untouched. The unchanged cut-1/cut-2 golden fixture suites (`test_native_google_generative_ai_fixtures` + `test_native_google_vertex_fixtures`) prove the emitted request bytes, parsed usage/output, and sanitized error metadata are byte-for-byte identical after the extraction. Focused `test_native_google_generative_ai_fixtures`, `test_native_google_vertex_fixtures`, `test_native_google_provider`, `test_native_google_vertex_provider`, `test_native_google_thinking`, `test_native_google_vertex_thinking`, `test_native_attachment_provider_consumption`, `test_native_provider_tool_schema_serialization`, and `test_architecture_import_boundaries` passed (238), and `scripts/parity_checks/provider_catalog_conformance.py` reported ALL PASS. Final `just check`: Ruff and mypy clean (413 source files), 4,488 passed and 2 skipped; `just docs-build` passed. No public CLI/JSON/RPC/session-format or provider-request/response/error-wire change; no tool-call id, usage key, or event-ordering change; no new runtime dependency, `Any`, or `type: ignore`. Review: Claude Opus panel (user-directed substitution for the different-family gate) — 1 round, 0 findings, final round clean across both lenses (behavior; invariants). |
 | 5.3a (introduce `ModelRuntime`; construction/spec ownership) | This commit — `refactor: own model construction in runtime` | First Phase 5.3 cut: a new `ModelRuntime` dataclass (`native/repl_state.py`) composes the existing `ProviderCatalogState` with the `provider_construction` boundary as the single owner of spec resolution and provider construction. `ModelRuntime.resolve_spec` (former `_spec_for`), `ModelRuntime.thinking_levels` (the spec-reaching half of `current_thinking_levels`), and `ModelRuntime.construct` (former `provider_for` body: `_catalog_provider` catalog/extension-provider construction, legacy-factory fallback, and `_apply_codex_catalog_options` Codex `supportsToolSearch`/`reasoning_effort` injection) move onto the runtime; the superseded `NativeReplProviderState._spec_for`/`_catalog_provider`/`_apply_codex_catalog_options` are DELETED with no alias. `NativeReplProviderState` holds a typed `model_runtime: ModelRuntime | None` (the untyped `catalog_state: object | None` field is deleted) and delegates: `provider_for` calls `model_runtime.construct(..., provider_factory=self.provider_factory)` when a runtime is bound and otherwise falls through to the plain legacy factory (catalog-absent legacy path preserved); every catalog read-through reaches the catalog through a typed `self._catalog` property, removing all eleven prior `# type: ignore[attr-defined]` catalog accesses, and the two extension-activation consumers in `tool_loop_session.py` read `state.model_runtime.catalog` (typed), dropping three more. The Codex/fake legacy factory is injected into `construct` per call (reached only through the runtime); `_native_provider_for_selection`, `provider_registry.py`, and `NATIVE_PROVIDER_REGISTRY` are untouched. Intra-module class extraction (no new module → no new import-boundary rule); `ModelRuntime` is a strict frozen/slotted dataclass with no new `Any`, `type: ignore` (the one `dataclasses.replace` `type: ignore[type-var]` moved verbatim), or runtime dependency. No availability/provider-facts, codex retry/timeout/transport, or CLI/JSON/RPC/session/provider-request/event-ordering/TUI change. Characterized first through the stable public surface (`test_native_repl_state.py`, assertions unchanged, construction repointed `catalog_state=` → `model_runtime=ModelRuntime(...)`) plus a new direct-seam file `tests/test_native_model_runtime_construction.py` (9 cases). Focused `test_native_repl_state`, `test_native_provider_construction`, `test_native_provider_catalog`, `test_native_dynamic_provider_swap`, `test_native_extension_providers`, `test_native_ds4_provider`, `test_native_thinking_model_hotkeys`, `test_native_model_runtime_construction`, `test_native_tool_loop_session`, `test_native_tool_loop_settings_dialog`, `test_native_tool_loop_tui`, and `test_architecture_import_boundaries` passed; `provider_catalog_conformance.py` and `tui_workflow_conformance.py` ALL PASS; `just test-pty-smoke` 8/8. Final `just check`: Ruff and mypy clean (414 source files), 4,497 passed and 2 skipped; `just docs-build` passed. Review: Claude Opus panel (user-directed substitution for the different-family gate) — 1 round, 0 findings, final round clean across both lenses (behavior; invariants). |
+| 5.3b (collapse the legacy provider factory into total runtime construction) | This commit — `refactor: make model runtime construction total` | Second Phase 5.3 cut: `ModelRuntime.construct` becomes **total**, collapsing the two construction copies of the built-in provider switch (the catalog boundary + cli's by-name legacy factory) into one owner. A new frozen `ConstructionOptions` (`provider_construction.py`) threads the settings-derived knobs the catalog spec omits — provider HTTP `retry_policy` + `openai-codex` idle-timeout/`auto|sse|websocket` transport/websocket-connect-timeout — with defaults reproducing the built-in provider defaults for the no-settings caller. `build_provider` is now total (`-> ProviderPort`, no `None`): it dispatches `openai-codex-responses` (new `build_openai_codex_provider`: spec + options, `supports_tool_search`/`reasoning_effort` from `resolve_openai_tool_search`/`resolve_codex_effort` exactly as the deleted `_apply_codex_catalog_options`, retry/timeout/transport bytes byte-identical to the deleted factory) and the deterministic `fake` bootstrap (both variants via `build_fake_provider`) before the auth gate, and raises `ValueError` for an unimplemented models.json API family (the former legacy `raise`). The spec-less bare `--native-provider ds4` selection is built by name in new `build_builtin_provider` (a models.json ds4 `openai-completions` spec stays catalog-constructed). `construct` drops its `provider_factory` param, takes `options`, and folds `_catalog_provider`/`_apply_codex_catalog_options` into one total switch; `NativeReplProviderState` swaps `provider_factory` for a defaulted `construction_options` field, `provider_for` requires a bound runtime. DELETED with no alias: cli's `_native_provider_for_selection` (13-branch by-name factory; all but codex/fake/ds4 already unreachable in production since a runtime is always bound), `_provider_factory_for`, the `NativeProviderFactory` protocol, the `provider_factory` field, `provider_for`'s legacy fallback, and `_apply_codex_catalog_options`; cli gains `_construction_options_for` (settings→`ConstructionOptions`, still raising the explicit-`null`-timeout `ValueError` before any provider is built), and `tool_loop_session._selection_supports_tool_calls` drops its dead `provider_factory` fallback. `normalize_repl_fake_selection`/`provider_registry`/`NATIVE_PROVIDER_REGISTRY` are untouched; `provider_construction` gains top-level `retry`/`settings` imports (acyclic) and a `TYPE_CHECKING` `NativeModelSelection`. No availability/provider-facts, model-resolution, `--api-key`, thinking-mapping, routing, or CLI/JSON/RPC/session/provider-request/event-ordering/TUI change; the sole `dict[str, Any]` mirrors the pre-existing codex-options dict moved from the deleted factory (no new unchecked `Any`, no new `type: ignore`, no runtime dependency). Characterized through the same public surfaces (`test_native_repl_state`, `test_native_model_runtime_construction` repointed to `options=`; cli retry/timeout tests re-expressed via `_construction_options_for` + `build_openai_codex_provider`; `provider_factory=`-injecting session/TUI/settings tests migrated to thin `NativeReplProviderState` `provider_for`-overriding subclasses). Focused `test_native_provider_construction`, `test_native_model_runtime_construction`, `test_native_repl_state`, `test_native_openai_codex_provider`, `test_openai_codex_retry`, `test_native_ds4_provider`, `test_native_automation_rpc`, `test_native_extension_providers`, `test_native_thinking_model_hotkeys`, `test_native_tool_loop_settings_dialog`, `test_native_dynamic_provider_swap`, `test_native_tool_loop_session`, `test_native_tool_loop_tui`, `test_native_tool_loop_tui_pty`, `test_harness_native_cli`, `test_native_startup_session_cli`, and `test_architecture_import_boundaries` passed; `provider_catalog_conformance.py` and `automation_rpc_conformance.py` ALL PASS, `scripts/parity_score.sh` 49/49 (E5 green), `just test-pty-smoke` 8/8. Final `just check`: Ruff and mypy clean (414 source files), 4,497 passed and 2 skipped; `just docs-build` passed. Review: Claude Opus panel (user-directed substitution for the different-family gate) — 2 rounds, 2 findings, final round clean across both lenses (behavior; invariants). Round one raised one warning (stale `_run_provider_for_selection` docstring in `cli.py` still naming the deleted legacy factory, corrected to describe the catalog-first total construction boundary) and one suggestion (misleading `test_openai_codex_default_transport_is_auto` comment claiming a fallback clone for the real built-in `openai-codex`/`gpt-5.5` row, reworded), both addressed; the re-review round was clean. The honest-docs grep for the deleted seam also caught stale current-state descriptions the panel had not flagged — `provider-catalog.md` (Status intro, the "deliberately NOT catalog-constructed"/`build_provider` returns `None` bullet, the `openai-codex`/`fake` "keep the legacy factory" line, the `provider_factory` boundary sentence, and verification-plan items 14/22) and `pi-parity.md` (the "legacy-factory exception" remaining-gap clause) — all rewritten to the total construction boundary / `ConstructionOptions` phrasing; `architecture.md`, `harness-spec.md`, and this ledger already used correct "former legacy-factory" historical phrasing. |
 
 The earlier code-quality audit remains evidence, with this mapping:
 

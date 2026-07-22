@@ -1029,8 +1029,8 @@ def _check_product_construction(checks, tmp: Path):
 
     # 18g: the actual product boundary (NativeReplProviderState.provider_for /
     # current_provider, used by the REPL tool-loop) — not just build_provider —
-    # constructs the catalog adapter. A regression to the legacy factory here
-    # would fail this check (and the secret-bearing fields are repr-hidden).
+    # constructs the catalog adapter (not the by-name built-in default). A
+    # regression here would fail this check (secret-bearing fields are repr-hidden).
     from pipy_harness.native.providers.openai_completions import (
         OpenAIChatCompletionsProvider,
     )
@@ -1039,12 +1039,8 @@ def _check_product_construction(checks, tmp: Path):
         NativeReplProviderState,
     )
 
-    def _no_legacy(_sel):
-        raise AssertionError("legacy factory must not be used for a catalog model")
-
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("acme", "rocket-1"),
-        provider_factory=_no_legacy,
         model_runtime=ModelRuntime(catalog=state),
         thinking_level="high",
         persist_defaults=False,
@@ -1203,20 +1199,16 @@ def _check_tier1_construction(checks, tmp: Path):
     checks.append(Check("20_mistral_construction", mistral_ok, "mistral: catalog baseUrl/Bearer/chat-completions"))
 
     # 20d: the product boundary (current_provider) constructs a built-in
-    # anthropic catalog model — not the legacy factory.
+    # anthropic catalog model from the resolved auth (not a by-name default).
     from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
         NativeReplProviderState,
     )
 
-    def _no_legacy(_sel):
-        raise AssertionError("legacy factory must not be used for a catalog model")
-
     builtin_state = _state(tmp, tmp / "tier1_builtin_missing.json", {"ANTHROPIC_API_KEY": "envk"})
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("anthropic", "claude-opus-4-7"),
-        provider_factory=_no_legacy,
         model_runtime=ModelRuntime(catalog=builtin_state),
         thinking_level="xhigh",
         persist_defaults=False,
@@ -1232,8 +1224,8 @@ def _check_tier1_construction(checks, tmp: Path):
     checks.append(Check("20_tier1_boundary_uses_catalog", boundary_ok, "current_provider constructs a built-in anthropic catalog model (not legacy)"))
 
     # 20e: auth fail-closed for a Tier 1 family (authHeader set, no resolvable
-    # key) -> build_provider returns a fail-closed provider, not None (which
-    # would silently fall back to the legacy factory).
+    # key) -> build_provider returns a fail-closed provider (Pi fails closed on
+    # auth errors rather than silently using a different construction).
     fc_spec = build_builtin_catalog().find("anthropic", "claude-opus-4-7")
     fc_resolved = resolve_construction(
         fc_spec,
@@ -1371,15 +1363,11 @@ def _check_tier2_construction(checks, tmp: Path):
         NativeReplProviderState,
     )
 
-    def _no_legacy(_sel):
-        raise AssertionError("legacy factory must not be used for a catalog model")
-
     az_boundary_state = _state(
         tmp, tmp / "tier2_azure_boundary.json", {"AZURE_OPENAI_API_KEY": "azk2"}
     )
     az_repl = NativeReplProviderState(
         selection=NativeModelSelection("azure-openai", "gpt-5.4"),
-        provider_factory=_no_legacy,
         model_runtime=ModelRuntime(catalog=az_boundary_state),
         thinking_level="high",
         persist_defaults=False,
@@ -1532,9 +1520,13 @@ def _check_tier3_construction(checks, tmp: Path):
     )
     checks.append(Check("22_vertex_thinking_config", vertex_thinking_ok, "google-vertex: per-model generationConfig.thinkingConfig (budget + includeThoughts) reaches the request body"))
 
-    # 22d: codex is deliberately NOT catalog-constructed (the legacy factory
-    # injects a settings-derived RetryPolicy that catalog construction would
-    # drop); build_provider returns None so it falls back to the legacy factory.
+    # 22d: codex is built by the construction boundary itself (its OAuth/SSE
+    # transport + settings-derived RetryPolicy come from ConstructionOptions,
+    # not the catalog auth path); build_provider dispatches it before the auth
+    # gate and is total (never None). Its spec-resolved effort reaches the adapter.
+    from pipy_harness.native.openai_codex_provider import OpenAICodexResponsesProvider
+    from pipy_harness.native.provider_construction import ConstructionOptions
+
     cx_state = _state(tmp, tmp / "tier3_cx_missing.json", {})
     cx_spec = cx_state.find("openai-codex", "gpt-5.5")
     cx_resolved = resolve_construction(
@@ -1545,17 +1537,20 @@ def _check_tier3_construction(checks, tmp: Path):
         models_json_auth=cx_state._models_json_auth("openai-codex"),
         thinking_level="high",
     )
-    codex_ok = build_provider(cx_resolved, http_client=None) is None
-    checks.append(Check("22_codex_stays_on_legacy", codex_ok, "openai-codex-responses stays on the legacy factory (settings-derived RetryPolicy)"))
+    cx_provider = build_provider(
+        cx_resolved, spec=cx_spec, thinking_level="high", options=ConstructionOptions(),
+        http_client=None,
+    )
+    codex_ok = (
+        isinstance(cx_provider, OpenAICodexResponsesProvider)
+        and cx_provider.reasoning_effort == "high"
+    )
+    checks.append(Check("22_codex_built_by_boundary", codex_ok, "openai-codex-responses is built by the construction boundary (options-threaded RetryPolicy, spec-resolved effort)"))
 
     # 22e: product boundary constructs a built-in bedrock catalog model (not legacy).
-    def _no_legacy(_sel):
-        raise AssertionError("legacy factory must not be used for a catalog model")
-
     bnd_state = _state(tmp, tmp / "tier3_boundary.json", {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"})
     bnd_repl = NativeReplProviderState(
         selection=NativeModelSelection("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"),
-        provider_factory=_no_legacy,
         model_runtime=ModelRuntime(catalog=bnd_state),
         thinking_level="high",
         persist_defaults=False,
@@ -1570,9 +1565,9 @@ def _check_tier3_construction(checks, tmp: Path):
 
 def _check_run_path_construction(checks, tmp: Path):
     # Item 23: the one-shot ``pipy run`` boundary constructs its provider via
-    # catalog construction (the same boundary as the REPL), not the legacy
-    # factory. A runtime --api-key + --thinking must reach the constructed
-    # adapter; the legacy factory would ignore both.
+    # catalog construction (the same boundary as the REPL). A runtime --api-key +
+    # --thinking must reach the constructed adapter; a by-name default would
+    # ignore both.
     from pipy_harness.cli import _run_provider_for_selection
     from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
     from pipy_harness.native.repl_state import NativeModelSelection
@@ -1792,7 +1787,6 @@ def _check_extension_provider_catalog_wiring(checks, tmp: Path):
     state.set_extension_provider_contributions(providers, ())
     repl = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        provider_factory=lambda _selection: None,
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )

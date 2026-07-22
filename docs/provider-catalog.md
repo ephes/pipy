@@ -5,19 +5,19 @@ the OpenAI-Chat-Completions API family (2026-06-03), the Tier 1 api-key families
 `anthropic-messages`, `openai-responses`, `mistral`, the Tier 2 composed-endpoint
 families `google-generative-ai`, `azure-openai-responses`,
 `cloudflare-workers-ai`, and the Tier 3 IAM families `amazon-bedrock`,
-`google-vertex` (2026-06-03), gated end to end. Every real adapter family is now
-catalog-constructed except `openai-codex-responses` (kept on the legacy factory
-for its settings-derived timeout, retry, and transport configuration) and the
-deterministic `fake` bootstrap.
+`google-vertex` (2026-06-03), gated end to end. Every real adapter family, plus
+`openai-codex-responses` and the deterministic `fake` bootstrap, is now built by
+the total construction boundary (`native/provider_construction.py`);
+`openai-codex-responses` receives its settings-derived timeout, retry, and
+transport configuration through the threaded `ConstructionOptions`.
 A models.json custom provider/model now runs a real turn using the catalog
 baseUrl/model/auth/headers/routing/thinking, in both the REPL and the one-shot
 `pipy run` path. Startup `--native-provider`/`--native-model` resolution now
 also routes through the catalog. Extension-registered providers now contribute
 temporary per-run catalog rows and construct through their registered
 `ProviderPort` factories. The provider/model catalog construction track is
-fully wired for current provider sources (only the deliberate
-`openai-codex` legacy-factory exception and documented adapter follow-ons remain
-— see below).
+fully wired for current provider sources (only documented adapter follow-ons
+remain — see below).
 
 The 2026-07-14 refresh against Pi `0.80.6` shipped GPT-5.6 Sol
 (`openai-codex/gpt-5.6-sol`, 372K context, image input) plus model-aware `max`
@@ -165,12 +165,15 @@ Tier 3 catalog construction (shipped 2026-06-03):
   into the `2.5-flash` branch (minimal `128`, not `512`) — and **no** Gemma 4
   special-casing (Gemma is not a Vertex Gemini model).
   Covered by conformance item 22.
-- `openai-codex-responses` is deliberately NOT catalog-constructed: the legacy
-  factory builds it with settings-derived idle-timeout, retry, and transport
-  configuration (`cli.py`) that catalog construction would drop, and its
-  OAuth/SSE auth is fully self-contained. The timeout, bounded pre-event request/stream retry policy, and
-  `auto|sse|websocket` transport selection/fallback are live.
-  `build_provider` returns `None` for it so it keeps the legacy factory.
+- `openai-codex-responses` is not built through the generic Chat-Completions
+  adapter: the total construction boundary builds it via
+  `build_openai_codex_provider`, threading its settings-derived idle-timeout,
+  retry, and `auto|sse|websocket` transport configuration through
+  `ConstructionOptions` (whose defaults reproduce the built-in provider
+  defaults), and its OAuth/SSE auth is fully self-contained. The timeout,
+  bounded pre-event request/stream retry policy, and transport
+  selection/fallback are live. `build_provider` is total and returns a provider
+  for it (no `None` fallback).
 
 Remaining adapter/product follow-ons:
 
@@ -389,7 +392,8 @@ Recently shipped closeout wiring:
   and routing all reach the one-shot turn. As a result `pipy run` for a custom
   `openai-completions` provider (openrouter, ds4) now uses the catalog
   completions adapter rather than the legacy per-provider adapter — matching the
-  REPL. `openai-codex` and `fake` keep the legacy factory. Covered by conformance
+  REPL. `openai-codex` and `fake` are built by the total construction boundary
+  (`build_openai_codex_provider`/`build_fake_provider`). Covered by conformance
   item 23.
 - Startup CLI model resolution. The argparse `choices`
   constraint is removed from `--native-provider`, and launch-time
@@ -529,7 +533,7 @@ is functionally equivalent to Pi's `ModelRegistry` + `model-resolver`:
 
 `pipy run`, `pipy repl`, and the product-TUI `/model` selector all consume this
 catalog through `NativeReplProviderState` and the
-existing `provider_factory` boundary. Concrete adapters keep deciding how to
+`ModelRuntime` construction boundary. Concrete adapters keep deciding how to
 call their upstream API; the catalog only chooses *which* provider/model/auth
 to construct and supplies the resolved request config.
 
@@ -1093,8 +1097,9 @@ request paths.
     - Tier 3 (`amazon-bedrock`, `google-vertex`): IAM/SigV4/OAuth auth that does
       not fit the api-key shape — auth + region/project endpoint stay
       env-resolved; construction injects model id + headers + thinking (bedrock
-      Anthropic budget; vertex thinking deferred). `openai-codex-responses` is
-      kept on the legacy factory for its settings-derived `RetryPolicy`.
+      Anthropic budget; vertex thinking deferred). `openai-codex-responses`
+      receives its settings-derived `RetryPolicy` through the construction
+      boundary's `ConstructionOptions`.
       **Shipped 2026-06-03**, conformance item 22.
 15. One-shot construction: make `pipy run` use the catalog-backed construction
     boundary instead of `_adapter_for`, preserving existing text/stream/json
@@ -1190,8 +1195,9 @@ archive secret checks. It must verify:
 22. Tier 3 non-completions product construction uses the selected
     `NativeModelSpec` and resolved request config for the environment/SDK-shape
     adapter families (`amazon-bedrock` and `google-vertex`), including Bedrock
-    thinking-body behavior; `openai-codex-responses` is explicitly covered as a
-    deliberate legacy-factory exception for its settings-derived `RetryPolicy`;
+    thinking-body behavior; `openai-codex-responses` is explicitly covered for
+    its settings-derived `RetryPolicy` threaded through the construction
+    boundary;
 23. `pipy run` one-shot product construction uses the same catalog-backed
     boundary as REPL product turns, including custom providers and runtime auth,
     without changing stdout/stderr output conventions;
