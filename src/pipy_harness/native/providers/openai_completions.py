@@ -15,20 +15,19 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipy_harness.capture import sanitize_text
-from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, extract_text_content, envelope_to_chat_message, extract_chat_completions_tool_calls, serialize_tool_for_chat_completions
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_chat_completions
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
     JsonHTTPClient,
     ProviderHTTPError,
     UrllibJsonHTTPClient,
-    extract_usage_from_fields,
 )
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.providers.chat_completions_wire import chat_messages, parse_response
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_COMPLETIONS_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -130,7 +129,7 @@ class OpenAIChatCompletionsProvider:
 
         body: dict[str, Any] = {
             "model": self.model_id,
-            "messages": _chat_messages(request),
+            "messages": chat_messages(request),
             "stream": False,
         }
         if request.available_tools:
@@ -167,7 +166,13 @@ class OpenAIChatCompletionsProvider:
                     f"OpenAI API request failed with HTTP status {response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
-            result = _parse_response(response.body)
+            result = parse_response(
+                response.body,
+                parse_error_class=OpenAICompletionsResponseParseError,
+                response_label="OpenAI",
+                tool_call_provider_prefix="openai-completions",
+                usage_fields=OPENAI_COMPLETIONS_USAGE_FIELDS,
+            )
         except OpenAICompletionsProviderError as exc:
             return failed_provider_result(
                 request,
@@ -195,15 +200,6 @@ class OpenAIChatCompletionsProvider:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class ParsedOpenAICompletionsResponse:
-    final_text: str | None
-    usage: dict[str, int | float]
-    response_object: str
-    finish_reason: str
-    tool_calls: tuple[ProviderToolCall, ...] = ()
-
-
 class OpenAICompletionsProviderError(ProviderHTTPError):
     """Base class for sanitized OpenAI Chat Completions provider errors."""
 
@@ -224,81 +220,3 @@ class OpenAICompletionsTransportError(OpenAICompletionsProviderError):
 
 class OpenAICompletionsResponseParseError(OpenAICompletionsProviderError):
     """Raised when the OpenAI Chat Completions response shape is unsupported."""
-
-
-def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAICompletionsResponse:
-    error = body.get("error")
-    if isinstance(error, Mapping):
-        error_code = error.get("code")
-        metadata: dict[str, Any] = {"provider_response_store_requested": False}
-        if isinstance(error_code, str | int):
-            metadata["api_error_code"] = sanitize_text(str(error_code))
-        raise OpenAICompletionsResponseParseError(
-            "OpenAI response included an error.", metadata=metadata
-        )
-
-    response_object = safe_response_label(body.get("object"), default="unknown")
-    choices = body.get("choices")
-    if not isinstance(choices, list) or not choices:
-        raise OpenAICompletionsResponseParseError(
-            "OpenAI response did not include a completion choice.",
-            metadata={
-                "provider_response_store_requested": False,
-                "response_object": response_object,
-            },
-        )
-
-    first_choice = choices[0]
-    if not isinstance(first_choice, Mapping):
-        raise OpenAICompletionsResponseParseError(
-            "OpenAI response included an unsupported completion choice.",
-            metadata={
-                "provider_response_store_requested": False,
-                "response_object": response_object,
-            },
-        )
-    finish_reason = safe_response_label(
-        first_choice.get("finish_reason"), default="unknown"
-    )
-    message = first_choice.get("message")
-    content = message.get("content") if isinstance(message, Mapping) else None
-    final_text = extract_text_content(content)
-    tool_calls = extract_chat_completions_tool_calls(
-        message.get("tool_calls") if isinstance(message, Mapping) else None,
-        provider_prefix="openai-completions",
-    )
-    if not final_text and not tool_calls:
-        raise OpenAICompletionsResponseParseError(
-            "OpenAI response did not include final message content or tool calls.",
-            metadata={
-                "provider_response_store_requested": False,
-                "response_object": response_object,
-                "finish_reason": finish_reason,
-            },
-        )
-
-    return ParsedOpenAICompletionsResponse(
-        final_text=final_text,
-        usage=extract_usage_from_fields(body.get("usage"), OPENAI_COMPLETIONS_USAGE_FIELDS),
-        response_object=response_object,
-        finish_reason=finish_reason,
-        tool_calls=tool_calls,
-    )
-
-
-def _chat_messages(request: ProviderRequest) -> list[dict[str, Any]]:
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": request.system_prompt}
-    ]
-    if request.messages:
-        for envelope in request.messages:
-            messages.append(envelope_to_chat_message(envelope))
-        return messages
-    if request.no_tool_repl_context is not None:
-        for exchange in request.no_tool_repl_context.exchanges:
-            messages.append({"role": "user", "content": exchange.user_prompt})
-            messages.append(
-                {"role": "assistant", "content": exchange.provider_final_text}
-            )
-    messages.append({"role": "user", "content": request.user_prompt})
-    return messages

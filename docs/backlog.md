@@ -1084,10 +1084,9 @@ The bulk is mechanical duplication. pi-mono's
    transports, HTTP-status normalizer, domain retry classifier, and
    retry/fallback loop. Remaining: the per-family wire-shape modules under
    `native.providers` (Slice 5.2).
-2. Extract `pipy_harness.native.providers._chat_completions_shared` for
-   the Chat-Completions wire shape. Collapse OpenAI-Completions,
-   OpenRouter, Mistral, and Cloudflare onto it (~760 L removed). Refs:
-   `02:F3`. **Relocation in progress (migration Slice 5.2-chat, cuts 1–3):**
+2. Extract a shared Chat-Completions wire translator for the Chat-Completions
+   wire shape. Collapse OpenAI-Completions, OpenRouter, Mistral, and Cloudflare
+   onto it. Refs: `02:F3`. **Done (migration Slice 5.2-chat, cuts 1–4):**
    the canonical OpenAI-compatible Chat Completions adapter moved verbatim to
    `pipy_harness.native.providers.openai_completions` (with its ds4 reuse in
    `pipy_harness.native.providers.ds4`) in cut 1, the Mistral and OpenRouter
@@ -1099,9 +1098,15 @@ The bulk is mechanical duplication. pi-mono's
    normalization and its divergent transport-vs-status labelling, Mistral keeps
    its `reasoning_effort` passthrough, OpenRouter keeps its nested `reasoning`
    normalization, and Cloudflare keeps its `{account_id}` base-URL template
-   resolution. All four top-level Chat Completions transports are now relocated.
-   Remaining: the `_chat_completions_shared`/wire consolidation and helper
-   de-duplication (cut 4).
+   resolution. Cut 4 then consolidated the byte-identical wire helpers into
+   `pipy_harness.native.providers.chat_completions_wire`, which now owns
+   `chat_messages` / `parse_response` / the `ParsedChatCompletion` result,
+   parameterized only on each adapter's parse-error class, response label,
+   tool-call provider prefix, and usage-field remap; the four adapters (ds4 via
+   `OpenAIChatCompletionsProvider`) are thin auth/URL + dataclass shells over it
+   with their duplicate `_chat_messages`/`_parse_response`/`Parsed*Response`
+   copies deleted, and the four provider dataclasses and their separate error
+   hierarchies stay unmerged.
 3. Extract a shared OpenAI Responses wire-shape translator and collapse
    the copies. **Done for the two relocated Responses adapters:**
    `pipy_harness.native.providers.openai_responses_wire` now owns the
