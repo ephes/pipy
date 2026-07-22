@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-import json
 import os
-import urllib.error
-import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, extract_text_content, envelope_to_chat_message, extract_chat_completions_tool_calls, serialize_tool_for_chat_completions
-from pipy_harness.native.http import safe_http_status_metadata, JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native.http import (
+    ApiErrorField,
+    JsonResponse as JsonResponse,
+    JsonHTTPClient,
+    ProviderHTTPError,
+    UrllibJsonHTTPClient,
+    extract_usage_from_fields,
+)
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
@@ -28,39 +32,15 @@ OPENROUTER_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class UrllibJsonHTTPClient:
-    """Standard-library JSON client for OpenRouter Chat Completions calls."""
+def openrouter_http_client() -> UrllibJsonHTTPClient:
+    """Build the shared JSON client wired with OpenRouter error types."""
 
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-        cancel_token: CancelToken | None = None,
-    ) -> JsonResponse:
-        encoded = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=encoded,
-            headers=dict(headers),
-            method="POST",
-        )
-        try:
-            status_code, payload = urlopen_read_cancellable(
-                request,
-                timeout_seconds=timeout_seconds,
-                cancel_token=cancel_token,
-            )
-        except urllib.error.HTTPError as exc:
-            raise OpenRouterHTTPStatusError.from_http_error(exc) from exc
-        except urllib.error.URLError as exc:
-            reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
-            raise OpenRouterTransportError(f"OpenRouter API request failed: {reason}") from exc
-
-        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=OpenRouterResponseParseError, provider_label="OpenRouter API"))
+    return UrllibJsonHTTPClient(
+        provider_label="OpenRouter API",
+        status_error_class=OpenRouterHTTPStatusError,
+        transport_error_class=OpenRouterTransportError,
+        parse_error_class=OpenRouterResponseParseError,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +56,7 @@ class OpenRouterChatCompletionsProvider:
 
     model_id: str
     api_key: str | None = field(default_factory=lambda: os.environ.get("OPENROUTER_API_KEY"))
-    http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
+    http_client: JsonHTTPClient = field(default_factory=openrouter_http_client)
     endpoint: str = OPENROUTER_CHAT_COMPLETIONS_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
@@ -182,30 +162,17 @@ class ParsedOpenRouterResponse:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-class OpenRouterProviderError(Exception):
+class OpenRouterProviderError(ProviderHTTPError):
     """Base class for sanitized OpenRouter provider errors."""
-
-    def __init__(self, message: str, *, metadata: Mapping[str, Any] | None = None) -> None:
-        super().__init__(sanitize_text(message))
-        self.metadata = dict(metadata or {})
 
 
 class OpenRouterHTTPStatusError(OpenRouterProviderError):
     """Raised when OpenRouter returns a non-success HTTP status."""
 
-    @classmethod
-    def from_http_error(cls, exc: urllib.error.HTTPError) -> OpenRouterHTTPStatusError:
-        metadata = safe_http_status_metadata(exc.code)
-        try:
-            body = decode_json_object(exc.read(), error_class=OpenRouterResponseParseError, provider_label="OpenRouter API")
-        except OpenRouterResponseParseError:
-            body = {}
-        error = body.get("error")
-        if isinstance(error, Mapping):
-            error_code = error.get("code")
-            if isinstance(error_code, str | int):
-                metadata["api_error_code"] = sanitize_text(str(error_code))
-        return cls(f"OpenRouter API request failed with HTTP status {exc.code}.", metadata=metadata)
+    provider_label = "OpenRouter API"
+    api_error_fields = (
+        ApiErrorField("code", "api_error_code", sanitize=True, allow_int=True),
+    )
 
 
 class OpenRouterTransportError(OpenRouterProviderError):

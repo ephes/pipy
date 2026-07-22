@@ -653,10 +653,10 @@ def build_provider(
     if resolved.api == "openai-completions":
         from pipy_harness.native.openai_completions_provider import (
             OpenAIChatCompletionsProvider,
-            UrllibJsonHTTPClient,
+            openai_completions_http_client,
         )
 
-        client = http_client if http_client is not None else UrllibJsonHTTPClient()
+        client = http_client if http_client is not None else openai_completions_http_client()
         return OpenAIChatCompletionsProvider(
             model_id=resolved.model_id,
             api_key=resolved.api_key,

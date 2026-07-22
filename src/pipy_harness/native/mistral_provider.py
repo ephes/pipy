@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-import json
 import os
-import urllib.error
-import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result, extract_text_content, envelope_to_chat_message, extract_chat_completions_tool_calls, serialize_tool_for_chat_completions
-from pipy_harness.native.http import safe_http_status_metadata, JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native.http import (
+    ApiErrorField,
+    JsonResponse as JsonResponse,
+    JsonHTTPClient,
+    ProviderHTTPError,
+    UrllibJsonHTTPClient,
+    extract_usage_from_fields,
+)
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
@@ -26,39 +30,15 @@ MISTRAL_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class UrllibJsonHTTPClient:
-    """Standard-library JSON client for Mistral Chat Completions calls."""
+def mistral_http_client() -> UrllibJsonHTTPClient:
+    """Build the shared JSON client wired with Mistral error types."""
 
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-        cancel_token: CancelToken | None = None,
-    ) -> JsonResponse:
-        encoded = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=encoded,
-            headers=dict(headers),
-            method="POST",
-        )
-        try:
-            status_code, payload = urlopen_read_cancellable(
-                request,
-                timeout_seconds=timeout_seconds,
-                cancel_token=cancel_token,
-            )
-        except urllib.error.HTTPError as exc:
-            raise MistralHTTPStatusError.from_http_error(exc) from exc
-        except urllib.error.URLError as exc:
-            reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
-            raise MistralTransportError(f"Mistral API request failed: {reason}") from exc
-
-        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=MistralResponseParseError, provider_label="Mistral API"))
+    return UrllibJsonHTTPClient(
+        provider_label="Mistral API",
+        status_error_class=MistralHTTPStatusError,
+        transport_error_class=MistralTransportError,
+        parse_error_class=MistralResponseParseError,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +56,7 @@ class MistralProvider:
     api_key: str | None = field(
         default_factory=lambda: os.environ.get("MISTRAL_API_KEY"), repr=False
     )
-    http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
+    http_client: JsonHTTPClient = field(default_factory=mistral_http_client)
     endpoint: str = MISTRAL_CHAT_COMPLETIONS_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
@@ -197,30 +177,17 @@ class ParsedMistralResponse:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-class MistralProviderError(Exception):
+class MistralProviderError(ProviderHTTPError):
     """Base class for sanitized Mistral provider errors."""
-
-    def __init__(self, message: str, *, metadata: Mapping[str, Any] | None = None) -> None:
-        super().__init__(sanitize_text(message))
-        self.metadata = dict(metadata or {})
 
 
 class MistralHTTPStatusError(MistralProviderError):
     """Raised when Mistral returns a non-success HTTP status."""
 
-    @classmethod
-    def from_http_error(cls, exc: urllib.error.HTTPError) -> MistralHTTPStatusError:
-        metadata = safe_http_status_metadata(exc.code)
-        try:
-            body = decode_json_object(exc.read(), error_class=MistralResponseParseError, provider_label="Mistral API")
-        except MistralResponseParseError:
-            body = {}
-        error = body.get("error")
-        if isinstance(error, Mapping):
-            error_code = error.get("code")
-            if isinstance(error_code, str | int):
-                metadata["api_error_code"] = sanitize_text(str(error_code))
-        return cls(f"Mistral API request failed with HTTP status {exc.code}.", metadata=metadata)
+    provider_label = "Mistral API"
+    api_error_fields = (
+        ApiErrorField("code", "api_error_code", sanitize=True, allow_int=True),
+    )
 
 
 class MistralTransportError(MistralProviderError):

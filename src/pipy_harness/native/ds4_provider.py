@@ -10,7 +10,7 @@ from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.openai_completions_provider import (
     OpenAIChatCompletionsProvider,
-    UrllibJsonHTTPClient,
+    openai_completions_http_client,
 )
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.provider_registry import (
@@ -36,7 +36,7 @@ class Ds4ChatCompletionsProvider:
     )
     api_key: str | None = field(default_factory=lambda: os.environ.get(DS4_API_KEY_ENV))
     http_client: JsonHTTPClient = field(
-        default_factory=lambda: UrllibJsonHTTPClient(provider_label="ds4 API")
+        default_factory=lambda: openai_completions_http_client(provider_label="ds4 API")
     )
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True

@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
-import json
 import os
-import urllib.error
-import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_responses, extract_responses_tool_calls
-from pipy_harness.native.http import JsonResponse, JsonHTTPClient, urlopen_read_cancellable
+from pipy_harness.native.http import (
+    ApiErrorField,
+    JsonResponse as JsonResponse,
+    JsonHTTPClient,
+    ProviderHTTPError,
+    UrllibJsonHTTPClient,
+    extract_responses_usage,
+)
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolResultMessage,
@@ -27,7 +31,6 @@ from pipy_harness.native.deferred_tools import (
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.tools.base import ToolDefinition
-from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -36,39 +39,15 @@ OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class UrllibJsonHTTPClient:
-    """Standard-library JSON client for OpenAI Responses calls."""
+def openai_http_client() -> UrllibJsonHTTPClient:
+    """Build the shared JSON client wired with OpenAI Responses error types."""
 
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-        cancel_token: CancelToken | None = None,
-    ) -> JsonResponse:
-        encoded = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=encoded,
-            headers=dict(headers),
-            method="POST",
-        )
-        try:
-            status_code, payload = urlopen_read_cancellable(
-                request,
-                timeout_seconds=timeout_seconds,
-                cancel_token=cancel_token,
-            )
-        except urllib.error.HTTPError as exc:
-            raise OpenAIHTTPStatusError.from_http_error(exc) from exc
-        except urllib.error.URLError as exc:
-            reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
-            raise OpenAITransportError(f"OpenAI API request failed: {reason}") from exc
-
-        return JsonResponse(status_code=status_code, body=_decode_json_object(payload))
+    return UrllibJsonHTTPClient(
+        provider_label="OpenAI API",
+        status_error_class=OpenAIHTTPStatusError,
+        transport_error_class=OpenAITransportError,
+        parse_error_class=OpenAIResponseParseError,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +66,7 @@ class OpenAIResponsesProvider:
     api_key: str | None = field(
         default_factory=lambda: os.environ.get("OPENAI_API_KEY"), repr=False
     )
-    http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
+    http_client: JsonHTTPClient = field(default_factory=openai_http_client)
     endpoint: str = OPENAI_RESPONSES_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
@@ -344,33 +323,18 @@ class ParsedOpenAIResponse:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-class OpenAIProviderError(Exception):
+class OpenAIProviderError(ProviderHTTPError):
     """Base class for sanitized OpenAI provider errors."""
-
-    def __init__(self, message: str, *, metadata: Mapping[str, Any] | None = None) -> None:
-        super().__init__(sanitize_text(message))
-        self.metadata = dict(metadata or {})
 
 
 class OpenAIHTTPStatusError(OpenAIProviderError):
     """Raised when OpenAI returns a non-success HTTP status."""
 
-    @classmethod
-    def from_http_error(cls, exc: urllib.error.HTTPError) -> OpenAIHTTPStatusError:
-        metadata: dict[str, Any] = {"http_status": exc.code}
-        try:
-            body = _decode_json_object(exc.read())
-        except OpenAIResponseParseError:
-            body = {}
-        error = body.get("error")
-        if isinstance(error, Mapping):
-            error_type = error.get("type")
-            error_code = error.get("code")
-            if isinstance(error_type, str):
-                metadata["api_error_type"] = error_type
-            if isinstance(error_code, str):
-                metadata["api_error_code"] = error_code
-        return cls(f"OpenAI API request failed with HTTP status {exc.code}.", metadata=metadata)
+    provider_label = "OpenAI API"
+    api_error_fields = (
+        ApiErrorField("type", "api_error_type", sanitize=False, allow_int=False),
+        ApiErrorField("code", "api_error_code", sanitize=False, allow_int=False),
+    )
 
 
 class OpenAITransportError(OpenAIProviderError):
@@ -406,7 +370,7 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedOpenAIResponse:
 
     return ParsedOpenAIResponse(
         final_text=final_text,
-        usage=_extract_usage(body.get("usage")),
+        usage=extract_responses_usage(body.get("usage"), OPENAI_NESTED_USAGE_FIELDS),
         response_status=response_status,
         tool_calls=tool_calls,
     )
@@ -438,28 +402,3 @@ def _extract_final_text(body: Mapping[str, Any]) -> str | None:
     if not chunks:
         return None
     return "".join(chunks)
-
-
-def _extract_usage(value: Any) -> dict[str, int | float]:
-    if not isinstance(value, Mapping):
-        return {}
-    usage: dict[str, Any] = {}
-    for key in NORMALIZED_PROVIDER_USAGE_KEYS:
-        usage[key] = value.get(key)
-
-    for details_key, usage_key in OPENAI_NESTED_USAGE_FIELDS:
-        details = value.get(details_key)
-        if isinstance(details, Mapping) and usage_key in details:
-            usage[usage_key] = details[usage_key]
-
-    return normalize_provider_usage(usage)
-
-
-def _decode_json_object(payload: bytes) -> Mapping[str, Any]:
-    try:
-        decoded = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise OpenAIResponseParseError("OpenAI API returned non-JSON response metadata.") from exc
-    if not isinstance(decoded, Mapping):
-        raise OpenAIResponseParseError("OpenAI API returned unsupported JSON response metadata.")
-    return decoded

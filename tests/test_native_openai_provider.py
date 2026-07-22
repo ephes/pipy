@@ -14,7 +14,7 @@ from pipy_harness.native.openai_provider import (
     JsonResponse,
     OpenAIHTTPStatusError,
     OpenAIResponsesProvider,
-    UrllibJsonHTTPClient,
+    openai_http_client,
 )
 
 
@@ -340,7 +340,7 @@ def test_urllib_json_http_client_translates_http_error_without_raw_body(monkeypa
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     try:
-        UrllibJsonHTTPClient().post_json(
+        openai_http_client().post_json(
             "https://api.openai.com/v1/responses",
             headers={"Content-Type": "application/json"},
             body={"model": "gpt-test"},

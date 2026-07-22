@@ -5,15 +5,19 @@ from __future__ import annotations
 import json
 import os
 import re
-import urllib.error
-import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result
-from pipy_harness.native.http import JsonResponse, JsonHTTPClient, extract_usage_from_fields, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native.http import (
+    ApiErrorField,
+    JsonResponse as JsonResponse,
+    JsonHTTPClient,
+    ProviderHTTPError,
+    UrllibJsonHTTPClient,
+    extract_usage_from_fields,
+)
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolResultMessage,
@@ -139,39 +143,15 @@ def _build_thinking_config(
     return None
 
 
-@dataclass(frozen=True, slots=True)
-class UrllibJsonHTTPClient:
-    """Standard-library JSON client for Google Generative AI calls."""
+def google_http_client() -> UrllibJsonHTTPClient:
+    """Build the shared JSON client wired with Google Generative AI error types."""
 
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-        cancel_token: CancelToken | None = None,
-    ) -> JsonResponse:
-        encoded = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=encoded,
-            headers=dict(headers),
-            method="POST",
-        )
-        try:
-            status_code, payload = urlopen_read_cancellable(
-                request,
-                timeout_seconds=timeout_seconds,
-                cancel_token=cancel_token,
-            )
-        except urllib.error.HTTPError as exc:
-            raise GoogleHTTPStatusError.from_http_error(exc) from exc
-        except urllib.error.URLError as exc:
-            reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
-            raise GoogleTransportError(f"Google API request failed: {reason}") from exc
-
-        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=GoogleResponseParseError, provider_label="Google API"))
+    return UrllibJsonHTTPClient(
+        provider_label="Google API",
+        status_error_class=GoogleHTTPStatusError,
+        transport_error_class=GoogleTransportError,
+        parse_error_class=GoogleResponseParseError,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,7 +177,7 @@ class GoogleGenerativeAIProvider:
         or os.environ.get("GEMINI_API_KEY"),
         repr=False,
     )
-    http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
+    http_client: JsonHTTPClient = field(default_factory=google_http_client)
     endpoint_template: str = GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
@@ -326,36 +306,18 @@ class ParsedGoogleResponse:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-class GoogleProviderError(Exception):
+class GoogleProviderError(ProviderHTTPError):
     """Base class for sanitized Google provider errors."""
-
-    def __init__(self, message: str, *, metadata: Mapping[str, Any] | None = None) -> None:
-        super().__init__(sanitize_text(message))
-        self.metadata = dict(metadata or {})
 
 
 class GoogleHTTPStatusError(GoogleProviderError):
     """Raised when Google returns a non-success HTTP status."""
 
-    @classmethod
-    def from_http_error(cls, exc: urllib.error.HTTPError) -> GoogleHTTPStatusError:
-        metadata: dict[str, Any] = {"http_status": exc.code}
-        try:
-            body = decode_json_object(exc.read(), error_class=GoogleResponseParseError, provider_label="Google API")
-        except GoogleResponseParseError:
-            body = {}
-        error = body.get("error")
-        if isinstance(error, Mapping):
-            error_status = error.get("status")
-            error_code = error.get("code")
-            if isinstance(error_status, str):
-                metadata["api_error_status"] = sanitize_text(error_status)
-            if isinstance(error_code, str | int):
-                metadata["api_error_code"] = sanitize_text(str(error_code))
-        return cls(
-            f"Google API request failed with HTTP status {exc.code}.",
-            metadata=metadata,
-        )
+    provider_label = "Google API"
+    api_error_fields = (
+        ApiErrorField("status", "api_error_status", sanitize=True, allow_int=False),
+        ApiErrorField("code", "api_error_code", sanitize=True, allow_int=True),
+    )
 
 
 class GoogleTransportError(GoogleProviderError):

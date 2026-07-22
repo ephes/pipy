@@ -1056,15 +1056,21 @@ The bulk is mechanical duplication. pi-mono's
 1. Extract a single `pipy_harness.native.http` module owning the
    `JsonHTTPClient` / `UrllibJsonHTTPClient` boundary and the four-class
    exception hierarchy. Delete the per-provider copies. Refs:
-   `02:F1`, `02:F2`. **Partly landed (migration Slice 5.1):**
-   `native.http` now owns the transport boundary — the
+   `02:F1`, `02:F2`. **Landed (migration Slice 5.1):**
+   `native.http` owns the transport boundary — the
    `JsonHTTPClient`/`JsonResponse` contract, cancellable request
    execution (`open_url_cancellable`/`urlopen_read_cancellable` plus the
    connection-registration machinery), JSON body decoding, HTTP-error
-   metadata, and safe usage-field extraction — and `_provider_helpers`
-   no longer holds them. Remaining: fold the per-provider
-   `UrllibJsonHTTPClient` copies and the per-provider exception
-   hierarchies/`from_http_error` onto shared implementations (Slice 5.2).
+   metadata, and safe usage-field extraction — plus the shared
+   `UrllibJsonHTTPClient` and the shared `ProviderHTTPError` base with its
+   declarative `from_http_error`/`ApiErrorField` normalization. The eight
+   plain-JSON adapters (`openai`, `openai_completions`, `mistral`,
+   `openrouter`, `cloudflare`, `azure_openai`, `google`, `google_vertex`)
+   now reparent their named error types as thin subclasses and build the
+   shared client via a `<provider>_http_client()` factory; their
+   `UrllibJsonHTTPClient`/`from_http_error`/`_decode_json_object`/`_extract_usage`
+   copies are deleted. Remaining: Anthropic, Bedrock, and Codex keep their
+   own SSE/signed transports (Slices 5.2 protocol-family migrations).
 2. Extract `pipy_harness.native.providers._chat_completions_shared` for
    the Chat-Completions wire shape. Collapse OpenAI-Completions,
    OpenRouter, Mistral, and Cloudflare onto it (~760 L removed). Refs:
@@ -1256,8 +1262,12 @@ Remove copy-paste that the type system could have caught.
 7. Delete duplicate byte-cap checks in `discover_resource_files`
    (three checks for the same value, one structurally unreachable).
    Refs: `06:F12`.
-8. Consolidate the eleven copies of `_extract_usage` into the shared
-   provider module (Track CQ-B). Refs: `02:F13`.
+8. Consolidate the copies of `_extract_usage` into the shared
+   provider module (Track CQ-B). Refs: `02:F13`. **Partly landed
+   (migration Slice 5.1):** the eight plain-JSON adapters now use the
+   shared `native.http` `extract_usage_from_fields`/`extract_responses_usage`
+   helpers; only `anthropic`, `bedrock`, and `openai_codex` keep a local
+   `_extract_usage` (Slices 5.2 protocol-family migrations).
 
 ### Out Of Scope For This Track
 

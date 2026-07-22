@@ -14,7 +14,7 @@ from pipy_harness.native.openrouter_provider import (
     JsonResponse,
     OpenRouterChatCompletionsProvider,
     OpenRouterHTTPStatusError,
-    UrllibJsonHTTPClient,
+    openrouter_http_client,
 )
 
 
@@ -435,7 +435,7 @@ def test_urllib_json_http_client_translates_http_error_without_raw_body(monkeypa
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     try:
-        UrllibJsonHTTPClient().post_json(
+        openrouter_http_client().post_json(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Content-Type": "application/json"},
             body={"model": "openai/gpt-test"},

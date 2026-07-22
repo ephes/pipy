@@ -11,18 +11,22 @@ independently.
 
 from __future__ import annotations
 
-import json
 import os
-import urllib.error
 import urllib.parse
-import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_responses, extract_responses_tool_calls
-from pipy_harness.native.http import JsonResponse, JsonHTTPClient, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native.http import (
+    ApiErrorField,
+    JsonResponse as JsonResponse,
+    JsonHTTPClient,
+    ProviderHTTPError,
+    UrllibJsonHTTPClient,
+    extract_responses_usage,
+)
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolResultMessage,
@@ -32,7 +36,6 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 DEFAULT_AZURE_OPENAI_API_VERSION = "v1"
 # Azure host suffixes for which the base URL is normalized to ``/openai/v1``,
@@ -94,45 +97,15 @@ def _normalize_azure_base_url(base_url: str) -> str:
     return trimmed
 
 
-@dataclass(frozen=True, slots=True)
-class UrllibJsonHTTPClient:
-    """Standard-library JSON client for Azure OpenAI Responses calls."""
+def azure_openai_http_client() -> UrllibJsonHTTPClient:
+    """Build the shared JSON client wired with Azure OpenAI Responses error types."""
 
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-        cancel_token: CancelToken | None = None,
-    ) -> JsonResponse:
-        encoded = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=encoded,
-            headers=dict(headers),
-            method="POST",
-        )
-        try:
-            status_code, payload = urlopen_read_cancellable(
-                request,
-                timeout_seconds=timeout_seconds,
-                cancel_token=cancel_token,
-            )
-        except urllib.error.HTTPError as exc:
-            raise AzureOpenAIHTTPStatusError.from_http_error(exc) from exc
-        except urllib.error.URLError as exc:
-            reason = (
-                sanitize_text(str(exc.reason))
-                if getattr(exc, "reason", None)
-                else "request failed"
-            )
-            raise AzureOpenAITransportError(
-                f"Azure OpenAI API request failed: {reason}"
-            ) from exc
-
-        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=AzureOpenAIResponseParseError, provider_label="Azure OpenAI API"))
+    return UrllibJsonHTTPClient(
+        provider_label="Azure OpenAI API",
+        status_error_class=AzureOpenAIHTTPStatusError,
+        transport_error_class=AzureOpenAITransportError,
+        parse_error_class=AzureOpenAIResponseParseError,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +152,7 @@ class AzureOpenAIResponsesProvider:
         or DEFAULT_AZURE_OPENAI_API_VERSION
     )
     deployment: str | None = None
-    http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
+    http_client: JsonHTTPClient = field(default_factory=azure_openai_http_client)
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
     provider_name: str = "azure-openai"
@@ -426,43 +399,18 @@ class ParsedAzureOpenAIResponse:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-class AzureOpenAIProviderError(Exception):
+class AzureOpenAIProviderError(ProviderHTTPError):
     """Base class for sanitized Azure OpenAI provider errors."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        metadata: Mapping[str, Any] | None = None,
-    ) -> None:
-        super().__init__(sanitize_text(message))
-        self.metadata = dict(metadata or {})
 
 
 class AzureOpenAIHTTPStatusError(AzureOpenAIProviderError):
     """Raised when Azure OpenAI returns a non-success HTTP status."""
 
-    @classmethod
-    def from_http_error(
-        cls, exc: urllib.error.HTTPError
-    ) -> AzureOpenAIHTTPStatusError:
-        metadata: dict[str, Any] = {"http_status": exc.code}
-        try:
-            body = decode_json_object(exc.read(), error_class=AzureOpenAIResponseParseError, provider_label="Azure OpenAI API")
-        except AzureOpenAIResponseParseError:
-            body = {}
-        error = body.get("error")
-        if isinstance(error, Mapping):
-            error_type = error.get("type")
-            error_code = error.get("code")
-            if isinstance(error_type, str):
-                metadata["api_error_type"] = error_type
-            if isinstance(error_code, str):
-                metadata["api_error_code"] = error_code
-        return cls(
-            f"Azure OpenAI API request failed with HTTP status {exc.code}.",
-            metadata=metadata,
-        )
+    provider_label = "Azure OpenAI API"
+    api_error_fields = (
+        ApiErrorField("type", "api_error_type", sanitize=False, allow_int=False),
+        ApiErrorField("code", "api_error_code", sanitize=False, allow_int=False),
+    )
 
 
 class AzureOpenAITransportError(AzureOpenAIProviderError):
@@ -500,7 +448,9 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedAzureOpenAIResponse:
 
     return ParsedAzureOpenAIResponse(
         final_text=final_text,
-        usage=_extract_usage(body.get("usage")),
+        usage=extract_responses_usage(
+            body.get("usage"), AZURE_OPENAI_NESTED_USAGE_FIELDS
+        ),
         response_status=response_status,
         tool_calls=tool_calls,
     )
@@ -534,18 +484,3 @@ def _extract_final_text(body: Mapping[str, Any]) -> str | None:
     if not chunks:
         return None
     return "".join(chunks)
-
-
-def _extract_usage(value: Any) -> dict[str, int | float]:
-    if not isinstance(value, Mapping):
-        return {}
-    usage: dict[str, Any] = {}
-    for key in NORMALIZED_PROVIDER_USAGE_KEYS:
-        usage[key] = value.get(key)
-
-    for details_key, usage_key in AZURE_OPENAI_NESTED_USAGE_FIELDS:
-        details = value.get(details_key)
-        if isinstance(details, Mapping) and usage_key in details:
-            usage[usage_key] = details[usage_key]
-
-    return normalize_provider_usage(usage)

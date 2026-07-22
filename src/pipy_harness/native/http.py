@@ -3,10 +3,13 @@
 This module owns request execution, timeouts, and cancellation for every
 provider transport: the cancellable ``urlopen`` machinery that lets an
 Escape / Ctrl-C during a turn shut the in-flight socket down, the small JSON
-response boundary (:class:`JsonResponse` / :class:`JsonHTTPClient`) that each
-provider's ``UrllibJsonHTTPClient`` copy satisfies, the response-body decoder,
-the HTTP-error metadata builder, and the safe usage-field extractor. Provider
-modules import these primitives rather than re-implementing transport concerns.
+response boundary (:class:`JsonResponse` / :class:`JsonHTTPClient`), the shared
+:class:`UrllibJsonHTTPClient` that every plain-JSON provider adapter reuses, the
+shared :class:`ProviderHTTPError` base with its declarative HTTP-status/api-error
+normalization (:meth:`ProviderHTTPError.from_http_error`), the response-body
+decoder, the HTTP-error metadata builder, and the safe usage-field extractors.
+Provider modules import these primitives rather than re-implementing transport
+concerns.
 """
 
 from __future__ import annotations
@@ -18,8 +21,9 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol, Self
 
+from pipy_harness.capture import sanitize_text
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
 
 # Exceptions that a concurrent :meth:`CancelToken.cancel` can surface from a
@@ -279,3 +283,160 @@ def extract_usage_from_fields(
     for provider_key, normalized_key in fields:
         usage[normalized_key] = value.get(provider_key)
     return normalize_provider_usage(usage)
+
+
+def extract_responses_usage(
+    value: Any,
+    nested_fields: tuple[tuple[str, str], ...],
+) -> dict[str, int | float]:
+    """Extract Responses-style usage: identity-mapped normalized keys plus nested details.
+
+    The Responses/``generateContent`` usage payloads carry the normalized usage
+    keys directly and stash cached/reasoning counters in nested detail objects
+    (``(details_key, usage_key)`` in ``nested_fields``). Flat Chat-Completions
+    usage uses :func:`extract_usage_from_fields` instead.
+    """
+
+    from pipy_harness.native.usage import (
+        NORMALIZED_PROVIDER_USAGE_KEYS,
+        normalize_provider_usage,
+    )
+
+    if not isinstance(value, Mapping):
+        return {}
+    usage: dict[str, Any] = {}
+    for key in NORMALIZED_PROVIDER_USAGE_KEYS:
+        usage[key] = value.get(key)
+    for details_key, usage_key in nested_fields:
+        details = value.get(details_key)
+        if isinstance(details, Mapping) and usage_key in details:
+            usage[usage_key] = details[usage_key]
+    return normalize_provider_usage(usage)
+
+
+@dataclass(frozen=True, slots=True)
+class ApiErrorField:
+    """Declarative spec for lifting one api-error field into error metadata.
+
+    ``source_key`` is read from the response body's ``error`` object and stored
+    under ``metadata_key``. ``allow_int`` widens the accepted value type from
+    ``str`` to ``str | int``; ``sanitize`` runs the value through
+    :func:`sanitize_text` (as ``str``) before storing it.
+    """
+
+    source_key: str
+    metadata_key: str
+    sanitize: bool
+    allow_int: bool
+
+
+class ProviderHTTPError(Exception):
+    """Shared base for sanitized provider HTTP-adapter errors.
+
+    Carries a sanitized message and a metadata dict. Subclasses set the
+    ``provider_label`` and ``api_error_fields`` class attributes so the shared
+    :meth:`from_http_error` normalizes an HTTP-status failure into that
+    provider's exact error metadata while returning the concrete subclass.
+    """
+
+    provider_label: ClassVar[str] = ""
+    api_error_fields: ClassVar[tuple[ApiErrorField, ...]] = ()
+
+    def __init__(
+        self, message: str, *, metadata: Mapping[str, Any] | None = None
+    ) -> None:
+        super().__init__(sanitize_text(message))
+        self.metadata: dict[str, Any] = dict(metadata or {})
+
+    @classmethod
+    def from_http_error(cls, exc: urllib.error.HTTPError) -> Self:
+        """Normalize a urllib ``HTTPError`` into this provider's status error.
+
+        Builds ``{"http_status": code}`` metadata, best-effort decodes the error
+        body and lifts each :class:`ApiErrorField` in ``api_error_fields`` into
+        the metadata, and returns ``cls`` with the provider-labelled message. A
+        non-JSON error body is swallowed (metadata keeps only the status).
+        """
+
+        metadata: dict[str, Any] = {"http_status": exc.code}
+        try:
+            body = decode_json_object(
+                exc.read(), error_class=cls, provider_label=cls.provider_label
+            )
+        except ProviderHTTPError:
+            body = {}
+        error = body.get("error")
+        if isinstance(error, Mapping):
+            for spec in cls.api_error_fields:
+                value = error.get(spec.source_key)
+                allowed: tuple[type, ...] = (str, int) if spec.allow_int else (str,)
+                if isinstance(value, allowed):
+                    metadata[spec.metadata_key] = (
+                        sanitize_text(str(value)) if spec.sanitize else value
+                    )
+        return cls(
+            f"{cls.provider_label} request failed with HTTP status {exc.code}.",
+            metadata=metadata,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class UrllibJsonHTTPClient:
+    """Standard-library JSON client shared by the plain-JSON provider adapters.
+
+    ``provider_label`` names the provider in the transport (``URLError``) and
+    response-parse messages. The three error classes let the client raise each
+    provider's own named subclasses — status failures via
+    :meth:`ProviderHTTPError.from_http_error` on ``status_error_class``, network
+    failures via ``transport_error_class``, and body-decode failures via
+    ``parse_error_class`` — so existing provider error handling and tests keep
+    asserting on those concrete types.
+    """
+
+    provider_label: str
+    status_error_class: type[ProviderHTTPError]
+    transport_error_class: type[ProviderHTTPError]
+    parse_error_class: type[ProviderHTTPError]
+
+    def post_json(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str],
+        body: Mapping[str, Any],
+        timeout_seconds: float,
+        cancel_token: CancelToken | None = None,
+    ) -> JsonResponse:
+        encoded = json.dumps(body).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=encoded,
+            headers=dict(headers),
+            method="POST",
+        )
+        try:
+            status_code, payload = urlopen_read_cancellable(
+                request,
+                timeout_seconds=timeout_seconds,
+                cancel_token=cancel_token,
+            )
+        except urllib.error.HTTPError as exc:
+            raise self.status_error_class.from_http_error(exc) from exc
+        except urllib.error.URLError as exc:
+            reason = (
+                sanitize_text(str(exc.reason))
+                if getattr(exc, "reason", None)
+                else "request failed"
+            )
+            raise self.transport_error_class(
+                f"{self.provider_label} request failed: {reason}"
+            ) from exc
+
+        return JsonResponse(
+            status_code=status_code,
+            body=decode_json_object(
+                payload,
+                error_class=self.parse_error_class,
+                provider_label=self.provider_label,
+            ),
+        )
