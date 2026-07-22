@@ -150,6 +150,7 @@ def test_logout_persists_shared_bootstrap_default_not_fake_tools(tmp_path):
     state; the REPL upgrades the *live* selection at its consumption point.
     """
 
+    from pipy_harness.native.catalog_state import ProviderCatalogState
     from pipy_harness.native.repl_state import (
         NativeDefaultsStore,
         normalize_repl_fake_selection,
@@ -160,8 +161,14 @@ def test_logout_persists_shared_bootstrap_default_not_fake_tools(tmp_path):
             return True
 
     store = NativeDefaultsStore(tmp_path / "defaults.json")
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        env={},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
     state = NativeReplProviderState(
         selection=NativeModelSelection("openai-codex", "gpt-5.5"),
+        model_runtime=ModelRuntime(catalog=catalog),
         defaults_store=store,
         auth_manager_factory=lambda: _StubAuthManager(),
     )
@@ -194,10 +201,18 @@ def test_settings_overlay_lines_renders_active_and_single_static_option():
 
 
 def test_settings_overlay_lines_reports_availability_reasons(tmp_path: Path):
-    state = NativeReplProviderState(
-        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
         env={},
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+    )
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
 
@@ -207,7 +222,7 @@ def test_settings_overlay_lines_reports_availability_reasons(tmp_path: Path):
     assert "  active: fake/fake-native-bootstrap" in body
     # Local availability probes surface the same reasons as no-tool /settings.
     assert "openai-codex/gpt-5.5 [unavailable (login-required)]" in body
-    assert "openai/gpt-5.5 [unavailable (env-missing)]" in body
+    assert "openai/gpt-5.5 [unavailable (auth-missing)]" in body
     # The shared builder never emits a command-availability footer; callers
     # append their own honest footer for their command surface.
     assert "/login" not in body

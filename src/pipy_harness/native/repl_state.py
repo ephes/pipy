@@ -22,10 +22,8 @@ from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.provider_construction import ConstructionOptions
 from pipy_harness.native.provider_registry import (
     DEFAULT_NATIVE_MODELS,
-    NATIVE_PROVIDER_REGISTRY,
     SUPPORTED_NATIVE_PROVIDERS,
     native_provider_available,
-    native_provider_unavailable_message,
 )
 from pipy_harness.native.provider import ProviderPort
 
@@ -143,9 +141,10 @@ def normalize_repl_fake_selection(
 class NativeModelOption:
     """A model reference exposed by the REPL selector / settings overlay.
 
-    Capability metadata (context window, reasoning, image input) is optional so
-    the legacy one-default-per-provider path keeps working; the catalog-backed
-    path populates it so the selector can render Pi-equivalent rows.
+    Capability metadata (context window, reasoning, image input) is populated
+    from the catalog row so the selector can render Pi-equivalent rows. The
+    fields stay optional because individual catalog rows may omit a given
+    capability (e.g. a ``models.json`` row without a declared context window).
     """
 
     selection: NativeModelSelection
@@ -332,30 +331,28 @@ class NativeReplProviderState:
     """Late-bound provider state for local REPL auth/model commands."""
 
     selection: NativeModelSelection
+    # The runtime composes the full pipy catalog (built-in + models.json) with the
+    # catalog-driven construction boundary: model_options() and select_model() read
+    # the merged catalog with the shared matcher and availability gate (mirroring
+    # Pi's /model selector over getAvailable()), and current_provider()/
+    # provider_for() construct through it. It is always bound (production and tests
+    # both supply one); every model listing, selection, availability, and provider
+    # build flows through the catalog it owns.
+    model_runtime: ModelRuntime
     # Settings-derived knobs threaded into every provider build (codex
     # retry/transport/timeouts). The default reproduces the built-in provider
     # defaults for callers that pass no settings.
     construction_options: ConstructionOptions = ConstructionOptions()
     defaults_store: NativeDefaultsStore | None = None
     auth_manager_factory: Callable[[], OpenAICodexAuthManager] = OpenAICodexAuthManager
-    env: Mapping[str, str] | None = None
-    openai_codex_auth_path: Path | None = None
     persist_defaults: bool = True
-    # When set, the runtime composes the full pipy catalog (built-in +
-    # models.json) with the catalog-driven construction boundary: model_options()
-    # and select_model() read the merged catalog with the shared matcher and
-    # availability gate (mirroring Pi's /model selector over getAvailable()), and
-    # current_provider()/provider_for() construct through the runtime. When None,
-    # the legacy one-default-per-provider registry path drives model_options() /
-    # select_model() (no catalog); provider construction always requires a runtime.
-    model_runtime: ModelRuntime | None = None
     thinking_level: str | None = None
 
     @property
-    def _catalog(self) -> ProviderCatalogState | None:
-        """The merged catalog owned by the runtime, or None in the legacy path."""
+    def _catalog(self) -> ProviderCatalogState:
+        """The merged catalog owned by the runtime."""
 
-        return self.model_runtime.catalog if self.model_runtime is not None else None
+        return self.model_runtime.catalog
 
     def current_selection(self) -> NativeModelSelection:
         return self.selection
@@ -368,14 +365,10 @@ class NativeReplProviderState:
 
         Used by ``current_provider`` and by the ``/model`` selector's
         tool-capability probe so a ``models.json`` custom provider/model is
-        constructed the same way it will be used. Provider construction requires
-        a bound :class:`ModelRuntime` (always present in production); the runtime
+        constructed the same way it will be used. The bound :class:`ModelRuntime`
         owns the whole construction switch, threading ``construction_options``.
         """
 
-        assert self.model_runtime is not None, (
-            "provider construction requires a bound ModelRuntime"
-        )
         return self.model_runtime.construct(
             selection,
             thinking_level=self.thinking_level,
@@ -385,34 +378,13 @@ class NativeReplProviderState:
     def current_thinking_levels(self) -> list[str]:
         """Ordered Shift+Tab cycle levels for the current model (Pi-aware)."""
 
-        if self.model_runtime is None:
-            return ["off", "minimal", "low", "medium", "high"]
         return self.model_runtime.thinking_levels(self.selection)
 
     def provider_available(self, provider_name: str) -> bool:
-        catalog = self._catalog
-        if catalog is not None:
-            return catalog.provider_available(provider_name)
-        return self._provider_available(provider_name)
+        return self._catalog.provider_available(provider_name)
 
     def model_options(self) -> list[NativeModelOption]:
-        if self._catalog is not None:
-            return self._catalog_model_options()
-        options: list[NativeModelOption] = []
-        for provider_name, spec in NATIVE_PROVIDER_REGISTRY.items():
-            available = self._provider_available(provider_name)
-            options.append(
-                NativeModelOption(
-                    NativeModelSelection(provider_name, spec.default_model),
-                    available=available,
-                    reason=None if available else _availability_reason(spec.availability),
-                )
-            )
-        return options
-
-    def _catalog_model_options(self) -> list[NativeModelOption]:
         state = self._catalog
-        assert state is not None
         options: list[NativeModelOption] = []
         for row in state.get_all():
             available = state.provider_available(row.provider_name)
@@ -439,23 +411,12 @@ class NativeReplProviderState:
         if not parsed:
             return False, "pipy: malformed /model command. Provide <provider>/<model> or <model>."
 
-        if self._catalog is not None:
-            return self._catalog_select_model(parsed)
-
-        selection, reason = self._resolve_model_reference(parsed)
-        if selection is None:
-            return False, reason
-
-        self.selection = selection
-        self._save_default(selection)
-        return True, f"pipy: selected model {selection.reference}."
+        return self._catalog_select_model(parsed)
 
     def current_selection_supported(self) -> bool:
         """Return whether the current selection is still backed by catalog rows."""
 
         state = self._catalog
-        if state is None:
-            return True
         if state.find(self.selection.provider_name, self.selection.model_id):
             return True
         # A user-selected custom model id on a known provider is supported via a
@@ -466,8 +427,6 @@ class NativeReplProviderState:
         """Return whether the current selection is backed by an extension row."""
 
         state = self._catalog
-        if state is None:
-            return False
         spec = state.find(
             self.selection.provider_name,
             self.selection.model_id,
@@ -509,7 +468,6 @@ class NativeReplProviderState:
         from pipy_harness.native.model_resolver import resolve_cli_model
 
         state = self._catalog
-        assert state is not None
         result = resolve_cli_model(
             cli_provider=None, cli_model=reference, rows=state.get_all()
         )
@@ -621,41 +579,6 @@ class NativeReplProviderState:
             return True, f"pipy: {provider_name} OAuth credentials removed."
         return True, f"pipy: no {provider_name} OAuth credentials were stored."
 
-    def _resolve_model_reference(self, reference: str) -> tuple[NativeModelSelection | None, str]:
-        if "/" in reference:
-            provider_name, model_id = reference.split("/", 1)
-            provider_name = provider_name.strip()
-            model_id = model_id.strip()
-            if provider_name not in SUPPORTED_NATIVE_PROVIDERS or not model_id:
-                return None, "pipy: unsupported model reference."
-            # Availability is checked through the public gate (catalog-aware when
-            # a model runtime is bound, registry-based otherwise) so it agrees
-            # with model_options(); the diagnostic keeps the provider-named message.
-            if not self.provider_available(provider_name):
-                return None, self._provider_unavailable_message(provider_name)
-            return NativeModelSelection(provider_name, model_id), ""
-
-        matches = [
-            option.selection
-            for option in self.model_options()
-            if option.available and option.selection.model_id.lower() == reference.lower()
-        ]
-        if len(matches) == 1:
-            return matches[0], ""
-        if len(matches) > 1:
-            return None, "pipy: ambiguous model reference. Use <provider>/<model>."
-        return None, "pipy: unsupported or unavailable model reference."
-
-    def _provider_available(self, provider_name: str) -> bool:
-        return native_provider_available(
-            provider_name,
-            env=self._env(),
-            openai_codex_credentials_exist=self._openai_codex_credentials_exist(),
-        )
-
-    def _provider_unavailable_message(self, provider_name: str) -> str:
-        return native_provider_unavailable_message(provider_name)
-
     def _save_default(self, selection: NativeModelSelection) -> None:
         if not self.persist_defaults or self.defaults_store is None:
             return
@@ -663,13 +586,6 @@ class NativeReplProviderState:
             self.defaults_store.save(selection)
         except OSError:
             pass
-
-    def _env(self) -> Mapping[str, str]:
-        return self.env if self.env is not None else os.environ
-
-    def _openai_codex_credentials_exist(self) -> bool:
-        path = self.openai_codex_auth_path or default_openai_codex_auth_path()
-        return path.exists()
 
 
 @dataclass(slots=True)
@@ -926,14 +842,6 @@ def _default_model_for_provider(
     from pipy_harness.native.catalog import default_model_per_provider
 
     return default_model_per_provider.get(provider)
-
-
-def _availability_reason(availability: str) -> str:
-    if availability == "openai-codex-login":
-        return "login-required"
-    if availability.startswith("env"):
-        return "env-missing"
-    return "unavailable"
 
 
 @dataclass(frozen=True, slots=True)

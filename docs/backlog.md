@@ -1193,8 +1193,15 @@ The bulk is mechanical duplication. pi-mono's
    `openai-codex`, `fake`, and the bare built-in `ds4`) is built through
    `provider_construction`, threading the settings-derived `ConstructionOptions`.
    This gives the Phase 5.3 catalog/model-facts consolidation one construction
-   owner to build on; the per-model capability/default de-hardcoding above is
-   still open.
+   owner to build on. **Foundation (migration Slice 5.3c):**
+   `NativeReplProviderState.model_runtime` is now required (no longer `| None`),
+   so model listing, selection, availability, and thinking-level cycling flow
+   solely through the catalog-backed `ModelRuntime`; the legacy
+   one-default-per-provider registry branches and the
+   `_provider_available`/`_provider_unavailable_message`/`_resolve_model_reference`
+   helpers are deleted, with `native_provider_available` remaining the catalog's
+   single availability owner. The per-model capability/default de-hardcoding above
+   is still open.
 9. Fix `GoogleProvider` / `GoogleVertexProvider` tool-call id
    fabrication: stop synthesizing ids from loop index and propagate the
    real id from the response. Refs: `02:F5`.

@@ -1592,7 +1592,6 @@ def _run_provider_for_selection(
         selection=selection,
         construction_options=_construction_options_for(settings_manager),
         auth_manager_factory=OpenAICodexAuthManager,
-        openai_codex_auth_path=default_openai_codex_auth_path(),
         model_runtime=ModelRuntime(catalog=catalog_state),
         thinking_level=_validated_thinking_level(thinking),
         persist_defaults=False,
@@ -2204,7 +2203,6 @@ def _tool_repl_adapter_for(
         construction_options=_construction_options_for(settings_manager),
         defaults_store=defaults_store,
         auth_manager_factory=OpenAICodexAuthManager,
-        openai_codex_auth_path=default_openai_codex_auth_path(),
         model_runtime=ModelRuntime(catalog=catalog_state),
         thinking_level=_validated_thinking_level(thinking),
     )

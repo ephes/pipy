@@ -67,12 +67,11 @@ class _Probe:
 
 
 class _ProbeReplState(NativeReplProviderState):
-    """Legacy-path (no-runtime) state whose provider build is a recording probe.
+    """State whose provider build is a recording probe.
 
     Provider construction is otherwise owned by the runtime; this double lets the
     mid-session-swap test observe the provider request each ``/model`` rebind
-    builds while ``/model`` resolution/availability run through the legacy
-    registry path (``model_runtime=None``).
+    builds while ``/model`` resolution/availability run through the bound catalog.
     """
 
     def __init__(self, probe: _Probe, **kwargs: object) -> None:
@@ -86,14 +85,24 @@ class _ProbeReplState(NativeReplProviderState):
 
 
 def test_tool_loop_switch_clears_then_refusal_preserves(tmp_path: Path) -> None:
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import ModelRuntime
+
     probe = _Probe()
     initial = NativeModelSelection("fake", "model-a")
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-codex.json",
+    )
     state = _ProbeReplState(
         probe,
         selection=initial,
         defaults_store=None,
         persist_defaults=False,
-        env={},
+        model_runtime=ModelRuntime(catalog=catalog),
     )
     session = NativeToolReplSession(
         provider=probe.factory(initial),

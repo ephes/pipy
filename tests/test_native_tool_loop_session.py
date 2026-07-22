@@ -1392,6 +1392,9 @@ def test_compaction_enabled_true_allows_auto_compaction(tmp_path, monkeypatch):
 
 def _scoped_models_state(tmp_path, seen):
     from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import ModelRuntime
 
     class _Rec:
         def __init__(self, provider_name, model_id, supports_tool_calls=True):
@@ -1417,20 +1420,25 @@ def _scoped_models_state(tmp_path, seen):
             )
 
     class _RecReplState(NativeReplProviderState):
-        """Legacy-path state whose provider build is the recording ``_Rec``.
+        """State whose provider build is the recording ``_Rec``.
 
         Provider construction is otherwise runtime-owned; this double lets the
-        scoped-models tests probe/rebind (registry availability path,
-        ``model_runtime=None``) while recording any provider turn into ``seen``.
+        scoped-models tests probe/rebind over the catalog availability gate while
+        recording any provider turn into ``seen``.
         """
 
         def provider_for(self, selection):
             return _Rec(selection.provider_name, selection.model_id)
 
-    return _RecReplState(
-        selection=NativeModelSelection("openai", "gpt-5.5"),
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
         env={"OPENAI_API_KEY": "x", "ANTHROPIC_API_KEY": "x"},
         openai_codex_auth_path=tmp_path / "missing.json",
+    )
+    return _RecReplState(
+        selection=NativeModelSelection("openai", "gpt-5.5"),
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
 
@@ -2331,8 +2339,6 @@ def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
     catalog_state.set_extension_provider_contributions(providers, unregistered)
     state = NativeReplProviderState(
         selection=NativeModelSelection("openai", "ext"),
-        env={"OPENAI_API_KEY": "sk-test"},
-        openai_codex_auth_path=tmp_path / "missing-codex.json",
         model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )
@@ -2414,8 +2420,6 @@ def test_reload_fail_closes_removed_extension_provider_when_no_fallback(
     catalog_state.set_extension_provider_contributions(providers, unregistered)
     state = NativeReplProviderState(
         selection=NativeModelSelection("uniqueext", "m"),
-        env={},
-        openai_codex_auth_path=tmp_path / "missing-codex.json",
         model_runtime=ModelRuntime(catalog=catalog_state),
         persist_defaults=False,
     )

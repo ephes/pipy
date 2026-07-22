@@ -333,7 +333,7 @@ class _FixedProviderReplState(NativeReplProviderState):
 
 
 class _RecordingProviderReplState(NativeReplProviderState):
-    """Legacy-path state whose provider build is a recording double."""
+    """State whose provider build is a recording double (runtime-owned otherwise)."""
 
     def __init__(
         self, seen: list[tuple[str, str]], **kwargs: object
@@ -380,11 +380,19 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
 
     seen: list[tuple[str, str]] = []
 
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={"OPENROUTER_API_KEY": "k", "OPENAI_API_KEY": "k2"},
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+    )
     provider_state = _RecordingProviderReplState(
         seen,
         selection=NativeModelSelection("openrouter", "openai/gpt-5.1-codex"),
-        env={"OPENROUTER_API_KEY": "k", "OPENAI_API_KEY": "k2"},
-        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
     ui = ToolLoopTerminalUi(
@@ -428,12 +436,12 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
         assert _wait_for(err_chunks, "[available]"), "availability state missing"
         # Opening the selector runs no provider turn.
         assert seen == [], "selector opened a provider turn"
-        # Navigate up from the current openrouter row to the openai row, then
-        # choose it. (model_options order: fake, ds4, openai-codex, openai,
-        # openrouter, ... - current is openrouter, one step up is openai.)
+        # Navigate up one row from the current openrouter/openai/gpt-5.1-codex
+        # row (the catalog lists it directly after the available
+        # openai-completions rows), then choose the available row above it.
         os.write(in_master, b"\x1b[A")  # up arrow
         os.write(in_master, b"\r")  # enter selects the highlighted available row
-        assert _wait_for(err_chunks, "selected model openai/gpt-5.5"), (
+        assert _wait_for(err_chunks, "selected model openai-completions/gpt-4.1"), (
             "selection notice never shown"
         )
         # No provider turn during selection.
@@ -454,19 +462,19 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
     assert result_holder, "selector session produced no result"
     result = result_holder[0]
     assert getattr(result, "status") == HarnessStatus.SUCCEEDED
-    assert getattr(result, "provider_name") == "openai"
-    assert getattr(result, "model_id") == "gpt-5.5"
+    assert getattr(result, "provider_name") == "openai-completions"
+    assert getattr(result, "model_id") == "gpt-4.1"
 
     captured = b"".join(err_chunks).decode("utf-8", errors="replace")
     # Inline model: never the alternate screen.
     assert "\x1b[?1049h" not in captured
     # Exactly one provider turn ran, and it used the newly selected selection.
-    assert seen == [("openai", "gpt-5.5")]
+    assert seen == [("openai-completions", "gpt-4.1")]
 
     # The footer/status model label updated to the new selection.
     snapshot = parse_ansi_screen(captured, columns=100, rows=40)
     footer_text = "\n".join(snapshot.viewport)
-    assert "gpt-5.5" in footer_text
+    assert "gpt-4.1" in footer_text
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
@@ -963,12 +971,20 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
     seen: list[tuple[str, str]] = []
 
     manager = _FileBackedAuthManager(auth_path)
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        openai_codex_auth_path=auth_path,
+    )
     provider_state = _RecordingProviderReplState(
         seen,
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
         auth_manager_factory=lambda: cast(OpenAICodexAuthManager, manager),
-        env={},
-        openai_codex_auth_path=auth_path,
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
 
@@ -1462,12 +1478,19 @@ def _native_state_logged_out(
     tmp_path: Path, provider: ProviderPort
 ) -> NativeReplProviderState:
     from pipy_harness.native import NativeModelSelection
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
 
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+    )
     return _FixedProviderReplState(
         provider,
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        env={},
-        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
 

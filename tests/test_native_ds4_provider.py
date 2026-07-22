@@ -80,10 +80,38 @@ def test_ds4_registry_entry_defaults_and_advertises_tool_loop(tmp_path: Path):
         NativeModelSelection("ds4", "custom-ds4")
     )
 
-    state = NativeReplProviderState(
-        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import ModelRuntime
+
+    # ds4 is intentionally absent from the built-in catalog (it is a models.json
+    # custom provider example), so register it through models.json to surface it
+    # in the catalog-backed model_options() the product REPL always uses.
+    models_path = tmp_path / "models.json"
+    models_path.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "ds4": {
+                        "baseUrl": DS4_DEFAULT_BASE_URL,
+                        "apiKey": "local-key",
+                        "api": "openai-completions",
+                        "models": [{"id": DS4_DEFAULT_MODEL}],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    catalog = ProviderCatalogState(
+        models_json_path=models_path,
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
         env={},
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+    )
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
     options = {option.selection.provider_name: option for option in state.model_options()}

@@ -249,12 +249,5 @@ def native_provider_available(
     return False
 
 
-def native_provider_unavailable_message(provider_name: str) -> str:
-    spec = native_provider_spec(provider_name)
-    if spec is not None and spec.unavailable_message is not None:
-        return spec.unavailable_message
-    return "pipy: unsupported native provider."
-
-
 def _split_env_names(value: str) -> tuple[str, ...]:
     return tuple(name.strip() for name in value.split(",") if name.strip())

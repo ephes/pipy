@@ -51,11 +51,11 @@ from pipy_harness.native.tui import (
 
 
 class _FixedProviderReplState(NativeReplProviderState):
-    """Legacy-path (no-runtime) state whose provider build is a fixed double.
+    """State whose provider build is a fixed double.
 
     Provider construction is otherwise runtime-owned; these TUI helpers pin a
-    specific provider instance so auth/read-only flows can observe it without a
-    catalog.
+    specific provider instance so auth/read-only flows can observe it while
+    availability still flows through the bound catalog.
     """
 
     def __init__(self, fixed_provider: ProviderPort, **kwargs: object) -> None:
@@ -884,7 +884,7 @@ def test_tui_settings_overlay_renders_through_frame(tmp_path: Path):
             "  active: fake/fake-native-bootstrap",
             "  registered providers:",
             "    fake/fake-native-bootstrap [available]",
-            "    openai/gpt-5.5 [unavailable (env-missing)]",
+            "    openai/gpt-5.5 [unavailable (auth-missing)]",
             "  read-only view; use /model to switch provider/model and "
             "/login or /logout to manage openai-codex OAuth.",
         ]
@@ -893,7 +893,7 @@ def test_tui_settings_overlay_renders_through_frame(tmp_path: Path):
     rendered = "\n".join(ui.render_lines(width=88, height=40, pad=False))
     assert "pipy native REPL settings:" in rendered
     assert "active: fake/fake-native-bootstrap" in rendered
-    assert "openai/gpt-5.5 [unavailable (env-missing)]" in rendered
+    assert "openai/gpt-5.5 [unavailable (auth-missing)]" in rendered
     assert "read-only view; use /model to switch" in rendered
 
     # The same content must reach the real terminal stream via paint().
@@ -1233,11 +1233,20 @@ class _CountingProvider:
 
 
 def _read_only_provider_state(tmp_path: Path, provider: ProviderPort):
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import ModelRuntime
+
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+    )
     return _FixedProviderReplState(
         provider,
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
-        env={},
-        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
 
@@ -1293,9 +1302,12 @@ def _recording_provider_state(
     env: dict[str, str],
 ):
     from pipy_harness.native import NativeModelSelection, NativeReplProviderState
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import ModelRuntime
 
     class _RecordingProviderState(NativeReplProviderState):
-        """Legacy-path state whose provider build is a recording double.
+        """State whose provider build is a recording double.
 
         ``fake`` mirrors production (no tool-call support); everything else is a
         tool-capable recording provider, so the selector's tool-capability gate
@@ -1310,10 +1322,15 @@ def _recording_provider_state(
                 supports_tool_calls=selection.provider_name != "fake",
             )
 
-    return _RecordingProviderState(
-        selection=NativeModelSelection(provider_name, model_id),
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
         env=env,
         openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+    )
+    return _RecordingProviderState(
+        selection=NativeModelSelection(provider_name, model_id),
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
 
@@ -1337,18 +1354,22 @@ def test_model_selector_rows_gate_unavailable_and_non_tool_capable(tmp_path: Pat
 
     ui_options, selections = session._model_selector_rows(provider_state)
 
-    by_provider = {
-        sel.provider_name: option for sel, option in zip(selections, ui_options)
+    by_selection = {
+        (sel.provider_name, sel.model_id): option
+        for sel, option in zip(selections, ui_options)
     }
     # `fake` is credential-available but not tool-capable → visible, not choosable.
-    assert by_provider["fake"].selectable is False
-    assert "no tool-call support" in by_provider["fake"].label
-    # An env-credentialed, tool-capable provider is choosable and marked current.
-    assert by_provider["openrouter"].selectable is True
-    assert "(current)" in by_provider["openrouter"].label
+    fake_option = by_selection[("fake", "fake-native-bootstrap")]
+    assert fake_option.selectable is False
+    assert "no tool-call support" in fake_option.label
+    # The env-credentialed, tool-capable current model is choosable and current.
+    current_option = by_selection[("openrouter", "openai/gpt-5.1-codex")]
+    assert current_option.selectable is True
+    assert "(current)" in current_option.label
     # A provider without credentials is visible but not choosable.
-    assert by_provider["openai"].selectable is False
-    assert "unavailable" in by_provider["openai"].label
+    openai_option = by_selection[("openai", "gpt-5.5")]
+    assert openai_option.selectable is False
+    assert "unavailable" in openai_option.label
 
 
 def test_model_command_direct_reference_rebinds_next_turn(
@@ -2759,7 +2780,7 @@ def test_tool_loop_plain_settings_command_is_read_only(
     stderr = error_stream.getvalue()
     assert "pipy native REPL settings:" in stderr
     assert "active: fake/fake-native-bootstrap" in stderr
-    assert "openai/gpt-5.5 [unavailable (env-missing)]" in stderr
+    assert "openai/gpt-5.5 [unavailable (auth-missing)]" in stderr
 
 
 def test_tui_session_does_not_print_legacy_separator(
@@ -3179,15 +3200,25 @@ class _RaisingOpenAICodexAuthManager:
 
 def _auth_provider_state(tmp_path: Path, provider: ProviderPort, auth_path: Path):
     from pipy_harness.native import NativeModelSelection
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
     from pipy_harness.native.openai_codex_provider import OpenAICodexAuthManager
+    from pipy_harness.native.repl_state import ModelRuntime
 
     manager = _FakeOpenAICodexAuthManager(auth_path)
+    # The catalog owns the codex credential path so login/logout refreshes
+    # availability through the same gate the product REPL uses.
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        openai_codex_auth_path=auth_path,
+    )
     state = _FixedProviderReplState(
         provider,
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
         auth_manager_factory=lambda: cast(OpenAICodexAuthManager, manager),
-        env={},
-        openai_codex_auth_path=auth_path,
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
     return state, manager
@@ -3205,12 +3236,21 @@ def _raising_auth_session(
 
     provider = _CountingProvider()
     manager = _RaisingOpenAICodexAuthManager(trace, failure)
+    from pipy_harness.native.auth_store import AuthStore
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.repl_state import ModelRuntime
+
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json",
+        auth_store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+    )
     provider_state = _FixedProviderReplState(
         provider,
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
         auth_manager_factory=lambda: cast(OpenAICodexAuthManager, manager),
-        env={},
-        openai_codex_auth_path=tmp_path / "missing-openai-codex.json",
+        model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
     return (

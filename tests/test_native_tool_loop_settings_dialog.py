@@ -248,8 +248,6 @@ def _native_state(
         providers,
         selection=NativeModelSelection("fake", "fake-tools"),
         model_runtime=ModelRuntime(catalog=catalog),
-        env={"OPENAI_API_KEY": "test-only"},
-        openai_codex_auth_path=tmp_path / "missing-codex.json",
         persist_defaults=False,
     )
 
