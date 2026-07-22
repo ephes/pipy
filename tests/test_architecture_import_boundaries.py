@@ -62,12 +62,10 @@ _LEGACY_CONCRETE_PROVIDER_MODULES = (
     "pipy_harness.native.anthropic_provider",
     "pipy_harness.native.bedrock_provider",
     "pipy_harness.native.cloudflare_provider",
-    "pipy_harness.native.ds4_provider",
     "pipy_harness.native.google_provider",
     "pipy_harness.native.google_vertex_provider",
     "pipy_harness.native.mistral_provider",
     "pipy_harness.native.openai_codex_provider",
-    "pipy_harness.native.openai_completions_provider",
     "pipy_harness.native.openrouter_provider",
 )
 
@@ -92,9 +90,13 @@ _PROVIDER_UI_FORBIDDEN_IMPORTS = (
 )
 
 # Phase 5.2 is migrating the concrete transports under ``native.providers`` one
-# family at a time (the OpenAI Responses adapter now lives in
-# ``native.providers.openai_responses`` and is governed by the ``native.providers``
-# package rule below).  For every transport still at the top level, enforce the
+# family at a time (the OpenAI Responses adapter lives in
+# ``native.providers.openai_responses``, its Azure sibling in
+# ``native.providers.azure_openai_responses``, and the OpenAI-compatible Chat
+# Completions adapter plus its ds4 reuse now live in
+# ``native.providers.openai_completions``/``native.providers.ds4`` — all governed
+# by the ``native.providers`` package rule below).  For every transport still at
+# the top level, enforce the
 # same boundary here alongside the provider-facing ports, fakes, deferred-tool
 # adapter, and shared HTTP helper so the package rule cannot silently no-op.
 _CURRENT_PROVIDER_UI_BOUNDARY_SOURCES = (

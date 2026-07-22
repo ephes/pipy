@@ -537,7 +537,7 @@ _CATALOG_WIRED_FAMILIES = frozenset(
 
 def _default_endpoint(api: str) -> str:
     if api == "openai-completions":
-        from pipy_harness.native.openai_completions_provider import (
+        from pipy_harness.native.providers.openai_completions import (
             OPENAI_CHAT_COMPLETIONS_URL,
         )
 
@@ -651,7 +651,7 @@ def build_provider(
     endpoint = _endpoint_for(resolved.api, resolved.base_url)
 
     if resolved.api == "openai-completions":
-        from pipy_harness.native.openai_completions_provider import (
+        from pipy_harness.native.providers.openai_completions import (
             OpenAIChatCompletionsProvider,
             openai_completions_http_client,
         )

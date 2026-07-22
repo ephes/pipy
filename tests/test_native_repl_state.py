@@ -299,7 +299,7 @@ def test_current_provider_catalog_constructs_custom_completions_provider(tmp_pat
 
     from pipy_harness.native.auth_store import AuthStore
     from pipy_harness.native.catalog_state import ProviderCatalogState
-    from pipy_harness.native.openai_completions_provider import (
+    from pipy_harness.native.providers.openai_completions import (
         OpenAIChatCompletionsProvider,
     )
     from pipy_harness.native.repl_state import (
@@ -502,7 +502,7 @@ def test_direct_model_unknown_errors(tmp_path):
 
 
 def test_product_path_thinking_level_reaches_constructed_adapter(tmp_path):
-    from pipy_harness.native.openai_completions_provider import (
+    from pipy_harness.native.providers.openai_completions import (
         OpenAIChatCompletionsProvider,
     )
 
@@ -538,7 +538,7 @@ def test_product_path_thinking_level_reaches_constructed_adapter(tmp_path):
 def test_fallback_selection_constructs_from_catalog_base(tmp_path):
     # A synthesized fallback model (known provider, uncataloged id) must still
     # construct from the provider's catalog base, not the legacy factory.
-    from pipy_harness.native.openai_completions_provider import (
+    from pipy_harness.native.providers.openai_completions import (
         OpenAIChatCompletionsProvider,
     )
     from pipy_harness.native.repl_state import NativeModelSelection

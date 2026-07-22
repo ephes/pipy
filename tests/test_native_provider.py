@@ -19,8 +19,8 @@ PROVIDER_MODULES = (
     "cloudflare_provider.py",
     "mistral_provider.py",
     "openai_codex_provider.py",
-    "openai_completions_provider.py",
     "providers/azure_openai_responses.py",
+    "providers/openai_completions.py",
     "providers/openai_responses.py",
     "openrouter_provider.py",
 )

@@ -16,7 +16,7 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native import ProviderRequest
-from pipy_harness.native.openai_completions_provider import (
+from pipy_harness.native.providers.openai_completions import (
     JsonResponse,
     OpenAIChatCompletionsProvider,
     OpenAICompletionsHTTPStatusError,

@@ -34,7 +34,7 @@ echo "── Providers (A1–A11) ───────────────�
 check A1  "faux/fake"                small  "test -f src/pipy_harness/native/fake.py"
 check A2  "openai-responses"         small  "test -f src/pipy_harness/native/providers/openai_responses.py"
 check A3  "openai-codex-responses"   small  "test -f src/pipy_harness/native/openai_codex_provider.py"
-check A4  "openai-completions"       small  "test -f src/pipy_harness/native/openai_completions_provider.py"
+check A4  "openai-completions"       small  "test -f src/pipy_harness/native/providers/openai_completions.py"
 check A5  "anthropic"                big    "test -f src/pipy_harness/native/anthropic_provider.py"
 check A6  "google (Gemini)"          big    "test -f src/pipy_harness/native/google_provider.py"
 check A7  "google-vertex"            small  "test -f src/pipy_harness/native/google_vertex_provider.py"

@@ -138,7 +138,7 @@ def test_all_real_provider_complete_signatures_accept_stream_sink_kwarg() -> Non
         "pipy_harness.native.google_vertex_provider": "GoogleVertexProvider",
         "pipy_harness.native.mistral_provider": "MistralProvider",
         "pipy_harness.native.openai_codex_provider": "OpenAICodexResponsesProvider",
-        "pipy_harness.native.openai_completions_provider": "OpenAIChatCompletionsProvider",
+        "pipy_harness.native.providers.openai_completions": "OpenAIChatCompletionsProvider",
         "pipy_harness.native.providers.openai_responses": "OpenAIResponsesProvider",
         "pipy_harness.native.openrouter_provider": "OpenRouterChatCompletionsProvider",
     }

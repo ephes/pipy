@@ -11,7 +11,7 @@ from pipy_harness.cli import main
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest
 from pipy_harness.native.http import JsonResponse
-from pipy_harness.native.ds4_provider import (
+from pipy_harness.native.providers.ds4 import (
     Ds4ChatCompletionsProvider,
     ds4_chat_completions_endpoint,
 )

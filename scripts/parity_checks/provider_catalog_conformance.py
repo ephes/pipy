@@ -90,7 +90,7 @@ from pipy_harness.native.models_json import (
     ModelDefinition,
     ProviderConfig,
 )
-from pipy_harness.native.openai_completions_provider import JsonResponse
+from pipy_harness.native.providers.openai_completions import JsonResponse
 from pipy_harness.native.provider_construction import (
     build_provider,
     resolve_construction,
@@ -1007,7 +1007,7 @@ def _check_product_construction(checks, tmp: Path):
     bypass_state = _state(tmp, bypass_path, {"OPENAI_API_KEY": "k"})
     bypass_spec = bypass_state.find("openai-completions", "gpt-4o-mini")
     bypass_sent, _ = _construct_and_capture(bypass_state, bypass_spec, runtime_api_key=None, thinking_level=None)
-    from pipy_harness.native.openai_completions_provider import OPENAI_CHAT_COMPLETIONS_URL
+    from pipy_harness.native.providers.openai_completions import OPENAI_CHAT_COMPLETIONS_URL
 
     bypass_ok = (
         bypass_sent["url"] == "https://catalog-override.example/v1/chat/completions"
@@ -1027,7 +1027,7 @@ def _check_product_construction(checks, tmp: Path):
     # current_provider, used by the REPL tool-loop) — not just build_provider —
     # constructs the catalog adapter. A regression to the legacy factory here
     # would fail this check (and the secret-bearing fields are repr-hidden).
-    from pipy_harness.native.openai_completions_provider import (
+    from pipy_harness.native.providers.openai_completions import (
         OpenAIChatCompletionsProvider,
     )
     from pipy_harness.native.repl_state import (

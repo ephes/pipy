@@ -582,7 +582,7 @@ def test_cli_native_openrouter_provider_is_selectable_without_storing_output(
             )
 
     monkeypatch.setattr(
-        "pipy_harness.native.openai_completions_provider.OpenAIChatCompletionsProvider",
+        "pipy_harness.native.providers.openai_completions.OpenAIChatCompletionsProvider",
         CliFakeOpenRouterProvider,
     )
 
@@ -829,7 +829,7 @@ def test_cli_native_openrouter_failure_does_not_print_or_store_provider_final_te
             )
 
     monkeypatch.setattr(
-        "pipy_harness.native.openai_completions_provider.OpenAIChatCompletionsProvider",
+        "pipy_harness.native.providers.openai_completions.OpenAIChatCompletionsProvider",
         CliFailingOpenRouterProvider,
     )
 

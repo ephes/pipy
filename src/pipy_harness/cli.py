@@ -2879,13 +2879,13 @@ def _native_provider_for_selection(
     if selection.provider_name == "openai":
         return OpenAIResponsesProvider(model_id=selection.model_id)
     if selection.provider_name == "openai-completions":
-        from pipy_harness.native.openai_completions_provider import (
+        from pipy_harness.native.providers.openai_completions import (
             OpenAIChatCompletionsProvider,
         )
 
         return OpenAIChatCompletionsProvider(model_id=selection.model_id)
     if selection.provider_name == "ds4":
-        from pipy_harness.native.ds4_provider import Ds4ChatCompletionsProvider
+        from pipy_harness.native.providers.ds4 import Ds4ChatCompletionsProvider
 
         return Ds4ChatCompletionsProvider(model_id=selection.model_id)
     if selection.provider_name == "openai-codex":

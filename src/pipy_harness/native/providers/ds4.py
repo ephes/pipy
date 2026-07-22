@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pipy_harness.native.http import JsonHTTPClient
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.openai_completions_provider import (
+from pipy_harness.native.providers.openai_completions import (
     OpenAIChatCompletionsProvider,
     openai_completions_http_client,
 )

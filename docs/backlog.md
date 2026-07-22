@@ -1087,7 +1087,14 @@ The bulk is mechanical duplication. pi-mono's
 2. Extract `pipy_harness.native.providers._chat_completions_shared` for
    the Chat-Completions wire shape. Collapse OpenAI-Completions,
    OpenRouter, Mistral, and Cloudflare onto it (~760 L removed). Refs:
-   `02:F3`.
+   `02:F3`. **Relocation started (migration Slice 5.2-chat, cut 1):** the
+   canonical OpenAI-compatible Chat Completions adapter moved verbatim to
+   `pipy_harness.native.providers.openai_completions` (with its ds4 reuse in
+   `pipy_harness.native.providers.ds4`) as translation-only over the shared
+   `native.http` primitives; ds4 keeps its own endpoint normalization and its
+   divergent transport-vs-status labelling. Remaining: relocate Mistral,
+   OpenRouter, and Cloudflare, then the `_chat_completions_shared`/wire
+   consolidation and helper de-duplication (cut 4).
 3. Extract a shared OpenAI Responses wire-shape translator and collapse
    the copies. **Done for the two relocated Responses adapters:**
    `pipy_harness.native.providers.openai_responses_wire` now owns the
