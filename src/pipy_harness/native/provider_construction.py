@@ -543,7 +543,9 @@ def _default_endpoint(api: str) -> str:
 
         return OPENAI_CHAT_COMPLETIONS_URL
     if api == "anthropic-messages":
-        from pipy_harness.native.anthropic_provider import ANTHROPIC_MESSAGES_URL
+        from pipy_harness.native.providers.anthropic_messages import (
+            ANTHROPIC_MESSAGES_URL,
+        )
 
         return ANTHROPIC_MESSAGES_URL
     if api == "openai-responses":
@@ -669,7 +671,7 @@ def build_provider(
         )
 
     if resolved.api == "anthropic-messages":
-        from pipy_harness.native.anthropic_provider import AnthropicProvider
+        from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
 
         return AnthropicProvider(
             model_id=resolved.model_id,

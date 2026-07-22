@@ -24,7 +24,7 @@ from pipy_harness.native.http import (
     open_url_cancellable,
     urlopen_read_cancellable,
 )
-from pipy_harness.native.anthropic_provider import AnthropicProvider
+from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.models import ProviderRequest
 

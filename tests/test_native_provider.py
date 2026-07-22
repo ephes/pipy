@@ -14,9 +14,9 @@ from pipy_harness.native import (
 
 
 PROVIDER_MODULES = (
-    "anthropic_provider.py",
     "bedrock_provider.py",
     "openai_codex_provider.py",
+    "providers/anthropic_messages.py",
     "providers/azure_openai_responses.py",
     "providers/cloudflare.py",
     "providers/mistral.py",

@@ -18,7 +18,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
-from pipy_harness.native.anthropic_provider import (
+from pipy_harness.native.providers.anthropic_messages import (
     AnthropicHTTPStatusError,
     AnthropicProvider,
     JsonResponse,

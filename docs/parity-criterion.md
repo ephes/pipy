@@ -103,7 +103,7 @@ that defines a provider class (excluding shared helpers `*-shared.ts`,
 | A2 | openai-responses | ✅ | `test -f src/pipy_harness/native/providers/openai_responses.py` |
 | A3 | openai-codex-responses | ✅ | `test -f src/pipy_harness/native/openai_codex_provider.py` |
 | A4 | openai-completions (chat) | ✅ | `test -f src/pipy_harness/native/providers/openai_completions.py` |
-| A5 | anthropic | ✅ | `test -f src/pipy_harness/native/anthropic_provider.py` |
+| A5 | anthropic | ✅ | `test -f src/pipy_harness/native/providers/anthropic_messages.py` |
 | A6 | google (Gemini Generative AI) | ✅ | `test -f src/pipy_harness/native/google_provider.py` |
 | A7 | google-vertex | ✅ | `test -f src/pipy_harness/native/google_vertex_provider.py` |
 | A8 | mistral | ✅ | `test -f src/pipy_harness/native/providers/mistral.py` |

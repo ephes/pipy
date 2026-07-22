@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native.anthropic_provider import (
+from pipy_harness.native.providers.anthropic_messages import (
     ANTHROPIC_ADAPTIVE_EFFORT,
     ANTHROPIC_DEFAULT_THINKING_BUDGET,
     ANTHROPIC_THINKING_BUDGETS,

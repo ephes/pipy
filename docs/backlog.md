@@ -1121,6 +1121,15 @@ The bulk is mechanical duplication. pi-mono's
    streaming contract is characterized. Refs: `02:F16`.
 4. Extract `pipy_harness.native.providers._anthropic_shared` and
    collapse Anthropic + Bedrock onto it. Refs: `02:F4`.
+   **In progress (migration Slice 5.2-anthropic, cut 1):** the Anthropic
+   Messages adapter moved verbatim to
+   `pipy_harness.native.providers.anthropic_messages`, translation-only over the
+   shared `native.http` primitives, keeping `AnthropicProvider`, the
+   `anthropic_http_client()` factory, `ANTHROPIC_MESSAGES_URL`, the
+   thinking-budget/adaptive constants, and `supports_adaptive_thinking` (which
+   the still-top-level `bedrock_provider` now imports from the new module).
+   Remaining: relocate Bedrock (cut 2) and consolidate the anthropic/bedrock
+   wire helpers (cut 3).
 5. Move `_safe_response_label`, `_extract_usage`, and `_utc_now` into
    the shared http/parsing modules. Delete the per-provider copies.
    Refs: `02:F2`, `02:F13`, `02:F20`.

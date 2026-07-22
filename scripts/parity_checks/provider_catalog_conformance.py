@@ -1200,7 +1200,7 @@ def _check_tier1_construction(checks, tmp: Path):
 
     # 20d: the product boundary (current_provider) constructs a built-in
     # anthropic catalog model — not the legacy factory.
-    from pipy_harness.native.anthropic_provider import AnthropicProvider
+    from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
         NativeReplProviderState,
@@ -1570,7 +1570,7 @@ def _check_run_path_construction(checks, tmp: Path):
     # factory. A runtime --api-key + --thinking must reach the constructed
     # adapter; the legacy factory would ignore both.
     from pipy_harness.cli import _run_provider_for_selection
-    from pipy_harness.native.anthropic_provider import AnthropicProvider
+    from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
     from pipy_harness.native.repl_state import NativeModelSelection
 
     provider = _run_provider_for_selection(

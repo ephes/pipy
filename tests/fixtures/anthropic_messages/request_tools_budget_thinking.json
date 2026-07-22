@@ -1,0 +1,65 @@
+{
+  "model": "claude-sonnet-4-5",
+  "max_tokens": 4096,
+  "system": "You are the pipy native assistant.",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Read config.toml and summarize it."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "I'll read the file first."
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_read_1",
+          "name": "read",
+          "input": {
+            "path": "config.toml"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_read_1",
+          "content": "port = 8080"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "read",
+      "description": "Read a file from the workspace.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    }
+  ],
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 16384,
+    "display": "summarized"
+  }
+}

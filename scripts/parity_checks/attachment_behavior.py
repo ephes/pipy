@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.anthropic_provider import _messages_payload
+from pipy_harness.native.providers.anthropic_messages import _messages_payload
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 

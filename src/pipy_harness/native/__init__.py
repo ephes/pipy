@@ -78,7 +78,7 @@ from pipy_harness.native.openai_codex_provider import (
     default_openai_codex_auth_path,
     parse_authorization_input,
 )
-from pipy_harness.native.anthropic_provider import AnthropicProvider
+from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
 from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
 from pipy_harness.native.providers.ds4 import Ds4ChatCompletionsProvider
 from pipy_harness.native.google_provider import GoogleGenerativeAIProvider

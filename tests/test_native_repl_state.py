@@ -376,7 +376,7 @@ def test_current_provider_falls_back_to_legacy_for_unwired_family(tmp_path):
 
 
 def test_current_provider_constructs_anthropic_from_catalog(tmp_path):
-    from pipy_harness.native.anthropic_provider import AnthropicProvider
+    from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
     from pipy_harness.native.auth_store import AuthStore
     from pipy_harness.native.catalog_state import ProviderCatalogState
     from pipy_harness.native.repl_state import (

@@ -2903,7 +2903,7 @@ def _native_provider_for_selection(
     if selection.provider_name == "openrouter":
         return OpenRouterChatCompletionsProvider(model_id=selection.model_id)
     if selection.provider_name == "anthropic":
-        from pipy_harness.native.anthropic_provider import AnthropicProvider
+        from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
 
         return AnthropicProvider(model_id=selection.model_id)
     if selection.provider_name == "google":

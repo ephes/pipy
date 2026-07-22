@@ -196,7 +196,7 @@ Remaining adapter/product follow-ons:
   send `display: "summarized"` (Pi forces this; the adaptive models' API default
   is `"omitted"`). The adaptive model markers, the `minimal -> low` effort clamp,
   and `supports_adaptive_thinking` are shared with the bedrock adapter from
-  `anthropic_provider`. The bedrock adapter now also forces
+  `providers/anthropic_messages`. The bedrock adapter now also forces
   `display: "summarized"` on both its adaptive and budget thinking paths,
   omitting it only on GovCloud targets (configured region `us-gov-*`, or a model
   id starting `us-gov.` / `arn:aws-us-gov:`, whose Converse schema rejects the

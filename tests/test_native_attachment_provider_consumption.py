@@ -11,7 +11,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, cast
 
-from pipy_harness.native.anthropic_provider import _messages_payload
+from pipy_harness.native.providers.anthropic_messages import _messages_payload
 from pipy_harness.native.agent import AgentMessage, AgentUserMessage, ProductContent
 from pipy_harness.native.google_provider import _gemini_contents
 from pipy_harness.native.image_attachment import ProviderImageAttachment
