@@ -2,24 +2,28 @@
 
 This module owns request execution, timeouts, and cancellation for every
 provider transport: the cancellable ``urlopen`` machinery that lets an
-Escape / Ctrl-C during a turn shut the in-flight socket down, the small JSON
-response boundary (:class:`JsonResponse` / :class:`JsonHTTPClient`), the shared
-:class:`UrllibJsonHTTPClient` that every plain-JSON provider adapter reuses, the
-shared :class:`ProviderHTTPError` base with its declarative HTTP-status/api-error
-normalization (:meth:`ProviderHTTPError.from_http_error`), the response-body
-decoder, the HTTP-error metadata builder, and the safe usage-field extractors.
-Provider modules import these primitives rather than re-implementing transport
-concerns.
+Escape / Ctrl-C during a turn shut the in-flight socket down, the SSE framing
+that splits a streaming response into event payloads (:func:`iter_sse_event_payloads`),
+the transport-exception retry classifier (:func:`transport_exception_retryable`),
+the small JSON response boundary (:class:`JsonResponse` / :class:`JsonHTTPClient`),
+the shared :class:`UrllibJsonHTTPClient` that every plain-JSON provider adapter
+reuses, the shared :class:`ProviderHTTPError` base with its declarative
+HTTP-status/api-error normalization (:meth:`ProviderHTTPError.from_http_error`),
+the response-body decoder, the HTTP-error metadata builder, and the safe
+usage-field extractors. Provider modules import these primitives rather than
+re-implementing transport concerns.
 """
 
 from __future__ import annotations
 
+import errno
 import http.client
 import json
 import socket
+import ssl
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol, Self
 
@@ -244,6 +248,97 @@ def urlopen_read_cancellable(
         _safe_close(response)
     cancel_token.raise_if_cancelled()
     return status_code, payload
+
+
+# Transport ``errno`` codes that name a recoverable network condition (reset,
+# refused, unreachable, broken pipe, timed out). A retry may succeed once the
+# transient condition clears; other ``OSError`` codes are not retried.
+RETRYABLE_TRANSPORT_ERRNOS: frozenset[int] = frozenset(
+    {
+        errno.ECONNABORTED,
+        errno.ECONNREFUSED,
+        errno.ECONNRESET,
+        errno.EHOSTUNREACH,
+        errno.ENETRESET,
+        errno.ENETUNREACH,
+        errno.EPIPE,
+        errno.ETIMEDOUT,
+    }
+)
+
+
+def transport_exception_retryable(exc: BaseException) -> bool | None:
+    """Classify only recognized network exceptions; ``None`` means unrelated.
+
+    Returns ``True`` for transient transport failures (timeouts, DNS failures,
+    connection resets, truncated/incomplete reads, retryable ``OSError`` errnos),
+    ``False`` for permanent transport failures (certificate verification, an
+    invalid status line), and ``None`` for exceptions that are not recognized
+    transport failures at all — the caller decides what to do with those.
+    ``URLError`` is unwrapped so the underlying reason is classified.
+    """
+
+    if isinstance(exc, urllib.error.ContentTooShortError):
+        return True
+    if isinstance(exc, urllib.error.URLError):
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, BaseException) and reason is not exc:
+            return transport_exception_retryable(reason)
+        return None
+    if isinstance(exc, ssl.SSLCertVerificationError):
+        return False
+    if isinstance(exc, TimeoutError | socket.gaierror | ConnectionError):
+        return True
+    if isinstance(exc, ssl.SSLError):
+        return True
+    if isinstance(exc, http.client.IncompleteRead | http.client.RemoteDisconnected):
+        return True
+    if isinstance(exc, http.client.BadStatusLine):
+        return False
+    if isinstance(exc, OSError) and exc.errno in RETRYABLE_TRANSPORT_ERRNOS:
+        return True
+    return None
+
+
+def iter_sse_event_payloads(
+    response: Any,
+    collected_body: list[str],
+) -> Iterator[str]:
+    """Yield raw SSE event payload strings line-by-line from a urllib response.
+
+    SSE events are separated by blank lines. Each line either starts with
+    ``data:`` (the payload) or is a comment/keepalive starting with ``:``
+    (skipped). This accumulates ``data:`` lines per event, joins them, and
+    yields the stripped payload string for each non-empty, non-``[DONE]`` event
+    as it arrives over the wire. The raw decoded lines are appended to
+    ``collected_body`` so callers retain an after-the-fact transcript. Callers
+    decode each yielded payload into their own event/error taxonomy.
+    """
+
+    data_lines: list[str] = []
+    for raw in response:
+        if isinstance(raw, bytes):
+            line = raw.decode("utf-8", errors="replace")
+        else:
+            line = str(raw)
+        collected_body.append(line)
+        # Strip a single trailing newline so the SSE separator check works on
+        # stripped lines.
+        stripped_line = line.rstrip("\r\n")
+        if stripped_line == "":
+            payload = "\n".join(data_lines).strip()
+            data_lines.clear()
+            if not payload or payload == "[DONE]":
+                continue
+            yield payload
+            continue
+        if stripped_line.startswith("data:"):
+            data_lines.append(stripped_line.removeprefix("data:").strip())
+    # Flush any trailing event that did not end with a blank line.
+    if data_lines:
+        payload = "\n".join(data_lines).strip()
+        if payload and payload != "[DONE]":
+            yield payload
 
 
 def safe_http_status_metadata(status_code: int) -> dict[str, Any]:

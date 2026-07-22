@@ -352,7 +352,14 @@ builder. The Anthropic Messages and Amazon Bedrock adapters share the same
 extractor; Bedrock still computes AWS SigV4 signing in the adapter before the
 shared client sends, and `BedrockHTTPStatusError` keeps its own `from_http_error`
 because the Bedrock error envelope is a top-level `message`/`__type` shape rather
-than the shared nested-`error` shape.
+than the shared nested-`error` shape. The OpenAI Codex subscription adapter
+(its own SSE/OAuth/WebSocket transports) reuses the same `ProviderHTTPError`
+base plus two shared streaming/retry helpers: `iter_sse_event_payloads`, the
+cancellable SSE line-framer that splits a streaming response into raw
+event-payload strings, and `transport_exception_retryable`, the recognized
+network-exception retry classifier. Codex still owns its own
+`OpenAICodexHTTPStatusError.from_http_error`, its domain retry classifier, and
+its retry/fallback loop.
 
 Native provider/model ids and coarse capability flags are registered in
 `pipy_harness.native.provider_registry`. The registry owns default models,

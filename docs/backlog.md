@@ -1075,8 +1075,15 @@ The bulk is mechanical duplication. pi-mono's
    in the Bedrock adapter before the shared client sends, and
    `BedrockHTTPStatusError` keeps its own `from_http_error` (its error envelope
    is a top-level `message`/`__type` shape, not the shared nested-`error`
-   shape). Remaining: Codex keeps its own SSE transport (Slices 5.2
-   protocol-family migrations).
+   shape). Codex has since reparented `OpenAICodexProviderError` onto the shared
+   `ProviderHTTPError` base and reuses the shared `iter_sse_event_payloads` SSE
+   line-framer, `transport_exception_retryable` network-exception classifier,
+   and `extract_responses_usage` (its `_iter_sse_stream`,
+   `_transport_exception_retryable`/`_RETRYABLE_TRANSPORT_ERRNOS`, and
+   `_extract_usage` copies are deleted); it keeps its own OAuth/WebSocket
+   transports, HTTP-status normalizer, domain retry classifier, and
+   retry/fallback loop. Remaining: the per-family wire-shape modules under
+   `native.providers` (Slice 5.2).
 2. Extract `pipy_harness.native.providers._chat_completions_shared` for
    the Chat-Completions wire shape. Collapse OpenAI-Completions,
    OpenRouter, Mistral, and Cloudflare onto it (~760 L removed). Refs:
@@ -1269,14 +1276,14 @@ Remove copy-paste that the type system could have caught.
    (three checks for the same value, one structurally unreachable).
    Refs: `06:F12`.
 8. Consolidate the copies of `_extract_usage` into the shared
-   provider module (Track CQ-B). Refs: `02:F13`. **Partly landed
+   provider module (Track CQ-B). Refs: `02:F13`. **Landed
    (migration Slice 5.1):** the eight plain-JSON adapters use the
    shared `native.http` `extract_usage_from_fields`/`extract_responses_usage`
-   helpers, and `anthropic`/`bedrock` now share the new
-   `native.http.extract_anthropic_usage` (the identical total-synthesizing
-   Anthropic Messages usage extractor both adapters had already converged on).
-   Only `openai_codex` keeps a local `_extract_usage` (Slices 5.2
-   protocol-family migrations).
+   helpers, `anthropic`/`bedrock` share `native.http.extract_anthropic_usage`
+   (the identical total-synthesizing Anthropic Messages usage extractor both
+   adapters had already converged on), and `openai_codex` now calls the shared
+   `extract_responses_usage(usage, OPENAI_CODEX_NESTED_USAGE_FIELDS)` — no
+   provider keeps a local `_extract_usage`.
 
 ### Out Of Scope For This Track
 

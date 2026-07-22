@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import base64
-import errno
 import hashlib
-import http.client
 import json
 import math
 import os
 import random
 import re
 import secrets
-import socket
-import ssl
 import stat
 import threading
 import time
@@ -36,8 +32,12 @@ from pipy_harness.native._provider_helpers import (
     utc_now,
 )
 from pipy_harness.native.http import (
+    ProviderHTTPError,
     decode_json_object,
+    extract_responses_usage,
+    iter_sse_event_payloads,
     open_url_cancellable,
+    transport_exception_retryable,
 )
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
 from pipy_harness.native.agent import (
@@ -62,7 +62,6 @@ from pipy_harness.native.settings import (
     DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS,
 )
 from pipy_harness.native.tools.base import ToolDefinition
-from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 OPENAI_CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
@@ -104,18 +103,6 @@ OPENAI_CODEX_TERMINAL_API_LABELS = frozenset(
     }
 )
 MAX_RETRY_AFTER_SECONDS = 120.0
-_RETRYABLE_TRANSPORT_ERRNOS = frozenset(
-    {
-        errno.ECONNABORTED,
-        errno.ECONNREFUSED,
-        errno.ECONNRESET,
-        errno.EHOSTUNREACH,
-        errno.ENETRESET,
-        errno.ENETUNREACH,
-        errno.EPIPE,
-        errno.ETIMEDOUT,
-    }
-)
 OPENAI_CODEX_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("input_tokens_details", "cached_tokens"),
     ("output_tokens_details", "reasoning_tokens"),
@@ -421,7 +408,8 @@ class UrllibSseHTTPClient:
 
         def _events() -> Iterator[Mapping[str, Any]]:
             try:
-                for event in _iter_sse_stream(response, collected_body):
+                for payload in iter_sse_event_payloads(response, collected_body):
+                    event = _decode_sse_event(payload)
                     if cancel_token is not None:
                         cancel_token.raise_if_cancelled()
                     yield event
@@ -453,45 +441,6 @@ class UrllibSseHTTPClient:
             body="",  # populated lazily as the stream is consumed
             event_stream=_events(),
         )
-
-
-def _iter_sse_stream(
-    response: Any,
-    collected_body: list[str],
-) -> Iterator[Mapping[str, Any]]:
-    """Yield parsed SSE events line-by-line from a urllib response.
-
-    SSE events are separated by blank lines. Each event line either
-    starts with ``data:`` (the payload) or is a comment/keepalive
-    starting with ``:`` (skipped). The function accumulates ``data:``
-    lines per event, joins them, parses JSON, and yields the parsed
-    mapping. Malformed JSON raises ``OpenAICodexResponseParseError``.
-    """
-
-    data_lines: list[str] = []
-    for raw in response:
-        if isinstance(raw, bytes):
-            line = raw.decode("utf-8", errors="replace")
-        else:
-            line = str(raw)
-        collected_body.append(line)
-        # Strip a single trailing newline so the SSE separator check
-        # works on stripped lines.
-        stripped_line = line.rstrip("\r\n")
-        if stripped_line == "":
-            payload = "\n".join(data_lines).strip()
-            data_lines.clear()
-            if not payload or payload == "[DONE]":
-                continue
-            yield _decode_sse_event(payload)
-            continue
-        if stripped_line.startswith("data:"):
-            data_lines.append(stripped_line.removeprefix("data:").strip())
-    # Flush any trailing event that did not end with a blank line.
-    if data_lines:
-        payload = "\n".join(data_lines).strip()
-        if payload and payload != "[DONE]":
-            yield _decode_sse_event(payload)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1172,12 +1121,16 @@ class ParsedOpenAICodexResponse:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-class OpenAICodexProviderError(Exception):
-    """Base class for sanitized OpenAI Codex provider errors."""
+class OpenAICodexProviderError(ProviderHTTPError):
+    """Base class for sanitized OpenAI Codex provider errors.
 
-    def __init__(self, message: str, *, metadata: Mapping[str, Any] | None = None) -> None:
-        super().__init__(sanitize_text(message))
-        self.metadata = dict(metadata or {})
+    Reuses the shared :class:`~pipy_harness.native.http.ProviderHTTPError` base
+    for the sanitized-message + metadata-dict contract. The Codex HTTP-status
+    error keeps its own :meth:`OpenAICodexHTTPStatusError.from_http_error`
+    (retry-after headers, cancellation-aware body read, bounded API labels)
+    rather than the shared declarative normalizer, so this base leaves the
+    ``provider_label``/``api_error_fields`` class attributes at their defaults.
+    """
 
 
 class OpenAICodexAuthError(OpenAICodexProviderError):
@@ -1216,7 +1169,7 @@ class OpenAICodexHTTPStatusError(OpenAICodexProviderError):
         except Exception as read_exc:  # noqa: BLE001 - recognized transport failures only
             if cancel_token is not None:
                 cancel_token.raise_if_cancelled()
-            if _transport_exception_retryable(read_exc) is None:
+            if transport_exception_retryable(read_exc) is None:
                 raise
             # The HTTP response status is already sufficient for the stable
             # provider-domain failure. A transport interruption while reading
@@ -1350,31 +1303,6 @@ def _codex_failure_retryable(exc: BaseException) -> bool:
     return False
 
 
-def _transport_exception_retryable(exc: BaseException) -> bool | None:
-    """Classify only recognized network exceptions; ``None`` means unrelated."""
-
-    if isinstance(exc, urllib.error.ContentTooShortError):
-        return True
-    if isinstance(exc, urllib.error.URLError):
-        reason = getattr(exc, "reason", None)
-        if isinstance(reason, BaseException) and reason is not exc:
-            return _transport_exception_retryable(reason)
-        return None
-    if isinstance(exc, ssl.SSLCertVerificationError):
-        return False
-    if isinstance(exc, TimeoutError | socket.gaierror | ConnectionError):
-        return True
-    if isinstance(exc, ssl.SSLError):
-        return True
-    if isinstance(exc, http.client.IncompleteRead | http.client.RemoteDisconnected):
-        return True
-    if isinstance(exc, http.client.BadStatusLine):
-        return False
-    if isinstance(exc, OSError) and exc.errno in _RETRYABLE_TRANSPORT_ERRNOS:
-        return True
-    return None
-
-
 def _normalize_transport_exception(
     exc: BaseException,
     *,
@@ -1384,7 +1312,7 @@ def _normalize_transport_exception(
 ) -> OpenAICodexTransportError | None:
     """Create a stable provider error for a narrowly recognized exception."""
 
-    retryable = _transport_exception_retryable(exc)
+    retryable = transport_exception_retryable(exc)
     if retryable is None:
         return None
     metadata = {
@@ -1747,7 +1675,9 @@ def _parse_response_events(
 
     return ParsedOpenAICodexResponse(
         final_text=final_text,
-        usage=_extract_usage(terminal_response.get("usage")),
+        usage=extract_responses_usage(
+            terminal_response.get("usage"), OPENAI_CODEX_NESTED_USAGE_FIELDS
+        ),
         response_status=response_status,
         tool_calls=tool_calls,
     )
@@ -1865,21 +1795,6 @@ def _extract_output_text_chunks(item: Mapping[str, Any]) -> list[str]:
         if content_item.get("type") == "output_text" and isinstance(content_item.get("text"), str):
             chunks.append(content_item["text"])
     return chunks
-
-
-def _extract_usage(value: Any) -> dict[str, int | float]:
-    if not isinstance(value, Mapping):
-        return {}
-    usage: dict[str, Any] = {}
-    for key in NORMALIZED_PROVIDER_USAGE_KEYS:
-        usage[key] = value.get(key)
-
-    for details_key, usage_key in OPENAI_CODEX_NESTED_USAGE_FIELDS:
-        details = value.get(details_key)
-        if isinstance(details, Mapping) and usage_key in details:
-            usage[usage_key] = details[usage_key]
-
-    return normalize_provider_usage(usage)
 
 
 def _base64url(value: bytes) -> str:
