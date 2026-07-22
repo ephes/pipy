@@ -15,6 +15,19 @@ re-exported from `pipy_harness.extensions` (via `extension_runtime`) unchanged.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, MutableMapping
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
+    # The UI protocol and renderer context still live in ``extension_runtime``
+    # (they move in Slice 6.4). They are imported here only to resolve the two
+    # forward-referenced annotations on ``ProjectTrustContext.ui`` and
+    # ``ExtensionTool.render_call`` / ``render_result``. This is a
+    # type-checking-only edge: there is no runtime import, so
+    # ``extension_types`` remains a runtime leaf with no import cycle.
+    from pipy_harness.native.extension_runtime import ExtensionUi, ToolRenderContext
+
 # Activation reason codes (safe, enumerable labels).
 REASON_IMPORT_ERROR: str = "import_error"
 REASON_NO_ACTIVATE: str = "no_activate"
@@ -160,3 +173,326 @@ def _safe_diagnostic(err: BaseException) -> str:
     if len(kind) > _DIAGNOSTIC_MAX_LENGTH:
         return kind[:_DIAGNOSTIC_MAX_LENGTH]
     return kind
+
+
+# The extension mode the current session runs in. Extensions read it (via
+# ``ProjectTrustContext.mode`` and command/tool contexts) to gate interactive
+# behavior; ``tui`` alone offers live UI.
+ExtensionMode = Literal["tui", "print", "json", "rpc"]
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectTrustEvent:
+    """Startup event offered only to pre-trust extension handlers."""
+
+    cwd: str
+    type: Literal["project_trust"] = "project_trust"
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectTrustContext:
+    """Bounded startup-only context for a project-trust decision."""
+
+    cwd: str
+    mode: ExtensionMode
+    has_ui: bool
+    ui: "ExtensionUi"
+
+    @property
+    def hasUI(self) -> bool:  # noqa: N802 - Pi-shaped alias
+        return self.has_ui
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectTrustHandlerError:
+    extension: str
+    error: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectTrustDispatchResult:
+    trusted: Literal["yes", "no"] | None = None
+    remember: bool = False
+    errors: tuple[ProjectTrustHandlerError, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LifecycleEvent:
+    """An observe-only lifecycle event passed to `@api.on(<event>)` hooks.
+
+    `name` is the event (for example `session_start`). `reason` is the
+    session-start reason (`"startup"`, `"reload"`, ...) where applicable,
+    and `None` otherwise. The event carries only safe metadata.
+    """
+
+    name: str
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InputEvent:
+    """A submitted prompt presented to an `input` hook before a turn."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class InputTransform:
+    """Returned by an `input` hook to replace the submitted prompt text."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeAgentStartEvent:
+    """Presented to a `before_agent_start` hook before an agent run."""
+
+    system_prompt: str
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeAgentStartResult:
+    """Returned by a `before_agent_start` hook to inject bounded context.
+
+    `append_system_prompt` is appended (bounded) to the turn's system
+    prompt. Later slices may add more fields (custom messages, model
+    options); they default off so existing extensions keep working.
+    """
+
+    append_system_prompt: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class QueuedUserMessage:
+    """A message an extension enqueued via `api.send_user_message`."""
+
+    content: str
+    options: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class QueuedCustomMessage:
+    """A custom message an extension enqueued via `send_message`."""
+
+    custom_type: str
+    content: str
+    display: bool
+    details: object | None
+    options: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultEvent:
+    """The finalized, bounded result of a tool, shown to `tool_result` hooks.
+
+    `tool_name` is the tool that ran (built-in or extension); `content`
+    is the current provider-visible result text; `is_error` marks an
+    error observation.
+    """
+
+    tool_name: str
+    content: str
+    is_error: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResultTransform:
+    """Returned by a `tool_result` hook to replace the observation content."""
+
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolResult:
+    """Returned by an extension tool handler.
+
+    `content` is the provider-visible result text (bounded before it
+    reaches the model). `details` is structured local state/metadata for
+    rendering or later hooks; it is not sent to the provider and not
+    archived by default. (Pi-shaped `content`/`details`; the richer
+    block-content + `terminate` shape arrives in a later slice.)
+    """
+
+    content: str
+    details: Mapping[str, object] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionTool:
+    """A model-visible tool an extension registers via `api.register_tool`.
+
+    `input_schema` is a JSON-schema dict in pipy's supported subset
+    (validated at registration). `handler(ctx, input)` receives a
+    mode-aware context and the validated input mapping and returns a
+    `ToolResult`. `render_call` and `render_result` are optional callables
+    that receive a `ToolRenderContext` and return a `ToolRenderComponent`
+    (or object) controlling how the tool's call and result rows render.
+    """
+
+    name: str
+    description: str
+    input_schema: Mapping[str, object]
+    handler: Callable[..., object]
+    render_call: Callable[["ToolRenderContext"], object] | None = None
+    render_result: Callable[["ToolRenderContext"], object] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RegisteredTool:
+    """An extension tool accepted during activation, with its owner."""
+
+    tool: ExtensionTool
+    extension: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolBlock:
+    """Returned by a `tool_call` hook to block a tool call with a reason."""
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallEvent:
+    """The live model-selected tool call presented to a `tool_call` hook.
+
+    `tool_name` is the tool the model chose; `input` is its parsed
+    arguments. Trusted local hooks may inspect these to gate execution;
+    this live access does not change archive policy (raw tool inputs are
+    not archived by default).
+    """
+
+    tool_name: str
+    input: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class UserBashEvent:
+    """A local ``!``/``!!`` shell shortcut before execution.
+
+    `command` is the live shell command string, and `exclude_from_context`
+    mirrors Pi's ``!!`` form. Trusted local hooks may inspect the command
+    and either observe, transform, block, or provide a complete synthetic
+    result; raw command text is never written to the default archive by this
+    dispatcher.
+    """
+
+    command: str
+    exclude_from_context: bool
+    cwd: str
+
+
+@dataclass(frozen=True, slots=True)
+class UserBashDecision:
+    """Return value for `user_bash` hooks.
+
+    `allow=False` blocks execution with `reason`. `command` replaces the
+    shell command for later hooks / execution. `exclude_from_context`
+    overrides whether the final result is recorded into provider-visible
+    context. `result` supplies a synthetic output and skips shell execution.
+    """
+
+    allow: bool = True
+    reason: str | None = None
+    command: str | None = None
+    exclude_from_context: bool | None = None
+    result: str | None = None
+    exit_code: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class UserBashDispatch:
+    """Final decision after all `user_bash` hooks ran."""
+
+    allowed: bool
+    command: str
+    exclude_from_context: bool
+    reason: str | None = None
+    result: str | None = None
+    exit_code: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeProviderRequestEvent:
+    """The live in-memory provider request before `ProviderPort.complete`.
+
+    The event carries bounded request fields and safe metadata. Extensions
+    that need the full message objects can inspect `messages` live, but the
+    default archive still stores no provider payloads.
+    """
+
+    system_prompt: str
+    user_prompt: str
+    provider_name: str
+    model_id: str
+    available_tools: tuple[str, ...]
+    messages: tuple[object, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class BeforeProviderHeadersEvent:
+    """Mutable request headers after adapter assembly and before transport."""
+
+    headers: MutableMapping[str, str | None]
+    type: Literal["before_provider_headers"] = "before_provider_headers"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderRequestTransform:
+    """Return value for `before_provider_request` hooks.
+
+    `system_prompt` and `user_prompt` replace those request fields for later
+    hooks and the provider call. `available_tools` narrows the active tool set
+    for this request.
+    """
+
+    system_prompt: str | None = None
+    user_prompt: str | None = None
+    available_tools: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SessionBeforeEvent:
+    """Session operation gate event.
+
+    `operation` is one of `switch`, `fork`, `compact`, or `tree`.
+    `target` is a safe label when the operation has one; it may be None.
+    """
+
+    operation: str
+    target: str | None = None
+    trigger: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SessionDecision:
+    """Return value for session-before hooks."""
+
+    allow: bool = True
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionFlag:
+    """A Pi-shaped CLI flag an extension registers at activation time."""
+
+    name: str
+    flag_type: Literal["boolean", "string"]
+    description: str | None = None
+    default: bool | str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RegisteredFlag:
+    """One extension CLI flag accepted during activation, with its owner."""
+
+    flag: ExtensionFlag
+    extension: str
+    values: MutableMapping[str, object] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+
+    def get_value(self) -> object | None:
+        return self.values.get(self.flag.name)

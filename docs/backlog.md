@@ -2544,7 +2544,7 @@ Control-plane move only: no change to resolved sizes, resize repaint behavior
 RPC/session/extension formats; no new runtime dependency, `Any`, or `type:
 ignore`.
 
-### Extension API vocabulary leaf (Slice 6.1a) — IN PROGRESS (2026-07-22)
+### Extension API vocabulary + value-object leaf (Slices 6.1a/6.1b) — DONE (2026-07-22)
 
 Phase 6.1 begins with sub-slice 6.1a: the new stdlib-only leaf
 `native.extension_types` takes sole ownership of the fail-closed extension
@@ -2567,6 +2567,35 @@ public import change; no new runtime dependency, `Any`, or `type: ignore`.
 Focused extension shortcut/activation/conformance and import-boundary suites
 passed (205), `extension_conformance_gate.py` reported ALL PASS, and `just check`
 (Ruff, mypy clean, 4,500 passed/2 skipped) plus `just docs-build` are green.
+
+Sub-slice 6.1b then relocates the stable frozen value-object dataclasses into the
+same leaf: the hook events/transforms/results (`ProjectTrustEvent`/`Context`/
+`HandlerError`/`DispatchResult`, `LifecycleEvent`, `InputEvent`/`InputTransform`,
+`BeforeAgentStartEvent`/`Result`, `QueuedUserMessage`/`QueuedCustomMessage`,
+`ToolResultEvent`/`ToolResultTransform`/`ToolResult`, `ToolBlock`/`ToolCallEvent`,
+`UserBashEvent`/`Decision`/`Dispatch`, `BeforeProviderRequestEvent`/
+`BeforeProviderHeadersEvent`/`ProviderRequestTransform`, `SessionBeforeEvent`/
+`SessionDecision`), the neutral tool/flag descriptors (`ExtensionTool`,
+`RegisteredTool`, `ExtensionFlag`, `RegisteredFlag`), and the `ExtensionMode`
+literal move verbatim out of `extension_runtime.py`, originals deleted with no
+alias. `extension_runtime` re-imports every one and `pipy_harness.extensions`
+keeps re-exporting the public subset unchanged, so the public import path stays
+byte-identical. `ProjectTrustContext.ui` and `ExtensionTool.render_call`/
+`render_result` forward-reference two UI types Slice 6.4 still owns
+(`ExtensionUi`/`ToolRenderContext`); those are resolved for mypy through a single
+`if TYPE_CHECKING:` import from `extension_runtime` — a type-checking-only edge
+with no runtime import, so the leaf stays runtime-cycle-free — and repoint to
+their `extension_types` home when 6.4 moves them. Provider-port value objects
+(6.3), UI protocols/renderers (6.4), and dispatch/activation logic (6.2) are
+untouched. Behavior-preserving move only: no field, ordering, callback, default,
+or public import change; no new dependency, `Any`, or `type: ignore`. Focused
+`test_native_extension_dispatch`/`tools`/`input_hooks`/`tool_result_hooks`/
+`project_trust` plus the import-boundary suite passed (241),
+`extension_conformance_gate.py` reported ALL PASS, and `just check` (Ruff, mypy
+clean, 4,500 passed/2 skipped) plus `just docs-build` are green. Review: Claude
+Opus panel (user-directed substitution for the different-family gate) — 2 rounds,
+2 findings total, final round clean across both lenses (behavior; invariants).
+
 Hook dispatch (6.2), host/provider ports (6.3), and the UI bridge (6.4) remain
 deferred.
 
