@@ -1094,8 +1094,16 @@ The bulk is mechanical duplication. pi-mono's
    `GoogleVertexProviderError` hierarchy, the Express-vs-ADC auth switch, the
    regional/Express endpoint templates, the `vertex_auth_mode`/
    `google_cloud_location` metadata, and the per-model
-   `generationConfig.thinkingConfig` shape byte-for-byte. Remaining: the
-   Gemini/Vertex wire consolidation (cut 3).
+   `generationConfig.thinkingConfig` shape byte-for-byte. The byte-identical
+   Gemini `generateContent` wire translation both adapters duplicated has since
+   been consolidated into `pipy_harness.native.providers`
+   `.google_generate_content_wire` (migration Slice 5.2-gemini, cut 3),
+   owning `gemini_contents`/`envelope_to_content`/`serialize_tool_for_gemini`/
+   `parse_response`/`extract_final_text`/`extract_tool_calls` and the shared
+   `ParsedGeminiResponse`, parameterized only by parse-error class, response
+   label, usage-field tuple, tool-call correlation prefix, and the Google-only
+   `attach_images` flag; each adapter is now a thin auth/URL/thinking shell and
+   the two per-adapter thinking-config mappings stay divergent.
 2. Extract a shared Chat-Completions wire translator for the Chat-Completions
    wire shape. Collapse OpenAI-Completions, OpenRouter, Mistral, and Cloudflare
    onto it. Refs: `02:F3`. **Done (migration Slice 5.2-chat, cuts 1–4):**

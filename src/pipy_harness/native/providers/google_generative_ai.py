@@ -2,32 +2,29 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
     JsonHTTPClient,
     ProviderHTTPError,
     UrllibJsonHTTPClient,
-    extract_usage_from_fields,
-)
-from pipy_harness.native.agent import (
-    AgentAssistantMessage,
-    AgentToolResultMessage,
-    AgentUserMessage,
 )
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.tools.base import materialize_tool_input_schema
+from pipy_harness.native.providers.google_generate_content_wire import (
+    gemini_contents,
+    parse_response,
+    serialize_tool_for_gemini,
+)
 
 GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
@@ -231,7 +228,11 @@ class GoogleGenerativeAIProvider:
 
         url = self.endpoint_template.format(model=self.model_id, key=api_key)
         body: dict[str, Any] = {
-            "contents": _gemini_contents(request),
+            "contents": gemini_contents(
+                request,
+                parse_error_class=GoogleResponseParseError,
+                attach_images=True,
+            ),
         }
         if request.system_prompt:
             body["systemInstruction"] = {
@@ -241,7 +242,7 @@ class GoogleGenerativeAIProvider:
             body["tools"] = [
                 {
                     "functionDeclarations": [
-                        _serialize_tool_for_gemini(tool)
+                        serialize_tool_for_gemini(tool)
                         for tool in request.available_tools
                     ],
                 }
@@ -271,7 +272,13 @@ class GoogleGenerativeAIProvider:
                     f"Google API request failed with HTTP status {response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
-            result = _parse_response(response.body)
+            result = parse_response(
+                response.body,
+                parse_error_class=GoogleResponseParseError,
+                response_label="Google",
+                usage_fields=GOOGLE_USAGE_FIELDS,
+                tool_call_provider_prefix="google",
+            )
         except GoogleProviderError as exc:
             return failed_provider_result(
                 request,
@@ -298,14 +305,6 @@ class GoogleGenerativeAIProvider:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class ParsedGoogleResponse:
-    final_text: str | None
-    usage: dict[str, int | float]
-    finish_reason: str
-    tool_calls: tuple[ProviderToolCall, ...] = ()
-
-
 class GoogleProviderError(ProviderHTTPError):
     """Base class for sanitized Google provider errors."""
 
@@ -326,214 +325,3 @@ class GoogleTransportError(GoogleProviderError):
 
 class GoogleResponseParseError(GoogleProviderError):
     """Raised when the Google response shape is unsupported."""
-
-
-def _gemini_contents(request: ProviderRequest) -> list[dict[str, Any]]:
-    """Build Gemini `contents` from a ProviderRequest.
-
-    When `request.messages` is non-empty, translate the envelope. Otherwise
-    fall back to `no_tool_repl_context` (if any) followed by the current
-    `user_prompt`.
-    """
-
-    contents: list[dict[str, Any]] = []
-    if request.messages:
-        for envelope in request.messages:
-            contents.append(_envelope_to_content(envelope))
-        _attach_images(contents, request)
-        return contents
-    if request.no_tool_repl_context is not None:
-        for exchange in request.no_tool_repl_context.exchanges:
-            contents.append(
-                {
-                    "role": "user",
-                    "parts": [{"text": exchange.user_prompt}],
-                }
-            )
-            contents.append(
-                {
-                    "role": "model",
-                    "parts": [{"text": exchange.provider_final_text}],
-                }
-            )
-    contents.append(
-        {"role": "user", "parts": [{"text": request.user_prompt}]}
-    )
-    _attach_images(contents, request)
-    return contents
-
-
-def _attach_images(contents: list[dict[str, Any]], request: ProviderRequest) -> None:
-    """Append ``inlineData`` image parts to the latest user content.
-
-    Image attachments belong to the current user turn, so they ride on the last
-    user content. Gemini accepts ``inlineData`` parts carrying a base64-encoded
-    payload and its ``mimeType`` alongside text parts.
-    """
-
-    if not request.attachments:
-        return
-    for content in reversed(contents):
-        if content.get("role") != "user":
-            continue
-        parts = content.get("parts")
-        if not isinstance(parts, list):
-            return
-        for attachment in request.attachments:
-            parts.append(
-                {
-                    "inlineData": {
-                        "mimeType": attachment.media_type,
-                        "data": attachment.data_base64,
-                    }
-                }
-            )
-        return
-
-
-def _envelope_to_content(envelope: Any) -> dict[str, Any]:
-    """Translate one ``AgentMessage`` into a Gemini `contents` entry."""
-
-    if isinstance(envelope, AgentUserMessage):
-        return {"role": "user", "parts": [{"text": envelope.content.value}]}
-    if isinstance(envelope, AgentAssistantMessage):
-        parts: list[dict[str, Any]] = []
-        if envelope.content.value:
-            parts.append({"text": envelope.content.value})
-        for call in envelope.tool_calls:
-            try:
-                parsed_args = json.loads(call.arguments_json.value) if call.arguments_json.value else {}
-            except json.JSONDecodeError:
-                parsed_args = {}
-            if not isinstance(parsed_args, Mapping):
-                parsed_args = {}
-            parts.append(
-                {
-                    "functionCall": {
-                        "name": call.tool_name,
-                        "args": dict(parsed_args),
-                    }
-                }
-            )
-        if not parts:
-            parts.append({"text": ""})
-        return {"role": "model", "parts": parts}
-    if isinstance(envelope, AgentToolResultMessage):
-        return {
-            "role": "user",
-            "parts": [
-                {
-                    "functionResponse": {
-                        "name": envelope.tool_name,
-                        "response": {"result": envelope.content.value},
-                    }
-                }
-            ],
-        }
-    raise GoogleResponseParseError(
-        f"unsupported message envelope: {type(envelope).__name__}"
-    )
-
-def _serialize_tool_for_gemini(tool: Any) -> dict[str, Any]:
-    """Translate a `ToolDefinition` into the Gemini function declaration shape."""
-
-    return {
-        "name": tool.name,
-        "description": tool.description,
-        "parameters": materialize_tool_input_schema(tool.input_schema),
-    }
-
-
-def _parse_response(body: Mapping[str, Any]) -> ParsedGoogleResponse:
-    candidates = body.get("candidates")
-    if not isinstance(candidates, list) or not candidates:
-        raise GoogleResponseParseError(
-            "Google response did not include a candidate.",
-            metadata={"provider_response_store_requested": False},
-        )
-    first_candidate = candidates[0]
-    if not isinstance(first_candidate, Mapping):
-        raise GoogleResponseParseError(
-            "Google response included an unsupported candidate.",
-            metadata={"provider_response_store_requested": False},
-        )
-
-    finish_reason = safe_response_label(
-        first_candidate.get("finishReason"), default="unknown"
-    )
-    content = first_candidate.get("content")
-    parts = content.get("parts") if isinstance(content, Mapping) else None
-
-    final_text = _extract_final_text(parts)
-    tool_calls = _extract_tool_calls(parts)
-
-    if not final_text and not tool_calls:
-        raise GoogleResponseParseError(
-            "Google response did not include final output text or tool calls.",
-            metadata={
-                "provider_response_store_requested": False,
-                "finish_reason": finish_reason,
-            },
-        )
-
-    return ParsedGoogleResponse(
-        final_text=final_text,
-        usage=extract_usage_from_fields(body.get("usageMetadata"), GOOGLE_USAGE_FIELDS),
-        finish_reason=finish_reason,
-        tool_calls=tool_calls,
-    )
-
-
-def _extract_final_text(parts: Any) -> str | None:
-    if not isinstance(parts, list):
-        return None
-    chunks: list[str] = []
-    for part in parts:
-        if not isinstance(part, Mapping):
-            continue
-        text = part.get("text")
-        if isinstance(text, str) and text:
-            chunks.append(text)
-    if not chunks:
-        return None
-    return "".join(chunks)
-
-
-def _extract_tool_calls(parts: Any) -> tuple[ProviderToolCall, ...]:
-    """Parse Gemini `functionCall` parts into ProviderToolCall values."""
-
-    if not isinstance(parts, list):
-        return ()
-    calls: list[ProviderToolCall] = []
-    for index, part in enumerate(parts):
-        if not isinstance(part, Mapping):
-            continue
-        function_call = part.get("functionCall")
-        if not isinstance(function_call, Mapping):
-            continue
-        name = function_call.get("name")
-        args = function_call.get("args")
-        if not isinstance(name, str) or not name:
-            continue
-        if isinstance(args, Mapping):
-            arguments_json = json.dumps(dict(args), sort_keys=True)
-        elif isinstance(args, str):
-            arguments_json = args
-        else:
-            arguments_json = "{}"
-        correlation = f"google-tool-{index}"
-        try:
-            calls.append(
-                ProviderToolCall(
-                    provider_correlation_id=correlation[
-                        : ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH
-                    ],
-                    tool_name=name[: ProviderToolCall.TOOL_NAME_MAX_LENGTH],
-                    arguments_json=arguments_json[
-                        : ProviderToolCall.ARGUMENTS_JSON_MAX_LENGTH
-                    ],
-                )
-            )
-        except ValueError:
-            continue
-    return tuple(calls)

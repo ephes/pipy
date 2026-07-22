@@ -30,7 +30,6 @@ front the same Gemini models. The two providers differ in:
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import urllib.parse
@@ -38,25 +37,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipy_harness.native._provider_helpers import utc_now, safe_response_label, failed_provider_result
+from pipy_harness.native._provider_helpers import utc_now, failed_provider_result
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
     JsonHTTPClient,
     ProviderHTTPError,
     UrllibJsonHTTPClient,
-    extract_usage_from_fields,
-)
-from pipy_harness.native.agent import (
-    AgentAssistantMessage,
-    AgentToolResultMessage,
-    AgentUserMessage,
 )
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.tools.base import materialize_tool_input_schema
+from pipy_harness.native.providers.google_generate_content_wire import (
+    gemini_contents,
+    parse_response,
+    serialize_tool_for_gemini,
+)
 
 GOOGLE_VERTEX_ENDPOINT_TEMPLATE = (
     "https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/"
@@ -378,7 +375,10 @@ class GoogleVertexProvider:
             auth_mode = "adc"
 
         body: dict[str, Any] = {
-            "contents": _gemini_contents(request),
+            "contents": gemini_contents(
+                request,
+                parse_error_class=GoogleVertexResponseParseError,
+            ),
         }
         if request.system_prompt:
             body["systemInstruction"] = {
@@ -388,7 +388,7 @@ class GoogleVertexProvider:
             body["tools"] = [
                 {
                     "functionDeclarations": [
-                        _serialize_tool_for_gemini(tool)
+                        serialize_tool_for_gemini(tool)
                         for tool in request.available_tools
                     ],
                 }
@@ -420,7 +420,13 @@ class GoogleVertexProvider:
                     f"{response.status_code}.",
                     metadata={"http_status": response.status_code},
                 )
-            result = _parse_response(response.body)
+            result = parse_response(
+                response.body,
+                parse_error_class=GoogleVertexResponseParseError,
+                response_label="Google Vertex AI",
+                usage_fields=GOOGLE_VERTEX_USAGE_FIELDS,
+                tool_call_provider_prefix="google-vertex",
+            )
         except GoogleVertexProviderError as exc:
             return failed_provider_result(
                 request,
@@ -450,14 +456,6 @@ class GoogleVertexProvider:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class ParsedGoogleVertexResponse:
-    final_text: str | None
-    usage: dict[str, int | float]
-    finish_reason: str
-    tool_calls: tuple[ProviderToolCall, ...] = ()
-
-
 class GoogleVertexProviderError(ProviderHTTPError):
     """Base class for sanitized Google Vertex AI provider errors."""
 
@@ -478,187 +476,3 @@ class GoogleVertexTransportError(GoogleVertexProviderError):
 
 class GoogleVertexResponseParseError(GoogleVertexProviderError):
     """Raised when the Vertex AI response shape is unsupported."""
-
-
-def _gemini_contents(request: ProviderRequest) -> list[dict[str, Any]]:
-    """Build Gemini ``contents`` from a ProviderRequest.
-
-    Mirrors ``google_generative_ai._gemini_contents``: when ``request.messages``
-    is non-empty translate the envelope; otherwise fall back to
-    ``no_tool_repl_context`` (if any) followed by the current
-    ``user_prompt``.
-    """
-
-    contents: list[dict[str, Any]] = []
-    if request.messages:
-        for envelope in request.messages:
-            contents.append(_envelope_to_content(envelope))
-        return contents
-    if request.no_tool_repl_context is not None:
-        for exchange in request.no_tool_repl_context.exchanges:
-            contents.append(
-                {
-                    "role": "user",
-                    "parts": [{"text": exchange.user_prompt}],
-                }
-            )
-            contents.append(
-                {
-                    "role": "model",
-                    "parts": [{"text": exchange.provider_final_text}],
-                }
-            )
-    contents.append(
-        {"role": "user", "parts": [{"text": request.user_prompt}]}
-    )
-    return contents
-
-
-def _envelope_to_content(envelope: Any) -> dict[str, Any]:
-    """Translate one ``AgentMessage`` into a Gemini ``contents`` entry."""
-
-    if isinstance(envelope, AgentUserMessage):
-        return {"role": "user", "parts": [{"text": envelope.content.value}]}
-    if isinstance(envelope, AgentAssistantMessage):
-        parts: list[dict[str, Any]] = []
-        if envelope.content.value:
-            parts.append({"text": envelope.content.value})
-        for call in envelope.tool_calls:
-            try:
-                parsed_args: Any = (
-                    json.loads(call.arguments_json.value) if call.arguments_json.value else {}
-                )
-            except json.JSONDecodeError:
-                parsed_args = {}
-            if not isinstance(parsed_args, Mapping):
-                parsed_args = {}
-            parts.append(
-                {
-                    "functionCall": {
-                        "name": call.tool_name,
-                        "args": dict(parsed_args),
-                    }
-                }
-            )
-        if not parts:
-            parts.append({"text": ""})
-        return {"role": "model", "parts": parts}
-    if isinstance(envelope, AgentToolResultMessage):
-        return {
-            "role": "user",
-            "parts": [
-                {
-                    "functionResponse": {
-                        "name": envelope.tool_name,
-                        "response": {"result": envelope.content.value},
-                    }
-                }
-            ],
-        }
-    raise GoogleVertexResponseParseError(
-        f"unsupported message envelope: {type(envelope).__name__}"
-    )
-
-def _serialize_tool_for_gemini(tool: Any) -> dict[str, Any]:
-    """Translate a ``ToolDefinition`` into the Gemini function declaration shape."""
-
-    return {
-        "name": tool.name,
-        "description": tool.description,
-        "parameters": materialize_tool_input_schema(tool.input_schema),
-    }
-
-
-def _parse_response(body: Mapping[str, Any]) -> ParsedGoogleVertexResponse:
-    candidates = body.get("candidates")
-    if not isinstance(candidates, list) or not candidates:
-        raise GoogleVertexResponseParseError(
-            "Google Vertex AI response did not include a candidate.",
-            metadata={"provider_response_store_requested": False},
-        )
-    first_candidate = candidates[0]
-    if not isinstance(first_candidate, Mapping):
-        raise GoogleVertexResponseParseError(
-            "Google Vertex AI response included an unsupported candidate.",
-            metadata={"provider_response_store_requested": False},
-        )
-
-    finish_reason = safe_response_label(
-        first_candidate.get("finishReason"), default="unknown"
-    )
-    content = first_candidate.get("content")
-    parts = content.get("parts") if isinstance(content, Mapping) else None
-
-    final_text = _extract_final_text(parts)
-    tool_calls = _extract_tool_calls(parts)
-
-    if not final_text and not tool_calls:
-        raise GoogleVertexResponseParseError(
-            "Google Vertex AI response did not include final output text or tool calls.",
-            metadata={
-                "provider_response_store_requested": False,
-                "finish_reason": finish_reason,
-            },
-        )
-
-    return ParsedGoogleVertexResponse(
-        final_text=final_text,
-        usage=extract_usage_from_fields(body.get("usageMetadata"), GOOGLE_VERTEX_USAGE_FIELDS),
-        finish_reason=finish_reason,
-        tool_calls=tool_calls,
-    )
-
-
-def _extract_final_text(parts: Any) -> str | None:
-    if not isinstance(parts, list):
-        return None
-    chunks: list[str] = []
-    for part in parts:
-        if not isinstance(part, Mapping):
-            continue
-        text = part.get("text")
-        if isinstance(text, str) and text:
-            chunks.append(text)
-    if not chunks:
-        return None
-    return "".join(chunks)
-
-
-def _extract_tool_calls(parts: Any) -> tuple[ProviderToolCall, ...]:
-    """Parse Gemini ``functionCall`` parts into ProviderToolCall values."""
-
-    if not isinstance(parts, list):
-        return ()
-    calls: list[ProviderToolCall] = []
-    for index, part in enumerate(parts):
-        if not isinstance(part, Mapping):
-            continue
-        function_call = part.get("functionCall")
-        if not isinstance(function_call, Mapping):
-            continue
-        name = function_call.get("name")
-        args = function_call.get("args")
-        if not isinstance(name, str) or not name:
-            continue
-        if isinstance(args, Mapping):
-            arguments_json = json.dumps(dict(args), sort_keys=True)
-        elif isinstance(args, str):
-            arguments_json = args
-        else:
-            arguments_json = "{}"
-        correlation = f"google-vertex-tool-{index}"
-        try:
-            calls.append(
-                ProviderToolCall(
-                    provider_correlation_id=correlation[
-                        : ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH
-                    ],
-                    tool_name=name[: ProviderToolCall.TOOL_NAME_MAX_LENGTH],
-                    arguments_json=arguments_json[
-                        : ProviderToolCall.ARGUMENTS_JSON_MAX_LENGTH
-                    ],
-                )
-            )
-        except ValueError:
-            continue
-    return tuple(calls)

@@ -12,9 +12,8 @@ from pipy_harness.native._provider_helpers import (
     serialize_tool_for_chat_completions,
     serialize_tool_for_responses,
 )
-from pipy_harness.native.providers.google_generative_ai import _serialize_tool_for_gemini
-from pipy_harness.native.providers.google_vertex import (
-    _serialize_tool_for_gemini as _serialize_tool_for_vertex_gemini,
+from pipy_harness.native.providers.google_generate_content_wire import (
+    serialize_tool_for_gemini,
 )
 from pipy_harness.native.tools.base import ToolDefinition
 
@@ -65,8 +64,7 @@ def _anthropic_schema(payload: Mapping[str, object]) -> object:
         (serialize_tool_for_chat_completions, _chat_schema),
         (serialize_tool_for_anthropic, _anthropic_schema),
         (serialize_tool_for_responses, _flat_parameters),
-        (_serialize_tool_for_gemini, _flat_parameters),
-        (_serialize_tool_for_vertex_gemini, _flat_parameters),
+        (serialize_tool_for_gemini, _flat_parameters),
     ],
 )
 def test_provider_serializers_materialize_nested_immutable_schema(

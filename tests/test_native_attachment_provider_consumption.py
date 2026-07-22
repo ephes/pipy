@@ -14,7 +14,8 @@ from typing import Any, cast
 from pipy_harness.native.providers.anthropic_messages import AnthropicResponseParseError
 from pipy_harness.native.providers.anthropic_messages_wire import messages_payload
 from pipy_harness.native.agent import AgentMessage, AgentUserMessage, ProductContent
-from pipy_harness.native.providers.google_generative_ai import _gemini_contents
+from pipy_harness.native.providers.google_generative_ai import GoogleResponseParseError
+from pipy_harness.native.providers.google_generate_content_wire import gemini_contents
 from pipy_harness.native.image_attachment import ProviderImageAttachment
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.providers.openai_responses import OpenAIResponseParseError
@@ -114,7 +115,13 @@ def test_openai_responses_attaches_with_messages() -> None:
 
 
 def test_google_attaches_inline_data_part() -> None:
-    contents = _gemini_contents(_request())
+    # Invoke the shared translator with the Google parameters (the Generative
+    # AI adapter enables inlineData image attachment).
+    contents = gemini_contents(
+        _request(),
+        parse_error_class=GoogleResponseParseError,
+        attach_images=True,
+    )
     user = cast(dict[str, Any], contents[-1])
     assert user["role"] == "user"
     parts = cast(list[dict[str, Any]], user["parts"])
