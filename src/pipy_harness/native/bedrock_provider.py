@@ -15,7 +15,6 @@ import json
 import os
 import urllib.error
 import urllib.parse
-import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -30,7 +29,14 @@ from pipy_harness.native.anthropic_provider import (
     supports_adaptive_thinking,
 )
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_anthropic
-from pipy_harness.native.http import JsonResponse, JsonHTTPClient, decode_json_object, urlopen_read_cancellable
+from pipy_harness.native.http import (
+    JsonResponse as JsonResponse,
+    JsonHTTPClient,
+    ProviderHTTPError,
+    UrllibJsonHTTPClient,
+    decode_json_object,
+    extract_anthropic_usage,
+)
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolResultMessage,
@@ -40,7 +46,6 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
 
 BEDROCK_ENDPOINT_TEMPLATE = "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/invoke"
 BEDROCK_ANTHROPIC_VERSION = "bedrock-2023-05-31"
@@ -50,53 +55,22 @@ BEDROCK_SIGV4_ALGORITHM = "AWS4-HMAC-SHA256"
 # Headers SigV4 owns; a custom header must never collide with these when merged
 # into the signed request (Pi filters the same set before signing).
 _BEDROCK_RESERVED_HEADERS = frozenset({"authorization", "host"})
-BEDROCK_USAGE_FIELD_MAP: tuple[tuple[str, str], ...] = (
-    ("input_tokens", "input_tokens"),
-    ("output_tokens", "output_tokens"),
-    ("cache_creation_input_tokens", "cache_write_tokens"),
-    ("cache_read_input_tokens", "cached_tokens"),
-)
 
 
-@dataclass(frozen=True, slots=True)
-class UrllibJsonHTTPClient:
-    """Standard-library JSON client for Bedrock InvokeModel calls."""
+def bedrock_http_client() -> UrllibJsonHTTPClient:
+    """Build the shared JSON client wired with Bedrock InvokeModel error types.
 
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-        cancel_token: CancelToken | None = None,
-    ) -> JsonResponse:
-        encoded = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=encoded,
-            headers=dict(headers),
-            method="POST",
-        )
-        try:
-            status_code, payload = urlopen_read_cancellable(
-                request,
-                timeout_seconds=timeout_seconds,
-                cancel_token=cancel_token,
-            )
-        except urllib.error.HTTPError as exc:
-            raise BedrockHTTPStatusError.from_http_error(exc) from exc
-        except urllib.error.URLError as exc:
-            reason = (
-                sanitize_text(str(exc.reason))
-                if getattr(exc, "reason", None)
-                else "request failed"
-            )
-            raise BedrockTransportError(
-                f"Bedrock API request failed: {reason}"
-            ) from exc
+    ``BedrockHTTPStatusError`` keeps its own :meth:`from_http_error` (the Bedrock
+    error envelope is a top-level ``message``/``__type`` shape, not the shared
+    nested-``error`` shape), so the shared client's status path dispatches to it.
+    """
 
-        return JsonResponse(status_code=status_code, body=decode_json_object(payload, error_class=BedrockResponseParseError, provider_label="Bedrock API"))
+    return UrllibJsonHTTPClient(
+        provider_label="Bedrock API",
+        status_error_class=BedrockHTTPStatusError,
+        transport_error_class=BedrockTransportError,
+        parse_error_class=BedrockResponseParseError,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +100,7 @@ class AmazonBedrockProvider:
     session_token: str | None = field(
         default_factory=lambda: os.environ.get("AWS_SESSION_TOKEN"), repr=False
     )
-    http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
+    http_client: JsonHTTPClient = field(default_factory=bedrock_http_client)
     endpoint_template: str = BEDROCK_ENDPOINT_TEMPLATE
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
@@ -403,16 +377,18 @@ class ParsedBedrockResponse:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-class BedrockProviderError(Exception):
+class BedrockProviderError(ProviderHTTPError):
     """Base class for sanitized Bedrock provider errors."""
-
-    def __init__(self, message: str, *, metadata: Mapping[str, Any] | None = None) -> None:
-        super().__init__(sanitize_text(message))
-        self.metadata = dict(metadata or {})
 
 
 class BedrockHTTPStatusError(BedrockProviderError):
-    """Raised when Bedrock returns a non-success HTTP status."""
+    """Raised when Bedrock returns a non-success HTTP status.
+
+    Bedrock's error envelope is a top-level ``message`` plus ``__type``/``type``
+    shape (not the shared nested-``error`` shape ``ProviderHTTPError`` normalizes),
+    so this keeps its own :meth:`from_http_error` rather than the class-attribute
+    ``api_error_fields`` path.
+    """
 
     @classmethod
     def from_http_error(cls, exc: urllib.error.HTTPError) -> BedrockHTTPStatusError:
@@ -465,7 +441,7 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedBedrockResponse:
 
     return ParsedBedrockResponse(
         final_text=final_text,
-        usage=_extract_usage(body.get("usage")),
+        usage=extract_anthropic_usage(body.get("usage")),
         stop_reason=stop_reason,
         tool_calls=tool_calls,
     )
@@ -528,40 +504,6 @@ def _extract_tool_calls(content: Any) -> tuple[ProviderToolCall, ...]:
         except ValueError:
             continue
     return tuple(calls)
-
-
-def _extract_usage(value: Any) -> dict[str, int | float]:
-    if not isinstance(value, Mapping):
-        return {}
-    usage: dict[str, Any] = {}
-    for key in NORMALIZED_PROVIDER_USAGE_KEYS:
-        usage[key] = value.get(key)
-
-    for provider_key, normalized_key in BEDROCK_USAGE_FIELD_MAP:
-        if provider_key == normalized_key:
-            continue
-        item = value.get(provider_key)
-        if item is not None and usage.get(normalized_key) is None:
-            usage[normalized_key] = item
-
-    if usage.get("total_tokens") is None:
-        input_tokens = _usage_int(usage.get("input_tokens"))
-        output_tokens = _usage_int(usage.get("output_tokens"))
-        if input_tokens is not None and output_tokens is not None:
-            usage["total_tokens"] = (
-                input_tokens
-                + output_tokens
-                + (_usage_int(usage.get("cached_tokens")) or 0)
-                + (_usage_int(usage.get("cache_write_tokens")) or 0)
-            )
-
-    return normalize_provider_usage(usage)
-
-
-def _usage_int(value: Any) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
 
 
 # ---------------------------------------------------------------------------

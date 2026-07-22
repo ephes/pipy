@@ -1069,8 +1069,14 @@ The bulk is mechanical duplication. pi-mono's
    now reparent their named error types as thin subclasses and build the
    shared client via a `<provider>_http_client()` factory; their
    `UrllibJsonHTTPClient`/`from_http_error`/`_decode_json_object`/`_extract_usage`
-   copies are deleted. Remaining: Anthropic, Bedrock, and Codex keep their
-   own SSE/signed transports (Slices 5.2 protocol-family migrations).
+   copies are deleted. Anthropic and Bedrock have since folded onto the same
+   shared `UrllibJsonHTTPClient` and `ProviderHTTPError` base via
+   `anthropic_http_client()`/`bedrock_http_client()`; SigV4 signing still runs
+   in the Bedrock adapter before the shared client sends, and
+   `BedrockHTTPStatusError` keeps its own `from_http_error` (its error envelope
+   is a top-level `message`/`__type` shape, not the shared nested-`error`
+   shape). Remaining: Codex keeps its own SSE transport (Slices 5.2
+   protocol-family migrations).
 2. Extract `pipy_harness.native.providers._chat_completions_shared` for
    the Chat-Completions wire shape. Collapse OpenAI-Completions,
    OpenRouter, Mistral, and Cloudflare onto it (~760 L removed). Refs:
@@ -1264,10 +1270,13 @@ Remove copy-paste that the type system could have caught.
    Refs: `06:F12`.
 8. Consolidate the copies of `_extract_usage` into the shared
    provider module (Track CQ-B). Refs: `02:F13`. **Partly landed
-   (migration Slice 5.1):** the eight plain-JSON adapters now use the
+   (migration Slice 5.1):** the eight plain-JSON adapters use the
    shared `native.http` `extract_usage_from_fields`/`extract_responses_usage`
-   helpers; only `anthropic`, `bedrock`, and `openai_codex` keep a local
-   `_extract_usage` (Slices 5.2 protocol-family migrations).
+   helpers, and `anthropic`/`bedrock` now share the new
+   `native.http.extract_anthropic_usage` (the identical total-synthesizing
+   Anthropic Messages usage extractor both adapters had already converged on).
+   Only `openai_codex` keeps a local `_extract_usage` (Slices 5.2
+   protocol-family migrations).
 
 ### Out Of Scope For This Track
 

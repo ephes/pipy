@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.error
-import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,10 +15,12 @@ from pipy_harness.native._provider_helpers import (
     serialize_tool_for_anthropic,
 )
 from pipy_harness.native.http import (
-    JsonResponse,
+    ApiErrorField,
+    JsonResponse as JsonResponse,
     JsonHTTPClient,
-    decode_json_object,
-    urlopen_read_cancellable,
+    ProviderHTTPError,
+    UrllibJsonHTTPClient,
+    extract_anthropic_usage,
 )
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
@@ -32,10 +32,6 @@ from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.deferred_tools import split_deferred_tools
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.usage import (
-    NORMALIZED_PROVIDER_USAGE_KEYS,
-    normalize_provider_usage,
-)
 
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_DEFAULT_MAX_TOKENS = 4096
@@ -63,12 +59,6 @@ ANTHROPIC_ADAPTIVE_MODEL_MARKERS = ("opus-4-6", "opus-4-7", "opus-4-8", "sonnet-
 # Adaptive effort accepts low/medium/high/xhigh/max; minimal clamps to low
 # (Pi: mapThinkingLevelToEffort). Other levels pass through unchanged.
 ANTHROPIC_ADAPTIVE_EFFORT = {"minimal": "low"}
-ANTHROPIC_USAGE_FIELD_MAP: tuple[tuple[str, str], ...] = (
-    ("input_tokens", "input_tokens"),
-    ("output_tokens", "output_tokens"),
-    ("cache_creation_input_tokens", "cache_write_tokens"),
-    ("cache_read_input_tokens", "cached_tokens"),
-)
 
 
 def supports_adaptive_thinking(model_id: str) -> bool:
@@ -82,52 +72,15 @@ def supports_adaptive_thinking(model_id: str) -> bool:
     return any(marker in lowered for marker in ANTHROPIC_ADAPTIVE_MODEL_MARKERS)
 
 
-@dataclass(frozen=True, slots=True)
-class UrllibJsonHTTPClient:
-    """Standard-library JSON client for Anthropic Messages calls."""
+def anthropic_http_client() -> UrllibJsonHTTPClient:
+    """Build the shared JSON client wired with Anthropic Messages error types."""
 
-    def post_json(
-        self,
-        url: str,
-        *,
-        headers: Mapping[str, str],
-        body: Mapping[str, Any],
-        timeout_seconds: float,
-        cancel_token: CancelToken | None = None,
-    ) -> JsonResponse:
-        encoded = json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=encoded,
-            headers=dict(headers),
-            method="POST",
-        )
-        try:
-            status_code, payload = urlopen_read_cancellable(
-                request,
-                timeout_seconds=timeout_seconds,
-                cancel_token=cancel_token,
-            )
-        except urllib.error.HTTPError as exc:
-            raise AnthropicHTTPStatusError.from_http_error(exc) from exc
-        except urllib.error.URLError as exc:
-            reason = (
-                sanitize_text(str(exc.reason))
-                if getattr(exc, "reason", None)
-                else "request failed"
-            )
-            raise AnthropicTransportError(
-                f"Anthropic API request failed: {reason}"
-            ) from exc
-
-        return JsonResponse(
-            status_code=status_code,
-            body=decode_json_object(
-                payload,
-                error_class=AnthropicResponseParseError,
-                provider_label="Anthropic API",
-            ),
-        )
+    return UrllibJsonHTTPClient(
+        provider_label="Anthropic API",
+        status_error_class=AnthropicHTTPStatusError,
+        transport_error_class=AnthropicTransportError,
+        parse_error_class=AnthropicResponseParseError,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,7 +100,7 @@ class AnthropicProvider:
     api_key: str | None = field(
         default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY"), repr=False
     )
-    http_client: JsonHTTPClient = field(default_factory=UrllibJsonHTTPClient)
+    http_client: JsonHTTPClient = field(default_factory=anthropic_http_client)
     endpoint: str = ANTHROPIC_MESSAGES_URL
     timeout_seconds: float = 60.0
     supports_tool_calls: bool = True
@@ -475,39 +428,17 @@ class ParsedAnthropicResponse:
     tool_calls: tuple[ProviderToolCall, ...] = ()
 
 
-class AnthropicProviderError(Exception):
+class AnthropicProviderError(ProviderHTTPError):
     """Base class for sanitized Anthropic provider errors."""
-
-    def __init__(
-        self, message: str, *, metadata: Mapping[str, Any] | None = None
-    ) -> None:
-        super().__init__(sanitize_text(message))
-        self.metadata = dict(metadata or {})
 
 
 class AnthropicHTTPStatusError(AnthropicProviderError):
     """Raised when Anthropic returns a non-success HTTP status."""
 
-    @classmethod
-    def from_http_error(cls, exc: urllib.error.HTTPError) -> AnthropicHTTPStatusError:
-        metadata: dict[str, Any] = {"http_status": exc.code}
-        try:
-            body = decode_json_object(
-                exc.read(),
-                error_class=AnthropicResponseParseError,
-                provider_label="Anthropic API",
-            )
-        except AnthropicResponseParseError:
-            body = {}
-        error = body.get("error")
-        if isinstance(error, Mapping):
-            error_type = error.get("type")
-            if isinstance(error_type, str):
-                metadata["api_error_type"] = error_type
-        return cls(
-            f"Anthropic API request failed with HTTP status {exc.code}.",
-            metadata=metadata,
-        )
+    provider_label = "Anthropic API"
+    api_error_fields = (
+        ApiErrorField("type", "api_error_type", sanitize=False, allow_int=False),
+    )
 
 
 class AnthropicTransportError(AnthropicProviderError):
@@ -538,7 +469,7 @@ def _parse_response(body: Mapping[str, Any]) -> ParsedAnthropicResponse:
 
     return ParsedAnthropicResponse(
         final_text=final_text,
-        usage=_extract_usage(body.get("usage")),
+        usage=extract_anthropic_usage(body.get("usage")),
         stop_reason=stop_reason,
         tool_calls=tool_calls,
     )
@@ -601,42 +532,3 @@ def _extract_tool_calls(content: Any) -> tuple[ProviderToolCall, ...]:
         except ValueError:
             continue
     return tuple(calls)
-
-
-def _extract_usage(value: Any) -> dict[str, int | float]:
-    if not isinstance(value, Mapping):
-        return {}
-    usage: dict[str, Any] = {}
-    for key in NORMALIZED_PROVIDER_USAGE_KEYS:
-        usage[key] = value.get(key)
-
-    # Anthropic exposes cache-related counters under cache_creation_input_tokens
-    # and cache_read_input_tokens. Map creation to cache writes and reads to
-    # cached tokens when present.
-    for anthropic_key, normalized_key in ANTHROPIC_USAGE_FIELD_MAP:
-        if anthropic_key == normalized_key:
-            continue
-        item = value.get(anthropic_key)
-        if item is not None and usage.get(normalized_key) is None:
-            usage[normalized_key] = item
-
-    # Synthesize total_tokens when the provider omits it. Anthropic reports
-    # cache reads/writes separately from fresh input tokens, so include them.
-    if usage.get("total_tokens") is None:
-        input_tokens = _usage_int(usage.get("input_tokens"))
-        output_tokens = _usage_int(usage.get("output_tokens"))
-        if input_tokens is not None and output_tokens is not None:
-            usage["total_tokens"] = (
-                input_tokens
-                + output_tokens
-                + (_usage_int(usage.get("cached_tokens")) or 0)
-                + (_usage_int(usage.get("cache_write_tokens")) or 0)
-            )
-
-    return normalize_provider_usage(usage)
-
-
-def _usage_int(value: Any) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value

@@ -22,7 +22,7 @@ from pipy_harness.native.anthropic_provider import (
     AnthropicHTTPStatusError,
     AnthropicProvider,
     JsonResponse,
-    UrllibJsonHTTPClient,
+    anthropic_http_client,
 )
 from pipy_harness.native.tools import ToolDefinition
 
@@ -727,7 +727,7 @@ def test_urllib_json_http_client_translates_http_error_without_raw_body(monkeypa
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     try:
-        UrllibJsonHTTPClient().post_json(
+        anthropic_http_client().post_json(
             "https://api.anthropic.com/v1/messages",
             headers={"Content-Type": "application/json"},
             body={"model": "claude-test"},

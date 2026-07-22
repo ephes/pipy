@@ -346,7 +346,13 @@ HTTP-status failure into each provider's error metadata. Each plain-JSON adapter
 provides a `<provider>_http_client()` factory and reparents its named error
 types as thin `ProviderHTTPError` subclasses; the remaining `_provider_helpers`
 module owns result/tool serialization and the `HarnessStatus.FAILED` result
-builder.
+builder. The Anthropic Messages and Amazon Bedrock adapters share the same
+`UrllibJsonHTTPClient`/`ProviderHTTPError` base (via `anthropic_http_client()` /
+`bedrock_http_client()`) and the shared `extract_anthropic_usage` usage
+extractor; Bedrock still computes AWS SigV4 signing in the adapter before the
+shared client sends, and `BedrockHTTPStatusError` keeps its own `from_http_error`
+because the Bedrock error envelope is a top-level `message`/`__type` shape rather
+than the shared nested-`error` shape.
 
 Native provider/model ids and coarse capability flags are registered in
 `pipy_harness.native.provider_registry`. The registry owns default models,

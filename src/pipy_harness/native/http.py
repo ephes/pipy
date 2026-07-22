@@ -285,6 +285,59 @@ def extract_usage_from_fields(
     return normalize_provider_usage(usage)
 
 
+# Anthropic reports cache counters under distinct keys; both the Anthropic
+# Messages adapter and the Bedrock InvokeModel adapter (Claude on Bedrock speaks
+# the same body/response shape) map them onto the normalized cache keys.
+_ANTHROPIC_CACHE_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("cache_creation_input_tokens", "cache_write_tokens"),
+    ("cache_read_input_tokens", "cached_tokens"),
+)
+
+
+def _usage_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def extract_anthropic_usage(value: Any) -> dict[str, int | float]:
+    """Extract Anthropic Messages usage, shared by the anthropic + bedrock adapters.
+
+    Reads the normalized usage keys directly, maps Anthropic's
+    ``cache_creation_input_tokens``/``cache_read_input_tokens`` counters onto the
+    normalized cache-write/cached keys, and synthesizes ``total_tokens`` from
+    input + output + cache reads + cache writes when the provider omits it (both
+    Claude on the Anthropic API and on Bedrock report cache reads/writes
+    separately from fresh input tokens).
+    """
+
+    from pipy_harness.native.usage import (
+        NORMALIZED_PROVIDER_USAGE_KEYS,
+        normalize_provider_usage,
+    )
+
+    if not isinstance(value, Mapping):
+        return {}
+    usage: dict[str, Any] = {}
+    for key in NORMALIZED_PROVIDER_USAGE_KEYS:
+        usage[key] = value.get(key)
+    for provider_key, normalized_key in _ANTHROPIC_CACHE_USAGE_FIELDS:
+        item = value.get(provider_key)
+        if item is not None and usage.get(normalized_key) is None:
+            usage[normalized_key] = item
+    if usage.get("total_tokens") is None:
+        input_tokens = _usage_int(usage.get("input_tokens"))
+        output_tokens = _usage_int(usage.get("output_tokens"))
+        if input_tokens is not None and output_tokens is not None:
+            usage["total_tokens"] = (
+                input_tokens
+                + output_tokens
+                + (_usage_int(usage.get("cached_tokens")) or 0)
+                + (_usage_int(usage.get("cache_write_tokens")) or 0)
+            )
+    return normalize_provider_usage(usage)
+
+
 def extract_responses_usage(
     value: Any,
     nested_fields: tuple[tuple[str, str], ...],
