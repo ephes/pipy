@@ -4,6 +4,7 @@ from pipy_harness.native.extension_runtime import (
     RegisteredCommand,
     dispatch_extension_command,
 )
+from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 
 
 def test_coerce_custom_message_accepts_pi_shape_and_aliases():
@@ -43,10 +44,12 @@ def test_command_context_send_message_aliases_append_through_bound_writer(tmp_pa
         {"emit": RegisteredCommand("emit", "emit", handler, "ext")},
         cwd=str(tmp_path),
         has_ui=False,
-        send_message_fn=lambda custom_type, content, display, options, details: calls.append(
-            (custom_type, content, display, dict(options), details)
-        )
-        or f"e{len(calls)}",
+        coding_session=ExtensionCodingSessionControl(
+            send_message_fn=lambda custom_type, content, display, options, details: calls.append(
+                (custom_type, content, display, dict(options), details)
+            )
+            or f"e{len(calls)}",
+        ),
     )
 
     assert result is not None and result.ran

@@ -18,6 +18,7 @@ from pipy_harness.native.extension_runtime import (
     dispatch_extension_command,
     extension_command_map,
 )
+from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.agent import AgentAssistantMessage, ProductContent
@@ -190,12 +191,14 @@ def test_answer_handler_extracts_and_submits(tmp_path) -> None:
         command_map,
         cwd=str(tmp_path),
         has_ui=True,
-        messages=[
-            AgentAssistantMessage(
-                content=ProductContent("To proceed: Which DB? (mysql/pg)")
-            )
-        ],
-        complete_fn=fake_complete,
+        coding_session=ExtensionCodingSessionControl(
+            messages=[
+                AgentAssistantMessage(
+                    content=ProductContent("To proceed: Which DB? (mysql/pg)")
+                )
+            ],
+            complete_fn=fake_complete,
+        ),
         ui_custom_driver=fake_driver,
     )
     assert dispatch is not None and dispatch.ran
@@ -215,7 +218,9 @@ def test_answer_handler_requires_interactive_ui(tmp_path) -> None:
         command_map,
         cwd=str(tmp_path),
         has_ui=False,
-        messages=[AgentAssistantMessage(content=ProductContent("anything?"))],
+        coding_session=ExtensionCodingSessionControl(
+            messages=[AgentAssistantMessage(content=ProductContent("anything?"))]
+        ),
     )
     assert dispatch is not None and dispatch.ran
     assert ("error", "answer requires interactive mode") in dispatch.messages
@@ -225,7 +230,11 @@ def test_answer_handler_requires_interactive_ui(tmp_path) -> None:
 def test_answer_handler_no_assistant_message(tmp_path) -> None:
     command_map, _ = _activate_answer(tmp_path)
     dispatch = dispatch_extension_command(
-        "/answer", command_map, cwd=str(tmp_path), has_ui=True, messages=[]
+        "/answer",
+        command_map,
+        cwd=str(tmp_path),
+        has_ui=True,
+        coding_session=ExtensionCodingSessionControl(messages=[]),
     )
     assert dispatch is not None and dispatch.ran
     assert ("error", "No assistant messages found") in dispatch.messages
@@ -238,12 +247,14 @@ def test_answer_handler_no_questions_found(tmp_path) -> None:
         command_map,
         cwd=str(tmp_path),
         has_ui=True,
-        messages=[
-            AgentAssistantMessage(
-                content=ProductContent("A complete answer with no questions.")
-            )
-        ],
-        complete_fn=lambda _s, _u: '{"questions": []}',
+        coding_session=ExtensionCodingSessionControl(
+            messages=[
+                AgentAssistantMessage(
+                    content=ProductContent("A complete answer with no questions.")
+                )
+            ],
+            complete_fn=lambda _s, _u: '{"questions": []}',
+        ),
     )
     assert dispatch is not None and dispatch.ran
     assert ("info", "No questions found in the last message") in dispatch.messages

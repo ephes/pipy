@@ -2790,6 +2790,48 @@ gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
 
+### Typed extension coding-session host port + headless fake-host coverage (Slice 6.3c) — DONE (2026-07-23)
+
+Sub-slice 6.3c groups the eight loose coding-session parameters
+(`complete_fn` / `append_entry_fn` / `set_session_name_fn` /
+`get_session_name_fn` / `set_label_fn` / `send_message_fn` / `session_tree` and
+the `messages` conversation snapshot) behind one frozen port owned by the
+extension layer. The new `ExtensionCodingSessionControl` value object plus the
+relocated `CompletionFn` / `AppendEntryFn` / `SetSessionNameFn` /
+`GetSessionNameFn` / `SetLabelFn` / `SendMessageFn` aliases live in the
+`native.extension_types` leaf (only `ExtensionCodingSessionControl` and the
+public `CompletionFn` alias are re-consumed/re-exported by `extension_runtime`;
+the five private aliases have no outside consumer and are not re-exported), and
+the bundle is threaded as a single `coding_session` parameter through
+`make_extension_context`, `dispatch_extension_command` /
+`dispatch_extension_shortcut` / `_run_extension_handler`, and the shared
+`_CommandContext` constructor; the loose parameters are deleted at each seam.
+`_CommandContext` reads the six callables off the stored bundle and builds
+`ctx.conversation` / `ctx.session_manager` from its `messages` / `session_tree`.
+`_SessionCollaborators` gains one adapter, `coding_session_control()`, over its
+`extension_complete` / session-name / label methods and the `_CustomEntryRenderer`
+append/send writers plus the live `ctl.session_tree` and `coding_state.messages`,
+built fresh per dispatch so the snapshot and a `/new` / `/resume` / `/fork` /
+`/clone` rebind stay current; `dispatch_extension_effect` calls it directly and
+`_ReplLoopStep.step_once`'s six loose callables collapse to one
+`coding_session_control` factory param. The two `extension_hooks` sites pass a
+narrow `ExtensionCodingSessionControl(messages=…)` /
+`ExtensionCodingSessionControl(session_tree=…)`. A new import-boundary rule
+asserts the four extension activation/host-port modules never import
+`tool_loop_session`, and a new headless fake-host test drives a command and an
+input hook against fake coding-session and model-runtime ports with no terminal
+or concrete `NativeToolReplSession`. No change to capability semantics,
+conversation-view contents, append/send ordering, event ordering,
+session/JSON/RPC formats, or the public `pipy_harness.extensions` surface
+(`ExtensionCodingSessionControl` is host-internal); no new dependency, `Any`, or
+`type: ignore`. Focused dispatch/send-message/conversation/entry-renderer/
+completion/shortcuts/answer-example/project-trust/headless-host/import-boundary
+suites passed; `extension_conformance_gate`, `extension_dispatch_conformance`,
+and `automation_rpc_conformance` reported ALL PASS; `just test-pty-smoke` 8/8;
+`just check` (Ruff, mypy clean, 4,509 passed, 2 skipped) and `just docs-build`
+are green. Review: Pending review — Claude Opus panel (user-directed substitution
+for the different-family gate). The UI callables remain 6.4.
+
 ### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
 
 Phase 4.1 introduces the terminal-free `native.ui` package. `native.ui.state`

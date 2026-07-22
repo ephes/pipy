@@ -22,6 +22,7 @@ from pipy_harness.native.extension_runtime import (
     extension_shortcuts,
     normalize_shortcut_key,
 )
+from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tui import ToolLoopTerminalUi
@@ -160,7 +161,9 @@ def activate(api):
         shortcuts,
         cwd=str(tmp_path),
         has_ui=True,
-        messages=[AgentAssistantMessage(content=ProductContent("hello there"))],
+        coding_session=ExtensionCodingSessionControl(
+            messages=[AgentAssistantMessage(content=ProductContent("hello there"))]
+        ),
     )
     assert dispatch is not None and dispatch.ran
     assert ("info", "seen:hello there") in dispatch.messages

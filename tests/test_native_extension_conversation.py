@@ -17,6 +17,7 @@ from pipy_harness.native.extension_runtime import (
     AssistantMessageView,
     dispatch_extension_command,
 )
+from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 
 
 def _command_map(handler):
@@ -49,7 +50,7 @@ def test_last_assistant_message_exposes_recent_text() -> None:
         _command_map(handler),
         cwd="/tmp",
         has_ui=True,
-        messages=messages,
+        coding_session=ExtensionCodingSessionControl(messages=messages),
     )
     assert dispatch is not None and dispatch.ran
     view = seen["msg"]
@@ -78,7 +79,11 @@ def test_last_assistant_message_reports_incomplete_when_tool_calls_pending() -> 
         ),
     ]
     dispatch = dispatch_extension_command(
-        "/probe", _command_map(handler), cwd="/tmp", has_ui=True, messages=messages
+        "/probe",
+        _command_map(handler),
+        cwd="/tmp",
+        has_ui=True,
+        coding_session=ExtensionCodingSessionControl(messages=messages),
     )
     assert dispatch is not None and dispatch.ran
     view = seen["msg"]
@@ -97,7 +102,9 @@ def test_last_assistant_message_is_none_without_assistant_turn() -> None:
         _command_map(handler),
         cwd="/tmp",
         has_ui=True,
-        messages=[AgentUserMessage(content=ProductContent("only user text"))],
+        coding_session=ExtensionCodingSessionControl(
+            messages=[AgentUserMessage(content=ProductContent("only user text"))]
+        ),
     )
     assert dispatch is not None and dispatch.ran
     assert seen["msg"] is None

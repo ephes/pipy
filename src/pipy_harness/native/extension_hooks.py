@@ -52,13 +52,13 @@ from pipy_harness.native.extension_runtime import (
     HookHandler,
     _CollectingUi,
     _CommandContext,
-    _ConversationView,
 )
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,
     BeforeAgentStartResult,
     BeforeProviderHeadersEvent,
     BeforeProviderRequestEvent,
+    ExtensionCodingSessionControl,
     ExtensionMode,
     ExtensionModelRuntimeControl,
     InputEvent,
@@ -578,7 +578,9 @@ def dispatch_before_provider_request_hooks(
         ctx = _CommandContext(
             cwd,
             _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-            _ConversationView(getattr(request, "messages", ())),
+            ExtensionCodingSessionControl(
+                messages=tuple(getattr(request, "messages", ()))
+            ),
             model_runtime=model_runtime,
             flags=flags,
             project_trusted=project_trusted,
@@ -644,8 +646,8 @@ def dispatch_before_provider_headers_hooks(
     ctx = _CommandContext(
         cwd,
         _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
+        ExtensionCodingSessionControl(session_tree=session_tree),
         flags=flags,
-        session_tree=session_tree,
         project_trusted=project_trusted,
     )
     event = BeforeProviderHeadersEvent(headers=headers)

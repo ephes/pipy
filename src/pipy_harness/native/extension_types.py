@@ -27,6 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only forward references
     # type-checking-only edge: there is no runtime import, so
     # ``extension_types`` remains a runtime leaf with no import cycle.
     from pipy_harness.native.extension_runtime import ExtensionUi, ToolRenderContext
+    from pipy_harness.native.session_tree import NativeSessionTree
 
 # Activation reason codes (safe, enumerable labels).
 REASON_IMPORT_ERROR: str = "import_error"
@@ -203,6 +204,45 @@ class ExtensionModelRuntimeControl:
     set_active_tools_fn: ControlSetActiveToolsFn | None = None
     set_model_fn: ControlSetModelFn | None = None
     set_thinking_level_fn: ControlSetThinkingLevelFn | None = None
+
+
+# Coding-session host collaborators an activated extension may invoke through a
+# command/hook context: a bounded one-shot completion, custom session-entry
+# append, session-name get/set, entry-label set, and a custom-message send. Each
+# is ``None`` when that capability is not offered in the current context (the
+# context then raises ``ExtensionCapabilityError``, except ``get_session_name``
+# which returns ``None``).
+CompletionFn = Callable[[str, str], str]
+AppendEntryFn = Callable[[str, object | None], object]
+SetSessionNameFn = Callable[[str | None], object]
+GetSessionNameFn = Callable[[], str | None]
+SetLabelFn = Callable[[str, str | None], object]
+SendMessageFn = Callable[[str, str, bool, Mapping[str, object], object | None], object]
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionCodingSessionControl:
+    """Frozen bundle of the coding-session host collaborators and snapshot.
+
+    Groups the completion, custom-entry append, session-name get/set,
+    entry-label set, and custom-message send capability functions the extension
+    host threads into every command and shortcut context — plus the live
+    ``session_tree`` the read-only session-manager view reads and the
+    ``messages`` conversation snapshot the read-only conversation view reads — as
+    a single port instead of an ad-hoc callable fan-out. Each callable field is
+    ``None`` when that capability is not offered in the current context;
+    ``session_tree`` is ``None`` and ``messages`` is empty when the context has
+    no live coding session.
+    """
+
+    complete_fn: CompletionFn | None = None
+    append_entry_fn: AppendEntryFn | None = None
+    set_session_name_fn: SetSessionNameFn | None = None
+    get_session_name_fn: GetSessionNameFn | None = None
+    set_label_fn: SetLabelFn | None = None
+    send_message_fn: SendMessageFn | None = None
+    session_tree: "NativeSessionTree | None" = None
+    messages: Sequence[object] = ()
 
 
 @dataclass(frozen=True, slots=True)

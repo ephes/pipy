@@ -955,6 +955,24 @@ ARCHITECTURE_RULES = (
             "TUI/session implementations"
         ),
     ),
+    *(
+        BoundaryRule(
+            source_package=host_module,
+            forbidden_imports=("pipy_harness.native.tool_loop_session",),
+            reason=(
+                "extension activation and host-port modules define ports against "
+                "coding-session / model-runtime interfaces (extension_types value "
+                "objects) and must never import the concrete "
+                "NativeToolReplSession product session in tool_loop_session"
+            ),
+        )
+        for host_module in (
+            "pipy_harness.native.extension_types",
+            "pipy_harness.native.extension_runtime",
+            "pipy_harness.native.extension_hooks",
+            "pipy_harness.native.extension_loader",
+        )
+    ),
 )
 
 # These exact names are part of the migration plan but do not all exist yet.

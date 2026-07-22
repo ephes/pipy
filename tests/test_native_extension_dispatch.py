@@ -29,6 +29,7 @@ from pipy_harness.native.extension_runtime import (
     render_extension_message,
     safe_custom_entry_data,
 )
+from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.session_tree import (
     CustomEntry,
@@ -610,7 +611,7 @@ def test_dispatch_exposes_append_entry_capability(tmp_path: Path) -> None:
         _command_map(workspace),
         cwd=str(workspace),
         has_ui=True,
-        append_entry_fn=append_entry,
+        coding_session=ExtensionCodingSessionControl(append_entry_fn=append_entry),
     )
 
     assert dispatch is not None
@@ -639,7 +640,7 @@ def test_append_entry_rejects_invalid_custom_type(tmp_path: Path) -> None:
         _command_map(workspace),
         cwd=str(workspace),
         has_ui=True,
-        append_entry_fn=append_entry,
+        coding_session=ExtensionCodingSessionControl(append_entry_fn=append_entry),
     )
 
     assert dispatch is not None
@@ -1274,7 +1275,11 @@ def test_command_context_exposes_read_only_session_manager(tmp_path):
     command_map = {"inspect": command}
 
     dispatch = dispatch_extension_command(
-        "/inspect", command_map, cwd=str(workspace), has_ui=True, session_tree=tree
+        "/inspect",
+        command_map,
+        cwd=str(workspace),
+        has_ui=True,
+        coding_session=ExtensionCodingSessionControl(session_tree=tree),
     )
 
     assert dispatch is not None
@@ -1353,9 +1358,11 @@ def test_dispatch_exposes_session_metadata_actions(tmp_path: Path) -> None:
         {"meta": command},
         cwd=str(workspace),
         has_ui=False,
-        set_session_name_fn=set_name,
-        get_session_name_fn=lambda: "old name",
-        set_label_fn=set_label,
+        coding_session=ExtensionCodingSessionControl(
+            set_session_name_fn=set_name,
+            get_session_name_fn=lambda: "old name",
+            set_label_fn=set_label,
+        ),
     )
 
     assert dispatch is not None

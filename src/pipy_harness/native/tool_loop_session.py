@@ -275,6 +275,7 @@ from pipy_harness.native.extension_runtime import (
     EVENT_USER_BASH,
     LIFECYCLE_EVENTS,
     ExtensionCapabilityError,
+    ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
     ExtensionTool,
     ExtensionUiDriver,
@@ -2355,9 +2356,12 @@ class _CustomEntryRenderer:
     were consumed: the loop-step handler's ``drain_extension_outboxes``/
     ``extension_append_entry``/``extension_send_message`` ports, the built-in
     interpreter's ``redraw_custom_entries_for_active_branch``/
-    ``extension_send_message`` ports, the extension-dispatch ``append_entry_fn``/
-    ``send_message_fn`` seams, the startup ``replay_custom_entries_to_terminal``
-    call, and the activation custom-message replay loop.
+    ``extension_send_message`` ports, the ``extension_append_entry`` /
+    ``extension_send_message`` collaborators the ``_SessionCollaborators``
+    ``coding_session_control`` adapter bundles into the extension-dispatch
+    ``ExtensionCodingSessionControl`` port, the startup
+    ``replay_custom_entries_to_terminal`` call, and the activation custom-message
+    replay loop.
     """
 
     session: NativeToolReplSession
@@ -2931,17 +2935,10 @@ class _ReplLoopStep:
         _active_provider_header_callback: Callable[
             [], Callable[[MutableMapping[str, str | None]], None] | None
         ],
-        _extension_complete: Callable[[str, str], str],
         _extension_custom_driver: Callable[..., object],
         _extension_notify: Callable[[str, str], None],
         _sync_tool_policy_counters: Callable[[AgentToolPolicyState], None],
-        extension_append_entry: Callable[[str, object | None], object],
-        extension_get_session_name: Callable[[], str | None],
-        extension_send_message: Callable[
-            [str, str, bool, "Mapping[str, object]", object | None], object
-        ],
-        extension_set_label: Callable[[str, str | None], object],
-        extension_set_session_name: Callable[[str | None], object],
+        coding_session_control: Callable[[], ExtensionCodingSessionControl],
         model_runtime: ExtensionModelRuntimeControl,
     ) -> LoopStepSignal:
         # The per-action built-in control-state reassignments (session tree,
@@ -3050,19 +3047,12 @@ class _ReplLoopStep:
                 ctl._ext_runtime.shortcuts,
                 cwd=str(cwd),
                 has_ui=terminal_ui is not None,
-                messages=coding_state.messages,
-                complete_fn=_extension_complete,
+                coding_session=coding_session_control(),
                 notify_sink=_extension_notify,
                 ui_custom_driver=_extension_custom_driver,
                 ui_driver=extension_ui_driver,
                 model_runtime=model_runtime,
-                append_entry_fn=extension_append_entry,
-                set_session_name_fn=extension_set_session_name,
-                get_session_name_fn=extension_get_session_name,
-                set_label_fn=extension_set_label,
-                send_message_fn=extension_send_message,
                 flags=ctl.extension_flag_values,
-                session_tree=ctl.session_tree,
                 project_trusted=settings.project_trusted,
             )
             if (
@@ -3641,6 +3631,26 @@ class _SessionCollaborators:
     def extension_set_label(self, entry_id: str, label: str | None) -> object:
         return self.ctl.session_tree.append_label_change(entry_id, label)
 
+    def coding_session_control(self) -> ExtensionCodingSessionControl:
+        """Bundle the coding-session host collaborators + live snapshot.
+
+        Built fresh at each dispatch so the ``messages`` conversation snapshot
+        and the live ``session_tree`` (rebindable by ``/new`` / ``/resume`` /
+        ``/fork`` / ``/clone``) reflect the current session, exactly as the
+        prior loose-callable fan-out read them per call.
+        """
+
+        return ExtensionCodingSessionControl(
+            complete_fn=self.extension_complete,
+            append_entry_fn=self.custom_renderer.extension_append_entry,
+            set_session_name_fn=self.extension_set_session_name,
+            get_session_name_fn=self.extension_get_session_name,
+            set_label_fn=self.extension_set_label,
+            send_message_fn=self.custom_renderer.extension_send_message,
+            session_tree=self.ctl.session_tree,
+            messages=self.coding_state.messages,
+        )
+
     def current_session_dir(self) -> Path:
         if self.ctl.session_tree.path is not None:
             return self.ctl.session_tree.path.parent
@@ -3869,19 +3879,12 @@ class _SessionCollaborators:
             self.ctl.extension_commands,
             cwd=str(self.cwd),
             has_ui=self.terminal_ui is not None,
-            messages=self.coding_state.messages,
-            complete_fn=self.extension_complete,
+            coding_session=self.coding_session_control(),
             notify_sink=self.extension_notify,
             ui_custom_driver=self.extension_custom_driver,
             ui_driver=self.extension_ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(),
-            append_entry_fn=self.custom_renderer.extension_append_entry,
-            set_session_name_fn=self.extension_set_session_name,
-            get_session_name_fn=self.extension_get_session_name,
-            set_label_fn=self.extension_set_label,
-            send_message_fn=self.custom_renderer.extension_send_message,
             flags=self.ctl.extension_flag_values,
-            session_tree=self.ctl.session_tree,
             project_trusted=self.settings.project_trusted,
         )
         if extension_dispatch is None:
@@ -4890,15 +4893,10 @@ class NativeToolReplSession:
                 append_agent_message=append_agent_message,
                 drain_extension_outboxes=custom_renderer.drain_extension_outboxes,
                 _active_provider_header_callback=collaborators.active_provider_header_callback,
-                _extension_complete=collaborators.extension_complete,
                 _extension_custom_driver=collaborators.extension_custom_driver,
                 _extension_notify=_extension_notify,
                 _sync_tool_policy_counters=_sync_tool_policy_counters,
-                extension_append_entry=custom_renderer.extension_append_entry,
-                extension_get_session_name=collaborators.extension_get_session_name,
-                extension_send_message=custom_renderer.extension_send_message,
-                extension_set_label=collaborators.extension_set_label,
-                extension_set_session_name=collaborators.extension_set_session_name,
+                coding_session_control=collaborators.coding_session_control,
                 model_runtime=provider_mutation.model_runtime_control(),
             ),
             finalize=partial(

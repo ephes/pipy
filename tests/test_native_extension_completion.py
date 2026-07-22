@@ -14,6 +14,7 @@ from pipy_harness.native.extension_runtime import (
     RegisteredCommand,
     dispatch_extension_command,
 )
+from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 
 
 def _command_map(handler):
@@ -40,7 +41,7 @@ def test_complete_delegates_to_the_wired_backend() -> None:
         _command_map(handler),
         cwd="/tmp",
         has_ui=True,
-        complete_fn=backend,
+        coding_session=ExtensionCodingSessionControl(complete_fn=backend),
     )
     assert dispatch is not None and dispatch.ran
     assert seen["out"] == '{"questions": []}'

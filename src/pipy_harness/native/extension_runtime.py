@@ -63,6 +63,8 @@ from pipy_harness.native.extension_types import (
     BeforeAgentStartResult,  # noqa: F401 - re-exported via pipy_harness.extensions
     BeforeProviderHeadersEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     BeforeProviderRequestEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    CompletionFn,  # noqa: F401 - re-exported via pipy_harness.extensions
+    ExtensionCodingSessionControl,
     ExtensionFlag,
     ExtensionModelRuntimeControl,
     ExtensionOAuthConfig,
@@ -176,50 +178,32 @@ def make_extension_context(
     has_ui: bool,
     notify_sink: "Callable[[str, str], None] | None" = None,
     *,
-    messages: "Sequence[object]" = (),
-    complete_fn: "CompletionFn | None" = None,
+    coding_session: "ExtensionCodingSessionControl | None" = None,
     model_runtime: "ExtensionModelRuntimeControl | None" = None,
-    append_entry_fn: "AppendEntryFn | None" = None,
-    set_session_name_fn: "SetSessionNameFn | None" = None,
-    get_session_name_fn: "GetSessionNameFn | None" = None,
-    set_label_fn: "SetLabelFn | None" = None,
     flags: Mapping[str, object] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
-    session_tree: "NativeSessionTree | None" = None,
-    send_message_fn: "SendMessageFn | None" = None,
     project_trusted: bool = False,
 ) -> CommandContext:
     """Build a mode-aware context for a tool/command/hook invocation.
 
     When `notify_sink` is given, `ctx.ui.notify` routes to it (live UI
     output) in addition to recording; otherwise notifications are only
-    recorded (deterministic non-interactive behavior). `messages` is a
-    snapshot of the live conversation used to back `ctx.conversation`;
-    `complete_fn`, when given, backs `ctx.complete`.
+    recorded (deterministic non-interactive behavior). `coding_session`, when
+    given, backs the coding-session-facing surface: its `messages` snapshot
+    backs `ctx.conversation`, its `session_tree` backs `ctx.session_manager`,
+    and its capability callables back `ctx.complete` / `ctx.append_entry` /
+    session-name / label / custom-message.
     """
 
     return _CommandContext(
         cwd,
         _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        _ConversationView(messages),
-        complete_fn,
-        model_runtime,
-        append_entry_fn,
-        set_session_name_fn,
-        get_session_name_fn,
-        set_label_fn,
-        send_message_fn=send_message_fn,
+        coding_session,
+        model_runtime=model_runtime,
         flags=flags,
-        session_tree=session_tree,
         project_trusted=project_trusted,
     )
 
-
-AppendEntryFn = Callable[[str, object | None], object]
-SetSessionNameFn = Callable[[str | None], object]
-GetSessionNameFn = Callable[[], str | None]
-SetLabelFn = Callable[[str, str | None], object]
-SendMessageFn = Callable[[str, str, bool, Mapping[str, object], object | None], object]
 
 ActivationStatus = Literal["activated", "disabled"]
 
@@ -774,10 +758,6 @@ class ExtensionCapabilityError(RuntimeError):
     (a deterministic / non-interactive dispatch), so a handler degrades
     predictably instead of crashing on a missing attribute.
     """
-
-
-# A bounded one-shot completion backend: (system_prompt, user_text) -> text.
-CompletionFn = Callable[[str, str], str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1508,35 +1488,25 @@ class _CommandContext:
         self,
         cwd: str,
         ui: _CollectingUi,
-        conversation: "ConversationView | None" = None,
-        complete_fn: "CompletionFn | None" = None,
+        coding_session: "ExtensionCodingSessionControl | None" = None,
+        *,
         model_runtime: "ExtensionModelRuntimeControl | None" = None,
-        append_entry_fn: "AppendEntryFn | None" = None,
-        set_session_name_fn: "SetSessionNameFn | None" = None,
-        get_session_name_fn: "GetSessionNameFn | None" = None,
-        set_label_fn: "SetLabelFn | None" = None,
-        send_message_fn: "SendMessageFn | None" = None,
         flags: Mapping[str, object] | None = None,
-        session_tree: "NativeSessionTree | None" = None,
         project_trusted: bool = False,
     ) -> None:
         self.cwd = cwd
         self.has_ui = ui.has_ui
         self.ui: ExtensionUi = ui
-        self.conversation: ConversationView = conversation or _ConversationView()
+        session = coding_session or ExtensionCodingSessionControl()
+        self.conversation: ConversationView = _ConversationView(session.messages)
         self.session_manager: SessionManagerView = _ReadOnlySessionManagerView(
-            session_tree
+            session.session_tree
         )
         self.sessionManager: SessionManagerView = self.session_manager
         self.flags: Mapping[str, object] = dict(flags or {})
         self._project_trusted = bool(project_trusted)
-        self._complete_fn = complete_fn
+        self._coding_session = session
         self._model_runtime = model_runtime or ExtensionModelRuntimeControl()
-        self._append_entry_fn = append_entry_fn
-        self._set_session_name_fn = set_session_name_fn
-        self._get_session_name_fn = get_session_name_fn
-        self._set_label_fn = set_label_fn
-        self._send_message_fn = send_message_fn
 
     def is_project_trusted(self) -> bool:
         return self._project_trusted
@@ -1545,11 +1515,11 @@ class _CommandContext:
         return self.is_project_trusted()
 
     def complete(self, system_prompt: str, user_text: str) -> str:
-        if self._complete_fn is None:
+        if self._coding_session.complete_fn is None:
             raise ExtensionCapabilityError(
                 "completion is not available in this context"
             )
-        return self._complete_fn(str(system_prompt), str(user_text))
+        return self._coding_session.complete_fn(str(system_prompt), str(user_text))
 
     def set_active_tools(self, tool_names: Sequence[str]) -> bool:
         if self._model_runtime.set_active_tools_fn is None:
@@ -1575,39 +1545,43 @@ class _CommandContext:
         return self._model_runtime.set_thinking_level_fn(str(level))
 
     def append_entry(self, custom_type: str, data: object | None = None) -> object:
-        if self._append_entry_fn is None:
+        if self._coding_session.append_entry_fn is None:
             raise ExtensionCapabilityError(
                 "custom session entries are not available in this context"
             )
         name = str(custom_type).strip()
         if not is_valid_custom_entry_type(name):
             raise ValueError("invalid custom entry type")
-        return self._append_entry_fn(name, data)
+        return self._coding_session.append_entry_fn(name, data)
 
     def set_session_name(self, name: str | None) -> object:
-        if self._set_session_name_fn is None:
+        if self._coding_session.set_session_name_fn is None:
             raise ExtensionCapabilityError(
                 "session-name mutation is not available in this context"
             )
-        return self._set_session_name_fn(None if name is None else str(name))
+        return self._coding_session.set_session_name_fn(
+            None if name is None else str(name)
+        )
 
     def setSessionName(self, name: str | None) -> object:
         return self.set_session_name(name)
 
     def get_session_name(self) -> str | None:
-        if self._get_session_name_fn is None:
+        if self._coding_session.get_session_name_fn is None:
             return None
-        return self._get_session_name_fn()
+        return self._coding_session.get_session_name_fn()
 
     def getSessionName(self) -> str | None:
         return self.get_session_name()
 
     def set_label(self, entry_id: str, label: str | None) -> object:
-        if self._set_label_fn is None:
+        if self._coding_session.set_label_fn is None:
             raise ExtensionCapabilityError(
                 "session-label mutation is not available in this context"
             )
-        return self._set_label_fn(str(entry_id), None if label is None else str(label))
+        return self._coding_session.set_label_fn(
+            str(entry_id), None if label is None else str(label)
+        )
 
     def setLabel(self, entry_id: str, label: str | None) -> object:
         return self.set_label(entry_id, label)
@@ -1617,12 +1591,12 @@ class _CommandContext:
         message: Mapping[str, object],
         options: Mapping[str, object] | None = None,
     ) -> object:
-        if self._send_message_fn is None:
+        if self._coding_session.send_message_fn is None:
             raise ExtensionCapabilityError(
                 "custom messages are not available in this context"
             )
         queued = coerce_custom_message(message, options)
-        return self._send_message_fn(
+        return self._coding_session.send_message_fn(
             queued.custom_type,
             queued.content,
             queued.display,
@@ -1698,19 +1672,12 @@ def dispatch_extension_command(
     *,
     cwd: str,
     has_ui: bool,
-    messages: "Sequence[object]" = (),
-    complete_fn: "CompletionFn | None" = None,
+    coding_session: "ExtensionCodingSessionControl | None" = None,
     notify_sink: "Callable[[str, str], None] | None" = None,
     ui_custom_driver: "CustomComponentDriver | None" = None,
     ui_driver: "ExtensionUiDriver | None" = None,
     model_runtime: "ExtensionModelRuntimeControl | None" = None,
-    append_entry_fn: "AppendEntryFn | None" = None,
-    set_session_name_fn: "SetSessionNameFn | None" = None,
-    get_session_name_fn: "GetSessionNameFn | None" = None,
-    set_label_fn: "SetLabelFn | None" = None,
-    send_message_fn: "SendMessageFn | None" = None,
     flags: Mapping[str, object] | None = None,
-    session_tree: "NativeSessionTree | None" = None,
     project_trusted: bool = False,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch `command_text` to an extension command, or return None.
@@ -1740,19 +1707,12 @@ def dispatch_extension_command(
         args,
         cwd=cwd,
         has_ui=has_ui,
-        messages=messages,
-        complete_fn=complete_fn,
+        coding_session=coding_session,
         notify_sink=notify_sink,
         ui_custom_driver=ui_custom_driver,
         ui_driver=ui_driver,
         model_runtime=model_runtime,
-        append_entry_fn=append_entry_fn,
-        set_session_name_fn=set_session_name_fn,
-        get_session_name_fn=get_session_name_fn,
-        set_label_fn=set_label_fn,
-        send_message_fn=send_message_fn,
         flags=flags,
-        session_tree=session_tree,
         project_trusted=project_trusted,
     )
 
@@ -1763,19 +1723,12 @@ def dispatch_extension_shortcut(
     *,
     cwd: str,
     has_ui: bool,
-    messages: "Sequence[object]" = (),
-    complete_fn: "CompletionFn | None" = None,
+    coding_session: "ExtensionCodingSessionControl | None" = None,
     notify_sink: "Callable[[str, str], None] | None" = None,
     ui_custom_driver: "CustomComponentDriver | None" = None,
     ui_driver: "ExtensionUiDriver | None" = None,
     model_runtime: "ExtensionModelRuntimeControl | None" = None,
-    append_entry_fn: "AppendEntryFn | None" = None,
-    set_session_name_fn: "SetSessionNameFn | None" = None,
-    get_session_name_fn: "GetSessionNameFn | None" = None,
-    set_label_fn: "SetLabelFn | None" = None,
-    send_message_fn: "SendMessageFn | None" = None,
     flags: Mapping[str, object] | None = None,
-    session_tree: "NativeSessionTree | None" = None,
     project_trusted: bool = False,
 ) -> ExtensionCommandDispatch | None:
     """Dispatch a registered extension shortcut `key`, or return None.
@@ -1796,19 +1749,12 @@ def dispatch_extension_shortcut(
         "",
         cwd=cwd,
         has_ui=has_ui,
-        messages=messages,
-        complete_fn=complete_fn,
+        coding_session=coding_session,
         notify_sink=notify_sink,
         ui_custom_driver=ui_custom_driver,
         ui_driver=ui_driver,
         model_runtime=model_runtime,
-        append_entry_fn=append_entry_fn,
-        set_session_name_fn=set_session_name_fn,
-        get_session_name_fn=get_session_name_fn,
-        set_label_fn=set_label_fn,
-        send_message_fn=send_message_fn,
         flags=flags,
-        session_tree=session_tree,
         project_trusted=project_trusted,
     )
 
@@ -1820,19 +1766,12 @@ def _run_extension_handler(
     *,
     cwd: str,
     has_ui: bool,
-    messages: "Sequence[object]",
-    complete_fn: "CompletionFn | None",
+    coding_session: "ExtensionCodingSessionControl | None",
     notify_sink: "Callable[[str, str], None] | None",
     ui_custom_driver: "CustomComponentDriver | None",
     ui_driver: "ExtensionUiDriver | None",
     model_runtime: "ExtensionModelRuntimeControl | None",
-    append_entry_fn: "AppendEntryFn | None",
-    set_session_name_fn: "SetSessionNameFn | None",
-    get_session_name_fn: "GetSessionNameFn | None",
-    set_label_fn: "SetLabelFn | None",
-    send_message_fn: "SendMessageFn | None",
     flags: Mapping[str, object] | None,
-    session_tree: "NativeSessionTree | None",
     project_trusted: bool,
 ) -> ExtensionCommandDispatch:
     """Run a command/shortcut handler with a mode-aware context; bound errors."""
@@ -1841,16 +1780,9 @@ def _run_extension_handler(
     ctx = _CommandContext(
         cwd,
         ui,
-        _ConversationView(messages),
-        complete_fn,
-        model_runtime,
-        append_entry_fn,
-        set_session_name_fn,
-        get_session_name_fn,
-        set_label_fn,
-        send_message_fn=send_message_fn,
+        coding_session,
+        model_runtime=model_runtime,
         flags=flags,
-        session_tree=session_tree,
         project_trusted=project_trusted,
     )
     try:
