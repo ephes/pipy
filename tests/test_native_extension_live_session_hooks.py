@@ -22,6 +22,7 @@ from pipy_harness.native.extension_hooks import (
     dispatch_user_bash_hooks,
 )
 from pipy_harness.native.extension_runtime import (
+    ExtensionModelRuntimeControl,
     ProviderRequestTransform,
     SessionDecision,
     UserBashDecision,
@@ -110,9 +111,11 @@ def test_dispatchers_expose_dynamic_control_context(tmp_path: Path) -> None:
         request,
         cwd=str(tmp_path),
         has_ui=False,
-        set_active_tools_fn=set_tools,
-        set_model_fn=set_model,
-        set_thinking_level_fn=set_thinking,
+        model_runtime=ExtensionModelRuntimeControl(
+            set_active_tools_fn=set_tools,
+            set_model_fn=set_model,
+            set_thinking_level_fn=set_thinking,
+        ),
     )
 
     assert transform.user_prompt == "hello::hook"

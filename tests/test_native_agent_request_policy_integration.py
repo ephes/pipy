@@ -151,9 +151,7 @@ def _hook_context(tmp_path: Path) -> NativeProviderRequestHookContext:
         has_ui=False,
         notify_sink=None,
         ui_driver=None,
-        set_active_tools_fn=None,
-        set_model_fn=None,
-        set_thinking_level_fn=None,
+        model_runtime=None,
         flags={},
         project_trusted=False,
     )

@@ -275,6 +275,7 @@ from pipy_harness.native.extension_runtime import (
     EVENT_USER_BASH,
     LIFECYCLE_EVENTS,
     ExtensionCapabilityError,
+    ExtensionModelRuntimeControl,
     ExtensionTool,
     ExtensionUiDriver,
     HookHandler,
@@ -1019,7 +1020,9 @@ class _ExtensionToolPort:
             str(context.workspace_root),
             self._has_ui,
             self._notify_sink,
-            set_active_tools_fn=self._set_active_tools_fn,
+            model_runtime=ExtensionModelRuntimeControl(
+                set_active_tools_fn=self._set_active_tools_fn
+            ),
             flags=self._flags,
             project_trusted=self._project_trusted,
         )
@@ -2588,6 +2591,12 @@ class _CustomEntryRenderer:
             )
 
 
+def _deny_model_mutation(_reference: str) -> bool:
+    """Refuse a mid-turn model switch (hook contexts that forbid it)."""
+
+    return False
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _ProviderMutationEffects:
     """Composition-root handler owning the provider/model/auth/compaction
@@ -2666,6 +2675,26 @@ class _ProviderMutationEffects:
         self.ctl.session_tree.append_thinking_level_change(normalized)
         self.refresh_footer_text()
         return True
+
+    def model_runtime_control(
+        self, *, allow_model: bool = True
+    ) -> ExtensionModelRuntimeControl:
+        """Bundle the three model-runtime control callables for a context.
+
+        The single adapter every command/hook/tool seam threads instead of
+        passing the three bare callables. When ``allow_model`` is ``False``
+        (the mid-turn tool_call / tool_result / before_provider_request hook
+        paths, where a live model switch is not permitted), ``set_model``
+        fails closed by returning ``False``.
+        """
+
+        return ExtensionModelRuntimeControl(
+            set_active_tools_fn=self.extension_set_active_tools,
+            set_model_fn=(
+                self.extension_set_model if allow_model else _deny_model_mutation
+            ),
+            set_thinking_level_fn=self.extension_set_thinking_level,
+        )
 
     def apply_model_selection(self, reference: str) -> tuple[bool, str]:
         """Select ``reference`` through the provider-state boundary.
@@ -2790,9 +2819,7 @@ class _ProviderMutationEffects:
             trigger=trigger,
             notify_sink=self.extension_notify,
             ui_driver=self.extension_ui_driver,
-            set_active_tools_fn=self.extension_set_active_tools,
-            set_model_fn=self.extension_set_model,
-            set_thinking_level_fn=self.extension_set_thinking_level,
+            model_runtime=self.model_runtime_control(),
             flags=self.ctl.extension_flag_values,
             project_trusted=self.settings.project_trusted,
         )
@@ -2913,11 +2940,9 @@ class _ReplLoopStep:
         extension_send_message: Callable[
             [str, str, bool, "Mapping[str, object]", object | None], object
         ],
-        extension_set_active_tools: Callable[[Sequence[str]], bool],
         extension_set_label: Callable[[str, str | None], object],
-        extension_set_model: Callable[[str], bool],
         extension_set_session_name: Callable[[str | None], object],
-        extension_set_thinking_level: Callable[[str], bool],
+        model_runtime: ExtensionModelRuntimeControl,
     ) -> LoopStepSignal:
         # The per-action built-in control-state reassignments (session tree,
         # tree filter mode, prefill, and the whole `/reload` extension-runtime
@@ -3030,9 +3055,7 @@ class _ReplLoopStep:
                 notify_sink=_extension_notify,
                 ui_custom_driver=_extension_custom_driver,
                 ui_driver=extension_ui_driver,
-                set_active_tools_fn=extension_set_active_tools,
-                set_model_fn=extension_set_model,
-                set_thinking_level_fn=extension_set_thinking_level,
+                model_runtime=model_runtime,
                 append_entry_fn=extension_append_entry,
                 set_session_name_fn=extension_set_session_name,
                 get_session_name_fn=extension_get_session_name,
@@ -3091,9 +3114,7 @@ class _ReplLoopStep:
                 error_stream=error_stream,
                 cwd=cwd,
                 user_bash_hooks=ctl.extension_user_bash_hooks,
-                set_active_tools_fn=extension_set_active_tools,
-                set_model_fn=extension_set_model,
-                set_thinking_level_fn=extension_set_thinking_level,
+                model_runtime=model_runtime,
                 ui_driver=extension_ui_driver,
                 flags=ctl.extension_flag_values,
                 project_trusted=settings.project_trusted,
@@ -3162,9 +3183,7 @@ class _ReplLoopStep:
                 has_ui=terminal_ui is not None,
                 notify_sink=_extension_notify,
                 ui_driver=extension_ui_driver,
-                set_active_tools_fn=extension_set_active_tools,
-                set_model_fn=extension_set_model,
-                set_thinking_level_fn=extension_set_thinking_level,
+                model_runtime=model_runtime,
                 project_trusted=settings.project_trusted,
             )
 
@@ -3199,9 +3218,7 @@ class _ReplLoopStep:
                 system_prompt=base_prompt,
                 notify_sink=_extension_notify,
                 ui_driver=extension_ui_driver,
-                set_active_tools_fn=extension_set_active_tools,
-                set_model_fn=extension_set_model,
-                set_thinking_level_fn=extension_set_thinking_level,
+                model_runtime=model_runtime,
                 flags=ctl.extension_flag_values,
                 project_trusted=settings.project_trusted,
             )
@@ -3665,9 +3682,7 @@ class _SessionCollaborators:
             trigger=trigger,
             notify_sink=self.extension_notify,
             ui_driver=self.extension_ui_driver,
-            set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
-            set_model_fn=self.provider_mutation.extension_set_model,
-            set_thinking_level_fn=self.provider_mutation.extension_set_thinking_level,
+            model_runtime=self.provider_mutation.model_runtime_control(),
             flags=self.ctl.extension_flag_values,
             project_trusted=self.settings.project_trusted,
         )
@@ -3771,9 +3786,9 @@ class _SessionCollaborators:
                 has_ui=self.terminal_ui is not None,
                 notify_sink=self.extension_notify,
                 ui_driver=self.extension_ui_driver,
-                set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
-                set_model_fn=lambda _reference: False,
-                set_thinking_level_fn=self.provider_mutation.extension_set_thinking_level,
+                model_runtime=self.provider_mutation.model_runtime_control(
+                    allow_model=False
+                ),
                 flags=self.ctl.extension_flag_values,
                 project_trusted=self.settings.project_trusted,
             ),
@@ -3790,9 +3805,9 @@ class _SessionCollaborators:
             has_ui=self.terminal_ui is not None,
             notify_sink=self.extension_notify,
             ui_driver=self.extension_ui_driver,
-            set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
-            set_model_fn=lambda _reference: False,
-            set_thinking_level_fn=self.provider_mutation.extension_set_thinking_level,
+            model_runtime=self.provider_mutation.model_runtime_control(
+                allow_model=False
+            ),
             flags=self.ctl.extension_flag_values,
             project_trusted=self.settings.project_trusted,
         )
@@ -3814,9 +3829,9 @@ class _SessionCollaborators:
             has_ui=self.terminal_ui is not None,
             notify_sink=self.extension_notify,
             ui_driver=self.extension_ui_driver,
-            set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
-            set_model_fn=lambda _reference: False,
-            set_thinking_level_fn=self.provider_mutation.extension_set_thinking_level,
+            model_runtime=self.provider_mutation.model_runtime_control(
+                allow_model=False
+            ),
             flags=self.ctl.extension_flag_values,
             project_trusted=self.settings.project_trusted,
         )
@@ -3859,9 +3874,7 @@ class _SessionCollaborators:
             notify_sink=self.extension_notify,
             ui_custom_driver=self.extension_custom_driver,
             ui_driver=self.extension_ui_driver,
-            set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
-            set_model_fn=self.provider_mutation.extension_set_model,
-            set_thinking_level_fn=self.provider_mutation.extension_set_thinking_level,
+            model_runtime=self.provider_mutation.model_runtime_control(),
             append_entry_fn=self.custom_renderer.extension_append_entry,
             set_session_name_fn=self.extension_set_session_name,
             get_session_name_fn=self.extension_get_session_name,
@@ -4884,11 +4897,9 @@ class NativeToolReplSession:
                 extension_append_entry=custom_renderer.extension_append_entry,
                 extension_get_session_name=collaborators.extension_get_session_name,
                 extension_send_message=custom_renderer.extension_send_message,
-                extension_set_active_tools=provider_mutation.extension_set_active_tools,
                 extension_set_label=collaborators.extension_set_label,
-                extension_set_model=provider_mutation.extension_set_model,
                 extension_set_session_name=collaborators.extension_set_session_name,
-                extension_set_thinking_level=provider_mutation.extension_set_thinking_level,
+                model_runtime=provider_mutation.model_runtime_control(),
             ),
             finalize=partial(
                 repl_loop_step.finalize,
@@ -5059,9 +5070,7 @@ class NativeToolReplSession:
         error_stream: TextIO,
         cwd: Path,
         user_bash_hooks: Sequence[HookHandler] = (),
-        set_active_tools_fn: Callable[[Sequence[str]], bool] | None = None,
-        set_model_fn: Callable[[str], bool] | None = None,
-        set_thinking_level_fn: Callable[[str], bool] | None = None,
+        model_runtime: ExtensionModelRuntimeControl | None = None,
         ui_driver: ExtensionUiDriver | None = None,
         flags: Mapping[str, object] | None = None,
         project_trusted: bool = False,
@@ -5097,9 +5106,7 @@ class NativeToolReplSession:
                 terminal_ui, error_stream, message
             ),
             ui_driver=ui_driver,
-            set_active_tools_fn=set_active_tools_fn,
-            set_model_fn=set_model_fn,
-            set_thinking_level_fn=set_thinking_level_fn,
+            model_runtime=model_runtime,
             flags=flags,
             project_trusted=project_trusted,
         )

@@ -16,9 +16,7 @@ from pipy_harness.native.tools.base import ToolDefinition
 
 if TYPE_CHECKING:
     from pipy_harness.native.extension_runtime import (
-        ControlSetActiveToolsFn,
-        ControlSetModelFn,
-        ControlSetThinkingLevelFn,
+        ExtensionModelRuntimeControl,
         ExtensionUiDriver,
         HookHandler,
     )
@@ -32,9 +30,7 @@ class NativeProviderRequestHookContext:
     has_ui: bool
     notify_sink: Callable[[str, str], None] | None
     ui_driver: ExtensionUiDriver | None
-    set_active_tools_fn: ControlSetActiveToolsFn | None
-    set_model_fn: ControlSetModelFn | None
-    set_thinking_level_fn: ControlSetThinkingLevelFn | None
+    model_runtime: ExtensionModelRuntimeControl | None
     flags: Mapping[str, object]
     project_trusted: bool
 
@@ -92,9 +88,7 @@ def prepare_provider_request(
         has_ui=context.has_ui,
         notify_sink=context.notify_sink,
         ui_driver=context.ui_driver,
-        set_active_tools_fn=context.set_active_tools_fn,
-        set_model_fn=context.set_model_fn,
-        set_thinking_level_fn=context.set_thinking_level_fn,
+        model_runtime=context.model_runtime,
         flags=context.flags,
         project_trusted=context.project_trusted,
     )

@@ -15,7 +15,7 @@ re-exported from `pipy_harness.extensions` (via `extension_runtime`) unchanged.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -179,6 +179,30 @@ def _safe_diagnostic(err: BaseException) -> str:
 # ``ProjectTrustContext.mode`` and command/tool contexts) to gate interactive
 # behavior; ``tui`` alone offers live UI.
 ExtensionMode = Literal["tui", "print", "json", "rpc"]
+
+# Model-runtime control callables an activated extension may invoke through a
+# command/hook context to mutate the live session's model runtime: restrict the
+# model-visible tool set, switch the active model, or set the reasoning level.
+# Each returns ``True`` when the mutation was accepted.
+ControlSetActiveToolsFn = Callable[[Sequence[str]], bool]
+ControlSetModelFn = Callable[[str], bool]
+ControlSetThinkingLevelFn = Callable[[str], bool]
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionModelRuntimeControl:
+    """Frozen bundle of the three model-runtime control callables.
+
+    Groups the ``set_active_tools`` / ``set_model`` / ``set_thinking_level``
+    capability functions the extension host threads into every command, hook,
+    and tool context as a single port instead of an ad-hoc callable fan-out.
+    Each field is ``None`` when that mutation is not offered in the current
+    context (the context then raises ``ExtensionCapabilityError``).
+    """
+
+    set_active_tools_fn: ControlSetActiveToolsFn | None = None
+    set_model_fn: ControlSetModelFn | None = None
+    set_thinking_level_fn: ControlSetThinkingLevelFn | None = None
 
 
 @dataclass(frozen=True, slots=True)

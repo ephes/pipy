@@ -2753,6 +2753,43 @@ Host-port bundling (6.3b/6.3c) and the UI bridge (6.4) remain deferred; Slice 6.
 hook dispatch is complete and 6.3 extension-provider construction now shares the
 built-in construction seam.
 
+### Typed extension model-runtime control host port (Slice 6.3b) — DONE (2026-07-22)
+
+Sub-slice 6.3b groups the three loose model-runtime control callables
+(`set_active_tools_fn` / `set_model_fn` / `set_thinking_level_fn`) behind one
+frozen port owned by the extension layer. The new `ExtensionModelRuntimeControl`
+value object plus the `ControlSet*Fn` aliases live in the `native.extension_types`
+leaf (only `ExtensionModelRuntimeControl` is re-consumed by `extension_runtime`;
+the aliases have no outside consumer and are not re-exported) and the bundle is
+threaded as a single
+`model_runtime` parameter through `make_extension_context`,
+`dispatch_extension_command` / `dispatch_extension_shortcut` /
+`_run_extension_handler`, and all eight model-runtime hook dispatchers in
+`extension_hooks`; the three per-call parameters are deleted at each seam, and
+`_CommandContext` reads the fields off the stored bundle. `_ProviderMutationEffects`
+gains one adapter, `model_runtime_control(*, allow_model=…)`, over its existing
+`extension_set_*` methods; `NativeToolReplSession`, `_ReplLoopStep`, and
+`_run_local_shell_shortcut` call the adapter instead of passing three bare
+callables. The three mid-turn hook paths (before_provider_request, tool_call,
+tool_result) pass `allow_model=False`, preserving the old fail-closed
+`set_model` behavior via the shared `_deny_model_mutation` helper.
+`NativeProviderRequestHookContext` carries one `model_runtime` field. No change to
+control-callback semantics, bool acceptance, hook ordering, which callables each
+dispatcher applies, or the public `pipy_harness.extensions` surface; no new
+dependency, `Any`, or `type: ignore`. `_ExtensionToolPort` keeps its single
+`set_active_tools_fn` collaborator (wrapped into the bundle only at the
+`make_extension_context` seam), and the `_BuiltinCommandInterpreter`
+single-callable port is untouched. Focused dispatch/input/tool-result/
+live-session/lifecycle/theme-controls/session-tree/agent-request suites passed
+(178 + 307); `extension_conformance_gate`, `extension_dispatch_conformance`,
+`extension_live_session_conformance`, and `automation_rpc_conformance` reported
+ALL PASS; the 49-test TUI PTY file and 8-test PTY smoke passed; `just check`
+(Ruff, mypy clean, 4,506 passed, 2 skipped) and `just docs-build` are green.
+Review: Claude Opus panel (user-directed substitution for the different-family
+gate) — 1 round, 2 findings total, final round clean across both lenses
+(behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
+remain 6.4.
+
 ### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
 
 Phase 4.1 introduces the terminal-free `native.ui` package. `native.ui.state`

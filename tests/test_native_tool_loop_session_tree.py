@@ -31,9 +31,7 @@ from pipy_harness.native.agent import (
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
 from pipy_harness.native.extension_runtime import (
-    ControlSetActiveToolsFn,
-    ControlSetModelFn,
-    ControlSetThinkingLevelFn,
+    ExtensionModelRuntimeControl,
     ExtensionUiDriver,
     HookHandler,
     SessionDecision,
@@ -137,9 +135,7 @@ class _SessionGate(Protocol):
         trigger: str | None = None,
         notify_sink: Callable[[str, str], None] | None = None,
         ui_driver: ExtensionUiDriver | None = None,
-        set_active_tools_fn: ControlSetActiveToolsFn | None = None,
-        set_model_fn: ControlSetModelFn | None = None,
-        set_thinking_level_fn: ControlSetThinkingLevelFn | None = None,
+        model_runtime: ExtensionModelRuntimeControl | None = None,
         flags: Mapping[str, object] | None = None,
         project_trusted: bool = False,
     ) -> SessionDecision: ...
@@ -164,9 +160,7 @@ class _TracingSessionGate:
         trigger: str | None = None,
         notify_sink: Callable[[str, str], None] | None = None,
         ui_driver: ExtensionUiDriver | None = None,
-        set_active_tools_fn: ControlSetActiveToolsFn | None = None,
-        set_model_fn: ControlSetModelFn | None = None,
-        set_thinking_level_fn: ControlSetThinkingLevelFn | None = None,
+        model_runtime: ExtensionModelRuntimeControl | None = None,
         flags: Mapping[str, object] | None = None,
         project_trusted: bool = False,
     ) -> SessionDecision:
@@ -181,9 +175,7 @@ class _TracingSessionGate:
             trigger=trigger,
             notify_sink=notify_sink,
             ui_driver=ui_driver,
-            set_active_tools_fn=set_active_tools_fn,
-            set_model_fn=set_model_fn,
-            set_thinking_level_fn=set_thinking_level_fn,
+            model_runtime=model_runtime,
             flags=flags,
             project_trusted=project_trusted,
         )

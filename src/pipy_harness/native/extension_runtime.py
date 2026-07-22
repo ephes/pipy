@@ -64,6 +64,7 @@ from pipy_harness.native.extension_types import (
     BeforeProviderHeadersEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     BeforeProviderRequestEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
     ExtensionFlag,
+    ExtensionModelRuntimeControl,
     ExtensionOAuthConfig,
     ExtensionProvider,
     ExtensionTool,
@@ -177,9 +178,7 @@ def make_extension_context(
     *,
     messages: "Sequence[object]" = (),
     complete_fn: "CompletionFn | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     append_entry_fn: "AppendEntryFn | None" = None,
     set_session_name_fn: "SetSessionNameFn | None" = None,
     get_session_name_fn: "GetSessionNameFn | None" = None,
@@ -204,9 +203,7 @@ def make_extension_context(
         _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
         _ConversationView(messages),
         complete_fn,
-        set_active_tools_fn,
-        set_model_fn,
-        set_thinking_level_fn,
+        model_runtime,
         append_entry_fn,
         set_session_name_fn,
         get_session_name_fn,
@@ -218,9 +215,6 @@ def make_extension_context(
     )
 
 
-ControlSetActiveToolsFn = Callable[[Sequence[str]], bool]
-ControlSetModelFn = Callable[[str], bool]
-ControlSetThinkingLevelFn = Callable[[str], bool]
 AppendEntryFn = Callable[[str, object | None], object]
 SetSessionNameFn = Callable[[str | None], object]
 GetSessionNameFn = Callable[[], str | None]
@@ -1516,9 +1510,7 @@ class _CommandContext:
         ui: _CollectingUi,
         conversation: "ConversationView | None" = None,
         complete_fn: "CompletionFn | None" = None,
-        set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-        set_model_fn: "ControlSetModelFn | None" = None,
-        set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+        model_runtime: "ExtensionModelRuntimeControl | None" = None,
         append_entry_fn: "AppendEntryFn | None" = None,
         set_session_name_fn: "SetSessionNameFn | None" = None,
         get_session_name_fn: "GetSessionNameFn | None" = None,
@@ -1539,9 +1531,7 @@ class _CommandContext:
         self.flags: Mapping[str, object] = dict(flags or {})
         self._project_trusted = bool(project_trusted)
         self._complete_fn = complete_fn
-        self._set_active_tools_fn = set_active_tools_fn
-        self._set_model_fn = set_model_fn
-        self._set_thinking_level_fn = set_thinking_level_fn
+        self._model_runtime = model_runtime or ExtensionModelRuntimeControl()
         self._append_entry_fn = append_entry_fn
         self._set_session_name_fn = set_session_name_fn
         self._get_session_name_fn = get_session_name_fn
@@ -1562,25 +1552,27 @@ class _CommandContext:
         return self._complete_fn(str(system_prompt), str(user_text))
 
     def set_active_tools(self, tool_names: Sequence[str]) -> bool:
-        if self._set_active_tools_fn is None:
+        if self._model_runtime.set_active_tools_fn is None:
             raise ExtensionCapabilityError(
                 "active-tool control is not available in this context"
             )
-        return self._set_active_tools_fn(tuple(str(name) for name in tool_names))
+        return self._model_runtime.set_active_tools_fn(
+            tuple(str(name) for name in tool_names)
+        )
 
     def set_model(self, reference: str) -> bool:
-        if self._set_model_fn is None:
+        if self._model_runtime.set_model_fn is None:
             raise ExtensionCapabilityError(
                 "model control is not available in this context"
             )
-        return self._set_model_fn(str(reference))
+        return self._model_runtime.set_model_fn(str(reference))
 
     def set_thinking_level(self, level: str) -> bool:
-        if self._set_thinking_level_fn is None:
+        if self._model_runtime.set_thinking_level_fn is None:
             raise ExtensionCapabilityError(
                 "thinking-level control is not available in this context"
             )
-        return self._set_thinking_level_fn(str(level))
+        return self._model_runtime.set_thinking_level_fn(str(level))
 
     def append_entry(self, custom_type: str, data: object | None = None) -> object:
         if self._append_entry_fn is None:
@@ -1711,9 +1703,7 @@ def dispatch_extension_command(
     notify_sink: "Callable[[str, str], None] | None" = None,
     ui_custom_driver: "CustomComponentDriver | None" = None,
     ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     append_entry_fn: "AppendEntryFn | None" = None,
     set_session_name_fn: "SetSessionNameFn | None" = None,
     get_session_name_fn: "GetSessionNameFn | None" = None,
@@ -1755,9 +1745,7 @@ def dispatch_extension_command(
         notify_sink=notify_sink,
         ui_custom_driver=ui_custom_driver,
         ui_driver=ui_driver,
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
+        model_runtime=model_runtime,
         append_entry_fn=append_entry_fn,
         set_session_name_fn=set_session_name_fn,
         get_session_name_fn=get_session_name_fn,
@@ -1780,9 +1768,7 @@ def dispatch_extension_shortcut(
     notify_sink: "Callable[[str, str], None] | None" = None,
     ui_custom_driver: "CustomComponentDriver | None" = None,
     ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     append_entry_fn: "AppendEntryFn | None" = None,
     set_session_name_fn: "SetSessionNameFn | None" = None,
     get_session_name_fn: "GetSessionNameFn | None" = None,
@@ -1815,9 +1801,7 @@ def dispatch_extension_shortcut(
         notify_sink=notify_sink,
         ui_custom_driver=ui_custom_driver,
         ui_driver=ui_driver,
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
+        model_runtime=model_runtime,
         append_entry_fn=append_entry_fn,
         set_session_name_fn=set_session_name_fn,
         get_session_name_fn=get_session_name_fn,
@@ -1841,9 +1825,7 @@ def _run_extension_handler(
     notify_sink: "Callable[[str, str], None] | None",
     ui_custom_driver: "CustomComponentDriver | None",
     ui_driver: "ExtensionUiDriver | None",
-    set_active_tools_fn: "ControlSetActiveToolsFn | None",
-    set_model_fn: "ControlSetModelFn | None",
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None",
+    model_runtime: "ExtensionModelRuntimeControl | None",
     append_entry_fn: "AppendEntryFn | None",
     set_session_name_fn: "SetSessionNameFn | None",
     get_session_name_fn: "GetSessionNameFn | None",
@@ -1861,9 +1843,7 @@ def _run_extension_handler(
         ui,
         _ConversationView(messages),
         complete_fn,
-        set_active_tools_fn,
-        set_model_fn,
-        set_thinking_level_fn,
+        model_runtime,
         append_entry_fn,
         set_session_name_fn,
         get_session_name_fn,

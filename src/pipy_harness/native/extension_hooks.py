@@ -48,9 +48,6 @@ from pipy_harness.native.extension_runtime import (
     EVENT_PROJECT_TRUST,
     EVENT_TOOL_CALL,
     ActivatedExtension,
-    ControlSetActiveToolsFn,
-    ControlSetModelFn,
-    ControlSetThinkingLevelFn,
     ExtensionUiDriver,
     HookHandler,
     _CollectingUi,
@@ -63,6 +60,7 @@ from pipy_harness.native.extension_types import (
     BeforeProviderHeadersEvent,
     BeforeProviderRequestEvent,
     ExtensionMode,
+    ExtensionModelRuntimeControl,
     InputEvent,
     InputTransform,
     LifecycleEvent,
@@ -126,9 +124,7 @@ def dispatch_input_hooks(
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
 ) -> str:
@@ -148,9 +144,7 @@ def dispatch_input_hooks(
     ctx = _CommandContext(
         cwd,
         _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
+        model_runtime=model_runtime,
         flags=flags,
         project_trusted=project_trusted,
     )
@@ -178,9 +172,7 @@ def dispatch_before_agent_start_hooks(
     notify_sink: Callable[[str, str], None] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
     system_prompt: str = "",
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
 ) -> BeforeAgentStartResult:
@@ -197,9 +189,7 @@ def dispatch_before_agent_start_hooks(
         ctx = _CommandContext(
             cwd,
             _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-            set_active_tools_fn=set_active_tools_fn,
-            set_model_fn=set_model_fn,
-            set_thinking_level_fn=set_thinking_level_fn,
+            model_runtime=model_runtime,
             flags=flags,
             project_trusted=project_trusted,
         )
@@ -243,9 +233,7 @@ def dispatch_tool_result_hooks(
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
 ) -> str:
@@ -264,9 +252,7 @@ def dispatch_tool_result_hooks(
         ctx = _CommandContext(
             cwd,
             _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-            set_active_tools_fn=set_active_tools_fn,
-            set_model_fn=set_model_fn,
-            set_thinking_level_fn=set_thinking_level_fn,
+            model_runtime=model_runtime,
             flags=flags,
             project_trusted=project_trusted,
         )
@@ -304,9 +290,7 @@ def dispatch_lifecycle_hooks(
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
 ) -> None:
@@ -325,9 +309,7 @@ def dispatch_lifecycle_hooks(
     ctx = _CommandContext(
         cwd,
         _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
+        model_runtime=model_runtime,
         flags=flags,
         project_trusted=project_trusted,
     )
@@ -351,9 +333,7 @@ def dispatch_tool_call_hooks(
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
 ) -> ToolBlock | None:
@@ -371,9 +351,7 @@ def dispatch_tool_call_hooks(
     ctx = _CommandContext(
         cwd,
         _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
+        model_runtime=model_runtime,
         flags=flags,
         project_trusted=project_trusted,
     )
@@ -449,9 +427,7 @@ def dispatch_user_bash_hooks(
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
 ) -> UserBashDispatch:
@@ -468,9 +444,7 @@ def dispatch_user_bash_hooks(
     ctx = _CommandContext(
         cwd,
         _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
+        model_runtime=model_runtime,
         flags=flags,
         project_trusted=project_trusted,
     )
@@ -533,9 +507,7 @@ def dispatch_session_before_hooks(
     trigger: str | None = None,
     notify_sink: Callable[[str, str], None] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
 ) -> SessionDecision:
@@ -552,9 +524,7 @@ def dispatch_session_before_hooks(
     ctx = _CommandContext(
         cwd,
         _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
-        set_active_tools_fn=set_active_tools_fn,
-        set_model_fn=set_model_fn,
-        set_thinking_level_fn=set_thinking_level_fn,
+        model_runtime=model_runtime,
         flags=flags,
         project_trusted=project_trusted,
     )
@@ -584,9 +554,7 @@ def dispatch_before_provider_request_hooks(
     has_ui: bool,
     notify_sink: Callable[[str, str], None] | None = None,
     ui_driver: "ExtensionUiDriver | None" = None,
-    set_active_tools_fn: "ControlSetActiveToolsFn | None" = None,
-    set_model_fn: "ControlSetModelFn | None" = None,
-    set_thinking_level_fn: "ControlSetThinkingLevelFn | None" = None,
+    model_runtime: "ExtensionModelRuntimeControl | None" = None,
     flags: Mapping[str, object] | None = None,
     project_trusted: bool = False,
 ) -> ProviderRequestTransform:
@@ -611,9 +579,7 @@ def dispatch_before_provider_request_hooks(
             cwd,
             _CollectingUi(has_ui, notify_sink, ui_driver=ui_driver),
             _ConversationView(getattr(request, "messages", ())),
-            set_active_tools_fn=set_active_tools_fn,
-            set_model_fn=set_model_fn,
-            set_thinking_level_fn=set_thinking_level_fn,
+            model_runtime=model_runtime,
             flags=flags,
             project_trusted=project_trusted,
         )
