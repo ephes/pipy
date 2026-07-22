@@ -123,7 +123,7 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.anthropic_provider",
     "pipy_harness.native.providers.azure_openai_responses",
     "pipy_harness.native.bedrock_provider",
-    "pipy_harness.native.cloudflare_provider",
+    "pipy_harness.native.providers.cloudflare",
     "pipy_harness.native.providers.ds4",
     "pipy_harness.native.google_provider",
     "pipy_harness.native.google_vertex_provider",

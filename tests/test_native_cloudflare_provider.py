@@ -16,7 +16,7 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native import ProviderRequest
-from pipy_harness.native.cloudflare_provider import (
+from pipy_harness.native.providers.cloudflare import (
     CloudflareHTTPStatusError,
     CloudflareWorkersAIProvider,
     JsonResponse,

@@ -133,7 +133,7 @@ def test_all_real_provider_complete_signatures_accept_stream_sink_kwarg() -> Non
         "pipy_harness.native.anthropic_provider": "AnthropicProvider",
         "pipy_harness.native.providers.azure_openai_responses": "AzureOpenAIResponsesProvider",
         "pipy_harness.native.bedrock_provider": "AmazonBedrockProvider",
-        "pipy_harness.native.cloudflare_provider": "CloudflareWorkersAIProvider",
+        "pipy_harness.native.providers.cloudflare": "CloudflareWorkersAIProvider",
         "pipy_harness.native.google_provider": "GoogleGenerativeAIProvider",
         "pipy_harness.native.google_vertex_provider": "GoogleVertexProvider",
         "pipy_harness.native.providers.mistral": "MistralProvider",

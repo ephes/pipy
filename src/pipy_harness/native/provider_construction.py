@@ -629,7 +629,7 @@ def build_provider(
         )
 
     if resolved.api == "cloudflare-workers-ai":
-        from pipy_harness.native.cloudflare_provider import (
+        from pipy_harness.native.providers.cloudflare import (
             CloudflareWorkersAIProvider,
         )
 

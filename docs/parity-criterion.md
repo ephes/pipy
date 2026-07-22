@@ -109,7 +109,7 @@ that defines a provider class (excluding shared helpers `*-shared.ts`,
 | A8 | mistral | ✅ | `test -f src/pipy_harness/native/providers/mistral.py` |
 | A9 | amazon-bedrock | ✅ | `test -f src/pipy_harness/native/bedrock_provider.py` |
 | A10 | azure-openai-responses | ✅ | `test -f src/pipy_harness/native/providers/azure_openai_responses.py` |
-| A11 | cloudflare | ✅ | `test -f src/pipy_harness/native/cloudflare_provider.py` |
+| A11 | cloudflare | ✅ | `test -f src/pipy_harness/native/providers/cloudflare.py` |
 
 Additionally, pipy ships `openrouter` (not in pi-mono); it is counted as
 **bonus** and does not affect the denominator.

@@ -2929,7 +2929,7 @@ def _native_provider_for_selection(
 
         return AzureOpenAIResponsesProvider(model_id=selection.model_id)
     if selection.provider_name == "cloudflare":
-        from pipy_harness.native.cloudflare_provider import (
+        from pipy_harness.native.providers.cloudflare import (
             CloudflareWorkersAIProvider,
         )
 

@@ -41,7 +41,7 @@ check A7  "google-vertex"            small  "test -f src/pipy_harness/native/goo
 check A8  "mistral"                  big    "test -f src/pipy_harness/native/providers/mistral.py"
 check A9  "amazon-bedrock"           big    "test -f src/pipy_harness/native/bedrock_provider.py"
 check A10 "azure-openai"             small  "test -f src/pipy_harness/native/providers/azure_openai_responses.py"
-check A11 "cloudflare"               small  "test -f src/pipy_harness/native/cloudflare_provider.py"
+check A11 "cloudflare"               small  "test -f src/pipy_harness/native/providers/cloudflare.py"
 
 echo
 echo "── Tools (B1–B9) ───────────────────────────────────"
