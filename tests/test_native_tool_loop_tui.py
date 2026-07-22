@@ -3061,12 +3061,14 @@ def _pin_terminal_size(
     monkeypatch: pytest.MonkeyPatch, columns: int, rows: int
 ) -> None:
     # Clear COLUMNS/LINES so the shutil fallback (which _TtyBuffer lacks a
-    # fileno for) is what resolves the size, then pin that.
+    # fileno for) is what resolves the size, then pin that. Size resolution now
+    # lives on the terminal driver, so patch shutil in that module.
     monkeypatch.delenv("COLUMNS", raising=False)
     monkeypatch.delenv("LINES", raising=False)
     size = os.terminal_size((columns, rows))
     monkeypatch.setattr(
-        "pipy_harness.native.tui.shutil.get_terminal_size", lambda *a, **k: size
+        "pipy_harness.native.terminal_driver.shutil.get_terminal_size",
+        lambda *a, **k: size,
     )
 
 
@@ -3099,10 +3101,10 @@ def test_tui_resize_poll_repaints_on_pending_signal_flag(
     ui.paint()
     assert ui._poll_resize_repaint() is False  # steady state: no repaint
 
-    ui._on_resize_signal(28, None)  # SIGWINCH-style flag flip
-    assert ui._resize_pending is True
+    ui._driver._on_resize_signal(28, None)  # SIGWINCH-style flag flip
+    assert ui._driver._resize_pending is True
     assert ui._poll_resize_repaint() is True
-    assert ui._resize_pending is False
+    assert ui._driver._resize_pending is False
 
 
 # --------------------------------------------------------------------------- #

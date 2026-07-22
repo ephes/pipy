@@ -171,8 +171,9 @@ def test_pty_inline_tui_full_height_scrollback_and_copy(
 ):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
-    # `_dimensions()` reads the terminal size via ``shutil.get_terminal_size``,
-    # which honors COLUMNS/LINES first — pin the viewport deterministically.
+    # The driver's ``size()`` reads the terminal size via
+    # ``shutil.get_terminal_size``, which honors COLUMNS/LINES first — pin the
+    # viewport deterministically.
     monkeypatch.setenv("COLUMNS", str(columns))
     monkeypatch.setenv("LINES", str(rows))
 

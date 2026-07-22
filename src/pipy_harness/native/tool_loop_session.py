@@ -2410,7 +2410,7 @@ class _CustomEntryRenderer:
             return
         rendered = self.render_extension_custom_entry(
             entry,
-            width=terminal_ui._dimensions()[0],
+            width=terminal_ui._driver.size()[0],
             expanded=terminal_ui.tools_expanded,
             stream=terminal_ui.terminal_stream,
         )
@@ -2463,7 +2463,7 @@ class _CustomEntryRenderer:
             return
         rendered = self.render_custom_message_entry(
             entry,
-            width=terminal_ui._dimensions()[0],
+            width=terminal_ui._driver.size()[0],
             expanded=terminal_ui.tools_expanded,
             stream=terminal_ui.terminal_stream,
         )
@@ -2487,7 +2487,7 @@ class _CustomEntryRenderer:
         def render_for_redraw(entry: _CustomEntry) -> RenderedCustomEntry | None:
             return self.render_extension_custom_entry(
                 entry,
-                width=terminal_ui._dimensions()[0],
+                width=terminal_ui._driver.size()[0],
                 expanded=terminal_ui.tools_expanded,
                 stream=terminal_ui.terminal_stream,
             )
@@ -2497,7 +2497,7 @@ class _CustomEntryRenderer:
         ) -> RenderedCustomEntry:
             return self.render_custom_message_entry(
                 entry,
-                width=terminal_ui._dimensions()[0],
+                width=terminal_ui._driver.size()[0],
                 expanded=terminal_ui.tools_expanded,
                 stream=terminal_ui.terminal_stream,
             )
@@ -7528,7 +7528,7 @@ class _TuiToolLoopRenderer:
             content=content,
             details=details,
             expanded=self._ui.tools_expanded,
-            width=self._ui._dimensions()[0],
+            width=self._ui._driver.size()[0],
             theme=build_tool_render_theme(style),
             state=state,
         )

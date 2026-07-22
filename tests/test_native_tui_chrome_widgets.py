@@ -189,8 +189,9 @@ def test_factory_widget_rerenders_on_width_change():
         def render(self, width):
             return [f"W{width}"]
 
-    # Widths must stay at/above the _MIN_WIDTH=60 floor that _dimensions clamps
-    # to (anything narrower renders at 60), so use 65/70 to exercise re-render.
+    # Widths must stay at/above the _MIN_WIDTH=60 floor that the driver's
+    # size() clamps to (anything narrower renders at 60), so use 65/70 to
+    # exercise re-render.
     ui.set_extension_widget("k", lambda theme: _Comp())
     _frame_text(ui, width=65)
     assert any("W65" in line for line in _frame_text(ui, width=65))

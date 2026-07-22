@@ -7,10 +7,14 @@ must coalesce with the following frame's flush), the termios raw-mode
 lifecycle, ANSI bracketed-paste toggling, the xterm terminal-title OSC
 push/write/restore, and the fd-level input read primitives plus the key
 decoder that turns raw bytes on the owned input fd into named keys
-(``enter``/``up``/``ctrl-c``/``paste``/…). The UI shell composes frames and
-decides *what* to draw; every byte that reaches the terminal stream, every
-raw-mode or title transition, and every decoded key read from the input fd
-flows through this driver.
+(``enter``/``up``/``ctrl-c``/``paste``/…), and the SIGWINCH resize lifecycle
+plus live terminal-size resolution (:meth:`TerminalDriver.size`) against the
+fd it paints to. The UI shell composes frames and decides *what* to draw; every
+byte that reaches the terminal stream, every raw-mode or title transition,
+every decoded key read from the input fd, and the terminal geometry each frame
+lays out against flow through this driver. The UI keeps the layout-coupled
+resize *repaint* (clear-and-redraw) but drains the pending-resize flag and
+reads the current size from the driver.
 
 Key decoding returns a bracketed paste's body to the caller rather than
 storing it: :meth:`read_key`/:meth:`read_key_if_available` return the string
@@ -31,7 +35,10 @@ characterization.
 
 from __future__ import annotations
 
+import os
 import select
+import shutil
+import signal
 import termios
 import tty
 from typing import Any, TextIO
@@ -60,6 +67,21 @@ _BRACKETED_PASTE_END = "\x1b[201~"
 # title OSC write; the UI imports it for its cached title-state cap.
 _TITLE_MAX_CHARS = 256
 
+# Terminal-size floors, default, and resize-poll cadence. The driver resolves
+# the live terminal size against the fd it paints to, so it owns the geometry
+# clamps and defaults. ``_MIN_WIDTH``/``_MIN_HEIGHT`` keep the inline layout
+# usable on a tiny terminal; ``_DEFAULT_SIZE`` is the captured-stream/no-TTY
+# fallback. ``_RESIZE_POLL_SECONDS`` is how long the UI input loops block on
+# stdin before re-checking the size: resize *handling* is poll-based (comparing
+# the live terminal size to the last painted size) so it works on any thread,
+# where installing a SIGWINCH handler is not possible; the best-effort SIGWINCH
+# handler only sets a flag to make idle repaints snappier. The UI imports
+# ``_RESIZE_POLL_SECONDS`` for its resize-polling select timeout.
+_MIN_WIDTH = 60
+_MIN_HEIGHT = 12
+_DEFAULT_SIZE = (88, 24)
+_RESIZE_POLL_SECONDS = 0.1
+
 
 class TerminalDriver:
     """Low-level terminal I/O owner for the native tool-loop TUI.
@@ -79,6 +101,8 @@ class TerminalDriver:
         "_title_pushed",
         "_pending_input_bytes",
         "_last_paste",
+        "_resize_pending",
+        "_prev_winch_handler",
     )
 
     def __init__(self, input_stream: TextIO, terminal_stream: TextIO) -> None:
@@ -99,6 +123,14 @@ class TerminalDriver:
         # caller via :meth:`consume_paste`. The UI keeps the durable
         # ``_pending_paste`` field; this is only the transient decode handoff.
         self._last_paste = ""
+        # Set by the best-effort SIGWINCH handler and drained by
+        # :meth:`take_resize_pending`; the UI's resize poll uses it to force a
+        # repaint even when the polled size has not visibly changed yet.
+        self._resize_pending = False
+        # ``signal.signal`` result saved on install so :meth:`remove_resize_handler`
+        # can restore the previous SIGWINCH disposition; ``None`` means no
+        # handler is installed (or install was refused off the main thread).
+        self._prev_winch_handler: Any = None
 
     def write(self, text: str) -> bool:
         """Write ``text`` to the terminal stream and flush.
@@ -236,6 +268,116 @@ class TerminalDriver:
             self.terminal_stream.flush()
         except (OSError, ValueError):
             return
+
+    def install_resize_handler(self) -> None:
+        """Best-effort SIGWINCH handler that flags a pending resize.
+
+        Resize *handling* is poll-based (the UI's resize poll compares the live
+        :meth:`size` to the last painted size) so it works regardless of which
+        thread runs the loop; installing a signal handler only makes idle
+        repaints snappier. ``signal.signal`` raises ``ValueError`` when called
+        off the main thread (e.g. the threaded test harness), which is caught
+        and ignored -- polling still covers it.
+        """
+
+        try:
+            self._prev_winch_handler = signal.signal(
+                signal.SIGWINCH, self._on_resize_signal
+            )
+        except (ValueError, OSError, AttributeError):
+            self._prev_winch_handler = None
+
+    def remove_resize_handler(self) -> None:
+        """Restore the SIGWINCH disposition saved by :meth:`install_resize_handler`."""
+
+        if self._prev_winch_handler is None:
+            return
+        try:
+            signal.signal(signal.SIGWINCH, self._prev_winch_handler)
+        except (ValueError, OSError, AttributeError):
+            pass
+        self._prev_winch_handler = None
+
+    def _on_resize_signal(self, signum: int, frame: Any) -> None:
+        del signum, frame
+        # Signal handlers must stay async-signal-safe: only flip a flag; the
+        # input loops repaint when they next poll.
+        self._resize_pending = True
+
+    def take_resize_pending(self) -> bool:
+        """Return the pending-resize flag and clear it.
+
+        The UI's resize poll uses the returned value to force a repaint even
+        when the polled size has not yet changed (a SIGWINCH can arrive before
+        the new ``winsize`` is observable).
+        """
+
+        pending = self._resize_pending
+        self._resize_pending = False
+        return pending
+
+    def size(
+        self, *, width: int | None = None, height: int | None = None
+    ) -> tuple[int, int]:
+        """Resolve the terminal size clamped to the layout floors.
+
+        An explicit ``width``/``height`` pair overrides live resolution; a live
+        terminal size (see :meth:`_terminal_size`) is used when available;
+        otherwise the caller's partial override or ``_DEFAULT_SIZE`` fills in.
+        Both dimensions are clamped to ``_MIN_WIDTH``/``_MIN_HEIGHT``.
+        """
+
+        if width is not None and height is not None:
+            return max(_MIN_WIDTH, width), max(_MIN_HEIGHT, height)
+        live = self._terminal_size()
+        if live is not None:
+            columns, rows = live
+            return max(_MIN_WIDTH, columns), max(_MIN_HEIGHT, rows)
+        return (
+            max(_MIN_WIDTH, width or _DEFAULT_SIZE[0]),
+            max(_MIN_HEIGHT, height or _DEFAULT_SIZE[1]),
+        )
+
+    def _terminal_size(self) -> tuple[int, int] | None:
+        """Resolve the live size of the terminal this frame paints to.
+
+        Precedence: an explicit ``COLUMNS``/``LINES`` pair (honored for
+        deterministic tests and CI), then the real ``winsize`` of the output
+        terminal we actually write to (so a SIGWINCH/resize is observed on the
+        very fd we paint, which the resize poll compares against), then the
+        shared ``shutil`` fallback. Returns ``None`` when no size is available
+        (non-TTY capture), so the caller uses its defaults.
+        """
+
+        # Only resolve a live size for a real terminal; a non-TTY capture
+        # stream keeps the caller's defaults (matching the prior behavior and
+        # avoiding COLUMNS/LINES leaking into captured-stream rendering).
+        if not bool(getattr(self.terminal_stream, "isatty", lambda: False)()):
+            return None
+        env_size = self._env_terminal_size()
+        if env_size is not None:
+            return env_size
+        fileno = getattr(self.terminal_stream, "fileno", None)
+        if callable(fileno):
+            try:
+                winsize = os.get_terminal_size(fileno())
+            except (OSError, ValueError):
+                winsize = None
+            if winsize is not None and winsize.columns > 0 and winsize.lines > 0:
+                return winsize.columns, winsize.lines
+        fallback = shutil.get_terminal_size(_DEFAULT_SIZE)
+        return fallback.columns, fallback.lines
+
+    @staticmethod
+    def _env_terminal_size() -> tuple[int, int] | None:
+        try:
+            columns = int(os.environ.get("COLUMNS", ""))
+            lines = int(os.environ.get("LINES", ""))
+        except ValueError:
+            return None
+        if columns > 0 and lines > 0:
+            return columns, lines
+        return None
 
     def has_pending_input(self) -> bool:
         """Report whether an already-read byte is waiting to be decoded.

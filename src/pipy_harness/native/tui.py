@@ -15,8 +15,6 @@ import os
 import re
 import select
 import shlex
-import shutil
-import signal
 import subprocess
 import sys
 import termios
@@ -85,6 +83,7 @@ from pipy_harness.native.session_tree_commands import (
 )
 from pipy_harness.native.terminal_driver import (
     TerminalDriver,
+    _RESIZE_POLL_SECONDS,
     _TITLE_MAX_CHARS,
 )
 
@@ -94,9 +93,6 @@ from pipy_harness.native.terminal_driver import (
 _PICKER_CONTINUE = object()
 
 TOOL_LOOP_TUI_RUNTIME_LABEL = "tool-loop-tui"
-_MIN_WIDTH = 60
-_MIN_HEIGHT = 12
-_DEFAULT_SIZE = (88, 24)
 _DEFAULT_HISTORY_VIEW_LINES = 21
 _TOOL_PANEL_HISTORY_VIEW_LINES = 23
 # Live streaming tool output (e.g. pytest dots): show a bounded tail while the
@@ -130,12 +126,6 @@ TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = project_command_completions(
         "/quit",
     )
 )
-# How long the input loops block on stdin before checking for a terminal
-# resize. Resize handling is poll-based (comparing the live terminal size to
-# the last painted size) so it works on any thread, where installing a
-# SIGWINCH handler is not possible; a best-effort SIGWINCH handler only sets a
-# flag to make idle repaints snappier.
-_RESIZE_POLL_SECONDS = 0.1
 # Cap the per-line undo/redo history so a long editing session cannot grow the
 # stacks without bound. Undo granularity is one edit operation (a single typed
 # character, a delete, a kill-to-start, or a whole bracketed paste).
@@ -308,8 +298,10 @@ _WIDGET_MAX_LINES = 10
 _WIDGET_MAX_COUNT = 16
 _HEADER_MAX_LINES = 8
 _FOOTER_MAX_LINES = 4
-# ``_TITLE_MAX_CHARS`` is owned by and imported from ``native.terminal_driver``
-# (the terminal-title writer); the UI reuses it to cap its cached title state.
+# ``_TITLE_MAX_CHARS`` and ``_RESIZE_POLL_SECONDS`` are owned by and imported
+# from ``native.terminal_driver`` (which owns the terminal-title write and the
+# resize/size lifecycle); the UI reuses the former to cap its cached title
+# state and the latter as its resize-polling select timeout.
 _INDICATOR_MAX_FRAMES = 32
 _MIN_INPUT_ROWS = 1  # the input region is never starved below this
 
@@ -1124,10 +1116,10 @@ class ToolLoopTerminalUi:
     _custom_editor_changed_text: str | None = None
     _custom_editor_action: str | None = None
     _custom_editor_exit_requested: bool = False
-    # Resize handling.
-    _resize_pending: bool = False
+    # Resize handling. The SIGWINCH lifecycle and the pending flag live on the
+    # terminal driver; the UI keeps only the last painted geometry it compares
+    # the driver's live size against during the layout-coupled resize repaint.
     _last_painted_size: tuple[int, int] = (0, 0)
-    _prev_winch_handler: Any = None
     keybindings_manager: KeybindingsManager | None = None
 
     def __post_init__(self) -> None:
@@ -1157,7 +1149,7 @@ class ToolLoopTerminalUi:
 
         if not self._history_blocks:
             self._history_blocks.extend(self._startup_blocks())
-        self._install_resize_handler()
+        self._driver.install_resize_handler()
         self.paint()
 
     def read_line(self, prompt_label: str, *, footer: str | None = None) -> str:
@@ -2676,7 +2668,7 @@ class ToolLoopTerminalUi:
         ``render(width)`` is re-called for each frame, their optional
         ``invalidate()`` runs on resize, and ``dispose()`` runs on replace/clear.
         A ``str``/``Sequence[str]`` source is static."""
-        width, _height = self._dimensions()
+        width, _height = self._driver.size()
         component: object | None = None
         is_factory = False
         render_source: object = source
@@ -3479,7 +3471,7 @@ class ToolLoopTerminalUi:
 
     def close(self) -> None:
         self._driver.restore_terminal_mode()
-        self._remove_resize_handler()
+        self._driver.remove_resize_handler()
         if self._closed:
             return
         self._closed = True
@@ -3869,7 +3861,7 @@ class ToolLoopTerminalUi:
     def rerender_custom_messages(self) -> None:
         """Refresh retained rich custom-message rows for the current view flag."""
 
-        width = self._dimensions()[0]
+        width = self._driver.size()[0]
         style = chrome_style_for(self.terminal_stream)
         theme = build_tool_render_theme(style)
         changed = False
@@ -3977,7 +3969,7 @@ class ToolLoopTerminalUi:
         height: int | None = None,
         pad: bool = True,
     ) -> list[_FrameLine]:
-        width, height = self._dimensions(width=width, height=height)
+        width, height = self._driver.size(width=width, height=height)
         history_lines = self._history_region_lines(width)
         if self.assistant_text:
             history_lines.extend(
@@ -4204,7 +4196,7 @@ class ToolLoopTerminalUi:
                 self._paint_requested_during_paint = False
 
     def _paint_locked(self) -> None:
-        width, height = self._dimensions()
+        width, height = self._driver.size()
         # Render edge-to-edge at the true terminal width, matching Pi. The input
         # line keeps its one-column cursor-safety margin internally (its wrap
         # capacity is width - 1), so the hardware cursor never lands in the last
@@ -4885,38 +4877,6 @@ class ToolLoopTerminalUi:
             return style.tool_custom(line.text, width=width)
         return text
 
-    def _install_resize_handler(self) -> None:
-        """Best-effort SIGWINCH handler that flags a pending resize.
-
-        Resize *handling* is poll-based (see :meth:`_poll_resize_repaint`) so
-        it works regardless of which thread runs the loop; installing a signal
-        handler only makes idle repaints snappier. ``signal.signal`` raises
-        ``ValueError`` when called off the main thread (e.g. the threaded test
-        harness), which is caught and ignored — polling still covers it.
-        """
-
-        try:
-            self._prev_winch_handler = signal.signal(
-                signal.SIGWINCH, self._on_resize_signal
-            )
-        except (ValueError, OSError, AttributeError):
-            self._prev_winch_handler = None
-
-    def _remove_resize_handler(self) -> None:
-        if self._prev_winch_handler is None:
-            return
-        try:
-            signal.signal(signal.SIGWINCH, self._prev_winch_handler)
-        except (ValueError, OSError, AttributeError):
-            pass
-        self._prev_winch_handler = None
-
-    def _on_resize_signal(self, signum: int, frame: Any) -> None:
-        del signum, frame
-        # Signal handlers must stay async-signal-safe: only flip a flag; the
-        # input loops repaint when they next poll.
-        self._resize_pending = True
-
     def _startup_blocks(self) -> list[_HistoryBlock]:
         raw_blocks: list[tuple[str, tuple[str, ...]]] = [
             ("normal", ("",)),
@@ -5009,7 +4969,7 @@ class ToolLoopTerminalUi:
         *,
         width: int | None = None,
     ) -> list[_FrameLine]:
-        width = width or self._dimensions()[0]
+        width = width or self._driver.size()[0]
         if kind in {"tool_call_custom", "tool_result_custom", "custom_message_custom"}:
             custom_rendered: list[_FrameLine] = [_FrameLine("", "tool_result")]
             for line in block_lines:
@@ -5174,61 +5134,6 @@ class ToolLoopTerminalUi:
             default_view_lines,
             max(0, height - 5 - _OVERFLOW_BOTTOM_GUTTER_LINES),
         )
-
-    def _dimensions(
-        self, *, width: int | None = None, height: int | None = None
-    ) -> tuple[int, int]:
-        if width is not None and height is not None:
-            return max(_MIN_WIDTH, width), max(_MIN_HEIGHT, height)
-        live = self._terminal_size()
-        if live is not None:
-            columns, rows = live
-            return max(_MIN_WIDTH, columns), max(_MIN_HEIGHT, rows)
-        return (
-            max(_MIN_WIDTH, width or _DEFAULT_SIZE[0]),
-            max(_MIN_HEIGHT, height or _DEFAULT_SIZE[1]),
-        )
-
-    def _terminal_size(self) -> tuple[int, int] | None:
-        """Resolve the live size of the terminal this frame paints to.
-
-        Precedence: an explicit ``COLUMNS``/``LINES`` pair (honored for
-        deterministic tests and CI), then the real ``winsize`` of the output
-        terminal we actually write to (so a SIGWINCH/resize is observed on the
-        very fd we paint, which the resize poll compares against), then the
-        shared ``shutil`` fallback. Returns ``None`` when no size is available
-        (non-TTY capture), so the caller uses its defaults.
-        """
-
-        # Only resolve a live size for a real terminal; a non-TTY capture
-        # stream keeps the caller's defaults (matching the prior behavior and
-        # avoiding COLUMNS/LINES leaking into captured-stream rendering).
-        if not bool(getattr(self.terminal_stream, "isatty", lambda: False)()):
-            return None
-        env_size = self._env_terminal_size()
-        if env_size is not None:
-            return env_size
-        fileno = getattr(self.terminal_stream, "fileno", None)
-        if callable(fileno):
-            try:
-                size = os.get_terminal_size(fileno())
-            except (OSError, ValueError):
-                size = None
-            if size is not None and size.columns > 0 and size.lines > 0:
-                return size.columns, size.lines
-        size = shutil.get_terminal_size(_DEFAULT_SIZE)
-        return size.columns, size.lines
-
-    @staticmethod
-    def _env_terminal_size() -> tuple[int, int] | None:
-        try:
-            columns = int(os.environ.get("COLUMNS", ""))
-            lines = int(os.environ.get("LINES", ""))
-        except ValueError:
-            return None
-        if columns > 0 and lines > 0:
-            return columns, lines
-        return None
 
     @staticmethod
     def _display_input_text(text: str) -> str:
@@ -5405,9 +5310,8 @@ class ToolLoopTerminalUi:
             return self._read_driver_key(self._driver.read_key(fd))
 
     def _poll_resize_repaint(self) -> bool:
-        pending = self._resize_pending
-        self._resize_pending = False
-        if pending or self._dimensions() != self._last_painted_size:
+        pending = self._driver.take_resize_pending()
+        if pending or self._driver.size() != self._last_painted_size:
             self._repaint_after_resize()
             return True
         return False

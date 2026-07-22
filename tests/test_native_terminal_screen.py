@@ -96,7 +96,7 @@ def test_parse_tui_paint_locates_prompt_footer_and_drawn_cursor(
 
     ui.paint()
 
-    width, height = ui._dimensions()
+    width, height = ui._driver.size()
     snapshot = parse_ansi_screen(terminal.getvalue(), columns=width, rows=height)
 
     assert len(snapshot.find("visible prompt")) == 1

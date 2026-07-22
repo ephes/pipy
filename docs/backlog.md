@@ -2371,6 +2371,45 @@ move only: no change to decoded keys, paste bodies, event ordering, or CLI/JSON/
 RPC/session/extension formats; no new runtime dependency, `Any`, or `type:
 ignore`.
 
+### SIGWINCH resize lifecycle + terminal-size resolution onto the driver (Slice 4.2c) — DONE (2026-07-22)
+
+Phase 4.2c moves the resize/size concern onto `TerminalDriver`, which already
+owns the fd it paints to. The driver gains the SIGWINCH lifecycle
+(`install_resize_handler`/`remove_resize_handler`/`_on_resize_signal`, the
+`_resize_pending` flag, the saved `_prev_winch_handler` disposition), the public
+`take_resize_pending()` drain, and the live terminal-size resolver
+`size(*, width=None, height=None)` (the relocated `_dimensions`) backed by the
+private `_terminal_size`/`_env_terminal_size`, plus the relocated
+`_MIN_WIDTH`/`_MIN_HEIGHT`/`_DEFAULT_SIZE`/`_RESIZE_POLL_SECONDS` constants. All
+logic is lifted verbatim, so geometry resolves identically (explicit override,
+then `COLUMNS`/`LINES` env, then the real output `winsize`, then the `shutil`
+fallback, `None` for a non-TTY capture keeping the caller's defaults, each
+dimension clamped to the min floors with the default fallback) and the SIGWINCH
+handler still only flips a flag (installing off the main thread is caught and
+ignored). The UI wires `install_resize_handler` from `start()` and
+`remove_resize_handler` from `close()`; its layout-coupled
+`_poll_resize_repaint`/`_repaint_after_resize` stay in `ToolLoopTerminalUi` but
+query `self._driver.size()` and drain `self._driver.take_resize_pending()`,
+keeping only `_last_painted_size`. Every other `self._dimensions(...)` call site
+(five internal in `tui.py`, five `._dimensions()[0]` in `tool_loop_session.py`,
+one in `tests/test_native_terminal_screen.py`) is repointed to
+`self._driver.size(...)`/`ui._driver.size()`. The three resize methods, the two
+fields, `_dimensions`/`_terminal_size`/`_env_terminal_size`, the four constants,
+and the now-unused `import signal`/`import shutil` are DELETED from `tui.py` with
+no alias; the UI imports `_RESIZE_POLL_SECONDS` from the driver for its
+resize-polling `select` timeout (matching the `_TITLE_MAX_CHARS` pattern).
+`tests/test_native_terminal_driver.py` gains PTY-free resize/size coverage, and
+the two `tests/test_native_tool_loop_tui.py` resize characterizations were
+repointed onto the driver (`_poll_resize_repaint`/`_repaint_after_resize`/
+`_last_painted_size` stay UI-side and unchanged). Focused driver/TUI/terminal-
+screen/chrome-widget/import-boundary suites, `just test-pty-smoke` (8/8) and the
+resize PTY cases, `automation_rpc_conformance.py` (ALL PASS), `just check` (Ruff,
+mypy clean, 4467 passed/2 skipped, no flakes), and `just docs-build` are green.
+Control-plane move only: no change to resolved sizes, resize repaint behavior
+(still an inline clear-and-redraw at the new width), event ordering, or CLI/JSON/
+RPC/session/extension formats; no new runtime dependency, `Any`, or `type:
+ignore`.
+
 ### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
 
 Phase 4.1 introduces the terminal-free `native.ui` package. `native.ui.state`

@@ -691,10 +691,13 @@ than the available live region, the visible wrapped-input window follows the
 cursor while the full buffer is still submitted. Ctrl-Z/Ctrl-Y provide
 per-edit undo/redo over `(text, cursor)` snapshots (a whole paste is one step),
 reset per line. Resize handling is poll-based: the read/selector/active-turn
-loops compare the live output terminal's `winsize` against the last painted size
-every ~100 ms, with a best-effort SIGWINCH handler (which no-ops off the main
-thread) only flagging a pending resize to make idle repaints snappier. On a
-detected size change the renderer does a drift-independent repaint
+loops compare the live output terminal's `winsize` (resolved by the terminal
+driver's `size()`) against the last painted size every ~100 ms, with the
+driver's best-effort SIGWINCH handler (which no-ops off the main thread) only
+flagging a pending resize — drained by `take_resize_pending()` — to make idle
+repaints snappier. The SIGWINCH lifecycle and terminal-size resolution live on
+`TerminalDriver` (Slice 4.2c); the UI keeps only the layout-coupled repaint. On
+a detected size change the renderer does a drift-independent repaint
 (`_repaint_after_resize`): it clears the visible screen, homes the cursor, and
 redraws the full frame (committed history + live region) fresh at the new size,
 rather than trusting the cached physical live-height (which a width change can
@@ -2098,7 +2101,8 @@ the input/terminal streams) owns *how* bytes and mode/title transitions reach
 the terminal. It holds the input/terminal streams plus the terminal-side
 lifecycle state (saved termios attributes, bracketed-paste enabled flag, whether
 a title was pushed onto the xterm title stack, the `_pending_input_bytes` UTF-8
-over-read buffer, and the transient decoded-paste hand-off) and exposes:
+over-read buffer, the transient decoded-paste hand-off, and the pending-resize
+flag plus saved SIGWINCH disposition) and exposes:
 
 - `write(text) -> bool`: the error-swallowing write/flush sink. It
   writes then flushes, swallows `OSError`/`ValueError` (closed stream, invalid
@@ -2143,6 +2147,21 @@ over-read buffer, and the transient decoded-paste hand-off) and exposes:
   footer-branch and resize-polling loop but delegates the read+decode to the
   driver, funnelling the result through the `_read_driver_key` seam that copies
   a paste body into `_pending_paste`.
+- `size(*, width=None, height=None)`, `install_resize_handler()`,
+  `remove_resize_handler()`, `take_resize_pending()`: the SIGWINCH resize
+  lifecycle and live terminal-size resolution (Slice 4.2c), owned here because
+  the driver already owns the fd it paints to. `size()` resolves the terminal
+  geometry — an explicit `width`/`height` override, else the live size
+  (`COLUMNS`/`LINES` env, else the real output `winsize`, else the `shutil`
+  fallback; `None` for a non-TTY capture keeps the caller's defaults) — clamped
+  to the `_MIN_WIDTH`/`_MIN_HEIGHT` floors with the `_DEFAULT_SIZE` fallback.
+  `install_resize_handler`/`remove_resize_handler` (wired from the UI's
+  `start`/`close`) register and restore the best-effort SIGWINCH handler
+  (`_on_resize_signal` only flips a flag; installing off the main thread is
+  caught and ignored — polling still covers it). `take_resize_pending()` returns
+  and clears that flag. The UI keeps the layout-coupled `_poll_resize_repaint`
+  and `_repaint_after_resize`, but queries `size()` and drains
+  `take_resize_pending()` from the driver.
 
 Raw-mode transition typeahead policy (preserved, not changed): `enter_raw_mode`
 calls `tty.setraw(fd)` with no explicit `when`, relying on the standard-library

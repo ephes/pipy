@@ -358,3 +358,93 @@ def test_read_key_if_available_returns_none_when_idle() -> None:
     finally:
         os.close(write_fd)
         os.close(read_fd)
+
+
+# --- resize lifecycle + size resolution -------------------------------------
+
+
+def test_take_resize_pending_reports_and_clears_flag() -> None:
+    driver, _ = _driver()
+    assert driver.take_resize_pending() is False
+    driver._on_resize_signal(28, None)  # SIGWINCH-style flag flip
+    assert driver._resize_pending is True
+    assert driver.take_resize_pending() is True
+    # Draining clears the flag so the next poll does not repaint again.
+    assert driver._resize_pending is False
+    assert driver.take_resize_pending() is False
+
+
+def test_install_and_remove_resize_handler_restore_previous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[int, Any]] = []
+    sentinel = object()
+
+    def fake_signal(signum: int, handler: Any) -> Any:
+        calls.append((signum, handler))
+        return sentinel
+
+    monkeypatch.setattr(terminal_driver.signal, "signal", fake_signal)
+    driver, _ = _driver()
+    driver.install_resize_handler()
+    assert calls[0][0] == terminal_driver.signal.SIGWINCH
+    assert calls[0][1] == driver._on_resize_signal
+    assert driver._prev_winch_handler is sentinel
+    driver.remove_resize_handler()
+    # The previously-saved disposition is restored, then forgotten.
+    assert calls[-1] == (terminal_driver.signal.SIGWINCH, sentinel)
+    assert driver._prev_winch_handler is None
+
+
+def test_install_resize_handler_off_main_thread_is_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raising_signal(signum: int, handler: Any) -> Any:
+        raise ValueError("signal only works in main thread")
+
+    monkeypatch.setattr(terminal_driver.signal, "signal", raising_signal)
+    driver, _ = _driver()
+    driver.install_resize_handler()  # must not raise
+    assert driver._prev_winch_handler is None
+    driver.remove_resize_handler()  # no-op, must not raise
+
+
+def test_size_honors_explicit_override_and_clamps_to_floor() -> None:
+    driver, _ = _driver()
+    assert driver.size(width=100, height=40) == (100, 40)
+    # Both dimensions clamp up to the layout floors.
+    assert driver.size(width=10, height=2) == (60, 12)
+
+
+def test_size_prefers_env_columns_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLUMNS", "133")
+    monkeypatch.setenv("LINES", "47")
+    driver, _ = _driver(isatty=True)
+    assert driver.size() == (133, 47)
+
+
+def test_size_falls_back_to_shutil_when_no_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os as _os
+
+    monkeypatch.delenv("COLUMNS", raising=False)
+    monkeypatch.delenv("LINES", raising=False)
+    monkeypatch.setattr(
+        terminal_driver.shutil,
+        "get_terminal_size",
+        lambda *a, **k: _os.terminal_size((90, 30)),
+    )
+    driver, _ = _driver(isatty=True)
+    assert driver.size() == (90, 30)
+
+
+def test_size_returns_defaults_for_non_tty_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A non-TTY capture stream never resolves a live size, so COLUMNS/LINES do
+    # not leak into captured-stream rendering: the caller's defaults win.
+    monkeypatch.setenv("COLUMNS", "133")
+    monkeypatch.setenv("LINES", "47")
+    driver, _ = _driver(isatty=False)
+    assert driver.size() == (88, 24)
