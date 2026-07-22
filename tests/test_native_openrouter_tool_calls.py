@@ -23,7 +23,7 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
-from pipy_harness.native.openrouter_provider import (
+from pipy_harness.native.providers.openrouter import (
     JsonResponse,
     OpenRouterChatCompletionsProvider,
 )

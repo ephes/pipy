@@ -136,11 +136,11 @@ def test_all_real_provider_complete_signatures_accept_stream_sink_kwarg() -> Non
         "pipy_harness.native.cloudflare_provider": "CloudflareWorkersAIProvider",
         "pipy_harness.native.google_provider": "GoogleGenerativeAIProvider",
         "pipy_harness.native.google_vertex_provider": "GoogleVertexProvider",
-        "pipy_harness.native.mistral_provider": "MistralProvider",
+        "pipy_harness.native.providers.mistral": "MistralProvider",
         "pipy_harness.native.openai_codex_provider": "OpenAICodexResponsesProvider",
         "pipy_harness.native.providers.openai_completions": "OpenAIChatCompletionsProvider",
         "pipy_harness.native.providers.openai_responses": "OpenAIResponsesProvider",
-        "pipy_harness.native.openrouter_provider": "OpenRouterChatCompletionsProvider",
+        "pipy_harness.native.providers.openrouter": "OpenRouterChatCompletionsProvider",
     }
 
     for module_name, class_name in module_to_class.items():

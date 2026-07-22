@@ -82,9 +82,9 @@ from pipy_harness.native.anthropic_provider import AnthropicProvider
 from pipy_harness.native.bedrock_provider import AmazonBedrockProvider
 from pipy_harness.native.providers.ds4 import Ds4ChatCompletionsProvider
 from pipy_harness.native.google_provider import GoogleGenerativeAIProvider
-from pipy_harness.native.mistral_provider import MistralProvider
+from pipy_harness.native.providers.mistral import MistralProvider
 from pipy_harness.native.providers.openai_responses import OpenAIResponsesProvider
-from pipy_harness.native.openrouter_provider import OpenRouterChatCompletionsProvider
+from pipy_harness.native.providers.openrouter import OpenRouterChatCompletionsProvider
 from pipy_harness.native.patch_apply import (
     NativePatchApplyApprovalDecision,
     NativePatchApplyGateDecision,

@@ -19,7 +19,7 @@ from typing import Any
 from pipy_harness.adapters import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
-from pipy_harness.native.openrouter_provider import (
+from pipy_harness.native.providers.openrouter import (
     JsonResponse,
     OpenRouterChatCompletionsProvider,
 )

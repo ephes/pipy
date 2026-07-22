@@ -2915,7 +2915,7 @@ def _native_provider_for_selection(
 
         return GoogleVertexProvider(model_id=selection.model_id)
     if selection.provider_name == "mistral":
-        from pipy_harness.native.mistral_provider import MistralProvider
+        from pipy_harness.native.providers.mistral import MistralProvider
 
         return MistralProvider(model_id=selection.model_id)
     if selection.provider_name == "amazon-bedrock":

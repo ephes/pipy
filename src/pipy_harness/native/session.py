@@ -214,7 +214,7 @@ _GENERATED_PROVIDER_METADATA_PRESENT_KEYS = {
 
 # Closed enum sets for the three string-shaped allowlisted provider-metadata
 # fields. Real adapters constrain their own outputs through
-# `_safe_response_label` (see `openrouter_provider.py` /
+# `_safe_response_label` (see `providers/openrouter.py` /
 # `openai_codex_provider.py`) plus an explicit pipy-internal
 # `"unknown"` / `"failed"` default in error paths, so these enums are
 # wide enough to cover every value the production adapters actually

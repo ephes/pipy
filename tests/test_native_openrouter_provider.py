@@ -10,7 +10,7 @@ from typing import Any
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import NativeNoToolReplConversationContext, ProviderRequest
-from pipy_harness.native.openrouter_provider import (
+from pipy_harness.native.providers.openrouter import (
     JsonResponse,
     OpenRouterChatCompletionsProvider,
     OpenRouterHTTPStatusError,

@@ -550,7 +550,7 @@ def _default_endpoint(api: str) -> str:
         from pipy_harness.native.providers.openai_responses import OPENAI_RESPONSES_URL
 
         return OPENAI_RESPONSES_URL
-    from pipy_harness.native.mistral_provider import MISTRAL_CHAT_COMPLETIONS_URL
+    from pipy_harness.native.providers.mistral import MISTRAL_CHAT_COMPLETIONS_URL
 
     return MISTRAL_CHAT_COMPLETIONS_URL
 
@@ -697,7 +697,7 @@ def build_provider(
             **http_kwargs,  # type: ignore[arg-type]
         )
 
-    from pipy_harness.native.mistral_provider import MistralProvider
+    from pipy_harness.native.providers.mistral import MistralProvider
 
     return MistralProvider(
         model_id=resolved.model_id,

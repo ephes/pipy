@@ -64,9 +64,7 @@ _LEGACY_CONCRETE_PROVIDER_MODULES = (
     "pipy_harness.native.cloudflare_provider",
     "pipy_harness.native.google_provider",
     "pipy_harness.native.google_vertex_provider",
-    "pipy_harness.native.mistral_provider",
     "pipy_harness.native.openai_codex_provider",
-    "pipy_harness.native.openrouter_provider",
 )
 
 # These modules are provider-facing architecture sources even though their
@@ -92,9 +90,11 @@ _PROVIDER_UI_FORBIDDEN_IMPORTS = (
 # Phase 5.2 is migrating the concrete transports under ``native.providers`` one
 # family at a time (the OpenAI Responses adapter lives in
 # ``native.providers.openai_responses``, its Azure sibling in
-# ``native.providers.azure_openai_responses``, and the OpenAI-compatible Chat
-# Completions adapter plus its ds4 reuse now live in
-# ``native.providers.openai_completions``/``native.providers.ds4`` — all governed
+# ``native.providers.azure_openai_responses``, the OpenAI-compatible Chat
+# Completions adapter plus its ds4 reuse live in
+# ``native.providers.openai_completions``/``native.providers.ds4``, and the
+# Mistral and OpenRouter Chat Completions clones now live in
+# ``native.providers.mistral``/``native.providers.openrouter`` — all governed
 # by the ``native.providers`` package rule below).  For every transport still at
 # the top level, enforce the
 # same boundary here alongside the provider-facing ports, fakes, deferred-tool

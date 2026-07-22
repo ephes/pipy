@@ -16,7 +16,7 @@ from pipy_harness.native.agent import (
     ProductContent,
 )
 from pipy_harness.native import ProviderRequest
-from pipy_harness.native.mistral_provider import (
+from pipy_harness.native.providers.mistral import (
     JsonResponse,
     MistralHTTPStatusError,
     MistralProvider,
