@@ -2068,14 +2068,20 @@ once with the message's `has_tool_calls`. A second or inactive completion is
 silent, so completion happens at most once per message. `assistant_streamed`
 persists across completion and is reset only by the next `MessageStarted`.
 
+Slice 4.1b folds the three remaining tool-event renders into the same `reduce`,
+so it is the single owner of every agent-event-to-render-decision mapping:
+`ToolCallStarted` emits a `RenderToolCall` carrying the call, `ToolCallUpdated`
+emits a `StreamToolOutput` carrying the exact update chunk, and `ToolCallCompleted`
+emits a `RenderToolResult` forwarding `output_text`/`is_error`/`duration_seconds`.
+Tool events carry no display state, so they leave `UiState` untouched.
+
 `native.ui.rendering` holds the `AgentEventRenderer` protocol and the
-`RenderingAgentEventAdapter`. The adapter holds one `UiState`, routes each
-non-tool event through `reduce`, and applies the returned ordered
-`RenderDecision` tuple to the renderer, so the renderer sees the same calls in
-the same order as before. Tool-call start, update, and result events remain
-direct stateless pass-throughs on the adapter this slice; their reducer ownership
-is deferred to Slice 4.1b, and footer/status and coding-state projection remain
-deferred behind this boundary. Because a UI projection now lives in `native.ui`,
+`RenderingAgentEventAdapter`. The adapter holds one `UiState` and is a pure
+driver: `emit` calls `reduce(state, event)` for every event and applies the
+returned ordered `RenderDecision` tuple to the renderer through one exhaustive
+`_apply` dispatch, with zero residual inline event branching, so the renderer
+sees the same calls in the same order as before. Footer/status and coding-state
+projection remain deferred behind this boundary. Because a UI projection now lives in `native.ui`,
 `native.agent_adapters` no longer defines the renderer protocol or rendering
 adapter and is import-gated to forbid depending on `native.ui`; the `native.ui`
 import boundary forbids depending on `coding.state`, `coding.session`, or

@@ -1,23 +1,17 @@
 """Rendering adapter that drives a renderer from canonical agent events.
 
-The adapter owns no lifecycle booleans of its own: it holds a :class:`UiState`,
-delegates each assistant/provider/cancellation event to the pure
-:func:`reduce`, and applies the returned decisions to the renderer.  Tool events
-remain direct, stateless pass-throughs onto the renderer.
+The adapter owns no display state or event branching of its own: it holds a
+:class:`UiState`, delegates every canonical event to the pure :func:`reduce`,
+and applies the returned decisions to the renderer.  It is a thin driver — the
+reducer is the single owner of the agent-event-to-render-decision mapping,
+including the tool-call, tool-update, and tool-result renders.
 """
 
 from __future__ import annotations
 
 from typing import Protocol, assert_never, runtime_checkable
 
-from pipy_harness.native.agent import (
-    AgentCancellationReason,
-    AgentEvent,
-    AgentToolCall,
-    ToolCallCompleted,
-    ToolCallStarted,
-    ToolCallUpdated,
-)
+from pipy_harness.native.agent import AgentCancellationReason, AgentEvent, AgentToolCall
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.ui.state import (
     CancelAssistantMessage,
@@ -25,9 +19,12 @@ from pipy_harness.native.ui.state import (
     FailAssistantMessage,
     RenderBufferedAssistantText,
     RenderDecision,
+    RenderToolCall,
+    RenderToolResult,
     StartAssistantMessage,
     StreamAssistantReasoning,
     StreamAssistantText,
+    StreamToolOutput,
     UiState,
     reduce,
 )
@@ -78,19 +75,6 @@ class RenderingAgentEventAdapter:
         self._state = UiState()
 
     def emit(self, event: AgentEvent) -> None:
-        if isinstance(event, ToolCallStarted):
-            self._renderer.render_tool_call(event.call)
-            return
-        if isinstance(event, ToolCallCompleted):
-            self._renderer.render_tool_result(
-                output_text=event.result.content.value,
-                is_error=event.result.is_error,
-                duration_seconds=event.duration_seconds,
-            )
-            return
-        if isinstance(event, ToolCallUpdated):
-            self._renderer.tool_output_sink(event.update.value)
-            return
         self._state, decisions = reduce(self._state, event)
         for decision in decisions:
             self._apply(decision)
@@ -113,5 +97,15 @@ class RenderingAgentEventAdapter:
             renderer.fail_assistant_message()
         elif isinstance(decision, CancelAssistantMessage):
             renderer.cancel_assistant_message(decision.reason)
+        elif isinstance(decision, RenderToolCall):
+            renderer.render_tool_call(decision.call)
+        elif isinstance(decision, StreamToolOutput):
+            renderer.tool_output_sink(decision.text)
+        elif isinstance(decision, RenderToolResult):
+            renderer.render_tool_result(
+                output_text=decision.output_text,
+                is_error=decision.is_error,
+                duration_seconds=decision.duration_seconds,
+            )
         else:
             assert_never(decision)

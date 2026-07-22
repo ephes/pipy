@@ -20,8 +20,11 @@ from pipy_harness.native.agent.events import (
     MessageStarted,
     ProviderFailed,
     RunCancelled,
+    ToolCallCompleted,
+    ToolCallStarted,
+    ToolCallUpdated,
 )
-from pipy_harness.native.agent.messages import AgentAssistantMessage
+from pipy_harness.native.agent.messages import AgentAssistantMessage, AgentToolCall
 from pipy_harness.native.agent.results import AgentCancellationReason
 
 
@@ -88,6 +91,29 @@ class CancelAssistantMessage:
     reason: AgentCancellationReason
 
 
+@dataclass(frozen=True, slots=True)
+class RenderToolCall:
+    """Render a model-requested tool call entering execution."""
+
+    call: AgentToolCall
+
+
+@dataclass(frozen=True, slots=True)
+class StreamToolOutput:
+    """Forward one live full-content update chunk from a running tool."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class RenderToolResult:
+    """Render a completed tool call's provider-visible result."""
+
+    output_text: str
+    is_error: bool
+    duration_seconds: float | None
+
+
 RenderDecision = (
     StartAssistantMessage
     | StreamAssistantText
@@ -96,6 +122,9 @@ RenderDecision = (
     | CompleteAssistantMessage
     | FailAssistantMessage
     | CancelAssistantMessage
+    | RenderToolCall
+    | StreamToolOutput
+    | RenderToolResult
 )
 """Closed union of ordered rendering decisions produced by :func:`reduce`."""
 
@@ -106,8 +135,11 @@ def reduce(
     """Map ``event`` onto the next :class:`UiState` and ordered decisions.
 
     The function is pure: it never touches a terminal or renderer.  It owns the
-    assistant message lifecycle only; tool events and other canonical events
-    return the unchanged state with no decisions.
+    full agent-event-to-render-decision mapping: the assistant message lifecycle
+    and the three stateless tool-event renders (call start, live update, and
+    result).  Tool events carry no display state, so they leave ``state``
+    untouched; every other canonical event returns the unchanged state with no
+    decisions.
     """
 
     if isinstance(event, MessageStarted) and isinstance(
@@ -158,4 +190,19 @@ def reduce(
             )
         decisions.append(CompleteAssistantMessage(has_tool_calls=has_tool_calls))
         return (completed, tuple(decisions))
+    if isinstance(event, ToolCallStarted):
+        return (state, (RenderToolCall(event.call),))
+    if isinstance(event, ToolCallUpdated):
+        return (state, (StreamToolOutput(event.update.value),))
+    if isinstance(event, ToolCallCompleted):
+        return (
+            state,
+            (
+                RenderToolResult(
+                    output_text=event.result.content.value,
+                    is_error=event.result.is_error,
+                    duration_seconds=event.duration_seconds,
+                ),
+            ),
+        )
     return (state, ())

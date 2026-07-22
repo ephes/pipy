@@ -35,9 +35,12 @@ from pipy_harness.native.ui.state import (
     CompleteAssistantMessage,
     FailAssistantMessage,
     RenderBufferedAssistantText,
+    RenderToolCall,
+    RenderToolResult,
     StartAssistantMessage,
     StreamAssistantReasoning,
     StreamAssistantText,
+    StreamToolOutput,
     UiState,
     reduce,
 )
@@ -257,21 +260,6 @@ def test_non_assistant_completion_is_ignored() -> None:
     [
         AgentRunStarted(),
         TurnStarted(0),
-        ToolCallStarted(0, AgentToolCall("c", "read", ProductContent("{}"))),
-        ToolCallUpdated(
-            0, AgentToolCall("c", "read", ProductContent("{}")), ProductContent("p")
-        ),
-        ToolCallCompleted(
-            0,
-            AgentToolResultMessage(
-                "pipy-tool-000001",
-                "read",
-                ProductContent("out"),
-                "c",
-                is_error=False,
-            ),
-            duration_seconds=0.1,
-        ),
     ],
 )
 def test_unowned_events_leave_state_untouched_without_decisions(
@@ -283,3 +271,127 @@ def test_unowned_events_leave_state_untouched_without_decisions(
 
     assert state is start
     assert decisions == ()
+
+
+def test_tool_call_started_renders_the_call_without_touching_state() -> None:
+    start = UiState(assistant_active=True, assistant_streamed=True)
+    call = AgentToolCall("provider-call", "read", ProductContent('{"path": "a"}'))
+
+    state, decisions = reduce(start, ToolCallStarted(0, call))
+
+    assert state is start
+    assert decisions == (RenderToolCall(call),)
+    assert decisions[0].call is call
+
+
+def test_tool_call_updated_streams_the_exact_update_chunk() -> None:
+    start = UiState(assistant_active=True, assistant_streamed=True)
+    update = ToolCallUpdated(
+        0,
+        AgentToolCall("provider-call", "read", ProductContent("{}")),
+        ProductContent("partial output"),
+    )
+
+    state, decisions = reduce(start, update)
+
+    assert state is start
+    assert decisions == (StreamToolOutput("partial output"),)
+
+
+def test_empty_tool_update_streams_an_empty_chunk() -> None:
+    start = UiState(assistant_active=True)
+    update = ToolCallUpdated(
+        0,
+        AgentToolCall("provider-call", "read", ProductContent("{}")),
+        ProductContent(""),
+    )
+
+    state, decisions = reduce(start, update)
+
+    assert state is start
+    assert decisions == (StreamToolOutput(""),)
+
+
+def test_tool_call_completed_renders_result_with_forwarded_fields() -> None:
+    start = UiState(assistant_active=True, assistant_streamed=True)
+    result = AgentToolResultMessage(
+        "pipy-tool-000001",
+        "read",
+        ProductContent("file body"),
+        "provider-call",
+        is_error=False,
+    )
+
+    state, decisions = reduce(start, ToolCallCompleted(0, result, duration_seconds=1.5))
+
+    assert state is start
+    assert decisions == (
+        RenderToolResult(
+            output_text="file body",
+            is_error=False,
+            duration_seconds=1.5,
+        ),
+    )
+
+
+def test_tool_call_completed_forwards_error_flag_and_missing_duration() -> None:
+    start = UiState(assistant_active=True)
+    result = AgentToolResultMessage(
+        "pipy-tool-000002",
+        "read",
+        ProductContent("boom"),
+        "provider-call",
+        is_error=True,
+    )
+
+    state, decisions = reduce(start, ToolCallCompleted(0, result))
+
+    assert state is start
+    assert decisions == (
+        RenderToolResult(
+            output_text="boom",
+            is_error=True,
+            duration_seconds=None,
+        ),
+    )
+
+
+def test_tool_events_interleave_with_message_lifecycle_decisions() -> None:
+    call = AgentToolCall("provider-call", "read", ProductContent("{}"))
+    result = AgentToolResultMessage(
+        "pipy-tool-000003",
+        "read",
+        ProductContent("done"),
+        "provider-call",
+        is_error=False,
+    )
+
+    state, started = reduce(UiState(), MessageStarted(0, _assistant("")))
+    assert started == (StartAssistantMessage(),)
+
+    state, streamed = reduce(state, AssistantTextDelta(0, ProductContent("using ")))
+    assert streamed == (StreamAssistantText("using "),)
+    assert state == UiState(assistant_active=True, assistant_streamed=True)
+
+    state, call_decisions = reduce(state, ToolCallStarted(0, call))
+    assert call_decisions == (RenderToolCall(call),)
+    assert state == UiState(assistant_active=True, assistant_streamed=True)
+
+    state, update_decisions = reduce(
+        state, ToolCallUpdated(0, call, ProductContent("tick"))
+    )
+    assert update_decisions == (StreamToolOutput("tick"),)
+
+    state, result_decisions = reduce(
+        state, ToolCallCompleted(0, result, duration_seconds=0.25)
+    )
+    assert result_decisions == (
+        RenderToolResult(output_text="done", is_error=False, duration_seconds=0.25),
+    )
+    assert state == UiState(assistant_active=True, assistant_streamed=True)
+
+    state, completed = reduce(
+        state, MessageCompleted(0, _assistant("using read", call))
+    )
+    assert completed == (CompleteAssistantMessage(has_tool_calls=True),)
+    assert state == UiState(assistant_streamed=True)
