@@ -49,10 +49,10 @@ extend-select = ["C901"]
 # Complexity baseline: every file that already carried a C901 finding at the
 # time the gate was introduced is pinned here so no *new* over-complex function
 # can land in a previously-clean file. This is a directional ratchet, not the
-# end-state — the pinned files are burned down over time (Slice 7.4 already
-# dropped `image_attachment.py` and `command_sandbox.py` off this list by
-# decomposing one function in each). Do not add entries to grow the baseline;
-# only remove them as functions are genuinely simplified below the threshold.
+# end-state — pinned files are burned down over time (Slice 7.4 dropped
+# `image_attachment.py` and `command_sandbox.py`; Slice 7.7a dropped three
+# strict-leaf invariant owners). Do not add entries to grow the baseline; only
+# remove them as functions are genuinely simplified below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
@@ -60,16 +60,13 @@ extend-select = ["C901"]
 "scripts/parity_runner.py" = ["C901"]
 "src/pipy_harness/cli.py" = ["C901"]
 "src/pipy_harness/native/_resource_files.py" = ["C901"]
-"src/pipy_harness/native/agent/loop_policy.py" = ["C901"]
 "src/pipy_harness/native/agent/loop.py" = ["C901"]
 "src/pipy_harness/native/agent/request.py" = ["C901"]
-"src/pipy_harness/native/agent/results.py" = ["C901"]
 "src/pipy_harness/native/agent/tools.py" = ["C901"]
 "src/pipy_harness/native/auth_store.py" = ["C901"]
 "src/pipy_harness/native/automation/agent_events.py" = ["C901"]
 "src/pipy_harness/native/chrome.py" = ["C901"]
 "src/pipy_harness/native/clipboard.py" = ["C901"]
-"src/pipy_harness/native/coding/command_registry.py" = ["C901"]
 "src/pipy_harness/native/coding/commands.py" = ["C901"]
 "src/pipy_harness/native/coding/session_controller.py" = ["C901"]
 "src/pipy_harness/native/coding/state.py" = ["C901"]

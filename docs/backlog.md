@@ -2822,6 +2822,29 @@ added. The focused session/privacy/archive suite passed 71 tests; final
 `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
 0 findings, explicit CLEAN.
 
+### C901 strict-leaf invariant decomposition (Slice 7.7a) — DONE (2026-07-23)
+
+First directional complexity burn-down batch. Remove the single C901 finding
+from each of `native.agent.loop_policy`, `native.agent.results`, and
+`native.coding.command_registry` by separating each value object's primitive
+shape checks from its coherent cross-field invariant checks. Preserve exact
+exception classes/messages and validation order; do not replace branches with
+tables or otherwise game McCabe. Each clean file must leave the C901 pin list
+in the same slice. No behavior, public type, event/policy/command semantics,
+dependency, unchecked `Any`, `type: ignore`, Mypy exclusion, or new pin.
+
+Landed shape: each value object's `__post_init__` now delegates first to a
+primitive field/type/shape validator and then to one named cross-field
+invariant validator: interruption/malformed policy payloads, terminal
+failure/retry/cancellation outcomes, and command-kind/action/argument
+contracts, respectively. The original statements retain their order, exception
+classes, and messages. All three files are C901-clean and their pin entries are
+deleted, lowering the repository baseline 142/70 -> 139/67 (`src` 126/61 ->
+123/58). No pin or exclusion was added. Focused policy/event/command and
+architecture verification passed 372 tests; final `just check` passed Ruff,
+Mypy, and 4,509 tests (2 skipped); `just docs-build` reported no issues.
+Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

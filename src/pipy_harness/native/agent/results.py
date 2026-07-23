@@ -100,46 +100,57 @@ class AgentRunResult:
     cancellation_detail: ProductContent | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.outcome, AgentRunOutcome):
-            raise TypeError("AgentRunResult.outcome must be AgentRunOutcome")
-        if not isinstance(self.messages, tuple):
-            raise TypeError("AgentRunResult.messages must be a tuple")
-        if any(
-            not isinstance(message, _AGENT_MESSAGE_TYPES) for message in self.messages
-        ):
-            raise TypeError("AgentRunResult.messages contains an unsupported message")
-        if not isinstance(self.usage, AgentUsage):
-            raise TypeError("AgentRunResult.usage must be AgentUsage")
-        if self.failure is not None and not isinstance(self.failure, AgentFailure):
-            raise TypeError("AgentRunResult.failure must be AgentFailure or None")
-        require_bool(self.will_retry, "AgentRunResult.will_retry")
-        if self.cancellation_reason is not None and not isinstance(
-            self.cancellation_reason, AgentCancellationReason
-        ):
-            raise TypeError(
-                "AgentRunResult.cancellation_reason must be "
-                "AgentCancellationReason or None"
-            )
-        if self.cancellation_detail is not None and not isinstance(
-            self.cancellation_detail, ProductContent
-        ):
-            raise TypeError(
-                "AgentRunResult.cancellation_detail must be ProductContent or None"
-            )
-        if self.outcome is AgentRunOutcome.FAILED and self.failure is None:
-            raise ValueError("failed AgentRunResult requires failure details")
-        if self.outcome is not AgentRunOutcome.FAILED and self.failure is not None:
-            raise ValueError("only failed AgentRunResult may carry failure details")
-        if self.will_retry and self.outcome is not AgentRunOutcome.FAILED:
-            raise ValueError("only failed AgentRunResult may set will_retry")
-        if (
-            self.outcome is AgentRunOutcome.CANCELLED
-            and self.cancellation_reason is None
-        ):
-            raise ValueError("cancelled AgentRunResult requires a cancellation reason")
-        if self.outcome is not AgentRunOutcome.CANCELLED and (
-            self.cancellation_reason is not None or self.cancellation_detail is not None
-        ):
-            raise ValueError(
-                "only cancelled AgentRunResult may carry cancellation details"
-            )
+        _validate_agent_run_result_fields(self)
+        _validate_agent_run_result_invariants(self)
+
+
+def _validate_agent_run_result_fields(result: AgentRunResult) -> None:
+    """Validate the primitive field types and message shape of a run result."""
+
+    if not isinstance(result.outcome, AgentRunOutcome):
+        raise TypeError("AgentRunResult.outcome must be AgentRunOutcome")
+    if not isinstance(result.messages, tuple):
+        raise TypeError("AgentRunResult.messages must be a tuple")
+    if any(
+        not isinstance(message, _AGENT_MESSAGE_TYPES) for message in result.messages
+    ):
+        raise TypeError("AgentRunResult.messages contains an unsupported message")
+    if not isinstance(result.usage, AgentUsage):
+        raise TypeError("AgentRunResult.usage must be AgentUsage")
+    if result.failure is not None and not isinstance(result.failure, AgentFailure):
+        raise TypeError("AgentRunResult.failure must be AgentFailure or None")
+    require_bool(result.will_retry, "AgentRunResult.will_retry")
+    if result.cancellation_reason is not None and not isinstance(
+        result.cancellation_reason, AgentCancellationReason
+    ):
+        raise TypeError(
+            "AgentRunResult.cancellation_reason must be "
+            "AgentCancellationReason or None"
+        )
+    if result.cancellation_detail is not None and not isinstance(
+        result.cancellation_detail, ProductContent
+    ):
+        raise TypeError(
+            "AgentRunResult.cancellation_detail must be ProductContent or None"
+        )
+
+
+def _validate_agent_run_result_invariants(result: AgentRunResult) -> None:
+    """Validate outcome-specific failure, retry, and cancellation invariants."""
+
+    if result.outcome is AgentRunOutcome.FAILED and result.failure is None:
+        raise ValueError("failed AgentRunResult requires failure details")
+    if result.outcome is not AgentRunOutcome.FAILED and result.failure is not None:
+        raise ValueError("only failed AgentRunResult may carry failure details")
+    if result.will_retry and result.outcome is not AgentRunOutcome.FAILED:
+        raise ValueError("only failed AgentRunResult may set will_retry")
+    if (
+        result.outcome is AgentRunOutcome.CANCELLED
+        and result.cancellation_reason is None
+    ):
+        raise ValueError("cancelled AgentRunResult requires a cancellation reason")
+    if result.outcome is not AgentRunOutcome.CANCELLED and (
+        result.cancellation_reason is not None
+        or result.cancellation_detail is not None
+    ):
+        raise ValueError("only cancelled AgentRunResult may carry cancellation details")

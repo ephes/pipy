@@ -78,37 +78,47 @@ class BuiltinCommandSpec:
     description: str = ""
 
     def __post_init__(self) -> None:
-        if type(self.name) is not str:
-            raise TypeError("spec.name must be an exact str")
-        if type(self.description) is not str:
-            raise TypeError("spec.description must be an exact str")
-        if type(self.kind) is not BuiltinCommandKind:
-            raise TypeError("spec.kind must be an exact BuiltinCommandKind")
-        if type(self.argument_contract) is not BuiltinArgumentContract:
-            raise TypeError(
-                "spec.argument_contract must be an exact BuiltinArgumentContract"
-            )
-        if type(self.aliases) is not tuple or any(
-            type(alias) is not str for alias in self.aliases
-        ):
-            raise TypeError("spec.aliases must be an exact tuple of str")
-        if not callable(self.availability):
-            raise TypeError("spec.availability must be callable")
-        if self.kind is BuiltinCommandKind.ACTION:
-            if type(self.action) is not CodingCommandAction:
-                raise ValueError("ACTION specs require an exact CodingCommandAction")
-        else:
-            if self.action is not None:
-                raise ValueError("only ACTION specs may bind a CodingCommandAction")
-            if self.argument_contract is not BuiltinArgumentContract.NONE:
-                raise ValueError(
-                    "EXIT and BLANK specs require the NONE argument contract"
-                )
-        if (
-            self.argument_contract is BuiltinArgumentContract.USAGE_AWARE
-            and self.kind is not BuiltinCommandKind.ACTION
-        ):
-            raise ValueError("USAGE_AWARE contracts require an ACTION spec")
+        _validate_builtin_command_spec_fields(self)
+        _validate_builtin_command_spec_invariants(self)
+
+
+def _validate_builtin_command_spec_fields(spec: BuiltinCommandSpec) -> None:
+    """Validate the primitive field types and alias shape of a built-in spec."""
+
+    if type(spec.name) is not str:
+        raise TypeError("spec.name must be an exact str")
+    if type(spec.description) is not str:
+        raise TypeError("spec.description must be an exact str")
+    if type(spec.kind) is not BuiltinCommandKind:
+        raise TypeError("spec.kind must be an exact BuiltinCommandKind")
+    if type(spec.argument_contract) is not BuiltinArgumentContract:
+        raise TypeError(
+            "spec.argument_contract must be an exact BuiltinArgumentContract"
+        )
+    if type(spec.aliases) is not tuple or any(
+        type(alias) is not str for alias in spec.aliases
+    ):
+        raise TypeError("spec.aliases must be an exact tuple of str")
+    if not callable(spec.availability):
+        raise TypeError("spec.availability must be callable")
+
+
+def _validate_builtin_command_spec_invariants(spec: BuiltinCommandSpec) -> None:
+    """Validate command-kind action and argument-contract invariants."""
+
+    if spec.kind is BuiltinCommandKind.ACTION:
+        if type(spec.action) is not CodingCommandAction:
+            raise ValueError("ACTION specs require an exact CodingCommandAction")
+    else:
+        if spec.action is not None:
+            raise ValueError("only ACTION specs may bind a CodingCommandAction")
+        if spec.argument_contract is not BuiltinArgumentContract.NONE:
+            raise ValueError("EXIT and BLANK specs require the NONE argument contract")
+    if (
+        spec.argument_contract is BuiltinArgumentContract.USAGE_AWARE
+        and spec.kind is not BuiltinCommandKind.ACTION
+    ):
+        raise ValueError("USAGE_AWARE contracts require an ACTION spec")
 
 
 _BUILTIN_COMMANDS: tuple[BuiltinCommandSpec, ...] = (

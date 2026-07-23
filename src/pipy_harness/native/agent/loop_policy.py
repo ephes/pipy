@@ -198,36 +198,53 @@ class AgentToolPolicyTransition:
     interruption: ToolExecutionInterruption | None = None
 
     def __post_init__(self) -> None:
-        if type(self.action) is not AgentToolPolicyAction:
-            raise TypeError("action must be AgentToolPolicyAction")
-        if type(self.state) is not AgentToolPolicyState:
-            raise TypeError("state must be AgentToolPolicyState")
-        if self.failure is not None:
-            _validate_agent_failure(self.failure)
-        if (
-            self.interruption is not None
-            and type(self.interruption) is not ToolExecutionInterruption
-        ):
-            raise TypeError("interruption must be ToolExecutionInterruption or None")
-        if self.action is AgentToolPolicyAction.INTERRUPTED:
-            if self.interruption in {None, ToolExecutionInterruption.SETTLED}:
-                raise ValueError("interrupted transition requires an interruption")
-        elif self.interruption is not None:
-            raise ValueError("only interrupted transitions carry an interruption")
-        if self.action is AgentToolPolicyAction.MALFORMED:
-            if self.state.consecutive_malformed_streak == 0:
-                raise ValueError("malformed transition requires a malformed streak")
-            expected_failure = (
-                _malformed_failure(self.state.malformed_limit)
-                if self.state.consecutive_malformed_streak >= self.state.malformed_limit
-                else None
+        _validate_tool_policy_transition_fields(self)
+        _validate_tool_policy_transition_invariants(self)
+
+
+def _validate_tool_policy_transition_fields(
+    transition: AgentToolPolicyTransition,
+) -> None:
+    """Validate the primitive field types of one tool-policy transition."""
+
+    if type(transition.action) is not AgentToolPolicyAction:
+        raise TypeError("action must be AgentToolPolicyAction")
+    if type(transition.state) is not AgentToolPolicyState:
+        raise TypeError("state must be AgentToolPolicyState")
+    if transition.failure is not None:
+        _validate_agent_failure(transition.failure)
+    if (
+        transition.interruption is not None
+        and type(transition.interruption) is not ToolExecutionInterruption
+    ):
+        raise TypeError("interruption must be ToolExecutionInterruption or None")
+
+
+def _validate_tool_policy_transition_invariants(
+    transition: AgentToolPolicyTransition,
+) -> None:
+    """Validate action-specific interruption and malformed-failure invariants."""
+
+    if transition.action is AgentToolPolicyAction.INTERRUPTED:
+        if transition.interruption in {None, ToolExecutionInterruption.SETTLED}:
+            raise ValueError("interrupted transition requires an interruption")
+    elif transition.interruption is not None:
+        raise ValueError("only interrupted transitions carry an interruption")
+    if transition.action is AgentToolPolicyAction.MALFORMED:
+        if transition.state.consecutive_malformed_streak == 0:
+            raise ValueError("malformed transition requires a malformed streak")
+        expected_failure = (
+            _malformed_failure(transition.state.malformed_limit)
+            if transition.state.consecutive_malformed_streak
+            >= transition.state.malformed_limit
+            else None
+        )
+        if transition.failure != expected_failure:
+            raise ValueError(
+                "malformed transition failure must match the malformed limit"
             )
-            if self.failure != expected_failure:
-                raise ValueError(
-                    "malformed transition failure must match the malformed limit"
-                )
-        elif self.failure is not None:
-            raise ValueError("only malformed transitions carry a failure")
+    elif transition.failure is not None:
+        raise ValueError("only malformed transitions carry a failure")
 
 
 def decide_tool_admission(
