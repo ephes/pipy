@@ -3313,6 +3313,34 @@ owners are clean and their pins are deleted, lowering repository C901 110/50
 `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
 0 findings, explicit CLEAN.
 
+### Footer/status effects relocation to chrome owner (Slice 7.5j) — DONE (2026-07-23)
+
+Tenth composition-root slimming cut. Relocate `_FooterEffects` from
+`native.tool_loop_session` into the existing `native.chrome` owner, injecting
+the session’s current footer-text and footer-print callables so chrome does not
+import the composition root or TUI. Preserve the coding-state snapshot reads,
+TUI footer text, plain-stream/slash-menu eligibility, legacy separator/status
+printing, usage/no-usage selection, stream width/color behavior, refresh
+timing, and existing monkeypatch seams. Delete the root class with no alias and
+add a direct owner characterization/import boundary if useful. No footer
+format, status meter, TUI, provider, command, or architecture redesign; no
+public API change, dependency, unchecked `Any`, `type: ignore`, C901 pin, or
+Mypy exclusion.
+
+Landed shape: private `_ChromeFooterEffects` now lives in `native.chrome` and
+receives precisely typed footer-text/print callables plus structural footer-UI
+and REPL-runtime ports, so chrome imports neither the root nor TUI. The root
+injects its current bound `_footer_text`/`_print_footer` methods, preserving
+their formatting logic and monkeypatch seams. Live coding-state reads,
+TUI-only refresh, slash-menu legacy suppression, usage/no-usage calls, and
+startup/command/provider/loop timing remain unchanged. The direct constant-time
+state test now verifies the chrome owner and absence of the root class. The
+composition root shrinks 5,904 -> 5,829 lines. Repository C901 remains 107/47
+(`src` 91/38) and `src` `type: ignore` remains 28. Focused verification passed
+418 tests; final `just check` passed Ruff, Mypy, and 4,526 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

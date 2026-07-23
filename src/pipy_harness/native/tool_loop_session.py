@@ -54,6 +54,7 @@ from pipy_harness.native.clipboard import (
 )
 from pipy_harness.native.chrome import (
     BottomStatusFields,
+    _ChromeFooterEffects,
     chrome_width,
     format_bottom_status_line,
     print_bottom_status_block,
@@ -2951,82 +2952,6 @@ _EXTENSION_COMPLETE_MAX_CHARS = 100 * 1024
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class _FooterEffects:
-    """Composition-root handler owning the footer/status-line effects.
-
-    Symmetric with :class:`_ProviderMutationEffects`/:class:`_CustomEntryRenderer`/
-    :class:`_ReplLoopStep`/:class:`_BuiltinCommandInterpreter`, these bodies
-    formerly lived as the ``coding_footer_text``/``refresh_footer_text``/
-    ``legacy_footer_enabled``/``refresh_legacy_footer``/
-    ``refresh_legacy_footer_with_usage`` closures nested in
-    ``NativeToolReplSession.run()``. The TUI footer text and the plain-stream
-    legacy footer are pure projections of the live coding state, so the handler is
-    a frozen, slotted, keyword-only dataclass holding the owning session (for the
-    ``_footer_text``/``_print_footer`` sinks), cwd, the coding state, the error
-    stream, the terminal UI, and the REPL input (for the slash-menu runtime
-    check); its methods call each other through ``self``. The ``run()`` composition
-    root passes each bound method exactly where the deleted closures were consumed
-    (the provider-mutation ``refresh_footer_text`` port, the loop-step
-    ``coding_footer_text``/``refresh_legacy_footer_with_usage`` ports, the built-in
-    interpreter's ``refresh_legacy_footer``/``refresh_legacy_footer_with_usage``
-    ports, the command-effects ``footer`` port, and the startup footer paint).
-    """
-
-    session: NativeToolReplSession
-    cwd: Path
-    coding_state: CodingSessionState
-    error_stream: TextIO
-    terminal_ui: ToolLoopTerminalUi | None
-    repl_input: ToolLoopTerminalUi | NativeReplInput
-
-    def coding_footer_text(self) -> str:
-        coding_state = self.coding_state
-        return self.session._footer_text(
-            cwd=self.cwd,
-            provider_name=coding_state.provider_name,
-            model_id=coding_state.model_id,
-            user_turn_count=coding_state.user_turn_count,
-            tool_invocation_count=coding_state.tool_invocation_count,
-            error_stream=self.error_stream,
-            usage_snapshot=coding_state.usage_snapshot(),
-        )
-
-    def refresh_footer_text(self) -> None:
-        if self.terminal_ui is not None:
-            self.terminal_ui.set_footer_text(self.coding_footer_text())
-
-    def legacy_footer_enabled(self) -> bool:
-        return (
-            self.terminal_ui is None and self.repl_input.runtime_label != "slash-menu"
-        )
-
-    def refresh_legacy_footer(self) -> None:
-        if self.legacy_footer_enabled():
-            coding_state = self.coding_state
-            self.session._print_footer(
-                self.error_stream,
-                cwd=self.cwd,
-                provider_name=coding_state.provider_name,
-                model_id=coding_state.model_id,
-                user_turn_count=coding_state.user_turn_count,
-                tool_invocation_count=coding_state.tool_invocation_count,
-            )
-
-    def refresh_legacy_footer_with_usage(self) -> None:
-        if self.legacy_footer_enabled():
-            coding_state = self.coding_state
-            self.session._print_footer(
-                self.error_stream,
-                cwd=self.cwd,
-                provider_name=coding_state.provider_name,
-                model_id=coding_state.model_id,
-                user_turn_count=coding_state.user_turn_count,
-                tool_invocation_count=coding_state.tool_invocation_count,
-                usage_snapshot=coding_state.usage_snapshot(),
-            )
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class _SessionCollaborators:
     """Composition-root handler owning the residual run-loop collaborators.
 
@@ -4111,17 +4036,17 @@ class NativeToolReplSession:
                 extension_descriptions=extension_descriptions,
             )
         )
-        # The footer/status-line effects moved into the module-level
-        # `_FooterEffects` composition-root handler. It is built once `repl_input`
-        # exists (the slash-menu runtime check needs it) and before the
-        # provider-mutation handler that consumes its `refresh_footer_text` port.
-        footer = _FooterEffects(
-            session=self,
+        # Terminal chrome owns the footer effect adapter. Inject the session's
+        # current bound methods so its formatting seams remain monkeypatchable
+        # without chrome importing this composition root or the concrete TUI.
+        footer = _ChromeFooterEffects(
+            footer_text=self._footer_text,
+            print_footer=self._print_footer,
             cwd=cwd,
             coding_state=coding_state,
             error_stream=error_stream,
             terminal_ui=terminal_ui,
-            repl_input=repl_input,
+            repl_runtime=repl_input,
         )
         if terminal_ui is None:
             print_startup_chrome(

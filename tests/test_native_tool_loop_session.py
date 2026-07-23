@@ -364,11 +364,15 @@ def _run_session(
 def test_footer_paths_read_constant_time_state_scalars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import pipy_harness.native.chrome as chrome
     import pipy_harness.native.tool_loop_session as tool_loop_session
 
     module_path = tool_loop_session.__file__
+    chrome_path = chrome.__file__
     assert module_path is not None
+    assert chrome_path is not None
     syntax = ast.parse(Path(module_path).read_text())
+    chrome_syntax = ast.parse(Path(chrome_path).read_text())
     session_class = next(
         node
         for node in syntax.body
@@ -379,15 +383,18 @@ def test_footer_paths_read_constant_time_state_scalars(
         for node in session_class.body
         if isinstance(node, ast.FunctionDef) and node.name == "run"
     )
-    # The footer-text and legacy-footer refresh bodies relocated into the
-    # module-level `_FooterEffects` composition-root handler; `run()` keeps only
-    # the inline pre-loop legacy-footer paint. The four footer calls (the TUI
-    # `_footer_text`, the two legacy `_print_footer` refreshes, and the inline
-    # pre-loop paint) still read the same constant-time state scalars.
+    # The footer-text and legacy-footer refresh bodies are owned by chrome's
+    # `_ChromeFooterEffects`; `run()` keeps only the inline pre-loop legacy-footer
+    # paint. The four injected/inline footer calls still read the same
+    # constant-time state scalars.
+    assert not any(
+        isinstance(node, ast.ClassDef) and node.name == "_FooterEffects"
+        for node in syntax.body
+    )
     footer_effects_class = next(
         node
-        for node in syntax.body
-        if isinstance(node, ast.ClassDef) and node.name == "_FooterEffects"
+        for node in chrome_syntax.body
+        if isinstance(node, ast.ClassDef) and node.name == "_ChromeFooterEffects"
     )
     footer_calls = [
         node
@@ -395,7 +402,7 @@ def test_footer_paths_read_constant_time_state_scalars(
         for node in ast.walk(scope)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr in {"_footer_text", "_print_footer"}
+        and node.func.attr in {"footer_text", "print_footer", "_print_footer"}
     ]
     assert len(footer_calls) == 4
     for call in footer_calls:

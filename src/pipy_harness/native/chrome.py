@@ -23,9 +23,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, TextIO
+from typing import TYPE_CHECKING, Iterable, Protocol, TextIO
 
 if TYPE_CHECKING:
+    from pipy_harness.native.coding.state import (
+        CodingSessionState,
+        CodingSessionUsageSnapshot,
+    )
     from pipy_harness.native.package_resources import PackageRoot
 
 from pipy_harness.native.themes import (
@@ -341,6 +345,107 @@ class BottomStatusFields:
     tokens_cache_write: int = 0
     cache_hit_percent: float | None = None
     attention: str = ""
+
+
+class _FooterTextCallable(Protocol):
+    def __call__(
+        self,
+        *,
+        cwd: Path,
+        provider_name: str,
+        model_id: str,
+        user_turn_count: int,
+        tool_invocation_count: int,
+        error_stream: TextIO | None = ...,
+        usage_snapshot: CodingSessionUsageSnapshot | None = ...,
+    ) -> str: ...
+
+
+class _PrintFooterCallable(Protocol):
+    def __call__(
+        self,
+        error_stream: TextIO,
+        *,
+        cwd: Path,
+        provider_name: str,
+        model_id: str,
+        user_turn_count: int,
+        tool_invocation_count: int,
+        usage_snapshot: CodingSessionUsageSnapshot | None = ...,
+    ) -> None: ...
+
+
+class _FooterUi(Protocol):
+    def set_footer_text(self, text: str) -> None: ...
+
+
+class _ReplRuntime(Protocol):
+    runtime_label: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ChromeFooterEffects:
+    """Project live coding state into TUI and legacy terminal footers.
+
+    The owning session injects its current bound formatting and printing
+    methods. This keeps terminal chrome independent of the concrete session and
+    TUI modules while preserving the session methods as monkeypatchable seams.
+    """
+
+    footer_text: _FooterTextCallable
+    print_footer: _PrintFooterCallable
+    cwd: Path
+    coding_state: CodingSessionState
+    error_stream: TextIO
+    terminal_ui: _FooterUi | None
+    repl_runtime: _ReplRuntime
+
+    def coding_footer_text(self) -> str:
+        coding_state = self.coding_state
+        return self.footer_text(
+            cwd=self.cwd,
+            provider_name=coding_state.provider_name,
+            model_id=coding_state.model_id,
+            user_turn_count=coding_state.user_turn_count,
+            tool_invocation_count=coding_state.tool_invocation_count,
+            error_stream=self.error_stream,
+            usage_snapshot=coding_state.usage_snapshot(),
+        )
+
+    def refresh_footer_text(self) -> None:
+        if self.terminal_ui is not None:
+            self.terminal_ui.set_footer_text(self.coding_footer_text())
+
+    def legacy_footer_enabled(self) -> bool:
+        return (
+            self.terminal_ui is None
+            and self.repl_runtime.runtime_label != "slash-menu"
+        )
+
+    def refresh_legacy_footer(self) -> None:
+        if self.legacy_footer_enabled():
+            coding_state = self.coding_state
+            self.print_footer(
+                self.error_stream,
+                cwd=self.cwd,
+                provider_name=coding_state.provider_name,
+                model_id=coding_state.model_id,
+                user_turn_count=coding_state.user_turn_count,
+                tool_invocation_count=coding_state.tool_invocation_count,
+            )
+
+    def refresh_legacy_footer_with_usage(self) -> None:
+        if self.legacy_footer_enabled():
+            coding_state = self.coding_state
+            self.print_footer(
+                self.error_stream,
+                cwd=self.cwd,
+                provider_name=coding_state.provider_name,
+                model_id=coding_state.model_id,
+                user_turn_count=coding_state.user_turn_count,
+                tool_invocation_count=coding_state.tool_invocation_count,
+                usage_snapshot=coding_state.usage_snapshot(),
+            )
 
 
 def format_bottom_status_line(width: int, fields: BottomStatusFields) -> str:
