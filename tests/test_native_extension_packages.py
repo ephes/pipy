@@ -77,6 +77,46 @@ def test_workspace_extension_wins_name_collision(tmp_path: Path) -> None:
     assert shared[1].reason == REASON_DUPLICATE_NAME
 
 
+def test_source_tiers_use_explicit_first_wins_precedence(tmp_path: Path) -> None:
+    workspace = _ws(tmp_path)
+    config_home = tmp_path / "config"
+    global_ext = config_home / "extensions"
+    global_ext.mkdir(parents=True)
+    package_ext = tmp_path / "package" / "extensions"
+    package_ext.mkdir(parents=True)
+    explicit = tmp_path / "explicit" / "shared.py"
+    explicit.parent.mkdir()
+    body = "def activate(api):\n    pass\n"
+    explicit.write_text(body, encoding="utf-8")
+    (workspace / ".pipy" / "extensions" / "shared.py").write_text(
+        body, encoding="utf-8"
+    )
+    (global_ext / "shared.py").write_text(body, encoding="utf-8")
+    (package_ext / "shared.py").write_text(body, encoding="utf-8")
+
+    descriptors = discover_extensions(
+        workspace,
+        config_home_env={"PIPY_CONFIG_HOME": str(config_home)},
+        package_roots=(PackageRoot(package_ext),),
+        explicit_paths=(explicit,),
+        include_workspace_defaults=True,
+    )
+
+    shared = [descriptor for descriptor in descriptors if descriptor.name == "shared"]
+    assert [descriptor.source_kind for descriptor in shared] == [
+        "cli",
+        "workspace",
+        "global",
+        "package",
+    ]
+    assert shared[0].status == "loadable"
+    assert [descriptor.reason for descriptor in shared[1:]] == [
+        REASON_DUPLICATE_NAME,
+        REASON_DUPLICATE_NAME,
+        REASON_DUPLICATE_NAME,
+    ]
+
+
 def test_no_package_roots_unchanged(tmp_path: Path) -> None:
     workspace = _ws(tmp_path)
     (workspace / ".pipy" / "extensions" / "only.py").write_text(

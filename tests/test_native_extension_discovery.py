@@ -202,6 +202,29 @@ def test_unsupported_api_major_is_disabled(tmp_path: Path) -> None:
     assert descriptor.reason == REASON_UNSUPPORTED_API_VERSION
 
 
+def test_inventory_failure_order_straddles_api_validation(tmp_path: Path) -> None:
+    workspace = _make_workspace(tmp_path)
+    invalid_entry = _ext_dir(workspace) / "invalid-entry"
+    invalid_entry.mkdir()
+    (invalid_entry / "pipy-extension.toml").write_text(
+        'api_version = "1.0"\n[entry]\nmodule = "bad.module"\n',
+        encoding="utf-8",
+    )
+    unsupported_missing = _ext_dir(workspace) / "unsupported-missing"
+    unsupported_missing.mkdir()
+    (unsupported_missing / "pipy-extension.toml").write_text(
+        'api_version = "1.0"\n', encoding="utf-8"
+    )
+
+    descriptors = _discover(workspace)
+
+    assert _by_name(descriptors, "invalid-entry").reason == REASON_INVALID_MANIFEST
+    assert (
+        _by_name(descriptors, "unsupported-missing").reason
+        == REASON_UNSUPPORTED_API_VERSION
+    )
+
+
 def test_malformed_api_version_is_invalid(tmp_path: Path) -> None:
     # A non-version api_version (only the major component is digits) must
     # not be treated as supported nor emitted verbatim into metadata.

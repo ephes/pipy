@@ -30,6 +30,7 @@ short display name shown in the popup row.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -208,62 +209,97 @@ def path_candidates(
     other hard-denied / ignored) directory is never listed *into* either.
     """
 
-    if not _safe_completion_prefix(prefix):
+    search = _prepare_path_search(workspace, prefix)
+    if search is None:
         return []
-    quoted = prefix.startswith('"')
-    raw = prefix[1:] if quoted else prefix
-
-    search_dir, search_prefix = _resolve_search_dir(workspace, raw)
-    if search_dir is None:
-        return []
-    if not _listable_search_dir(search_dir, workspace):
-        return []
-
-    # Workspace-relative completion applies the same ignored/generated deny and
-    # symlink-containment policy as the `@` picker walk, so it never offers an
-    # ignored entry (e.g. node_modules/) or a symlink escaping the workspace.
-    # Explicit absolute/home navigation (a search dir outside the workspace) is
-    # listed as-is — the user pointed Tab there directly (Pi parity).
     try:
-        workspace_root = workspace.expanduser().resolve()
-        search_resolved = search_dir.resolve()
-    except OSError:
-        return []
-    filter_to_workspace = _is_relative_to(search_resolved, workspace_root)
-
-    try:
-        entries = list(os.scandir(search_dir))
+        entries = list(os.scandir(search.search_dir))
     except OSError:
         return []
 
-    items: list[tuple[bool, str, CompletionItem]] = []
-    for entry in entries:
-        name = entry.name
-        if name in _HARD_DENY_DIR_NAMES:
-            continue
-        if not name.lower().startswith(search_prefix.lower()):
-            continue
-        if filter_to_workspace:
-            rel = (search_resolved / name).relative_to(workspace_root).as_posix()
-            if _is_ignored_or_generated(rel, workspace_root):
-                continue
-            if not _contained_in_workspace(Path(search_dir) / name, workspace_root):
-                continue
-        try:
-            is_dir = entry.is_dir()
-        except OSError:
-            is_dir = False
-        relative_path = _compose_relative_path(raw, name)
-        path_value = f"{relative_path}/" if is_dir else relative_path
-        value = _quote_if_needed(path_value, quoted=quoted, at_prefix=False)
-        label = name + ("/" if is_dir else "")
-        items.append((is_dir, label.lower(), CompletionItem(value, label)))
-
+    items = [
+        item
+        for entry in entries
+        if (item := _project_path_entry(entry, search)) is not None
+    ]
     items.sort(key=lambda entry: (not entry[0], entry[1]))
     return [item for _is_dir, _key, item in items[: max(0, limit)]]
 
 
 # --- internal helpers -------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _PathSearch:
+    """Resolved listing context for one path-completion prefix."""
+
+    raw: str
+    quoted: bool
+    search_dir: Path
+    search_prefix: str
+    workspace_root: Path
+    search_resolved: Path
+    filter_to_workspace: bool
+
+
+def _prepare_path_search(workspace: Path, prefix: str) -> _PathSearch | None:
+    """Validate a prefix and resolve all paths needed to project its entries."""
+
+    if not _safe_completion_prefix(prefix):
+        return None
+    quoted = prefix.startswith('"')
+    raw = prefix[1:] if quoted else prefix
+    search_dir, search_prefix = _resolve_search_dir(workspace, raw)
+    if search_dir is None or not _listable_search_dir(search_dir, workspace):
+        return None
+    try:
+        workspace_root = workspace.expanduser().resolve()
+        search_resolved = search_dir.resolve()
+    except OSError:
+        return None
+    return _PathSearch(
+        raw=raw,
+        quoted=quoted,
+        search_dir=search_dir,
+        search_prefix=search_prefix,
+        workspace_root=workspace_root,
+        search_resolved=search_resolved,
+        filter_to_workspace=_is_relative_to(search_resolved, workspace_root),
+    )
+
+
+def _project_path_entry(
+    entry: os.DirEntry[str], search: _PathSearch
+) -> tuple[bool, str, CompletionItem] | None:
+    """Filter and project one directory entry without reading file contents."""
+
+    name = entry.name
+    if name in _HARD_DENY_DIR_NAMES:
+        return None
+    if not name.lower().startswith(search.search_prefix.lower()):
+        return None
+    if search.filter_to_workspace and not _workspace_entry_is_allowed(name, search):
+        return None
+    try:
+        is_dir = entry.is_dir()
+    except OSError:
+        is_dir = False
+    relative_path = _compose_relative_path(search.raw, name)
+    path_value = f"{relative_path}/" if is_dir else relative_path
+    value = _quote_if_needed(path_value, quoted=search.quoted, at_prefix=False)
+    label = name + ("/" if is_dir else "")
+    return is_dir, label.lower(), CompletionItem(value, label)
+
+
+def _workspace_entry_is_allowed(name: str, search: _PathSearch) -> bool:
+    """Apply ignore and symlink containment to a workspace listing entry."""
+
+    rel = (search.search_resolved / name).relative_to(
+        search.workspace_root
+    ).as_posix()
+    if _is_ignored_or_generated(rel, search.workspace_root):
+        return False
+    return _contained_in_workspace(search.search_dir / name, search.workspace_root)
 
 
 def _last_unmatched_quote(text: str) -> int | None:
@@ -289,7 +325,9 @@ def _split_scoped_query(query: str) -> tuple[str, str]:
     return base, leaf
 
 
-def _walk_workspace(base_dir: Path, workspace_root: Path):
+def _walk_workspace(
+    base_dir: Path, workspace_root: Path
+) -> Iterator[tuple[str, bool]]:
     """Yield ``(workspace_relative_label, is_dir)`` for a bounded walk.
 
     Bounded by depth and total entry count; applies the ``.git``/ignored
@@ -303,38 +341,66 @@ def _walk_workspace(base_dir: Path, workspace_root: Path):
         depth = len(current.relative_to(workspace_root).parts)
         if depth - base_depth >= _WALK_MAX_DEPTH:
             dir_names[:] = []
-        # Prune denied/ignored directories in place so os.walk does not descend.
-        kept_dirs: list[str] = []
-        for name in sorted(dir_names):
-            if name in _HARD_DENY_DIR_NAMES:
-                continue
-            rel = (current / name).relative_to(workspace_root).as_posix()
-            if _is_ignored_or_generated(rel, workspace_root):
-                continue
-            # Symlink containment: a symlinked directory whose target escapes
-            # the workspace is neither descended into nor offered as a candidate.
-            if not _contained_in_workspace(current / name, workspace_root):
-                continue
-            kept_dirs.append(name)
-            if seen >= _WALK_MAX_ENTRIES:
-                break
-            yield rel, True
-            seen += 1
+        kept_dirs, directory_labels = _walkable_directories(
+            current, dir_names, workspace_root, _WALK_MAX_ENTRIES - seen
+        )
         dir_names[:] = kept_dirs
-        for name in sorted(file_names):
-            if seen >= _WALK_MAX_ENTRIES:
-                return
-            rel = (current / name).relative_to(workspace_root).as_posix()
-            if _is_ignored_or_generated(rel, workspace_root):
-                continue
-            # Symlink containment: a symlinked file resolving outside the
-            # workspace is not offered (it would fail the resolver's policy too).
-            if not _contained_in_workspace(current / name, workspace_root):
-                continue
-            yield rel, False
+        for label in directory_labels:
+            yield label, True
+            seen += 1
+        for label in _walkable_files(
+            current, file_names, workspace_root, _WALK_MAX_ENTRIES - seen
+        ):
+            yield label, False
             seen += 1
         if seen >= _WALK_MAX_ENTRIES:
             return
+
+
+def _walkable_directories(
+    current: Path,
+    dir_names: list[str],
+    workspace_root: Path,
+    remaining: int,
+) -> tuple[list[str], list[str]]:
+    """Return bounded candidate labels and the matching walk-prune list."""
+
+    kept: list[str] = []
+    labels: list[str] = []
+    for name in sorted(dir_names):
+        if len(labels) >= remaining:
+            break
+        if name in _HARD_DENY_DIR_NAMES:
+            continue
+        rel = (current / name).relative_to(workspace_root).as_posix()
+        if _is_ignored_or_generated(rel, workspace_root):
+            continue
+        if not _contained_in_workspace(current / name, workspace_root):
+            continue
+        kept.append(name)
+        labels.append(rel)
+    return kept, labels
+
+
+def _walkable_files(
+    current: Path,
+    file_names: list[str],
+    workspace_root: Path,
+    remaining: int,
+) -> list[str]:
+    """Return bounded, policy-approved file labels for one walked directory."""
+
+    labels: list[str] = []
+    for name in sorted(file_names):
+        if len(labels) >= remaining:
+            break
+        rel = (current / name).relative_to(workspace_root).as_posix()
+        if _is_ignored_or_generated(rel, workspace_root):
+            continue
+        if not _contained_in_workspace(current / name, workspace_root):
+            continue
+        labels.append(rel)
+    return labels
 
 
 def _contained_in_workspace(path: Path, workspace_root: Path) -> bool:
@@ -399,9 +465,7 @@ def _listable_search_dir(search_dir: Path, workspace: Path) -> bool:
     return True
 
 
-def _resolve_search_dir(
-    workspace: Path, raw: str
-) -> tuple[Path | None, str]:
+def _resolve_search_dir(workspace: Path, raw: str) -> tuple[Path | None, str]:
     """Return ``(search_dir, search_prefix)`` for path completion.
 
     ``search_prefix`` is the filename fragment; the caller keeps ``raw`` for the
@@ -412,29 +476,8 @@ def _resolve_search_dir(
         workspace_root = workspace.expanduser().resolve()
     except OSError:
         return None, ""
-    home = Path.home()
-
-    def expand(path_text: str) -> Path | None:
-        if path_text.startswith("~/") or path_text == "~":
-            return home / path_text[2:] if path_text.startswith("~/") else home
-        if path_text.startswith("/"):
-            return Path(path_text)
-        return workspace_root / path_text
-
-    is_root_prefix = raw in {"", "./", "../", "~", "~/", "/"}
-    if is_root_prefix or raw.endswith("/"):
-        target = expand(raw)
-        search_prefix = ""
-    else:
-        directory = PurePosixPath(raw).parent
-        directory_text = "" if str(directory) == "." else str(directory)
-        target = expand(directory_text + ("/" if directory_text else ""))
-        if target is not None and directory_text == "":
-            target = expand(raw[: -len(PurePosixPath(raw).name)] or "")
-        search_prefix = PurePosixPath(raw).name
-
-    if target is None:
-        return None, ""
+    target_text, search_prefix = _search_target_and_prefix(raw)
+    target = _expand_completion_path(target_text, workspace_root, Path.home())
     try:
         resolved = target.resolve()
     except OSError:
@@ -446,6 +489,32 @@ def _resolve_search_dir(
     if not raw.startswith(("~", "/")) and not _is_relative_to(resolved, workspace_root):
         return None, ""
     return resolved, search_prefix
+
+
+def _search_target_and_prefix(raw: str) -> tuple[str, str]:
+    """Separate the directory portion of a raw prefix from its leaf query."""
+
+    is_root_prefix = raw in {"", "./", "../", "~", "~/", "/"}
+    if is_root_prefix or raw.endswith("/"):
+        return raw, ""
+    path = PurePosixPath(raw)
+    directory = path.parent
+    directory_text = "" if str(directory) == "." else str(directory)
+    if not directory_text:
+        directory_text = raw[: -len(path.name)] or ""
+    return directory_text + ("/" if directory_text else ""), path.name
+
+
+def _expand_completion_path(path_text: str, workspace_root: Path, home: Path) -> Path:
+    """Expand a completion directory while preserving explicit home/absolute use."""
+
+    if path_text.startswith("~/"):
+        return home / path_text[2:]
+    if path_text == "~":
+        return home
+    if path_text.startswith("/"):
+        return Path(path_text)
+    return workspace_root / path_text
 
 
 def _compose_relative_path(raw: str, name: str) -> str:

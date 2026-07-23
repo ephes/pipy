@@ -41,7 +41,7 @@ from __future__ import annotations
 import codecs
 import hashlib
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -151,6 +151,42 @@ class _Candidate:
     is_symlinked_dir: bool
 
 
+@dataclass(frozen=True, slots=True)
+class _CandidateSource:
+    """One ordered default source tier and its package-local filters."""
+
+    source_dir: Path
+    source_kind: SourceKind
+    label_root: Path
+    filters: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _ManifestData:
+    """Safely located and parsed manifest state for one candidate."""
+
+    present: bool
+    values: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class _ExtensionMetadata:
+    """Validated identity fields extracted before entry/contract inventory."""
+
+    name: str
+    version: str
+    api_version: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
+class _EntryMetadata:
+    """Validated manifest entry point fields."""
+
+    module: str
+    function: str
+
+
 def discover_extensions(
     workspace_root: Path,
     *,
@@ -184,52 +220,101 @@ def discover_extensions(
     """
 
     resolved_workspace = workspace_root.expanduser().resolve()
-    workspace_dir = resolved_workspace / WORKSPACE_PIPY_DIR_NAME / EXTENSIONS_SUBDIR
-
     global_root = resolve_global_resource_root(env=config_home_env, home_dir=home_dir)
-    global_dir = global_root / EXTENSIONS_SUBDIR
+    explicit_candidates = _collect_explicit_candidates(
+        explicit_paths, resolved_workspace
+    )
+    sources = _default_candidate_sources(
+        resolved_workspace,
+        global_root,
+        package_roots,
+        include_defaults=include_defaults,
+        include_workspace=include_workspace_defaults,
+        include_global=include_global_defaults,
+        include_packages=include_package_defaults,
+    )
+    candidates = _ordered_candidates(explicit_candidates, sources)
+    return _project_candidate_inventory(candidates)
 
-    package_sources: list[tuple[Path, SourceKind, Path, tuple[str, ...]]] = []
-    explicit_candidates: list[_Candidate] = []
+
+def _collect_explicit_candidates(
+    explicit_paths: Sequence[Path], resolved_workspace: Path
+) -> list[_Candidate]:
+    """Resolve explicit paths in CLI order and enumerate their candidates."""
+
+    candidates: list[_Candidate] = []
     for explicit in explicit_paths:
         path = explicit.expanduser()
         if not path.is_absolute():
             path = (resolved_workspace / path).resolve()
-        explicit_candidates.extend(_iter_explicit_candidates(path))
-    if include_defaults:
-        sources: list[tuple[Path, SourceKind, Path]] = []
-        if include_workspace_defaults:
-            sources.append((workspace_dir, "workspace", resolved_workspace))
-        if include_global_defaults:
-            sources.append((global_dir, "global", global_root))
-        # Package extension dirs are concrete roots; each owns its own label
-        # root + per-package filter, searched after workspace/global so local
-        # extensions win. (dir, kind, label_root, filters).
-        package_sources.extend(
-            (source_dir, source_kind, label_root, ())
-            for source_dir, source_kind, label_root in sources
+        candidates.extend(_iter_explicit_candidates(path))
+    return candidates
+
+
+def _default_candidate_sources(
+    resolved_workspace: Path,
+    global_root: Path,
+    package_roots: "Sequence[PackageRoot]",
+    *,
+    include_defaults: bool,
+    include_workspace: bool,
+    include_global: bool,
+    include_packages: bool,
+) -> list[_CandidateSource]:
+    """Build default source tiers in first-wins precedence order."""
+
+    if not include_defaults:
+        return []
+    sources: list[_CandidateSource] = []
+    if include_workspace:
+        workspace_dir = (
+            resolved_workspace / WORKSPACE_PIPY_DIR_NAME / EXTENSIONS_SUBDIR
         )
-        if include_package_defaults:
-            package_sources.extend(
-                (root.path, "package", root.path, tuple(root.filters))
-                for root in package_roots
+        sources.append(
+            _CandidateSource(workspace_dir, "workspace", resolved_workspace)
+        )
+    if include_global:
+        sources.append(
+            _CandidateSource(global_root / EXTENSIONS_SUBDIR, "global", global_root)
+        )
+    if include_packages:
+        sources.extend(
+            _CandidateSource(
+                root.path, "package", root.path, tuple(root.filters)
             )
+            for root in package_roots
+        )
+    return sources
+
+
+def _ordered_candidates(
+    explicit_candidates: Sequence[_Candidate],
+    sources: Sequence[_CandidateSource],
+) -> Iterator[tuple[_Candidate, tuple[str, ...]]]:
+    """Yield explicit then workspace/global/package candidates in source order."""
+
+    for candidate in explicit_candidates:
+        yield candidate, ()
+    for source in sources:
+        for candidate in _iter_candidates(
+            source.source_dir, source.source_kind, source.label_root
+        ):
+            yield candidate, source.filters
+
+
+def _project_candidate_inventory(
+    candidates: Iterable[tuple[_Candidate, tuple[str, ...]]],
+) -> list[ExtensionDescriptor]:
+    """Inventory, package-filter, and first-wins deduplicate candidates."""
 
     descriptors: list[ExtensionDescriptor] = []
     seen_names: set[str] = set()
-
-    def append_candidate(
-        candidate: _Candidate, package_filters: tuple[str, ...] = ()
-    ) -> None:
+    for candidate, package_filters in candidates:
         descriptor = _inventory_candidate(candidate)
-        # A package's object-form `+/-pattern` filter scopes only that
-        # package's own extensions by name.
         if package_filters and not _extension_name_passes_filter(
             descriptor.name, package_filters
         ):
-            return
-        # Deduplicate on the RESOLVED descriptor name (which a manifest `name`
-        # may override), not the filesystem candidate name.
+            continue
         if descriptor.name in seen_names:
             descriptors.append(
                 replace(
@@ -240,16 +325,9 @@ def discover_extensions(
                     byte_length=0,
                 )
             )
-            return
+            continue
         seen_names.add(descriptor.name)
         descriptors.append(descriptor)
-
-    for candidate in explicit_candidates:
-        append_candidate(candidate)
-
-    for source_dir, source_kind, label_root, package_filters in package_sources:
-        for candidate in _iter_candidates(source_dir, source_kind, label_root):
-            append_candidate(candidate, package_filters)
     return descriptors
 
 
@@ -359,76 +437,76 @@ def _iter_candidates(
     entries (leading dot) are excluded by the glob.
     """
 
-    try:
-        if source_dir.is_symlink() or not source_dir.is_dir():
-            return []
-        containment_root = source_dir.resolve()
-        # The whole resolved store must stay inside the owning root
-        # (resolved workspace, or global config root). This catches a
-        # symlinked ancestor that escapes even when the leaf component is
-        # not itself a symlink.
-        containment_root.relative_to(label_root.resolve())
-    except (OSError, ValueError):
+    containment_root = _candidate_source_root(source_dir, label_root)
+    if containment_root is None:
         return []
-
     try:
-        entries = sorted(source_dir.iterdir(), key=lambda p: p.name)
+        entries = sorted(source_dir.iterdir(), key=lambda path: path.name)
     except OSError:
         return []
-
-    candidates: list[_Candidate] = []
-    for entry in entries:
-        name = entry.name
-        if name.startswith("."):
-            continue
-        try:
-            is_dir = entry.is_dir()
-            is_file = entry.is_file()
-        except OSError:
-            continue
-        try:
-            entry_is_symlink = entry.is_symlink()
-        except OSError:
-            continue
-        is_symlinked_dir = False
-        if is_dir:
-            base_name = name
-            kind: ExtensionKind = "directory"
-            # A directory extension's entry must stay inside the
-            # extension's OWN directory, not merely inside the shared
-            # `.pipy/extensions` store.
-            candidate_containment = _resolved_or_none(entry)
-            # A symlinked extension directory must not be trusted: it can
-            # point outside the allowed extension roots. It is rejected
-            # up front (before any manifest is read through it).
-            is_symlinked_dir = entry_is_symlink
-        elif is_file and name.endswith(".py"):
-            base_name = name[: -len(".py")]
-            kind = "single_file"
-            # A single-file extension lives directly in the store, so its
-            # containment is the store directory; a `.py` symlink that
-            # escapes the store fails the entry path check below.
-            candidate_containment = containment_root
-        else:
-            continue
-        if candidate_containment is None:
-            continue
-        # Name safety (control characters / secret-shaped names) is NOT
-        # screened here: such candidates still produce a visible disabled
-        # descriptor in `_inventory_candidate`, with a redacted label so
-        # the sensitive name never reaches the inventory.
-        candidates.append(
-            _Candidate(
-                name=base_name,
-                source_kind=source_kind,
-                kind=kind,
-                base_dir=entry,
-                path_label=_path_label_for(entry, source_kind, label_root),
-                containment_root=candidate_containment,
-                is_symlinked_dir=is_symlinked_dir,
+    return [
+        candidate
+        for entry in entries
+        if (
+            candidate := _candidate_from_entry(
+                entry, source_kind, label_root, containment_root
             )
         )
-    return candidates
+        is not None
+    ]
+
+
+def _candidate_source_root(source_dir: Path, label_root: Path) -> Path | None:
+    """Resolve a source store only when it stays inside its owning root."""
+
+    try:
+        if source_dir.is_symlink() or not source_dir.is_dir():
+            return None
+        containment_root = source_dir.resolve()
+        containment_root.relative_to(label_root.resolve())
+    except (OSError, ValueError):
+        return None
+    return containment_root
+
+
+def _candidate_from_entry(
+    entry: Path,
+    source_kind: SourceKind,
+    label_root: Path,
+    containment_root: Path,
+) -> _Candidate | None:
+    """Classify one visible source entry as a directory or single-file candidate."""
+
+    name = entry.name
+    if name.startswith("."):
+        return None
+    try:
+        is_dir = entry.is_dir()
+        is_file = entry.is_file()
+        entry_is_symlink = entry.is_symlink()
+    except OSError:
+        return None
+    if is_dir:
+        candidate_containment = _resolved_or_none(entry)
+        kind: ExtensionKind = "directory"
+        base_name = name
+    elif is_file and name.endswith(".py"):
+        candidate_containment = containment_root
+        kind = "single_file"
+        base_name = name[: -len(".py")]
+    else:
+        return None
+    if candidate_containment is None:
+        return None
+    return _Candidate(
+        name=base_name,
+        source_kind=source_kind,
+        kind=kind,
+        base_dir=entry,
+        path_label=_path_label_for(entry, source_kind, label_root),
+        containment_root=candidate_containment,
+        is_symlinked_dir=is_dir and entry_is_symlink,
+    )
 
 
 def _resolved_or_none(path: Path) -> Path | None:
@@ -439,159 +517,25 @@ def _resolved_or_none(path: Path) -> Path | None:
 
 
 def _inventory_candidate(candidate: _Candidate) -> ExtensionDescriptor:
-    """Build a descriptor for one candidate without importing it."""
+    """Build a descriptor through ordered, fail-closed inventory phases."""
 
-    if _contains_control_character(candidate.name) or looks_sensitive(candidate.name):
-        # A control-character or secret-shaped name is recorded as a
-        # disabled descriptor (deterministic inventory) but with a
-        # redacted label, so the unsafe name never enters the inventory
-        # or archive-safe metadata. This is screened FIRST so no other
-        # disabling path (symlink, duplicate) can rebuild a descriptor
-        # from the raw unsafe name.
-        return _disabled_unsafe_name(candidate)
+    validation_failure = _candidate_validation_failure(candidate)
+    if validation_failure is not None:
+        return validation_failure
+    manifest = _inventory_manifest(candidate)
+    if isinstance(manifest, ExtensionDescriptor):
+        return manifest
+    metadata = _inventory_metadata(candidate, manifest)
+    if isinstance(metadata, ExtensionDescriptor):
+        return metadata
+    entry = _inventory_entry(candidate, manifest, metadata.name)
+    if isinstance(entry, ExtensionDescriptor):
+        return entry
+    contract = _inventory_contract(candidate, manifest, metadata)
+    if isinstance(contract, ExtensionDescriptor):
+        return contract
 
-    if candidate.is_symlinked_dir:
-        # Reject before reading anything through the symlink.
-        return _disabled(candidate, REASON_UNSAFE_PATH)
-
-    sanitized_name = _sanitize_label(candidate.name)
-    if not _is_valid_extension_name(sanitized_name):
-        return _disabled(candidate, REASON_INVALID_NAME)
-
-    manifest_present = False
-    manifest: dict[str, object] = {}
-    if candidate.kind == "directory":
-        location, resolved_manifest = _locate_manifest(
-            candidate.base_dir, candidate.containment_root
-        )
-        if location == "unsafe":
-            # A manifest symlink that escapes the extension directory is
-            # never read or trusted.
-            return _disabled(candidate, REASON_UNSAFE_PATH)
-        if location == "present" and resolved_manifest is not None:
-            manifest_present = True
-            parsed = _parse_manifest(resolved_manifest)
-            if parsed is None:
-                return _disabled(
-                    candidate, REASON_INVALID_MANIFEST, manifest_present=True
-                )
-            manifest = parsed
-
-    name = candidate.name
-    description = ""
-    version = INFERRED_VERSION
-    api_version = CURRENT_API_VERSION
-    if manifest:
-        raw_name = manifest.get("name")
-        if raw_name is not None:
-            if not isinstance(raw_name, str):
-                return _disabled(
-                    candidate, REASON_INVALID_MANIFEST, manifest_present=True
-                )
-            sanitized = _sanitize_label(raw_name)
-            if not _is_valid_extension_name(sanitized) or looks_sensitive(sanitized):
-                # Apply the same secret-name screen filesystem candidate
-                # names get, so a manifest cannot smuggle a secret-shaped
-                # name into archive-safe metadata.
-                return _disabled(
-                    candidate, REASON_INVALID_NAME, manifest_present=True
-                )
-            name = sanitized
-        for key, target in (("version", "version"), ("api_version", "api_version")):
-            if key not in manifest:
-                # Absent field keeps the inferred default.
-                continue
-            value = manifest.get(key)
-            sanitized = _sanitize_label(value) if isinstance(value, str) else ""
-            if not isinstance(value, str) or not sanitized:
-                # A present field that is non-string or empty after
-                # sanitization is malformed: fail closed rather than
-                # default. The already-parsed `name` is reserved so a
-                # later same-named extension is a duplicate, not a load.
-                return _disabled(
-                    candidate,
-                    REASON_INVALID_MANIFEST,
-                    manifest_present=True,
-                    name=name,
-                )
-            if target == "version":
-                if looks_sensitive(sanitized):
-                    # `version` is emitted into archive-safe metadata, so
-                    # apply the same secret screen as `name`: a manifest
-                    # must not smuggle sensitive text through it.
-                    return _disabled(
-                        candidate,
-                        REASON_INVALID_MANIFEST,
-                        manifest_present=True,
-                        name=name,
-                    )
-                version = sanitized
-            else:
-                api_version = sanitized
-        raw_description = manifest.get("description")
-        if raw_description is not None:
-            if not isinstance(raw_description, str):
-                return _disabled(
-                    candidate,
-                    REASON_INVALID_MANIFEST,
-                    manifest_present=True,
-                    name=name,
-                )
-            description = _sanitize_label(raw_description)
-
-    # Entry fields are extracted AFTER the manifest `name` so that an
-    # invalid `[entry]` still reserves the declared name (a later
-    # same-named extension is then a duplicate, not a silent load).
-    entry_module = _manifest_str(manifest, ("entry", "module"), DEFAULT_ENTRY_MODULE)
-    entry_function = _manifest_str(
-        manifest, ("entry", "function"), DEFAULT_ENTRY_FUNCTION
-    )
-    if entry_module is None or entry_function is None:
-        return _disabled(
-            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest_present, name=name
-        )
-    # `entry_module` becomes part of `entry_path_label`, and both entry
-    # fields are emitted on the descriptor, so screen them for
-    # secret-shaped text the same way names are.
-    if looks_sensitive(entry_module) or looks_sensitive(entry_function):
-        return _disabled(
-            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest_present, name=name
-        )
-    # entry.module / entry.function must be single Python identifiers
-    # (no dotted package paths), so discovery and the activation loader
-    # agree on the entry file and its module semantics.
-    if not entry_module.isidentifier() or not entry_function.isidentifier():
-        return _disabled(
-            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest_present, name=name
-        )
-
-    permissions = _parse_permissions(manifest)
-    if permissions is None:
-        return _disabled(
-            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest_present, name=name
-        )
-
-    major = _api_major(api_version)
-    if major is None:
-        return _disabled(
-            candidate,
-            REASON_INVALID_MANIFEST,
-            manifest_present=manifest_present,
-            name=name,
-        )
-    if major > SUPPORTED_API_MAJOR:
-        return _disabled(
-            candidate,
-            REASON_UNSUPPORTED_API_VERSION,
-            manifest_present=manifest_present,
-            name=name,
-            version=version,
-            api_version=api_version,
-            description=description,
-            permissions=permissions,
-        )
-
-    entry_path, entry_path_label = _entry_file_for(candidate, entry_module)
+    entry_path, entry_path_label = _entry_file_for(candidate, entry.module)
     status, sha256, byte_length, resolved_entry = _classify_entry_file(
         entry_path, candidate.containment_root
     )
@@ -599,27 +543,231 @@ def _inventory_candidate(candidate: _Candidate) -> ExtensionDescriptor:
         return _disabled(
             candidate,
             status,
-            manifest_present=manifest_present,
+            manifest_present=manifest.present,
+            name=metadata.name,
+            version=metadata.version,
+            api_version=metadata.api_version,
+            description=metadata.description,
+            permissions=contract,
+        )
+    return _loadable_descriptor(
+        candidate,
+        manifest,
+        metadata,
+        entry,
+        contract,
+        entry_path_label,
+        sha256,
+        byte_length,
+        resolved_entry,
+    )
+
+
+def _candidate_validation_failure(
+    candidate: _Candidate,
+) -> ExtensionDescriptor | None:
+    """Apply candidate-name and directory trust checks in failure order."""
+
+    if _contains_control_character(candidate.name) or looks_sensitive(candidate.name):
+        return _disabled_unsafe_name(candidate)
+    if candidate.is_symlinked_dir:
+        return _disabled(candidate, REASON_UNSAFE_PATH)
+    if not _is_valid_extension_name(_sanitize_label(candidate.name)):
+        return _disabled(candidate, REASON_INVALID_NAME)
+    return None
+
+
+def _inventory_manifest(
+    candidate: _Candidate,
+) -> _ManifestData | ExtensionDescriptor:
+    """Locate and parse a directory manifest before reading identity fields."""
+
+    if candidate.kind != "directory":
+        return _ManifestData(False, {})
+    location, resolved_manifest = _locate_manifest(
+        candidate.base_dir, candidate.containment_root
+    )
+    if location == "unsafe":
+        return _disabled(candidate, REASON_UNSAFE_PATH)
+    if location == "absent" or resolved_manifest is None:
+        return _ManifestData(False, {})
+    parsed = _parse_manifest(resolved_manifest)
+    if parsed is None:
+        return _disabled(candidate, REASON_INVALID_MANIFEST, manifest_present=True)
+    return _ManifestData(True, parsed)
+
+
+def _inventory_metadata(
+    candidate: _Candidate, manifest: _ManifestData
+) -> _ExtensionMetadata | ExtensionDescriptor:
+    """Validate manifest name/version/API/description in their original order."""
+
+    name, name_failure = _manifest_extension_name(candidate.name, manifest.values)
+    if name_failure is not None:
+        return _disabled(candidate, name_failure, manifest_present=manifest.present)
+    version = _manifest_label(
+        manifest.values, "version", INFERRED_VERSION, screen_sensitive=True
+    )
+    if version is None:
+        return _disabled(
+            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest.present, name=name
+        )
+    api_version = _manifest_label(
+        manifest.values, "api_version", CURRENT_API_VERSION
+    )
+    if api_version is None:
+        return _disabled(
+            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest.present, name=name
+        )
+    description_ok, description = _manifest_description(manifest.values)
+    if not description_ok:
+        return _disabled(
+            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest.present, name=name
+        )
+    return _ExtensionMetadata(name, version, api_version, description)
+
+
+def _manifest_extension_name(
+    candidate_name: str, manifest: Mapping[str, object]
+) -> tuple[str, str | None]:
+    """Return a safe declared name and its reason code on failure."""
+
+    raw_name = manifest.get("name")
+    if raw_name is None:
+        return candidate_name, None
+    if not isinstance(raw_name, str):
+        return candidate_name, REASON_INVALID_MANIFEST
+    sanitized = _sanitize_label(raw_name)
+    if not _is_valid_extension_name(sanitized) or looks_sensitive(sanitized):
+        return candidate_name, REASON_INVALID_NAME
+    return sanitized, None
+
+
+def _manifest_label(
+    manifest: Mapping[str, object],
+    key: str,
+    default: str,
+    *,
+    screen_sensitive: bool = False,
+) -> str | None:
+    """Read one required safe metadata label, defaulting only when absent."""
+
+    if key not in manifest:
+        return default
+    value = manifest.get(key)
+    if not isinstance(value, str):
+        return None
+    sanitized = _sanitize_label(value)
+    if not sanitized or (screen_sensitive and looks_sensitive(sanitized)):
+        return None
+    return sanitized
+
+
+def _manifest_description(
+    manifest: Mapping[str, object],
+) -> tuple[bool, str]:
+    """Read the optional description, where an empty sanitized string is valid."""
+
+    raw_description = manifest.get("description")
+    if raw_description is None:
+        return True, ""
+    if not isinstance(raw_description, str):
+        return False, ""
+    return True, _sanitize_label(raw_description)
+
+
+def _inventory_entry(
+    candidate: _Candidate, manifest: _ManifestData, name: str
+) -> _EntryMetadata | ExtensionDescriptor:
+    """Validate entry module/function after reserving the manifest name."""
+
+    module = _manifest_str(
+        manifest.values, ("entry", "module"), DEFAULT_ENTRY_MODULE
+    )
+    function = _manifest_str(
+        manifest.values, ("entry", "function"), DEFAULT_ENTRY_FUNCTION
+    )
+    invalid = module is None or function is None
+    if not invalid and module is not None and function is not None:
+        invalid = (
+            looks_sensitive(module)
+            or looks_sensitive(function)
+            or not module.isidentifier()
+            or not function.isidentifier()
+        )
+    if invalid or module is None or function is None:
+        return _disabled(
+            candidate,
+            REASON_INVALID_MANIFEST,
+            manifest_present=manifest.present,
             name=name,
-            version=version,
-            api_version=api_version,
-            description=description,
+        )
+    return _EntryMetadata(module, function)
+
+
+def _inventory_contract(
+    candidate: _Candidate,
+    manifest: _ManifestData,
+    metadata: _ExtensionMetadata,
+) -> Mapping[str, bool] | ExtensionDescriptor:
+    """Validate permissions then API compatibility in failure order."""
+
+    permissions = _parse_permissions(manifest.values)
+    if permissions is None:
+        return _disabled(
+            candidate,
+            REASON_INVALID_MANIFEST,
+            manifest_present=manifest.present,
+            name=metadata.name,
+        )
+    major = _api_major(metadata.api_version)
+    if major is None:
+        return _disabled(
+            candidate,
+            REASON_INVALID_MANIFEST,
+            manifest_present=manifest.present,
+            name=metadata.name,
+        )
+    if major > SUPPORTED_API_MAJOR:
+        return _disabled(
+            candidate,
+            REASON_UNSUPPORTED_API_VERSION,
+            manifest_present=manifest.present,
+            name=metadata.name,
+            version=metadata.version,
+            api_version=metadata.api_version,
+            description=metadata.description,
             permissions=permissions,
         )
+    return permissions
+
+
+def _loadable_descriptor(
+    candidate: _Candidate,
+    manifest: _ManifestData,
+    metadata: _ExtensionMetadata,
+    entry: _EntryMetadata,
+    permissions: Mapping[str, bool],
+    entry_path_label: str,
+    sha256: str,
+    byte_length: int,
+    resolved_entry: str | None,
+) -> ExtensionDescriptor:
+    """Project successful inventory phases to the public descriptor."""
 
     return ExtensionDescriptor(
-        name=name,
-        version=version,
-        api_version=api_version,
-        description=description,
+        name=metadata.name,
+        version=metadata.version,
+        api_version=metadata.api_version,
+        description=metadata.description,
         source_kind=candidate.source_kind,
         kind=candidate.kind,
         path_label=candidate.path_label,
-        entry_module=entry_module,
-        entry_function=entry_function,
+        entry_module=entry.module,
+        entry_function=entry.function,
         entry_path_label=entry_path_label,
         permissions=permissions,
-        manifest_present=manifest_present,
+        manifest_present=manifest.present,
         status="loadable",
         reason=None,
         sha256=sha256,

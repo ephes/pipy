@@ -3535,6 +3535,35 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose editor and extension candidate discovery (Slice 7.7s) — DONE (2026-07-23)
+
+Twentieth directional C901 batch. Decompose the six findings across
+`native.editor_completion` and `native.extensions` at query/search-root,
+workspace-walk, source-tier enumeration, dedup/filter, and candidate inventory
+phases. Preserve completion parsing/scoring/order/quoting, containment and
+symlink/ignore rules, extension global/package/workspace/explicit precedence,
+trust/default/filter handling, descriptor order/dedup, manifest/entry/name/API/
+permissions validation, diagnostics, and fail-closed reasons. Add focused
+characterization only where precedence or failure order is not already pinned.
+Each clean file leaves the C901 pin list. No behavior, extension contract,
+dependency, unchecked `Any`, ignore, Mypy exclusion, or new pin.
+
+Landed shape: editor path completion resolves one typed search context, filters
+and projects entries separately, bounds workspace directories/files through
+policy helpers, and isolates raw-prefix target expansion. Extension discovery
+builds ordered source tiers, streams explicit/default candidates through
+package filtering and resolved-name first-wins dedup, classifies visible
+entries, and inventories candidate, manifest, identity, entry, permissions/API,
+and entry-file phases in their original failure order. New tests pin
+explicit/workspace/global/package order, manifest-name dedup, unsafe-name
+screening before symlink handling, and permissions before unsupported-API
+failure. Both owners are clean and their pins are deleted, lowering repository
+C901 73/26 -> 67/24 (`src` 57/17 -> 51/15). Focused verification passed 102
+tests; final `just check` passed Ruff, Mypy, and 4,580 tests (2 skipped);
+`just docs-build` completed cleanly. `src` ignores remain 27 and the root
+remains 5,080 lines. Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit
+CLEAN.
+
 ### Decompose command and model resolution kernels (Slice 7.7r) — DONE (2026-07-23)
 
 Nineteenth directional C901 batch. Decompose the seven findings across
