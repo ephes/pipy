@@ -219,12 +219,34 @@ def native_provider_available(
     if for_auto_default and not spec.auto_default:
         return False
     availability = spec.availability
-    if availability == "always":
+    if availability in ("always", "local", "openai-codex-login"):
+        return _static_availability_policy(
+            availability,
+            openai_codex_credentials_exist=openai_codex_credentials_exist,
+        )
+    if availability.startswith(("env:", "env-any:", "env-all:")):
+        return _named_env_availability_policy(availability, env)
+    if availability.startswith("env-google-vertex:") or (
+        availability == "env-azure-openai"
+    ):
+        return _cloud_availability_policy(availability, env)
+    return False
+
+
+def _static_availability_policy(
+    availability: str,
+    *,
+    openai_codex_credentials_exist: bool,
+) -> bool:
+    if availability in ("always", "local"):
         return True
-    if availability == "local":
-        return True
-    if availability == "openai-codex-login":
-        return openai_codex_credentials_exist
+    return openai_codex_credentials_exist
+
+
+def _named_env_availability_policy(
+    availability: str,
+    env: Mapping[str, str],
+) -> bool:
     if availability.startswith("env:"):
         return bool(env.get(availability.removeprefix("env:")))
     if availability.startswith("env-any:"):
@@ -233,6 +255,13 @@ def native_provider_available(
     if availability.startswith("env-all:"):
         names = _split_env_names(availability.removeprefix("env-all:"))
         return all(env.get(name) for name in names)
+    return False
+
+
+def _cloud_availability_policy(
+    availability: str,
+    env: Mapping[str, str],
+) -> bool:
     if availability.startswith("env-google-vertex:"):
         # Pi: available with either a Vertex Express API key, or ADC creds.
         if env.get("GOOGLE_CLOUD_API_KEY"):

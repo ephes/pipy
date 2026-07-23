@@ -143,6 +143,16 @@ class _PackageSpec:
         return self.filters.get(kind, ())
 
 
+@dataclass(slots=True)
+class _PackageResolutionAccumulator:
+    """Ordered mutable state for one package-resolution pass."""
+
+    per_kind: dict[str, list[PackageRoot]]
+    packages: list[PackageInfo]
+    diagnostics: list[str]
+    seen_sources: set[Path]
+
+
 def _normalize_entry(entry: object) -> _PackageSpec | None:
     """Normalize a configured `packages` entry to a `_PackageSpec`.
 
@@ -199,83 +209,123 @@ def resolve_package_roots(
     escapes the package directory is silently skipped with a safe diagnostic.
     """
 
-    per_kind: dict[str, list[PackageRoot]] = {kind: [] for kind in RESOURCE_KINDS}
-    packages: list[PackageInfo] = []
-    diagnostics: list[str] = []
-    seen_sources: set[Path] = set()
-
+    accumulator = _PackageResolutionAccumulator(
+        per_kind={kind: [] for kind in RESOURCE_KINDS},
+        packages=[],
+        diagnostics=[],
+        seen_sources=set(),
+    )
     for entry in sources:
-        spec = _normalize_entry(entry)
-        if spec is None:
-            continue
-        source = spec.source
-
-        git_source = parse_git_source(source)
-        if git_source is not None:
-            resolved = _cached_git_path(source, workspace_root, spec.scope)
-            if resolved is None or not resolved.is_dir():
-                name = _safe_name_from_source(f"{git_source.host}/{git_source.path}")
-                packages.append(
-                    PackageInfo(
-                        name, _label_for(name), "disabled", REASON_MISSING_SOURCE
-                    )
-                )
-                diagnostics.append(f"package git cache not found: {name}")
-                continue
-        elif _is_remote_source(source):
-            name = _safe_name_from_source(source)
-            packages.append(
-                PackageInfo(name, _label_for(name), "disabled", REASON_REMOTE_SOURCE)
-            )
-            diagnostics.append(f"package source is not a local path: {name}")
-            continue
-        else:
-            resolved = canonical_local_source(source, workspace_root)
-            if resolved is None or not resolved.is_dir():
-                name = _safe_name_from_source(source)
-                packages.append(
-                    PackageInfo(
-                        name, _label_for(name), "disabled", REASON_MISSING_SOURCE
-                    )
-                )
-                diagnostics.append(f"package source not found: {name}")
-                continue
-
-        if resolved in seen_sources:
-            continue
-        seen_sources.add(resolved)
-
-        try:
-            manifest = _load_manifest(resolved)
-        except _InvalidManifest:
-            name = _safe_name_from_source(source)
-            packages.append(
-                PackageInfo(name, _label_for(name), "disabled", REASON_INVALID_MANIFEST)
-            )
-            diagnostics.append(f"package manifest is invalid: {name}")
-            continue
-
-        name = _package_name(manifest, resolved)
-        declared = _declared_dirs(manifest)
-        for kind in RESOURCE_KINDS:
-            for relative in declared[kind]:
-                root = _safe_resource_dir(resolved, relative)
-                if root is None:
-                    diagnostics.append(
-                        f"package {name}: skipped {kind} dir {relative!r}"
-                    )
-                    continue
-                per_kind[kind].append(PackageRoot(root, spec.filter_for(kind)))
-        packages.append(PackageInfo(name, _label_for(name), "loaded", ""))
+        _resolve_package_entry(entry, workspace_root, accumulator)
 
     return PackageResourceRoots(
-        extensions=tuple(per_kind["extensions"]),
-        skills=tuple(per_kind["skills"]),
-        prompts=tuple(per_kind["prompts"]),
-        themes=tuple(per_kind["themes"]),
-        packages=tuple(packages),
-        diagnostics=tuple(diagnostics),
+        extensions=tuple(accumulator.per_kind["extensions"]),
+        skills=tuple(accumulator.per_kind["skills"]),
+        prompts=tuple(accumulator.per_kind["prompts"]),
+        themes=tuple(accumulator.per_kind["themes"]),
+        packages=tuple(accumulator.packages),
+        diagnostics=tuple(accumulator.diagnostics),
     )
+
+
+def _resolve_package_entry(
+    entry: object,
+    workspace_root: Path,
+    accumulator: _PackageResolutionAccumulator,
+) -> None:
+    spec = _normalize_entry(entry)
+    if spec is None:
+        return
+    resolved = _resolve_package_source(spec, workspace_root, accumulator)
+    if resolved is None:
+        return
+    if resolved in accumulator.seen_sources:
+        return
+    accumulator.seen_sources.add(resolved)
+    _materialize_package(spec, resolved, accumulator)
+
+
+def _resolve_package_source(
+    spec: _PackageSpec,
+    workspace_root: Path,
+    accumulator: _PackageResolutionAccumulator,
+) -> Path | None:
+    source = spec.source
+    git_source = parse_git_source(source)
+    if git_source is not None:
+        resolved = _cached_git_path(source, workspace_root, spec.scope)
+        if resolved is None or not resolved.is_dir():
+            _record_disabled_source(
+                f"{git_source.host}/{git_source.path}",
+                REASON_MISSING_SOURCE,
+                "package git cache not found",
+                accumulator,
+            )
+            return None
+        return resolved
+    if _is_remote_source(source):
+        _record_disabled_source(
+            source,
+            REASON_REMOTE_SOURCE,
+            "package source is not a local path",
+            accumulator,
+        )
+        return None
+    resolved = canonical_local_source(source, workspace_root)
+    if resolved is None or not resolved.is_dir():
+        _record_disabled_source(
+            source,
+            REASON_MISSING_SOURCE,
+            "package source not found",
+            accumulator,
+        )
+        return None
+    return resolved
+
+
+def _record_disabled_source(
+    display_source: str,
+    reason: str,
+    diagnostic_prefix: str,
+    accumulator: _PackageResolutionAccumulator,
+) -> None:
+    name = _safe_name_from_source(display_source)
+    accumulator.packages.append(
+        PackageInfo(name, _label_for(name), "disabled", reason)
+    )
+    accumulator.diagnostics.append(f"{diagnostic_prefix}: {name}")
+
+
+def _materialize_package(
+    spec: _PackageSpec,
+    resolved: Path,
+    accumulator: _PackageResolutionAccumulator,
+) -> None:
+    try:
+        manifest = _load_manifest(resolved)
+    except _InvalidManifest:
+        _record_disabled_source(
+            spec.source,
+            REASON_INVALID_MANIFEST,
+            "package manifest is invalid",
+            accumulator,
+        )
+        return
+
+    name = _package_name(manifest, resolved)
+    declared = _declared_dirs(manifest)
+    for kind in RESOURCE_KINDS:
+        for relative in declared[kind]:
+            root = _safe_resource_dir(resolved, relative)
+            if root is None:
+                accumulator.diagnostics.append(
+                    f"package {name}: skipped {kind} dir {relative!r}"
+                )
+                continue
+            accumulator.per_kind[kind].append(
+                PackageRoot(root, spec.filter_for(kind))
+            )
+    accumulator.packages.append(PackageInfo(name, _label_for(name), "loaded", ""))
 
 
 class _InvalidManifest(Exception):

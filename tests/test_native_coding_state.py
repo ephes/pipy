@@ -774,6 +774,34 @@ def test_result_snapshot_rejects_nested_failure_content_substitution() -> None:
         )
 
 
+def test_message_validation_preserves_family_first_failure_order() -> None:
+    assistant_content = ProductContent("assistant")
+    assistant = AgentAssistantMessage(assistant_content)
+    object.__setattr__(assistant_content, "value", cast(str, ["mutable"]))
+    object.__setattr__(
+        assistant,
+        "tool_calls",
+        cast(tuple[AgentToolCall, ...], []),
+    )
+    with pytest.raises(
+        TypeError, match=r"messages\[0\]\.content\.value must be an exact string"
+    ):
+        _state(messages=(assistant,))
+
+    result = AgentToolResultMessage(
+        "pipy-tool-request-1",
+        "read",
+        ProductContent("result"),
+        "provider-call",
+    )
+    object.__setattr__(result, "tool_request_id", "provider-owned")
+    object.__setattr__(result, "tool_name", "")
+    with pytest.raises(
+        ValueError, match=r"messages\[0\]\.tool_request_id must be pipy-owned"
+    ):
+        _state(messages=(result,))
+
+
 def test_result_snapshot_rejects_mutable_nested_message_substitutions() -> None:
     assistant = AgentAssistantMessage(ProductContent("assistant"))
     object.__setattr__(

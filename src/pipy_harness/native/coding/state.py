@@ -608,21 +608,39 @@ def require_exact_agent_message(message: object, field_name: str) -> None:
     if type(message) not in _EXACT_AGENT_MESSAGE_TYPES:
         raise TypeError(f"{field_name} must be an exact canonical AgentMessage")
     if type(message) is AgentUserMessage:
-        _require_product_content(message.content, f"{field_name}.content")
-        if len(message.content.value) > message.CONTENT_MAX_LENGTH:
-            raise ValueError(f"{field_name}.content exceeds its maximum length")
+        _require_user_message(message, field_name)
         return
     if type(message) is AgentAssistantMessage:
-        _require_product_content(message.content, f"{field_name}.content")
-        if len(message.content.value) > message.CONTENT_MAX_LENGTH:
-            raise ValueError(f"{field_name}.content exceeds its maximum length")
-        if type(message.tool_calls) is not tuple:
-            raise TypeError(f"{field_name}.tool_calls must be an exact tuple")
-        for index, call in enumerate(message.tool_calls):
-            _require_tool_call(call, f"{field_name}.tool_calls[{index}]")
+        _require_assistant_message(message, field_name)
         return
     if not isinstance(message, AgentToolResultMessage):
         raise TypeError(f"{field_name} must be an exact canonical AgentMessage")
+    _require_tool_result_message(message, field_name)
+
+
+def _require_user_message(message: AgentUserMessage, field_name: str) -> None:
+    _require_product_content(message.content, f"{field_name}.content")
+    if len(message.content.value) > message.CONTENT_MAX_LENGTH:
+        raise ValueError(f"{field_name}.content exceeds its maximum length")
+
+
+def _require_assistant_message(
+    message: AgentAssistantMessage,
+    field_name: str,
+) -> None:
+    _require_product_content(message.content, f"{field_name}.content")
+    if len(message.content.value) > message.CONTENT_MAX_LENGTH:
+        raise ValueError(f"{field_name}.content exceeds its maximum length")
+    if type(message.tool_calls) is not tuple:
+        raise TypeError(f"{field_name}.tool_calls must be an exact tuple")
+    for index, call in enumerate(message.tool_calls):
+        _require_tool_call(call, f"{field_name}.tool_calls[{index}]")
+
+
+def _require_tool_result_message(
+    message: AgentToolResultMessage,
+    field_name: str,
+) -> None:
     _require_non_empty_string(message.tool_request_id, f"{field_name}.tool_request_id")
     if not message.tool_request_id.startswith(AGENT_TOOL_REQUEST_ID_PREFIX):
         raise ValueError(f"{field_name}.tool_request_id must be pipy-owned")

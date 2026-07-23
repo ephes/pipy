@@ -56,8 +56,9 @@ extend-select = ["C901"]
 # dropped the six-finding extension runtime owner; Slice 7.7e1 retired four of
 # eight findings in the Codex provider owner; Slice 7.7e2 dropped its remaining
 # four findings and pin; Slice 7.7f dropped three workspace/pure-UI leaf
-# owners; Slice 7.7g dropped the `read`/`write`/`ls` file-tool owners). Do not
-# add entries to grow the baseline; only remove them as functions are genuinely
+# owners; Slice 7.7g dropped the `read`/`write`/`ls` file-tool owners; Slice
+# 7.7h dropped three typed state/package/provider leaf owners). Do not add
+# entries to grow the baseline; only remove them as functions are genuinely
 # simplified below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
@@ -75,17 +76,14 @@ extend-select = ["C901"]
 "src/pipy_harness/native/clipboard.py" = ["C901"]
 "src/pipy_harness/native/coding/commands.py" = ["C901"]
 "src/pipy_harness/native/coding/session_controller.py" = ["C901"]
-"src/pipy_harness/native/coding/state.py" = ["C901"]
 "src/pipy_harness/native/editor_completion.py" = ["C901"]
 "src/pipy_harness/native/extensions.py" = ["C901"]
 "src/pipy_harness/native/fake.py" = ["C901"]
 "src/pipy_harness/native/model_resolver.py" = ["C901"]
 "src/pipy_harness/native/models_json.py" = ["C901"]
 "src/pipy_harness/native/models.py" = ["C901"]
-"src/pipy_harness/native/package_resources.py" = ["C901"]
 "src/pipy_harness/native/project_trust.py" = ["C901"]
 "src/pipy_harness/native/provider_construction.py" = ["C901"]
-"src/pipy_harness/native/provider_registry.py" = ["C901"]
 "src/pipy_harness/native/providers/google_vertex.py" = ["C901"]
 "src/pipy_harness/native/read_only_tool.py" = ["C901"]
 "src/pipy_harness/native/repl_input.py" = ["C901"]

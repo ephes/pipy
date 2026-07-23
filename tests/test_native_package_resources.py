@@ -216,6 +216,34 @@ def test_duplicate_source_is_resolved_once(tmp_path: Path) -> None:
     assert len(roots.packages) == 1
 
 
+def test_dedup_starts_after_source_resolution_before_manifest_load(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing"
+    broken = _make_package(
+        tmp_path / "src",
+        "broken",
+        manifest="this is = not valid toml [[[",
+    )
+
+    roots = resolve_package_roots(
+        [str(missing), str(broken), str(missing), str(broken)],
+        tmp_path,
+    )
+
+    assert [package.name for package in roots.packages] == [
+        "missing",
+        "broken",
+        "missing",
+    ]
+    assert [package.reason for package in roots.packages] == [
+        REASON_MISSING_SOURCE,
+        REASON_INVALID_MANIFEST,
+        REASON_MISSING_SOURCE,
+    ]
+    assert len(roots.diagnostics) == 3
+
+
 def test_relative_source_resolves_against_workspace(tmp_path: Path) -> None:
     workspace = tmp_path / "ws"
     workspace.mkdir()

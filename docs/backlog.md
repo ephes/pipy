@@ -3221,6 +3221,36 @@ verification passed 137 tests; final `just check` passed Ruff, Mypy, and 4,519
 tests (2 skipped); `just docs-build` reported no issues. Review: Pi GPT-5.6
 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### C901 typed state/package/provider leaf decomposition (Slice 7.7h) — DONE (2026-07-23)
+
+Ninth directional complexity batch. Remove the sole C901 finding from each of
+the strict `native.coding.state`, `native.package_resources`, and
+`native.provider_registry` owners through coherent message-family validation,
+package-source resolution/materialization, and availability-policy evaluation
+helpers. Preserve exact validation/failure order and messages; package entry
+precedence, diagnostics, dedup timing, manifest fail-closed behavior, resource
+ordering and filters; and every provider availability expression including
+auto-default, environment truthiness, Vertex, Azure, and unknown schemes.
+Every clean file must leave the pin list. No state/package/provider API or
+behavior change, provider consolidation, dependency, unchecked `Any`,
+`type: ignore`, Mypy exclusion, cosmetic branch-count gaming, or new pin.
+
+Landed shape: exact user, assistant, and tool-result validators retain the
+public canonical-message dispatcher and all recursive first-failure checks.
+Package resolution now uses one typed ordered accumulator with separate
+entry/source resolution, safe disabled-source recording, successful-source
+deduplication, and manifest/resource materialization. Provider availability
+separates static/login, named-environment, and compound Vertex/Azure policy
+families while retaining unknown-policy false. New tests pin message-family
+first failures and the distinction between repeated unresolved sources and a
+resolved invalid-manifest source. All three owners are C901-clean and their
+pins are deleted, lowering repository C901 113/53 -> 110/50 (`src` 97/44 ->
+94/41). Focused verification passed 150 tests; final `just check` passed Ruff,
+Mypy, and 4,521 tests (2 skipped); `just docs-build` reported no issues. The
+first full run hit the documented unrelated PTY worker-timing flake, which
+passed immediately in isolation; the complete rerun was green. Review: Pi
+GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from
