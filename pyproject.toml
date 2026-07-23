@@ -57,7 +57,8 @@ extend-select = ["C901"]
 # eight findings in the Codex provider owner; Slice 7.7e2 dropped its remaining
 # four findings and pin; Slice 7.7f dropped three workspace/pure-UI leaf
 # owners; Slice 7.7g dropped the `read`/`write`/`ls` file-tool owners; Slice
-# 7.7h dropped three typed state/package/provider leaf owners). Do not add
+# 7.7h dropped three typed state/package/provider leaf owners; Slice 7.7i
+# dropped the agent request/executor and resource-dispatch owners). Do not add
 # entries to grow the baseline; only remove them as functions are genuinely
 # simplified below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
@@ -68,8 +69,6 @@ extend-select = ["C901"]
 "src/pipy_harness/cli.py" = ["C901"]
 "src/pipy_harness/native/_resource_files.py" = ["C901"]
 "src/pipy_harness/native/agent/loop.py" = ["C901"]
-"src/pipy_harness/native/agent/request.py" = ["C901"]
-"src/pipy_harness/native/agent/tools.py" = ["C901"]
 "src/pipy_harness/native/auth_store.py" = ["C901"]
 "src/pipy_harness/native/automation/agent_events.py" = ["C901"]
 "src/pipy_harness/native/chrome.py" = ["C901"]
@@ -87,7 +86,6 @@ extend-select = ["C901"]
 "src/pipy_harness/native/providers/google_vertex.py" = ["C901"]
 "src/pipy_harness/native/read_only_tool.py" = ["C901"]
 "src/pipy_harness/native/repl_input.py" = ["C901"]
-"src/pipy_harness/native/resources.py" = ["C901"]
 "src/pipy_harness/native/session_tree_commands.py" = ["C901"]
 "src/pipy_harness/native/session_tree.py" = ["C901"]
 "src/pipy_harness/native/session.py" = ["C901"]

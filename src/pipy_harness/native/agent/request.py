@@ -204,6 +204,12 @@ def _thaw_schema_value(value: object) -> object:
 
 
 def _validate_schema_semantics(schema: Mapping[str, object]) -> None:
+    _validate_schema_scalar_constraints(schema)
+    _validate_schema_string_sequences(schema)
+    _validate_schema_children(schema)
+
+
+def _validate_schema_scalar_constraints(schema: Mapping[str, object]) -> None:
     if type(schema.get("type")) is not str:
         raise TypeError("tool schema type must be an exact string")
     description = schema.get("description")
@@ -216,12 +222,18 @@ def _validate_schema_semantics(schema: Mapping[str, object]) -> None:
     additional = schema.get("additionalProperties")
     if additional is not None and type(additional) is not bool:
         raise TypeError("tool schema additionalProperties must be an exact bool")
+
+
+def _validate_schema_string_sequences(schema: Mapping[str, object]) -> None:
     for key in ("required", "enum"):
         values = schema.get(key)
         if values is not None and (
             type(values) is not tuple or any(type(value) is not str for value in values)
         ):
             raise TypeError(f"tool schema {key} must contain exact strings")
+
+
+def _validate_schema_children(schema: Mapping[str, object]) -> None:
     properties = schema.get("properties")
     if properties is not None:
         if not isinstance(properties, Mapping):

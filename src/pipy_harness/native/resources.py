@@ -406,70 +406,49 @@ def _command_metadata(command: CustomSlashCommand) -> dict[str, object]:
     return meta
 
 
-def dispatch_resource_command(
-    line: str,
+def _dispatch_skill_command(
+    arguments: str,
     resources: WorkspaceResources,
-) -> ResourceDispatch | None:
-    """Resolve a typed line against the workspace resources.
-
-    Returns ``None`` when the line is not a resource command (so the
-    caller's normal dispatch — including the built-in fail-closed
-    handling for unknown ``/`` commands — runs). Otherwise returns a
-    `ResourceDispatch`.
-
-    This function must be consulted **after** the built-in command
-    handlers so a custom command can never shadow a built-in.
-    """
-
-    stripped = line.strip()
-    if not stripped.startswith("/"):
-        return None
-    name_token, arguments = _split_command(stripped)
-
-    if name_token == "skill":
-        if not arguments:
-            return ResourceDispatch(
-                kind=DISPATCH_LIST,
-                message=format_skills_listing(resources.skills),
-            )
-        # A skill takes no arguments, so the whole argument string is the
-        # skill name. This lets multi-word skill names (which the listing
-        # shows) actually load, keeping the listing honest.
-        target = arguments.strip()
-        skill = find_skill_by_name(resources.skills, target)
-        if skill is None:
-            return ResourceDispatch(
-                kind=DISPATCH_REJECT,
-                message=(
-                    f"pipy: no skill named {target!r}. "
-                    "Run /skill to list available skills."
-                ),
-                resource_label=f"skill:{target}",
-            )
-        if not skill.body.strip():
-            return ResourceDispatch(
-                kind=DISPATCH_REJECT,
-                message=(
-                    f"pipy: skill {skill.name!r} has no instruction body to load."
-                ),
-                safe_metadata=_skill_metadata(skill),
-                resource_label=f"skill:{skill.name}",
-            )
+) -> ResourceDispatch:
+    if not arguments:
         return ResourceDispatch(
-            kind=DISPATCH_SKILL_RUN,
-            provider_text=skill.body,
+            kind=DISPATCH_LIST,
+            message=format_skills_listing(resources.skills),
+        )
+    # A skill takes no arguments, so the whole argument string is the
+    # skill name. This lets multi-word skill names (which the listing
+    # shows) actually load, keeping the listing honest.
+    target = arguments.strip()
+    skill = find_skill_by_name(resources.skills, target)
+    if skill is None:
+        return ResourceDispatch(
+            kind=DISPATCH_REJECT,
+            message=(
+                f"pipy: no skill named {target!r}. Run /skill to list available skills."
+            ),
+            resource_label=f"skill:{target}",
+        )
+    if not skill.body.strip():
+        return ResourceDispatch(
+            kind=DISPATCH_REJECT,
+            message=(f"pipy: skill {skill.name!r} has no instruction body to load."),
             safe_metadata=_skill_metadata(skill),
             resource_label=f"skill:{skill.name}",
-            message=f"pipy: loaded skill {skill.name!r}.",
         )
+    return ResourceDispatch(
+        kind=DISPATCH_SKILL_RUN,
+        provider_text=skill.body,
+        safe_metadata=_skill_metadata(skill),
+        resource_label=f"skill:{skill.name}",
+        message=f"pipy: loaded skill {skill.name!r}.",
+    )
 
-    # Otherwise: a prompt template or custom command invocation. Only claim
-    # the line when the name resolves to a discovered, non-reserved resource;
-    # otherwise return None so the caller's unknown-command handling fails
-    # closed.
-    if name_token in RESERVED_COMMAND_NAMES or not name_token:
-        return None
 
+def _dispatch_template_or_command(
+    name_token: str,
+    arguments: str,
+    resources: WorkspaceResources,
+) -> ResourceDispatch | None:
     # A discovered prompt template is invokable directly as ``/<name> [args]``
     # (Pi shape — there is no ``/template`` wrapper command). Templates are
     # matched before custom commands; a custom command that collides with a
@@ -517,3 +496,35 @@ def dispatch_resource_command(
         resource_label=f"command:{command.name}",
         message=f"pipy: ran custom command /{command.name}.",
     )
+
+
+def dispatch_resource_command(
+    line: str,
+    resources: WorkspaceResources,
+) -> ResourceDispatch | None:
+    """Resolve a typed line against the workspace resources.
+
+    Returns ``None`` when the line is not a resource command (so the
+    caller's normal dispatch — including the built-in fail-closed
+    handling for unknown ``/`` commands — runs). Otherwise returns a
+    `ResourceDispatch`.
+
+    This function must be consulted **after** the built-in command
+    handlers so a custom command can never shadow a built-in.
+    """
+
+    stripped = line.strip()
+    if not stripped.startswith("/"):
+        return None
+    name_token, arguments = _split_command(stripped)
+
+    if name_token == "skill":
+        return _dispatch_skill_command(arguments, resources)
+
+    # Otherwise: a prompt template or custom command invocation. Only claim
+    # the line when the name resolves to a discovered, non-reserved resource;
+    # otherwise return None so the caller's unknown-command handling fails
+    # closed.
+    if name_token in RESERVED_COMMAND_NAMES or not name_token:
+        return None
+    return _dispatch_template_or_command(name_token, arguments, resources)

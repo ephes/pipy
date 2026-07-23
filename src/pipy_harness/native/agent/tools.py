@@ -233,23 +233,13 @@ class ToolExecutor:
 
         worker = threading.Thread(target=_worker, name="pipy-tool-call", daemon=True)
         worker.start()
-        try:
-            interruption = wait_for_interrupt(done_event, cancel_event)
-        except KeyboardInterrupt:
-            cancel_event.set()
-            interruption = ToolExecutionInterruption.OPERATOR_ABORT
-        except BaseException:  # noqa: BLE001 - cancel and re-raise waiter failures
-            cancel_event.set()
-            output_gate.deactivate()
-            worker.join(timeout=self._cancel_join_timeout_seconds)
-            raise
-        if not isinstance(interruption, ToolExecutionInterruption):
-            cancel_event.set()
-            output_gate.deactivate()
-            worker.join(timeout=self._cancel_join_timeout_seconds)
-            raise TypeError(
-                "tool interrupt waiter must return ToolExecutionInterruption"
-            )
+        interruption = self._wait_for_interruption(
+            wait_for_interrupt,
+            done_event,
+            cancel_event,
+            worker,
+            output_gate,
+        )
         if interruption is not ToolExecutionInterruption.SETTLED:
             cancel_event.set()
             completion_preceded_interruption = (
@@ -273,6 +263,33 @@ class ToolExecutor:
         if interruption is ToolExecutionInterruption.SETTLED:
             return ToolExecutionOutcome(self.error_result(call, "tool cancelled"))
         return self._cancellation_outcome(call, interruption)
+
+    def _wait_for_interruption(
+        self,
+        waiter: ToolInterruptWaiter,
+        done_event: threading.Event,
+        cancel_event: _OrderedCancelEvent,
+        worker: threading.Thread,
+        output_gate: _InvocationOutputGate,
+    ) -> ToolExecutionInterruption:
+        try:
+            interruption = waiter(done_event, cancel_event)
+        except KeyboardInterrupt:
+            cancel_event.set()
+            return ToolExecutionInterruption.OPERATOR_ABORT
+        except BaseException:  # noqa: BLE001 - cancel and re-raise waiter failures
+            cancel_event.set()
+            output_gate.deactivate()
+            worker.join(timeout=self._cancel_join_timeout_seconds)
+            raise
+        if not isinstance(interruption, ToolExecutionInterruption):
+            cancel_event.set()
+            output_gate.deactivate()
+            worker.join(timeout=self._cancel_join_timeout_seconds)
+            raise TypeError(
+                "tool interrupt waiter must return ToolExecutionInterruption"
+            )
+        return interruption
 
     def _cancellation_outcome(
         self,

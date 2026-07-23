@@ -3283,6 +3283,36 @@ Final `just check` passed Ruff, Mypy, and 4,523 tests (2 skipped);
 `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
 0 findings, explicit CLEAN.
 
+### C901 agent request/executor and resource-dispatch decomposition (Slice 7.7i) — DONE (2026-07-23)
+
+Tenth directional complexity batch. Remove the sole C901 finding from each of
+the strict `native.agent.request`, strict `native.agent.tools`, and
+`native.resources` owners through coherent recursive schema-family validation,
+interrupt-wait/outcome resolution, and skill-versus-template/custom-command
+dispatch helpers. Preserve exact schema validation order/messages and recursive
+shape rules; worker start/completion/cancellation/output-gate/join/exception
+ordering and completion-versus-interruption precedence; and built-in
+fallthrough, skill/list/load/reject behavior, template-before-command
+precedence, expansion, metadata, labels, and provider text. Every clean file
+must leave the pin list. No agent/tool/resource API or behavior change,
+dependency, unchecked `Any`, `type: ignore`, Mypy exclusion, cosmetic
+branch-count gaming, or new pin.
+
+Landed shape: schema semantics now validate scalar keywords, exact-string
+sequences, then recursive properties/items in the original order. The
+interruptible executor moves only waiter invocation/normalization and its
+failure cleanup into one method; worker lifecycle and every post-wait
+cancellation/completion/join/result decision remain in place. Resource command
+dispatch keeps top-level recognition/reserved fallthrough, delegates `/skill`
+list/load/reject behavior, then preserves direct-template-before-custom-command
+resolution. New schema characterization pins cross-family and recursive
+first-error order; the existing executor race suite remains green. All three
+owners are clean and their pins are deleted, lowering repository C901 110/50
+-> 107/47 (`src` 94/41 -> 91/38). Focused verification passed 61 tests; final
+`just check` passed Ruff, Mypy, and 4,526 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from
