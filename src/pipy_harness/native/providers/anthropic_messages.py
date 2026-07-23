@@ -24,6 +24,7 @@ from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.deferred_tools import split_deferred_tools
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
+from pipy_harness.native.tools.base import ToolDefinition
 from pipy_harness.native.providers.anthropic_messages_wire import (
     messages_payload,
     parse_response,
@@ -66,6 +67,85 @@ def supports_adaptive_thinking(model_id: str) -> bool:
 
     lowered = model_id.lower()
     return any(marker in lowered for marker in ANTHROPIC_ADAPTIVE_MODEL_MARKERS)
+
+
+def _apply_anthropic_thinking(
+    body: dict[str, Any],
+    *,
+    model_id: str,
+    reasoning_effort: str | None,
+    thinking_disabled: bool,
+) -> None:
+    """Mutate ``body`` with Anthropic's model-specific thinking wire shape."""
+
+    if reasoning_effort is not None:
+        if supports_adaptive_thinking(model_id):
+            body["thinking"] = {
+                "type": "adaptive",
+                "display": ANTHROPIC_THINKING_DISPLAY_DEFAULT,
+            }
+            body["output_config"] = {
+                "effort": ANTHROPIC_ADAPTIVE_EFFORT.get(
+                    reasoning_effort, reasoning_effort
+                )
+            }
+        else:
+            body["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": ANTHROPIC_THINKING_BUDGETS.get(
+                    reasoning_effort, ANTHROPIC_DEFAULT_THINKING_BUDGET
+                ),
+                "display": ANTHROPIC_THINKING_DISPLAY_DEFAULT,
+            }
+    elif thinking_disabled:
+        # Reasoning-capable model run with thinking off: Pi makes the off state
+        # explicit on the wire (anthropic.ts:975-976). The disabled shape
+        # carries no ``display`` or budget.
+        body["thinking"] = {"type": "disabled"}
+
+
+def _build_anthropic_request_body(
+    request: ProviderRequest,
+    *,
+    model_id: str,
+    max_tokens: int,
+    immediate_tools: tuple[ToolDefinition, ...],
+    deferred_tools: tuple[ToolDefinition, ...],
+    reasoning_effort: str | None,
+    thinking_disabled: bool,
+) -> dict[str, Any]:
+    """Build the Messages body, including Anthropic-specific thinking shapes."""
+
+    deferred_tool_names = frozenset(tool.name for tool in deferred_tools)
+    body: dict[str, Any] = {
+        "model": model_id,
+        "max_tokens": max_tokens,
+        "system": request.system_prompt,
+        "messages": messages_payload(
+            request,
+            parse_error_class=AnthropicResponseParseError,
+            deferred_tool_names=deferred_tool_names,
+            attach_images=True,
+            coalesce_tool_results=True,
+        ),
+    }
+    if request.available_tools:
+        serialized_tools = [
+            serialize_tool_for_anthropic(tool) for tool in immediate_tools
+        ]
+        for tool in deferred_tools:
+            serialized = serialize_tool_for_anthropic(tool)
+            serialized["defer_loading"] = True
+            serialized_tools.append(serialized)
+        body["tools"] = serialized_tools
+
+    _apply_anthropic_thinking(
+        body,
+        model_id=model_id,
+        reasoning_effort=reasoning_effort,
+        thinking_disabled=thinking_disabled,
+    )
+    return body
 
 
 def anthropic_http_client() -> UrllibJsonHTTPClient:
@@ -166,28 +246,6 @@ class AnthropicProvider:
         if not immediate_tools and deferred_tools:
             immediate_tools = deferred_tools
             deferred_tools = ()
-        deferred_tool_names = frozenset(tool.name for tool in deferred_tools)
-        body: dict[str, Any] = {
-            "model": self.model_id,
-            "max_tokens": self.max_tokens,
-            "system": request.system_prompt,
-            "messages": messages_payload(
-                request,
-                parse_error_class=AnthropicResponseParseError,
-                deferred_tool_names=deferred_tool_names,
-                attach_images=True,
-                coalesce_tool_results=True,
-            ),
-        }
-        if request.available_tools:
-            serialized_tools = [
-                serialize_tool_for_anthropic(tool) for tool in immediate_tools
-            ]
-            for tool in deferred_tools:
-                serialized = serialize_tool_for_anthropic(tool)
-                serialized["defer_loading"] = True
-                serialized_tools.append(serialized)
-            body["tools"] = serialized_tools
         # Anthropic-native thinking. Pi switches the adaptive Claude models
         # (Opus 4.6/4.7/4.8, Sonnet 4.6 — compat.forceAdaptiveThinking) to the
         # adaptive shape (``type: adaptive`` + ``output_config.effort``) and uses
@@ -195,30 +253,15 @@ class AnthropicProvider:
         # we mirror that split. ``display`` is forced to "summarized" on both
         # paths, matching Pi (anthropic.ts:954, :969-973), so the adaptive models
         # (API default "omitted") still return a thinking summary.
-        if self.reasoning_effort is not None:
-            if supports_adaptive_thinking(self.model_id):
-                body["thinking"] = {
-                    "type": "adaptive",
-                    "display": ANTHROPIC_THINKING_DISPLAY_DEFAULT,
-                }
-                body["output_config"] = {
-                    "effort": ANTHROPIC_ADAPTIVE_EFFORT.get(
-                        self.reasoning_effort, self.reasoning_effort
-                    )
-                }
-            else:
-                body["thinking"] = {
-                    "type": "enabled",
-                    "budget_tokens": ANTHROPIC_THINKING_BUDGETS.get(
-                        self.reasoning_effort, ANTHROPIC_DEFAULT_THINKING_BUDGET
-                    ),
-                    "display": ANTHROPIC_THINKING_DISPLAY_DEFAULT,
-                }
-        elif self.thinking_disabled:
-            # Reasoning-capable model run with thinking off: Pi makes the off
-            # state explicit on the wire (anthropic.ts:975-976) — the disabled
-            # shape carries no ``display`` or budget.
-            body["thinking"] = {"type": "disabled"}
+        body = _build_anthropic_request_body(
+            request,
+            model_id=self.model_id,
+            max_tokens=self.max_tokens,
+            immediate_tools=immediate_tools,
+            deferred_tools=deferred_tools,
+            reasoning_effort=self.reasoning_effort,
+            thinking_disabled=self.thinking_disabled,
+        )
         headers = {
             "anthropic-version": self.anthropic_version,
             "Content-Type": "application/json",

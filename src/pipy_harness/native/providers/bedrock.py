@@ -55,6 +55,73 @@ BEDROCK_SIGV4_ALGORITHM = "AWS4-HMAC-SHA256"
 _BEDROCK_RESERVED_HEADERS = frozenset({"authorization", "host"})
 
 
+def _apply_bedrock_thinking(
+    body: dict[str, Any],
+    *,
+    model_id: str,
+    region: str | None,
+    reasoning_effort: str | None,
+) -> None:
+    """Mutate ``body`` with Bedrock Claude's target-specific thinking shape."""
+
+    if reasoning_effort is None:
+        return
+    display: dict[str, str] = (
+        {}
+        if _is_gov_cloud_bedrock_target(model_id, region)
+        else {"display": ANTHROPIC_THINKING_DISPLAY_DEFAULT}
+    )
+    if supports_adaptive_thinking(model_id):
+        body["thinking"] = {"type": "adaptive", **display}
+        body["output_config"] = {
+            "effort": ANTHROPIC_ADAPTIVE_EFFORT.get(
+                reasoning_effort, reasoning_effort
+            )
+        }
+    else:
+        body["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": ANTHROPIC_THINKING_BUDGETS.get(
+                reasoning_effort, ANTHROPIC_DEFAULT_THINKING_BUDGET
+            ),
+            **display,
+        }
+
+
+def _build_bedrock_request_body(
+    request: ProviderRequest,
+    *,
+    anthropic_version: str,
+    max_tokens: int,
+    model_id: str,
+    region: str | None,
+    reasoning_effort: str | None,
+) -> dict[str, Any]:
+    """Build the InvokeModel body, including target-specific thinking shapes."""
+
+    body: dict[str, Any] = {
+        "anthropic_version": anthropic_version,
+        "max_tokens": max_tokens,
+        "system": request.system_prompt,
+        "messages": messages_payload(
+            request,
+            parse_error_class=BedrockResponseParseError,
+        ),
+    }
+    if request.available_tools:
+        body["tools"] = [
+            serialize_tool_for_anthropic(tool) for tool in request.available_tools
+        ]
+
+    _apply_bedrock_thinking(
+        body,
+        model_id=model_id,
+        region=region,
+        reasoning_effort=reasoning_effort,
+    )
+    return body
+
+
 def bedrock_http_client() -> UrllibJsonHTTPClient:
     """Build the shared JSON client wired with Bedrock InvokeModel error types.
 
@@ -162,20 +229,6 @@ class AmazonBedrockProvider:
             region=self.region,
             model_id=urllib.parse.quote(self.model_id, safe=""),
         )
-        body: dict[str, Any] = {
-            "anthropic_version": self.anthropic_version,
-            "max_tokens": self.max_tokens,
-            "system": request.system_prompt,
-            "messages": messages_payload(
-                request,
-                parse_error_class=BedrockResponseParseError,
-            ),
-        }
-        if request.available_tools:
-            body["tools"] = [
-                serialize_tool_for_anthropic(tool)
-                for tool in request.available_tools
-            ]
         # Bedrock Claude speaks the Anthropic body (InvokeModel carries the raw
         # Anthropic request), so thinking is placed at the body top level. Pi
         # uses adaptive thinking (``type: adaptive`` + ``output_config.effort``)
@@ -185,27 +238,14 @@ class AmazonBedrockProvider:
         # amazon-bedrock.ts:954, :957, :974-978) so the adaptive models — whose
         # API default is "omitted" — still return a thinking summary, except on
         # GovCloud targets, whose Converse schema rejects the field.
-        if self.reasoning_effort is not None:
-            display: dict[str, str] = (
-                {}
-                if _is_gov_cloud_bedrock_target(self.model_id, self.region)
-                else {"display": ANTHROPIC_THINKING_DISPLAY_DEFAULT}
-            )
-            if supports_adaptive_thinking(self.model_id):
-                body["thinking"] = {"type": "adaptive", **display}
-                body["output_config"] = {
-                    "effort": ANTHROPIC_ADAPTIVE_EFFORT.get(
-                        self.reasoning_effort, self.reasoning_effort
-                    )
-                }
-            else:
-                body["thinking"] = {
-                    "type": "enabled",
-                    "budget_tokens": ANTHROPIC_THINKING_BUDGETS.get(
-                        self.reasoning_effort, ANTHROPIC_DEFAULT_THINKING_BUDGET
-                    ),
-                    **display,
-                }
+        body = _build_bedrock_request_body(
+            request,
+            anthropic_version=self.anthropic_version,
+            max_tokens=self.max_tokens,
+            model_id=self.model_id,
+            region=self.region,
+            reasoning_effort=self.reasoning_effort,
+        )
 
         encoded_body = json.dumps(body).encode("utf-8")
         base_headers: dict[str, str] = {

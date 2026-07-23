@@ -52,8 +52,9 @@ extend-select = ["C901"]
 # end-state — pinned files are burned down over time (Slice 7.4 dropped
 # `image_attachment.py` and `command_sandbox.py`; Slice 7.7a dropped three
 # strict-leaf invariant owners; Slice 7.7b dropped three strict provider/wire
-# owners). Do not add entries to grow the baseline; only remove them as
-# functions are genuinely simplified below the threshold.
+# owners; Slice 7.7c dropped three more strict provider owners). Do not add
+# entries to grow the baseline; only remove them as functions are genuinely
+# simplified below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
@@ -83,9 +84,6 @@ extend-select = ["C901"]
 "src/pipy_harness/native/project_trust.py" = ["C901"]
 "src/pipy_harness/native/provider_construction.py" = ["C901"]
 "src/pipy_harness/native/provider_registry.py" = ["C901"]
-"src/pipy_harness/native/providers/anthropic_messages.py" = ["C901"]
-"src/pipy_harness/native/providers/bedrock.py" = ["C901"]
-"src/pipy_harness/native/providers/cloudflare.py" = ["C901"]
 "src/pipy_harness/native/providers/google_vertex.py" = ["C901"]
 "src/pipy_harness/native/read_only_tool.py" = ["C901"]
 "src/pipy_harness/native/repl_input.py" = ["C901"]

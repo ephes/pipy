@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_chat_completions
@@ -29,6 +30,17 @@ CLOUDFLARE_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("completion_tokens", "output_tokens"),
     ("total_tokens", "total_tokens"),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _CloudflareRequestConfiguration:
+    """Validated, single-read configuration for one completion request."""
+
+    model_id: str
+    url: str
+    api_token: str
+    has_explicit_authorization: bool
+    extra_headers: tuple[tuple[str, str], ...]
 
 
 def cloudflare_http_client() -> UrllibJsonHTTPClient:
@@ -80,19 +92,15 @@ class CloudflareWorkersAIProvider:
     def name(self) -> str:
         return self.provider_name
 
-    def complete(
+    def _configuration_preflight(
         self,
         request: ProviderRequest,
-        *,
-        stream_sink: StreamChunkSink | None = None,
-        reasoning_sink: StreamChunkSink | None = None,
-        cancel_token: CancelToken | None = None,
-    ) -> ProviderResult:
-        del stream_sink, reasoning_sink
-        if cancel_token is not None:
-            cancel_token.raise_if_cancelled()
-        started_at = utc_now()
-        if not self.model_id or not self.model_id.strip():
+        started_at: datetime,
+    ) -> _CloudflareRequestConfiguration | ProviderResult:
+        """Validate and resolve request configuration in failure-order."""
+
+        model_id = self.model_id
+        if not model_id or not model_id.strip():
             return failed_provider_result(
                 request,
                 provider_name=self.name,
@@ -100,13 +108,16 @@ class CloudflareWorkersAIProvider:
                 error_type="CloudflareConfigurationError",
                 error_message=f"--native-model is required for native provider {self.name}.",
             )
+
         # Catalog path: ``endpoint`` already has the account id substituted, so
         # the separate CLOUDFLARE_ACCOUNT_ID env is not required. Legacy path:
         # compose the URL from the account id env.
-        if self.endpoint:
-            url = self.endpoint
+        endpoint = self.endpoint
+        if endpoint:
+            url = endpoint
         else:
-            account_id = self.account_id.strip() if self.account_id is not None else ""
+            raw_account_id = self.account_id
+            account_id = raw_account_id.strip() if raw_account_id is not None else ""
             if not account_id:
                 return failed_provider_result(
                     request,
@@ -118,10 +129,15 @@ class CloudflareWorkersAIProvider:
                         f"(CLOUDFLARE_ACCOUNT_ID) for native provider {self.name}."
                     ),
                 )
-            url = self.endpoint_template.format(account_id=account_id)
-        api_token = self.api_token.strip() if self.api_token is not None else ""
+            endpoint_template = self.endpoint_template
+            url = endpoint_template.format(account_id=account_id)
+
+        raw_api_token = self.api_token
+        api_token = raw_api_token.strip() if raw_api_token is not None else ""
+        extra_headers = tuple(self.extra_headers.items())
         has_explicit_authorization = any(
-            header_name.lower() == "authorization" for header_name in self.extra_headers
+            header_name.lower() == "authorization"
+            for header_name, _ in extra_headers
         )
         if not api_token and not has_explicit_authorization:
             return failed_provider_result(
@@ -134,9 +150,32 @@ class CloudflareWorkersAIProvider:
                     f"for native provider {self.name}."
                 ),
             )
+        return _CloudflareRequestConfiguration(
+            model_id=model_id,
+            url=url,
+            api_token=api_token,
+            has_explicit_authorization=has_explicit_authorization,
+            extra_headers=extra_headers,
+        )
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        del stream_sink, reasoning_sink
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        started_at = utc_now()
+        configuration = self._configuration_preflight(request, started_at)
+        if isinstance(configuration, ProviderResult):
+            return configuration
 
         body: dict[str, Any] = {
-            "model": self.model_id,
+            "model": configuration.model_id,
             "messages": chat_messages(request),
         }
         if request.available_tools:
@@ -147,16 +186,16 @@ class CloudflareWorkersAIProvider:
             body["reasoning_effort"] = self.reasoning_effort
         headers = {"Content-Type": "application/json"}
         # Merged models.json/model headers (may include an explicit Authorization).
-        for header_name, header_value in self.extra_headers.items():
+        for header_name, header_value in configuration.extra_headers:
             headers[header_name] = header_value
         # Apply ``Bearer api_token`` only when no explicit Authorization present.
-        if api_token and not has_explicit_authorization:
-            headers["Authorization"] = f"Bearer {api_token}"
+        if configuration.api_token and not configuration.has_explicit_authorization:
+            headers["Authorization"] = f"Bearer {configuration.api_token}"
         headers = apply_provider_headers(request, headers)
 
         try:
             response = self.http_client.post_json(
-                url,
+                configuration.url,
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
@@ -187,7 +226,7 @@ class CloudflareWorkersAIProvider:
         return ProviderResult(
             status=HarnessStatus.SUCCEEDED,
             provider_name=self.name,
-            model_id=self.model_id,
+            model_id=configuration.model_id,
             started_at=started_at,
             ended_at=utc_now(),
             final_text=result.final_text,

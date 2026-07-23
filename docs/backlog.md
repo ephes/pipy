@@ -2997,6 +2997,31 @@ top-level/native/automation/session CLI verification passed 122 tests; final
 `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
 0 findings, explicit CLEAN.
 
+### C901 provider thinking and Cloudflare preflight decomposition (Slice 7.7c) — DONE (2026-07-23)
+
+Third directional complexity batch. Remove the single C901 finding from the
+strict Anthropic Messages and Bedrock adapters by isolating each adapter's
+coherent thinking-wire mutation, and remove Cloudflare's single finding by
+hoisting its ordered model/endpoint/account/auth configuration preflight into a
+typed resolved value. Preserve adaptive/budget/disabled thinking shapes,
+GovCloud display omission, first-failure order, credential/header reads,
+request/signature bytes, errors, output, tools, and usage. Each clean file must
+leave the pin list. No provider consolidation, behavior change, dependency,
+unchecked `Any`, `type: ignore`, Mypy exclusion, or new pin.
+
+Landed shape: adapter-local Anthropic and Bedrock request-body builders own
+tool serialization plus their distinct thinking mutations; Anthropic retains
+adaptive/budget/disabled shapes and Bedrock retains adaptive/budget shapes with
+GovCloud display omission. Cloudflare's typed preflight carries the resolved
+model, URL, trimmed token, explicit-auth decision, and ordered header snapshot
+from the unchanged post-cancellation validation phase. Golden request and
+Bedrock SigV4 fixtures remain byte-identical. All three files are C901-clean
+and their pins are deleted, lowering repository C901 136/64 -> 133/61 (`src`
+120/55 -> 117/52). Focused provider/fixture verification passed 50 tests;
+final `just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from
