@@ -2871,6 +2871,30 @@ passed 558 tests; final `just check` passed Ruff, Mypy, and 4,509 tests
 (2 skipped); `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol,
 1 round, 0 findings, explicit CLEAN.
 
+### Strict Mypy gate for extension discovery (Slice 7.6b) — DONE (2026-07-23)
+
+Second strict-root follow-on slice. Add `pipy_harness.native.extensions` to the
+existing enumerated strict-Mypy override and verify the real repository
+typecheck remains clean. A standalone `--follow-imports=skip` audit reports one
+apparent `no-any-return` at the local import of typed
+`resource_enablement.is_resource_enabled`; the normal repository graph follows
+that module and proves the bool return, so do not add a cast, coercion, runtime
+guard, or source churn for the audit artifact. Preserve discovery ordering,
+package filters, containment, metadata projection, and extension contracts. No
+`strict = true`, relaxed flag, exclusion, dependency, unchecked `Any`,
+`type: ignore`, C901 pin, or behavior change.
+
+Landed shape: `pipy_harness.native.extensions` now participates in the existing
+enumerated strict-Mypy override with no source edit. The real `just typecheck`
+graph follows the typed `resource_enablement` dependency and stays clean; the
+skipped-import audit artifact was deliberately not encoded as a cast,
+coercion, guard, or ignore. The explanatory strict-frontier comment advances
+with the module, while every sub-flag remains unchanged. Focused extension
+discovery/package and import-boundary verification passed 206 tests; final
+`just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

@@ -125,10 +125,10 @@ extend-select = ["C901"]
 # Repository default stays non-strict while the migration ratchets strictness
 # on one subpackage at a time (docs/architecture-migration.md, Phase 7). The
 # per-module override below opts the four fully-typed leaves (Slice 7.2), the
-# native.providers package and native/http.py (Slice 7.3), and the native
-# session core (Slice 7.6a) into `--strict`; the remaining root modules advance
-# one bounded slice at a time. The override lists the
-# per-module `--strict` sub-flags explicitly rather than `strict = true`,
+# native.providers package and native/http.py (Slice 7.3), the native session
+# core (Slice 7.6a), and native extension discovery (Slice 7.6b) into `--strict`;
+# the remaining root modules advance one bounded slice at a time. The override
+# lists the per-module `--strict` sub-flags explicitly rather than `strict = true`,
 # because mypy applies a per-module `strict = true` globally (leaking the
 # strict checks onto every other module and the test suite); the explicit
 # flags stay scoped to the matched packages. The two strict sub-flags that mypy
@@ -145,6 +145,7 @@ module = [
     "pipy_harness.native.coding.*",
     "pipy_harness.native.automation.*",
     "pipy_harness.native.providers.*",
+    "pipy_harness.native.extensions",
     "pipy_harness.native.http",
     "pipy_harness.native.session",
 ]
