@@ -253,19 +253,8 @@ from pipy_harness.native.session_tree_commands import (
     visible_tree_entries,
 )
 from pipy_harness.native.extension_runtime import (
-    EVENT_BEFORE_AGENT_START,
-    EVENT_BEFORE_PROVIDER_HEADERS,
-    EVENT_BEFORE_PROVIDER_REQUEST,
-    EVENT_INPUT,
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
-    EVENT_SESSION_BEFORE_COMPACT,
-    EVENT_SESSION_BEFORE_FORK,
-    EVENT_SESSION_BEFORE_SWITCH,
-    EVENT_SESSION_BEFORE_TREE,
-    EVENT_TOOL_RESULT,
-    EVENT_USER_BASH,
-    LIFECYCLE_EVENTS,
     ExtensionCapabilityError,
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
@@ -276,31 +265,19 @@ from pipy_harness.native.extension_runtime import (
     QueuedCustomMessage,
     QueuedUserMessage,
     RegisteredCommand,
-    RegisteredFlag,
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
-    RegisteredProvider,
-    RegisteredShortcut,
-    RegisteredTool,
     RenderedCustomEntry,
     ToolRenderDetailsWriter,
+    _ExtensionRuntime,
     _ExtensionToolPort,
     _custom_entry_redraw_rows,
     _custom_entry_renderer_payload,
     _custom_message_renderer_payload,
-    activate_extensions,
     dispatch_extension_command,
     dispatch_extension_shortcut,
     drain_custom_messages,
     drain_user_messages,
-    extension_command_map,
-    extension_flags,
-    extension_entry_renderers,
-    extension_message_renderers,
-    extension_providers,
-    extension_shortcuts,
-    extension_tools,
-    extension_unregistered_providers,
     is_valid_custom_entry_type,
     normalize_shortcut_key,
     parse_extension_flag_tokens,
@@ -310,6 +287,7 @@ from pipy_harness.native.extension_runtime import (
 )
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.extension_hooks import (
+    _activate_workspace_extensions,
     dispatch_before_agent_start_hooks,
     dispatch_before_provider_headers_hooks,
     dispatch_input_hooks,
@@ -317,19 +295,11 @@ from pipy_harness.native.extension_hooks import (
     dispatch_tool_call_hooks,
     dispatch_tool_result_hooks,
     dispatch_user_bash_hooks,
-    extension_event_hooks,
-    extension_tool_call_hooks,
-)
-from pipy_harness.native.extensions import discover_extensions
-from pipy_harness.native.extension_provider_catalog import (
-    extension_reserved_command_names,
-    extension_reserved_tool_names,
 )
 from pipy_harness.native.package_runtime import (
     PackageResourceRoots,
     compose_package_runtime,
 )
-from pipy_harness.native.package_resources import PackageRoot
 from pipy_harness.native.resources import (
     DISPATCH_LIST,
     WorkspaceResources,
@@ -687,37 +657,6 @@ def _extension_render_details_sinks(
     return _ExtensionRenderDetailsSinks(writer=captured, captured=captured)
 
 
-@dataclass(frozen=True, slots=True)
-class _ExtensionRuntime:
-    """The activated-extension contributions wired into one session run."""
-
-    commands: dict[str, RegisteredCommand]
-    menu_names: tuple[str, ...]
-    descriptions: dict[str, str]
-    tool_call_hooks: tuple[HookHandler, ...]
-    lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
-    input_hooks: tuple[HookHandler, ...]
-    before_agent_start_hooks: tuple[HookHandler, ...]
-    tool_result_hooks: tuple[HookHandler, ...]
-    user_bash_hooks: tuple[HookHandler, ...]
-    before_provider_headers_hooks: tuple[HookHandler, ...]
-    before_provider_request_hooks: tuple[HookHandler, ...]
-    session_before_switch_hooks: tuple[HookHandler, ...]
-    session_before_fork_hooks: tuple[HookHandler, ...]
-    session_before_compact_hooks: tuple[HookHandler, ...]
-    session_before_tree_hooks: tuple[HookHandler, ...]
-    outbox: list[QueuedUserMessage]
-    custom_outbox: list[QueuedCustomMessage]
-    tools: tuple[RegisteredTool, ...]
-    shortcuts: dict[str, RegisteredShortcut]
-    flags: tuple[RegisteredFlag, ...]
-    providers: tuple[RegisteredProvider, ...]
-    unregistered_providers: tuple[str, ...]
-    message_renderers: dict[str, RegisteredMessageRenderer]
-    entry_renderers: dict[str, RegisteredEntryRenderer]
-    custom_messages: tuple[QueuedCustomMessage, ...]
-
-
 @dataclass(slots=True)
 class _RunControlState:
     """Mutable holder for the control state a single ``run()`` invocation shares
@@ -772,135 +711,6 @@ class _RunControlState:
     # iteration;
     # the setup-scope changelog loop that reuses the name never seeds it here.
     line: str = ""
-
-
-def _activate_workspace_extensions(
-    cwd: Path,
-    resources: WorkspaceResources,
-    reserved_tool_names: tuple[str, ...] = (),
-    *,
-    package_roots: "Sequence[PackageRoot]" = (),
-    extension_patterns: Sequence[str] = (),
-    explicit_extension_paths: Sequence[Path] = (),
-    include_default_extensions: bool = True,
-    include_workspace_defaults: bool = False,
-    activation_batch: ExtensionActivationBatch | None = None,
-) -> _ExtensionRuntime:
-    """Discover + activate extensions and project their contributions.
-
-    Reserved names are the executable built-in/custom command set, so an
-    extension command can never shadow a built-in or a custom command.
-    The result bundles the command map (for dispatch), the menu
-    ``/<name>`` labels + descriptions, the ordered ``tool_call`` hooks,
-    the per-event lifecycle hooks, the ``input`` and ``before_agent_start``
-    hooks, and the shared ``send_user_message`` outbox. Activation runs
-    extension code; any failing extension is disabled by
-    ``activate_extensions`` without affecting the session. Workspace extension
-    discovery is fail-closed unless the caller supplies a resolved trusted
-    project state.
-    """
-
-    if activation_batch is None:
-        reserved = extension_reserved_command_names(
-            resources.custom_command_slash_names()
-        )
-        descriptors = discover_extensions(
-            cwd,
-            package_roots=tuple(package_roots),
-            explicit_paths=explicit_extension_paths,
-            include_defaults=include_default_extensions,
-            include_workspace_defaults=include_workspace_defaults,
-        )
-        if extension_patterns:
-            from pipy_harness.native.resource_enablement import is_resource_enabled
-
-            descriptors = [
-                descriptor
-                for descriptor in descriptors
-                if descriptor.source_kind == "cli"
-                or is_resource_enabled(descriptor.name, list(extension_patterns))
-            ]
-        outbox: list[QueuedUserMessage] = []
-        custom_outbox: list[QueuedCustomMessage] = []
-        activated = activate_extensions(
-            descriptors,
-            reserved_command_names=reserved,
-            reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
-            message_outbox=outbox,
-            custom_message_outbox=custom_outbox,
-        )
-    else:
-        if activation_batch.pending:
-            raise ValueError("initial extension activation batch must be finalized")
-        activated = list(activation_batch.activated)
-        outbox = activation_batch.message_outbox
-        custom_outbox = activation_batch.custom_message_outbox
-    command_map = extension_command_map(activated)
-    menu_names = tuple(f"/{name}" for name in command_map)
-    descriptions = {
-        f"/{command.name}": command.description for command in command_map.values()
-    }
-    custom_messages = tuple(
-        message
-        for extension in activated
-        if extension.status == "activated"
-        for message in extension.custom_messages
-    )
-    tool_call_hooks = extension_tool_call_hooks(activated)
-    lifecycle_hooks = {
-        event: extension_event_hooks(activated, event) for event in LIFECYCLE_EVENTS
-    }
-    input_hooks = extension_event_hooks(activated, EVENT_INPUT)
-    before_agent_start_hooks = extension_event_hooks(
-        activated, EVENT_BEFORE_AGENT_START
-    )
-    tool_result_hooks = extension_event_hooks(activated, EVENT_TOOL_RESULT)
-    user_bash_hooks = extension_event_hooks(activated, EVENT_USER_BASH)
-    before_provider_headers_hooks = extension_event_hooks(
-        activated, EVENT_BEFORE_PROVIDER_HEADERS
-    )
-    before_provider_request_hooks = extension_event_hooks(
-        activated, EVENT_BEFORE_PROVIDER_REQUEST
-    )
-    session_before_switch_hooks = extension_event_hooks(
-        activated, EVENT_SESSION_BEFORE_SWITCH
-    )
-    session_before_fork_hooks = extension_event_hooks(
-        activated, EVENT_SESSION_BEFORE_FORK
-    )
-    session_before_compact_hooks = extension_event_hooks(
-        activated, EVENT_SESSION_BEFORE_COMPACT
-    )
-    session_before_tree_hooks = extension_event_hooks(
-        activated, EVENT_SESSION_BEFORE_TREE
-    )
-    return _ExtensionRuntime(
-        commands=command_map,
-        menu_names=menu_names,
-        descriptions=descriptions,
-        tool_call_hooks=tool_call_hooks,
-        lifecycle_hooks=lifecycle_hooks,
-        input_hooks=input_hooks,
-        before_agent_start_hooks=before_agent_start_hooks,
-        tool_result_hooks=tool_result_hooks,
-        user_bash_hooks=user_bash_hooks,
-        before_provider_headers_hooks=before_provider_headers_hooks,
-        before_provider_request_hooks=before_provider_request_hooks,
-        session_before_switch_hooks=session_before_switch_hooks,
-        session_before_fork_hooks=session_before_fork_hooks,
-        session_before_compact_hooks=session_before_compact_hooks,
-        session_before_tree_hooks=session_before_tree_hooks,
-        outbox=outbox,
-        custom_outbox=custom_outbox,
-        tools=extension_tools(activated),
-        shortcuts=extension_shortcuts(activated),
-        flags=extension_flags(activated),
-        providers=extension_providers(activated),
-        unregistered_providers=extension_unregistered_providers(activated),
-        message_renderers=extension_message_renderers(activated),
-        entry_renderers=extension_entry_renderers(activated),
-        custom_messages=custom_messages,
-    )
 
 
 @dataclass(frozen=True, slots=True)

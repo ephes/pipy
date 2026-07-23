@@ -3448,6 +3448,35 @@ The final shape keeps extension writes and the public context mapping-typed
 while isolating legacy opaque reader values at one internal compatibility
 bridge.
 
+### Extension activation-bundle relocation (Slice 7.5k) — DONE (2026-07-23)
+
+Eleventh composition-root slimming cut. Relocate `_ExtensionRuntime` and
+`_activate_workspace_extensions` from `native.tool_loop_session` into the
+existing `native.extension_runtime` owner, which already owns activation plus
+every projected command, hook, tool, flag, provider, renderer, shortcut, and
+outbox contribution. Repoint the root and direct source-loading tests, delete
+the superseded definitions and unused imports, and preserve discovery,
+enablement, reserved-name, batch-finalization, ordering, fail-closed
+activation, and outbox identity exactly. No new boundary, public re-export,
+behavior, dependency, `Any`, ignore, Mypy exclusion, or C901 pin.
+
+Landed shape: the pure `_ExtensionRuntime` contribution bundle moves to
+`native.extension_runtime`, while the session-run discovery/activation/
+projection builder moves to the existing one-way `native.extension_hooks`
+aggregation owner. The coordinator rejected the first implementation before
+review because putting the builder in `extension_runtime` introduced reverse
+lazy imports into `extension_hooks` and `extension_provider_catalog`; the
+recovered placement preserves the documented cycle-free dependency direction.
+The root imports the two private seams from their owners, the direct source-
+loading test repoints, and the superseded definitions and unused imports are
+deleted. Discovery inputs, reserved-name policy, enablement, activation-batch
+finalization, ordered contribution projection, custom-message filtering, and
+outbox list identity are unchanged. The composition root shrinks 5,829 ->
+5,659 physical lines. Focused verification passed 352 tests plus fresh-process
+import-order smoke checks; final `just check` passed Ruff, Mypy, and 4,534
+tests (2 skipped). C901 remains 101/43 and `src` ignores remain 28. Review:
+Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

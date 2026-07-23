@@ -14,7 +14,7 @@ from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.package_resources import PackageRoot
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.theme_files import build_theme_registry
-from pipy_harness.native.tool_loop_session import _activate_workspace_extensions
+from pipy_harness.native.extension_hooks import _activate_workspace_extensions
 
 
 _SKILL = "---\nname: {name}\ndescription: {desc}\n---\nbody {name}\n"

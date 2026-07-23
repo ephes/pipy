@@ -26,17 +26,24 @@ the final `ProviderRequestTransform` with each transformed field bounded by
 runs mutation-only header hooks serially and fail-soft over one shared
 mutable mapping.
 
+It also owns the private session-run activation/projection builder. That
+builder discovers and activates workspace extensions, applies reserved-name
+policy, and aggregates their commands, hooks, tools, providers, renderers, and
+outboxes into the `_ExtensionRuntime` value bundle owned by
+`extension_runtime`.
+
 It also owns the internal canonical-agent lifecycle adapter. The product
 composition root supplies one already-composed immediate `AgentEventSink`; the
 adapter delivers to it first, maps canonical run/turn boundaries to extension
 lifecycle events, carries the extension dispatch context, and keeps
 `agent_settled` extension-only.
 
-It depends only on canonical agent contracts, the `_drive_awaitable` coroutine
-driver from `extension_loader`, the hook value objects from `extension_types`,
-and the `_CommandContext` / `_CollectingUi` builders plus the `EVENT_*`
-event-name constants from `extension_runtime`. The dependency is one-way and
-cycle-free: `extension_runtime` never imports back from this module.
+It depends on canonical agent contracts, extension discovery and reserved-name
+policy, the `_drive_awaitable` coroutine driver from `extension_loader`, the
+hook value objects from `extension_types`, and the activation collectors,
+`_ExtensionRuntime`, `_CommandContext`, `_CollectingUi`, and `EVENT_*` constants
+from `extension_runtime`. The dependency remains one-way and cycle-free:
+`extension_runtime` never imports back from this module.
 
 The `before_agent_start` and `tool_result` injections are each bounded by
 `_BEFORE_AGENT_START_MAX_CHARS` / `_TOOL_RESULT_MAX_CHARS` so a buggy or
@@ -47,6 +54,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from pathlib import Path
 from typing import Literal, cast
 
 from pipy_harness.native.agent import (
@@ -62,15 +70,43 @@ from pipy_harness.native.extension_runtime import (
     EVENT_AGENT_END,
     EVENT_AGENT_SETTLED,
     EVENT_AGENT_START,
+    EVENT_BEFORE_AGENT_START,
+    EVENT_BEFORE_PROVIDER_HEADERS,
+    EVENT_BEFORE_PROVIDER_REQUEST,
+    EVENT_INPUT,
     EVENT_PROJECT_TRUST,
+    EVENT_SESSION_BEFORE_COMPACT,
+    EVENT_SESSION_BEFORE_FORK,
+    EVENT_SESSION_BEFORE_SWITCH,
+    EVENT_SESSION_BEFORE_TREE,
     EVENT_TOOL_CALL,
+    EVENT_TOOL_RESULT,
     EVENT_TURN_END,
     EVENT_TURN_START,
+    EVENT_USER_BASH,
+    LIFECYCLE_EVENTS,
     ActivatedExtension,
+    ExtensionActivationBatch,
     ExtensionUiDriver,
     HookHandler,
+    QueuedCustomMessage,
+    QueuedUserMessage,
     _CollectingUi,
     _CommandContext,
+    _ExtensionRuntime,
+    activate_extensions,
+    extension_command_map,
+    extension_entry_renderers,
+    extension_flags,
+    extension_message_renderers,
+    extension_providers,
+    extension_shortcuts,
+    extension_tools,
+    extension_unregistered_providers,
+)
+from pipy_harness.native.extension_provider_catalog import (
+    extension_reserved_command_names,
+    extension_reserved_tool_names,
 )
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,
@@ -99,8 +135,11 @@ from pipy_harness.native.extension_types import (
     UserBashEvent,
     _safe_diagnostic,
 )
+from pipy_harness.native.extensions import discover_extensions
 
 if False:  # pragma: no cover - imported for type checkers only
+    from pipy_harness.native.package_resources import PackageRoot
+    from pipy_harness.native.resources import WorkspaceResources
     from pipy_harness.native.session_tree import NativeSessionTree
 
 # Bound a transformed tool-result observation before it reaches the model.
@@ -133,6 +172,135 @@ def extension_tool_call_hooks(
     """Collect `tool_call` hooks from activated extensions, in order."""
 
     return extension_event_hooks(activated, EVENT_TOOL_CALL)
+
+
+def _activate_workspace_extensions(
+    cwd: Path,
+    resources: "WorkspaceResources",
+    reserved_tool_names: tuple[str, ...] = (),
+    *,
+    package_roots: "Sequence[PackageRoot]" = (),
+    extension_patterns: Sequence[str] = (),
+    explicit_extension_paths: Sequence[Path] = (),
+    include_default_extensions: bool = True,
+    include_workspace_defaults: bool = False,
+    activation_batch: ExtensionActivationBatch | None = None,
+) -> _ExtensionRuntime:
+    """Discover + activate extensions and project their contributions.
+
+    Reserved names are the executable built-in/custom command set, so an
+    extension command can never shadow a built-in or a custom command.
+    The result bundles the command map (for dispatch), the menu
+    ``/<name>`` labels + descriptions, the ordered ``tool_call`` hooks,
+    the per-event lifecycle hooks, the ``input`` and ``before_agent_start``
+    hooks, and the shared ``send_user_message`` outbox. Activation runs
+    extension code; any failing extension is disabled by
+    ``activate_extensions`` without affecting the session. Workspace extension
+    discovery is fail-closed unless the caller supplies a resolved trusted
+    project state.
+    """
+
+    if activation_batch is None:
+        reserved = extension_reserved_command_names(
+            resources.custom_command_slash_names()
+        )
+        descriptors = discover_extensions(
+            cwd,
+            package_roots=tuple(package_roots),
+            explicit_paths=explicit_extension_paths,
+            include_defaults=include_default_extensions,
+            include_workspace_defaults=include_workspace_defaults,
+        )
+        if extension_patterns:
+            from pipy_harness.native.resource_enablement import is_resource_enabled
+
+            descriptors = [
+                descriptor
+                for descriptor in descriptors
+                if descriptor.source_kind == "cli"
+                or is_resource_enabled(descriptor.name, list(extension_patterns))
+            ]
+        outbox: list[QueuedUserMessage] = []
+        custom_outbox: list[QueuedCustomMessage] = []
+        activated = activate_extensions(
+            descriptors,
+            reserved_command_names=reserved,
+            reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
+            message_outbox=outbox,
+            custom_message_outbox=custom_outbox,
+        )
+    else:
+        if activation_batch.pending:
+            raise ValueError("initial extension activation batch must be finalized")
+        activated = list(activation_batch.activated)
+        outbox = activation_batch.message_outbox
+        custom_outbox = activation_batch.custom_message_outbox
+    command_map = extension_command_map(activated)
+    menu_names = tuple(f"/{name}" for name in command_map)
+    descriptions = {
+        f"/{command.name}": command.description for command in command_map.values()
+    }
+    custom_messages = tuple(
+        message
+        for extension in activated
+        if extension.status == "activated"
+        for message in extension.custom_messages
+    )
+    tool_call_hooks = extension_tool_call_hooks(activated)
+    lifecycle_hooks = {
+        event: extension_event_hooks(activated, event) for event in LIFECYCLE_EVENTS
+    }
+    input_hooks = extension_event_hooks(activated, EVENT_INPUT)
+    before_agent_start_hooks = extension_event_hooks(
+        activated, EVENT_BEFORE_AGENT_START
+    )
+    tool_result_hooks = extension_event_hooks(activated, EVENT_TOOL_RESULT)
+    user_bash_hooks = extension_event_hooks(activated, EVENT_USER_BASH)
+    before_provider_headers_hooks = extension_event_hooks(
+        activated, EVENT_BEFORE_PROVIDER_HEADERS
+    )
+    before_provider_request_hooks = extension_event_hooks(
+        activated, EVENT_BEFORE_PROVIDER_REQUEST
+    )
+    session_before_switch_hooks = extension_event_hooks(
+        activated, EVENT_SESSION_BEFORE_SWITCH
+    )
+    session_before_fork_hooks = extension_event_hooks(
+        activated, EVENT_SESSION_BEFORE_FORK
+    )
+    session_before_compact_hooks = extension_event_hooks(
+        activated, EVENT_SESSION_BEFORE_COMPACT
+    )
+    session_before_tree_hooks = extension_event_hooks(
+        activated, EVENT_SESSION_BEFORE_TREE
+    )
+    return _ExtensionRuntime(
+        commands=command_map,
+        menu_names=menu_names,
+        descriptions=descriptions,
+        tool_call_hooks=tool_call_hooks,
+        lifecycle_hooks=lifecycle_hooks,
+        input_hooks=input_hooks,
+        before_agent_start_hooks=before_agent_start_hooks,
+        tool_result_hooks=tool_result_hooks,
+        user_bash_hooks=user_bash_hooks,
+        before_provider_headers_hooks=before_provider_headers_hooks,
+        before_provider_request_hooks=before_provider_request_hooks,
+        session_before_switch_hooks=session_before_switch_hooks,
+        session_before_fork_hooks=session_before_fork_hooks,
+        session_before_compact_hooks=session_before_compact_hooks,
+        session_before_tree_hooks=session_before_tree_hooks,
+        outbox=outbox,
+        custom_outbox=custom_outbox,
+        tools=extension_tools(activated),
+        shortcuts=extension_shortcuts(activated),
+        flags=extension_flags(activated),
+        providers=extension_providers(activated),
+        unregistered_providers=extension_unregistered_providers(activated),
+        message_renderers=extension_message_renderers(activated),
+        entry_renderers=extension_entry_renderers(activated),
+        custom_messages=custom_messages,
+    )
 
 
 def dispatch_input_hooks(

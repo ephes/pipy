@@ -490,6 +490,37 @@ class ExtensionActivationBatch:
 
 
 @dataclass(frozen=True, slots=True)
+class _ExtensionRuntime:
+    """The activated-extension contributions wired into one session run."""
+
+    commands: dict[str, RegisteredCommand]
+    menu_names: tuple[str, ...]
+    descriptions: dict[str, str]
+    tool_call_hooks: tuple[HookHandler, ...]
+    lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
+    input_hooks: tuple[HookHandler, ...]
+    before_agent_start_hooks: tuple[HookHandler, ...]
+    tool_result_hooks: tuple[HookHandler, ...]
+    user_bash_hooks: tuple[HookHandler, ...]
+    before_provider_headers_hooks: tuple[HookHandler, ...]
+    before_provider_request_hooks: tuple[HookHandler, ...]
+    session_before_switch_hooks: tuple[HookHandler, ...]
+    session_before_fork_hooks: tuple[HookHandler, ...]
+    session_before_compact_hooks: tuple[HookHandler, ...]
+    session_before_tree_hooks: tuple[HookHandler, ...]
+    outbox: list[QueuedUserMessage]
+    custom_outbox: list[QueuedCustomMessage]
+    tools: tuple[RegisteredTool, ...]
+    shortcuts: dict[str, RegisteredShortcut]
+    flags: tuple[RegisteredFlag, ...]
+    providers: tuple[RegisteredProvider, ...]
+    unregistered_providers: tuple[str, ...]
+    message_renderers: dict[str, RegisteredMessageRenderer]
+    entry_renderers: dict[str, RegisteredEntryRenderer]
+    custom_messages: tuple[QueuedCustomMessage, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _ContributionNames:
     """Accepted contribution names, grouped in collision-check order."""
 
