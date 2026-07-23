@@ -39,9 +39,9 @@ filterwarnings = [
 
 [tool.mypy]
 # Repository default stays non-strict while the migration ratchets strictness
-# on one leaf package at a time (docs/architecture-migration.md, Phase 7). The
-# per-module override below opts four fully-typed leaves into `--strict`;
-# providers and native/http.py remain deferred (Slice 7.3) and the
+# on one subpackage at a time (docs/architecture-migration.md, Phase 7). The
+# per-module override below opts the four fully-typed leaves (Slice 7.2) plus the
+# native.providers package and native/http.py (Slice 7.3) into `--strict`; the
 # heavier-debt root `native/` modules are untouched. The override lists the
 # per-module `--strict` sub-flags explicitly rather than `strict = true`,
 # because mypy applies a per-module `strict = true` globally (leaking the
@@ -59,6 +59,8 @@ module = [
     "pipy_harness.native.agent.*",
     "pipy_harness.native.coding.*",
     "pipy_harness.native.automation.*",
+    "pipy_harness.native.providers.*",
+    "pipy_harness.native.http",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

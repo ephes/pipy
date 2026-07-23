@@ -283,13 +283,15 @@ separate mechanical normalization slice.
 
 Type checking runs default (non-strict) over the whole tree, but a per-package
 Mypy override in `pyproject.toml` opts the fully-typed leaf packages
-`native.ui`, `native.agent`, `native.coding`, and `native.automation` into
-`--strict`-equivalent enforcement (the strict flag set is expanded into its
-individual per-module keys because a per-module `strict = true` leaks the strict
-checks onto every other module; the two strict sub-flags Mypy only honours
-globally, `warn_unused_configs` and `warn_redundant_casts`, are hoisted into the
-base `[tool.mypy]` so the gate stays genuinely strict-equivalent). This is the
-migration's first Phase 7 type
-ratchet: providers and `native/http.py` stay non-strict until Slice 7.3, and the
-heavier-debt root `native/` modules are untouched. New code in the four gated
-packages must stay strict-clean.
+`native.ui`, `native.agent`, `native.coding`, `native.automation`, the
+`native.providers` package, and `native/http.py` into `--strict`-equivalent
+enforcement (the strict flag set is expanded into its individual per-module keys
+because a per-module `strict = true` leaks the strict checks onto every other
+module; the two strict sub-flags Mypy only honours globally,
+`warn_unused_configs` and `warn_redundant_casts`, are hoisted into the base
+`[tool.mypy]` so the gate stays genuinely strict-equivalent). This is the
+migration's Phase 7 type ratchet, advanced across two slices: Slice 7.2 gated the
+four leaf packages and Slice 7.3 extended the frontier to the provider adapters
+and the HTTP transport boundary. The heavier-debt root `native/` modules
+(`session.py`, `extensions.py`, `tool_loop_session.py`) stay non-strict. New code
+in the gated packages must stay strict-clean.

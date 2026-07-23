@@ -129,9 +129,9 @@ def _registering_connection(base: type, cancel_token: CancelToken) -> type:
     later body/stream ``read()`` on the same connection.
     """
 
-    class _RegisteringConnection(base):  # type: ignore[valid-type, misc]
+    class _RegisteringConnection(base):  # type: ignore[misc]
         def connect(self) -> None:
-            super().connect()  # type: ignore[misc]
+            super().connect()
             # register() closes + raises immediately if cancel() already fired,
             # so a worker that lost the race never blocks on a doomed request.
             cancel_token.register(_ConnectionCloser(self))
@@ -390,9 +390,9 @@ _ANTHROPIC_CACHE_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
 
 
 def _usage_int(value: Any) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
 
 
 def extract_anthropic_usage(value: Any) -> dict[str, int | float]:

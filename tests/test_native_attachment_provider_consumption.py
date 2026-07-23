@@ -122,7 +122,7 @@ def test_google_attaches_inline_data_part() -> None:
         parse_error_class=GoogleResponseParseError,
         attach_images=True,
     )
-    user = cast(dict[str, Any], contents[-1])
+    user = contents[-1]
     assert user["role"] == "user"
     parts = cast(list[dict[str, Any]], user["parts"])
     inline = [p for p in parts if "inlineData" in p]

@@ -2790,6 +2790,40 @@ gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
 
+### Strict Mypy gate extended to the providers package and http boundary (Slice 7.3) — DONE (2026-07-23)
+
+Third Phase 7 cut, advancing the type ratchet frontier. The existing
+`[[tool.mypy.overrides]]` strict block gains two module patterns —
+`pipy_harness.native.providers.*` and `pipy_harness.native.http` — so
+`just typecheck` (`mypy src tests`) now fails on any strict regression across the
+provider adapters and the HTTP transport boundary as well as the four leaf
+packages gated in 7.2. Clearing the ~3 resulting strict errors is
+annotation-and-narrowing-only, no request/wire/behavior change: in
+`native/http.py`, the `_RegisteringConnection` subclass keeps only its
+still-required `type: ignore[misc]` (the now-unnecessary `valid-type` code and
+the fully-redundant `super().connect()` ignore are dropped under
+`warn_unused_ignores`), and `_usage_int` is reordered to a positive
+`isinstance(value, int) and not isinstance(value, bool)` narrowing so the `int`
+branch returns a narrowed `int` instead of `Any` (removing the
+`no-any-return`; behavior is identical — bool and non-int still yield `None`).
+Provider adapters (bedrock and siblings) import `HarnessStatus` from the
+non-gated `pipy_harness.models`, whose implicit re-export stays legal exactly as
+in 7.2 (`no_implicit_reexport` is governed by the exporting module), so no
+provider source needed an `__all__` or import change. A pre-existing
+HEAD-level redundant `cast(dict[str, Any], contents[-1])` in
+`tests/test_native_attachment_provider_consumption.py` (already flagged by the
+global `warn_redundant_casts` after mypy version drift since 7.2) is removed to
+keep `just check` green. The heavier-debt root `native/` modules
+(`session.py`, `extensions.py`, `tool_loop_session.py`), a repo-wide strict flip,
+and a C901 gate stay out of scope. Focused attachment / every
+`test_native_*_provider` / provider-cancellation / retry / http-transport-
+primitives / usage / import-boundary suites passed (505+); automation-RPC
+conformance (ALL PASS) and PTY smoke (8/8) passed; final `just check` (Ruff and
+mypy clean across 420 sources, full suite green) and `just docs-build` are green.
+No new runtime dependency, unchecked `Any`, or unexplained `type: ignore`.
+Review: Pending review — Claude Opus panel (user-directed substitution for the
+different-family gate).
+
 ### Strict Mypy gate for the ui/agent/coding/automation leaf packages (Slice 7.2) — DONE (2026-07-23)
 
 Second Phase 7 cut and the first type ratchet gate. A new `[tool.mypy]` section
