@@ -13,8 +13,8 @@ This module imports only the `extension_types` contracts and the `native.themes`
 registry helpers, so it never reaches the product session (`tool_loop_session`)
 or the terminal UI (`tui`). `extension_runtime` imports `_CollectingUi` from
 here for `make_extension_context` / `_ActivationApi`; the live
-`_LiveExtensionUiDriver` that binds `ToolLoopTerminalUi` stays in
-`tool_loop_session` (Phase-4 terminal surface).
+`_LiveExtensionUiDriver` that binds `ToolLoopTerminalUi` is owned beside that
+terminal boundary in `tui`.
 """
 
 from __future__ import annotations

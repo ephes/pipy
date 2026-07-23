@@ -2797,6 +2797,38 @@ gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
 
+### Live extension UI driver relocation to the terminal owner (Slice 7.5a) — DONE (2026-07-23)
+
+First directional Phase 7 follow-on cut. Relocate the concrete
+`_LiveExtensionUiDriver` adapter out of the composition root
+`native/tool_loop_session.py` and into `native/tui.py`, which owns the
+`ToolLoopTerminalUi` boundary it delegates to. Repoint the composition root and
+the direct chrome-driver characterization tests to the new owner, update the
+extension-UI ownership documentation and import-boundary wording, and delete the
+superseded definition in the same slice. Preserve every driver method,
+`FooterData` snapshot, theme-selection result, branch-change callback, terminal
+input listener, chrome/editor mutation, and TUI behavior byte for byte. No new
+boundary, feature, public extension surface, runtime dependency, unchecked
+`Any`, `type: ignore`, C901 pin, or strict-Mypy exclusion.
+
+Baseline before the follow-on burn-down: repository-wide Ruff C901 is 142
+findings across 70 pinned files (126 findings across 61 `src` files);
+`src` contains 32 `type: ignore` uses; and
+`native/tool_loop_session.py` is 7,626 lines.
+
+Landed shape: `_LiveExtensionUiDriver` now lives beside
+`ToolLoopTerminalUi` in `native.tui`; `tool_loop_session` imports the adapter
+and only constructs it. The original class is deleted, the direct chrome-driver
+tests import the terminal owner, the extension-UI module docstring and
+architecture-boundary wording describe the new ownership, and the headless
+`native.extension_ui` no-`tui`/no-`tool_loop_session` rule remains unchanged.
+The composition root falls by 96 lines to 7,530; the C901 (142/70) and
+`type: ignore` (32) ratchets are unchanged and no pin/exclusion was added.
+Focused live-driver/import-boundary/theme/chrome-session verification passed
+195 tests; final `just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Ruff C901 complexity gate at the Phase 7 baseline + final Phase 7 status (Slice 7.4) — DONE (2026-07-23)
 
 Fourth and final Phase 7 cut: the complexity ratchet gate plus the recorded

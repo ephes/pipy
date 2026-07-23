@@ -364,6 +364,7 @@ from pipy_harness.native.tui import (
     SettingsRow,
     TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
     ToolLoopTerminalUi,
+    _LiveExtensionUiDriver,
     run_project_trust_selector,
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
@@ -782,103 +783,6 @@ def _detect_git_branch(cwd: Path) -> str | None:
             return text[:7]
         return None
     return None
-
-
-class _LiveExtensionUiDriver:
-    """Live `ExtensionUiDriver` backed by the product TUI (one per session)."""
-
-    def __init__(self, terminal_ui: "ToolLoopTerminalUi", cwd: Path) -> None:
-        self._terminal_ui = terminal_ui
-        self._cwd = cwd
-        self._editor_component: object | None = None
-
-    def select(self, title: str, options: Sequence[str]) -> str | None:
-        return self._terminal_ui.run_extension_select(title, options)
-
-    def input(self, title: str, placeholder: str | None = None) -> str | None:
-        return self._terminal_ui.run_extension_input(title, placeholder)
-
-    def editor(self, title: str, prefill: str | None = None) -> str | None:
-        return self._terminal_ui.run_extension_editor(title, prefill)
-
-    def confirm(self, title: str, message: str) -> bool:
-        return self._terminal_ui.run_extension_confirm(title, message)
-
-    def set_status(self, key: str, text: str | None) -> None:
-        self._terminal_ui.set_extension_status(key, text)
-
-    def set_working_message(self, message: str | None = None) -> None:
-        self._terminal_ui.set_extension_working_message(message)
-
-    def set_working_visible(self, visible: bool) -> None:
-        self._terminal_ui.set_extension_working_visible(visible)
-
-    def set_widget(self, key: str, content: object, placement: str) -> None:
-        self._terminal_ui.set_extension_widget(key, content, placement=placement)
-
-    def set_header(self, factory: object | None) -> None:
-        self._terminal_ui.set_extension_header(factory)
-
-    def set_footer(self, factory: object | None) -> None:
-        self._terminal_ui.set_extension_footer(factory)
-
-    def set_title(self, title: str) -> None:
-        self._terminal_ui.set_extension_title(title)
-
-    def set_working_indicator(self, frames: object, interval_ms: object) -> None:
-        self._terminal_ui.set_extension_working_indicator(frames, interval_ms)
-
-    def set_hidden_thinking_label(self, label: str | None = None) -> None:
-        self._terminal_ui.set_extension_hidden_thinking_label(label)
-
-    def get_editor_text(self) -> str:
-        return self._terminal_ui.get_input_text()
-
-    def set_editor_text(self, text: str) -> None:
-        self._terminal_ui.set_input_text(text)
-
-    def paste_to_editor(self, text: str) -> None:
-        self._terminal_ui.paste_input_text(text)
-
-    def add_terminal_input_listener(self, handler: Any) -> Callable[[], None]:
-        return self._terminal_ui.add_extension_terminal_input_listener(handler)
-
-    def get_tools_expanded(self) -> bool:
-        return bool(self._terminal_ui.tools_expanded)
-
-    def set_tools_expanded(self, expanded: bool) -> None:
-        self._terminal_ui.tools_expanded = bool(expanded)
-        rerender = getattr(self._terminal_ui, "rerender_custom_messages", None)
-        if callable(rerender):
-            rerender()
-        else:
-            paint = getattr(self._terminal_ui, "paint", None)
-            if callable(paint):
-                paint()
-
-    def add_autocomplete_provider(self, factory: object) -> None:
-        self._terminal_ui.add_extension_autocomplete_provider(factory)
-
-    def set_editor_component(self, factory: object | None) -> None:
-        self._terminal_ui.set_editor_component(factory)
-        self._editor_component = self._terminal_ui.get_editor_component()
-
-    def get_editor_component(self) -> object | None:
-        component = self._terminal_ui.get_editor_component()
-        self._editor_component = component
-        return component
-
-    def apply_theme(self, name: str) -> tuple[bool, str | None]:
-        """Switch the live chrome theme (rich-UI item E: ``ctx.ui.set_theme``).
-
-        Reuses ``select_theme`` — the exact mechanism the ``/settings`` theme
-        row uses — which validates the name (fail-closed on unknown), persists
-        the non-secret name to the chrome store, and sets ``PIPY_THEME`` so the
-        next ``chrome_style_for`` render repaints with the new palette. No
-        provider turn, tool call, or archive write.
-        """
-        ok, message = select_theme(name, environ=os.environ, store=NativeThemeStore())
-        return ok, None if ok else message
 
 
 def production_tool_registry() -> dict[str, ToolPort]:

@@ -990,8 +990,8 @@ ARCHITECTURE_RULES = (
             "lines_component chrome helpers) must depend only on the "
             "extension_types contracts and the native.themes registry, never on "
             "the concrete product session (tool_loop_session) or the terminal UI "
-            "(tui); the live _LiveExtensionUiDriver that binds ToolLoopTerminalUi "
-            "stays in tool_loop_session"
+            "(tui); the live _LiveExtensionUiDriver is owned by tui alongside "
+            "the ToolLoopTerminalUi boundary it binds"
         ),
     ),
 )

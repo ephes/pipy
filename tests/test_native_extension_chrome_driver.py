@@ -5,7 +5,7 @@ from pipy_harness.native.extension_runtime import (
 from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
 )
-from pipy_harness.native.tool_loop_session import _LiveExtensionUiDriver
+from pipy_harness.native.tui import _LiveExtensionUiDriver
 
 
 class _FakeDriver:
