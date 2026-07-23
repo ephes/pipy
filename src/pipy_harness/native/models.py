@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, MutableMapping
+from collections.abc import Callable, Iterable, Mapping, MutableMapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -467,42 +467,31 @@ class NativeReadOnlyToolRequest:
     raw_transcript_imported: bool = False
 
     def __post_init__(self) -> None:
-        identity = NativeToolRequestIdentity.current_noop()
-        if self.tool_request_id != identity.request_id:
-            raise ValueError("read-only workspace inspection requires pipy-owned tool_request_id")
-        if self.turn_index != identity.turn_index:
-            raise ValueError("read-only workspace inspection requires pipy-owned turn_index")
-        if self.approval_policy.mode not in {
-            NativeToolApprovalMode.NOT_REQUIRED,
-            NativeToolApprovalMode.REQUIRED,
-        }:
-            raise ValueError("read-only workspace inspection has unsupported approval policy")
-        if self.sandbox_policy.mode != NativeToolSandboxMode.READ_ONLY_WORKSPACE:
-            raise ValueError("read-only workspace inspection requires read-only-workspace sandbox")
-        if self.sandbox_policy.workspace_read_allowed is not True:
-            raise ValueError("read-only workspace inspection requires workspace_read_allowed")
-        for field_name in (
-            "filesystem_mutation_allowed",
-            "shell_execution_allowed",
-            "network_access_allowed",
-        ):
-            if getattr(self.sandbox_policy, field_name) is not False:
-                raise ValueError(f"read-only workspace inspection forbids {field_name}")
-        for field_name in (
-            "tool_payloads_stored",
-            "stdout_stored",
-            "stderr_stored",
-            "diffs_stored",
-            "file_contents_stored",
-            "prompt_stored",
-            "model_output_stored",
-            "provider_responses_stored",
-            "raw_transcript_imported",
-        ):
-            if getattr(self, field_name) is not False:
-                raise ValueError(f"{field_name} must remain false for inert read-only requests")
-        if self.scope_label is not None:
-            _validate_scope_label(self.scope_label)
+        _validate_pipy_owned_request_identity(
+            self.tool_request_id,
+            self.turn_index,
+            request_name="read-only workspace inspection",
+        )
+        _validate_read_only_request_policy(
+            self.approval_policy,
+            self.sandbox_policy,
+        )
+        _validate_false_fields(
+            self,
+            (
+                "tool_payloads_stored",
+                "stdout_stored",
+                "stderr_stored",
+                "diffs_stored",
+                "file_contents_stored",
+                "prompt_stored",
+                "model_output_stored",
+                "provider_responses_stored",
+                "raw_transcript_imported",
+            ),
+            invariant_name="inert read-only requests",
+        )
+        _validate_optional_scope_label(self.scope_label)
 
 
 @dataclass(frozen=True, slots=True)
@@ -593,28 +582,26 @@ class NativePatchProposal:
     MAX_OPERATION_LABELS: ClassVar[int] = 8
 
     def __post_init__(self) -> None:
-        identity = NativeToolRequestIdentity.current_noop()
-        if self.tool_request_id != identity.request_id:
-            raise ValueError("patch proposal requires pipy-owned tool_request_id")
-        if self.turn_index != identity.turn_index:
-            raise ValueError("patch proposal requires pipy-owned turn_index")
-        for field_name, upper_bound in (
-            ("file_count", self.MAX_FILE_COUNT),
-            ("operation_count", self.MAX_OPERATION_COUNT),
-        ):
-            value = getattr(self, field_name)
-            if not isinstance(value, int) or isinstance(value, bool):
-                raise ValueError(f"{field_name} must be an integer")
-            if value < 0 or value > upper_bound:
-                raise ValueError(f"{field_name} must be between 0 and {upper_bound}")
-        if len(self.operation_labels) > self.MAX_OPERATION_LABELS:
-            raise ValueError("operation_labels exceeds the bounded metadata limit")
-        for operation_label in self.operation_labels:
-            if not isinstance(operation_label, NativePatchProposalOperation):
-                raise ValueError("operation_labels must use native patch proposal labels")
-        for field_name in NATIVE_PATCH_PROPOSAL_STORAGE_KEYS:
-            if getattr(self, field_name) is not False:
-                raise ValueError(f"{field_name} must remain false for patch proposals")
+        _validate_pipy_owned_request_identity(
+            self.tool_request_id,
+            self.turn_index,
+            request_name="patch proposal",
+        )
+        _validate_bounded_integer_fields(
+            (
+                ("file_count", self.file_count, self.MAX_FILE_COUNT),
+                ("operation_count", self.operation_count, self.MAX_OPERATION_COUNT),
+            )
+        )
+        _validate_patch_proposal_operation_labels(
+            self.operation_labels,
+            max_labels=self.MAX_OPERATION_LABELS,
+        )
+        _validate_false_fields(
+            self,
+            NATIVE_PATCH_PROPOSAL_STORAGE_KEYS,
+            invariant_name="patch proposals",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -663,73 +650,27 @@ class NativePatchApplyRequest:
     MAX_OPERATION_COUNT: ClassVar[int] = 10
 
     def __post_init__(self) -> None:
-        identity = NativeToolRequestIdentity.current_noop()
-        if self.tool_request_id != identity.request_id:
-            raise ValueError("patch apply requires pipy-owned tool_request_id")
-        if self.turn_index != identity.turn_index:
-            raise ValueError("patch apply requires pipy-owned turn_index")
-        if self.request_source != "pipy-owned-human-reviewed":
-            raise ValueError("patch apply requires pipy-owned human-reviewed request source")
-        if self.approval_policy.mode != NativeToolApprovalMode.REQUIRED:
-            raise ValueError("patch apply requires approval")
-        if self.sandbox_policy.mode != NativeToolSandboxMode.MUTATING_WORKSPACE:
-            raise ValueError("patch apply requires mutating-workspace sandbox")
-        if self.sandbox_policy.workspace_read_allowed is not True:
-            raise ValueError("patch apply requires workspace_read_allowed")
-        if self.sandbox_policy.filesystem_mutation_allowed is not True:
-            raise ValueError("patch apply requires filesystem_mutation_allowed")
-        if self.sandbox_policy.shell_execution_allowed is not False:
-            raise ValueError("patch apply forbids shell_execution_allowed")
-        if self.sandbox_policy.network_access_allowed is not False:
-            raise ValueError("patch apply forbids network_access_allowed")
-        if not self.operations:
-            raise ValueError("patch apply requires at least one operation")
-        if len(self.operations) > self.MAX_OPERATION_COUNT:
-            raise ValueError("patch apply operation count exceeds the bounded limit")
-        distinct_paths: set[str] = set()
-        for operation in self.operations:
-            if not isinstance(operation, NativePatchApplyOperationRequest):
-                raise ValueError("patch apply operations must use native request objects")
-            if not isinstance(operation.operation, NativePatchApplyOperation):
-                raise ValueError("patch apply operation labels must be native labels")
-            if not isinstance(operation.workspace_relative_path, str):
-                raise ValueError("patch apply workspace_relative_path must be a string")
-            if operation.new_text is not None and not isinstance(operation.new_text, str):
-                raise ValueError("patch apply new_text must be a string")
-            if operation.expected_sha256 is not None and not isinstance(operation.expected_sha256, str):
-                raise ValueError("patch apply expected_sha256 must be a string")
-            if (
-                operation.target_workspace_relative_path is not None
-                and not isinstance(operation.target_workspace_relative_path, str)
-            ):
-                raise ValueError("patch apply target_workspace_relative_path must be a string")
-            if (
-                operation.operation != NativePatchApplyOperation.RENAME
-                and operation.target_workspace_relative_path is not None
-            ):
-                raise ValueError("patch apply target paths are supported only for rename operations")
-            if operation.operation == NativePatchApplyOperation.RENAME:
-                if operation.target_workspace_relative_path is None:
-                    raise ValueError("patch apply rename requires a target path")
-                if operation.new_text is not None:
-                    raise ValueError("patch apply rename must not carry new_text")
-            if operation.operation == NativePatchApplyOperation.DELETE:
-                if operation.new_text is not None or operation.target_workspace_relative_path is not None:
-                    raise ValueError("patch apply delete must not carry new_text or target path")
-            paths_for_operation = [operation.workspace_relative_path]
-            if operation.target_workspace_relative_path is not None:
-                paths_for_operation.append(operation.target_workspace_relative_path)
-            for workspace_path in paths_for_operation:
-                if workspace_path in distinct_paths:
-                    raise ValueError("patch apply operations must not overlap workspace paths")
-                distinct_paths.add(workspace_path)
-        if len(distinct_paths) > self.MAX_FILE_COUNT:
-            raise ValueError("patch apply file count exceeds the bounded limit")
-        for field_name in NATIVE_PATCH_APPLY_STORAGE_KEYS:
-            if getattr(self, field_name) is not False:
-                raise ValueError(f"{field_name} must remain false for patch apply requests")
-        if self.scope_label is not None:
-            _validate_scope_label(self.scope_label)
+        _validate_pipy_owned_request_identity(
+            self.tool_request_id,
+            self.turn_index,
+            request_name="patch apply",
+        )
+        _validate_patch_apply_request_policy(
+            self.request_source,
+            self.approval_policy,
+            self.sandbox_policy,
+        )
+        _validate_patch_apply_operations(
+            self.operations,
+            max_operations=self.MAX_OPERATION_COUNT,
+            max_files=self.MAX_FILE_COUNT,
+        )
+        _validate_false_fields(
+            self,
+            NATIVE_PATCH_APPLY_STORAGE_KEYS,
+            invariant_name="patch apply requests",
+        )
+        _validate_optional_scope_label(self.scope_label)
 
 
 @dataclass(frozen=True, slots=True)
@@ -798,6 +739,180 @@ class NativeRunOutput:
     usage: Mapping[str, Any] | None = None
     error_type: str | None = None
     error_message: str | None = None
+
+
+def _validate_pipy_owned_request_identity(
+    tool_request_id: str,
+    turn_index: int,
+    *,
+    request_name: str,
+) -> None:
+    identity = NativeToolRequestIdentity.current_noop()
+    if tool_request_id != identity.request_id:
+        raise ValueError(f"{request_name} requires pipy-owned tool_request_id")
+    if turn_index != identity.turn_index:
+        raise ValueError(f"{request_name} requires pipy-owned turn_index")
+
+
+def _validate_read_only_request_policy(
+    approval_policy: NativeToolApprovalPolicy,
+    sandbox_policy: NativeToolSandboxPolicy,
+) -> None:
+    if approval_policy.mode not in {
+        NativeToolApprovalMode.NOT_REQUIRED,
+        NativeToolApprovalMode.REQUIRED,
+    }:
+        raise ValueError("read-only workspace inspection has unsupported approval policy")
+    if sandbox_policy.mode != NativeToolSandboxMode.READ_ONLY_WORKSPACE:
+        raise ValueError("read-only workspace inspection requires read-only-workspace sandbox")
+    if sandbox_policy.workspace_read_allowed is not True:
+        raise ValueError("read-only workspace inspection requires workspace_read_allowed")
+    for field_name in (
+        "filesystem_mutation_allowed",
+        "shell_execution_allowed",
+        "network_access_allowed",
+    ):
+        if getattr(sandbox_policy, field_name) is not False:
+            raise ValueError(f"read-only workspace inspection forbids {field_name}")
+
+
+def _validate_bounded_integer_fields(
+    fields_and_bounds: Iterable[tuple[str, object, int]],
+) -> None:
+    for field_name, value, upper_bound in fields_and_bounds:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"{field_name} must be an integer")
+        if value < 0 or value > upper_bound:
+            raise ValueError(f"{field_name} must be between 0 and {upper_bound}")
+
+
+def _validate_patch_proposal_operation_labels(
+    operation_labels: tuple[NativePatchProposalOperation, ...],
+    *,
+    max_labels: int,
+) -> None:
+    if len(operation_labels) > max_labels:
+        raise ValueError("operation_labels exceeds the bounded metadata limit")
+    for operation_label in operation_labels:
+        if not isinstance(operation_label, NativePatchProposalOperation):
+            raise ValueError("operation_labels must use native patch proposal labels")
+
+
+def _validate_patch_apply_request_policy(
+    request_source: str,
+    approval_policy: NativeToolApprovalPolicy,
+    sandbox_policy: NativeToolSandboxPolicy,
+) -> None:
+    if request_source != "pipy-owned-human-reviewed":
+        raise ValueError("patch apply requires pipy-owned human-reviewed request source")
+    if approval_policy.mode != NativeToolApprovalMode.REQUIRED:
+        raise ValueError("patch apply requires approval")
+    _validate_patch_apply_sandbox_policy(sandbox_policy)
+
+
+def _validate_patch_apply_sandbox_policy(
+    sandbox_policy: NativeToolSandboxPolicy,
+) -> None:
+    if sandbox_policy.mode != NativeToolSandboxMode.MUTATING_WORKSPACE:
+        raise ValueError("patch apply requires mutating-workspace sandbox")
+    if sandbox_policy.workspace_read_allowed is not True:
+        raise ValueError("patch apply requires workspace_read_allowed")
+    if sandbox_policy.filesystem_mutation_allowed is not True:
+        raise ValueError("patch apply requires filesystem_mutation_allowed")
+    if sandbox_policy.shell_execution_allowed is not False:
+        raise ValueError("patch apply forbids shell_execution_allowed")
+    if sandbox_policy.network_access_allowed is not False:
+        raise ValueError("patch apply forbids network_access_allowed")
+
+
+def _validate_patch_apply_operations(
+    operations: tuple[NativePatchApplyOperationRequest, ...],
+    *,
+    max_operations: int,
+    max_files: int,
+) -> None:
+    if not operations:
+        raise ValueError("patch apply requires at least one operation")
+    if len(operations) > max_operations:
+        raise ValueError("patch apply operation count exceeds the bounded limit")
+    distinct_paths: set[str] = set()
+    for operation_value in operations:
+        operation = _validate_patch_apply_operation_shape(operation_value)
+        _validate_patch_apply_operation_constraints(operation)
+        _record_patch_apply_operation_paths(operation, distinct_paths)
+    if len(distinct_paths) > max_files:
+        raise ValueError("patch apply file count exceeds the bounded limit")
+
+
+def _validate_patch_apply_operation_shape(
+    operation: object,
+) -> NativePatchApplyOperationRequest:
+    if not isinstance(operation, NativePatchApplyOperationRequest):
+        raise ValueError("patch apply operations must use native request objects")
+    if not isinstance(operation.operation, NativePatchApplyOperation):
+        raise ValueError("patch apply operation labels must be native labels")
+    if not isinstance(operation.workspace_relative_path, str):
+        raise ValueError("patch apply workspace_relative_path must be a string")
+    if operation.new_text is not None and not isinstance(operation.new_text, str):
+        raise ValueError("patch apply new_text must be a string")
+    if operation.expected_sha256 is not None and not isinstance(
+        operation.expected_sha256, str
+    ):
+        raise ValueError("patch apply expected_sha256 must be a string")
+    if operation.target_workspace_relative_path is not None and not isinstance(
+        operation.target_workspace_relative_path, str
+    ):
+        raise ValueError("patch apply target_workspace_relative_path must be a string")
+    return operation
+
+
+def _validate_patch_apply_operation_constraints(
+    operation: NativePatchApplyOperationRequest,
+) -> None:
+    if (
+        operation.operation != NativePatchApplyOperation.RENAME
+        and operation.target_workspace_relative_path is not None
+    ):
+        raise ValueError("patch apply target paths are supported only for rename operations")
+    if operation.operation == NativePatchApplyOperation.RENAME:
+        if operation.target_workspace_relative_path is None:
+            raise ValueError("patch apply rename requires a target path")
+        if operation.new_text is not None:
+            raise ValueError("patch apply rename must not carry new_text")
+    if operation.operation == NativePatchApplyOperation.DELETE and (
+        operation.new_text is not None
+        or operation.target_workspace_relative_path is not None
+    ):
+        raise ValueError("patch apply delete must not carry new_text or target path")
+
+
+def _record_patch_apply_operation_paths(
+    operation: NativePatchApplyOperationRequest,
+    distinct_paths: set[str],
+) -> None:
+    paths_for_operation = [operation.workspace_relative_path]
+    if operation.target_workspace_relative_path is not None:
+        paths_for_operation.append(operation.target_workspace_relative_path)
+    for workspace_path in paths_for_operation:
+        if workspace_path in distinct_paths:
+            raise ValueError("patch apply operations must not overlap workspace paths")
+        distinct_paths.add(workspace_path)
+
+
+def _validate_false_fields(
+    value: object,
+    field_names: Iterable[str],
+    *,
+    invariant_name: str,
+) -> None:
+    for field_name in field_names:
+        if getattr(value, field_name) is not False:
+            raise ValueError(f"{field_name} must remain false for {invariant_name}")
+
+
+def _validate_optional_scope_label(value: str | None) -> None:
+    if value is not None:
+        _validate_scope_label(value)
 
 
 def _validate_scope_label(value: str) -> None:

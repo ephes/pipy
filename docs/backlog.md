@@ -3374,6 +3374,30 @@ Sol, 2 rounds, 1 finding, final explicit CLEAN. Round one found that reasoning
 callbacks could mutate fake status before the separately guarded text stream;
 the second success check and a regression test were restored.
 
+### C901 native request-invariant decomposition (Slice 7.7k) — DONE (2026-07-23)
+
+Twelfth directional complexity slice, bounded to `native.models`. Decompose the
+three request-value findings (`NativeReadOnlyToolRequest`,
+`NativePatchProposal`, and `NativePatchApplyRequest`) into coherent identity,
+policy/sandbox, bounded-count/operation, privacy-storage, and optional-scope
+invariant helpers. Preserve exact constructor validation order, exception
+types/messages, exact enum/object requirements, path overlap timing, and every
+metadata-only/privacy fail-closed rule. The file leaves the pin list only when
+all three original and new helpers are below threshold. No model/schema/public
+API or serialization change, loosened validation, dependency, unchecked
+`Any`, `type: ignore`, Mypy exclusion, cosmetic splitting, or new pin.
+
+Landed shape: shared typed helpers now own pipy identity, read-only and patch
+policy/sandbox rules, bounded fields and labels, patch-operation shape and
+rename/delete constraints, ordered overlap/path limits, false privacy-storage
+fields, and optional scope validation. The three class dispatchers retain the
+original first-failure order; new tests pin rename self-overlap and
+per-operation validation before the distinct-path limit. The owner is clean
+and its pin is deleted, lowering repository C901 104/44 -> 101/43 (`src`
+88/35 -> 85/34). Focused verification passed 56 tests; final `just check`
+passed Ruff, Mypy, and 4,533 tests (2 skipped); `just docs-build` passed.
+Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

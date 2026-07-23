@@ -245,6 +245,45 @@ def test_patch_apply_request_rejects_overlapping_operation_paths(
         current_request(*operations)
 
 
+def test_patch_apply_request_rejects_rename_to_its_source_as_an_overlap():
+    with pytest.raises(
+        ValueError,
+        match="patch apply operations must not overlap workspace paths",
+    ):
+        current_request(
+            NativePatchApplyOperationRequest(
+                operation=NativePatchApplyOperation.RENAME,
+                workspace_relative_path="same.py",
+                target_workspace_relative_path="same.py",
+                expected_sha256="0" * 64,
+            )
+        )
+
+
+def test_patch_apply_request_validates_all_operations_before_distinct_path_limit():
+    operations = tuple(
+        NativePatchApplyOperationRequest(
+            operation=NativePatchApplyOperation.CREATE,
+            workspace_relative_path=f"file-{index}.py",
+            new_text="value = 1\n",
+        )
+        for index in range(NativePatchApplyRequest.MAX_FILE_COUNT)
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="patch apply delete must not carry new_text or target path",
+    ):
+        current_request(
+            *operations,
+            NativePatchApplyOperationRequest(
+                operation=NativePatchApplyOperation.DELETE,
+                workspace_relative_path="over-limit.py",
+                new_text="not allowed",
+            ),
+        )
+
+
 def test_patch_apply_request_rejects_target_path_on_non_rename():
     with pytest.raises(ValueError, match="target paths"):
         current_request(
