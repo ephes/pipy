@@ -353,6 +353,52 @@ def has_trust_requiring_project_resources(cwd: Path | str) -> bool:
 DefaultProjectTrust = Literal["ask", "always", "never"]
 
 
+def _store_error_resolution(
+    exc: ProjectTrustError,
+    on_diagnostic: Callable[[str], None] | None,
+) -> ProjectTrustResolution:
+    if on_diagnostic is not None:
+        on_diagnostic(str(exc))
+    return ProjectTrustResolution(False, "store_error", True)
+
+
+def _extension_trust_resolution(
+    resolved: Path,
+    trust_store: ProjectTrustStore,
+    extension_decision: Callable[[Path], ProjectTrustExtensionDecision | None]
+    | None,
+    on_diagnostic: Callable[[str], None] | None,
+) -> ProjectTrustResolution | None:
+    if extension_decision is None:
+        return None
+    decision = extension_decision(resolved)
+    if decision is None or decision.trusted is None:
+        return None
+    if decision.remember is True:
+        try:
+            trust_store.set(resolved, decision.trusted)
+        except ProjectTrustError as exc:
+            return _store_error_resolution(exc, on_diagnostic)
+    return ProjectTrustResolution(decision.trusted, "extension", True)
+
+
+def _selection_trust_resolution(
+    resolved: Path,
+    trust_store: ProjectTrustStore,
+    select: Callable[[Path], bool | ProjectTrustOption | None],
+    on_diagnostic: Callable[[str], None] | None,
+) -> ProjectTrustResolution:
+    selected = select(resolved)
+    if not isinstance(selected, ProjectTrustOption):
+        return ProjectTrustResolution(selected is True, "selection", True)
+    try:
+        if selected.updates:
+            trust_store.set_many(selected.updates)
+    except ProjectTrustError as exc:
+        return _store_error_resolution(exc, on_diagnostic)
+    return ProjectTrustResolution(selected.trusted, "selection", True)
+
+
 def resolve_project_trust(
     cwd: Path | str,
     *,
@@ -386,23 +432,15 @@ def resolve_project_trust(
             source="no_resources",
             had_protected_resources=False,
         )
-    if extension_decision is not None:
-        decision = extension_decision(resolved)
-        if decision is not None and decision.trusted is not None:
-            if decision.remember is True:
-                try:
-                    trust_store.set(resolved, decision.trusted)
-                except ProjectTrustError as exc:
-                    if on_diagnostic is not None:
-                        on_diagnostic(str(exc))
-                    return ProjectTrustResolution(False, "store_error", True)
-            return ProjectTrustResolution(decision.trusted, "extension", True)
+    extension = _extension_trust_resolution(
+        resolved, trust_store, extension_decision, on_diagnostic
+    )
+    if extension is not None:
+        return extension
     try:
         saved = trust_store.get(resolved)
     except ProjectTrustError as exc:
-        if on_diagnostic is not None:
-            on_diagnostic(str(exc))
-        return ProjectTrustResolution(False, "store_error", True)
+        return _store_error_resolution(exc, on_diagnostic)
     if saved is not None:
         return ProjectTrustResolution(saved, "saved", True)
     if default_project_trust == "always":
@@ -410,17 +448,9 @@ def resolve_project_trust(
     if default_project_trust == "never":
         return ProjectTrustResolution(False, "default_never", True)
     if select is not None:
-        selected = select(resolved)
-        if isinstance(selected, ProjectTrustOption):
-            try:
-                if selected.updates:
-                    trust_store.set_many(selected.updates)
-            except ProjectTrustError as exc:
-                if on_diagnostic is not None:
-                    on_diagnostic(str(exc))
-                return ProjectTrustResolution(False, "store_error", True)
-            return ProjectTrustResolution(selected.trusted, "selection", True)
-        return ProjectTrustResolution(selected is True, "selection", True)
+        return _selection_trust_resolution(
+            resolved, trust_store, select, on_diagnostic
+        )
     return ProjectTrustResolution(False, "headless", True)
 
 

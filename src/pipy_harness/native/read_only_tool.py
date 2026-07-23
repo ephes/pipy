@@ -271,107 +271,49 @@ class NativeExplicitFileExcerptTool:
         gate_decision: NativeReadOnlyGateDecision,
         target: NativeExplicitFileExcerptTarget,
     ) -> NativeExplicitFileExcerptResult:
-        started_at = datetime.now(UTC)
         base_result = _ResultBuilder(
             request=request,
-            started_at=started_at,
+            started_at=datetime.now(UTC),
             approval_decision=gate_decision.approval_decision,
             target=target,
         )
 
-        reason = _request_gate_reason(request)
+        reason = _request_approval_reason(request, gate_decision)
         if reason is not None:
             return base_result.skipped(reason)
-        if request.approval_policy.mode == NativeToolApprovalMode.REQUIRED and not gate_decision.allowed:
-            return base_result.skipped(NativeExplicitFileExcerptReason.APPROVAL_NOT_ALLOWED)
+        preflight = _excerpt_preflight(self.workspace, target, request.limits)
+        if isinstance(preflight, NativeExplicitFileExcerptReason):
+            return base_result.skipped(preflight)
+        content = _read_excerpt_content(preflight)
+        if isinstance(content, NativeExplicitFileExcerptReason):
+            return base_result.skipped(content)
+        return base_result.succeeded(content)
 
-        workspace = self.workspace.resolve()
-        candidate = (workspace / target.workspace_relative_path).resolve()
-        if not _is_relative_to(candidate, workspace):
-            return base_result.skipped(NativeExplicitFileExcerptReason.UNSAFE_TARGET)
-        if _is_ignored_or_generated(target.workspace_relative_path, workspace):
-            return base_result.skipped(NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE)
-        if not candidate.exists():
-            return base_result.skipped(NativeExplicitFileExcerptReason.MISSING_FILE)
-        if candidate.is_dir():
-            return base_result.skipped(NativeExplicitFileExcerptReason.DIRECTORY_TARGET)
-        if not candidate.is_file():
-            return base_result.skipped(NativeExplicitFileExcerptReason.NOT_REGULAR_FILE)
-        try:
-            stat_result = candidate.stat()
-        except OSError:
-            return base_result.skipped(NativeExplicitFileExcerptReason.UNREADABLE_FILE)
-        if stat_result.st_mode & 0o444 == 0:
-            return base_result.skipped(NativeExplicitFileExcerptReason.UNREADABLE_FILE)
 
-        byte_limit = _byte_limit(request.limits)
-        line_limit = _line_limit(request.limits)
-        if byte_limit <= 0 or line_limit <= 0:
-            return base_result.skipped(NativeExplicitFileExcerptReason.LIMIT_EXCEEDED)
-        if stat_result.st_size > byte_limit:
-            return base_result.skipped(NativeExplicitFileExcerptReason.OVERSIZED_FILE)
+@dataclass(frozen=True, slots=True)
+class _ExcerptPreflight:
+    path: Path
+    byte_limit: int
+    line_limit: int
 
-        try:
-            raw = candidate.read_bytes()
-        except OSError:
-            return base_result.skipped(NativeExplicitFileExcerptReason.UNREADABLE_FILE)
-        if b"\0" in raw:
-            return base_result.skipped(NativeExplicitFileExcerptReason.BINARY_FILE)
-        try:
-            text = raw.decode(_TEXT_ENCODING)
-        except UnicodeDecodeError:
-            return base_result.skipped(NativeExplicitFileExcerptReason.UNSUPPORTED_ENCODING)
-        if any(char in _CONTROL_CHARS for char in text):
-            return base_result.skipped(NativeExplicitFileExcerptReason.BINARY_FILE)
-        if looks_sensitive(text):
-            return base_result.skipped(NativeExplicitFileExcerptReason.SECRET_LOOKING_CONTENT)
 
-        line_count = _line_count(text)
-        byte_count = len(raw)
-        if byte_count > byte_limit or line_count > line_limit:
-            return base_result.skipped(NativeExplicitFileExcerptReason.LIMIT_EXCEEDED)
-
-        source_label = _source_label(target.workspace_relative_path)
-        source_sha256 = _source_hash(target.workspace_relative_path)
-        excerpt = NativeInMemoryFileExcerpt(
-            text=text,
-            source_label=source_label,
-            byte_count=byte_count,
-            line_count=line_count,
-        )
-        return NativeExplicitFileExcerptResult(
-            status=NativeToolStatus.SUCCEEDED,
-            reason_label=NativeExplicitFileExcerptReason.READ_SUCCEEDED,
-            tool_request_id=request.tool_request_id,
-            turn_index=request.turn_index,
-            request_kind=request.request_kind,
-            started_at=started_at,
-            ended_at=datetime.now(UTC),
-            source_label=source_label,
-            source_sha256=source_sha256,
-            byte_count=byte_count,
-            line_count=line_count,
-            excerpt=excerpt,
-            approval_policy=request.approval_policy.mode,
-            approval_decision=gate_decision.approval_decision,
-            sandbox_policy=request.sandbox_policy.mode,
-            workspace_read_allowed=request.sandbox_policy.workspace_read_allowed,
-            filesystem_mutation_allowed=request.sandbox_policy.filesystem_mutation_allowed,
-            shell_execution_allowed=request.sandbox_policy.shell_execution_allowed,
-            network_access_allowed=request.sandbox_policy.network_access_allowed,
-        )
+@dataclass(frozen=True, slots=True)
+class _ExcerptContent:
+    text: str
+    byte_count: int
+    line_count: int
 
 
 @dataclass(frozen=True, slots=True)
 class _ResultBuilder:
     request: NativeReadOnlyToolRequest
     started_at: datetime
-    approval_decision: NativeReadOnlyApprovalDecision | None = None
-    target: NativeExplicitFileExcerptTarget | None = None
+    approval_decision: NativeReadOnlyApprovalDecision
+    target: NativeExplicitFileExcerptTarget
 
     def skipped(self, reason: NativeExplicitFileExcerptReason) -> NativeExplicitFileExcerptResult:
-        source_label = _source_label(self.target.workspace_relative_path) if self.target else None
-        source_sha256 = _source_hash(self.target.workspace_relative_path) if self.target else None
+        source_label = _source_label(self.target.workspace_relative_path)
+        source_sha256 = _source_hash(self.target.workspace_relative_path)
         return NativeExplicitFileExcerptResult(
             status=NativeToolStatus.SKIPPED,
             reason_label=reason,
@@ -390,6 +332,105 @@ class _ResultBuilder:
             shell_execution_allowed=self.request.sandbox_policy.shell_execution_allowed,
             network_access_allowed=self.request.sandbox_policy.network_access_allowed,
         )
+
+    def succeeded(self, content: _ExcerptContent) -> NativeExplicitFileExcerptResult:
+        source_label = _source_label(self.target.workspace_relative_path)
+        source_sha256 = _source_hash(self.target.workspace_relative_path)
+        excerpt = NativeInMemoryFileExcerpt(
+            text=content.text,
+            source_label=source_label,
+            byte_count=content.byte_count,
+            line_count=content.line_count,
+        )
+        return NativeExplicitFileExcerptResult(
+            status=NativeToolStatus.SUCCEEDED,
+            reason_label=NativeExplicitFileExcerptReason.READ_SUCCEEDED,
+            tool_request_id=self.request.tool_request_id,
+            turn_index=self.request.turn_index,
+            request_kind=self.request.request_kind,
+            started_at=self.started_at,
+            ended_at=datetime.now(UTC),
+            source_label=source_label,
+            source_sha256=source_sha256,
+            byte_count=content.byte_count,
+            line_count=content.line_count,
+            excerpt=excerpt,
+            approval_policy=self.request.approval_policy.mode,
+            approval_decision=self.approval_decision,
+            sandbox_policy=self.request.sandbox_policy.mode,
+            workspace_read_allowed=self.request.sandbox_policy.workspace_read_allowed,
+            filesystem_mutation_allowed=self.request.sandbox_policy.filesystem_mutation_allowed,
+            shell_execution_allowed=self.request.sandbox_policy.shell_execution_allowed,
+            network_access_allowed=self.request.sandbox_policy.network_access_allowed,
+        )
+
+
+def _request_approval_reason(
+    request: NativeReadOnlyToolRequest,
+    gate_decision: NativeReadOnlyGateDecision,
+) -> NativeExplicitFileExcerptReason | None:
+    reason = _request_gate_reason(request)
+    if reason is not None:
+        return reason
+    if request.approval_policy.mode == NativeToolApprovalMode.REQUIRED and not gate_decision.allowed:
+        return NativeExplicitFileExcerptReason.APPROVAL_NOT_ALLOWED
+    return None
+
+
+def _excerpt_preflight(
+    workspace_path: Path,
+    target: NativeExplicitFileExcerptTarget,
+    limits: NativeReadOnlyToolLimits,
+) -> _ExcerptPreflight | NativeExplicitFileExcerptReason:
+    workspace = workspace_path.resolve()
+    candidate = (workspace / target.workspace_relative_path).resolve()
+    if not _is_relative_to(candidate, workspace):
+        return NativeExplicitFileExcerptReason.UNSAFE_TARGET
+    if _is_ignored_or_generated(target.workspace_relative_path, workspace):
+        return NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE
+    if not candidate.exists():
+        return NativeExplicitFileExcerptReason.MISSING_FILE
+    if candidate.is_dir():
+        return NativeExplicitFileExcerptReason.DIRECTORY_TARGET
+    if not candidate.is_file():
+        return NativeExplicitFileExcerptReason.NOT_REGULAR_FILE
+    try:
+        stat_result = candidate.stat()
+    except OSError:
+        return NativeExplicitFileExcerptReason.UNREADABLE_FILE
+    if stat_result.st_mode & 0o444 == 0:
+        return NativeExplicitFileExcerptReason.UNREADABLE_FILE
+    byte_limit = _byte_limit(limits)
+    line_limit = _line_limit(limits)
+    if byte_limit <= 0 or line_limit <= 0:
+        return NativeExplicitFileExcerptReason.LIMIT_EXCEEDED
+    if stat_result.st_size > byte_limit:
+        return NativeExplicitFileExcerptReason.OVERSIZED_FILE
+    return _ExcerptPreflight(candidate, byte_limit, line_limit)
+
+
+def _read_excerpt_content(
+    preflight: _ExcerptPreflight,
+) -> _ExcerptContent | NativeExplicitFileExcerptReason:
+    try:
+        raw = preflight.path.read_bytes()
+    except OSError:
+        return NativeExplicitFileExcerptReason.UNREADABLE_FILE
+    if b"\0" in raw:
+        return NativeExplicitFileExcerptReason.BINARY_FILE
+    try:
+        text = raw.decode(_TEXT_ENCODING)
+    except UnicodeDecodeError:
+        return NativeExplicitFileExcerptReason.UNSUPPORTED_ENCODING
+    if any(char in _CONTROL_CHARS for char in text):
+        return NativeExplicitFileExcerptReason.BINARY_FILE
+    if looks_sensitive(text):
+        return NativeExplicitFileExcerptReason.SECRET_LOOKING_CONTENT
+    line_count = _line_count(text)
+    byte_count = len(raw)
+    if byte_count > preflight.byte_limit or line_count > preflight.line_limit:
+        return NativeExplicitFileExcerptReason.LIMIT_EXCEEDED
+    return _ExcerptContent(text, byte_count, line_count)
 
 
 def _request_gate_reason(

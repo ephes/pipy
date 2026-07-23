@@ -219,14 +219,8 @@ class HarnessRunner:
                     },
                 )
 
-            if status == HarnessStatus.SUCCEEDED:
-                completion_event = "harness.run.completed"
-            elif status == HarnessStatus.ABORTED:
-                completion_event = "harness.run.aborted"
-            else:
-                completion_event = "harness.run.adapter_failed"
             sink.emit(
-                completion_event,
+                _completion_event(status),
                 summary=f"Harness run finished: status={status.value}, exit_code={exit_code}.",
                 payload={
                     **_base_payload(request, self.adapter.name, workspace, status),
@@ -318,6 +312,14 @@ class HarnessRunner:
             duration_seconds=duration_seconds,
             metadata=_adapter_result_metadata(adapter_result),
         )
+
+
+def _completion_event(status: HarnessStatus) -> str:
+    if status == HarnessStatus.SUCCEEDED:
+        return "harness.run.completed"
+    if status == HarnessStatus.ABORTED:
+        return "harness.run.aborted"
+    return "harness.run.adapter_failed"
 
 
 @dataclass(slots=True)

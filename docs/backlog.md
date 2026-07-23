@@ -3535,6 +3535,36 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose runner, trust, and read-only policy owners (Slice 7.7m) — DONE (2026-07-23)
+
+Fourteenth directional C901 batch. Decompose the sole finding in
+`runner.HarnessRunner.run`, `native.project_trust.resolve_project_trust`, and
+`native.read_only_tool.NativeExplicitFileExcerptTool.invoke` at cohesive
+lifecycle/policy/I/O boundaries. Preserve runner event/write/clock ordering and
+archive redaction, project-trust winning-rung and fail-closed persistence/UI
+semantics, and read-only approval/path/generated/stat/limit/read/content
+validation first-failure order. Add characterization where timing/order is not
+already pinned. Each clean file leaves the C901 pin list. No behavior,
+privacy/trust weakening, session/archive or tool-result shape, dependency,
+`Any`, ignore, Mypy exclusion, or new pin.
+
+Landed shape: runner preserves its straight-line lifecycle and extracts only
+the terminal-status-to-event mapping; a clock characterization pins every
+event/finalize/result call. Project trust delegates extension-decision,
+store-error, and UI-selection rungs while retaining exact precedence,
+diagnostics, atomic updates, and fail-closed outcomes. Read-only invocation
+uses typed path/stat/bounds preflight and content-read values before the same
+result builder, retaining generated/path/existence/stat/read/content order and
+pre/post-read limits. The first implementation wrapper hung after leaving an
+overbroad lifecycle state-machine and formatter churn; the recovery removed
+that design and minimized the diff before verification. New tests pin
+remember-write failure before saved/UI fallbacks and generated-target rejection
+before missing-file shape. All three owners are clean and their pins are
+deleted, lowering repository C901 98/40 -> 95/37 (`src` 82/31 -> 79/28).
+Focused verification passed 101 tests; final `just check` passed Ruff, Mypy,
+and 4,537 tests (2 skipped). `src` ignores remain 28 and the root remains
+5,382 lines. Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

@@ -13,6 +13,7 @@ from pipy_harness.native.project_trust import (
     PROTECTED_PROJECT_ENTRIES,
     ProjectTrustError,
     ProjectTrustExtensionDecision,
+    ProjectTrustResolution,
     ProjectTrustStore,
     get_project_trust_options,
     has_trust_requiring_project_resources,
@@ -270,6 +271,39 @@ def test_extension_decision_exact_remember_and_suppressed_rungs(tmp_path: Path) 
     assert resolution.trusted is False
     assert calls == [tmp_path.resolve()]
     assert store.get(tmp_path) is False
+
+
+def test_extension_remember_store_error_diagnoses_then_fails_closed(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".pipy" / "skills").mkdir(parents=True)
+    calls: list[str] = []
+
+    class FailingRememberStore(ProjectTrustStore):
+        def set(self, cwd: Path | str, decision: bool | None) -> None:
+            calls.append(f"store:{decision}")
+            raise ProjectTrustError("remember failed")
+
+        def get(self, cwd: Path | str) -> bool | None:
+            raise AssertionError("saved trust rung ran after remember failure")
+
+    def decide(_path: Path) -> ProjectTrustExtensionDecision:
+        calls.append("extension")
+        return ProjectTrustExtensionDecision(True, remember=True)
+
+    def unexpected_select(_path: Path) -> bool:
+        raise AssertionError("selection ran after remember failure")
+
+    resolution = resolve_project_trust(
+        tmp_path,
+        trust_store=FailingRememberStore(tmp_path / "trust.json"),
+        extension_decision=decide,
+        select=unexpected_select,
+        on_diagnostic=lambda message: calls.append(f"diagnostic:{message}"),
+    )
+
+    assert resolution == ProjectTrustResolution(False, "store_error", True)
+    assert calls == ["extension", "store:True", "diagnostic:remember failed"]
 
 
 def test_resolver_global_default_selector_and_malformed_store(tmp_path: Path) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.adapters import SubprocessAdapter
@@ -329,16 +329,13 @@ def test_runner_bounds_escaped_exception_detail_in_metadata_archive(tmp_path):
 
 def test_runner_clock_sets_monotonic_sequence_not_event_time_order(tmp_path):
     times = [
-        datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC),
-        datetime(2026, 5, 1, 12, 0, 3, tzinfo=UTC),
-        datetime(2026, 5, 1, 12, 0, 1, tzinfo=UTC),
-        datetime(2026, 5, 1, 12, 0, 2, tzinfo=UTC),
+        datetime(2026, 5, 1, 12, 0, second, tzinfo=UTC)
+        for second in (0, 3, 1, 2, 4, 5, 6, 7, 8)
     ]
 
     def clock() -> datetime:
-        if times:
-            return times.pop(0)
-        return datetime(2026, 5, 1, 12, 0, 4, tzinfo=UTC) + timedelta(seconds=len(times))
+        assert times, "runner made an unexpected clock call"
+        return times.pop(0)
 
     result = HarnessRunner(adapter=SubprocessAdapter(), clock=clock, id_factory=lambda: "run-clock").run(
         RunRequest(
@@ -352,6 +349,21 @@ def test_runner_clock_sets_monotonic_sequence_not_event_time_order(tmp_path):
     events = read_jsonl(result.record.jsonl_path)
     sequenced = [event for event in events if "sequence" in event]
     assert [event["sequence"] for event in sequenced] == list(range(len(sequenced)))
+    assert [event["timestamp"] for event in sequenced] == [
+        "2026-05-01T12:00:00+00:00",
+        "2026-05-01T12:00:03+00:00",
+        "2026-05-01T12:00:01+00:00",
+        "2026-05-01T12:00:02+00:00",
+        "2026-05-01T12:00:05+00:00",
+        "2026-05-01T12:00:08+00:00",
+    ]
+    assert sequenced[4]["payload"]["duration_seconds"] == 4.0
+    assert result.duration_seconds == 7.0
+    assert times == []
+    assert (
+        "- Ended: 2026-05-01T12:00:06+00:00"
+        in result.record.markdown_path.read_text(encoding="utf-8")
+    )
 
 
 class InterruptingAdapter:

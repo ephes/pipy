@@ -6,6 +6,11 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native import (
+    NativeExplicitFileExcerptReason,
+    NativeExplicitFileExcerptTarget,
+    NativeExplicitFileExcerptTool,
+    NativeReadOnlyApprovalDecision,
+    NativeReadOnlyGateDecision,
     NativeReadOnlyToolLimits,
     NativeReadOnlyToolRequest,
     NativeReadOnlyToolRequestKind,
@@ -198,6 +203,16 @@ def test_read_only_tool_request_allows_explicit_no_approval_policy():
 def test_read_only_tool_request_scope_label_is_not_path_authority(scope_label: str):
     with pytest.raises(ValueError, match="scope_label"):
         current_read_only_request(scope_label=scope_label)
+
+
+def test_generated_target_wins_before_missing_file_shape(tmp_path: Path):
+    result = NativeExplicitFileExcerptTool(tmp_path).invoke(
+        current_read_only_request(),
+        NativeReadOnlyGateDecision(NativeReadOnlyApprovalDecision.ALLOWED),
+        NativeExplicitFileExcerptTarget("__pycache__/missing.py"),
+    )
+
+    assert result.reason_label == NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE
 
 
 def test_read_only_tool_request_contract_is_threaded_only_through_fixture_gated_session_path():
