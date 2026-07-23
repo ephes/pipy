@@ -47,7 +47,7 @@ value is placed on any archived field.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -201,132 +201,16 @@ def resolve_construction(
     # ``reasoning_value is None`` — so an unsupported clamped level stays
     # out of the off branch (Pi treats it as still-thinking-and-clamp; pipy does
     # not clamp, so it emits neither on- nor off-state).
-    reasoning_value = map_thinking_level(spec, thinking_level)
-    thinking_off = (
-        bool(spec.reasoning)
-        and reasoning_value is None
-        and (thinking_level is None or thinking_level == "off")
+    reasoning_effort, thinking_disabled = _resolve_request_thinking(
+        spec, thinking_level, body_extra
     )
-    reasoning_effort: str | None = None
-    thinking_format = _resolve_thinking_format(spec)
-
-    if thinking_format == "openrouter":
-        if reasoning_value is not None:
-            body_extra["reasoning"] = {"effort": reasoning_value}
-        elif thinking_off:
-            # ``reasoning: {effort: thinkingLevelMap.off ?? "none"}`` disables
-            # reasoning at the router rather than omitting the field
-            # (openai-completions.ts:578-580).
-            off_effort = _openrouter_off_effort(spec)
-            if off_effort is not None:
-                body_extra["reasoning"] = {"effort": off_effort}
-    elif thinking_format == "zai" and bool(spec.reasoning):
-        # ``enable_thinking: bool`` is the entire Z.ai thinking shape: true when a
-        # reasoning level is active, false when off/unset, for every
-        # reasoning-capable zai-format request (openai-completions.ts:556-557). The
-        # zai branch emits NO reasoning_effort and never consults
-        # supportsReasoningEffort (unlike deepseek/together).
-        if reasoning_value is not None:
-            body_extra["enable_thinking"] = True
-        elif thinking_off:
-            body_extra["enable_thinking"] = False
-    elif thinking_format == "qwen" and bool(spec.reasoning):
-        # ``enable_thinking: bool`` is the entire Qwen thinking shape: true when a
-        # reasoning level is active, false when off/unset, for every
-        # reasoning-capable qwen-format request (openai-completions.ts:558-559).
-        # Like zai (and unlike deepseek/together) the qwen branch emits NO
-        # reasoning_effort and never consults supportsReasoningEffort. qwen is
-        # explicit-compat-only — Pi's detectCompat has no qwen rung — so it is
-        # never auto-detected.
-        if reasoning_value is not None:
-            body_extra["enable_thinking"] = True
-        elif thinking_off:
-            body_extra["enable_thinking"] = False
-    elif thinking_format == "qwen-chat-template" and bool(spec.reasoning):
-        # Same bare-boolean enable_thinking semantics as qwen, but nested in a
-        # ``chat_template_kwargs`` object with a constant ``preserve_thinking: true``
-        # (openai-completions.ts:560-564). No reasoning_effort; explicit-compat-only.
-        if reasoning_value is not None:
-            body_extra["chat_template_kwargs"] = {
-                "enable_thinking": True,
-                "preserve_thinking": True,
-            }
-        elif thinking_off:
-            body_extra["chat_template_kwargs"] = {
-                "enable_thinking": False,
-                "preserve_thinking": True,
-            }
-    elif thinking_format == "deepseek" and bool(spec.reasoning):
-        # ``thinking: {type: enabled|disabled}`` is emitted for every
-        # reasoning-capable DeepSeek request; ``reasoning_effort`` rides along on
-        # the on-state only when the model supports it (openai-completions.ts:565-570).
-        if reasoning_value is not None:
-            body_extra["thinking"] = {"type": "enabled"}
-            if _supports_reasoning_effort(spec):
-                reasoning_effort = reasoning_value
-        elif thinking_off:
-            body_extra["thinking"] = {"type": "disabled"}
-    elif thinking_format == "together" and bool(spec.reasoning):
-        # ``reasoning: {enabled: bool}`` is emitted for every reasoning-capable
-        # Together request; ``reasoning_effort`` rides along on the on-state only
-        # when the model supports it (openai-completions.ts:586-594). Together's
-        # own provider/base URL auto-detects supportsReasoningEffort=False
-        # (isTogether), so the on-state normally omits reasoning_effort unless an
-        # explicit compat flag — or an explicit thinkingFormat="together" on a
-        # non-excluded provider — flips it back on.
-        if reasoning_value is not None:
-            body_extra["reasoning"] = {"enabled": True}
-            if _supports_reasoning_effort(spec):
-                reasoning_effort = reasoning_value
-        elif thinking_off:
-            body_extra["reasoning"] = {"enabled": False}
-    elif thinking_format == "ant-ling":
-        # ``reasoning: {effort}`` is the entire ant-ling thinking shape
-        # (openai-completions.ts:581-585): emitted ONLY on the on-state and ONLY
-        # when the RAW ``thinkingLevelMap[level]`` lookup is a string. Unlike
-        # deepseek/together/openrouter there is no ``?? level`` fallback (a model
-        # with no map emits nothing), there is NO off-state emission at all (the Pi
-        # branch gates on ``options.reasoningEffort``), and ``reasoning_effort`` /
-        # ``supportsReasoningEffort`` are never consulted. The branch is
-        # unconditional on ``thinking_format`` (not gated on ``spec.reasoning``) so
-        # a non-reasoning ant-ling row that declares a ``thinking_level_map`` can
-        # never fall through to the default ``reasoning_effort`` branch below —
-        # ``_ant_ling_effort`` returns ``None`` for it.
-        effort = _ant_ling_effort(spec, thinking_level)
-        if effort is not None:
-            body_extra["reasoning"] = {"effort": effort}
-    elif thinking_format == "string-thinking":
-        # ``thinking: string`` is the entire string-thinking shape
-        # (openai-completions.ts:595-601): on-state uses the mapped value with the
-        # same fallback-bearing value helper as openrouter/deepseek/together; the
-        # off-state emits ``thinkingLevelMap.off ?? "none"`` unless the off value
-        # is explicit null; ``reasoning_effort`` / ``supportsReasoningEffort`` are
-        # never consulted. Consume all string-thinking cases so non-reasoning rows
-        # with a map cannot fall through to the default reasoning_effort branch.
-        if bool(spec.reasoning) and reasoning_value is not None:
-            body_extra["thinking"] = reasoning_value
-        elif thinking_off:
-            off_thinking = _string_thinking_off_value(spec)
-            if off_thinking is not None:
-                body_extra["thinking"] = off_thinking
-    elif reasoning_value is not None:
-        # Default OpenAI-style top-level ``reasoning_effort``.
-        reasoning_effort = reasoning_value
-
-    # Pi makes the off-state explicit for reasoning-capable anthropic-messages
-    # models too (``thinkingEnabled === false`` -> ``thinking:{type:"disabled"}``);
-    # only the anthropic adapter consumes ``thinking_disabled`` (the completions
-    # families above carry their off-state in ``body_extra``).
-    thinking_disabled = thinking_off
     supports_tool_references = (
         _resolve_anthropic_tool_references(spec)
         if spec.api == "anthropic-messages"
         else False
     )
     supports_tool_search = (
-        resolve_openai_tool_search(spec)
-        if spec.api == "openai-responses"
-        else False
+        resolve_openai_tool_search(spec) if spec.api == "openai-responses" else False
     )
 
     return ResolvedConstruction(
@@ -343,6 +227,142 @@ def resolve_construction(
         supports_tool_references=supports_tool_references,
         supports_tool_search=supports_tool_search,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _ThinkingState:
+    """Mapped thinking inputs shared by one format-specific resolver."""
+
+    spec: NativeModelSpec
+    level: str | None
+    value: str | None
+    off: bool
+
+
+_ThinkingHandler = Callable[[_ThinkingState, dict[str, object]], str | None]
+
+
+def _resolve_request_thinking(
+    spec: NativeModelSpec,
+    thinking_level: str | None,
+    body_extra: dict[str, object],
+) -> tuple[str | None, bool]:
+    """Apply one format's request shape and return effort/disabled flags."""
+
+    value = map_thinking_level(spec, thinking_level)
+    thinking_off = (
+        bool(spec.reasoning)
+        and value is None
+        and (thinking_level is None or thinking_level == "off")
+    )
+    state = _ThinkingState(spec, thinking_level, value, thinking_off)
+    handler = _THINKING_HANDLERS.get(_resolve_thinking_format(spec))
+    if handler is None:
+        return value, thinking_off
+    return handler(state, body_extra), thinking_off
+
+
+def _apply_openrouter_thinking(
+    state: _ThinkingState, body_extra: dict[str, object]
+) -> str | None:
+    if state.value is not None:
+        body_extra["reasoning"] = {"effort": state.value}
+    elif state.off:
+        off_effort = _openrouter_off_effort(state.spec)
+        if off_effort is not None:
+            body_extra["reasoning"] = {"effort": off_effort}
+    return None
+
+
+def _apply_boolean_thinking(
+    state: _ThinkingState, body_extra: dict[str, object]
+) -> str | None:
+    """Apply the bare Z.ai/Qwen ``enable_thinking`` shape."""
+
+    if not state.spec.reasoning:
+        return state.value
+    if state.value is not None:
+        body_extra["enable_thinking"] = True
+    elif state.off:
+        body_extra["enable_thinking"] = False
+    return None
+
+
+def _apply_qwen_template_thinking(
+    state: _ThinkingState, body_extra: dict[str, object]
+) -> str | None:
+    if not state.spec.reasoning:
+        return state.value
+    if state.value is not None:
+        body_extra["chat_template_kwargs"] = {
+            "enable_thinking": True,
+            "preserve_thinking": True,
+        }
+    elif state.off:
+        body_extra["chat_template_kwargs"] = {
+            "enable_thinking": False,
+            "preserve_thinking": True,
+        }
+    return None
+
+
+def _apply_deepseek_thinking(
+    state: _ThinkingState, body_extra: dict[str, object]
+) -> str | None:
+    if not state.spec.reasoning:
+        return state.value
+    if state.value is not None:
+        body_extra["thinking"] = {"type": "enabled"}
+        return state.value if _supports_reasoning_effort(state.spec) else None
+    if state.off:
+        body_extra["thinking"] = {"type": "disabled"}
+    return None
+
+
+def _apply_together_thinking(
+    state: _ThinkingState, body_extra: dict[str, object]
+) -> str | None:
+    if not state.spec.reasoning:
+        return state.value
+    if state.value is not None:
+        body_extra["reasoning"] = {"enabled": True}
+        return state.value if _supports_reasoning_effort(state.spec) else None
+    if state.off:
+        body_extra["reasoning"] = {"enabled": False}
+    return None
+
+
+def _apply_ant_ling_thinking(
+    state: _ThinkingState, body_extra: dict[str, object]
+) -> str | None:
+    effort = _ant_ling_effort(state.spec, state.level)
+    if effort is not None:
+        body_extra["reasoning"] = {"effort": effort}
+    return None
+
+
+def _apply_string_thinking(
+    state: _ThinkingState, body_extra: dict[str, object]
+) -> str | None:
+    if state.spec.reasoning and state.value is not None:
+        body_extra["thinking"] = state.value
+    elif state.off:
+        off_thinking = _string_thinking_off_value(state.spec)
+        if off_thinking is not None:
+            body_extra["thinking"] = off_thinking
+    return None
+
+
+_THINKING_HANDLERS: Mapping[str, _ThinkingHandler] = {
+    "openrouter": _apply_openrouter_thinking,
+    "zai": _apply_boolean_thinking,
+    "qwen": _apply_boolean_thinking,
+    "qwen-chat-template": _apply_qwen_template_thinking,
+    "deepseek": _apply_deepseek_thinking,
+    "together": _apply_together_thinking,
+    "ant-ling": _apply_ant_ling_thinking,
+    "string-thinking": _apply_string_thinking,
+}
 
 
 _ANTHROPIC_TOOL_REFERENCE_MODEL = re.compile(
@@ -649,10 +669,17 @@ def build_provider(
             error=resolved.error or "auth resolution failed",
         )
 
-    # The remaining families share the same injection surface (api_key +
-    # endpoint + merged headers + mapped thinking effort); each adapter places
-    # the effort in its own native body key. When ``http_client`` is None the
-    # adapter's own urllib client default applies.
+    return _build_catalog_provider(resolved, http_client=http_client)
+
+
+def _build_catalog_provider(
+    resolved: ResolvedConstruction,
+    *,
+    http_client: object | None,
+) -> ProviderPort:
+    """Select and construct one authenticated catalog-wired API family."""
+
+    # When ``http_client`` is None each adapter's own default applies.
     http_kwargs = {} if http_client is None else {"http_client": http_client}
 
     if resolved.api == "google-generative-ai":
@@ -698,7 +725,6 @@ def build_provider(
             CloudflareWorkersAIProvider,
         )
 
-        # ``base_url`` already has the account id substituted (resolve_construction).
         endpoint = (resolved.base_url or "").rstrip("/") + "/chat/completions"
         return CloudflareWorkersAIProvider(
             model_id=resolved.model_id,
@@ -714,14 +740,15 @@ def build_provider(
         return _build_iam_provider(resolved, http_kwargs)
 
     endpoint = _endpoint_for(resolved.api, resolved.base_url)
-
     if resolved.api == "openai-completions":
         from pipy_harness.native.providers.openai_completions import (
             OpenAIChatCompletionsProvider,
             openai_completions_http_client,
         )
 
-        client = http_client if http_client is not None else openai_completions_http_client()
+        client = (
+            http_client if http_client is not None else openai_completions_http_client()
+        )
         return OpenAIChatCompletionsProvider(
             model_id=resolved.model_id,
             api_key=resolved.api_key,
@@ -749,7 +776,9 @@ def build_provider(
         )
 
     if resolved.api == "openai-responses":
-        from pipy_harness.native.providers.openai_responses import OpenAIResponsesProvider
+        from pipy_harness.native.providers.openai_responses import (
+            OpenAIResponsesProvider,
+        )
 
         return OpenAIResponsesProvider(
             model_id=resolved.model_id,

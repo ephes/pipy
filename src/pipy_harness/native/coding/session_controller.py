@@ -205,38 +205,8 @@ class CodingLoopStep:
     keyboard_interrupt: bool = False
 
     def __post_init__(self) -> None:
-        if type(self.kind) is not CodingLoopStepKind:
-            raise TypeError("kind must be an exact CodingLoopStepKind")
-        if type(self.line) is not str:
-            raise TypeError("line must be an exact str")
-        if type(self.settle_pending) is not bool:
-            raise TypeError("settle_pending must be an exact bool")
-        if type(self.keyboard_interrupt) is not bool:
-            raise TypeError("keyboard_interrupt must be an exact bool")
-        if self.kind is CodingLoopStepKind.PROVIDER_CONTENT:
-            if type(self.selected_provider_content) is not ProductContent:
-                raise TypeError(
-                    "provider-content steps require an exact ProductContent"
-                )
-            if self.queued_input is not None and (
-                type(self.queued_input) is not AgentQueuedInput
-            ):
-                raise TypeError("queued_input must be an exact AgentQueuedInput")
-        else:
-            if self.selected_provider_content is not None:
-                raise ValueError(
-                    "only provider-content steps carry selected_provider_content"
-                )
-            if self.queued_input is not None:
-                raise ValueError("only provider-content steps carry queued_input")
-        if self.kind is CodingLoopStepKind.EOF:
-            if self.line != "":
-                raise ValueError("an EOF step has no line")
-        else:
-            if self.line == "":
-                raise ValueError("a non-EOF step requires a non-empty line")
-            if self.keyboard_interrupt:
-                raise ValueError("only an EOF step may record a keyboard interrupt")
+        _require_exact_coding_loop_step_fields(self)
+        _require_coding_loop_step_payload(self)
 
     @classmethod
     def local_command(cls, line: str, settle_pending: bool) -> CodingLoopStep:
@@ -387,18 +357,14 @@ class CodingSessionController:
         clears any live TUI chrome.
         """
 
-        if not callable(step_once):
-            raise TypeError("step_once must be callable")
-        if not callable(finalize):
-            raise TypeError("finalize must be callable")
-        if not callable(fire_session_start):
-            raise TypeError("fire_session_start must be callable")
-        if not callable(fire_session_shutdown):
-            raise TypeError("fire_session_shutdown must be callable")
-        if not callable(consume_settle_pending):
-            raise TypeError("consume_settle_pending must be callable")
-        if not callable(clear_extension_chrome):
-            raise TypeError("clear_extension_chrome must be callable")
+        _require_run_loop_ports(
+            step_once=step_once,
+            finalize=finalize,
+            fire_session_start=fire_session_start,
+            fire_session_shutdown=fire_session_shutdown,
+            consume_settle_pending=consume_settle_pending,
+            clear_extension_chrome=clear_extension_chrome,
+        )
 
         # ``session_start`` fires once the session is set up (reason "startup"),
         # outside the try so a setup-fire failure does not run the shutdown
@@ -407,20 +373,16 @@ class CodingSessionController:
         # chrome clear — runs on EVERY exit path.
         fire_session_start()
         try:
-            result: NativeToolReplResult | None = None
             while True:
                 signal = step_once()
                 if type(signal) is not LoopStepSignal:
                     raise TypeError("step_once must return a LoopStepSignal")
                 if signal.kind is LoopStepSignalKind.RETURN_RESULT:
                     assert signal.result is not None
-                    result = signal.result
-                    break
+                    return signal.result
                 if signal.kind is LoopStepSignalKind.BREAK:
-                    result = finalize()
-                    break
+                    return finalize()
                 # CONTINUE: the step handled the iteration; re-enter the loop.
-            return result
         finally:
             if consume_settle_pending():
                 self._emitter.agent_settled()
@@ -553,75 +515,27 @@ class CodingSessionController:
         if not isinstance(effects, CodingCommandEffects):
             raise TypeError("effects must implement CodingCommandEffects")
 
-        # Built-in commands classify first, gated by the exact inline condition
-        # (``selected_provider_content is None or not stripped``) so non-empty
-        # provider/queued content — which carries a blank ``command_text`` — is
-        # never intercepted as an empty built-in.
-        if selected_provider_content is None or not stripped:
-            outcome = classify_coding_command(ProductContent(command_text))
-            if outcome.kind is CodingCommandOutcomeKind.EXIT:
-                return CommandDispatchResolution.exit_loop()
-            if outcome.kind is CodingCommandOutcomeKind.CONTINUE:
-                # The continuing built-in's imperative per-action effect chain
-                # runs through the port (it reassigns the run's control state),
-                # symmetric with resource/extension dispatch; the outcome is no
-                # longer handed back to the composition loop as data.
-                effects.interpret_builtin(outcome)
-                return CommandDispatchResolution.continue_loop()
+        builtin = _dispatch_builtin_command(
+            command_text=command_text,
+            stripped=stripped,
+            selected_provider_content=selected_provider_content,
+            effects=effects,
+        )
+        if builtin is not None:
+            return builtin
 
-        # Resource dispatch (skills, prompt templates, custom commands) runs
-        # through the same local-command boundary as the built-ins, after them so
-        # a custom command can never shadow a built-in.
-        resource = effects.dispatch_resource(command_text)
-        resource_provider_text: str | None = None
+        resource, resource_provider_text = _dispatch_resource_command(
+            command_text, effects
+        )
         if resource is not None:
-            if type(resource) is not ResourceDispatchResolution:
-                raise TypeError(
-                    "dispatch_resource must return a ResourceDispatchResolution"
-                )
-            if resource.kind is ResourceDispatchKind.LIST:
-                effects.emit_diagnostic(resource.message)
-                effects.refresh_footer()
-                return CommandDispatchResolution.continue_loop()
-            if resource.kind is ResourceDispatchKind.REJECT:
-                # Fail closed: diagnostic only, no provider turn, native
-                # product-session write, prompt-history entry, or metadata-only
-                # workflow archive event.
-                effects.emit_diagnostic(resource.message)
-                effects.refresh_footer()
-                return CommandDispatchResolution.continue_loop()
-            # RUN: the expanded/instruction text becomes the bounded
-            # provider-visible message; it never reaches prompt history, the
-            # native product session tree, or the metadata-only workflow archive.
-            # Only the invocation counter is surfaced.
-            effects.record_resource_invocation()
-            resource_provider_text = resource.provider_text or ""
-            effects.emit_diagnostic(resource.message)
-        # Extension commands dispatch AFTER built-ins and resource commands (so
-        # they can never shadow them) and BEFORE the not-handled fallback. The
-        # handler runs locally with no provider turn; its notifications are live
-        # UI output only.
+            return resource
+
         if resource_provider_text is None:
-            extension = effects.dispatch_extension(command_text)
+            extension = _dispatch_extension_command(command_text, effects)
             if extension is not None:
-                if type(extension) is not ExtensionDispatchResolution:
-                    raise TypeError(
-                        "dispatch_extension must return an ExtensionDispatchResolution"
-                    )
-                if not extension.ran and extension.error:
-                    effects.emit_diagnostic(
-                        f"pipy: extension command /{extension.name} "
-                        f"failed ({extension.error})"
-                    )
-                effects.refresh_footer()
-                return CommandDispatchResolution.continue_loop()
+                return extension
         if command_text.startswith("/") and resource_provider_text is None:
-            effects.emit_diagnostic(
-                f"pipy: {command_text!r} is not handled in tool-loop mode; "
-                + _NOT_HANDLED_COMMAND_NOTICE
-            )
-            effects.refresh_footer()
-            return CommandDispatchResolution.continue_loop()
+            return _dispatch_unhandled_command(command_text, effects)
         return CommandDispatchResolution.proceed_to_run(
             user_input=user_input,
             resource_provider_text=resource_provider_text,
@@ -643,6 +557,150 @@ class CodingSessionController:
             wake.queued_input,
             settle_pending,
         )
+
+
+def _require_exact_coding_loop_step_fields(step: CodingLoopStep) -> None:
+    """Validate the step's exact closed field types in declaration order."""
+
+    if type(step.kind) is not CodingLoopStepKind:
+        raise TypeError("kind must be an exact CodingLoopStepKind")
+    if type(step.line) is not str:
+        raise TypeError("line must be an exact str")
+    if type(step.settle_pending) is not bool:
+        raise TypeError("settle_pending must be an exact bool")
+    if type(step.keyboard_interrupt) is not bool:
+        raise TypeError("keyboard_interrupt must be an exact bool")
+
+
+def _require_coding_loop_step_payload(step: CodingLoopStep) -> None:
+    """Validate content ownership and EOF invariants after exact field types."""
+
+    if step.kind is CodingLoopStepKind.PROVIDER_CONTENT:
+        if type(step.selected_provider_content) is not ProductContent:
+            raise TypeError("provider-content steps require an exact ProductContent")
+        if (
+            step.queued_input is not None
+            and type(step.queued_input) is not AgentQueuedInput
+        ):
+            raise TypeError("queued_input must be an exact AgentQueuedInput")
+    else:
+        if step.selected_provider_content is not None:
+            raise ValueError(
+                "only provider-content steps carry selected_provider_content"
+            )
+        if step.queued_input is not None:
+            raise ValueError("only provider-content steps carry queued_input")
+    if step.kind is CodingLoopStepKind.EOF:
+        if step.line != "":
+            raise ValueError("an EOF step has no line")
+        return
+    if step.line == "":
+        raise ValueError("a non-EOF step requires a non-empty line")
+    if step.keyboard_interrupt:
+        raise ValueError("only an EOF step may record a keyboard interrupt")
+
+
+def _require_run_loop_ports(
+    *,
+    step_once: Callable[[], LoopStepSignal],
+    finalize: Callable[[], NativeToolReplResult],
+    fire_session_start: Callable[[], None],
+    fire_session_shutdown: Callable[[], None],
+    consume_settle_pending: Callable[[], bool],
+    clear_extension_chrome: Callable[[], None],
+) -> None:
+    """Validate lifecycle ports in the original fail-fast order."""
+
+    if not callable(step_once):
+        raise TypeError("step_once must be callable")
+    if not callable(finalize):
+        raise TypeError("finalize must be callable")
+    if not callable(fire_session_start):
+        raise TypeError("fire_session_start must be callable")
+    if not callable(fire_session_shutdown):
+        raise TypeError("fire_session_shutdown must be callable")
+    if not callable(consume_settle_pending):
+        raise TypeError("consume_settle_pending must be callable")
+    if not callable(clear_extension_chrome):
+        raise TypeError("clear_extension_chrome must be callable")
+
+
+def _dispatch_builtin_command(
+    *,
+    command_text: str,
+    stripped: str,
+    selected_provider_content: ProductContent | None,
+    effects: CodingCommandEffects,
+) -> CommandDispatchResolution | None:
+    """Intercept a built-in under the exact typed/provider-content gate."""
+
+    if selected_provider_content is not None and stripped:
+        return None
+    outcome = classify_coding_command(ProductContent(command_text))
+    if outcome.kind is CodingCommandOutcomeKind.EXIT:
+        return CommandDispatchResolution.exit_loop()
+    if outcome.kind is CodingCommandOutcomeKind.CONTINUE:
+        effects.interpret_builtin(outcome)
+        return CommandDispatchResolution.continue_loop()
+    return None
+
+
+def _dispatch_resource_command(
+    command_text: str,
+    effects: CodingCommandEffects,
+) -> tuple[CommandDispatchResolution | None, str | None]:
+    """Route LIST/REJECT locally and return RUN's provider-visible text."""
+
+    resource = effects.dispatch_resource(command_text)
+    if resource is None:
+        return None, None
+    if type(resource) is not ResourceDispatchResolution:
+        raise TypeError("dispatch_resource must return a ResourceDispatchResolution")
+    if resource.kind is ResourceDispatchKind.LIST:
+        effects.emit_diagnostic(resource.message)
+        effects.refresh_footer()
+        return CommandDispatchResolution.continue_loop(), None
+    if resource.kind is ResourceDispatchKind.REJECT:
+        effects.emit_diagnostic(resource.message)
+        effects.refresh_footer()
+        return CommandDispatchResolution.continue_loop(), None
+    effects.record_resource_invocation()
+    provider_text = resource.provider_text or ""
+    effects.emit_diagnostic(resource.message)
+    return None, provider_text
+
+
+def _dispatch_extension_command(
+    command_text: str,
+    effects: CodingCommandEffects,
+) -> CommandDispatchResolution | None:
+    """Consume a handled or failed extension command after resources."""
+
+    extension = effects.dispatch_extension(command_text)
+    if extension is None:
+        return None
+    if type(extension) is not ExtensionDispatchResolution:
+        raise TypeError("dispatch_extension must return an ExtensionDispatchResolution")
+    if not extension.ran and extension.error:
+        effects.emit_diagnostic(
+            f"pipy: extension command /{extension.name} failed ({extension.error})"
+        )
+    effects.refresh_footer()
+    return CommandDispatchResolution.continue_loop()
+
+
+def _dispatch_unhandled_command(
+    command_text: str,
+    effects: CodingCommandEffects,
+) -> CommandDispatchResolution:
+    """Consume an unhandled slash command with the product diagnostic."""
+
+    effects.emit_diagnostic(
+        f"pipy: {command_text!r} is not handled in tool-loop mode; "
+        + _NOT_HANDLED_COMMAND_NOTICE
+    )
+    effects.refresh_footer()
+    return CommandDispatchResolution.continue_loop()
 
 
 __all__ = [

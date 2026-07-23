@@ -3535,6 +3535,34 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose coding-session control and provider construction (Slice 7.7v) — DONE (2026-07-23)
+
+Twenty-third directional C901 batch. Decompose the five findings across
+`native.coding.session_controller` and `native.provider_construction` at
+closed-value validation, lifecycle-loop routing, built-in/resource/extension
+dispatch, auth/routing/thinking resolution, and API-family provider
+construction phases. Preserve true-idle settle and lifecycle ordering,
+input/command precedence, fail-closed resource/extension outcomes, provider
+auth/header/base-URL precedence, every thinking-format on/off request shape,
+API-family selection, injected-client behavior, and exact errors. Add
+characterization only where precedence is not already pinned. Each clean file
+leaves the C901 pin list. No behavior, provider request/wire shape, dependency,
+unchecked `Any`, ignore, Mypy exclusion, or new pin.
+
+Landed shape: coding-loop step validation separates exact closed field types
+from payload/EOF invariants; `run_loop` keeps its architecture-enforced literal
+loop skeleton while delegating callable-port validation, and command dispatch
+projects built-in, resource, extension, and unhandled phases in the original
+precedence. Provider construction resolves thinking through typed
+format-specific handlers for every mapped/off state, then delegates only the
+authenticated API-family adapter selection while preserving lazy imports and
+injected/default HTTP clients. Both owners are clean and their pins are
+deleted, lowering repository C901 51/18 -> 46/16 (`src` 35/9 -> 30/7).
+Focused verification passed 231 tests; final `just check` passed Ruff, Mypy,
+and 4,585 tests (2 skipped); `just docs-build` completed cleanly. `src`
+ignores remain 27 and the root remains 5,080 lines. Review: Pi GPT-5.6 Sol,
+2 rounds, 1 finding fixed, explicit CLEAN.
+
 ### Decompose native session policy, reconstruction, and startup resolution (Slice 7.7u) — DONE (2026-07-23)
 
 Twenty-second directional C901 batch. Decompose the eight findings across

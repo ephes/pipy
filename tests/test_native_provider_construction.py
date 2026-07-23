@@ -12,6 +12,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from pipy_harness.native import ProviderRequest
 from pipy_harness.native.auth_store import AuthStore, ProviderAuthRequestConfig
 from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
@@ -384,6 +386,36 @@ def test_openrouter_unsupported_level_emits_no_reasoning_on_wire(tmp_path):
     body = http.requests[-1]["body"]
     assert "reasoning" not in body
     assert "reasoning_effort" not in body
+
+
+@pytest.mark.parametrize(
+    "thinking_format",
+    ("zai", "qwen", "qwen-chat-template", "deepseek", "together"),
+)
+def test_non_reasoning_gated_formats_fall_back_to_top_level_effort(
+    tmp_path: Path, thinking_format: str
+) -> None:
+    spec = NativeModelSpec(
+        provider_name="custom",
+        model_id="mapped-non-reasoner",
+        display_name="Mapped Non-Reasoner",
+        api="openai-completions",
+        base_url="https://custom.example/v1",
+        reasoning=False,
+        thinking_level_map={"high": "mapped-high"},
+        compat={"thinkingFormat": thinking_format},
+        cost=NativeModelCost(),
+    )
+    resolved = resolve_construction(
+        spec,
+        store=AuthStore(path=tmp_path / "auth.json"),
+        env={},
+        runtime_api_key="k",
+        models_json_auth=ProviderAuthRequestConfig(api_key="k", headers={}),
+        thinking_level="high",
+    )
+    assert resolved.reasoning_effort == "mapped-high"
+    assert resolved.body_extra == {}
 
 
 def _deepseek_spec(**over: Any) -> NativeModelSpec:
