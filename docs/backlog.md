@@ -2797,6 +2797,31 @@ gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
 
+### Strict Mypy gate for the native session core (Slice 7.6a) — DONE (2026-07-23)
+
+First strict-root follow-on slice. Add `pipy_harness.native.session` to the
+existing enumerated strict-Mypy override (never `strict = true`) and resolve the
+four measured `no-any-return` errors through real narrowing/typing in that
+module. Preserve provider turns, safe metadata projection, intent/read-only
+classification, optional-text sanitization, events, usage, and every
+session/archive format. The gate must stay scoped and `no_implicit_reexport`
+remains governed by the exporting module. No behavior change, unchecked
+`Any`, `type: ignore`, relaxed flag, exclusion, dependency, or C901 pin.
+
+Landed shape: `pipy_harness.native.session` now participates in the existing
+enumerated strict-Mypy override. Its four measured `no-any-return` paths use
+concrete runtime narrowing: the required provider-turn label and sanitized
+optional text prove `str`; read-only intent classification proves both labels
+are strings; and the provider-metadata boundary retains only the scalar shapes
+its closed allowlist projectors already produce after sanitization. Valid
+provider-turn, intent, error-text, and archive payloads therefore keep their
+existing values, while malformed or future values fail closed. No flag was
+relaxed and no exclusion, `Any`, `type: ignore`, dependency, or C901 pin was
+added. The focused session/privacy/archive suite passed 71 tests; final
+`just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

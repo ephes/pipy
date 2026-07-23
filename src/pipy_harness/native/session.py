@@ -1053,9 +1053,10 @@ def _append_provider_turn(
 
 
 def _required_provider_turn_label(provider_turn: NativeTurnMetadata) -> str:
-    if provider_turn.provider_turn_label is None:
+    provider_turn_label = provider_turn.provider_turn_label
+    if not isinstance(provider_turn_label, str):
         raise ValueError("provider turn metadata requires a provider turn label")
-    return provider_turn.provider_turn_label
+    return provider_turn_label
 
 
 def _safe_context(run_input: NativeRunInput) -> dict[str, object]:
@@ -1113,7 +1114,12 @@ def _safe_provider_metadata(
     for safe_key, projector in _SAFE_PROVIDER_METADATA_PROJECTORS.items():
         if safe_key in metadata:
             safe_metadata[safe_key] = projector(metadata[safe_key])
-    return sanitize_metadata(safe_metadata)
+    sanitized_metadata = sanitize_metadata(safe_metadata)
+    return {
+        key: value
+        for key, value in sanitized_metadata.items()
+        if isinstance(value, bool | int | float | str)
+    }
 
 
 def _parse_tool_intent(provider_result: ProviderResult) -> _ParsedToolIntent:
@@ -1279,9 +1285,13 @@ def _intent_sandbox_policy(tool_name: str, tool_kind: str) -> NativeToolSandboxP
 
 
 def _is_read_only_intent(intent: NativeToolIntent) -> bool:
+    tool_name = intent.tool_name
+    tool_kind = intent.tool_kind
     return (
-        intent.tool_name == READ_ONLY_TOOL_NAME
-        and intent.tool_kind == READ_ONLY_TOOL_KIND
+        isinstance(tool_name, str)
+        and isinstance(tool_kind, str)
+        and tool_name == READ_ONLY_TOOL_NAME
+        and tool_kind == READ_ONLY_TOOL_KIND
     )
 
 
@@ -2169,7 +2179,10 @@ def _final_outcome(
 def _safe_optional_text(value: str | None) -> str | None:
     if value is None:
         return None
-    return sanitize_text(value)
+    sanitized_value = sanitize_text(value)
+    if not isinstance(sanitized_value, str):
+        raise TypeError("sanitized text must be a string")
+    return sanitized_value
 
 
 def _failed_provider_result(
