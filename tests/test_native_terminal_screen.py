@@ -244,6 +244,39 @@ def test_analyze_frame_files_infers_input_row_when_slash_menu_is_open(
     assert record["visual_regions"]["slash_menu"][0]["text"].startswith("  model")
 
 
+def test_visual_regions_preserve_precedence_and_independent_rows(tmp_path: Path) -> None:
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    frame = (
+        "\x1b[48;2;52;53;65mprompt\x1b[0m\n"
+        "\x1b[48;2;52;53;65;7m \x1b[27;48;2;40;50;40m$ run\x1b[0m\n"
+        "\x1b[48;2;40;50;40m hotkeys\x1b[0m\n"
+        "\x1b[48;2;52;53;65m────────────\x1b[0m\n"
+        "hotkeys\n"
+        "$0.000 (sub) 0.0%/272k (auto) (openai-codex) gpt-5.5 • high"
+    )
+    (frames / "frame-001-idle.ansi").write_text(frame, encoding="utf-8")
+    out_jsonl = tmp_path / "screen-metrics.jsonl"
+
+    analyze_frame_files(
+        frames_dir=frames,
+        cursor_metrics_path=None,
+        prompt="prompt",
+        out_jsonl=out_jsonl,
+        report_json=tmp_path / "terminal-report.json",
+        anomalies_tsv=tmp_path / "screen-anomalies.tsv",
+    )
+
+    regions = json.loads(out_jsonl.read_text(encoding="utf-8"))["visual_regions"]
+    assert [row["row"] for row in regions["submitted_prompt"]] == [0, 1, 3]
+    assert [row["row"] for row in regions["tool_result"]] == [2]
+    assert [row["row"] for row in regions["slash_menu"]] == [4]
+    assert [row["row"] for row in regions["separator"]] == [3]
+    assert [row["row"] for row in regions["cursor"]] == [1]
+    assert [row["row"] for row in regions["footer"]] == [5]
+    assert "tool_call" not in regions
+
+
 def test_analyze_frame_files_counts_wrapped_prompt_once(tmp_path: Path) -> None:
     frames = tmp_path / "frames"
     frames.mkdir()
@@ -359,11 +392,13 @@ def test_analyze_frame_files_reports_core_tui_regressions(tmp_path: Path) -> Non
         anomalies_tsv=anomalies,
     )
 
-    text = anomalies.read_text(encoding="utf-8")
-    assert "duplicate Working... rows" in text
-    assert "stale Working... row on final frame" in text
-    assert "expected model output is not visible" in text
-    assert "multiple reverse cursor cells visible" in text
+    assert anomalies.read_text(encoding="utf-8").splitlines() == [
+        "frame\tseverity\tmessage",
+        "1:final\terror\tduplicate Working... rows",
+        "1:final\terror\tstale Working... row on final frame",
+        "1:final\terror\texpected model output is not visible",
+        "1:final\terror\tmultiple reverse cursor cells visible",
+    ]
 
 
 def test_analyze_frame_files_reports_prompt_pinned_to_top_row(tmp_path: Path) -> None:

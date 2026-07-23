@@ -62,8 +62,9 @@ extend-select = ["C901"]
 # dropped the auth/fake/Vertex owners; Slice 7.7k dropped the three-finding
 # native request-invariant owner; Slices 7.7l-7.7n dropped nine more leaf
 # policy/projection/discovery/comparison/schema owners; Slice 7.7o dropped the
-# bash/edit/find concrete-tool owners). Do not add entries to grow the baseline;
-# only remove entries as functions are genuinely simplified below the threshold.
+# bash/edit/find concrete-tool owners; Slice 7.7p dropped the terminal-screen
+# parser/verifier owner). Do not add entries to grow the baseline; only remove
+# entries as functions are genuinely simplified below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
@@ -83,7 +84,6 @@ extend-select = ["C901"]
 "src/pipy_harness/native/session_tree.py" = ["C901"]
 "src/pipy_harness/native/session.py" = ["C901"]
 "src/pipy_harness/native/terminal_driver.py" = ["C901"]
-"src/pipy_harness/native/terminal_screen.py" = ["C901"]
 "src/pipy_harness/native/tool_loop_session.py" = ["C901"]
 "src/pipy_harness/native/tool_renderers.py" = ["C901"]
 "src/pipy_harness/native/tools/edit_diff.py" = ["C901"]

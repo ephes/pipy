@@ -20,6 +20,12 @@ from typing import Any, Iterable
 
 _CSI_RE = re.compile(r"\x1b\[([0-9;?]*)([ -/]*)([@-~])")
 _OSC_END_RE = re.compile(r"[\x07]|\x1b\\")
+_SGR_FOREGROUNDS = frozenset(
+    {30, 31, 32, 33, 34, 35, 36, 37, 90, 91, 92, 93, 94, 95, 96, 97}
+)
+_SGR_BACKGROUNDS = frozenset(
+    {40, 41, 42, 43, 44, 45, 46, 47, 100, 101, 102, 103, 104, 105, 106, 107}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,33 +223,40 @@ class TerminalScreen:
         private = raw_params.startswith("?")
         params = raw_params[1:] if private else raw_params
         values = _parse_csi_params(params)
+        if self._handle_cursor_csi(final, values):
+            return
+        self._handle_display_csi(final, values, private=private)
+
+    def _handle_cursor_csi(self, final: str, values: list[int]) -> bool:
         if final in {"H", "f"}:
             row = (values[0] if values else 1) or 1
             column = (values[1] if len(values) > 1 else 1) or 1
             self.cursor_y = min(self.rows - 1, max(0, row - 1))
             self.cursor_x = min(self.columns - 1, max(0, column - 1))
-            self._pending_wrap = False
         elif final == "A":
             self.cursor_y = max(0, self.cursor_y - ((values[0] if values else 1) or 1))
-            self._pending_wrap = False
         elif final == "B":
             self.cursor_y = min(
                 self.rows - 1, self.cursor_y + ((values[0] if values else 1) or 1)
             )
-            self._pending_wrap = False
         elif final == "C":
             self.cursor_x = min(
                 self.columns - 1, self.cursor_x + ((values[0] if values else 1) or 1)
             )
-            self._pending_wrap = False
         elif final == "D":
             self.cursor_x = max(0, self.cursor_x - ((values[0] if values else 1) or 1))
-            self._pending_wrap = False
         elif final == "G":
             column = (values[0] if values else 1) or 1
             self.cursor_x = min(self.columns - 1, max(0, column - 1))
-            self._pending_wrap = False
-        elif final == "J":
+        else:
+            return False
+        self._pending_wrap = False
+        return True
+
+    def _handle_display_csi(
+        self, final: str, values: list[int], *, private: bool
+    ) -> None:
+        if final == "J":
             self._clear_screen(values[0] if values else 0)
         elif final == "K":
             self._clear_line(values[0] if values else 0)
@@ -267,34 +280,7 @@ class TerminalScreen:
         index = 0
         attr = self._attr
         while index < len(values):
-            value = values[index]
-            if value == 0:
-                attr = CellAttr()
-            elif value == 1:
-                attr = CellAttr(True, attr.dim, attr.reverse, attr.fg, attr.bg)
-            elif value == 2:
-                attr = CellAttr(attr.bold, True, attr.reverse, attr.fg, attr.bg)
-            elif value == 7:
-                attr = CellAttr(attr.bold, attr.dim, True, attr.fg, attr.bg)
-            elif value == 22:
-                attr = CellAttr(False, False, attr.reverse, attr.fg, attr.bg)
-            elif value == 27:
-                attr = CellAttr(attr.bold, attr.dim, False, attr.fg, attr.bg)
-            elif value == 39:
-                attr = CellAttr(attr.bold, attr.dim, attr.reverse, None, attr.bg)
-            elif value == 49:
-                attr = CellAttr(attr.bold, attr.dim, attr.reverse, attr.fg, None)
-            elif value in {30, 31, 32, 33, 34, 35, 36, 37, 90, 91, 92, 93, 94, 95, 96, 97}:
-                attr = CellAttr(attr.bold, attr.dim, attr.reverse, str(value), attr.bg)
-            elif value in {40, 41, 42, 43, 44, 45, 46, 47, 100, 101, 102, 103, 104, 105, 106, 107}:
-                attr = CellAttr(attr.bold, attr.dim, attr.reverse, attr.fg, str(value))
-            elif value in {38, 48} and index + 4 < len(values) and values[index + 1] == 2:
-                color = f"{values[index + 2]};{values[index + 3]};{values[index + 4]}"
-                if value == 38:
-                    attr = CellAttr(attr.bold, attr.dim, attr.reverse, color, attr.bg)
-                else:
-                    attr = CellAttr(attr.bold, attr.dim, attr.reverse, attr.fg, color)
-                index += 4
+            attr, index = _apply_sgr_code(attr, values, index)
             index += 1
         self._attr = attr
 
@@ -350,6 +336,52 @@ class TerminalScreen:
 
     def _blank_row(self) -> list[ScreenCell]:
         return [ScreenCell() for _ in range(self.columns)]
+
+
+def _apply_sgr_code(
+    attr: CellAttr, values: list[int], index: int
+) -> tuple[CellAttr, int]:
+    value = values[index]
+    if value == 0:
+        return CellAttr(), index
+    if value in {1, 2, 7, 22, 27}:
+        return _apply_sgr_toggle(attr, value), index
+    if value == 39:
+        return CellAttr(attr.bold, attr.dim, attr.reverse, None, attr.bg), index
+    if value == 49:
+        return CellAttr(attr.bold, attr.dim, attr.reverse, attr.fg, None), index
+    if value in _SGR_FOREGROUNDS:
+        return CellAttr(attr.bold, attr.dim, attr.reverse, str(value), attr.bg), index
+    if value in _SGR_BACKGROUNDS:
+        return CellAttr(attr.bold, attr.dim, attr.reverse, attr.fg, str(value)), index
+    if value in {38, 48}:
+        return _apply_truecolor_sgr(attr, values, index)
+    return attr, index
+
+
+def _apply_sgr_toggle(attr: CellAttr, value: int) -> CellAttr:
+    if value == 1:
+        return CellAttr(True, attr.dim, attr.reverse, attr.fg, attr.bg)
+    if value == 2:
+        return CellAttr(attr.bold, True, attr.reverse, attr.fg, attr.bg)
+    if value == 7:
+        return CellAttr(attr.bold, attr.dim, True, attr.fg, attr.bg)
+    if value == 22:
+        return CellAttr(False, False, attr.reverse, attr.fg, attr.bg)
+    return CellAttr(attr.bold, attr.dim, False, attr.fg, attr.bg)
+
+
+def _apply_truecolor_sgr(
+    attr: CellAttr, values: list[int], index: int
+) -> tuple[CellAttr, int]:
+    if index + 4 >= len(values) or values[index + 1] != 2:
+        return attr, index
+    color = f"{values[index + 2]};{values[index + 3]};{values[index + 4]}"
+    if values[index] == 38:
+        attr = CellAttr(attr.bold, attr.dim, attr.reverse, color, attr.bg)
+    else:
+        attr = CellAttr(attr.bold, attr.dim, attr.reverse, attr.fg, color)
+    return attr, index + 4
 
 
 def parse_ansi_screen(data: str, *, columns: int | None = None, rows: int | None = None) -> ScreenSnapshot:
@@ -494,28 +526,119 @@ def _collect_anomalies(record: dict[str, Any], anomalies: list[tuple[str, str, s
     frame = f"{record['frame']}:{record['phase']}"
     phase = str(record["phase"])
     findings = record["findings"]
-    if (phase.startswith("active") or phase == "final") and record.get("prompt"):
-        prompt_count = len(findings["prompt"])
-        if prompt_count != 1:
-            anomalies.append(
-                (frame, "error", f"submitted prompt visible count is {prompt_count}")
-            )
-        elif record.get("rows", 0) >= 20 and findings["prompt"][0]["row"] == 0:
-            anomalies.append((frame, "error", "submitted prompt is pinned to top row"))
-    if len(findings["working"]) > 1:
+    prompt_rows = [finding["row"] for finding in findings["prompt"]]
+    _collect_prompt_anomalies(
+        frame,
+        phase,
+        has_prompt=bool(record.get("prompt")),
+        rows=record.get("rows", 0),
+        prompt_rows=prompt_rows,
+        anomalies=anomalies,
+    )
+    _collect_working_anomalies(
+        frame,
+        phase,
+        working_count=len(findings["working"]),
+        anomalies=anomalies,
+    )
+    _collect_output_anomalies(
+        frame,
+        phase,
+        output_expected=bool(record.get("expected_output")),
+        output_visible=bool(findings.get("expected_output")),
+        anomalies=anomalies,
+    )
+    _collect_cursor_anomalies(
+        frame, reverse_count=len(record["reverse_cells"]), anomalies=anomalies
+    )
+    _collect_footer_anomalies(
+        frame, status_visible=bool(findings["status"]), anomalies=anomalies
+    )
+    _collect_input_anomalies(
+        frame,
+        phase,
+        input_row=record["inferred_input_row"],
+        cursor_matches=record["cursor_matches_input_row"],
+        anomalies=anomalies,
+    )
+
+
+def _collect_prompt_anomalies(
+    frame: str,
+    phase: str,
+    *,
+    has_prompt: bool,
+    rows: int,
+    prompt_rows: list[int],
+    anomalies: list[tuple[str, str, str]],
+) -> None:
+    if not ((phase.startswith("active") or phase == "final") and has_prompt):
+        return
+    prompt_count = len(prompt_rows)
+    if prompt_count != 1:
+        anomalies.append(
+            (frame, "error", f"submitted prompt visible count is {prompt_count}")
+        )
+    elif rows >= 20 and prompt_rows[0] == 0:
+        anomalies.append((frame, "error", "submitted prompt is pinned to top row"))
+
+
+def _collect_working_anomalies(
+    frame: str,
+    phase: str,
+    *,
+    working_count: int,
+    anomalies: list[tuple[str, str, str]],
+) -> None:
+    if working_count > 1:
         anomalies.append((frame, "error", "duplicate Working... rows"))
-    if phase == "final" and findings["working"]:
+    if phase == "final" and working_count:
         anomalies.append((frame, "error", "stale Working... row on final frame"))
-    if phase == "final" and record.get("expected_output"):
-        if not findings.get("expected_output"):
-            anomalies.append((frame, "error", "expected model output is not visible"))
-    if len(record["reverse_cells"]) > 1:
+
+
+def _collect_output_anomalies(
+    frame: str,
+    phase: str,
+    *,
+    output_expected: bool,
+    output_visible: bool,
+    anomalies: list[tuple[str, str, str]],
+) -> None:
+    if phase == "final" and output_expected and not output_visible:
+        anomalies.append((frame, "error", "expected model output is not visible"))
+
+
+def _collect_cursor_anomalies(
+    frame: str,
+    *,
+    reverse_count: int,
+    anomalies: list[tuple[str, str, str]],
+) -> None:
+    if reverse_count > 1:
         anomalies.append((frame, "error", "multiple reverse cursor cells visible"))
-    if not findings["status"]:
+
+
+def _collect_footer_anomalies(
+    frame: str,
+    *,
+    status_visible: bool,
+    anomalies: list[tuple[str, str, str]],
+) -> None:
+    if not status_visible:
         anomalies.append((frame, "error", "missing openai-codex gpt-5.5 status footer"))
-    if phase.startswith("active") and record["inferred_input_row"] is None:
+
+
+def _collect_input_anomalies(
+    frame: str,
+    phase: str,
+    *,
+    input_row: int | None,
+    cursor_matches: bool | None,
+    anomalies: list[tuple[str, str, str]],
+) -> None:
+    if phase.startswith("active") and input_row is None:
         anomalies.append((frame, "error", "could not infer pinned input row from separators"))
-    if phase.startswith("active") and record["cursor_matches_input_row"] is False:
+    if phase.startswith("active") and cursor_matches is False:
         anomalies.append((frame, "error", "live cursor does not match drawn input cursor"))
 
 
@@ -598,30 +721,42 @@ def _visual_regions(
         footer_rows = {footer_start, footer_start + 1}
     for row_index, row in enumerate(snapshot.cells):
         text = snapshot.viewport[row_index] if row_index < len(snapshot.viewport) else ""
-        stripped = text.strip()
         summary = _row_style_summary(row_index, text, row)
         if row_index in separator_rows:
             regions["separator"].append(summary)
         if _row_has_reverse(row):
             regions["cursor"].append(summary)
-        if prompt_bg and _row_has_bg(row, prompt_bg):
-            regions["submitted_prompt"].append(summary)
-            continue
-        if _row_has_bg(row, "40;50;40") or _row_has_bg(row, "28;42;30"):
-            if stripped.startswith("$ "):
-                regions["tool_call"].append(summary)
-            else:
-                regions["tool_result"].append(summary)
-            continue
-        if _looks_like_slash_menu_row(stripped):
-            if stripped.startswith("→") or _row_has_bg(row, "52;53;65"):
-                regions["slash_menu_selection"].append(summary)
-            else:
-                regions["slash_menu"].append(summary)
-            continue
-        if row_index in footer_rows:
-            regions["footer"].append(summary)
+        region = _classify_visual_row(
+            row_index,
+            row,
+            text.strip(),
+            prompt_bg=prompt_bg,
+            footer_rows=footer_rows,
+        )
+        if region is not None:
+            regions[region].append(summary)
     return {key: value for key, value in regions.items() if value}
+
+
+def _classify_visual_row(
+    row_index: int,
+    row: list[ScreenCell],
+    stripped: str,
+    *,
+    prompt_bg: str | None,
+    footer_rows: set[int],
+) -> str | None:
+    if prompt_bg and _row_has_bg(row, prompt_bg):
+        return "submitted_prompt"
+    if _row_has_bg(row, "40;50;40") or _row_has_bg(row, "28;42;30"):
+        return "tool_call" if stripped.startswith("$ ") else "tool_result"
+    if _looks_like_slash_menu_row(stripped):
+        if stripped.startswith("→") or _row_has_bg(row, "52;53;65"):
+            return "slash_menu_selection"
+        return "slash_menu"
+    if row_index in footer_rows:
+        return "footer"
+    return None
 
 
 def _row_style_summary(

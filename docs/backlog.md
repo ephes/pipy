@@ -3535,6 +3535,33 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose terminal-screen parsing and verification (Slice 7.7p) — DONE (2026-07-23)
+
+Seventeenth directional C901 batch. Decompose the four findings in
+`native.terminal_screen`: CSI cursor/clear/mode dispatch, SGR attribute
+application, anomaly policy collection, and semantic visual-region
+classification. Preserve ANSI parsing, cursor/wrap/clear/private-mode state,
+SGR value consumption and unsupported-code behavior, anomaly ordering/text,
+and visual-region precedence/order/summary bytes. Add focused
+characterization for multi-value CSI/SGR and overlapping visual-region
+precedence where not already pinned. The clean file leaves the C901 pin list.
+No behavior, artifact shape, dependency, unchecked `Any`, ignore, Mypy
+exclusion, or new pin.
+
+Landed shape: CSI dispatch separates cursor movement from display/SGR/private
+mode handling; SGR processing applies toggle, palette, reset, and truecolor
+codes through small left-to-right helpers. Anomaly policy delegates the same
+prompt/working/output/cursor/footer/input checks in their original append
+order. Visual verification independently records separator/cursor rows before
+one precedence-preserving semantic region classifier. New tests pin
+overlapping prompt/tool/menu/footer classification and exact multi-anomaly TSV
+order. The owner is clean and its pin is deleted, lowering repository C901
+88/31 -> 84/30 (`src` 72/22 -> 68/21). Focused verification passed 12 tests;
+final `just check` passed Ruff, Mypy, and 4,549 tests (2 skipped);
+`just docs-build` completed cleanly. `src` ignores remain 27 and the root
+remains 5,080 lines. Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit
+CLEAN.
+
 ### Decompose bash streaming, edit, and find tool owners (Slice 7.7o) — DONE (2026-07-23)
 
 Sixteenth directional C901 batch. Decompose
