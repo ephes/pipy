@@ -25,6 +25,8 @@ from pipy_harness.native.coding.commands import (
     CodingCommandFooterPolicy,
     CodingCommandOutcome,
     CodingCommandOutcomeKind,
+    CommandDispatchResolution,
+    CommandDispatchResolutionKind,
     require_exact_coding_command_outcome,
 )
 
@@ -562,6 +564,31 @@ def test_validator_rejects_corrupted_exact_field_values(
 
     with pytest.raises(TypeError, match=message):
         require_exact_coding_command_outcome(outcome)
+
+
+def test_outcome_type_validation_preserves_first_failure_order() -> None:
+    outcome = CodingCommandOutcome(
+        CodingCommandOutcomeKind.CONTINUE,
+        CodingCommandAction.SHOW_HOTKEYS,
+        CodingCommandFooterPolicy.STANDARD,
+    )
+    object.__setattr__(outcome, "action", "show_hotkeys")
+    object.__setattr__(outcome, "footer_policy", "standard")
+
+    with pytest.raises(TypeError, match="outcome.action"):
+        require_exact_coding_command_outcome(outcome)
+
+
+def test_dispatch_payload_validation_preserves_first_failure_order() -> None:
+    with pytest.raises(
+        ValueError, match="CONTINUE_LOOP resolution carries no user_input"
+    ):
+        CommandDispatchResolution(
+            CommandDispatchResolutionKind.CONTINUE_LOOP,
+            user_input="prompt",
+            resource_provider_text="resource",
+            selected_provider_content=ProductContent("queued"),
+        )
 
 
 @pytest.mark.parametrize(

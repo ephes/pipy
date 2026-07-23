@@ -455,58 +455,67 @@ def _validate_semantics(
 
     for provider_name, provider_config in config.providers.items():
         is_builtin = provider_name in builtin_providers
-        has_provider_api = bool(provider_config.api)
-        models = provider_config.models
-        has_overrides = bool(provider_config.model_overrides)
+        provider_error = _validate_provider_semantics(
+            provider_name, provider_config, is_builtin
+        )
+        if provider_error is not None:
+            return _wrap_semantic(provider_error, path)
+        for model_def in provider_config.models:
+            model_error = _validate_model_semantics(
+                provider_name, provider_config, model_def, is_builtin
+            )
+            if model_error is not None:
+                return _wrap_semantic(model_error, path)
+    return None
 
-        if not models:
-            # Pi treats a present (even empty) JS object as truthy here, so a
-            # present headers/compat object counts as a usable field.
-            if (
-                not provider_config.base_url
-                and provider_config.headers is None
-                and provider_config.compat is None
-                and not has_overrides
-            ):
-                return _wrap_semantic(
-                    f'Provider {provider_name}: must specify "baseUrl", '
-                    '"headers", "compat", "modelOverrides", or "models".',
-                    path,
-                )
-        elif not is_builtin:
-            if not provider_config.base_url:
-                return _wrap_semantic(
-                    f'Provider {provider_name}: "baseUrl" is required when '
-                    "defining custom models.",
-                    path,
-                )
-            if not provider_config.api_key:
-                return _wrap_semantic(
-                    f'Provider {provider_name}: "apiKey" is required when '
-                    "defining custom models.",
-                    path,
-                )
 
-        for model_def in models:
-            has_model_api = bool(model_def.api)
-            if not has_provider_api and not has_model_api and not is_builtin:
-                return _wrap_semantic(
-                    f'Provider {provider_name}, model {model_def.id}: no "api" '
-                    "specified. Set at provider or model level.",
-                    path,
-                )
-            if model_def.context_window is not None and model_def.context_window <= 0:
-                return _wrap_semantic(
-                    f"Provider {provider_name}, model {model_def.id}: invalid "
-                    "contextWindow",
-                    path,
-                )
-            if model_def.max_tokens is not None and model_def.max_tokens <= 0:
-                return _wrap_semantic(
-                    f"Provider {provider_name}, model {model_def.id}: invalid "
-                    "maxTokens",
-                    path,
-                )
+def _validate_provider_semantics(
+    provider_name: str, provider_config: ProviderConfig, is_builtin: bool
+) -> str | None:
+    if not provider_config.models:
+        # Pi treats a present (even empty) JS object as truthy here, so a
+        # present headers/compat object counts as a usable field.
+        if (
+            not provider_config.base_url
+            and provider_config.headers is None
+            and provider_config.compat is None
+            and not provider_config.model_overrides
+        ):
+            return (
+                f'Provider {provider_name}: must specify "baseUrl", '
+                '"headers", "compat", "modelOverrides", or "models".'
+            )
+        return None
+    if is_builtin:
+        return None
+    if not provider_config.base_url:
+        return (
+            f'Provider {provider_name}: "baseUrl" is required when '
+            "defining custom models."
+        )
+    if not provider_config.api_key:
+        return (
+            f'Provider {provider_name}: "apiKey" is required when '
+            "defining custom models."
+        )
+    return None
+
+
+def _validate_model_semantics(
+    provider_name: str,
+    provider_config: ProviderConfig,
+    model_def: ModelDefinition,
+    is_builtin: bool,
+) -> str | None:
+    if not provider_config.api and not model_def.api and not is_builtin:
+        return (
+            f'Provider {provider_name}, model {model_def.id}: no "api" '
+            "specified. Set at provider or model level."
+        )
+    if model_def.context_window is not None and model_def.context_window <= 0:
+        return f"Provider {provider_name}, model {model_def.id}: invalid contextWindow"
+    if model_def.max_tokens is not None and model_def.max_tokens <= 0:
+        return f"Provider {provider_name}, model {model_def.id}: invalid maxTokens"
     return None
 
 
@@ -576,6 +585,22 @@ def _apply_model_override(
     return replace(row, **changes)  # type: ignore[arg-type]
 
 
+def _apply_provider_override(
+    row: NativeModelSpec, provider_config: ProviderConfig
+) -> NativeModelSpec:
+    new_row = row
+    if provider_config.base_url or provider_config.compat is not None:
+        new_row = replace(
+            new_row,
+            base_url=provider_config.base_url or new_row.base_url,
+            compat=_merge_compat(new_row.compat, provider_config.compat),
+        )
+    model_override = provider_config.model_overrides.get(row.model_id)
+    if model_override is not None:
+        new_row = _apply_model_override(new_row, model_override)
+    return new_row
+
+
 def _custom_model_row(
     provider_name: str,
     provider_config: ProviderConfig,
@@ -612,6 +637,24 @@ def _custom_model_row(
         headers=dict(model_def.headers) if model_def.headers else None,
         compat=compat,
     )
+
+
+def _replace_or_append_model(
+    merged: list[NativeModelSpec], custom: NativeModelSpec
+) -> None:
+    index = next(
+        (
+            index
+            for index, row in enumerate(merged)
+            if row.provider_name == custom.provider_name
+            and row.model_id == custom.model_id
+        ),
+        -1,
+    )
+    if index >= 0:
+        merged[index] = custom
+    else:
+        merged.append(custom)
 
 
 # --------------------------------------------------------------------------- #
@@ -727,69 +770,53 @@ class ModelCatalog:
         return config
 
     def _merge(self, config: ModelsConfig | None) -> list[NativeModelSpec]:
-        # 1. Built-ins with provider-level + per-model overrides applied.
-        overrides: dict[str, ProviderConfig] = (
-            dict(config.providers) if config else {}
-        )
+        overrides = dict(config.providers) if config else {}
+        merged = self._merge_builtin_rows(overrides)
+        self._store_provider_request_configs(config)
+        self._merge_custom_model_rows(merged, config)
+        return merged
+
+    def _merge_builtin_rows(
+        self, overrides: Mapping[str, ProviderConfig]
+    ) -> list[NativeModelSpec]:
         merged: list[NativeModelSpec] = []
         for row in self.builtin.get_all():
             provider_config = overrides.get(row.provider_name)
             new_row = row
             if provider_config is not None:
-                if provider_config.base_url or provider_config.compat is not None:
-                    new_row = replace(
-                        new_row,
-                        base_url=provider_config.base_url or new_row.base_url,
-                        compat=_merge_compat(new_row.compat, provider_config.compat),
-                    )
-                model_override = provider_config.model_overrides.get(row.model_id)
-                if model_override is not None:
-                    new_row = _apply_model_override(new_row, model_override)
+                new_row = _apply_provider_override(new_row, provider_config)
             merged.append(new_row)
-
-        # 2. Store provider request configs (auth/headers) for the auth layer.
-        if config:
-            for provider_name, provider_config in config.providers.items():
-                if (
-                    provider_config.api_key
-                    or provider_config.headers
-                    or provider_config.auth_header
-                ):
-                    self.provider_request_configs[provider_name] = ProviderRequestConfig(
-                        api_key=provider_config.api_key,
-                        headers=provider_config.headers,
-                        auth_header=provider_config.auth_header,
-                    )
-
-        # 3. Parse + merge custom models by provider+id (custom wins).
-        if config:
-            builtin_providers = set(self.builtin.providers())
-            for provider_name, provider_config in config.providers.items():
-                if not provider_config.models:
-                    continue
-                builtin_defaults = self._builtin_defaults(
-                    provider_name, builtin_providers
-                )
-                for model_def in provider_config.models:
-                    custom = _custom_model_row(
-                        provider_name, provider_config, model_def, builtin_defaults
-                    )
-                    if custom is None:
-                        continue
-                    index = next(
-                        (
-                            i
-                            for i, m in enumerate(merged)
-                            if m.provider_name == custom.provider_name
-                            and m.model_id == custom.model_id
-                        ),
-                        -1,
-                    )
-                    if index >= 0:
-                        merged[index] = custom
-                    else:
-                        merged.append(custom)
         return merged
+
+    def _store_provider_request_configs(self, config: ModelsConfig | None) -> None:
+        if config is None:
+            return
+        for provider_name, provider_config in config.providers.items():
+            if (
+                provider_config.api_key
+                or provider_config.headers
+                or provider_config.auth_header
+            ):
+                self.provider_request_configs[provider_name] = ProviderRequestConfig(
+                    api_key=provider_config.api_key,
+                    headers=provider_config.headers,
+                    auth_header=provider_config.auth_header,
+                )
+
+    def _merge_custom_model_rows(
+        self, merged: list[NativeModelSpec], config: ModelsConfig | None
+    ) -> None:
+        if config is None:
+            return
+        builtin_providers = set(self.builtin.providers())
+        for provider_name, provider_config in config.providers.items():
+            builtin_defaults = self._builtin_defaults(provider_name, builtin_providers)
+            for model_def in provider_config.models:
+                custom = _custom_model_row(
+                    provider_name, provider_config, model_def, builtin_defaults
+                )
+                if custom is not None:
+                    _replace_or_append_model(merged, custom)
 
     def _builtin_defaults(
         self, provider_name: str, builtin_providers: set[str]

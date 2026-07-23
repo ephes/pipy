@@ -115,6 +115,39 @@ def test_custom_model_wins_on_provider_id_conflict(tmp_path):
     assert row.display_name == "OVERRIDDEN OPUS"
 
 
+def test_custom_replacement_keeps_position_and_appends_in_config_order(tmp_path):
+    baseline = ModelCatalog(models_json_path=tmp_path / "absent.json").get_all()
+    replaced_reference = "anthropic/claude-opus-4-7"
+    baseline_index = [row.reference for row in baseline].index(replaced_reference)
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "models": [
+                        {"id": "claude-opus-4-7", "name": "replacement"},
+                        {"id": "new-anthropic"},
+                    ]
+                },
+                "custom": {
+                    "baseUrl": "https://custom.example/v1",
+                    "apiKey": "key",
+                    "api": "openai-completions",
+                    "models": [{"id": "new-custom"}],
+                },
+            }
+        },
+    )
+
+    catalog = ModelCatalog(models_json_path=path)
+    references = [row.reference for row in catalog.get_all()]
+
+    assert catalog.error is None
+    assert references.index(replaced_reference) == baseline_index
+    assert references[-2:] == ["anthropic/new-anthropic", "custom/new-custom"]
+
+
 def test_per_model_override_deep_merges_cost_and_thinking(tmp_path):
     path = tmp_path / "models.json"
     _write(
@@ -251,6 +284,28 @@ def test_invalid_context_window_rejected(tmp_path):
     catalog = ModelCatalog(models_json_path=path)
     assert catalog.error is not None
     assert "contextWindow" in catalog.error
+
+
+def test_model_semantics_preserve_first_failure_order(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "models": [
+                        {"id": "m", "contextWindow": -1, "maxTokens": -1}
+                    ]
+                }
+            }
+        },
+    )
+
+    catalog = ModelCatalog(models_json_path=path)
+
+    assert catalog.error is not None
+    assert "model m: invalid contextWindow" in catalog.error
+    assert "maxTokens" not in catalog.error
 
 
 def test_thinking_level_map_rejects_non_string_values(tmp_path):

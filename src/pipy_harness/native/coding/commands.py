@@ -65,6 +65,16 @@ class CodingCommandOutcome:
 def require_exact_coding_command_outcome(outcome: object) -> None:
     """Reject non-canonical, corrupted, or internally inconsistent outcomes."""
 
+    exact_outcome = _require_exact_coding_command_outcome_fields(outcome)
+    if exact_outcome.kind is CodingCommandOutcomeKind.CONTINUE:
+        _require_continue_outcome_payload(exact_outcome)
+        return
+    _require_non_continue_outcome_payload(exact_outcome)
+
+
+def _require_exact_coding_command_outcome_fields(
+    outcome: object,
+) -> CodingCommandOutcome:
     if type(outcome) is not CodingCommandOutcome:
         raise TypeError("outcome must be an exact CodingCommandOutcome")
     if type(outcome.kind) is not CodingCommandOutcomeKind:
@@ -85,37 +95,46 @@ def require_exact_coding_command_outcome(outcome: object) -> None:
             raise TypeError(
                 "outcome.argument must be an exact ProductContent or None"
             ) from exc
-    if outcome.kind is CodingCommandOutcomeKind.CONTINUE:
-        usage_aware_actions = {
-            CodingCommandAction.MODEL,
-            CodingCommandAction.SCOPED_MODELS,
-            CodingCommandAction.LOGIN,
-            CodingCommandAction.LOGOUT,
-        }
-        expected_footer_policy = (
-            CodingCommandFooterPolicy.USAGE_AWARE
-            if outcome.action in usage_aware_actions
-            else CodingCommandFooterPolicy.STANDARD
+    return outcome
+
+
+_USAGE_AWARE_ACTIONS = frozenset(
+    {
+        CodingCommandAction.MODEL,
+        CodingCommandAction.SCOPED_MODELS,
+        CodingCommandAction.LOGIN,
+        CodingCommandAction.LOGOUT,
+    }
+)
+_ARGUMENT_ACTIONS = _USAGE_AWARE_ACTIONS | {
+    CodingCommandAction.SESSION_NAME,
+    CodingCommandAction.SESSION_RESUME,
+    CodingCommandAction.SESSION_TREE,
+    CodingCommandAction.SESSION_FORK,
+    CodingCommandAction.SESSION_EXPORT,
+    CodingCommandAction.SESSION_IMPORT,
+}
+
+
+def _require_continue_outcome_payload(outcome: CodingCommandOutcome) -> None:
+    expected_footer_policy = (
+        CodingCommandFooterPolicy.USAGE_AWARE
+        if outcome.action in _USAGE_AWARE_ACTIONS
+        else CodingCommandFooterPolicy.STANDARD
+    )
+    if outcome.footer_policy is not expected_footer_policy:
+        raise ValueError(
+            f"{outcome.action or 'actionless'} CONTINUE outcomes require the "
+            f"{expected_footer_policy.name} footer policy"
         )
-        if outcome.footer_policy is not expected_footer_policy:
-            raise ValueError(
-                f"{outcome.action or 'actionless'} CONTINUE outcomes require the "
-                f"{expected_footer_policy.name} footer policy"
-            )
-        argument_actions = usage_aware_actions | {
-            CodingCommandAction.SESSION_NAME,
-            CodingCommandAction.SESSION_RESUME,
-            CodingCommandAction.SESSION_TREE,
-            CodingCommandAction.SESSION_FORK,
-            CodingCommandAction.SESSION_EXPORT,
-            CodingCommandAction.SESSION_IMPORT,
-        }
-        if outcome.action in argument_actions:
-            if outcome.argument is None:
-                raise ValueError(f"{outcome.action} outcomes require an argument")
-        elif outcome.argument is not None:
-            raise ValueError("only argument actions may carry an argument")
-        return
+    if outcome.action in _ARGUMENT_ACTIONS:
+        if outcome.argument is None:
+            raise ValueError(f"{outcome.action} outcomes require an argument")
+    elif outcome.argument is not None:
+        raise ValueError("only argument actions may carry an argument")
+
+
+def _require_non_continue_outcome_payload(outcome: CodingCommandOutcome) -> None:
     if outcome.action is not None:
         raise ValueError("only CONTINUE outcomes may carry an action")
     if outcome.footer_policy is not None:
@@ -204,40 +223,8 @@ class CommandDispatchResolution:
     selected_provider_content: ProductContent | None = None
 
     def __post_init__(self) -> None:
-        if type(self.kind) is not CommandDispatchResolutionKind:
-            raise TypeError("kind must be an exact CommandDispatchResolutionKind")
-        if type(self.user_input) is not str:
-            raise TypeError("user_input must be an exact str")
-        if self.resource_provider_text is not None and (
-            type(self.resource_provider_text) is not str
-        ):
-            raise TypeError("resource_provider_text must be an exact str or None")
-        if self.selected_provider_content is not None and (
-            type(self.selected_provider_content) is not ProductContent
-        ):
-            raise TypeError(
-                "selected_provider_content must be an exact ProductContent or None"
-            )
-        if self.kind is CommandDispatchResolutionKind.CONTINUE_LOOP:
-            if self.user_input != "":
-                raise ValueError("a CONTINUE_LOOP resolution carries no user_input")
-            if self.resource_provider_text is not None:
-                raise ValueError(
-                    "a CONTINUE_LOOP resolution carries no resource_provider_text"
-                )
-            if self.selected_provider_content is not None:
-                raise ValueError(
-                    "a CONTINUE_LOOP resolution carries no provider content"
-                )
-        if self.kind is CommandDispatchResolutionKind.EXIT_LOOP:
-            if self.user_input != "":
-                raise ValueError("an EXIT_LOOP resolution carries no user_input")
-            if self.resource_provider_text is not None:
-                raise ValueError(
-                    "an EXIT_LOOP resolution carries no resource_provider_text"
-                )
-            if self.selected_provider_content is not None:
-                raise ValueError("an EXIT_LOOP resolution carries no provider content")
+        _require_exact_dispatch_resolution_fields(self)
+        _require_dispatch_resolution_payload(self)
 
     @classmethod
     def continue_loop(cls) -> CommandDispatchResolution:
@@ -261,6 +248,43 @@ class CommandDispatchResolution:
             resource_provider_text,
             selected_provider_content,
         )
+
+
+def _require_exact_dispatch_resolution_fields(
+    resolution: CommandDispatchResolution,
+) -> None:
+    if type(resolution.kind) is not CommandDispatchResolutionKind:
+        raise TypeError("kind must be an exact CommandDispatchResolutionKind")
+    if type(resolution.user_input) is not str:
+        raise TypeError("user_input must be an exact str")
+    if resolution.resource_provider_text is not None and (
+        type(resolution.resource_provider_text) is not str
+    ):
+        raise TypeError("resource_provider_text must be an exact str or None")
+    if resolution.selected_provider_content is not None and (
+        type(resolution.selected_provider_content) is not ProductContent
+    ):
+        raise TypeError(
+            "selected_provider_content must be an exact ProductContent or None"
+        )
+
+
+def _require_dispatch_resolution_payload(
+    resolution: CommandDispatchResolution,
+) -> None:
+    if resolution.kind is CommandDispatchResolutionKind.PROCEED_TO_RUN:
+        return
+    subject = (
+        "a CONTINUE_LOOP"
+        if resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
+        else "an EXIT_LOOP"
+    )
+    if resolution.user_input != "":
+        raise ValueError(f"{subject} resolution carries no user_input")
+    if resolution.resource_provider_text is not None:
+        raise ValueError(f"{subject} resolution carries no resource_provider_text")
+    if resolution.selected_provider_content is not None:
+        raise ValueError(f"{subject} resolution carries no provider content")
 
 
 def _require_exact_product_content(content: object) -> None:

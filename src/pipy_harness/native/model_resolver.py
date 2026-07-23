@@ -41,41 +41,42 @@ def _compile_glob(pattern: str) -> re.Pattern[str]:
     if cached is not None:
         return cached
     out: list[str] = []
-    i = 0
-    n = len(pattern)
-    while i < n:
-        char = pattern[i]
-        if char == "*":
-            if i + 1 < n and pattern[i + 1] == "*":
-                out.append(".*")
-                i += 2
-                continue
-            out.append("[^/]*")
-        elif char == "?":
-            out.append("[^/]")
-        elif char == "[":
-            j = i + 1
-            if j < n and pattern[j] in ("!", "^"):
-                j += 1
-            if j < n and pattern[j] == "]":
-                j += 1
-            while j < n and pattern[j] != "]":
-                j += 1
-            if j >= n:
-                out.append(r"\[")
-            else:
-                inner = pattern[i + 1 : j]
-                if inner.startswith(("!", "^")):
-                    inner = "^" + inner[1:]
-                out.append("[" + inner + "]")
-                i = j + 1
-                continue
-        else:
-            out.append(re.escape(char))
-        i += 1
+    index = 0
+    while index < len(pattern):
+        translated, index = _translate_glob_token(pattern, index)
+        out.append(translated)
     compiled = re.compile("(?s:" + "".join(out) + r")\Z", re.IGNORECASE)
     _GLOB_CACHE[pattern] = compiled
     return compiled
+
+
+def _translate_glob_token(pattern: str, index: int) -> tuple[str, int]:
+    char = pattern[index]
+    if char == "*":
+        if index + 1 < len(pattern) and pattern[index + 1] == "*":
+            return ".*", index + 2
+        return "[^/]*", index + 1
+    if char == "?":
+        return "[^/]", index + 1
+    if char == "[":
+        return _translate_glob_character_class(pattern, index)
+    return re.escape(char), index + 1
+
+
+def _translate_glob_character_class(pattern: str, index: int) -> tuple[str, int]:
+    end = index + 1
+    if end < len(pattern) and pattern[end] in ("!", "^"):
+        end += 1
+    if end < len(pattern) and pattern[end] == "]":
+        end += 1
+    while end < len(pattern) and pattern[end] != "]":
+        end += 1
+    if end >= len(pattern):
+        return r"\[", index + 1
+    inner = pattern[index + 1 : end]
+    if inner.startswith(("!", "^")):
+        inner = "^" + inner[1:]
+    return "[" + inner + "]", end + 1
 
 
 def _glob_match(name: str, pattern: str) -> bool:
@@ -250,45 +251,47 @@ def resolve_model_scope(
     scoped: list[ScopedModel] = []
     warnings: list[str] = []
     seen: set[str] = set()
-
-    def _add(model: NativeModelSpec, level: str | None) -> None:
-        if model.reference in seen:
-            return
-        seen.add(model.reference)
-        scoped.append(ScopedModel(model=model, thinking_level=level))
-
     for pattern in patterns:
-        if _is_glob(pattern):
-            glob_pattern = pattern
-            level: str | None = None
-            colon = pattern.rfind(":")
-            if colon != -1:
-                suffix = pattern[colon + 1 :]
-                if is_valid_thinking_level(suffix):
-                    level = suffix
-                    glob_pattern = pattern[:colon]
-            matching = [
-                r
-                for r in rows
-                if _glob_match(r.reference, glob_pattern)
-                or _glob_match(r.model_id, glob_pattern)
-            ]
-            if not matching:
-                warnings.append(f'No models match pattern "{pattern}"')
+        matching, level, pattern_warnings = _expand_scope_pattern(pattern, rows)
+        warnings.extend(pattern_warnings)
+        for model in matching:
+            if model.reference in seen:
                 continue
-            for model in matching:
-                _add(model, level)
-            continue
-
-        result = parse_model_pattern(pattern, rows)
-        if result.warning:
-            warnings.append(result.warning)
-        if result.model is None:
-            warnings.append(f'No models match pattern "{pattern}"')
-            continue
-        _add(result.model, result.thinking_level)
-
+            seen.add(model.reference)
+            scoped.append(ScopedModel(model=model, thinking_level=level))
     return ScopeResult(models=scoped, warnings=warnings)
+
+
+def _expand_scope_pattern(
+    pattern: str, rows: list[NativeModelSpec]
+) -> tuple[list[NativeModelSpec], str | None, list[str]]:
+    if _is_glob(pattern):
+        return _expand_scope_glob(pattern, rows)
+    result = parse_model_pattern(pattern, rows)
+    warnings = [result.warning] if result.warning else []
+    if result.model is None:
+        warnings.append(f'No models match pattern "{pattern}"')
+        return [], None, warnings
+    return [result.model], result.thinking_level, warnings
+
+
+def _expand_scope_glob(
+    pattern: str, rows: list[NativeModelSpec]
+) -> tuple[list[NativeModelSpec], str | None, list[str]]:
+    glob_pattern = pattern
+    level: str | None = None
+    colon = pattern.rfind(":")
+    if colon != -1 and is_valid_thinking_level(pattern[colon + 1 :]):
+        level = pattern[colon + 1 :]
+        glob_pattern = pattern[:colon]
+    matching = [
+        row
+        for row in rows
+        if _glob_match(row.reference, glob_pattern)
+        or _glob_match(row.model_id, glob_pattern)
+    ]
+    warnings = [] if matching else [f'No models match pattern "{pattern}"']
+    return matching, level, warnings
 
 
 @dataclass(frozen=True, slots=True)
@@ -324,6 +327,13 @@ def build_fallback_model(
 _build_fallback_model = build_fallback_model
 
 
+@dataclass(frozen=True, slots=True)
+class _CliModelRequest:
+    provider: str | None
+    pattern: str
+    inferred_provider: bool
+
+
 def resolve_cli_model(
     *,
     cli_provider: str | None,
@@ -334,112 +344,142 @@ def resolve_cli_model(
 
     if not cli_model:
         return ResolveCliModelResult(model=None)
-
     if not rows:
         return ResolveCliModelResult(
             model=None,
             error="No models available. Check your installation or add models to models.json.",
         )
 
-    provider_map: dict[str, str] = {}
-    for r in rows:
-        provider_map.setdefault(r.provider_name.lower(), r.provider_name)
-
-    provider: str | None = None
-    if cli_provider:
-        provider = provider_map.get(cli_provider.lower())
-        if provider is None:
-            return ResolveCliModelResult(
-                model=None,
-                error=(
-                    f'Unknown provider "{cli_provider}". '
-                    "Use --list-models to see available providers/models."
-                ),
-            )
-
-    pattern = cli_model
-    inferred_provider = False
-
-    if provider is None:
-        slash_index = cli_model.find("/")
-        if slash_index != -1:
-            maybe_provider = cli_model[:slash_index]
-            canonical = provider_map.get(maybe_provider.lower())
-            if canonical:
-                provider = canonical
-                pattern = cli_model[slash_index + 1 :]
-                inferred_provider = True
-
-    if provider is None:
-        lower = cli_model.lower()
-        exact = next(
-            (
-                r
-                for r in rows
-                if r.model_id.lower() == lower or r.reference.lower() == lower
-            ),
-            None,
-        )
-        if exact is not None:
-            return ResolveCliModelResult(model=exact)
-
-    if cli_provider and provider:
-        prefix = f"{provider}/"
-        if cli_model.lower().startswith(prefix.lower()):
-            pattern = cli_model[len(prefix) :]
+    request, early_result = _prepare_cli_model_request(cli_provider, cli_model, rows)
+    if early_result is not None:
+        return early_result
+    assert request is not None
 
     candidates = (
-        [r for r in rows if r.provider_name == provider] if provider else rows
+        [row for row in rows if row.provider_name == request.provider]
+        if request.provider
+        else rows
     )
     parsed = parse_model_pattern(
-        pattern, candidates, allow_invalid_thinking_level_fallback=False
+        request.pattern, candidates, allow_invalid_thinking_level_fallback=False
     )
     if parsed.model is not None:
-        return ResolveCliModelResult(
-            model=parsed.model,
-            thinking_level=parsed.thinking_level,
-            warning=parsed.warning,
-        )
+        return _project_parsed_cli_model(parsed)
 
-    if inferred_provider:
-        lower = cli_model.lower()
-        exact = next(
-            (
-                r
-                for r in rows
-                if r.model_id.lower() == lower or r.reference.lower() == lower
-            ),
-            None,
-        )
-        if exact is not None:
-            return ResolveCliModelResult(model=exact)
-        fallback = parse_model_pattern(
-            cli_model, rows, allow_invalid_thinking_level_fallback=False
-        )
-        if fallback.model is not None:
-            return ResolveCliModelResult(
-                model=fallback.model,
-                thinking_level=fallback.thinking_level,
-                warning=fallback.warning,
-            )
+    if request.inferred_provider:
+        inferred_fallback = _resolve_inferred_cli_fallback(cli_model, rows)
+        if inferred_fallback is not None:
+            return inferred_fallback
 
-    if provider:
-        fallback_model = _build_fallback_model(provider, pattern, rows)
-        if fallback_model is not None:
-            base_warning = (
-                f'Model "{pattern}" not found for provider "{provider}". '
-                "Using custom model id."
-            )
-            warning = (
-                f"{parsed.warning} {base_warning}" if parsed.warning else base_warning
-            )
-            return ResolveCliModelResult(
-                model=fallback_model, thinking_level=None, warning=warning
-            )
+    if request.provider:
+        custom_fallback = _build_cli_custom_fallback(request, parsed, rows)
+        if custom_fallback is not None:
+            return custom_fallback
 
-    display = f"{provider}/{pattern}" if provider else cli_model
+    display = f"{request.provider}/{request.pattern}" if request.provider else cli_model
     return ResolveCliModelResult(
         model=None,
         warning=parsed.warning,
         error=f'Model "{display}" not found. Use --list-models to see available models.',
+    )
+
+
+def _prepare_cli_model_request(
+    cli_provider: str | None, cli_model: str, rows: list[NativeModelSpec]
+) -> tuple[_CliModelRequest | None, ResolveCliModelResult | None]:
+    provider_map: dict[str, str] = {}
+    for row in rows:
+        provider_map.setdefault(row.provider_name.lower(), row.provider_name)
+
+    provider = provider_map.get(cli_provider.lower()) if cli_provider else None
+    if cli_provider and provider is None:
+        return None, ResolveCliModelResult(
+            model=None,
+            error=(
+                f'Unknown provider "{cli_provider}". '
+                "Use --list-models to see available providers/models."
+            ),
+        )
+
+    pattern = cli_model
+    inferred_provider = False
+    if provider is None:
+        provider, pattern, inferred_provider = _infer_cli_provider(
+            cli_model, provider_map
+        )
+    if provider is None:
+        exact = _find_direct_cli_model(cli_model, rows)
+        if exact is not None:
+            return None, ResolveCliModelResult(model=exact)
+    if cli_provider and provider:
+        prefix = f"{provider}/"
+        if cli_model.lower().startswith(prefix.lower()):
+            pattern = cli_model[len(prefix) :]
+    return _CliModelRequest(provider, pattern, inferred_provider), None
+
+
+def _infer_cli_provider(
+    cli_model: str, provider_map: dict[str, str]
+) -> tuple[str | None, str, bool]:
+    slash_index = cli_model.find("/")
+    if slash_index == -1:
+        return None, cli_model, False
+    canonical = provider_map.get(cli_model[:slash_index].lower())
+    if not canonical:
+        return None, cli_model, False
+    return canonical, cli_model[slash_index + 1 :], True
+
+
+def _find_direct_cli_model(
+    cli_model: str, rows: list[NativeModelSpec]
+) -> NativeModelSpec | None:
+    lowered = cli_model.lower()
+    return next(
+        (
+            row
+            for row in rows
+            if row.model_id.lower() == lowered or row.reference.lower() == lowered
+        ),
+        None,
+    )
+
+
+def _project_parsed_cli_model(parsed: ParsedModelResult) -> ResolveCliModelResult:
+    return ResolveCliModelResult(
+        model=parsed.model,
+        thinking_level=parsed.thinking_level,
+        warning=parsed.warning,
+    )
+
+
+def _resolve_inferred_cli_fallback(
+    cli_model: str, rows: list[NativeModelSpec]
+) -> ResolveCliModelResult | None:
+    exact = _find_direct_cli_model(cli_model, rows)
+    if exact is not None:
+        return ResolveCliModelResult(model=exact)
+    fallback = parse_model_pattern(
+        cli_model, rows, allow_invalid_thinking_level_fallback=False
+    )
+    if fallback.model is None:
+        return None
+    return _project_parsed_cli_model(fallback)
+
+
+def _build_cli_custom_fallback(
+    request: _CliModelRequest,
+    parsed: ParsedModelResult,
+    rows: list[NativeModelSpec],
+) -> ResolveCliModelResult | None:
+    assert request.provider is not None
+    fallback_model = _build_fallback_model(request.provider, request.pattern, rows)
+    if fallback_model is None:
+        return None
+    base_warning = (
+        f'Model "{request.pattern}" not found for provider "{request.provider}". '
+        "Using custom model id."
+    )
+    warning = f"{parsed.warning} {base_warning}" if parsed.warning else base_warning
+    return ResolveCliModelResult(
+        model=fallback_model, thinking_level=None, warning=warning
     )

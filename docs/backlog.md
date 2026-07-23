@@ -3535,6 +3535,36 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose command and model resolution kernels (Slice 7.7r) — DONE (2026-07-23)
+
+Nineteenth directional C901 batch. Decompose the seven findings across
+`native.coding.commands`, `native.model_resolver`, and `native.models_json` at
+closed-outcome invariant, glob-token, scope/direct-model resolution,
+semantic-validation, and catalog-merge phases. Preserve exact exception/error
+messages and first-failure order, outcome payload invariants, Pi-compatible
+glob and thinking-level precedence, model order/dedup/fallback/warnings, and
+models.json override/default/extension merge precedence and row identity.
+Add characterization only where precedence is not already pinned. Each clean
+file leaves the C901 pin list. No behavior, catalog/config shape, dependency,
+unchecked `Any`, ignore, Mypy exclusion, or new pin.
+
+Landed shape: command outcomes separate exact-field validation from
+kind-specific payload/footer invariants, and dispatch resolutions apply the
+same field then non-run payload checks. Model resolution tokenizes globs,
+expands each scope pattern before ordered first-match dedup, and separates CLI
+request preparation, exact/inferred resolution, parsed projection, and custom
+fallback. Models.json delegates provider/model semantics and built-in,
+request-config, and custom-row merge phases, with replacement retaining its
+baseline position and new rows appending in config order. New tests pin
+invariant first-failure order, scope expansion/level precedence, case-insensitive
+explicit-provider stripping, model semantic precedence, and merge position.
+All three owners are clean and their pins are deleted, lowering repository
+C901 80/29 -> 73/26 (`src` 64/20 -> 57/17). Focused verification passed 295
+tests; final `just check` passed Ruff, Mypy, and 4,578 tests (2 skipped);
+`just docs-build` completed cleanly. `src` ignores remain 27 and the root
+remains 5,080 lines. Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit
+CLEAN.
+
 ### Decompose REPL input editor and backend selection (Slice 7.7q) — DONE (2026-07-23)
 
 Eighteenth directional C901 batch. Decompose the four findings in

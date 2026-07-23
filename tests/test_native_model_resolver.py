@@ -171,6 +171,19 @@ def test_resolve_model_scope_dedupes_across_patterns():
     assert refs.count("anthropic/claude-opus-4-7") == 1
 
 
+def test_resolve_model_scope_preserves_expansion_order_and_first_level():
+    scope = resolve_model_scope(
+        ["openai/gpt-*:high", "openai/gpt-5.5:low"], ROWS
+    )
+
+    assert [item.model.reference for item in scope.models] == [
+        "openai/gpt-5.5",
+        "openai/gpt-4o",
+        "openrouter/openai/gpt-4o:extended",
+    ]
+    assert scope.models[0].thinking_level == "high"
+
+
 # ---- resolve_cli_model ------------------------------------------------------
 
 
@@ -178,6 +191,16 @@ def test_resolve_cli_model_with_provider_and_model():
     result = resolve_cli_model(cli_provider="openai", cli_model="gpt-5.5", rows=ROWS)
     assert result.error is None
     assert result.model is not None and result.model.reference == "openai/gpt-5.5"
+
+
+def test_resolve_cli_model_strips_explicit_provider_case_insensitively():
+    result = resolve_cli_model(
+        cli_provider="OPENAI", cli_model="OpenAI/GPT-5.5:high", rows=ROWS
+    )
+
+    assert result.error is None
+    assert result.model is not None and result.model.reference == "openai/gpt-5.5"
+    assert result.thinking_level == "high"
 
 
 def test_resolve_cli_model_infers_provider_from_slash_prefix():
