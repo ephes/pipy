@@ -2920,6 +2920,33 @@ final `just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
 `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
 0 findings, explicit CLEAN.
 
+### Strict Mypy gate and OAuth typing for REPL state (Slice 7.6c) — DONE (2026-07-23)
+
+Third strict-root follow-on slice. Add `pipy_harness.native.repl_state` to the
+enumerated strict override; type the catalog row lists and failed extension
+provider method; narrow generic prompt mappings without hiding `Any`; and type
+extension OAuth helpers with `RegisteredProvider`, proving the OAuth-map
+invariant before use. Remove all three `attr-defined` ignores from this module,
+taking the repository's `src` ignore count below 30 through real typing.
+Preserve model/provider resolution, interactive prompts, OAuth login/logout and
+credential storage, fallback failures, and every CLI/TUI message. No
+`strict = true`, relaxed flag, cast hiding `Any`, new ignore, exclusion,
+dependency, C901 pin, or behavior change.
+
+Landed shape: `pipy_harness.native.repl_state` now participates in the
+enumerated strict override. Catalog rows use `NativeModelSpec`; the failed
+extension provider fully implements the typed provider signature; and prompt
+selection gives the validated mapping an `object`-typed view, retaining
+arbitrary IDs without a cast. Both OAuth helpers accept `RegisteredProvider`
+and locally assert the catalog's non-None OAuth-map invariant before invoking
+the callback. The three `attr-defined` ignores are deleted with no replacement,
+lowering `src` `type: ignore` from 32 to 29. Existing provider-registry
+attributes remain explicit re-exports under `no_implicit_reexport`. Focused
+REPL/provider/OAuth/settings/import-boundary verification passed 247 tests;
+final `just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

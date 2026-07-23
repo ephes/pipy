@@ -12,20 +12,23 @@ from pathlib import Path
 from typing import TextIO, cast
 
 from pipy_harness.capture import sanitize_text
+from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.catalog import NativeModelSpec
+from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.extension_types import RegisteredProvider
+from pipy_harness.native.fake import AUTOMATION_FAKE_MODEL_ID
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     default_openai_codex_auth_path,
 )
-from pipy_harness.native.fake import AUTOMATION_FAKE_MODEL_ID
-from pipy_harness.native.catalog import NativeModelSpec
-from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.provider_construction import ConstructionOptions
 from pipy_harness.native.provider_registry import (
-    DEFAULT_NATIVE_MODELS,
-    SUPPORTED_NATIVE_PROVIDERS,
+    DEFAULT_NATIVE_MODELS as DEFAULT_NATIVE_MODELS,
+    SUPPORTED_NATIVE_PROVIDERS as SUPPORTED_NATIVE_PROVIDERS,
     native_provider_available,
 )
-from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +92,7 @@ class _ExtensionOAuthCallbacks:
     def on_select(self, prompt: Mapping[str, object]) -> object | None:
         message = sanitize_text(str(prompt.get("message", ""))).strip() or "Select"
         options = prompt.get("options")
-        option_list = list(options) if isinstance(options, list) else []
+        option_list: list[object] = list(options) if isinstance(options, list) else []
         print(message, file=self.output_stream)
         for index, option in enumerate(option_list, start=1):
             label = option.get("label") if isinstance(option, Mapping) else option
@@ -104,7 +107,8 @@ class _ExtensionOAuthCallbacks:
             return None
         option = option_list[selected]
         if isinstance(option, Mapping):
-            return option.get("id")
+            option_mapping: Mapping[object, object] = option
+            return option_mapping.get("id")
         return option
 
     def onSelect(self, prompt: Mapping[str, object]) -> object | None:  # noqa: N802 - Pi shape
@@ -534,13 +538,14 @@ class NativeReplProviderState:
 
     def _extension_oauth_login(
         self,
-        registered: object,
+        registered: RegisteredProvider,
         *,
         input_stream: TextIO,
         output_stream: TextIO,
     ) -> tuple[bool, str]:
-        oauth = registered.provider.oauth  # type: ignore[attr-defined]
-        provider_name = registered.provider.name  # type: ignore[attr-defined]
+        oauth = registered.provider.oauth
+        assert oauth is not None
+        provider_name = registered.provider.name
         try:
             credentials = oauth.login(
                 _ExtensionOAuthCallbacks(input_stream=input_stream, output_stream=output_stream)
@@ -563,8 +568,10 @@ class NativeReplProviderState:
         store.set(provider_name, {"type": "oauth", **dict(credentials)})
         return True, f"pipy: {provider_name} OAuth login stored."
 
-    def _extension_oauth_logout(self, registered: object) -> tuple[bool, str]:
-        provider_name = registered.provider.name  # type: ignore[attr-defined]
+    def _extension_oauth_logout(
+        self, registered: RegisteredProvider
+    ) -> tuple[bool, str]:
+        provider_name = registered.provider.name
         catalog = self._catalog
         assert catalog is not None
         store = catalog.auth_store
@@ -738,7 +745,7 @@ def _provider_available_in_env(
 def resolve_cli_selection(
     native_provider: str | None,
     native_model: str | None,
-    rows: list,
+    rows: list[NativeModelSpec],
 ) -> tuple[NativeModelSelection | None, str | None]:
     """Resolve startup ``--native-provider``/``--native-model`` against the catalog.
 
@@ -797,7 +804,7 @@ def default_selection_for(
     defaults_store: NativeDefaultsStore | None = None,
     env: Mapping[str, str] | None = None,
     openai_codex_auth_path: Path | None = None,
-    rows: list | None = None,
+    rows: list[NativeModelSpec] | None = None,
 ) -> NativeModelSelection:
     # Catalog-aware startup resolution (accepts custom models.json providers and
     # bare model refs). ``rows`` is the merged catalog; when omitted, the legacy
@@ -855,8 +862,13 @@ class _FailedExtensionProvider:
         return self.provider_name
 
     def complete(
-        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
-    ):
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
         from pipy_harness.native._provider_helpers import (
             failed_provider_result,
             utc_now,
