@@ -814,7 +814,7 @@ def _parser_subcommands(parser: argparse.ArgumentParser) -> frozenset[str]:
     names: set[str] = set()
     subparsers = getattr(parser, "_subparsers", None)
     if subparsers is not None:
-        for action in subparsers._group_actions:  # type: ignore[attr-defined]
+        for action in subparsers._group_actions:
             choices = getattr(action, "choices", None)
             if choices:
                 names.update(choices.keys())

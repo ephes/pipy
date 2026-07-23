@@ -2974,6 +2974,29 @@ passed 311 tests; final `just check` passed Ruff, Mypy, and 4,509 tests
 (2 skipped); `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol,
 1 round, 0 findings, explicit CLEAN.
 
+### Strict Mypy gate for the top-level CLI (Slice 7.6d) — DONE (2026-07-23)
+
+Fourth strict-root follow-on slice. Add `pipy_harness.cli` to the enumerated
+strict override. The measured strict surface is one stale
+`type: ignore[attr-defined]` on argparse's dynamically reached subparser action
+list; `getattr` already gives that private compatibility path the permissive
+type it needs, so strict Mypy reports the ignore as unused. Delete it rather
+than replacing it. Preserve parser construction, help/list output, routing,
+trust startup, automation, native provider/model selection, exit codes, and
+all CLI messages. No `strict = true`, relaxed flag, new ignore, exclusion,
+dependency, C901 pin, or behavior change.
+
+Landed shape: `pipy_harness.cli` now participates in the enumerated strict
+override. Its sole measured strict finding was the unused argparse private-path
+ignore; deleting only that comment leaves the `getattr` compatibility walk and
+all parser logic byte-identical. No replacement cast or ignore was added,
+lowering `src` `type: ignore` from 29 to 28. The strict-frontier comment
+advances with the module and every sub-flag remains unchanged. Focused
+top-level/native/automation/session CLI verification passed 122 tests; final
+`just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from
