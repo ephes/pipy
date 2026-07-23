@@ -341,6 +341,25 @@ def test_openai_codex_provider_accepts_crlf_done_and_ignores_non_data_sse_lines(
     assert result.final_text == "hello"
 
 
+def test_openai_codex_provider_requires_model_before_checking_auth(tmp_path: Path) -> None:
+    class AuthMustNotRun(OpenAICodexAuthManager):
+        def get_credentials(self) -> OpenAICodexCredentials | None:
+            raise AssertionError("auth must not run before model validation")
+
+    client = FakeSseHTTPClient()
+    provider = OpenAICodexResponsesProvider(
+        model_id=" ",
+        auth_manager=AuthMustNotRun(store=InMemoryCredentialStore(None)),
+        http_client=client,
+    )
+
+    result = provider.complete(provider_request(tmp_path))
+
+    assert result.status == HarnessStatus.FAILED
+    assert result.error_type == "OpenAICodexConfigurationError"
+    assert client.requests == []
+
+
 def test_openai_codex_provider_missing_credentials_fails_without_http(tmp_path):
     client = FakeSseHTTPClient()
     provider = OpenAICodexResponsesProvider(

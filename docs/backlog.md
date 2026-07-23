@@ -3084,6 +3084,36 @@ the same 60 files (`src` 111 -> 107 across 51). Focused verification passed
 arguments-done event no longer reserved its valid item ID's source-order slot;
 the reservation order was restored and a regression test added.
 
+### C901 Codex request, retry, and error decomposition (Slice 7.7e2) — DONE (2026-07-23)
+
+Sixth directional complexity batch, bounded to the remaining half of
+`native.openai_codex_provider`. Decompose `OpenAICodexResponsesProvider.complete`,
+its nested `_attempt`, `OpenAICodexHTTPStatusError.from_http_error`, and
+`_parse_retry_after_seconds` along genuine completion preflight/request,
+attempt-local retry/fallback, sanitized HTTP-error body/label extraction, and
+header-duration parsing seams. Preserve exact validation/auth first failure,
+extension-header hook count and ordered request bytes, transport choice and
+sticky fallback, connection-limit retry, progress/reset behavior, backoff and
+cancellation, retry-after caps, error classes/messages/metadata, result
+timestamps, output/tools/usage, and all body-read privacy boundaries. The file
+must leave the C901 pin list only when every original and new helper is below
+the threshold. No provider redesign, public export, behavior change,
+dependency, unchecked `Any`, `type: ignore`, Mypy exclusion, or new pin.
+
+Landed shape: `_prepare_codex_completion` preserves model-before-auth
+validation and delegates body/header/client construction to a frozen typed
+configuration. `_OpenAICodexAttemptRunner` owns the former closure's mutable
+attempt/progress state and separates SSE, WebSocket, connection-limit,
+fallback, retry classification/delay, sleep, and failure-result concerns.
+HTTP-error body reading and bounded API-label projection are distinct
+cancellation-aware helpers; Retry-After milliseconds, numeric seconds,
+HTTP-date parsing, and finite/nonnegative bounding are distinct helpers. A new
+test pins model validation before any auth call. The owner is C901-clean and
+its pin is deleted, lowering repository C901 123/60 -> 119/59 (`src` 107/51
+-> 103/50). Focused verification passed 128 tests; final `just check` passed
+Ruff, Mypy, and 4,514 tests (2 skipped); `just docs-build` reported no issues.
+Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

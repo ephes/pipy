@@ -54,9 +54,9 @@ extend-select = ["C901"]
 # strict-leaf invariant owners; Slice 7.7b dropped three strict provider/wire
 # owners; Slice 7.7c dropped three more strict provider owners; Slice 7.7d
 # dropped the six-finding extension runtime owner; Slice 7.7e1 retired four of
-# eight findings in the still-pinned Codex provider owner). Do not add entries
-# to grow the baseline; only remove them as functions are genuinely simplified
-# below the threshold.
+# eight findings in the Codex provider owner; Slice 7.7e2 dropped its remaining
+# four findings and pin). Do not add entries to grow the baseline; only remove
+# them as functions are genuinely simplified below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
@@ -80,7 +80,6 @@ extend-select = ["C901"]
 "src/pipy_harness/native/model_resolver.py" = ["C901"]
 "src/pipy_harness/native/models_json.py" = ["C901"]
 "src/pipy_harness/native/models.py" = ["C901"]
-"src/pipy_harness/native/openai_codex_provider.py" = ["C901"]
 "src/pipy_harness/native/package_resources.py" = ["C901"]
 "src/pipy_harness/native/project_trust.py" = ["C901"]
 "src/pipy_harness/native/provider_construction.py" = ["C901"]

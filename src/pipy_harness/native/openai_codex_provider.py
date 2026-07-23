@@ -20,6 +20,7 @@ import uuid
 import webbrowser
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from email.utils import parsedate_to_datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -801,269 +802,23 @@ class OpenAICodexResponsesProvider:
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
         started_at = utc_now()
-        if not self.model_id or not self.model_id.strip():
-            return failed_provider_result(
-                request,
-                provider_name=self.name,
-                started_at=started_at,
-                error_type="OpenAICodexConfigurationError",
-                error_message="--native-model is required for native provider openai-codex.",
-            )
-
-        try:
-            credentials = self.auth_manager.get_credentials()
-        except OpenAICodexProviderError as exc:
-            return failed_provider_result(
-                request,
-                provider_name=self.name,
-                started_at=started_at,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-                metadata=exc.metadata,
-            )
-        if credentials is None:
-            return failed_provider_result(
-                request,
-                provider_name=self.name,
-                started_at=started_at,
-                error_type="OpenAICodexAuthError",
-                error_message=(
-                    "OpenAI Codex login is required. "
-                    "Run `pipy auth openai-codex login` before using native provider openai-codex."
-                ),
-            )
-
-        immediate_tools, deferred_tools = split_deferred_tools(
-            request,
-            enabled=self.supports_tool_search,
+        configuration = _prepare_codex_completion(self, request, started_at)
+        if isinstance(configuration, ProviderResult):
+            return configuration
+        runner = _OpenAICodexAttemptRunner(
+            provider=self,
+            configuration=configuration,
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+            cancel_token=cancel_token,
         )
-        body: dict[str, Any] = {
-            "model": self.model_id,
-            "instructions": request.system_prompt,
-            "input": _responses_input_messages(
-                request,
-                deferred_tools={tool.name: tool for tool in deferred_tools},
-            ),
-            "store": False,
-            "stream": True,
-            "text": {"verbosity": "low"},
-            "include": ["reasoning.encrypted_content"],
-            "reasoning": (
-                {"summary": "auto", "effort": self.reasoning_effort}
-                if self.reasoning_effort is not None
-                else {"summary": "auto"}
-            ),
-            "tool_choice": "auto",
-            "parallel_tool_calls": True,
-        }
-        if immediate_tools:
-            body["tools"] = [
-                serialize_tool_for_responses(tool)
-                for tool in immediate_tools
-            ]
-        # Pi fires the extension hook once against request-scoped additional
-        # headers, then each transport derives its required auth/protocol fields.
-        # Keep this snapshot outside the retry/fallback loop so every attempt
-        # reuses it without re-running extension code.
-        extension_headers = apply_provider_headers(request, {})
-        base_headers = {
-            **extension_headers,
-            "Authorization": f"Bearer {credentials.access_token}",
-            "chatgpt-account-id": credentials.account_id,
-            "originator": "pipy",
-            "User-Agent": "pipy",
-        }
-        headers = {
-            **base_headers,
-            "Accept": "text/event-stream",
-            "Content-Type": "application/json",
-            "OpenAI-Beta": "responses=experimental",
-        }
-        http_client: SseHTTPClient = self.http_client
-        if type(http_client) is UrllibSseHTTPClient:
-            http_client = UrllibSseHTTPClient(retry_clock=self.retry_clock)
-
-        attempt = 0
-        progress = StreamProgress()
-
-        def _sse_attempt() -> ParsedOpenAICodexResponse:
-            try:
-                resp = http_client.post_sse(
-                    self.endpoint,
-                    headers=headers,
-                    body=body,
-                    timeout_seconds=self.timeout_seconds,
-                    cancel_token=cancel_token,
-                )
-            except urllib.error.HTTPError as exc:
-                raise OpenAICodexHTTPStatusError.from_http_error(
-                    exc,
-                    cancel_token=cancel_token,
-                    now_seconds=self.retry_clock(),
-                ) from exc
-            if resp.status_code < 200 or resp.status_code >= 300:
-                raise OpenAICodexHTTPStatusError(
-                    f"OpenAI Codex request failed with HTTP status {resp.status_code}.",
-                    metadata={"http_status": resp.status_code},
-                )
-            return _parse_sse_response(
-                resp.body,
-                stream_sink=stream_sink,
-                reasoning_sink=reasoning_sink,
-                event_stream=resp.event_stream,
-                cancel_token=cancel_token,
-                progress=progress,
-            )
-
-        def _websocket_attempt() -> ParsedOpenAICodexResponse:
-            request_id = self.request_id_factory()
-            websocket_headers = {
-                **base_headers,
-                "OpenAI-Beta": "responses_websockets=2026-02-06",
-                "session-id": request_id,
-                "x-client-request-id": request_id,
-            }
-            events = self.websocket_client.post_events(
-                self.websocket_endpoint,
-                headers=websocket_headers,
-                body=body,
-                connect_timeout_seconds=self.websocket_connect_timeout_seconds,
-                idle_timeout_seconds=self.timeout_seconds,
-                cancel_token=cancel_token,
-            )
-            return _parse_response_events(
-                events,
-                transport="websocket",
-                stream_sink=stream_sink,
-                reasoning_sink=reasoning_sink,
-                cancel_token=cancel_token,
-                progress=progress,
-            )
-
-        def _attempt() -> ParsedOpenAICodexResponse:
-            nonlocal attempt, progress
-            attempt += 1
-            progress = StreamProgress()
-            if cancel_token is not None:
-                cancel_token.raise_if_cancelled()
-            use_websocket = self.transport in {"auto", "websocket"} and not (
-                self.transport == "auto"
-                and self.transport_state.should_skip_websocket()
-            )
-            connection_limit_retried = False
-            if not use_websocket:
-                return _sse_attempt()
-            while True:
-                try:
-                    return _websocket_attempt()
-                except OpenAICodexResponseParseError as exc:
-                    if (
-                        not progress.observed
-                        and exc.metadata.get("api_error_code")
-                        == "websocket_connection_limit_reached"
-                    ):
-                        if not connection_limit_retried:
-                            connection_limit_retried = True
-                            continue
-                        if self.transport == "auto":
-                            self.transport_state.remember_sse_fallback()
-                        return _sse_attempt()
-                    raise
-                except OpenAICodexTransportError:
-                    if progress.observed:
-                        raise
-                    if self.transport == "auto":
-                        self.transport_state.remember_sse_fallback()
-                    return _sse_attempt()
-
-        def _should_retry(exc: BaseException) -> bool:
-            if cancel_token is not None:
-                cancel_token.raise_if_cancelled()
-            return not progress.observed and _codex_failure_retryable(exc)
-
-        def _retry_after_seconds(exc: BaseException) -> float | None:
-            metadata = getattr(exc, "metadata", None)
-            if not isinstance(metadata, dict):
-                return None
-            value = metadata.get("retry_after_seconds")
-            if isinstance(value, bool) or not isinstance(value, int | float):
-                return None
-            capped = min(self.retry_policy.max_delay_seconds, max(0.0, float(value)))
-            metadata["retry_after_seconds"] = capped
-            return capped
-
-        def _sleep_before_retry(delay: float) -> None:
-            if cancel_token is not None:
-                cancel_token.raise_if_cancelled()
-            if self.retry_sleep is not None:
-                self.retry_sleep(delay)
-            elif cancel_token is not None:
-                cancel_token.event.wait(delay)
-            else:
-                time.sleep(delay)
-            if cancel_token is not None:
-                cancel_token.raise_if_cancelled()
-
         try:
-            result = retry_with_backoff(
-                _attempt,
-                policy=self.retry_policy,
-                sleep=_sleep_before_retry,
-                jitter=self.retry_jitter,
-                should_retry=_should_retry,
-                retry_after_seconds=_retry_after_seconds,
-            )
+            result = runner.run()
         except ProviderCancelledError:
             raise
         except OpenAICodexProviderError as exc:
-            metadata = dict(exc.metadata)
-            retry_after = metadata.get("retry_after_seconds")
-            if (
-                isinstance(retry_after, int | float)
-                and not isinstance(retry_after, bool)
-            ):
-                metadata["retry_after_seconds"] = min(
-                    self.retry_policy.max_delay_seconds,
-                    max(0.0, float(retry_after)),
-                )
-            intrinsically_retryable = _codex_failure_retryable(exc)
-            metadata.update(
-                {
-                    "attempt": attempt,
-                    "exhausted": (
-                        intrinsically_retryable
-                        and not progress.observed
-                        and attempt >= self.retry_policy.max_attempts
-                    ),
-                    "max_attempts": self.retry_policy.max_attempts,
-                    "progress": progress.value,
-                    "retryable": intrinsically_retryable,
-                }
-            )
-            return failed_provider_result(
-                request,
-                provider_name=self.name,
-                started_at=started_at,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-                metadata=metadata,
-            )
-
-        return ProviderResult(
-            status=HarnessStatus.SUCCEEDED,
-            provider_name=self.name,
-            model_id=self.model_id,
-            started_at=started_at,
-            ended_at=utc_now(),
-            final_text=result.final_text,
-            usage=result.usage,
-            metadata={
-                "provider_response_store_requested": False,
-                "response_status": result.response_status,
-            },
-            tool_calls=result.tool_calls,
-        )
-
+            return runner.failed_result(request, started_at, exc)
+        return _successful_codex_result(self, started_at, result)
 
 def _responses_input_messages(
     request: ProviderRequest,
@@ -1224,42 +979,12 @@ class OpenAICodexHTTPStatusError(OpenAICodexProviderError):
         )
         if retry_after is not None:
             metadata["retry_after_seconds"] = retry_after
-        body: Mapping[str, Any]
-        if cancel_token is not None:
-            cancel_token.raise_if_cancelled()
-        try:
-            raw_body = exc.read()
-        except ProviderCancelledError:
-            raise
-        except Exception as read_exc:  # noqa: BLE001 - recognized transport failures only
-            if cancel_token is not None:
-                cancel_token.raise_if_cancelled()
-            if transport_exception_retryable(read_exc) is None:
-                raise
-            # The HTTP response status is already sufficient for the stable
-            # provider-domain failure. A transport interruption while reading
-            # its optional diagnostic body must not leak a raw socket error.
-            body = {}
-        else:
-            if cancel_token is not None:
-                cancel_token.raise_if_cancelled()
-            try:
-                body = decode_json_object(
-                    raw_body,
-                    error_class=OpenAICodexResponseParseError,
-                    provider_label="OpenAI Codex",
-                )
-            except OpenAICodexResponseParseError:
-                body = {}
-        error = body.get("error")
-        if isinstance(error, Mapping):
-            error_type = _safe_codex_api_label(error.get("type"))
-            error_code = _safe_codex_api_label(error.get("code"))
-            if error_type is not None:
-                metadata["api_error_type"] = error_type
-            if error_code is not None:
-                metadata["api_error_code"] = error_code
-        return cls(f"OpenAI Codex request failed with HTTP status {exc.code}.", metadata=metadata)
+        body = _read_codex_http_error_body(exc, cancel_token=cancel_token)
+        metadata.update(_codex_api_error_metadata(body))
+        return cls(
+            f"OpenAI Codex request failed with HTTP status {exc.code}.",
+            metadata=metadata,
+        )
 
 
 class OpenAICodexTransportError(OpenAICodexProviderError):
@@ -1288,6 +1013,338 @@ class StreamProgress:
         self.observed = True
 
 
+@dataclass(frozen=True, slots=True)
+class _OpenAICodexCompletionConfiguration:
+    body: Mapping[str, Any]
+    base_headers: Mapping[str, str]
+    sse_headers: Mapping[str, str]
+    http_client: SseHTTPClient
+
+
+def _prepare_codex_completion(
+    provider: OpenAICodexResponsesProvider,
+    request: ProviderRequest,
+    started_at: datetime,
+) -> _OpenAICodexCompletionConfiguration | ProviderResult:
+    if not provider.model_id or not provider.model_id.strip():
+        return failed_provider_result(
+            request,
+            provider_name=provider.name,
+            started_at=started_at,
+            error_type="OpenAICodexConfigurationError",
+            error_message="--native-model is required for native provider openai-codex.",
+        )
+    try:
+        credentials = provider.auth_manager.get_credentials()
+    except OpenAICodexProviderError as exc:
+        return failed_provider_result(
+            request,
+            provider_name=provider.name,
+            started_at=started_at,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            metadata=exc.metadata,
+        )
+    if credentials is None:
+        return _missing_codex_credentials_result(provider, request, started_at)
+    return _codex_completion_configuration(provider, request, credentials)
+
+
+def _missing_codex_credentials_result(
+    provider: OpenAICodexResponsesProvider,
+    request: ProviderRequest,
+    started_at: datetime,
+) -> ProviderResult:
+    return failed_provider_result(
+        request,
+        provider_name=provider.name,
+        started_at=started_at,
+        error_type="OpenAICodexAuthError",
+        error_message=(
+            "OpenAI Codex login is required. "
+            "Run `pipy auth openai-codex login` before using native provider openai-codex."
+        ),
+    )
+
+
+def _codex_completion_configuration(
+    provider: OpenAICodexResponsesProvider,
+    request: ProviderRequest,
+    credentials: OpenAICodexCredentials,
+) -> _OpenAICodexCompletionConfiguration:
+    body = _codex_request_body(provider, request)
+    extension_headers = apply_provider_headers(request, {})
+    base_headers = {
+        **extension_headers,
+        "Authorization": f"Bearer {credentials.access_token}",
+        "chatgpt-account-id": credentials.account_id,
+        "originator": "pipy",
+        "User-Agent": "pipy",
+    }
+    sse_headers = {
+        **base_headers,
+        "Accept": "text/event-stream",
+        "Content-Type": "application/json",
+        "OpenAI-Beta": "responses=experimental",
+    }
+    http_client: SseHTTPClient = provider.http_client
+    if type(http_client) is UrllibSseHTTPClient:
+        http_client = UrllibSseHTTPClient(retry_clock=provider.retry_clock)
+    return _OpenAICodexCompletionConfiguration(
+        body=body,
+        base_headers=base_headers,
+        sse_headers=sse_headers,
+        http_client=http_client,
+    )
+
+
+def _codex_request_body(
+    provider: OpenAICodexResponsesProvider,
+    request: ProviderRequest,
+) -> dict[str, Any]:
+    immediate_tools, deferred_tools = split_deferred_tools(
+        request,
+        enabled=provider.supports_tool_search,
+    )
+    body: dict[str, Any] = {
+        "model": provider.model_id,
+        "instructions": request.system_prompt,
+        "input": _responses_input_messages(
+            request,
+            deferred_tools={tool.name: tool for tool in deferred_tools},
+        ),
+        "store": False,
+        "stream": True,
+        "text": {"verbosity": "low"},
+        "include": ["reasoning.encrypted_content"],
+        "reasoning": (
+            {"summary": "auto", "effort": provider.reasoning_effort}
+            if provider.reasoning_effort is not None
+            else {"summary": "auto"}
+        ),
+        "tool_choice": "auto",
+        "parallel_tool_calls": True,
+    }
+    if immediate_tools:
+        body["tools"] = [
+            serialize_tool_for_responses(tool) for tool in immediate_tools
+        ]
+    return body
+
+
+@dataclass(slots=True)
+class _OpenAICodexAttemptRunner:
+    provider: OpenAICodexResponsesProvider
+    configuration: _OpenAICodexCompletionConfiguration
+    stream_sink: StreamChunkSink | None
+    reasoning_sink: StreamChunkSink | None
+    cancel_token: CancelToken | None
+    attempt: int = field(init=False, default=0)
+    progress: StreamProgress = field(init=False, default_factory=StreamProgress)
+
+    def run(self) -> ParsedOpenAICodexResponse:
+        return retry_with_backoff(
+            self._attempt,
+            policy=self.provider.retry_policy,
+            sleep=self._sleep_before_retry,
+            jitter=self.provider.retry_jitter,
+            should_retry=self._should_retry,
+            retry_after_seconds=self._retry_after_seconds,
+        )
+
+    def _attempt(self) -> ParsedOpenAICodexResponse:
+        self.attempt += 1
+        self.progress = StreamProgress()
+        if self.cancel_token is not None:
+            self.cancel_token.raise_if_cancelled()
+        if not self._should_use_websocket():
+            return self._sse_attempt()
+        return self._websocket_with_fallback()
+
+    def _should_use_websocket(self) -> bool:
+        if self.provider.transport not in {"auto", "websocket"}:
+            return False
+        return not (
+            self.provider.transport == "auto"
+            and self.provider.transport_state.should_skip_websocket()
+        )
+
+    def _sse_attempt(self) -> ParsedOpenAICodexResponse:
+        try:
+            response = self.configuration.http_client.post_sse(
+                self.provider.endpoint,
+                headers=self.configuration.sse_headers,
+                body=self.configuration.body,
+                timeout_seconds=self.provider.timeout_seconds,
+                cancel_token=self.cancel_token,
+            )
+        except urllib.error.HTTPError as exc:
+            raise OpenAICodexHTTPStatusError.from_http_error(
+                exc,
+                cancel_token=self.cancel_token,
+                now_seconds=self.provider.retry_clock(),
+            ) from exc
+        if response.status_code < 200 or response.status_code >= 300:
+            raise OpenAICodexHTTPStatusError(
+                f"OpenAI Codex request failed with HTTP status {response.status_code}.",
+                metadata={"http_status": response.status_code},
+            )
+        return _parse_sse_response(
+            response.body,
+            stream_sink=self.stream_sink,
+            reasoning_sink=self.reasoning_sink,
+            event_stream=response.event_stream,
+            cancel_token=self.cancel_token,
+            progress=self.progress,
+        )
+
+    def _websocket_attempt(self) -> ParsedOpenAICodexResponse:
+        request_id = self.provider.request_id_factory()
+        websocket_headers = {
+            **self.configuration.base_headers,
+            "OpenAI-Beta": "responses_websockets=2026-02-06",
+            "session-id": request_id,
+            "x-client-request-id": request_id,
+        }
+        events = self.provider.websocket_client.post_events(
+            self.provider.websocket_endpoint,
+            headers=websocket_headers,
+            body=self.configuration.body,
+            connect_timeout_seconds=self.provider.websocket_connect_timeout_seconds,
+            idle_timeout_seconds=self.provider.timeout_seconds,
+            cancel_token=self.cancel_token,
+        )
+        return _parse_response_events(
+            events,
+            transport="websocket",
+            stream_sink=self.stream_sink,
+            reasoning_sink=self.reasoning_sink,
+            cancel_token=self.cancel_token,
+            progress=self.progress,
+        )
+
+    def _websocket_with_fallback(self) -> ParsedOpenAICodexResponse:
+        connection_limit_retried = False
+        while True:
+            try:
+                return self._websocket_attempt()
+            except OpenAICodexResponseParseError as exc:
+                if not self._is_connection_limit(exc):
+                    raise
+                if not connection_limit_retried:
+                    connection_limit_retried = True
+                    continue
+                self._remember_sse_fallback()
+                return self._sse_attempt()
+            except OpenAICodexTransportError:
+                if self.progress.observed:
+                    raise
+                self._remember_sse_fallback()
+                return self._sse_attempt()
+
+    def _is_connection_limit(self, exc: OpenAICodexResponseParseError) -> bool:
+        return (
+            not self.progress.observed
+            and exc.metadata.get("api_error_code")
+            == "websocket_connection_limit_reached"
+        )
+
+    def _remember_sse_fallback(self) -> None:
+        if self.provider.transport == "auto":
+            self.provider.transport_state.remember_sse_fallback()
+
+    def _should_retry(self, exc: BaseException) -> bool:
+        if self.cancel_token is not None:
+            self.cancel_token.raise_if_cancelled()
+        return not self.progress.observed and _codex_failure_retryable(exc)
+
+    def _retry_after_seconds(self, exc: BaseException) -> float | None:
+        metadata = getattr(exc, "metadata", None)
+        if not isinstance(metadata, dict):
+            return None
+        value = metadata.get("retry_after_seconds")
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return None
+        capped = min(
+            self.provider.retry_policy.max_delay_seconds,
+            max(0.0, float(value)),
+        )
+        metadata["retry_after_seconds"] = capped
+        return capped
+
+    def _sleep_before_retry(self, delay: float) -> None:
+        if self.cancel_token is not None:
+            self.cancel_token.raise_if_cancelled()
+        if self.provider.retry_sleep is not None:
+            self.provider.retry_sleep(delay)
+        elif self.cancel_token is not None:
+            self.cancel_token.event.wait(delay)
+        else:
+            time.sleep(delay)
+        if self.cancel_token is not None:
+            self.cancel_token.raise_if_cancelled()
+
+    def failed_result(
+        self,
+        request: ProviderRequest,
+        started_at: datetime,
+        exc: OpenAICodexProviderError,
+    ) -> ProviderResult:
+        metadata = dict(exc.metadata)
+        self._cap_retry_after_metadata(metadata)
+        intrinsically_retryable = _codex_failure_retryable(exc)
+        metadata.update(
+            {
+                "attempt": self.attempt,
+                "exhausted": (
+                    intrinsically_retryable
+                    and not self.progress.observed
+                    and self.attempt >= self.provider.retry_policy.max_attempts
+                ),
+                "max_attempts": self.provider.retry_policy.max_attempts,
+                "progress": self.progress.value,
+                "retryable": intrinsically_retryable,
+            }
+        )
+        return failed_provider_result(
+            request,
+            provider_name=self.provider.name,
+            started_at=started_at,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            metadata=metadata,
+        )
+
+    def _cap_retry_after_metadata(self, metadata: dict[str, Any]) -> None:
+        retry_after = metadata.get("retry_after_seconds")
+        if isinstance(retry_after, int | float) and not isinstance(retry_after, bool):
+            metadata["retry_after_seconds"] = min(
+                self.provider.retry_policy.max_delay_seconds,
+                max(0.0, float(retry_after)),
+            )
+
+
+def _successful_codex_result(
+    provider: OpenAICodexResponsesProvider,
+    started_at: datetime,
+    result: ParsedOpenAICodexResponse,
+) -> ProviderResult:
+    return ProviderResult(
+        status=HarnessStatus.SUCCEEDED,
+        provider_name=provider.name,
+        model_id=provider.model_id,
+        started_at=started_at,
+        ended_at=utc_now(),
+        final_text=result.final_text,
+        usage=result.usage,
+        metadata={
+            "provider_response_store_requested": False,
+            "response_status": result.response_status,
+        },
+        tool_calls=result.tool_calls,
+    )
+
+
 def _safe_codex_api_label(value: Any) -> str | None:
     """Return a known bounded API label, never arbitrary server text."""
 
@@ -1306,8 +1363,55 @@ def _safe_codex_response_status(value: Any) -> str:
     return value if value in OPENAI_CODEX_RESPONSE_STATUS_ALLOWLIST else "unknown"
 
 
+class _RetryAfterHeaders(Protocol):
+    def get(self, name: str) -> object | None: ...
+
+
+def _read_codex_http_error_body(
+    exc: urllib.error.HTTPError,
+    *,
+    cancel_token: CancelToken | None,
+) -> Mapping[str, Any]:
+    if cancel_token is not None:
+        cancel_token.raise_if_cancelled()
+    try:
+        raw_body = exc.read()
+    except ProviderCancelledError:
+        raise
+    except Exception as read_exc:  # noqa: BLE001 - recognized transport failures only
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        if transport_exception_retryable(read_exc) is None:
+            raise
+        return {}
+    if cancel_token is not None:
+        cancel_token.raise_if_cancelled()
+    try:
+        return decode_json_object(
+            raw_body,
+            error_class=OpenAICodexResponseParseError,
+            provider_label="OpenAI Codex",
+        )
+    except OpenAICodexResponseParseError:
+        return {}
+
+
+def _codex_api_error_metadata(body: Mapping[str, Any]) -> dict[str, Any]:
+    error = body.get("error")
+    if not isinstance(error, Mapping):
+        return {}
+    metadata: dict[str, Any] = {}
+    error_type = _safe_codex_api_label(error.get("type"))
+    error_code = _safe_codex_api_label(error.get("code"))
+    if error_type is not None:
+        metadata["api_error_type"] = error_type
+    if error_code is not None:
+        metadata["api_error_code"] = error_code
+    return metadata
+
+
 def _parse_retry_after_seconds(
-    headers: Any,
+    headers: _RetryAfterHeaders | None,
     *,
     now_seconds: float,
 ) -> float | None:
@@ -1315,31 +1419,49 @@ def _parse_retry_after_seconds(
 
     if headers is None:
         return None
-    retry_after_ms = headers.get("retry-after-ms")
-    if retry_after_ms is not None:
-        try:
-            milliseconds = float(str(retry_after_ms).strip())
-        except ValueError:
-            milliseconds = -1.0
-        if math.isfinite(milliseconds) and milliseconds >= 0:
-            return min(MAX_RETRY_AFTER_SECONDS, milliseconds / 1000.0)
-
+    milliseconds = headers.get("retry-after-ms")
+    if milliseconds is not None:
+        parsed_milliseconds = _parse_retry_after_milliseconds(milliseconds)
+        if parsed_milliseconds is not None:
+            return parsed_milliseconds
     retry_after = headers.get("Retry-After")
     if retry_after is None:
         retry_after = headers.get("retry-after")
     if retry_after is None:
         return None
-    text = str(retry_after).strip()
+    return _parse_retry_after_value(retry_after, now_seconds=now_seconds)
+
+
+def _parse_retry_after_milliseconds(value: object) -> float | None:
+    try:
+        milliseconds = float(str(value).strip())
+    except ValueError:
+        return None
+    if not math.isfinite(milliseconds) or milliseconds < 0:
+        return None
+    return min(MAX_RETRY_AFTER_SECONDS, milliseconds / 1000.0)
+
+
+def _parse_retry_after_value(value: object, *, now_seconds: float) -> float | None:
+    text = str(value).strip()
     try:
         seconds = float(text)
     except ValueError:
-        try:
-            parsed_date = parsedate_to_datetime(text)
-        except (TypeError, ValueError, OverflowError):
-            return None
-        if parsed_date.tzinfo is None:
-            return None
-        seconds = parsed_date.timestamp() - now_seconds
+        return _parse_retry_after_date(text, now_seconds=now_seconds)
+    return _bounded_retry_after(seconds)
+
+
+def _parse_retry_after_date(text: str, *, now_seconds: float) -> float | None:
+    try:
+        parsed_date = parsedate_to_datetime(text)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if parsed_date.tzinfo is None:
+        return None
+    return _bounded_retry_after(parsed_date.timestamp() - now_seconds)
+
+
+def _bounded_retry_after(seconds: float) -> float | None:
     if not math.isfinite(seconds) or seconds < 0:
         return None
     return min(MAX_RETRY_AFTER_SECONDS, seconds)
