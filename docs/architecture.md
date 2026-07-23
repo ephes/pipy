@@ -295,3 +295,13 @@ four leaf packages and Slice 7.3 extended the frontier to the provider adapters
 and the HTTP transport boundary. The heavier-debt root `native/` modules
 (`session.py`, `extensions.py`, `tool_loop_session.py`) stay non-strict. New code
 in the gated packages must stay strict-clean.
+
+Alongside the type ratchet, Slice 7.4 adds Phase 7's complexity ratchet: the
+`[tool.ruff.lint]` config in `pyproject.toml` turns on Ruff's mccabe C901 check
+via `extend-select = ["C901"]` (preserving Ruff's default rule set), and a
+`[tool.ruff.lint.per-file-ignores]` block pins C901 for every file that already
+carried a finding when the gate landed. The effect is a burn-down baseline: a
+new function whose cyclomatic complexity exceeds 10 fails `just lint` in any
+previously-clean file, while the pinned files are simplified over time (never
+grown). The `<40` C901 and `<30` `type: ignore` figures are directional targets,
+not one-slice goals — cosmetic function-splitting to hit a number is a non-goal.

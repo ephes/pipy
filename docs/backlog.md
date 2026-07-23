@@ -1523,7 +1523,14 @@ text, excerpts are not archived. Native bounded no-tool REPL conversation
 context review and smoke: two-round independent review cycle, second round
 reported zero findings, implementer-side closeout audit, fake-provider REPL
 smoke with two ordinary turns. The next selected native-shell boundary is a
-local `/clear` command.
+local `/clear` command. **Retired (Track CQ-A, migration Slice 7.1, 2026-07-23):**
+the no-tool REPL and this in-memory conversation-context feature were removed by
+the 2026-06-20 parity cleanup and the Phase 7.1 dead-code deletion; the
+`NativeNoToolReplConversationContext`/`NativeNoToolReplExchange` types, their
+`NATIVE_NO_TOOL_REPL_CONTEXT_*` constants, and the
+`ProviderRequest.no_tool_repl_context` plumbing no longer exist. The historical
+behavior record is preserved and test-pinned; the paragraph above stays as the
+audit trail only.
 
 Native local `/clear` REPL command now accepts `/clear` as a local command;
 malformed `/clear <text>` stays local and does not clear history; does not
@@ -2789,6 +2796,37 @@ Review: Claude Opus panel (user-directed substitution for the different-family
 gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
+
+### Ruff C901 complexity gate at the Phase 7 baseline + final Phase 7 status (Slice 7.4) — DONE (2026-07-23)
+
+Fourth and final Phase 7 cut: the complexity ratchet gate plus the recorded
+Phase 7 completion disposition. A new `[tool.ruff.lint]` section in
+`pyproject.toml` adds `extend-select = ["C901"]` (over `select`, so Ruff's
+default E4/E7/E9+F set and therefore `just lint`'s prior behavior are preserved
+exactly) and a `[tool.ruff.lint.per-file-ignores]` block pins C901 for every file
+that already carried a finding, so `ruff check .` now fails on any new function
+past mccabe's default complexity-10 threshold in a previously-clean file. The
+pin is file-granular (Ruff has no per-function baseline) — an accepted,
+documented burn-down limitation. The pre-gate baseline is measured, not the
+132 planning-goal estimate (the original guardrail pins no count): 144 findings
+across 72 files (128 `src`, 4 `tests`, 9 `scripts`, 3 `docs`). The slice honestly lowers the pinned baseline to 142
+findings / 70 files by decomposing one genuinely separable function in each of
+two single-finding files, dropping both off the pin list: `image_attachment.py`'s
+`_resolve_one` (12) hoists its resolve/stat-check guard chain into a pure
+`_prevalidate_candidate` helper, and `command_sandbox.py`'s `run_command` (11)
+hoists its argv-parse / executable-resolution / path-policy preflight into a
+`_resolve_invocation` helper. Both behavior-preserving (rejection reasons, spawn
+confinement, byte-for-byte output shaping unchanged; pinned by
+`test_command_sandbox.py` / `test_native_image_attachment.py`). The `<40` C901
+and `<30` `type: ignore` end-states are explicitly NOT forced in one slice and
+stay directional (142 C901, 32 `src` `type: ignore` remain). The
+architecture-migration Completion Criteria gained a dated Phase 7 disposition.
+Verification: `just lint` clean with C901 active and the baseline holding, the two
+reduced functions under complexity 11, focused suites passed (47); final
+`just check` (Ruff + mypy clean, 4,509 passed / 2 skipped) and `just docs-build`
+green. No behavior/CLI/JSON/RPC/session-format change; no new runtime dependency,
+`Any`, or `type: ignore`. Review: Pending review — Claude Opus panel
+(user-directed substitution for the different-family gate).
 
 ### Strict Mypy gate extended to the providers package and http boundary (Slice 7.3) — DONE (2026-07-23)
 

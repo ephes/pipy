@@ -243,6 +243,53 @@ def resolve_image_attachments(
     )
 
 
+def _prevalidate_candidate(
+    token: str,
+    *,
+    workspace: Path,
+    reference_roots: tuple[Path, ...],
+    max_attachment_bytes: int,
+    max_total_bytes: int,
+    loaded_bytes: int,
+) -> tuple[Path | None, str]:
+    """Resolve and stat-check a reference token before any read.
+
+    Returns ``(candidate, reason)``. On success ``candidate`` is the resolved
+    file path and ``reason`` is ``_LOADED_REASON``; on any rejection
+    ``candidate`` is ``None`` and ``reason`` is the specific rejection reason.
+    The on-disk read (and the authoritative post-read budget re-check) stays in
+    :func:`_resolve_one`.
+    """
+
+    if len(token) > _MAX_REFERENCE_PATH_LENGTH:
+        return None, _INVALID_REASON
+    try:
+        resolved = resolve_tool_path(
+            token,
+            workspace_root=workspace,
+            reference_roots=reference_roots,
+        )
+    except ValueError:
+        return None, _INVALID_REASON
+
+    candidate = resolved.resolved
+    if _is_blocked_path(resolved.relative_label, resolved.root):
+        return None, _IGNORED_REASON
+    if not candidate.exists():
+        return None, _MISSING_REASON
+    if not candidate.is_file():
+        return None, _NOT_FILE_REASON
+    try:
+        size = candidate.stat().st_size
+    except OSError:
+        return None, _READ_FAILED_REASON
+    if size > max_attachment_bytes:
+        return None, _OVERSIZED_REASON
+    if loaded_bytes + size > max_total_bytes:
+        return None, _BUDGET_REASON
+    return candidate, _LOADED_REASON
+
+
 def _resolve_one(
     token: str,
     *,
@@ -252,32 +299,16 @@ def _resolve_one(
     max_total_bytes: int,
     loaded_bytes: int,
 ) -> ResolvedImageAttachment:
-    if len(token) > _MAX_REFERENCE_PATH_LENGTH:
-        return ResolvedImageAttachment(raw=token, loaded=False, reason=_INVALID_REASON)
-    try:
-        resolved = resolve_tool_path(
-            token,
-            workspace_root=workspace,
-            reference_roots=reference_roots,
-        )
-    except ValueError:
-        return ResolvedImageAttachment(raw=token, loaded=False, reason=_INVALID_REASON)
-
-    candidate = resolved.resolved
-    if _is_blocked_path(resolved.relative_label, resolved.root):
-        return ResolvedImageAttachment(raw=token, loaded=False, reason=_IGNORED_REASON)
-    if not candidate.exists():
-        return ResolvedImageAttachment(raw=token, loaded=False, reason=_MISSING_REASON)
-    if not candidate.is_file():
-        return ResolvedImageAttachment(raw=token, loaded=False, reason=_NOT_FILE_REASON)
-    try:
-        size = candidate.stat().st_size
-    except OSError:
-        return ResolvedImageAttachment(raw=token, loaded=False, reason=_READ_FAILED_REASON)
-    if size > max_attachment_bytes:
-        return ResolvedImageAttachment(raw=token, loaded=False, reason=_OVERSIZED_REASON)
-    if loaded_bytes + size > max_total_bytes:
-        return ResolvedImageAttachment(raw=token, loaded=False, reason=_BUDGET_REASON)
+    candidate, reason = _prevalidate_candidate(
+        token,
+        workspace=workspace,
+        reference_roots=reference_roots,
+        max_attachment_bytes=max_attachment_bytes,
+        max_total_bytes=max_total_bytes,
+        loaded_bytes=loaded_bytes,
+    )
+    if candidate is None:
+        return ResolvedImageAttachment(raw=token, loaded=False, reason=reason)
     try:
         data = candidate.read_bytes()
     except OSError:

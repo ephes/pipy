@@ -37,6 +37,93 @@ filterwarnings = [
     "ignore:.*forkpty\\(\\) may lead to deadlocks.*:DeprecationWarning:pty",
 ]
 
+[tool.ruff.lint]
+# The migration ratchets Ruff's mccabe C901 complexity check (Phase 7, Slice
+# 7.4, docs/architecture-migration.md). `extend-select` adds C901 on top of
+# Ruff's default rule set (E4/E7/E9 + F) without changing it, so `just lint`
+# (`ruff check .`) keeps its prior behavior and additionally fails on any *new*
+# function whose cyclomatic complexity exceeds the default threshold of 10.
+extend-select = ["C901"]
+
+[tool.ruff.lint.per-file-ignores]
+# Complexity baseline: every file that already carried a C901 finding at the
+# time the gate was introduced is pinned here so no *new* over-complex function
+# can land in a previously-clean file. This is a directional ratchet, not the
+# end-state — the pinned files are burned down over time (Slice 7.4 already
+# dropped `image_attachment.py` and `command_sandbox.py` off this list by
+# decomposing one function in each). Do not add entries to grow the baseline;
+# only remove them as functions are genuinely simplified below the threshold.
+"docs/examples/extensions/answer.py" = ["C901"]
+"docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
+"scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
+"scripts/parity_lessons.py" = ["C901"]
+"scripts/parity_runner.py" = ["C901"]
+"src/pipy_harness/cli.py" = ["C901"]
+"src/pipy_harness/native/_resource_files.py" = ["C901"]
+"src/pipy_harness/native/agent/loop_policy.py" = ["C901"]
+"src/pipy_harness/native/agent/loop.py" = ["C901"]
+"src/pipy_harness/native/agent/request.py" = ["C901"]
+"src/pipy_harness/native/agent/results.py" = ["C901"]
+"src/pipy_harness/native/agent/tools.py" = ["C901"]
+"src/pipy_harness/native/auth_store.py" = ["C901"]
+"src/pipy_harness/native/automation/agent_events.py" = ["C901"]
+"src/pipy_harness/native/chrome.py" = ["C901"]
+"src/pipy_harness/native/clipboard.py" = ["C901"]
+"src/pipy_harness/native/coding/command_registry.py" = ["C901"]
+"src/pipy_harness/native/coding/commands.py" = ["C901"]
+"src/pipy_harness/native/coding/session_controller.py" = ["C901"]
+"src/pipy_harness/native/coding/state.py" = ["C901"]
+"src/pipy_harness/native/editor_completion.py" = ["C901"]
+"src/pipy_harness/native/extension_runtime.py" = ["C901"]
+"src/pipy_harness/native/extensions.py" = ["C901"]
+"src/pipy_harness/native/fake.py" = ["C901"]
+"src/pipy_harness/native/model_resolver.py" = ["C901"]
+"src/pipy_harness/native/models_json.py" = ["C901"]
+"src/pipy_harness/native/models.py" = ["C901"]
+"src/pipy_harness/native/openai_codex_provider.py" = ["C901"]
+"src/pipy_harness/native/package_resources.py" = ["C901"]
+"src/pipy_harness/native/project_trust.py" = ["C901"]
+"src/pipy_harness/native/provider_construction.py" = ["C901"]
+"src/pipy_harness/native/provider_registry.py" = ["C901"]
+"src/pipy_harness/native/providers/anthropic_messages.py" = ["C901"]
+"src/pipy_harness/native/providers/azure_openai_responses.py" = ["C901"]
+"src/pipy_harness/native/providers/bedrock.py" = ["C901"]
+"src/pipy_harness/native/providers/cloudflare.py" = ["C901"]
+"src/pipy_harness/native/providers/google_vertex.py" = ["C901"]
+"src/pipy_harness/native/providers/openai_completions.py" = ["C901"]
+"src/pipy_harness/native/providers/openai_responses_wire.py" = ["C901"]
+"src/pipy_harness/native/read_only_tool.py" = ["C901"]
+"src/pipy_harness/native/repl_input.py" = ["C901"]
+"src/pipy_harness/native/resources.py" = ["C901"]
+"src/pipy_harness/native/session_tree_commands.py" = ["C901"]
+"src/pipy_harness/native/session_tree.py" = ["C901"]
+"src/pipy_harness/native/session.py" = ["C901"]
+"src/pipy_harness/native/terminal_compare.py" = ["C901"]
+"src/pipy_harness/native/terminal_driver.py" = ["C901"]
+"src/pipy_harness/native/terminal_screen.py" = ["C901"]
+"src/pipy_harness/native/tool_loop_session.py" = ["C901"]
+"src/pipy_harness/native/tool_renderers.py" = ["C901"]
+"src/pipy_harness/native/tools/base.py" = ["C901"]
+"src/pipy_harness/native/tools/bash.py" = ["C901"]
+"src/pipy_harness/native/tools/edit_diff.py" = ["C901"]
+"src/pipy_harness/native/tools/edit.py" = ["C901"]
+"src/pipy_harness/native/tools/find.py" = ["C901"]
+"src/pipy_harness/native/tools/grep.py" = ["C901"]
+"src/pipy_harness/native/tools/ls.py" = ["C901"]
+"src/pipy_harness/native/tools/read.py" = ["C901"]
+"src/pipy_harness/native/tools/write.py" = ["C901"]
+"src/pipy_harness/native/tui.py" = ["C901"]
+"src/pipy_harness/native/ui/rendering.py" = ["C901"]
+"src/pipy_harness/native/ui/state.py" = ["C901"]
+"src/pipy_harness/native/workspace_context.py" = ["C901"]
+"src/pipy_harness/runner.py" = ["C901"]
+"src/pipy_session/catalog.py" = ["C901"]
+"src/pipy_session/cli.py" = ["C901"]
+"tests/test_native_agent_loop_policy_adapters.py" = ["C901"]
+"tests/test_native_tool_loop_session_fork_clone.py" = ["C901"]
+"tests/test_native_tool_loop_session_tree.py" = ["C901"]
+"tests/test_parity_probe_trust.py" = ["C901"]
+
 [tool.mypy]
 # Repository default stays non-strict while the migration ratchets strictness
 # on one subpackage at a time (docs/architecture-migration.md, Phase 7). The

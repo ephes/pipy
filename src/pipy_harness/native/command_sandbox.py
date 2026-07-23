@@ -262,6 +262,52 @@ def execute_allowlisted_argv(
     return runner(argv, **kwargs)
 
 
+def _resolve_invocation(
+    command: str,
+    *,
+    policy: CommandPolicy,
+    workspace: Path,
+    cwd: Path,
+    safe_path: str,
+) -> tuple[str, str, list[str]] | CommandRejectionReason:
+    """Parse and confine a command string into an executable + arguments.
+
+    Returns ``(program, resolved_exe, rest_args)`` when the command tokenizes to
+    an allow-listed program that resolves to a binary outside the workspace and
+    whose path operands all pass per-token policy; otherwise returns the first
+    :class:`CommandRejectionReason` encountered. Pure preflight — never spawns.
+    """
+
+    try:
+        argv = shlex.split(command, posix=True)
+    except ValueError:
+        return CommandRejectionReason.UNPARSEABLE_COMMAND
+    if not argv:
+        return CommandRejectionReason.EMPTY_COMMAND
+
+    program = argv[0]
+    if "/" in program or program not in policy.allowed_executables:
+        return CommandRejectionReason.DISALLOWED_EXECUTABLE
+
+    resolved_exe = _resolve_executable(
+        program,
+        safe_path=safe_path,
+        workspace=workspace,
+        refs=policy.reference_roots,
+    )
+    if resolved_exe is None:
+        return CommandRejectionReason.DISALLOWED_EXECUTABLE
+
+    # Per-token policy: command-specific recursion/write flags, .git/traversal/
+    # symlink escapes, and directory operands (which enable listing/recursion).
+    for token in argv[1:]:
+        path_reason = _path_token_reason(token, cwd=cwd, refs=policy.reference_roots)
+        if path_reason is not None:
+            return path_reason
+
+    return program, resolved_exe, argv[1:]
+
+
 def run_command(
     command: str,
     policy: CommandPolicy,
@@ -295,55 +341,21 @@ def run_command(
     if reason is not None:
         return CommandResult(status=CommandStatus.REJECTED, reason=reason)
 
-    try:
-        argv = shlex.split(command, posix=True)
-    except ValueError:
-        return CommandResult(
-            status=CommandStatus.REJECTED,
-            reason=CommandRejectionReason.UNPARSEABLE_COMMAND,
-        )
-    if not argv:
-        return CommandResult(
-            status=CommandStatus.REJECTED,
-            reason=CommandRejectionReason.EMPTY_COMMAND,
-        )
-
-    program = argv[0]
-    if "/" in program or program not in policy.allowed_executables:
-        return CommandResult(
-            status=CommandStatus.REJECTED,
-            reason=CommandRejectionReason.DISALLOWED_EXECUTABLE,
-        )
-
     # Resolve the executable against a workspace-filtered PATH and require it to
     # live outside the workspace / reference roots, so a model-planted binary
     # cannot be selected even when PATH is poisoned to include a workspace dir.
     safe_path = _safe_path(workspace, policy.reference_roots)
-    resolved_exe = _resolve_executable(
-        program,
-        safe_path=safe_path,
-        workspace=workspace,
-        refs=policy.reference_roots,
+    resolution = _resolve_invocation(
+        command, policy=policy, workspace=workspace, cwd=cwd, safe_path=safe_path
     )
-    if resolved_exe is None:
-        return CommandResult(
-            status=CommandStatus.REJECTED,
-            reason=CommandRejectionReason.DISALLOWED_EXECUTABLE,
-        )
-
-    # Per-token policy: command-specific recursion/write flags, .git/traversal/
-    # symlink escapes, and directory operands (which enable listing/recursion).
-    for token in argv[1:]:
-        path_reason = _path_token_reason(
-            token, cwd=cwd, refs=policy.reference_roots
-        )
-        if path_reason is not None:
-            return CommandResult(status=CommandStatus.REJECTED, reason=path_reason)
+    if isinstance(resolution, CommandRejectionReason):
+        return CommandResult(status=CommandStatus.REJECTED, reason=resolution)
+    program, resolved_exe, rest_args = resolution
 
     started = time.perf_counter()
     try:
         completed = runner(
-            [resolved_exe, *argv[1:]],  # noqa: S603 - resolved + allowlisted, shell=False
+            [resolved_exe, *rest_args],  # noqa: S603 - resolved + allowlisted, shell=False
             cwd=cwd,
             stdin=subprocess.DEVNULL,
             capture_output=True,
