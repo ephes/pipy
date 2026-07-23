@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from math import isfinite
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.agent._validation import require_non_negative_int
 from pipy_harness.native.agent.content import ProductContent
@@ -59,6 +60,93 @@ class ProviderTurnWaiter(Protocol):
         cancel_event: threading.Event,
         /,
     ) -> ProviderTurnInterruption: ...
+
+
+@runtime_checkable
+class _AbortCallbackSignal(Protocol):
+    """External abort signal that can synchronously bridge acceptance."""
+
+    def is_set(self) -> bool: ...
+
+    def register_cancel_callback(
+        self, callback: Callable[[], None]
+    ) -> Callable[[], None]: ...
+
+
+class _StartGatedProvider:
+    """Start a callback-capable RPC provider after abort registration."""
+
+    def __init__(self, provider: ProviderPort, start_event: threading.Event) -> None:
+        self._provider = provider
+        self._start_event = start_event
+
+    @property
+    def name(self) -> str:
+        return self._provider.name
+
+    @property
+    def model_id(self) -> str:
+        return self._provider.model_id
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return self._provider.supports_tool_calls
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        self._start_event.wait()
+        return self._provider.complete(
+            request,
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+            cancel_token=cancel_token,
+        )
+
+
+def _wait_for_external_abort(
+    abort_event: threading.Event | _AbortCallbackSignal,
+    provider_start_event: threading.Event | None,
+    done_event: threading.Event,
+    cancel_event: threading.Event,
+) -> ProviderTurnInterruption:
+    """Bridge accepted RPC aborts into executor ordering before polling."""
+
+    def _noop_unregister() -> None:
+        return None
+
+    accepted_abort = threading.Event()
+
+    def _accept_abort() -> None:
+        accepted_abort.set()
+        cancel_event.set()
+
+    unregister = _noop_unregister
+    try:
+        if isinstance(abort_event, _AbortCallbackSignal):
+            unregister = abort_event.register_cancel_callback(_accept_abort)
+        if abort_event.is_set():
+            _accept_abort()
+    finally:
+        if provider_start_event is not None:
+            provider_start_event.set()
+    try:
+        while True:
+            if accepted_abort.is_set() or abort_event.is_set():
+                _accept_abort()
+                return ProviderTurnInterruption.OPERATOR_ABORT
+            if done_event.wait(timeout=0.05):
+                if accepted_abort.is_set() or abort_event.is_set():
+                    _accept_abort()
+                    return ProviderTurnInterruption.OPERATOR_ABORT
+                return ProviderTurnInterruption.SETTLED
+    finally:
+        unregister()
 
 
 class _ExecutionOrder:

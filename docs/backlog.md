@@ -3114,6 +3114,33 @@ its pin is deleted, lowering repository C901 123/60 -> 119/59 (`src` 107/51
 Ruff, Mypy, and 4,514 tests (2 skipped); `just docs-build` reported no issues.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### External-abort provider-turn adapter relocation (Slice 7.5g) — DONE (2026-07-23)
+
+Seventh composition-root slimming cut. Relocate the private
+`_AbortCallbackSignal`, `_StartGatedProvider`, and `_wait_for_external_abort`
+family from `native.tool_loop_session` into the existing strict, UI-free
+`native.agent.provider_turn` owner. The composition root imports those private
+boundary adapters and retains only terminal-UI interruption translation.
+Preserve callback registration before provider start, immediate-abort
+acceptance, post-done abort recheck, cancellation setting, unregister timing,
+poll interval, start-gate forwarding, provider properties, exception
+propagation, and RPC result ordering. Direct tests move to the owner; no
+compatibility alias. No provider-turn redesign, behavior/public export change,
+dependency, unchecked `Any`, `type: ignore`, C901 pin, or Mypy exclusion.
+
+Landed shape: the runtime-checkable callback signal, start-gated ProviderPort
+adapter, and external-abort waiter now live only in strict
+`native.agent.provider_turn`; the composition root imports them and keeps its
+terminal-UI interruption translators. The direct post-done accepted-abort test
+moves to the owner. Callback registration/start release, abort acceptance and
+recheck, cancellation/unregister ordering, polling, properties, and completion
+forwarding are byte-identical. The composition root shrinks 6,100 -> 6,016
+lines; C901 remains 119/59 and `src` `type: ignore` remains 28. Focused
+provider-turn/session/automation verification passed 150 tests; architecture
+boundaries passed 169 tests; final `just check` passed Ruff, Mypy, and 4,514
+tests (2 skipped); `just docs-build` reported no issues. Review: Pi GPT-5.6
+Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

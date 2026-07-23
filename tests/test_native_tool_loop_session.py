@@ -39,7 +39,6 @@ from pipy_harness.native.agent.history import AgentHistoryCompaction
 from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
 from pipy_harness.native.agent.loop_policy import MAX_AGENT_TOOL_BUDGET
 from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
-from pipy_harness.native.automation.rpc import _AcceptedAbortSignal
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
 from pipy_harness.native import (
@@ -59,7 +58,6 @@ from pipy_harness.native.extension_provider_catalog import (
 )
 from pipy_harness.native.tool_loop_session import (
     _agent_history_summary,
-    _wait_for_external_abort,
     _wait_for_provider_interrupt,
 )
 from pipy_harness.native.provider import StreamChunkSink
@@ -740,52 +738,6 @@ def test_session_rejects_non_int_tool_budget():
 
     with pytest.raises(TypeError, match="tool_budget"):
         NativeToolReplSession(provider=provider, tool_budget=True)
-
-
-class _AbortBeforeDoneWaitEvent(threading.Event):
-    """Accept an external abort immediately before completion is visible."""
-
-    def __init__(
-        self,
-        abort_signal: _AcceptedAbortSignal,
-        provider_start_event: threading.Event,
-    ) -> None:
-        super().__init__()
-        self._abort_signal = abort_signal
-        self._provider_start_event = provider_start_event
-        self.abort_preceded_completion = False
-
-    def wait(self, timeout: float | None = None) -> bool:
-        if not self.is_set():
-            assert self._provider_start_event.is_set()
-            self._abort_signal.set()
-            self.abort_preceded_completion = self._abort_signal.is_set()
-            self.set()
-        return super().wait(timeout)
-
-
-def test_external_abort_post_done_recheck_preserves_accepted_abort() -> None:
-    abort_signal = _AcceptedAbortSignal()
-    provider_start_event = threading.Event()
-    done_event = _AbortBeforeDoneWaitEvent(abort_signal, provider_start_event)
-    cancel_event = threading.Event()
-
-    interruption = _wait_for_external_abort(
-        abort_signal,
-        provider_start_event,
-        done_event,
-        cancel_event,
-    )
-
-    assert interruption is ProviderTurnInterruption.OPERATOR_ABORT
-    assert provider_start_event.is_set()
-    assert done_event.is_set()
-    assert done_event.abort_preceded_completion
-    assert cancel_event.is_set()
-    cancel_event.clear()
-    abort_signal.clear()
-    abort_signal.set()
-    assert not cancel_event.is_set()  # callback was unregistered on return
 
 
 @dataclass(slots=True)
