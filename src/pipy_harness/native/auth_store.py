@@ -337,6 +337,74 @@ def _stored_api_key(
     return None
 
 
+def _resolve_request_api_key(
+    provider: str,
+    *,
+    store: AuthStore,
+    env: Mapping[str, str],
+    runtime_api_key: str | None,
+    models_json_config: ProviderAuthRequestConfig | None,
+    run_command: CommandRunner | None,
+    oauth_token_resolver: OAuthTokenResolver | None,
+) -> str | None:
+    """Resolve only the prioritized credential sources for one request."""
+
+    if runtime_api_key:
+        return runtime_api_key
+    api_key = _stored_api_key(store, provider, env, run_command, oauth_token_resolver)
+    if api_key is not None:
+        return api_key
+    api_key = env_api_key(provider, env)
+    if api_key is not None:
+        return api_key
+    if models_json_config is not None and models_json_config.api_key:
+        return resolve_config_value(
+            models_json_config.api_key, env=env, run_command=run_command
+        )
+    return None
+
+
+def _resolve_request_headers(
+    *,
+    models_json_config: ProviderAuthRequestConfig | None,
+    model_headers: Mapping[str, str] | None,
+    env: Mapping[str, str],
+    run_command: CommandRunner | None,
+) -> dict[str, str]:
+    """Resolve models.json headers before model headers, preserving overwrites."""
+
+    headers: dict[str, str] = {}
+    configured_headers = (
+        models_json_config.headers if models_json_config is not None else None
+    )
+    for raw_headers in (configured_headers, model_headers):
+        if raw_headers:
+            for name, raw in raw_headers.items():
+                resolved = resolve_config_value(raw, env=env, run_command=run_command)
+                if resolved is not None:
+                    headers[name] = resolved
+    return headers
+
+
+def _finalize_request_auth(
+    provider: str,
+    *,
+    api_key: str | None,
+    headers: dict[str, str],
+    auth_header: bool,
+) -> ResolvedRequestAuth:
+    """Apply authHeader's failure/overwrite contract to resolved values."""
+
+    if auth_header:
+        if not api_key:
+            # Pi returns ok:false when authHeader is set but no key resolves.
+            return ResolvedRequestAuth(
+                ok=False, error=f'No API key found for "{provider}"'
+            )
+        headers["Authorization"] = f"Bearer {api_key}"
+    return ResolvedRequestAuth(ok=True, api_key=api_key, headers=headers)
+
+
 def resolve_request_auth(
     provider: str,
     *,
@@ -351,40 +419,26 @@ def resolve_request_auth(
 ) -> ResolvedRequestAuth:
     """Resolve the API key + headers for a request using Pi's priority order."""
 
-    header_env = env_for_headers if env_for_headers is not None else env
-
-    api_key: str | None = None
-    if runtime_api_key:
-        api_key = runtime_api_key
-    if api_key is None:
-        api_key = _stored_api_key(
-            store, provider, env, run_command, oauth_token_resolver
-        )
-    if api_key is None:
-        api_key = env_api_key(provider, env)
-    if api_key is None and models_json_config is not None and models_json_config.api_key:
-        api_key = resolve_config_value(
-            models_json_config.api_key, env=env, run_command=run_command
-        )
-
-    headers: dict[str, str] = {}
-    if models_json_config is not None and models_json_config.headers:
-        for name, raw in models_json_config.headers.items():
-            resolved = resolve_config_value(raw, env=header_env, run_command=run_command)
-            if resolved is not None:
-                headers[name] = resolved
-    if model_headers:
-        for name, raw in model_headers.items():
-            resolved = resolve_config_value(raw, env=header_env, run_command=run_command)
-            if resolved is not None:
-                headers[name] = resolved
-
-    if models_json_config is not None and models_json_config.auth_header:
-        if not api_key:
-            # Pi returns ok:false when authHeader is set but no key resolves.
-            return ResolvedRequestAuth(
-                ok=False, error=f'No API key found for "{provider}"'
-            )
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    return ResolvedRequestAuth(ok=True, api_key=api_key, headers=headers)
+    api_key = _resolve_request_api_key(
+        provider,
+        store=store,
+        env=env,
+        runtime_api_key=runtime_api_key,
+        models_json_config=models_json_config,
+        run_command=run_command,
+        oauth_token_resolver=oauth_token_resolver,
+    )
+    headers = _resolve_request_headers(
+        models_json_config=models_json_config,
+        model_headers=model_headers,
+        env=env_for_headers if env_for_headers is not None else env,
+        run_command=run_command,
+    )
+    return _finalize_request_auth(
+        provider,
+        api_key=api_key,
+        headers=headers,
+        auth_header=(
+            models_json_config.auth_header if models_json_config is not None else False
+        ),
+    )

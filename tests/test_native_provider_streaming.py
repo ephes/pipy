@@ -100,6 +100,73 @@ def test_fake_provider_streamed_final_text_equals_join_of_chunks(tmp_path: Path)
     assert result.final_text == "".join(captured)
 
 
+def test_fake_provider_streams_reasoning_before_text_only_on_success(
+    tmp_path: Path,
+) -> None:
+    actions: list[tuple[str, str]] = []
+    request = _request_for(FakeNativeProvider(), tmp_path)
+    provider = FakeNativeProvider(
+        programmable_reasoning_chunks=("reason-1", "reason-2"),
+        programmable_text_chunks=("text-1", "text-2"),
+    )
+
+    result = provider.complete(
+        request,
+        stream_sink=lambda chunk: actions.append(("text", chunk)),
+        reasoning_sink=lambda chunk: actions.append(("reasoning", chunk)),
+    )
+
+    assert actions == [
+        ("reasoning", "reason-1"),
+        ("reasoning", "reason-2"),
+        ("text", "text-1"),
+        ("text", "text-2"),
+    ]
+    assert result.final_text == "text-1text-2"
+
+    actions.clear()
+    failed_provider = FakeNativeProvider(
+        status=HarnessStatus.FAILED,
+        programmable_reasoning_chunks=("reason",),
+        programmable_text_chunks=("text",),
+    )
+    failed_result = failed_provider.complete(
+        request,
+        stream_sink=lambda chunk: actions.append(("text", chunk)),
+        reasoning_sink=lambda chunk: actions.append(("reasoning", chunk)),
+    )
+
+    assert actions == []
+    assert failed_result.final_text is None
+
+
+def test_fake_provider_rechecks_success_after_reasoning_callbacks(
+    tmp_path: Path,
+) -> None:
+    actions: list[tuple[str, str]] = []
+    provider = FakeNativeProvider(
+        programmable_reasoning_chunks=("reason-1", "reason-2"),
+        programmable_text_chunks=("text",),
+    )
+
+    def fail_during_reasoning(chunk: str) -> None:
+        actions.append(("reasoning", chunk))
+        object.__setattr__(provider, "status", HarnessStatus.FAILED)
+
+    result = provider.complete(
+        _request_for(provider, tmp_path),
+        stream_sink=lambda chunk: actions.append(("text", chunk)),
+        reasoning_sink=fail_during_reasoning,
+    )
+
+    assert actions == [
+        ("reasoning", "reason-1"),
+        ("reasoning", "reason-2"),
+    ]
+    assert result.status is HarnessStatus.FAILED
+    assert result.final_text is None
+
+
 def test_fake_provider_metadata_unaffected_by_streaming(tmp_path: Path) -> None:
     captured: list[str] = []
     provider = FakeNativeProvider(

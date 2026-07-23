@@ -50,6 +50,51 @@ def test_fake_native_provider_is_deterministic_without_echoing_prompt(tmp_path):
     assert result.metadata is None
 
 
+def test_fake_native_provider_copies_fixture_metadata_in_stable_order(tmp_path):
+    base = {"base": "value"}
+    tool_intent = {"fixture": "intent"}
+    observation = {"fixture": "observation"}
+    read_only = {"fixture": "read-only"}
+    patch = {"fixture": "patch"}
+    provider = FakeNativeProvider(
+        metadata=base,
+        tool_intent=tool_intent,
+        tool_observation_fixture=observation,
+        read_only_tool_fixture=read_only,
+        patch_proposal=patch,
+    )
+    request = ProviderRequest(
+        system_prompt="SYS",
+        user_prompt="USR",
+        provider_name=provider.name,
+        model_id=provider.model_id,
+        cwd=Path(tmp_path),
+    )
+
+    result = provider.complete(request)
+
+    assert result.metadata is not None
+    assert list(result.metadata) == [
+        "base",
+        PROVIDER_TOOL_INTENT_METADATA_KEY,
+        PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
+        PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
+        PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
+    ]
+    tool_intent["fixture"] = "mutated"
+    observation["fixture"] = "mutated"
+    read_only["fixture"] = "mutated"
+    patch["fixture"] = "mutated"
+    assert result.metadata[PROVIDER_TOOL_INTENT_METADATA_KEY] == {"fixture": "intent"}
+    assert result.metadata[PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY] == {
+        "fixture": "observation"
+    }
+    assert result.metadata[PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY] == {
+        "fixture": "read-only"
+    }
+    assert result.metadata[PROVIDER_PATCH_PROPOSAL_METADATA_KEY] == {"fixture": "patch"}
+
+
 def test_provider_serializers_do_not_fallback_to_pipy_tool_ids() -> None:
     native_dir = Path(__file__).parents[1] / "src" / "pipy_harness" / "native"
 

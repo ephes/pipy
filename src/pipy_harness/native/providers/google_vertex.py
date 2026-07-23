@@ -35,7 +35,7 @@ import re
 import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result
 from pipy_harness.native.http import (
@@ -203,6 +203,21 @@ def google_vertex_http_client() -> UrllibJsonHTTPClient:
 
 
 @dataclass(frozen=True, slots=True)
+class _VertexRequestConfiguration:
+    url: str
+    auth_header_name: Literal["x-goog-api-key", "Authorization"]
+    auth_header_value: str = field(repr=False)
+    auth_mode: Literal["api-key", "adc"]
+    location: str
+
+
+@dataclass(frozen=True, slots=True)
+class _VertexPreflightFailure:
+    error_type: str
+    error_message: str
+
+
+@dataclass(frozen=True, slots=True)
 class GoogleVertexProvider:
     """Google Vertex AI ``generateContent`` provider behind ProviderPort.
 
@@ -292,6 +307,73 @@ class GoogleVertexProvider:
             return None
         return trimmed
 
+    def _preflight_configuration(
+        self,
+    ) -> _VertexRequestConfiguration | _VertexPreflightFailure:
+        """Resolve model and ordered Express/ADC configuration validation."""
+
+        if not self.model_id or not self.model_id.strip():
+            return _VertexPreflightFailure(
+                error_type="GoogleVertexConfigurationError",
+                error_message=(
+                    "--native-model is required for native provider google-vertex."
+                ),
+            )
+        quoted_model_id = urllib.parse.quote(self.model_id, safe="")
+        express_key = self._resolve_express_api_key()
+        if express_key is not None:
+            # Express needs neither a project nor a location.
+            return _VertexRequestConfiguration(
+                url=GOOGLE_VERTEX_EXPRESS_ENDPOINT_TEMPLATE.format(
+                    model_id=quoted_model_id,
+                ),
+                auth_header_name="x-goog-api-key",
+                auth_header_value=express_key,
+                auth_mode="api-key",
+                location="",
+            )
+
+        project_id = self.project_id.strip() if self.project_id is not None else ""
+        if not project_id:
+            return _VertexPreflightFailure(
+                error_type="GoogleVertexConfigurationError",
+                error_message=(
+                    "Google Cloud project id is required in the environment "
+                    "for native provider google-vertex."
+                ),
+            )
+        access_token = (
+            self.access_token.strip() if self.access_token is not None else ""
+        )
+        if not access_token:
+            return _VertexPreflightFailure(
+                error_type="GoogleVertexAuthError",
+                error_message=(
+                    "Google Vertex AI bearer access value must be set in "
+                    "the environment for native provider google-vertex."
+                ),
+            )
+        location = self.location.strip() if self.location else ""
+        if not location:
+            return _VertexPreflightFailure(
+                error_type="GoogleVertexConfigurationError",
+                error_message=(
+                    "Google Cloud location is required for native provider "
+                    "google-vertex."
+                ),
+            )
+        return _VertexRequestConfiguration(
+            url=self.endpoint_template.format(
+                location=urllib.parse.quote(location, safe=""),
+                project_id=urllib.parse.quote(project_id, safe=""),
+                model_id=quoted_model_id,
+            ),
+            auth_header_name="Authorization",
+            auth_header_value=f"Bearer {access_token}",
+            auth_mode="adc",
+            location=location,
+        )
+
     def complete(
         self,
         request: ProviderRequest,
@@ -304,75 +386,15 @@ class GoogleVertexProvider:
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
         started_at = utc_now()
-        if not self.model_id or not self.model_id.strip():
+        configuration = self._preflight_configuration()
+        if isinstance(configuration, _VertexPreflightFailure):
             return failed_provider_result(
                 request,
                 provider_name=self.name,
                 started_at=started_at,
-                error_type="GoogleVertexConfigurationError",
-                error_message=(
-                    "--native-model is required for native provider google-vertex."
-                ),
+                error_type=configuration.error_type,
+                error_message=configuration.error_message,
             )
-        express_key = self._resolve_express_api_key()
-        if express_key is not None:
-            # Vertex Express (API-key) mode: global host, no project/location
-            # path segment, x-goog-api-key auth. No bearer token or project
-            # required.
-            url = GOOGLE_VERTEX_EXPRESS_ENDPOINT_TEMPLATE.format(
-                model_id=urllib.parse.quote(self.model_id, safe=""),
-            )
-            auth_headers = {"x-goog-api-key": express_key}
-            auth_mode = "api-key"
-            location = ""
-        else:
-            project_id = (
-                self.project_id.strip() if self.project_id is not None else ""
-            )
-            if not project_id:
-                return failed_provider_result(
-                    request,
-                    provider_name=self.name,
-                    started_at=started_at,
-                    error_type="GoogleVertexConfigurationError",
-                    error_message=(
-                        "Google Cloud project id is required in the environment "
-                        "for native provider google-vertex."
-                    ),
-                )
-            access_token = (
-                self.access_token.strip() if self.access_token is not None else ""
-            )
-            if not access_token:
-                return failed_provider_result(
-                    request,
-                    provider_name=self.name,
-                    started_at=started_at,
-                    error_type="GoogleVertexAuthError",
-                    error_message=(
-                        "Google Vertex AI bearer access value must be set in "
-                        "the environment for native provider google-vertex."
-                    ),
-                )
-            location = self.location.strip() if self.location else ""
-            if not location:
-                return failed_provider_result(
-                    request,
-                    provider_name=self.name,
-                    started_at=started_at,
-                    error_type="GoogleVertexConfigurationError",
-                    error_message=(
-                        "Google Cloud location is required for native provider "
-                        "google-vertex."
-                    ),
-                )
-            url = self.endpoint_template.format(
-                location=urllib.parse.quote(location, safe=""),
-                project_id=urllib.parse.quote(project_id, safe=""),
-                model_id=urllib.parse.quote(self.model_id, safe=""),
-            )
-            auth_headers = {"Authorization": f"Bearer {access_token}"}
-            auth_mode = "adc"
 
         body: dict[str, Any] = {
             "contents": gemini_contents(
@@ -400,7 +422,10 @@ class GoogleVertexProvider:
         if thinking_config is not None:
             generation_config = body.setdefault("generationConfig", {})
             generation_config["thinkingConfig"] = thinking_config
-        headers = {"Content-Type": "application/json", **auth_headers}
+        headers = {
+            "Content-Type": "application/json",
+            configuration.auth_header_name: configuration.auth_header_value,
+        }
         # Merged models.json/model headers.
         for header_name, header_value in self.extra_headers.items():
             headers[header_name] = header_value
@@ -408,7 +433,7 @@ class GoogleVertexProvider:
 
         try:
             response = self.http_client.post_json(
-                url,
+                configuration.url,
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
@@ -448,9 +473,13 @@ class GoogleVertexProvider:
             metadata={
                 "provider_response_store_requested": False,
                 "finish_reason": result.finish_reason,
-                "vertex_auth_mode": auth_mode,
+                "vertex_auth_mode": configuration.auth_mode,
                 # Express mode has no region; only ADC sends a location.
-                **({"google_cloud_location": location} if location else {}),
+                **(
+                    {"google_cloud_location": configuration.location}
+                    if configuration.location
+                    else {}
+                ),
             },
             tool_calls=result.tool_calls,
         )

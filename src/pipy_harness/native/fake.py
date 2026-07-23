@@ -81,62 +81,94 @@ class FakeNativeProvider:
         reasoning_sink: StreamChunkSink | None = None,
         cancel_token: CancelToken | None = None,
     ) -> ProviderResult:
-        if cancel_token is not None:
-            cancel_token.raise_if_cancelled()
-        started_at = datetime.now(UTC)
-        self._entered_counter[0] += 1
-        if self._entered_counter[0] <= self.cancellable_turns:
-            self._await_cancellation(cancel_token)
-        if (
-            reasoning_sink is not None
-            and self.programmable_reasoning_chunks
-            and self.status == HarnessStatus.SUCCEEDED
-        ):
-            for chunk in self.programmable_reasoning_chunks:
-                reasoning_sink(chunk)
-        if (
-            stream_sink is not None
-            and self.programmable_text_chunks
-            and self.status == HarnessStatus.SUCCEEDED
-        ):
-            streamed = True
-            for chunk in self.programmable_text_chunks:
-                stream_sink(chunk)
-        else:
-            streamed = False
+        started_at = self._enter_cancellable_turn(cancel_token)
+        streamed = self._emit_programmed_streams(
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+        )
         ended_at = datetime.now(UTC)
-        if self.status != HarnessStatus.SUCCEEDED:
-            final_text = None
-        elif streamed:
-            final_text = "".join(self.programmable_text_chunks)
-        else:
-            final_text = self.final_text
-        metadata = dict(self.metadata or {})
-        if self.tool_intent is not None:
-            metadata[PROVIDER_TOOL_INTENT_METADATA_KEY] = dict(self.tool_intent)
-        if self.tool_observation_fixture is not None:
-            metadata[PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY] = dict(self.tool_observation_fixture)
-        if self.read_only_tool_fixture is not None:
-            metadata[PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY] = dict(self.read_only_tool_fixture)
-        if self.patch_proposal is not None:
-            metadata[PROVIDER_PATCH_PROPOSAL_METADATA_KEY] = dict(self.patch_proposal)
-        tool_calls: tuple[ProviderToolCall, ...] = ()
-        if self.supports_tool_calls and self.programmable_tool_calls:
-            call_index = self._call_counter[0]
-            if call_index < len(self.programmable_tool_calls):
-                tool_calls = self.programmable_tool_calls[call_index]
-        self._call_counter[0] += 1
         return ProviderResult(
             status=self.status,
             provider_name=self.name,
             model_id=self.model_id,
             started_at=started_at,
             ended_at=ended_at,
-            final_text=final_text,
+            final_text=self._resolved_final_text(streamed=streamed),
             usage={},
-            metadata=metadata or None,
-            tool_calls=tool_calls,
+            metadata=self._fixture_metadata(),
+            tool_calls=self._next_programmed_tool_calls(),
         )
+
+    def _enter_cancellable_turn(self, cancel_token: CancelToken | None) -> datetime:
+        """Check cancellation, timestamp entry, then await scripted turns."""
+
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        started_at = datetime.now(UTC)
+        self._entered_counter[0] += 1
+        if self._entered_counter[0] <= self.cancellable_turns:
+            self._await_cancellation(cancel_token)
+        return started_at
+
+    def _emit_programmed_streams(
+        self,
+        *,
+        stream_sink: StreamChunkSink | None,
+        reasoning_sink: StreamChunkSink | None,
+    ) -> bool:
+        """Emit successful reasoning before text and report text streaming."""
+
+        if self.status != HarnessStatus.SUCCEEDED:
+            return False
+        if reasoning_sink is not None and self.programmable_reasoning_chunks:
+            for chunk in self.programmable_reasoning_chunks:
+                reasoning_sink(chunk)
+        # Match the original two independent stream guards: reasoning callbacks
+        # are arbitrary and may mutate this test fake before text dispatch.
+        if (
+            self.status != HarnessStatus.SUCCEEDED
+            or stream_sink is None
+            or not self.programmable_text_chunks
+        ):
+            return False
+        for chunk in self.programmable_text_chunks:
+            stream_sink(chunk)
+        return True
+
+    def _resolved_final_text(self, *, streamed: bool) -> str | None:
+        if self.status != HarnessStatus.SUCCEEDED:
+            return None
+        if streamed:
+            return "".join(self.programmable_text_chunks)
+        return self.final_text
+
+    def _fixture_metadata(self) -> dict[str, Any] | None:
+        metadata = dict(self.metadata or {})
+        fixtures: tuple[tuple[str, dict[str, Any] | None], ...] = (
+            (PROVIDER_TOOL_INTENT_METADATA_KEY, self.tool_intent),
+            (
+                PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
+                self.tool_observation_fixture,
+            ),
+            (
+                PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
+                self.read_only_tool_fixture,
+            ),
+            (PROVIDER_PATCH_PROPOSAL_METADATA_KEY, self.patch_proposal),
+        )
+        for key, fixture in fixtures:
+            if fixture is not None:
+                metadata[key] = dict(fixture)
+        return metadata or None
+
+    def _next_programmed_tool_calls(self) -> tuple[ProviderToolCall, ...]:
+        tool_calls: tuple[ProviderToolCall, ...] = ()
+        if self.supports_tool_calls and self.programmable_tool_calls:
+            call_index = self._call_counter[0]
+            if call_index < len(self.programmable_tool_calls):
+                tool_calls = self.programmable_tool_calls[call_index]
+        self._call_counter[0] += 1
+        return tool_calls
 
     def _await_cancellation(self, cancel_token: CancelToken | None) -> None:
         """Block until the active-turn cancel token fires, then abort.

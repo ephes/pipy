@@ -3341,6 +3341,39 @@ composition root shrinks 5,904 -> 5,829 lines. Repository C901 remains 107/47
 `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
 0 findings, explicit CLEAN.
 
+### C901 auth/fake/Vertex provider decomposition (Slice 7.7j) — DONE (2026-07-23)
+
+Eleventh directional complexity batch. Remove the sole C901 finding from each
+of `native.auth_store`, `native.fake`, and strict
+`native.providers.google_vertex` through coherent request-auth key/header
+resolution, fake streaming/result assembly, and Vertex express-versus-ADC
+configuration preflight helpers. Preserve auth priority and config-value call
+order; fake cancellation/stream/reasoning/counter/fixture metadata/tool-call
+semantics; and Vertex first-failure order, endpoint quoting, auth headers,
+location/project handling, request bytes, thinking, error/result metadata,
+tools, and usage. Every clean file must leave the pin list. No auth/provider
+policy, wire format, fixture surface, behavior, dependency, unchecked `Any`,
+`type: ignore`, Mypy exclusion, cosmetic splitting, or new pin.
+
+Landed shape: request auth now separates credential priority, ordered
+models.json/model header resolution, and auth-header failure/overwrite
+finalization. The live complexity finding was `FakeNativeProvider.complete`;
+it now separates cancellable entry, reasoning-before-text streaming,
+status/stream final text, copied fixture metadata, and indexed tool-call
+selection while `AutomationFakeProvider` remains untouched. Vertex uses frozen
+typed configuration/failure values for model and Express/ADC preflight before
+the unchanged request/response path. New tests pin resolver invocation/header
+overwrite order, fake stream/metadata/counter behavior, and Vertex model ->
+project -> token -> location failures. All three owners are clean and their
+pins are deleted, lowering repository C901 107/47 -> 104/44 (`src` 91/38 ->
+88/35). Focused verification passed 139 tests; final `just check` passed Ruff,
+Mypy, and 4,531 tests (2 skipped); `just docs-build` reported no issues. The
+first full run hit the documented unrelated PTY worker-timing flake, which
+passed immediately in isolation; the full rerun was green. Review: Pi GPT-5.6
+Sol, 2 rounds, 1 finding, final explicit CLEAN. Round one found that reasoning
+callbacks could mutate fake status before the separately guarded text stream;
+the second success check and a regression test were restored.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

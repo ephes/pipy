@@ -292,6 +292,49 @@ def test_missing_project_id_returns_failed_result(tmp_path):
     assert client.requests == []
 
 
+def test_adc_preflight_reports_the_first_invalid_configuration(tmp_path):
+    cases = (
+        (
+            {"model_id": "", "project_id": None, "access_token": None, "location": ""},
+            "GoogleVertexConfigurationError",
+            "--native-model is required for native provider google-vertex.",
+        ),
+        (
+            {"project_id": None, "access_token": None, "location": ""},
+            "GoogleVertexConfigurationError",
+            (
+                "Google Cloud project id is required in the environment for native "
+                "provider google-vertex."
+            ),
+        ),
+        (
+            {"project_id": "project", "access_token": None, "location": ""},
+            "GoogleVertexAuthError",
+            (
+                "Google Vertex AI bearer access value must be set in the environment "
+                "for native provider google-vertex."
+            ),
+        ),
+        (
+            {"project_id": "project", "access_token": "token", "location": ""},
+            "GoogleVertexConfigurationError",
+            "Google Cloud location is required for native provider google-vertex.",
+        ),
+    )
+
+    for overrides, error_type, error_message in cases:
+        client = FakeJsonHTTPClient()
+        result = _make_provider(client, **overrides).complete(
+            _provider_request(tmp_path)
+        )
+
+        assert (result.error_type, result.error_message) == (
+            error_type,
+            error_message,
+        )
+        assert client.requests == []
+
+
 def test_missing_model_returns_failed_result(tmp_path):
     client = FakeJsonHTTPClient()
     provider = _make_provider(client, model_id="")

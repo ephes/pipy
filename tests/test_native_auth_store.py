@@ -260,6 +260,60 @@ def test_resolve_request_auth_authheader_and_headers(tmp_path):
     assert resolved.headers["X-Org"] == "org-123"
 
 
+def test_resolve_request_auth_preserves_resolver_and_header_order(tmp_path):
+    store = _store(tmp_path)
+    store.set("ds4", {"type": "api_key", "key": "!stored-key"})
+    calls: list[str] = []
+    command_values = {
+        "stored-key": None,
+        "models-key": "resolved-key",
+        "models-header": "models-value",
+        "missing": None,
+        "model-header": "model-value",
+    }
+
+    def run_command(command: str) -> str | None:
+        calls.append(command)
+        return command_values[command]
+
+    resolved = resolve_request_auth(
+        "ds4",
+        store=store,
+        env={"HEADER_ENV": "wrong-environment"},
+        models_json_config=ProviderAuthRequestConfig(
+            api_key="!models-key",
+            auth_header=True,
+            headers={
+                "Authorization": "models-auth",
+                "X-Shared": "!models-header",
+                "X-Missing": "!missing",
+            },
+        ),
+        model_headers={
+            "X-Shared": "!model-header",
+            "X-Env": "HEADER_ENV",
+            "Authorization": "model-auth",
+        },
+        env_for_headers={"HEADER_ENV": "header-environment"},
+        run_command=run_command,
+    )
+
+    assert resolved.ok is True
+    assert resolved.api_key == "resolved-key"
+    assert resolved.headers == {
+        "Authorization": "Bearer resolved-key",
+        "X-Shared": "model-value",
+        "X-Env": "header-environment",
+    }
+    assert calls == [
+        "stored-key",
+        "models-key",
+        "models-header",
+        "missing",
+        "model-header",
+    ]
+
+
 def test_resolve_request_auth_authheader_without_key_fails(tmp_path):
     store = _store(tmp_path)
     resolved = resolve_request_auth(
