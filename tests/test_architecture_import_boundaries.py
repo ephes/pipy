@@ -949,6 +949,14 @@ ARCHITECTURE_RULES = (
         reason="UI adapters must consume ports/events instead of session internals",
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.tui",
+        forbidden_imports=("pipy_harness.native.tool_loop_session",),
+        reason=(
+            "the terminal UI owns adapters through structural ports and must not "
+            "import the concrete product-session composition root"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.tool_renderers",
         forbidden_imports=(
             "pipy_harness.native.tool_loop_session",
@@ -3437,6 +3445,26 @@ def test_rule_is_inactive_until_its_source_package_exists(tmp_path: Path) -> Non
 
     violations = _evaluate_rule(source_root, ui_rule)
     assert len(violations) == 1
+    assert violations[0].imported_module == "pipy_harness.native.tool_loop_session"
+
+
+def test_tui_rule_blocks_the_product_session_root(tmp_path: Path) -> None:
+    source_root = tmp_path / "src"
+    source_path = _write_module(
+        source_root,
+        "pipy_harness.native.tui",
+        "from pipy_harness.native.tool_loop_session import NativeToolReplSession\n",
+    )
+    tui_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.tui"
+    )
+
+    violations = _evaluate_rule(source_root, tui_rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == source_path
     assert violations[0].imported_module == "pipy_harness.native.tool_loop_session"
 
 

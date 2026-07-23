@@ -3506,6 +3506,35 @@ tests; final `just check` passed Ruff, Mypy, and 4,534 tests (2 skipped).
 `src` ignores remain 28 and the root remains 5,659 lines. Review: Pi GPT-5.6
 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Custom-entry renderer adapter relocation to TUI (Slice 7.5l) — DONE (2026-07-23)
+
+Twelfth composition-root slimming cut. Relocate the stateful
+`_CustomEntryRenderer` from `native.tool_loop_session` into strict
+`native.tui`, which already owns `ToolLoopTerminalUi`, live custom-component
+rendering, chrome/theme projection, and the extension message/entry render
+helpers. Describe the mutable run-state and diagnostic host through narrow
+structural protocols so TUI never imports the composition root; continue
+reading the same live state object after `/reload`/session rebinds. Repoint the
+root construction and delete the superseded class/imports. Preserve custom
+entry/message persistence, display, captured rendering, metadata, redraw,
+outbox drain and `deliverAs`/`triggerTurn` queue timing exactly. No new module,
+public re-export, behavior, dependency, `Any`, ignore, Mypy exclusion, or C901
+pin.
+
+Landed shape: `_CustomEntryRenderer` moves mechanically into strict
+`native.tui`. Private read-only protocols expose only its live session-tree,
+renderer-map, outbox, agent-turn, and diagnostic-host needs, so the same
+mutable run state remains visible without a TUI-to-root import. The root
+imports and constructs the private adapter exactly where it did before, and
+the original class plus obsolete imports are deleted. A new architecture test
+enforces that `native.tui` cannot import `native.tool_loop_session`; fresh
+processes import both orders cleanly. Custom entry/message persistence,
+captured and live rendering, metadata/redraw, outbox drain, and queue delivery
+timing remain unchanged. The root shrinks 5,659 -> 5,382 physical lines.
+Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
+and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
+Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from
