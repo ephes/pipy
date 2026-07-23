@@ -80,6 +80,23 @@ class RenderingAgentEventAdapter:
             self._apply(decision)
 
     def _apply(self, decision: RenderDecision) -> None:
+        if isinstance(decision, (RenderToolCall, StreamToolOutput, RenderToolResult)):
+            self._apply_tool_decision(decision)
+        else:
+            self._apply_assistant_decision(decision)
+
+    def _apply_assistant_decision(
+        self,
+        decision: (
+            StartAssistantMessage
+            | StreamAssistantText
+            | StreamAssistantReasoning
+            | RenderBufferedAssistantText
+            | CompleteAssistantMessage
+            | FailAssistantMessage
+            | CancelAssistantMessage
+        ),
+    ) -> None:
         renderer = self._renderer
         if isinstance(decision, StartAssistantMessage):
             renderer.start_assistant_message()
@@ -97,7 +114,14 @@ class RenderingAgentEventAdapter:
             renderer.fail_assistant_message()
         elif isinstance(decision, CancelAssistantMessage):
             renderer.cancel_assistant_message(decision.reason)
-        elif isinstance(decision, RenderToolCall):
+        else:
+            assert_never(decision)
+
+    def _apply_tool_decision(
+        self, decision: RenderToolCall | StreamToolOutput | RenderToolResult
+    ) -> None:
+        renderer = self._renderer
+        if isinstance(decision, RenderToolCall):
             renderer.render_tool_call(decision.call)
         elif isinstance(decision, StreamToolOutput):
             renderer.tool_output_sink(decision.text)

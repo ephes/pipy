@@ -3141,6 +3141,31 @@ boundaries passed 169 tests; final `just check` passed Ruff, Mypy, and 4,514
 tests (2 skipped); `just docs-build` reported no issues. Review: Pi GPT-5.6
 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### C901 workspace and pure-UI leaf decomposition (Slice 7.7f) — DONE (2026-07-23)
+
+Seventh directional complexity batch. Remove the sole finding from each of
+`native.workspace_context`, `native.ui.state`, and `native.ui.rendering` by
+splitting candidate validation/materialization, assistant-vs-tool pure event
+reduction, and assistant-vs-tool decision application. Preserve candidate
+precedence/fallthrough, symlink containment and canonical dedup, bounded
+reading/truncation labels, exact immutable UI transitions/decision order, and
+renderer call/sink order. Every clean file leaves the pin list. No workspace
+policy, UI contract, terminal behavior, public export, dependency, unchecked
+`Any`, `type: ignore`, Mypy exclusion, or new pin.
+
+Landed shape: workspace candidate directory resolution, containment/dedup
+validation, and successful materialization are separate helpers; a typed
+`partial` preserves ancestor label capture while satisfying the full Mypy
+gate. The UI reducer separates assistant lifecycle from stateless tool events,
+and the rendering adapter separates assistant from tool decisions while
+retaining exhaustive `assert_never`. A new test pins read-error fallthrough,
+successful-only seen-path mutation, and label timing. All three files are
+C901-clean and leave the pin list, lowering repository C901 119/59 -> 116/56
+(`src` 103/50 -> 100/47). Focused verification passed 89 tests (2 skipped);
+final `just check` passed Ruff, Mypy, and 4,515 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

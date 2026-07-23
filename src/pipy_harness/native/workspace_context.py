@@ -63,6 +63,7 @@ import hashlib
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 INSTRUCTION_CANDIDATE_FILENAMES: tuple[str, ...] = (
@@ -212,8 +213,10 @@ def discover_workspace_instructions(
             current,
             seen_paths=seen_paths,
             per_file_byte_cap=per_file_byte_cap,
-            path_label_for=lambda filename, directory=current: _workspace_path_label(
-                directory, filename, resolved_workspace
+            path_label_for=partial(
+                _workspace_path_label,
+                current,
+                resolved_workspace=resolved_workspace,
             ),
         )
         if entry is not None:
@@ -259,59 +262,101 @@ def _load_first_candidate(
     *,
     seen_paths: set[Path],
     per_file_byte_cap: int,
-    path_label_for,
+    path_label_for: Callable[[str], str],
 ) -> WorkspaceInstructionFile | None:
+    resolved_dir = _resolve_candidate_directory(directory)
+    if resolved_dir is None:
+        return None
+    for candidate_name in INSTRUCTION_CANDIDATE_FILENAMES:
+        resolved_candidate = _validated_candidate_path(
+            directory,
+            resolved_dir,
+            candidate_name,
+            seen_paths=seen_paths,
+        )
+        if resolved_candidate is None:
+            continue
+        entry = _materialize_candidate(
+            resolved_candidate,
+            candidate_name,
+            seen_paths=seen_paths,
+            per_file_byte_cap=per_file_byte_cap,
+            path_label_for=path_label_for,
+        )
+        if entry is not None:
+            return entry
+    return None
+
+
+def _resolve_candidate_directory(directory: Path) -> Path | None:
     try:
         if not directory.is_dir():
             return None
     except OSError:
         return None
     try:
-        resolved_dir = directory.resolve()
+        return directory.resolve()
     except OSError:
         return None
-    for candidate_name in INSTRUCTION_CANDIDATE_FILENAMES:
-        candidate = directory / candidate_name
-        try:
-            is_file = candidate.is_file()
-        except OSError:
-            continue
-        if not is_file:
-            continue
-        try:
-            resolved_candidate = candidate.resolve()
-        except OSError:
-            continue
-        try:
-            resolved_candidate.relative_to(resolved_dir)
-        except ValueError:
-            continue
-        if resolved_candidate in seen_paths:
-            continue
-        try:
-            head, byte_length, sha256 = _read_capped_bytes(
-                resolved_candidate,
-                per_file_byte_cap=per_file_byte_cap,
-            )
-        except OSError:
-            continue
-        seen_paths.add(resolved_candidate)
-        truncated = byte_length > per_file_byte_cap
-        if truncated:
-            content = head.decode("utf-8", errors="replace") + (
-                PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
-            )
-        else:
-            content = head.decode("utf-8", errors="replace")
-        path_label = path_label_for(candidate_name)
-        return WorkspaceInstructionFile(
-            path_label=path_label,
-            sha256=sha256,
-            byte_length=byte_length,
-            content=content,
-            truncated=truncated,
+
+
+def _validated_candidate_path(
+    directory: Path,
+    resolved_dir: Path,
+    candidate_name: str,
+    *,
+    seen_paths: set[Path],
+) -> Path | None:
+    candidate = directory / candidate_name
+    try:
+        if not candidate.is_file():
+            return None
+    except OSError:
+        return None
+    try:
+        resolved_candidate = candidate.resolve()
+    except OSError:
+        return None
+    try:
+        resolved_candidate.relative_to(resolved_dir)
+    except ValueError:
+        return None
+    if resolved_candidate in seen_paths:
+        return None
+    return resolved_candidate
+
+
+def _materialize_candidate(
+    resolved_candidate: Path,
+    candidate_name: str,
+    *,
+    seen_paths: set[Path],
+    per_file_byte_cap: int,
+    path_label_for: Callable[[str], str],
+) -> WorkspaceInstructionFile | None:
+    try:
+        head, byte_length, sha256 = _read_capped_bytes(
+            resolved_candidate,
+            per_file_byte_cap=per_file_byte_cap,
         )
-    return None
+    except OSError:
+        return None
+    seen_paths.add(resolved_candidate)
+    truncated = byte_length > per_file_byte_cap
+    if truncated:
+        content = head.decode("utf-8", errors="replace") + (
+            PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
+        )
+    else:
+        content = head.decode("utf-8", errors="replace")
+    path_label = path_label_for(candidate_name)
+    return WorkspaceInstructionFile(
+        path_label=path_label,
+        sha256=sha256,
+        byte_length=byte_length,
+        content=content,
+        truncated=truncated,
+    )
 
 
 def _read_capped_bytes(

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+import pipy_harness.native.workspace_context as workspace_context
 from pipy_harness.native.workspace_context import (
     DEFAULT_PER_FILE_BYTE_CAP,
     DEFAULT_TOTAL_BYTE_CAP,
@@ -199,6 +200,50 @@ def test_missing_files_do_not_fail(tmp_path: Path) -> None:
 
 
 # -- dedup by canonical path -------------------------------------------------
+
+
+def test_read_failure_falls_through_without_marking_seen_or_labeling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        workspace_context,
+        "INSTRUCTION_CANDIDATE_FILENAMES",
+        ("AGENTS.md", "pipy.md"),
+    )
+    (tmp_path / "AGENTS.md").write_text("unreadable\n", encoding="utf-8")
+    (tmp_path / "pipy.md").write_text("fallback\n", encoding="utf-8")
+    original_read = workspace_context._read_capped_bytes
+    read_attempts: list[str] = []
+    labels: list[str] = []
+
+    def fail_first_read(
+        path: Path, *, per_file_byte_cap: int
+    ) -> tuple[bytes, int, str]:
+        read_attempts.append(path.name)
+        if path.name == "AGENTS.md":
+            raise OSError("simulated read failure")
+        return original_read(path, per_file_byte_cap=per_file_byte_cap)
+
+    def label(filename: str) -> str:
+        labels.append(filename)
+        return filename
+
+    monkeypatch.setattr(workspace_context, "_read_capped_bytes", fail_first_read)
+    seen_paths: set[Path] = set()
+
+    entry = workspace_context._load_first_candidate(
+        tmp_path,
+        seen_paths=seen_paths,
+        per_file_byte_cap=DEFAULT_PER_FILE_BYTE_CAP,
+        path_label_for=label,
+    )
+
+    assert entry is not None
+    assert entry.path_label == "pipy.md"
+    assert entry.content == "fallback\n"
+    assert read_attempts == ["AGENTS.md", "pipy.md"]
+    assert labels == ["pipy.md"]
+    assert seen_paths == {(tmp_path / "pipy.md").resolve()}
 
 
 def test_seen_candidate_falls_through_to_next_name(

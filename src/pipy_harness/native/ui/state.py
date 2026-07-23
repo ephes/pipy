@@ -129,9 +129,10 @@ RenderDecision = (
 """Closed union of ordered rendering decisions produced by :func:`reduce`."""
 
 
-def reduce(
-    state: UiState, event: AgentEvent
-) -> tuple[UiState, tuple[RenderDecision, ...]]:
+_Reduction = tuple[UiState, tuple[RenderDecision, ...]]
+
+
+def reduce(state: UiState, event: AgentEvent) -> _Reduction:
     """Map ``event`` onto the next :class:`UiState` and ordered decisions.
 
     The function is pure: it never touches a terminal or renderer.  It owns the
@@ -142,17 +143,15 @@ def reduce(
     decisions.
     """
 
-    if isinstance(event, MessageStarted) and isinstance(
-        event.message, AgentAssistantMessage
-    ):
-        return (
-            UiState(
-                assistant_active=True,
-                assistant_streamed=False,
-                assistant_completion_suppressed=False,
-            ),
-            (StartAssistantMessage(),),
-        )
+    assistant_reduction = _reduce_assistant_event(state, event)
+    if assistant_reduction is not None:
+        return assistant_reduction
+    return _reduce_tool_event(state, event)
+
+
+def _reduce_assistant_event(state: UiState, event: AgentEvent) -> _Reduction | None:
+    if isinstance(event, MessageStarted):
+        return _reduce_message_started(state, event)
     if isinstance(event, AssistantTextDelta):
         streamed = state.assistant_streamed or bool(event.delta.value)
         return (
@@ -171,25 +170,48 @@ def reduce(
         if state.assistant_active:
             return (suppressed, (CancelAssistantMessage(event.reason),))
         return (suppressed, ())
-    if isinstance(event, MessageCompleted) and isinstance(
-        event.message, AgentAssistantMessage
-    ):
-        if not state.assistant_active:
-            return (state, ())
-        completed = replace(state, assistant_active=False)
-        if state.assistant_completion_suppressed:
-            return (completed, ())
-        has_tool_calls = bool(event.message.tool_calls)
-        decisions: list[RenderDecision] = []
-        if event.message.content.value and not state.assistant_streamed:
-            decisions.append(
-                RenderBufferedAssistantText(
-                    event.message.content.value,
-                    has_tool_calls=has_tool_calls,
-                )
+    if isinstance(event, MessageCompleted):
+        return _reduce_message_completed(state, event)
+    return None
+
+
+def _reduce_message_started(state: UiState, event: MessageStarted) -> _Reduction:
+    if not isinstance(event.message, AgentAssistantMessage):
+        return (state, ())
+    return (
+        UiState(
+            assistant_active=True,
+            assistant_streamed=False,
+            assistant_completion_suppressed=False,
+        ),
+        (StartAssistantMessage(),),
+    )
+
+
+def _reduce_message_completed(
+    state: UiState, event: MessageCompleted
+) -> _Reduction:
+    if not isinstance(event.message, AgentAssistantMessage):
+        return (state, ())
+    if not state.assistant_active:
+        return (state, ())
+    completed = replace(state, assistant_active=False)
+    if state.assistant_completion_suppressed:
+        return (completed, ())
+    has_tool_calls = bool(event.message.tool_calls)
+    decisions: list[RenderDecision] = []
+    if event.message.content.value and not state.assistant_streamed:
+        decisions.append(
+            RenderBufferedAssistantText(
+                event.message.content.value,
+                has_tool_calls=has_tool_calls,
             )
-        decisions.append(CompleteAssistantMessage(has_tool_calls=has_tool_calls))
-        return (completed, tuple(decisions))
+        )
+    decisions.append(CompleteAssistantMessage(has_tool_calls=has_tool_calls))
+    return (completed, tuple(decisions))
+
+
+def _reduce_tool_event(state: UiState, event: AgentEvent) -> _Reduction:
     if isinstance(event, ToolCallStarted):
         return (state, (RenderToolCall(event.call),))
     if isinstance(event, ToolCallUpdated):
