@@ -322,6 +322,35 @@ def test_extension_flag_parser_accepts_inline_values(tmp_path: Path) -> None:
     assert values == {"plan": False, "ticket": "PIPY-456"}
 
 
+def test_extension_flag_parser_preserves_exact_errors_and_prior_consumption(
+    tmp_path: Path,
+) -> None:
+    workspace = _make_workspace(tmp_path)
+    _write_single_file(
+        workspace,
+        "flagger",
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        "    api.register_flag(ExtensionFlag('plan', 'boolean', default=False))\n"
+        "    api.register_flag(ExtensionFlag('ticket', 'string'))\n",
+    )
+    registered = extension_flags(_activate(workspace))
+
+    values, error = parse_extension_flag_tokens(registered, ("--plan", "ticket"))
+    assert values == {}
+    assert error == "unexpected extension flag token: 'ticket'"
+    assert registered[0].get_value() is True
+
+    assert parse_extension_flag_tokens(registered, ("--plan=maybe",)) == (
+        {},
+        "invalid boolean value for --plan",
+    )
+    assert parse_extension_flag_tokens(registered, ("--ticket", "--plan")) == (
+        {},
+        "missing value for --ticket",
+    )
+
+
 def test_async_activate_within_running_event_loop(tmp_path: Path) -> None:
     # Activation may be driven from within a running event loop; an async
     # activate must still complete instead of failing with activation_error.

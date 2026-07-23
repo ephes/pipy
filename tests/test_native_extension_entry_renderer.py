@@ -3,6 +3,8 @@ from __future__ import annotations
 import gc
 import warnings
 
+import pytest
+
 from pipy_harness.extensions import lines_component
 from pipy_harness.native.extension_runtime import (
     RegisteredEntryRenderer,
@@ -87,6 +89,24 @@ def test_entry_renderer_missing_none_bad_output_and_failures_are_omitted():
         )
         is None
     )
+
+
+def test_entry_renderer_interrupts_propagate():
+    def interrupted_renderer(entry, ctx):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        render_extension_entry(_renderers("card", interrupted_renderer), _entry())
+
+    class _ExitingComponent:
+        def render(self, width):
+            raise SystemExit(7)
+
+    with pytest.raises(SystemExit, match="7"):
+        render_extension_entry(
+            _renderers("card", lambda entry, ctx: _ExitingComponent()),
+            _entry(),
+        )
 
 
 def test_async_entry_renderer_is_closed_and_omitted():

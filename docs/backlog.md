@@ -3022,6 +3022,34 @@ final `just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
 `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
 0 findings, explicit CLEAN.
 
+### C901 extension-runtime boundary decomposition (Slice 7.7d) — DONE (2026-07-23)
+
+Fourth directional complexity batch, bounded to the existing extension runtime
+owner. Decompose its six measured findings along existing semantic families:
+provider model/OAuth normalization; message and entry renderer invocation plus
+component coercion; boolean/string flag token parsing; preloaded-contribution
+collision/commit; and module activation resolution/execution/contribution
+commit. Preserve exact validation/failure order, fail-soft/fail-closed
+boundaries, interrupt propagation, registration ordering, staged-state
+atomicity, payload rendering, flag errors, and activation metadata. The file
+leaves the C901 pin list only when all six functions are honestly clean. No
+extension API redesign, behavior change, dependency, unchecked `Any`,
+`type: ignore`, Mypy exclusion, or new pin.
+
+Landed shape: provider name/model/default/OAuth normalizers retain the original
+validation and callback short-circuit order; renderer invocation/component
+coercion helpers retain one-call, fail-soft, awaitable-close, and interrupt
+semantics; typed flag-token results retain exact consumption/errors; and typed
+contribution bundles separate ordered collision checks from all-at-once
+commits for preload and ordinary activation. Entry resolution/execution remain
+inside the fail-closed boundary. All six original functions are complexity
+4–6, no new finding appears, and the file's pin is deleted. Repository C901
+falls 133/61 -> 127/60 (`src` 117/52 -> 111/51). Focused verification passed
+303 tests; activation, extension gate, entry/message renderer,
+provider, and tool conformance scripts all passed; final `just check` passed
+Ruff, Mypy, and 4,512 tests (2 skipped); `just docs-build` reported no issues.
+Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

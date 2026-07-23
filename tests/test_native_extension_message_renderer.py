@@ -1,3 +1,5 @@
+import pytest
+
 from pipy_harness.extensions import (
     MessageRenderComponent,
     MessageRenderContext,
@@ -108,6 +110,25 @@ def test_component_render_exception_is_fail_soft():
     )
     assert out.styled is False
     assert out.lines[0].startswith("render error:")
+
+
+def test_message_renderer_interrupts_propagate():
+    def interrupted_renderer(data, ctx):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        render_extension_message(_renderers("card", interrupted_renderer), "card", {})
+
+    class _ExitingComponent:
+        def render(self, width):
+            raise SystemExit(7)
+
+    with pytest.raises(SystemExit, match="7"):
+        render_extension_message(
+            _renderers("card", lambda data, ctx: _ExitingComponent()),
+            "card",
+            {},
+        )
 
 
 def test_expanded_threaded_to_renderer():

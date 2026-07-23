@@ -52,9 +52,10 @@ extend-select = ["C901"]
 # end-state — pinned files are burned down over time (Slice 7.4 dropped
 # `image_attachment.py` and `command_sandbox.py`; Slice 7.7a dropped three
 # strict-leaf invariant owners; Slice 7.7b dropped three strict provider/wire
-# owners; Slice 7.7c dropped three more strict provider owners). Do not add
-# entries to grow the baseline; only remove them as functions are genuinely
-# simplified below the threshold.
+# owners; Slice 7.7c dropped three more strict provider owners; Slice 7.7d
+# dropped the six-finding extension runtime owner). Do not add entries to grow
+# the baseline; only remove them as functions are genuinely simplified below
+# the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
@@ -73,7 +74,6 @@ extend-select = ["C901"]
 "src/pipy_harness/native/coding/session_controller.py" = ["C901"]
 "src/pipy_harness/native/coding/state.py" = ["C901"]
 "src/pipy_harness/native/editor_completion.py" = ["C901"]
-"src/pipy_harness/native/extension_runtime.py" = ["C901"]
 "src/pipy_harness/native/extensions.py" = ["C901"]
 "src/pipy_harness/native/fake.py" = ["C901"]
 "src/pipy_harness/native/model_resolver.py" = ["C901"]

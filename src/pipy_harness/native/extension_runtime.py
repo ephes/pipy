@@ -478,6 +478,46 @@ class ExtensionActivationBatch:
     pending: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class _ContributionNames:
+    """Accepted contribution names, grouped in collision-check order."""
+
+    commands: tuple[str, ...]
+    tools: tuple[str, ...]
+    providers: tuple[str, ...]
+    shortcuts: tuple[str, ...]
+    flags: tuple[str, ...]
+    message_renderers: tuple[str, ...]
+    entry_renderers: tuple[str, ...]
+
+
+@dataclass(slots=True)
+class _TakenContributions:
+    """Names committed by earlier extensions in the current activation pass."""
+
+    commands: set[str] = field(default_factory=set)
+    tools: set[str] = field(default_factory=set)
+    providers: set[str] = field(default_factory=set)
+    shortcuts: set[str] = field(default_factory=set)
+    flags: set[str] = field(default_factory=set)
+    message_renderers: set[str] = field(default_factory=set)
+    entry_renderers: set[str] = field(default_factory=set)
+
+
+@dataclass(frozen=True, slots=True)
+class _StagedContributions:
+    """All atomic registrations collected from one successful activation."""
+
+    commands: tuple[RegisteredCommand, ...]
+    tools: tuple[RegisteredTool, ...]
+    providers: tuple[RegisteredProvider, ...]
+    shortcuts: tuple[RegisteredShortcut, ...]
+    flags: tuple[RegisteredFlag, ...]
+    message_renderers: tuple[RegisteredMessageRenderer, ...]
+    entry_renderers: tuple[RegisteredEntryRenderer, ...]
+    custom_messages: tuple[QueuedCustomMessage, ...]
+
+
 class ExtensionCapabilityError(RuntimeError):
     """A capability a handler asked for is not available in this context.
 
@@ -1110,6 +1150,68 @@ def _run_extension_handler(
     )
 
 
+def _normalize_provider_name(raw_name: object) -> str:
+    if not isinstance(raw_name, str):
+        raise _ActivationError(REASON_INVALID_PROVIDER)
+    name = raw_name.strip()
+    if not name or "/" in name:
+        raise _ActivationError(REASON_INVALID_PROVIDER)
+    return name
+
+
+def _normalize_provider_models(models: object) -> tuple[str, ...]:
+    if not isinstance(models, tuple) or not models:
+        raise _ActivationError(REASON_INVALID_PROVIDER)
+    model_ids: list[str] = []
+    for model in models:
+        if not isinstance(model, str):
+            raise _ActivationError(REASON_INVALID_PROVIDER)
+        model_id = model.strip()
+        if not model_id:
+            raise _ActivationError(REASON_INVALID_PROVIDER)
+        model_ids.append(model_id)
+    return tuple(model_ids)
+
+
+def _normalize_default_model(
+    default_model: object,
+    model_ids: tuple[str, ...],
+) -> str | None:
+    if isinstance(default_model, str):
+        default_model = default_model.strip()
+    if default_model is not None and (
+        not isinstance(default_model, str)
+        or not default_model
+        or default_model not in model_ids
+    ):
+        raise _ActivationError(REASON_INVALID_PROVIDER)
+    return default_model
+
+
+def _normalize_provider_oauth(oauth: object) -> ExtensionOAuthConfig | None:
+    if oauth is None:
+        return None
+    if not isinstance(oauth, ExtensionOAuthConfig):
+        raise _ActivationError(REASON_INVALID_PROVIDER)
+    oauth_name = oauth.name.strip() if isinstance(oauth.name, str) else ""
+    if not oauth_name:
+        raise _ActivationError(REASON_INVALID_PROVIDER)
+    if (
+        not callable(oauth.login)
+        or not callable(oauth.refresh_token)
+        or not callable(oauth.get_api_key)
+        or (oauth.modify_models is not None and not callable(oauth.modify_models))
+    ):
+        raise _ActivationError(REASON_INVALID_PROVIDER)
+    return ExtensionOAuthConfig(
+        name=oauth_name,
+        login=oauth.login,
+        refresh_token=oauth.refresh_token,
+        get_api_key=oauth.get_api_key,
+        modify_models=oauth.modify_models,
+    )
+
+
 class _ActivationApi:
     """Concrete `PipyExtensionAPI` for one extension's activation.
 
@@ -1259,59 +1361,12 @@ class _ActivationApi:
     def _validate_and_stage_provider(self, provider: ExtensionProvider) -> None:
         if not isinstance(provider, ExtensionProvider):
             raise _ActivationError(REASON_INVALID_PROVIDER)
-        raw_name = provider.name
-        if not isinstance(raw_name, str):
-            raise _ActivationError(REASON_INVALID_PROVIDER)
-        name = raw_name.strip()
-        if not name or "/" in name:
-            raise _ActivationError(REASON_INVALID_PROVIDER)
+        name = _normalize_provider_name(provider.name)
         if not callable(provider.factory):
             raise _ActivationError(REASON_INVALID_PROVIDER)
-        if not isinstance(provider.models, tuple):
-            raise _ActivationError(REASON_INVALID_PROVIDER)
-        if not provider.models:
-            raise _ActivationError(REASON_INVALID_PROVIDER)
-        model_ids: list[str] = []
-        for model in provider.models:
-            if not isinstance(model, str):
-                raise _ActivationError(REASON_INVALID_PROVIDER)
-            model_id = model.strip()
-            if not model_id:
-                raise _ActivationError(REASON_INVALID_PROVIDER)
-            model_ids.append(model_id)
-        default_model = provider.default_model
-        if isinstance(default_model, str):
-            default_model = default_model.strip()
-        if default_model is not None and (
-            not isinstance(default_model, str)
-            or not default_model
-            or default_model not in model_ids
-        ):
-            raise _ActivationError(REASON_INVALID_PROVIDER)
-        oauth = provider.oauth
-        if oauth is not None:
-            if not isinstance(oauth, ExtensionOAuthConfig):
-                raise _ActivationError(REASON_INVALID_PROVIDER)
-            oauth_name = oauth.name.strip() if isinstance(oauth.name, str) else ""
-            if not oauth_name:
-                raise _ActivationError(REASON_INVALID_PROVIDER)
-            if (
-                not callable(oauth.login)
-                or not callable(oauth.refresh_token)
-                or not callable(oauth.get_api_key)
-                or (
-                    oauth.modify_models is not None
-                    and not callable(oauth.modify_models)
-                )
-            ):
-                raise _ActivationError(REASON_INVALID_PROVIDER)
-            oauth = ExtensionOAuthConfig(
-                name=oauth_name,
-                login=oauth.login,
-                refresh_token=oauth.refresh_token,
-                get_api_key=oauth.get_api_key,
-                modify_models=oauth.modify_models,
-            )
+        model_ids = _normalize_provider_models(provider.models)
+        default_model = _normalize_default_model(provider.default_model, model_ids)
+        oauth = _normalize_provider_oauth(provider.oauth)
         # Providers MAY override a built-in of the same name (Pi behavior;
         # unregister restores it), so there is no reserved-name check; only
         # a duplicate registration across extensions is rejected.
@@ -1320,7 +1375,7 @@ class _ActivationApi:
         normalized = ExtensionProvider(
             name=name,
             default_model=default_model,
-            models=tuple(model_ids),
+            models=model_ids,
             factory=provider.factory,
             oauth=oauth,
         )
@@ -1635,13 +1690,7 @@ def activate_extension_batch(
 
     reserved = frozenset(reserved_command_names)
     reserved_tools = frozenset(reserved_tool_names)
-    taken: set[str] = set()
-    taken_tools: set[str] = set()
-    taken_providers: set[str] = set()
-    taken_shortcuts: set[str] = set()
-    taken_flags: set[str] = set()
-    taken_message_renderers: set[str] = set()
-    taken_entry_renderers: set[str] = set()
+    taken = _TakenContributions()
     outbox = (
         preloaded.message_outbox
         if preloaded is not None
@@ -1675,14 +1724,8 @@ def activate_extension_batch(
                 existing,
                 descriptor=descriptor,
                 reserved=reserved,
-                taken=taken,
                 reserved_tools=reserved_tools,
-                taken_tools=taken_tools,
-                taken_providers=taken_providers,
-                taken_shortcuts=taken_shortcuts,
-                taken_flags=taken_flags,
-                taken_message_renderers=taken_message_renderers,
-                taken_entry_renderers=taken_entry_renderers,
+                taken=taken,
             )
             results.append(reused)
             continue
@@ -1690,27 +1733,13 @@ def activate_extension_batch(
         # Cross-extension collisions are provisional because the final reserved
         # set can disable an earlier extension and free its names for a later
         # one. Resolve those collisions only once, in final descriptor order.
-        activation_taken = set() if pending else taken
-        activation_taken_tools = set() if pending else taken_tools
-        activation_taken_providers = set() if pending else taken_providers
-        activation_taken_shortcuts = set() if pending else taken_shortcuts
-        activation_taken_flags = set() if pending else taken_flags
-        activation_taken_message_renderers = (
-            set() if pending else taken_message_renderers
-        )
-        activation_taken_entry_renderers = set() if pending else taken_entry_renderers
+        activation_taken = _TakenContributions() if pending else taken
         results.append(
             _activate_one(
                 descriptor,
                 reserved=reserved,
-                taken=activation_taken,
                 reserved_tools=reserved_tools,
-                taken_tools=activation_taken_tools,
-                taken_providers=activation_taken_providers,
-                taken_shortcuts=activation_taken_shortcuts,
-                taken_flags=activation_taken_flags,
-                taken_message_renderers=activation_taken_message_renderers,
-                taken_entry_renderers=activation_taken_entry_renderers,
+                taken=activation_taken,
                 outbox=outbox,
                 custom_outbox=custom_outbox,
                 commit_activation=not pending,
@@ -1992,6 +2021,52 @@ def _renderer_wants_context(renderer: Callable[..., object]) -> bool:
     return positional >= 2
 
 
+def _plain_message_render(value: object | None) -> RenderedCustomEntry:
+    if value is None:
+        return RenderedCustomEntry((), False)
+    return RenderedCustomEntry((_bounded_render_text(value),), False)
+
+
+def _invoke_message_renderer(
+    registered: RegisteredMessageRenderer,
+    detached: object | None,
+    *,
+    custom_type: str,
+    wants_context: bool,
+    width: int,
+    expanded: bool,
+    theme: object | None,
+) -> object:
+    if not wants_context:
+        return registered.renderer(detached)
+    context = MessageRenderContext(
+        custom_type=custom_type,
+        data=detached,
+        expanded=expanded,
+        width=width,
+        theme=theme,
+    )
+    return registered.renderer(detached, context)
+
+
+def _coerce_message_component(
+    rendered: object,
+    *,
+    width: int,
+    fallback: object | None,
+) -> RenderedCustomEntry | None:
+    """Render a context-aware component, or leave plain output to the caller."""
+
+    render = getattr(rendered, "render", None)
+    if not callable(render) or isinstance(rendered, (str, bytes, bytearray)):
+        return None
+    produced = render(width)
+    coerced = coerce_tool_render_lines(produced)
+    if coerced is None:
+        return _plain_message_render(fallback)
+    return RenderedCustomEntry(tuple(coerced), True)
+
+
 def render_extension_message(
     renderers: Mapping[str, RegisteredMessageRenderer],
     custom_type: str,
@@ -2008,58 +2083,66 @@ def render_extension_message(
     Text/lines returns and any failure fall back to plain rendering
     (``styled=False``)."""
 
-    def _plain(value: object | None) -> RenderedCustomEntry:
-        if value is None:
-            return RenderedCustomEntry((), False)
-        return RenderedCustomEntry((_bounded_render_text(value),), False)
-
-    renderer = renderers.get(custom_type)
-    if renderer is None:
-        return _plain(data)
+    registered = renderers.get(custom_type)
+    if registered is None:
+        return _plain_message_render(data)
     detached = _copy_custom_entry_data(data)
-    wants_context = _renderer_wants_context(renderer.renderer)
+    wants_context = _renderer_wants_context(registered.renderer)
     try:
+        rendered = _invoke_message_renderer(
+            registered,
+            detached,
+            custom_type=custom_type,
+            wants_context=wants_context,
+            width=width,
+            expanded=expanded,
+            theme=theme,
+        )
+        # A 1-arg renderer keeps exact plain-text behavior even when its return
+        # object happens to expose a render() attribute.
         if wants_context:
-            ctx = MessageRenderContext(
-                custom_type=custom_type,
-                data=detached,
-                expanded=expanded,
+            component = _coerce_message_component(
+                rendered,
                 width=width,
-                theme=theme,
+                fallback=detached,
             )
-            rendered = renderer.renderer(detached, ctx)
-        else:
-            rendered = renderer.renderer(detached)
-    except (KeyboardInterrupt, SystemExit):
-        raise
-    except BaseException as err:  # noqa: BLE001 - bound a bad renderer
-        return RenderedCustomEntry((f"render error: {_safe_diagnostic(err)}",), False)
-
-    # The component (styled) path is reachable ONLY for context-aware (2-arg)
-    # renderers. A 1-arg renderer(data) keeps exact slice-16 plain-text
-    # behavior even if it returns an object exposing a render() attribute.
-    if wants_context:
-        render = getattr(rendered, "render", None)
-        if callable(render) and not isinstance(rendered, (str, bytes, bytearray)):
-            try:
-                produced = render(width)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException as err:  # noqa: BLE001 - a bad render() falls back
-                return RenderedCustomEntry(
-                    (f"render error: {_safe_diagnostic(err)}",), False
-                )
-            coerced = coerce_tool_render_lines(produced)
-            if coerced is None:
-                return _plain(detached)
-            return RenderedCustomEntry(tuple(coerced), True)
-
-    try:
+            if component is not None:
+                return component
         return RenderedCustomEntry(_coerce_rendered_lines(rendered), False)
     except (KeyboardInterrupt, SystemExit):
         raise
-    except BaseException as err:  # noqa: BLE001 - bound bad renderer output
+    except BaseException as err:  # noqa: BLE001 - bound bad renderer behavior
         return RenderedCustomEntry((f"render error: {_safe_diagnostic(err)}",), False)
+
+
+def _close_unsupported_awaitable(value: object) -> bool:
+    if not inspect.isawaitable(value):
+        return False
+    close = getattr(value, "close", None)
+    if callable(close):
+        close()
+    return True
+
+
+def _coerce_entry_component(
+    rendered: object,
+    *,
+    width: int,
+) -> RenderedCustomEntry | None:
+    if _close_unsupported_awaitable(rendered):
+        return None
+    if rendered is None or isinstance(rendered, (str, bytes, bytearray)):
+        return None
+    render = getattr(rendered, "render", None)
+    if not callable(render):
+        return None
+    produced = render(width)
+    if _close_unsupported_awaitable(produced):
+        return None
+    coerced = coerce_tool_render_lines(produced)
+    if coerced is None:
+        return None
+    return RenderedCustomEntry(tuple(coerced), True)
 
 
 def render_extension_entry(
@@ -2089,26 +2172,7 @@ def render_extension_entry(
             detached,
             EntryRenderContext(expanded=expanded, width=width, theme=theme),
         )
-        if inspect.isawaitable(rendered):
-            close = getattr(rendered, "close", None)
-            if callable(close):
-                close()
-            return None
-        if rendered is None or isinstance(rendered, (str, bytes, bytearray)):
-            return None
-        render = getattr(rendered, "render", None)
-        if not callable(render):
-            return None
-        produced = render(width)
-        if inspect.isawaitable(produced):
-            close = getattr(produced, "close", None)
-            if callable(close):
-                close()
-            return None
-        coerced = coerce_tool_render_lines(produced)
-        if coerced is None:
-            return None
-        return RenderedCustomEntry(tuple(coerced), True)
+        return _coerce_entry_component(rendered, width=width)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001 - omit a bad live renderer safely
@@ -2164,6 +2228,65 @@ def _bounded_render_text(value: object) -> str:
     return text
 
 
+@dataclass(frozen=True, slots=True)
+class _ParsedExtensionFlagToken:
+    name: str
+    value: object
+    next_index: int
+
+
+def _parse_boolean_flag_value(name: str, separator: str, inline: str) -> bool | str:
+    if not separator:
+        return True
+    lowered = inline.strip().lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    return f"invalid boolean value for --{name}"
+
+
+def _parse_string_flag_value(
+    name: str,
+    separator: str,
+    inline: str,
+    tokens: Sequence[str],
+    index: int,
+) -> tuple[str, int] | str:
+    if separator:
+        return inline, index + 1
+    next_index = index + 1
+    if next_index >= len(tokens) or tokens[next_index].startswith("--"):
+        return f"missing value for --{name}"
+    return tokens[next_index], index + 2
+
+
+def _parse_extension_flag_token(
+    definitions: Mapping[str, ExtensionFlag],
+    tokens: Sequence[str],
+    index: int,
+) -> _ParsedExtensionFlagToken | str:
+    """Classify one token and parse its value without mutating flag owners."""
+
+    token = tokens[index]
+    if not token.startswith("--") or token == "--":
+        return f"unexpected extension flag token: {token!r}"
+    name, separator, inline = token[2:].partition("=")
+    flag = definitions.get(name)
+    if flag is None:
+        return f"unknown extension flag: --{name}"
+    if flag.flag_type == "boolean":
+        value = _parse_boolean_flag_value(name, separator, inline)
+        if isinstance(value, str):
+            return value
+        return _ParsedExtensionFlagToken(name, value, index + 1)
+    parsed = _parse_string_flag_value(name, separator, inline, tokens, index)
+    if isinstance(parsed, str):
+        return parsed
+    value, next_index = parsed
+    return _ParsedExtensionFlagToken(name, value, next_index)
+
+
 def parse_extension_flag_tokens(
     registered_flags: Sequence[RegisteredFlag],
     tokens: Sequence[str],
@@ -2179,44 +2302,16 @@ def parse_extension_flag_tokens(
         for flag in definitions.values()
         if flag.default is not None
     }
-
-    def set_value(name: str, value: object) -> None:
-        values[name] = value
-        owner = owners.get(name)
-        if owner is not None:
-            owner.values[name] = value
-
     index = 0
     while index < len(tokens):
-        token = tokens[index]
-        if not token.startswith("--") or token == "--":
-            return {}, f"unexpected extension flag token: {token!r}"
-        name_value = token[2:]
-        name, sep, inline_value = name_value.partition("=")
-        flag = definitions.get(name)
-        if flag is None:
-            return {}, f"unknown extension flag: --{name}"
-        if flag.flag_type == "boolean":
-            if sep:
-                lowered = inline_value.strip().lower()
-                if lowered in {"1", "true", "yes", "on"}:
-                    set_value(name, True)
-                elif lowered in {"0", "false", "no", "off"}:
-                    set_value(name, False)
-                else:
-                    return {}, f"invalid boolean value for --{name}"
-            else:
-                set_value(name, True)
-            index += 1
-            continue
-        if sep:
-            set_value(name, inline_value)
-            index += 1
-            continue
-        if index + 1 >= len(tokens) or tokens[index + 1].startswith("--"):
-            return {}, f"missing value for --{name}"
-        set_value(name, tokens[index + 1])
-        index += 2
+        parsed = _parse_extension_flag_token(definitions, tokens, index)
+        if isinstance(parsed, str):
+            return {}, parsed
+        values[parsed.name] = parsed.value
+        owner = owners.get(parsed.name)
+        if owner is not None:
+            owner.values[parsed.name] = parsed.value
+        index = parsed.next_index
     return values, None
 
 
@@ -2249,19 +2344,139 @@ def _descriptor_activation_key(descriptor: ExtensionDescriptor) -> str:
     return f"{descriptor.source_kind}:{descriptor.path_label}"
 
 
+def _activated_contribution_names(existing: ActivatedExtension) -> _ContributionNames:
+    return _ContributionNames(
+        commands=tuple(command.name for command in existing.commands),
+        tools=tuple(registered.tool.name for registered in existing.tools),
+        providers=tuple(registered.provider.name for registered in existing.providers),
+        shortcuts=tuple(shortcut.key for shortcut in existing.shortcuts),
+        flags=tuple(registered.flag.name for registered in existing.flags),
+        message_renderers=tuple(
+            renderer.custom_type for renderer in existing.message_renderers
+        ),
+        entry_renderers=tuple(
+            renderer.custom_type for renderer in existing.entry_renderers
+        ),
+    )
+
+
+def _staged_contribution_names(staged: _StagedContributions) -> _ContributionNames:
+    return _ContributionNames(
+        commands=tuple(command.name for command in staged.commands),
+        tools=tuple(registered.tool.name for registered in staged.tools),
+        providers=tuple(registered.provider.name for registered in staged.providers),
+        shortcuts=tuple(shortcut.key for shortcut in staged.shortcuts),
+        flags=tuple(registered.flag.name for registered in staged.flags),
+        message_renderers=tuple(
+            renderer.custom_type for renderer in staged.message_renderers
+        ),
+        entry_renderers=tuple(
+            renderer.custom_type for renderer in staged.entry_renderers
+        ),
+    )
+
+
+def _reserved_or_taken_collision(
+    names: Iterable[str],
+    *,
+    reserved: frozenset[str],
+    taken: set[str],
+    reserved_reason: str,
+    duplicate_reason: str,
+) -> str | None:
+    for name in names:
+        if name in reserved:
+            return reserved_reason
+        if name in taken:
+            return duplicate_reason
+    return None
+
+
+def _taken_collision(
+    names: Iterable[str],
+    *,
+    taken: set[str],
+    duplicate_reason: str,
+) -> str | None:
+    for name in names:
+        if name in taken:
+            return duplicate_reason
+    return None
+
+
+def _preloaded_collision_reason(
+    names: _ContributionNames,
+    *,
+    reserved: frozenset[str],
+    reserved_tools: frozenset[str],
+    taken: _TakenContributions,
+) -> str | None:
+    reason = _reserved_or_taken_collision(
+        names.commands,
+        reserved=reserved,
+        taken=taken.commands,
+        reserved_reason=REASON_RESERVED_COMMAND,
+        duplicate_reason=REASON_DUPLICATE_COMMAND,
+    )
+    if reason is not None:
+        return reason
+    reason = _reserved_or_taken_collision(
+        names.tools,
+        reserved=reserved_tools,
+        taken=taken.tools,
+        reserved_reason=REASON_RESERVED_TOOL,
+        duplicate_reason=REASON_DUPLICATE_TOOL,
+    )
+    if reason is not None:
+        return reason
+    collision_categories = (
+        (names.providers, taken.providers, REASON_DUPLICATE_PROVIDER),
+        (names.shortcuts, taken.shortcuts, REASON_DUPLICATE_SHORTCUT),
+        (names.flags, taken.flags, REASON_DUPLICATE_FLAG),
+        (
+            names.message_renderers,
+            taken.message_renderers,
+            REASON_DUPLICATE_MESSAGE_RENDERER,
+        ),
+        (
+            names.entry_renderers,
+            taken.entry_renderers,
+            REASON_DUPLICATE_ENTRY_RENDERER,
+        ),
+    )
+    for category_names, category_taken, duplicate_reason in collision_categories:
+        reason = _taken_collision(
+            category_names,
+            taken=category_taken,
+            duplicate_reason=duplicate_reason,
+        )
+        if reason is not None:
+            return reason
+    return None
+
+
+def _commit_contribution_names(
+    names: _ContributionNames,
+    taken: _TakenContributions,
+) -> None:
+    """Commit every category only after the complete collision check passes."""
+
+    taken.commands.update(names.commands)
+    taken.tools.update(names.tools)
+    taken.providers.update(names.providers)
+    taken.shortcuts.update(names.shortcuts)
+    taken.flags.update(names.flags)
+    taken.message_renderers.update(names.message_renderers)
+    taken.entry_renderers.update(names.entry_renderers)
+
+
 def _finalize_preloaded_extension(
     existing: ActivatedExtension,
     *,
     descriptor: ExtensionDescriptor,
     reserved: frozenset[str],
-    taken: set[str],
     reserved_tools: frozenset[str],
-    taken_tools: set[str],
-    taken_providers: set[str],
-    taken_shortcuts: set[str],
-    taken_flags: set[str],
-    taken_message_renderers: set[str],
-    taken_entry_renderers: set[str],
+    taken: _TakenContributions,
 ) -> ActivatedExtension:
     """Validate and commit one pending preload without running it again."""
 
@@ -2270,97 +2485,69 @@ def _finalize_preloaded_extension(
     api = existing._activation_api
     if api is None:
         return _disabled(descriptor, REASON_ACTIVATION_ERROR, "invalid preload state")
-
-    for command in existing.commands:
-        if command.name in reserved:
-            return _disabled(descriptor, REASON_RESERVED_COMMAND, None)
-        if command.name in taken:
-            return _disabled(descriptor, REASON_DUPLICATE_COMMAND, None)
-    for registered_tool in existing.tools:
-        if registered_tool.tool.name in reserved_tools:
-            return _disabled(descriptor, REASON_RESERVED_TOOL, None)
-        if registered_tool.tool.name in taken_tools:
-            return _disabled(descriptor, REASON_DUPLICATE_TOOL, None)
-    for registered_provider in existing.providers:
-        if registered_provider.provider.name in taken_providers:
-            return _disabled(descriptor, REASON_DUPLICATE_PROVIDER, None)
-    for shortcut in existing.shortcuts:
-        if shortcut.key in taken_shortcuts:
-            return _disabled(descriptor, REASON_DUPLICATE_SHORTCUT, None)
-    for registered_flag in existing.flags:
-        if registered_flag.flag.name in taken_flags:
-            return _disabled(descriptor, REASON_DUPLICATE_FLAG, None)
-    for message_renderer in existing.message_renderers:
-        if message_renderer.custom_type in taken_message_renderers:
-            return _disabled(descriptor, REASON_DUPLICATE_MESSAGE_RENDERER, None)
-    for entry_renderer in existing.entry_renderers:
-        if entry_renderer.custom_type in taken_entry_renderers:
-            return _disabled(descriptor, REASON_DUPLICATE_ENTRY_RENDERER, None)
-
-    taken.update(command.name for command in existing.commands)
-    taken_tools.update(registered_tool.tool.name for registered_tool in existing.tools)
-    taken_providers.update(
-        registered_provider.provider.name for registered_provider in existing.providers
+    names = _activated_contribution_names(existing)
+    collision = _preloaded_collision_reason(
+        names,
+        reserved=reserved,
+        reserved_tools=reserved_tools,
+        taken=taken,
     )
-    taken_shortcuts.update(shortcut.key for shortcut in existing.shortcuts)
-    taken_flags.update(registered_flag.flag.name for registered_flag in existing.flags)
-    taken_message_renderers.update(
-        renderer.custom_type for renderer in existing.message_renderers
-    )
-    taken_entry_renderers.update(
-        renderer.custom_type for renderer in existing.entry_renderers
-    )
+    if collision is not None:
+        return _disabled(descriptor, collision, None)
+    _commit_contribution_names(names, taken)
     api.commit_activation()
     return replace(existing, _activation_api=None)
 
 
-def _activate_one(
+@dataclass(frozen=True, slots=True)
+class _ResolvedActivationEntry:
+    activate: Callable[..., object]
+
+
+@dataclass(frozen=True, slots=True)
+class _FailedActivationEntry:
+    disabled: ActivatedExtension
+
+
+_ActivationEntryResolution: TypeAlias = (
+    _ResolvedActivationEntry | _FailedActivationEntry
+)
+
+
+def _resolve_activation_entry(
     descriptor: ExtensionDescriptor,
-    *,
-    reserved: frozenset[str],
-    taken: set[str],
-    reserved_tools: frozenset[str],
-    taken_tools: set[str],
-    taken_providers: set[str],
-    taken_shortcuts: set[str],
-    taken_flags: set[str],
-    taken_message_renderers: set[str],
-    taken_entry_renderers: set[str],
-    outbox: list[QueuedUserMessage],
-    custom_outbox: list[QueuedCustomMessage],
-    commit_activation: bool = True,
-) -> ActivatedExtension:
+) -> _ActivationEntryResolution:
     try:
         module = _import_entry_module(descriptor)
     except _ActivationError as err:
-        return _disabled(descriptor, err.reason, err.diagnostic)
+        return _FailedActivationEntry(_disabled(descriptor, err.reason, err.diagnostic))
 
-    # Resolving the entry function is inside the fail-closed boundary:
-    # a module-level `__getattr__` could execute code and raise.
+    # A module-level `__getattr__` can execute code, so resolution remains
+    # inside the same fail-closed boundary as extension execution.
     try:
-        activate = getattr(module, descriptor.entry_function, None)
-        is_callable = callable(activate)
+        activate: object = getattr(module, descriptor.entry_function, None)
+        if activate is None or not callable(activate):
+            return _FailedActivationEntry(
+                _disabled(descriptor, REASON_NO_ACTIVATE, None)
+            )
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException as err:  # noqa: BLE001 - bound a bad extension
-        return _disabled(descriptor, REASON_ACTIVATION_ERROR, _safe_diagnostic(err))
-    if activate is None or not is_callable:
-        return _disabled(descriptor, REASON_NO_ACTIVATE, None)
+        return _FailedActivationEntry(
+            _disabled(
+                descriptor,
+                REASON_ACTIVATION_ERROR,
+                _safe_diagnostic(err),
+            )
+        )
+    return _ResolvedActivationEntry(activate)
 
-    api = _ActivationApi(
-        descriptor.name,
-        reserved=reserved,
-        taken=frozenset(taken),
-        reserved_tools=reserved_tools,
-        taken_tools=frozenset(taken_tools),
-        taken_providers=frozenset(taken_providers),
-        taken_shortcuts=frozenset(taken_shortcuts),
-        taken_flags=frozenset(taken_flags),
-        taken_message_renderers=frozenset(taken_message_renderers),
-        taken_entry_renderers=frozenset(taken_entry_renderers),
-        outbox=outbox,
-        custom_outbox=custom_outbox,
-    )
+
+def _execute_activation_entry(
+    descriptor: ExtensionDescriptor,
+    activate: Callable[..., object],
+    api: _ActivationApi,
+) -> ActivatedExtension | None:
     try:
         result = activate(api)
         if inspect.isawaitable(result):
@@ -2373,35 +2560,60 @@ def _activate_one(
         return _disabled(descriptor, REASON_ACTIVATION_ERROR, _safe_diagnostic(err))
 
     # A failed registration disables the extension even if its own code
-    # swallowed the error: no partial command set is ever committed.
+    # swallowed the error: no partial registration set is ever committed.
     if api.failure is not None:
         failure_reason, failure_diagnostic = api.failure
         return _disabled(descriptor, failure_reason, failure_diagnostic)
+    return None
 
-    commands = api.staged_commands()
-    tools = api.staged_tools()
-    providers = api.staged_providers()
-    shortcuts = api.staged_shortcuts()
-    flags = api.staged_flags()
-    message_renderers = api.staged_message_renderers()
-    entry_renderers = api.staged_entry_renderers()
-    custom_messages = api.staged_custom_messages()
-    # Commit the command/tool/provider/shortcut names + staged
-    # send_user_message prompts only now that activation fully succeeded.
-    for command in commands:
-        taken.add(command.name)
-    for registered in tools:
-        taken_tools.add(registered.tool.name)
-    for registered_provider in providers:
-        taken_providers.add(registered_provider.provider.name)
-    for shortcut in shortcuts:
-        taken_shortcuts.add(shortcut.key)
-    for flag in flags:
-        taken_flags.add(flag.flag.name)
-    for message_renderer in message_renderers:
-        taken_message_renderers.add(message_renderer.custom_type)
-    for entry_renderer in entry_renderers:
-        taken_entry_renderers.add(entry_renderer.custom_type)
+
+def _collect_staged_contributions(api: _ActivationApi) -> _StagedContributions:
+    return _StagedContributions(
+        commands=api.staged_commands(),
+        tools=api.staged_tools(),
+        providers=api.staged_providers(),
+        shortcuts=api.staged_shortcuts(),
+        flags=api.staged_flags(),
+        message_renderers=api.staged_message_renderers(),
+        entry_renderers=api.staged_entry_renderers(),
+        custom_messages=api.staged_custom_messages(),
+    )
+
+
+def _activate_one(
+    descriptor: ExtensionDescriptor,
+    *,
+    reserved: frozenset[str],
+    reserved_tools: frozenset[str],
+    taken: _TakenContributions,
+    outbox: list[QueuedUserMessage],
+    custom_outbox: list[QueuedCustomMessage],
+    commit_activation: bool = True,
+) -> ActivatedExtension:
+    resolution = _resolve_activation_entry(descriptor)
+    if isinstance(resolution, _FailedActivationEntry):
+        return resolution.disabled
+
+    api = _ActivationApi(
+        descriptor.name,
+        reserved=reserved,
+        taken=frozenset(taken.commands),
+        reserved_tools=reserved_tools,
+        taken_tools=frozenset(taken.tools),
+        taken_providers=frozenset(taken.providers),
+        taken_shortcuts=frozenset(taken.shortcuts),
+        taken_flags=frozenset(taken.flags),
+        taken_message_renderers=frozenset(taken.message_renderers),
+        taken_entry_renderers=frozenset(taken.entry_renderers),
+        outbox=outbox,
+        custom_outbox=custom_outbox,
+    )
+    disabled = _execute_activation_entry(descriptor, resolution.activate, api)
+    if disabled is not None:
+        return disabled
+
+    staged = _collect_staged_contributions(api)
+    _commit_contribution_names(_staged_contribution_names(staged), taken)
     if commit_activation:
         api.commit_activation()
     return ActivatedExtension(
@@ -2410,17 +2622,17 @@ def _activate_one(
         path_label=descriptor.path_label,
         status="activated",
         reason=None,
-        commands=commands,
+        commands=staged.commands,
         diagnostic=None,
         hooks=api.staged_hooks(),
-        tools=tools,
-        providers=providers,
+        tools=staged.tools,
+        providers=staged.providers,
         unregistered_providers=api.staged_unregistered(),
-        shortcuts=shortcuts,
-        flags=flags,
-        message_renderers=message_renderers,
-        entry_renderers=entry_renderers,
-        custom_messages=custom_messages,
+        shortcuts=staged.shortcuts,
+        flags=staged.flags,
+        message_renderers=staged.message_renderers,
+        entry_renderers=staged.entry_renderers,
+        custom_messages=staged.custom_messages,
         _activation_key=_descriptor_activation_key(descriptor),
         _activation_api=None if commit_activation else api,
     )
@@ -2483,4 +2695,3 @@ def safe_activation_metadata(
         }
         for item in activated
     ]
-
