@@ -22,6 +22,7 @@ _REQUEST_ALLOWED_DIRECT_IMPORTS = frozenset(
         "__future__.annotations",
         "collections.abc",
         "collections.abc.Iterable",
+        "collections.abc.Iterator",
         "collections.abc.Mapping",
         "dataclasses",
         "dataclasses.dataclass",

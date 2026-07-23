@@ -37,5 +37,41 @@ filterwarnings = [
     "ignore:.*forkpty\\(\\) may lead to deadlocks.*:DeprecationWarning:pty",
 ]
 
+[tool.mypy]
+# Repository default stays non-strict while the migration ratchets strictness
+# on one leaf package at a time (docs/architecture-migration.md, Phase 7). The
+# per-module override below opts four fully-typed leaves into `--strict`;
+# providers and native/http.py remain deferred (Slice 7.3) and the
+# heavier-debt root `native/` modules are untouched. The override lists the
+# per-module `--strict` sub-flags explicitly rather than `strict = true`,
+# because mypy applies a per-module `strict = true` globally (leaking the
+# strict checks onto every other module and the test suite); the explicit
+# flags stay scoped to the matched packages. The two strict sub-flags that mypy
+# only honours globally — `warn_unused_configs` and `warn_redundant_casts` — are
+# hoisted here (they are safe repo-wide and keep the gate genuinely
+# `--strict`-equivalent, since they cannot be set per-module).
+warn_unused_configs = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pipy_harness.native.ui.*",
+    "pipy_harness.native.agent.*",
+    "pipy_harness.native.coding.*",
+    "pipy_harness.native.automation.*",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+disallow_untyped_calls = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+warn_return_any = true
+warn_unused_ignores = true
+no_implicit_reexport = true
+strict_equality = true
+extra_checks = true
+
 [tool.slopscope]
 exclude_dirs = ["docs"]

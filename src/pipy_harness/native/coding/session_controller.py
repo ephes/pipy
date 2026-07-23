@@ -595,4 +595,5 @@ __all__ = [
     "LoopStepSignal",
     "LoopStepSignalKind",
     "SettledEventEmitter",
+    "classify_coding_command",
 ]

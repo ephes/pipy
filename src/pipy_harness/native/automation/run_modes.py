@@ -21,7 +21,7 @@ from typing import Any, BinaryIO, TextIO
 
 from pipy_harness.adapters.native import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy
-from pipy_harness.models import RunRequest
+from pipy_harness.models import AdapterResult, RunRequest
 from pipy_harness.native.automation.jsonl import JsonlWriter
 
 
@@ -133,7 +133,7 @@ class _NullEventSink:
         return None
 
 
-def _run_oneshot(adapter: PipyNativeToolReplAdapter, cwd: Path) -> Any:
+def _run_oneshot(adapter: PipyNativeToolReplAdapter, cwd: Path) -> AdapterResult:
     request = RunRequest(
         agent="pipy-native",
         slug="automation",

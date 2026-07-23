@@ -280,3 +280,16 @@ lint/types/docs on Python 3.14, the full suite on Python 3.11 and 3.14, and the
 bounded real-PTY smoke recipe on Linux and macOS. Ruff formatting is not yet a
 gate because the pre-existing tree is not format-clean; enabling it requires a
 separate mechanical normalization slice.
+
+Type checking runs default (non-strict) over the whole tree, but a per-package
+Mypy override in `pyproject.toml` opts the fully-typed leaf packages
+`native.ui`, `native.agent`, `native.coding`, and `native.automation` into
+`--strict`-equivalent enforcement (the strict flag set is expanded into its
+individual per-module keys because a per-module `strict = true` leaks the strict
+checks onto every other module; the two strict sub-flags Mypy only honours
+globally, `warn_unused_configs` and `warn_redundant_casts`, are hoisted into the
+base `[tool.mypy]` so the gate stays genuinely strict-equivalent). This is the
+migration's first Phase 7 type
+ratchet: providers and `native/http.py` stay non-strict until Slice 7.3, and the
+heavier-debt root `native/` modules are untouched. New code in the four gated
+packages must stay strict-clean.

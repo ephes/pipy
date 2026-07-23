@@ -2790,6 +2790,49 @@ gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
 
+### Strict Mypy gate for the ui/agent/coding/automation leaf packages (Slice 7.2) — DONE (2026-07-23)
+
+Second Phase 7 cut and the first type ratchet gate. A new `[tool.mypy]` section
+in `pyproject.toml` keeps the repository default non-strict but adds one
+`[[tool.mypy.overrides]]` block opting the four fully-typed leaf packages
+(`pipy_harness.native.ui`, `native.agent`, `native.coding`, `native.automation`,
+wildcard patterns that also cover each package `__init__`) into
+`--strict`-equivalent enforcement, so `just typecheck` (`mypy src tests`) now
+fails on any strict regression there. The override lists the per-module strict
+sub-flags explicitly rather than `strict = true`, because Mypy 1.20 applies a
+per-module `strict = true` globally (it leaked the strict checks onto every
+non-gated module and the whole test suite — 2,645 spurious errors); the explicit
+flags stay scoped, and the two safe global-only components `warn_unused_configs`
+and `warn_redundant_casts` (neither settable per-module) sit in the base
+`[tool.mypy]`, keeping the gate genuinely `--strict`-equivalent. Clearing the
+resulting strict errors is annotation-and-export-only, no
+behavior/request/session-format change: `pipy_harness.models` needs no change —
+`no_implicit_reexport` is enforced by the exporting module, and `models` is
+non-gated, so its implicit re-export of `HarnessStatus` stays legal;
+`native/agent/request.py`'s `_ProviderRequestMapping.__iter__` gains
+`-> Iterator[str]` (and the request layer's exact-import allow-list gains
+`collections.abc.Iterator`); `native/automation/run_modes.py`'s `_run_oneshot`
+is narrowed `-> Any` → `-> AdapterResult`, removing both `no-any-return`s; and
+`native/coding/session_controller.py` (a gated re-exporter of the registry
+classifier) adds `classify_coding_command` to its `__all__` so the two
+monkeypatch tests reading `controller_module.classify_coding_command` as a
+module attribute (`tests/test_native_tool_loop_session_settings_command.py:141`,
+`tests/test_native_tool_loop_session.py:2471`) survive `no_implicit_reexport`.
+Providers, `native/http.py`, a repo-wide strict flip, and a C901 gate stay out
+of scope (providers/http deferred to Slice 7.3). The shipped gate is
+`just typecheck` (`mypy src tests`), clean with the scoped override — not a
+blanket `uv run mypy --strict` per package, since a global `--strict` also
+enables `no_implicit_reexport` on the non-gated `models` and would falsely flag
+its legal implicit `HarnessStatus` re-export (`uv run mypy --strict
+src/pipy_harness/native/coding` fails at `result.py:15` with `attr-defined`);
+strict coverage of the four leaves was confirmed by injection instead. Focused
+coding-result / automation-rpc /
+automation-json-mode / automation-cli / agent-request-policy / request-boundary /
+settings-command / tool-loop-session suites passed; `just check` (Ruff, mypy
+strict-gated on the four packages and clean across 420 sources, full suite green)
+and `just docs-build` are green. Review: Pending review — Claude Opus panel
+(user-directed substitution for the different-family gate).
+
 ### Headless extension UI bridge module (Slice 6.4c) — DONE (2026-07-23)
 
 Third Phase 6.4 cut: the deterministic, headless extension UI bridge moves

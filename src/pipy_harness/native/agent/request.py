@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 import sys
@@ -31,7 +31,7 @@ class _ImmutableSchemaMapping(Mapping[str, object]):
                 return value
         raise KeyError(key)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return (key for key, _value in self._items)
 
     def __len__(self) -> int:
