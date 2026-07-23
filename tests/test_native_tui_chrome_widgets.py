@@ -2,8 +2,11 @@ import io
 
 import pytest
 
-from pipy_harness.native.tui import ToolLoopTerminalUi, _ChromeRegion
-from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
+from pipy_harness.native.tui import (
+    ToolLoopTerminalUi,
+    _ChromeRegion,
+    _TuiToolLoopRenderer,
+)
 from pathlib import Path
 
 

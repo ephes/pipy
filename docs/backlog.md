@@ -2797,6 +2797,34 @@ gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
 
+### TUI tool-loop renderer relocation to the terminal owner (Slice 7.5c) — DONE (2026-07-23)
+
+Third composition-root slimming cut. Relocate `_TuiToolLoopRenderer` from
+`native/tool_loop_session.py` into `native.tui`, beside the
+`ToolLoopTerminalUi` state it drives. Relocate the shared extension-renderer map
+and plain tool-call header/argument-preview helpers into
+`native.tool_renderers`, then consume them from both the terminal owner and the
+composition root without a reverse import. Repoint direct TUI-renderer tests and
+delete every superseded definition. Preserve streaming/reasoning/working state,
+tool-call/result expansion and live-tail behavior, extension renderer
+fail-soft fallback, spinner selection, event ordering, and all terminal bytes.
+No feature, public surface, behavior redesign, dependency, unchecked `Any`,
+`type: ignore`, C901 pin, or Mypy exclusion.
+
+Landed shape: `_TuiToolLoopRenderer` now lives beside `ToolLoopTerminalUi` in
+`native.tui`; the extension-renderer map plus plain tool-call header and
+argument-preview helpers live in `native.tool_renderers`. The composition root
+imports both collaborators and has no remaining renderer/helper definition.
+Direct unit and real-PTY tests import the terminal owner. Mechanical comparison
+to the pre-move class and helper block is exact. The composition root falls
+from 6,653 to 6,340 lines; the TUI's existing 13 C901 findings and
+`tool_renderers`' existing 3 remain unchanged, so repository C901 stays 142/70
+without a new pin; `src` `type: ignore` stays 32. Focused TUI/renderer/
+session/import-boundary verification passed 420 tests including the real-PTY
+case; final `just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Line-oriented tool-loop renderer relocation to its rendering owner (Slice 7.5b) — DONE (2026-07-23)
 
 Second composition-root slimming cut. Relocate the complete line-oriented

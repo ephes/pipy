@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from collections.abc import Callable, Mapping, MutableMapping
+from collections.abc import Callable, Iterable, Mapping, MutableMapping
 from typing import Any, ClassVar, TextIO
 
 from pipy_harness.native.agent import (
@@ -20,6 +20,7 @@ from pipy_harness.native.chrome import (
 )
 from pipy_harness.native.extension_runtime import (
     ExtensionTool,
+    RegisteredTool,
     ThemeColor,
     ToolRenderContext,
     ToolRenderTheme,
@@ -1018,3 +1019,49 @@ class _ToolLoopRenderer:
         if not self._enabled:
             return text
         return f"{code}{text}{self._ANSI_RESET}"
+
+
+def _extension_tool_renderer_map(
+    tools: Iterable[RegisteredTool],
+) -> dict[str, ExtensionTool]:
+    return {
+        registered.tool.name: registered.tool
+        for registered in tools
+        if registered.tool.render_call is not None
+        or registered.tool.render_result is not None
+    }
+
+
+def _plain_tool_call_header(call: AgentToolCall) -> str:
+    """Return a concise tool-call label for the TUI history region."""
+
+    try:
+        data = json.loads(call.arguments_json.value)
+    except json.JSONDecodeError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    path = data.get("path")
+    if call.tool_name == "read" and isinstance(path, str):
+        prefix = "read resource" if path.startswith("/") else "read"
+        return f"{prefix} {path}{_ToolLoopRenderer._read_range_label(data)}"
+    if call.tool_name == "ls" and isinstance(path, str):
+        return "ls" if path == "." else f"ls {path}"
+    if call.tool_name in {"grep", "find"}:
+        pattern = data.get("pattern")
+        root = path if isinstance(path, str) else "."
+        if isinstance(pattern, str):
+            return f'{call.tool_name} "{pattern}" {root}'
+    preview = _argument_preview(data)
+    return f"{call.tool_name}({preview})"
+
+
+def _argument_preview(data: Mapping[str, Any]) -> str:
+    parts: list[str] = []
+    for key in sorted(data):
+        value = data[key]
+        rendered = json.dumps(value, sort_keys=True)
+        if len(rendered) > 40:
+            rendered = rendered[:39] + "…"
+        parts.append(f"{key}={rendered}")
+    return ", ".join(parts)

@@ -22,11 +22,15 @@ import tempfile
 import textwrap
 import threading
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TextIO, cast
+from typing import Any, ClassVar, TextIO, cast
 
+from pipy_harness.native.agent import (
+    AgentCancellationReason,
+    AgentToolCall,
+)
 from pipy_harness.native.autocomplete_provider import (
     AutocompleteApplyResult,
     AutocompleteContext,
@@ -52,6 +56,7 @@ from pipy_harness.native.editor_completion import (
     path_candidates,
 )
 from pipy_harness.native.extension_runtime import (
+    ExtensionTool,
     FooterData,
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
@@ -68,9 +73,13 @@ from pipy_harness.native.project_trust import (
     ProjectTrustOption,
 )
 from pipy_harness.native.tool_renderers import (
+    _ToolLoopRenderer,
+    _parse_tool_input,
+    _plain_tool_call_header,
     build_tool_render_theme,
     render_chrome_component,
 )
+from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
 )
@@ -6242,6 +6251,277 @@ class ToolLoopTerminalUi:
             display_command = command[1:] if command.startswith("/") else command
             widest = max(widest, len(display_command) + 2)
         return max(12, min(32, widest))
+
+
+class _TuiToolLoopRenderer:
+    """Tool-loop renderer backed by the pipy-owned terminal UI shell."""
+
+    _SPINNER_FRAMES: ClassVar[tuple[str, ...]] = _ToolLoopRenderer._SPINNER_FRAMES
+    _SPINNER_INTERVAL_SECONDS: ClassVar[float] = (
+        _ToolLoopRenderer._SPINNER_INTERVAL_SECONDS
+    )
+    _RESULT_LINE_PREVIEW_MAX_LENGTH: ClassVar[int] = 5
+
+    def __init__(
+        self,
+        *,
+        ui: ToolLoopTerminalUi,
+        tool_renderers: Mapping[str, ExtensionTool] | None = None,
+        render_details_sink: MutableMapping[str, object] | None = None,
+    ) -> None:
+        self._ui = ui
+        self._streamed_any = False
+        self._stop_working_event: threading.Event | None = None
+        self._working_thread: threading.Thread | None = None
+        self._last_tool_name = ""
+        self._tool_renderers = dict(tool_renderers or {})
+        self._render_details_sink = render_details_sink
+        self._pending_render: dict[str, object] | None = None
+
+    @property
+    def streamed_any(self) -> bool:
+        return self._streamed_any
+
+    def refresh_tool_renderers(
+        self, tool_renderers: Mapping[str, ExtensionTool]
+    ) -> None:
+        self._tool_renderers = dict(tool_renderers)
+
+    @property
+    def stream_sink(self) -> StreamChunkSink:
+        return self._handle_stream_chunk
+
+    @property
+    def reasoning_sink(self) -> StreamChunkSink:
+        return self.handle_reasoning_chunk
+
+    def start_assistant_message(self) -> None:
+        """Reset and display provider-turn chrome for a canonical message start."""
+
+        self.begin_provider_turn()
+        self.show_working()
+
+    def begin_provider_turn(self) -> None:
+        self._stop_working(clear=True)
+        self._streamed_any = False
+        self._ui.begin_assistant_turn()
+
+    def _effective_spinner(self) -> tuple[tuple[str, ...], float]:
+        frames = self._ui.extension_indicator_frames
+        interval = self._ui.extension_indicator_interval_ms
+        if frames is None:
+            eff_frames = self._SPINNER_FRAMES
+        elif len(frames) == 0:
+            eff_frames = ("",)  # hide the glyph, keep the message
+        else:
+            eff_frames = tuple(frames)
+        eff_interval = (
+            self._SPINNER_INTERVAL_SECONDS if interval is None else interval / 1000.0
+        )
+        return eff_frames, eff_interval
+
+    def show_working(self) -> None:
+        self._stop_working(clear=True)
+        if not self._ui.extension_working_visible:
+            return
+        stop_event = threading.Event()
+        self._stop_working_event = stop_event
+
+        def _animate() -> None:
+            frames, interval = self._effective_spinner()
+            frame_index = 0
+            while not stop_event.is_set():
+                glyph = frames[frame_index % len(frames)]
+                message = self._ui.extension_working_message or "Working..."
+                # An empty glyph hides the spinner: show the message with no
+                # leading space/prefix.
+                self._ui.set_working(message if glyph == "" else f"{glyph} {message}")
+                frame_index += 1
+                stop_event.wait(interval)
+
+        thread = threading.Thread(
+            target=_animate,
+            name="pipy-tool-loop-tui-spinner",
+            daemon=True,
+        )
+        self._working_thread = thread
+        thread.start()
+
+    def complete_assistant_message(self, *, has_tool_calls: bool) -> None:
+        del has_tool_calls
+        self._finish_provider_turn()
+
+    def _finish_provider_turn(self) -> None:
+        self._stop_working(clear=True)
+        self._ui.settle_assistant()
+
+    def fail_assistant_message(self) -> None:
+        self._finish_provider_turn()
+
+    def cancel_assistant_message(self, reason: AgentCancellationReason) -> None:
+        self._stop_working(clear=True)
+        if reason is AgentCancellationReason.OPERATOR_ABORT:
+            self._ui.show_operation_aborted()
+
+    def render_user_message(self, text: str) -> None:
+        self._ui.submit_user_message(text)
+
+    def render_buffered_assistant_text(
+        self, text: str, *, has_tool_calls: bool
+    ) -> None:
+        """Render a non-streamed assistant completion from its canonical event."""
+
+        del has_tool_calls
+        self._ui.append_assistant(text)
+        self._streamed_any = True
+
+    def render_tool_call(self, call: AgentToolCall) -> None:
+        self._stop_working(clear=True)
+        self._last_tool_name = call.tool_name
+        self._pending_render = None
+        tool = self._tool_renderers.get(call.tool_name)
+        if tool is not None:
+            args = _parse_tool_input(call.arguments_json.value)
+            state: dict[str, object] = {}
+            self._pending_render = {
+                "corr": call.provider_correlation_id,
+                "args": args,
+                "state": state,
+            }
+            if tool.render_call is not None:
+                lines = self._dispatch_render(
+                    tool.render_call,
+                    args,
+                    state,
+                    is_result=False,
+                    content=None,
+                    details=None,
+                    is_error=False,
+                )
+                if lines is not None:
+                    self._ui.add_tool_call_custom(lines)
+                    return
+        self._ui.add_tool_call(_plain_tool_call_header(call))
+
+    def tool_output_sink(self, chunk: str) -> None:
+        self._ui.append_tool_output(chunk)
+
+    def render_tool_result(
+        self,
+        *,
+        output_text: str,
+        is_error: bool,
+        duration_seconds: float | None = None,
+    ) -> None:
+        pending = self._pending_render
+        self._pending_render = None
+        if pending is not None:
+            tool = self._tool_renderers.get(self._last_tool_name)
+            if tool is not None and tool.render_result is not None:
+                details = None
+                if self._render_details_sink is not None:
+                    details = self._render_details_sink.pop(str(pending["corr"]), None)
+                lines = self._dispatch_render(
+                    tool.render_result,
+                    pending["args"],
+                    pending["state"],
+                    is_result=True,
+                    content=output_text,
+                    details=details,
+                    is_error=is_error,
+                )
+                if lines is not None:
+                    self._ui.add_tool_result_custom(
+                        lines, duration_seconds=duration_seconds
+                    )
+                    return
+        if self._last_tool_name == "read" and not is_error:
+            return
+        lines = self._visible_tool_result_lines(output_text.splitlines() or [""])
+        # Ctrl+O tool-output expansion: when expanded, commit the full retained
+        # (already tool-bounded) output instead of the 5-line collapsed preview.
+        if self._ui.tools_expanded:
+            rendered = lines
+        else:
+            preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
+            earlier = len(lines) - len(preview_lines)
+            if earlier > 0:
+                rendered = [
+                    f"... ({earlier} earlier lines, ctrl+o to expand)",
+                    *lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :],
+                ]
+            else:
+                rendered = preview_lines
+        self._ui.add_tool_result(
+            lines=rendered,
+            is_error=is_error,
+            duration_seconds=duration_seconds,
+        )
+
+    def _dispatch_render(
+        self, renderer, args, state, *, is_result, content, details, is_error
+    ):
+        # Local imports: the render-theme machinery is only needed on the
+        # rarely-hit custom-renderer branch, so it is imported here rather than
+        # at module top to keep this module's import-time dependency surface
+        # focused on the loop's hot path.
+        from pipy_harness.native.chrome import chrome_style_for
+        from pipy_harness.native.tool_renderers import (
+            build_tool_render_theme,
+            render_tool_phase,
+        )
+        from pipy_harness.extensions import ToolRenderContext
+
+        style = chrome_style_for(self._ui.terminal_stream)
+        ctx = ToolRenderContext(
+            tool_name=self._last_tool_name,
+            args=args,
+            is_result=is_result,
+            is_error=is_error,
+            content=content,
+            details=details,
+            expanded=self._ui.tools_expanded,
+            width=self._ui._driver.size()[0],
+            theme=build_tool_render_theme(style),
+            state=state,
+        )
+        return render_tool_phase(renderer, ctx)
+
+    def _visible_tool_result_lines(self, lines: list[str]) -> list[str]:
+        if self._last_tool_name != "ls":
+            return lines
+        rendered: list[str] = []
+        for line in lines:
+            if line.startswith("file "):
+                rendered.append(line[len("file ") :])
+            elif line.startswith("directory "):
+                rendered.append(line[len("directory ") :])
+            elif line.startswith("other "):
+                rendered.append(line[len("other ") :])
+            else:
+                rendered.append(line)
+        return rendered
+
+    def handle_reasoning_chunk(self, chunk: str) -> None:
+        self._stop_working(clear=True)
+        self._ui.append_reasoning(chunk)
+
+    def _handle_stream_chunk(self, chunk: str) -> None:
+        if not chunk:
+            return
+        self._stop_working(clear=False)
+        self._ui.append_assistant(chunk)
+        self._streamed_any = True
+
+    def _stop_working(self, *, clear: bool = True) -> None:
+        if self._stop_working_event is not None:
+            self._stop_working_event.set()
+        if self._working_thread is not None:
+            self._working_thread.join(timeout=0.2)
+        self._stop_working_event = None
+        self._working_thread = None
+        if clear:
+            self._ui.clear_working()
 
 
 def _compact_read_header(header: str) -> str:

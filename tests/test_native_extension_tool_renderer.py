@@ -8,16 +8,13 @@ from pipy_harness.extensions import (
     lines_component,
 )
 from pipy_harness.native.agent import AgentToolCall, ProductContent
-from pipy_harness.native.tool_loop_session import (
-    _ExtensionToolPort,
-    _TuiToolLoopRenderer,
-)
+from pipy_harness.native.tool_loop_session import _ExtensionToolPort
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolRequest,
     make_tool_request_id,
 )
-from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.tui import ToolLoopTerminalUi, _TuiToolLoopRenderer
 
 
 def _registered(handler, **kw):

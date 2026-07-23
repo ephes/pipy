@@ -40,11 +40,11 @@ from pipy_harness.native.repl_state import (
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.terminal_screen import parse_ansi_screen
-from pipy_harness.native.tool_loop_session import _TuiToolLoopRenderer
 from pipy_harness.native.tui import (
     HOTKEY_MODEL_SELECT,
     SettingsRow,
     ToolLoopTerminalUi,
+    _TuiToolLoopRenderer,
     _visible_len_allow_sgr,
     run_project_trust_selector,
 )
