@@ -17,7 +17,7 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TextIO
+from typing import IO, TextIO
 
 
 # OSC 52 payloads are bounded by terminal/multiplexer buffers; keep the base64
@@ -89,6 +89,73 @@ _MAX_CLIPBOARD_IMAGE_BYTES = 5 * 1024 * 1024
 _CLIPBOARD_READ_TIMEOUT_SECONDS = 5.0
 
 
+@dataclass(slots=True)
+class _CaptureReadState:
+    chunks: list[bytes]
+    total: int = 0
+    timed_out: bool = False
+
+
+def _accumulate_capture(
+    fd: int,
+    state: _CaptureReadState,
+    *,
+    limit: int,
+    deadline: float,
+) -> None:
+    while state.total < limit:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            state.timed_out = True
+            break
+        ready, _, _ = select.select([fd], [], [], remaining)
+        if not ready:
+            state.timed_out = True
+            break
+        # ``select`` reported the pipe readable, so this single os.read returns
+        # promptly with the available bytes (or b"" at EOF) instead of blocking
+        # for a full buffer the way BufferedReader.read would.
+        chunk = os.read(fd, min(65536, limit - state.total))
+        if not chunk:
+            break
+        state.chunks.append(chunk)
+        state.total += len(chunk)
+
+
+def _cleanup_capture_process(
+    proc: subprocess.Popen[bytes],
+    stdout: IO[bytes],
+    state: _CaptureReadState,
+    limit: int,
+) -> None:
+    if state.total >= limit or state.timed_out:
+        proc.kill()
+    try:
+        stdout.close()
+    except OSError:
+        pass
+    try:
+        proc.wait(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def _classify_capture_result(
+    returncode: int | None,
+    state: _CaptureReadState,
+    limit: int,
+) -> bytes | None:
+    # A stalled helper that hit the deadline reports "no image" rather than a
+    # truncated payload. An oversized read returns the (capped) bytes so the
+    # size check rejects it; a non-zero exit with no overflow means the tool
+    # failed (no image).
+    if state.timed_out:
+        return None
+    if state.total < limit and returncode not in (0, None):
+        return None
+    return b"".join(state.chunks)
+
+
 def _default_run_capture(
     argv: list[str], *, timeout: float = _CLIPBOARD_READ_TIMEOUT_SECONDS
 ) -> bytes | None:
@@ -108,53 +175,19 @@ def _default_run_capture(
     except (OSError, subprocess.SubprocessError):
         return None
     assert proc.stdout is not None
-    fd = proc.stdout.fileno()
-    chunks: list[bytes] = []
-    total = 0
+    stdout = proc.stdout
+    fd = stdout.fileno()
+    state = _CaptureReadState([])
     limit = _MAX_CLIPBOARD_IMAGE_BYTES + 1
     deadline = time.monotonic() + timeout
-    timed_out = False
     try:
-        while total < limit:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                timed_out = True
-                break
-            ready, _, _ = select.select([fd], [], [], remaining)
-            if not ready:
-                timed_out = True
-                break
-            # ``select`` reported the pipe readable, so this single os.read
-            # returns promptly with the available bytes (or b"" at EOF) instead
-            # of blocking for a full buffer the way BufferedReader.read would.
-            chunk = os.read(fd, min(65536, limit - total))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            total += len(chunk)
+        _accumulate_capture(fd, state, limit=limit, deadline=deadline)
     except OSError:
         proc.kill()
         return None
     finally:
-        if total >= limit or timed_out:
-            proc.kill()
-        try:
-            proc.stdout.close()
-        except OSError:
-            pass
-        try:
-            proc.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-    # A stalled helper that hit the deadline reports "no image" rather than a
-    # truncated payload. An oversized read returns the (capped) bytes so the
-    # size check rejects it; a non-zero exit with no overflow means the tool
-    # failed (no image).
-    if timed_out:
-        return None
-    if total < limit and proc.returncode not in (0, None):
-        return None
-    return b"".join(chunks)
+        _cleanup_capture_process(proc, stdout, state, limit)
+    return _classify_capture_result(proc.returncode, state, limit)
 
 
 def read_clipboard_image(

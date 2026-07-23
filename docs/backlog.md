@@ -3477,6 +3477,35 @@ import-order smoke checks; final `just check` passed Ruff, Mypy, and 4,534
 tests (2 skipped). C901 remains 101/43 and `src` ignores remain 28. Review:
 Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose strict agent/automation/clipboard leaves (Slice 7.7l) — DONE (2026-07-23)
+
+Thirteenth directional C901 batch. Decompose the sole finding in each of three
+already-strict owners along cohesive existing boundaries:
+`agent.loop._validate_provider_result` by result identity/status/request
+identity, scalar/timestamp/text fields, optional usage/metadata, and tool-call
+validation; `automation.agent_events.AutomationAgentEventAdapter._project` by
+canonical event families while preserving cumulative assistant text and the
+unsupported-event failure; and `clipboard._default_run_capture` by bounded
+pipe reading versus process cleanup/result classification while preserving
+deadline, kill, cap, and non-zero-exit semantics. Add characterization only
+where order or cleanup is not already pinned. Each clean file leaves the C901
+pin list. No behavior, event/wire shape or ordering, clipboard security bound,
+dependency, `Any`, ignore, Mypy exclusion, or new pin.
+
+Landed shape: provider-result validation delegates the same ordered identity,
+status/request, scalar/text, optional usage/metadata, and tool-call families.
+Automation projection delegates run/turn/message, assistant text, tool,
+retry, and ignored-bookkeeping event families while retaining cumulative text
+reset/update timing and the unsupported-event TypeError. Clipboard capture
+separates bounded deadline/select/read accumulation, cleanup, and result
+classification while preserving the original `finally` cleanup and capped
+overflow result. Existing characterization coverage required no change. All
+three strict owners are clean and their pins are deleted, lowering repository
+C901 101/43 -> 98/40 (`src` 85/34 -> 82/31). Focused verification passed 95
+tests; final `just check` passed Ruff, Mypy, and 4,534 tests (2 skipped).
+`src` ignores remain 28 and the root remains 5,659 lines. Review: Pi GPT-5.6
+Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

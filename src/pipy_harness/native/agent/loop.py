@@ -805,6 +805,16 @@ def _validate_provider_result(
     result: object,
     snapshot: AgentProviderRequestSnapshot,
 ) -> None:
+    validated = _validate_provider_result_identity(result, snapshot)
+    _validate_provider_result_scalars(validated)
+    _validate_provider_result_optional_mappings(validated)
+    _validate_provider_result_tool_calls(validated)
+
+
+def _validate_provider_result_identity(
+    result: object,
+    snapshot: AgentProviderRequestSnapshot,
+) -> ProviderResult:
     if type(result) is not ProviderResult:
         raise TypeError("provider turn result must be an exact ProviderResult")
     if type(result.status) is not HarnessStatus:
@@ -822,6 +832,10 @@ def _validate_provider_result(
         raise ValueError("ProviderResult.provider_name must match the request")
     if result.model_id != snapshot.request.model_id:
         raise ValueError("ProviderResult.model_id must match the request")
+    return result
+
+
+def _validate_provider_result_scalars(result: ProviderResult) -> None:
     for field_name in ("started_at", "ended_at"):
         if type(getattr(result, field_name)) is not datetime:
             raise TypeError(f"ProviderResult.{field_name} must be an exact datetime")
@@ -832,11 +846,17 @@ def _validate_provider_result(
                 f"ProviderResult.{field_name} must be an exact string or None"
             )
     AgentAssistantMessage(ProductContent(result.final_text or ""))
+
+
+def _validate_provider_result_optional_mappings(result: ProviderResult) -> None:
     if result.usage is not None:
         _validate_json_mapping(result.usage, "ProviderResult.usage")
         _validate_usage_sample(AgentProviderUsageSample.from_mapping(result.usage))
     if result.metadata is not None:
         _validate_json_mapping(result.metadata, "ProviderResult.metadata")
+
+
+def _validate_provider_result_tool_calls(result: ProviderResult) -> None:
     if type(result.tool_calls) is not tuple:
         raise TypeError("ProviderResult.tool_calls must be an exact tuple")
     for call in result.tool_calls:

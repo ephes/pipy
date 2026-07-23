@@ -59,6 +59,39 @@ class AutomationAgentEventAdapter:
             self._sink.emit(projected)
 
     def _project(self, event: AgentEvent) -> PiAutomationEvent | None:
+        if isinstance(
+            event,
+            (
+                AgentRunStarted,
+                TurnStarted,
+                MessageStarted,
+                MessageCompleted,
+                TurnCompleted,
+                AgentRunCompleted,
+            ),
+        ):
+            return self._project_run_turn_message(event)
+        if isinstance(event, AssistantTextDelta):
+            return self._project_assistant_delta(event)
+        if isinstance(event, (ToolCallStarted, ToolCallUpdated, ToolCallCompleted)):
+            return self._project_tool_execution(event)
+        if isinstance(event, (RetryScheduled, RetryCompleted)):
+            return self._project_retry(event)
+        if isinstance(
+            event,
+            (
+                AssistantReasoningDelta,
+                UsageUpdated,
+                SteeringConsumed,
+                FollowUpConsumed,
+                ProviderFailed,
+                RunCancelled,
+            ),
+        ):
+            return None
+        raise TypeError(f"unsupported canonical agent event: {type(event)!r}")
+
+    def _project_run_turn_message(self, event: AgentEvent) -> PiAutomationEvent:
         if isinstance(event, AgentRunStarted):
             return {"type": "agent_start"}
         if isinstance(event, TurnStarted):
@@ -70,27 +103,49 @@ class AutomationAgentEventAdapter:
                 "type": "message_start",
                 "message": serialize_message(event.message),
             }
-        if isinstance(event, AssistantTextDelta):
-            self._partial_text += event.delta.value
-            partial = {
-                "role": "assistant",
-                "content": [{"type": "text", "text": self._partial_text}],
-            }
-            return {
-                "type": "message_update",
-                "message": partial,
-                "assistantMessageEvent": {
-                    "type": "text_delta",
-                    "contentIndex": 0,
-                    "delta": event.delta.value,
-                    "partial": partial,
-                },
-            }
         if isinstance(event, MessageCompleted):
             return {
                 "type": "message_end",
                 "message": serialize_message(event.message),
             }
+        if isinstance(event, TurnCompleted):
+            return {
+                "type": "turn_end",
+                "message": serialize_message(event.message),
+                "toolResults": [
+                    serialize_message(result) for result in event.tool_results
+                ],
+            }
+        assert isinstance(event, AgentRunCompleted)
+        return {
+            "type": "agent_end",
+            "messages": [
+                serialize_message(message) for message in event.result.messages
+            ],
+            "willRetry": event.result.will_retry,
+        }
+
+    def _project_assistant_delta(
+        self, event: AssistantTextDelta
+    ) -> PiAutomationEvent:
+        self._partial_text += event.delta.value
+        partial = {
+            "role": "assistant",
+            "content": [{"type": "text", "text": self._partial_text}],
+        }
+        return {
+            "type": "message_update",
+            "message": partial,
+            "assistantMessageEvent": {
+                "type": "text_delta",
+                "contentIndex": 0,
+                "delta": event.delta.value,
+                "partial": partial,
+            },
+        }
+
+    @staticmethod
+    def _project_tool_execution(event: AgentEvent) -> PiAutomationEvent:
         if isinstance(event, ToolCallStarted):
             return {
                 "type": "tool_execution_start",
@@ -106,14 +161,17 @@ class AutomationAgentEventAdapter:
                 "args": parse_tool_arguments(event.call.arguments_json.value),
                 "partialResult": event.update.value,
             }
-        if isinstance(event, ToolCallCompleted):
-            return {
-                "type": "tool_execution_end",
-                "toolCallId": event.result.provider_correlation_id,
-                "toolName": event.result.tool_name,
-                "result": event.result.content.value,
-                "isError": event.result.is_error,
-            }
+        assert isinstance(event, ToolCallCompleted)
+        return {
+            "type": "tool_execution_end",
+            "toolCallId": event.result.provider_correlation_id,
+            "toolName": event.result.tool_name,
+            "result": event.result.content.value,
+            "isError": event.result.is_error,
+        }
+
+    @staticmethod
+    def _project_retry(event: AgentEvent) -> PiAutomationEvent:
         if isinstance(event, RetryScheduled):
             return {
                 "type": "auto_retry_start",
@@ -122,41 +180,12 @@ class AutomationAgentEventAdapter:
                 "delayMs": event.delay_ms,
                 "errorMessage": event.failure.message.value,
             }
-        if isinstance(event, RetryCompleted):
-            retry_end: PiAutomationEvent = {
-                "type": "auto_retry_end",
-                "success": event.succeeded,
-                "attempt": event.attempt,
-            }
-            if event.failure is not None:
-                retry_end["finalError"] = event.failure.message.value
-            return retry_end
-        if isinstance(event, TurnCompleted):
-            return {
-                "type": "turn_end",
-                "message": serialize_message(event.message),
-                "toolResults": [
-                    serialize_message(result) for result in event.tool_results
-                ],
-            }
-        if isinstance(event, AgentRunCompleted):
-            return {
-                "type": "agent_end",
-                "messages": [
-                    serialize_message(message) for message in event.result.messages
-                ],
-                "willRetry": event.result.will_retry,
-            }
-        if isinstance(
-            event,
-            (
-                AssistantReasoningDelta,
-                UsageUpdated,
-                SteeringConsumed,
-                FollowUpConsumed,
-                ProviderFailed,
-                RunCancelled,
-            ),
-        ):
-            return None
-        raise TypeError(f"unsupported canonical agent event: {type(event)!r}")
+        assert isinstance(event, RetryCompleted)
+        retry_end: PiAutomationEvent = {
+            "type": "auto_retry_end",
+            "success": event.succeeded,
+            "attempt": event.attempt,
+        }
+        if event.failure is not None:
+            retry_end["finalError"] = event.failure.message.value
+        return retry_end
