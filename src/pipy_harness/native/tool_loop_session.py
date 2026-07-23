@@ -176,8 +176,7 @@ from pipy_harness.native.coding.state import (
     CodingSessionState,
     CodingSessionUsageSnapshot,
 )
-from pipy_harness.native._provider_helpers import failed_provider_result
-from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
     REPL_INPUT_RUNTIME_AUTO,
@@ -186,6 +185,7 @@ from pipy_harness.native.repl_input import (
 )
 from pipy_harness.native.repl_state import (
     NativeModelSelection,
+    UnavailableAfterReloadProvider,
     NativeReplProviderState,
     StaticNativeReplProviderState,
     normalize_repl_fake_selection,
@@ -477,33 +477,6 @@ def _pricing_for(provider_name: str, model_id: str) -> AgentTokenPricing | None:
         if model_id.startswith(entry_model):
             return price
     return None
-
-
-@dataclass(frozen=True, slots=True)
-class _UnavailableAfterReloadProvider:
-    """Fail-closed provider bound when reload removes the active provider."""
-
-    name: str
-    model_id: str
-    error_message: str
-    supports_tool_calls: bool = True
-
-    def complete(
-        self,
-        request: ProviderRequest,
-        *,
-        stream_sink: StreamChunkSink | None = None,
-        reasoning_sink: StreamChunkSink | None = None,
-        cancel_token: CancelToken | None = None,
-    ) -> ProviderResult:
-        del stream_sink, reasoning_sink, cancel_token
-        return failed_provider_result(
-            request,
-            provider_name=self.name,
-            started_at=datetime.now(UTC),
-            error_type="ProviderUnavailableAfterReload",
-            error_message=self.error_message,
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -3733,7 +3706,7 @@ class NativeToolReplSession:
         )
 
         def _bind_unavailable_after_reload(message: str) -> None:
-            unavailable_provider = _UnavailableAfterReloadProvider(
+            unavailable_provider = UnavailableAfterReloadProvider(
                 name=coding_state.provider_name,
                 model_id=coding_state.model_id,
                 error_message=message,

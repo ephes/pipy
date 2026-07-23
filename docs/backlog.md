@@ -3193,6 +3193,34 @@ Focused verification passed 61 tests; final `just check` passed Ruff, Mypy, and
 4,518 tests (2 skipped); `just docs-build` reported no issues. Review: Pi
 GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Reload-unavailable provider adapter relocation (Slice 7.5h) — DONE (2026-07-23)
+
+Eighth composition-root slimming cut. Relocate the private fail-closed
+ProviderPort adapter used when `/reload` removes the active extension provider
+from `native.tool_loop_session` into strict `native.repl_state`, beside the
+existing failed-extension-provider adapter and provider/model selection state.
+The composition root must only construct the relocated collaborator. Preserve
+the selected provider/model identity, tool-call capability, exact
+`ProviderUnavailableAfterReload` failure type and message, UTC start timestamp,
+reload selection/state transitions, output, and event ordering. Delete the
+superseded root definition in the same slice and add focused characterization
+at the owning boundary; no compatibility alias. No reload or provider-state
+redesign, public API or behavior change, dependency, unchecked `Any`,
+`type: ignore`, C901 pin, or Mypy exclusion.
+
+Landed shape: `UnavailableAfterReloadProvider` now lives only in strict
+`native.repl_state` beside the existing failed-extension adapter; the
+composition root imports and constructs it, and the superseded root definition
+and now-unused imports are deleted. A direct owner test pins the active
+provider/model identity, tool capability, ignored sinks and cancellation,
+failed status, exact failure type/message, and current UTC timestamp while the
+existing reload-flow tests continue to pin integration behavior. The
+composition root shrinks 6,016 -> 5,989 lines. Repository C901 remains 113/53
+(`src` 97/44) and `src` `type: ignore` remains 28; no ratchet grows. Focused
+verification passed 137 tests; final `just check` passed Ruff, Mypy, and 4,519
+tests (2 skipped); `just docs-build` reported no issues. Review: Pi GPT-5.6
+Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

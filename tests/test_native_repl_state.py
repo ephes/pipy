@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
+from pipy_harness.models import HarnessStatus
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.catalog import (
     NativeModelCost,
     NativeModelSpec,
@@ -15,11 +18,13 @@ from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
+    UnavailableAfterReloadProvider,
     auto_default_selection,
     default_selection_for,
     resolve_cli_selection,
     settings_overlay_lines,
 )
+from pipy_harness.native.models import ProviderRequest
 
 
 def _builtin_rows():
@@ -140,6 +145,49 @@ def test_normalize_repl_fake_selection_upgrades_fake_and_leaves_real():
     # providers still error at the session gate rather than being rewritten).
     real = NativeModelSelection("openai", "gpt-5.5")
     assert normalize_repl_fake_selection(real) == real
+
+
+def test_unavailable_after_reload_provider_fails_closed_without_using_sinks(
+    tmp_path: Path,
+):
+    message = (
+        "active model disappeared on reload and no available tool-capable "
+        "fallback was found"
+    )
+    provider = UnavailableAfterReloadProvider(
+        name="uniqueext",
+        model_id="m",
+        error_message=message,
+    )
+    request = ProviderRequest(
+        system_prompt="system",
+        user_prompt="hello",
+        provider_name="uniqueext",
+        model_id="m",
+        cwd=tmp_path,
+    )
+    sink_chunks: list[str] = []
+    cancel_token = CancelToken()
+    cancel_token.cancel()
+
+    before = datetime.now(UTC)
+    result = provider.complete(
+        request,
+        stream_sink=sink_chunks.append,
+        reasoning_sink=sink_chunks.append,
+        cancel_token=cancel_token,
+    )
+    after = datetime.now(UTC)
+
+    assert (provider.name, provider.model_id) == ("uniqueext", "m")
+    assert provider.supports_tool_calls is True
+    assert sink_chunks == []
+    assert result.status is HarnessStatus.FAILED
+    assert (result.provider_name, result.model_id) == ("uniqueext", "m")
+    assert result.error_type == "ProviderUnavailableAfterReload"
+    assert result.error_message == message
+    assert result.started_at.tzinfo is UTC
+    assert before <= result.started_at <= after
 
 
 def test_logout_persists_shared_bootstrap_default_not_fake_tools(tmp_path):

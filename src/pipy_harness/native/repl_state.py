@@ -849,6 +849,38 @@ def _default_model_for_provider(
 
 
 @dataclass(frozen=True, slots=True)
+class UnavailableAfterReloadProvider:
+    """Fail-closed provider bound when reload removes the active selection."""
+
+    name: str
+    model_id: str
+    error_message: str
+    supports_tool_calls: bool = True
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        from pipy_harness.native._provider_helpers import (
+            failed_provider_result,
+            utc_now,
+        )
+
+        del stream_sink, reasoning_sink, cancel_token
+        return failed_provider_result(
+            request,
+            provider_name=self.name,
+            started_at=utc_now(),
+            error_type="ProviderUnavailableAfterReload",
+            error_message=self.error_message,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class _FailedExtensionProvider:
     """Fail-closed provider for an extension factory that could not build."""
 
