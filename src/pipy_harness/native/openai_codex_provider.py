@@ -1003,28 +1003,12 @@ def _responses_input_messages(
                     )
                 )
         return items
-    messages: list[dict[str, object]] = []
-    if request.no_tool_repl_context is not None:
-        for exchange in request.no_tool_repl_context.exchanges:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": exchange.user_prompt}],
-                }
-            )
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": exchange.provider_final_text}],
-                }
-            )
-    messages.append(
+    return [
         {
             "role": "user",
             "content": [{"type": "input_text", "text": request.user_prompt}],
         }
-    )
-    return messages
+    ]
 
 
 def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:

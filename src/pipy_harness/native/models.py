@@ -13,7 +13,6 @@ from pipy_harness.status import HarnessStatus
 
 if TYPE_CHECKING:
     from pipy_harness.native.agent import AgentMessage
-    from pipy_harness.native.conversation import NativeNoToolReplConversationContext
     from pipy_harness.native.image_attachment import ProviderImageAttachment
     from pipy_harness.native.tools.base import ToolDefinition
 
@@ -148,7 +147,6 @@ class ProviderRequest:
     provider_turn_index: int = 0
     provider_turn_label: str = "initial"
     tool_observation: NativeToolObservation | None = None
-    no_tool_repl_context: NativeNoToolReplConversationContext | None = None
     messages: tuple["AgentMessage", ...] = ()
     available_tools: tuple["ToolDefinition", ...] = ()
     # Provider-visible image attachments for the *current* user turn (resolved

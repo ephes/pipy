@@ -7,7 +7,7 @@ byte-identical translation in both directions:
 
 - :func:`responses_input` serializes canonical ``ProviderRequest`` messages into
   the Responses ``input`` list (``function_call`` / ``function_call_output``
-  items), with the legacy single-turn/no-tool-repl string and message shapes.
+  items), with the legacy single-turn string and message shapes.
 - :func:`envelope_to_input_items` translates one ``AgentMessage`` envelope.
 - :func:`parse_response` / :func:`extract_final_text` turn a Responses response
   body into a :class:`ParsedResponse`.
@@ -89,40 +89,16 @@ def responses_input(
         if attach_images:
             _attach_images(items, request)
         return items
-    if request.no_tool_repl_context is None or not request.no_tool_repl_context.exchanges:
-        if attach_images and request.attachments:
-            single: list[dict[str, object]] = [
-                {
-                    "role": "user",
-                    "content": [{"type": "input_text", "text": request.user_prompt}],
-                }
-            ]
-            _attach_images(single, request)
-            return single
-        return request.user_prompt
-    messages: list[dict[str, object]] = []
-    for exchange in request.no_tool_repl_context.exchanges:
-        messages.append(
+    if attach_images and request.attachments:
+        single: list[dict[str, object]] = [
             {
                 "role": "user",
-                "content": [{"type": "input_text", "text": exchange.user_prompt}],
+                "content": [{"type": "input_text", "text": request.user_prompt}],
             }
-        )
-        messages.append(
-            {
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": exchange.provider_final_text}],
-            }
-        )
-    messages.append(
-        {
-            "role": "user",
-            "content": [{"type": "input_text", "text": request.user_prompt}],
-        }
-    )
-    if attach_images:
-        _attach_images(messages, request)
-    return messages
+        ]
+        _attach_images(single, request)
+        return single
+    return request.user_prompt
 
 
 def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> None:

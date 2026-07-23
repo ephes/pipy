@@ -1227,6 +1227,18 @@ responses, provider-native payloads, excerpts, proposal text, patch text,
 diffs, file contents, command stdout, command stderr, auth material, secrets,
 credentials, API keys, tokens, private keys, and sensitive personal data.
 
+Final retirement (2026-07-23): the in-memory conversation-context types and all
+of their dead plumbing are now deleted from the codebase. Phase 7 removed
+`NativeNoToolReplConversationContext`, `NativeNoToolReplExchange`, the
+`NATIVE_NO_TOOL_REPL_CONTEXT_*` constants/validators, the
+`ProviderRequest.no_tool_repl_context` field and every provider wire branch that
+read it, the `_call_provider_turn`/`native.session` field plumbing, and the
+`native/agent/request.py` rejection guard. Production never populated the field,
+so real provider wire output and finalized session/archive JSONL stay
+byte-identical: the retained-context safe-metadata branch always serialized
+empty metadata under the None path that shipped. This section is retained as the
+historical record of the retired shell's behavior only.
+
 ### No-Tool REPL Conversation Context Review And Smoke
 
 The bounded no-tool REPL conversation context implementation was reviewed and

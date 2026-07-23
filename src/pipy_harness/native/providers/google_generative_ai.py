@@ -160,7 +160,7 @@ class GoogleGenerativeAIProvider:
     into the Gemini `contents` list (with `functionCall` and
     `functionResponse` parts) and declares `tools` from
     `available_tools`. Legacy single-turn callers leave `messages` empty
-    and the provider falls back to the `user_prompt`/no-tool REPL context.
+    and the provider falls back to the `user_prompt`.
 
     Authentication uses Google's URL-embedded API key style
     (`?key=...`). No `Authorization` header is sent. The key is never

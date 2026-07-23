@@ -38,7 +38,6 @@ from pipy_harness.native.agent_adapters import (
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.conversation import (
     NativeConversationState,
-    NativeNoToolReplConversationContext,
     NativeTurnMetadata,
 )
 from pipy_harness.native.fake import FakeNoOpNativeTool
@@ -883,7 +882,6 @@ def _emit_provider_started(
     run_input: NativeRunInput,
     safe_context: Mapping[str, object],
     turn_context: Mapping[str, object],
-    no_tool_context: Mapping[str, object],
     turn_label: str,
 ) -> None:
     sink.emit(
@@ -897,7 +895,6 @@ def _emit_provider_started(
         payload={
             **safe_context,
             **turn_context,
-            **no_tool_context,
             "status": HarnessStatus.RUNNING.value,
         },
     )
@@ -910,7 +907,6 @@ def _emit_provider_finished(
     usage: Mapping[str, int | float],
     safe_context: Mapping[str, object],
     turn_context: Mapping[str, object],
-    no_tool_context: Mapping[str, object],
     turn_label: str,
     archive_provider_metadata: bool,
     tool_observation: NativeToolObservation | None,
@@ -932,7 +928,6 @@ def _emit_provider_finished(
         payload={
             **safe_context,
             **turn_context,
-            **no_tool_context,
             "status": result.status.value,
             "duration_seconds": _duration_seconds(result.started_at, result.ended_at),
             "usage": usage,
@@ -962,7 +957,6 @@ def _call_provider_turn(
     provider_turn: NativeTurnMetadata,
     tool_observation: NativeToolObservation | None,
     archive_provider_metadata: bool = True,
-    no_tool_repl_context: NativeNoToolReplConversationContext | None = None,
     system_prompt: str | None = None,
     stream_sink: StreamChunkSink | None = None,
     agent_event_sink: AgentEventSink | None = None,
@@ -977,15 +971,11 @@ def _call_provider_turn(
         "provider_turn_index": provider_turn.turn_index,
         "provider_turn_label": provider_turn_label,
     }
-    no_tool_context_payload = (
-        no_tool_repl_context.safe_metadata() if no_tool_repl_context is not None else {}
-    )
     _emit_provider_started(
         event_sink,
         run_input=run_input,
         safe_context=safe_context,
         turn_context=provider_turn_context,
-        no_tool_context=no_tool_context_payload,
         turn_label=provider_turn_label,
     )
     empty_assistant: AgentAssistantMessage | None = None
@@ -1015,7 +1005,6 @@ def _call_provider_turn(
                 provider_turn_index=provider_turn.turn_index,
                 provider_turn_label=provider_turn_label,
                 tool_observation=tool_observation,
-                no_tool_repl_context=no_tool_repl_context,
                 attachments=attachments,
             ),
             stream_sink=effective_stream_sink,
@@ -1045,7 +1034,6 @@ def _call_provider_turn(
         usage=provider_usage,
         safe_context=safe_context,
         turn_context=provider_turn_context,
-        no_tool_context=no_tool_context_payload,
         turn_label=provider_turn_label,
         archive_provider_metadata=archive_provider_metadata,
         tool_observation=tool_observation,

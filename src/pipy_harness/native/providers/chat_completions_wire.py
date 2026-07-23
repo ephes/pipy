@@ -44,8 +44,8 @@ def chat_messages(request: ProviderRequest) -> list[dict[str, Any]]:
     """Translate a canonical ``ProviderRequest`` into Chat Completions messages.
 
     Emits the system envelope, then either the canonical message list (with
-    ``tool_calls``/``tool`` roles) or the legacy single-turn payload built from
-    ``system_prompt``/``user_prompt`` plus any no-tool REPL context.
+    ``tool_calls``/``tool`` roles) or the single-turn payload built from
+    ``system_prompt``/``user_prompt``.
     """
 
     messages: list[dict[str, Any]] = [
@@ -55,12 +55,6 @@ def chat_messages(request: ProviderRequest) -> list[dict[str, Any]]:
         for envelope in request.messages:
             messages.append(envelope_to_chat_message(envelope))
         return messages
-    if request.no_tool_repl_context is not None:
-        for exchange in request.no_tool_repl_context.exchanges:
-            messages.append({"role": "user", "content": exchange.user_prompt})
-            messages.append(
-                {"role": "assistant", "content": exchange.provider_final_text}
-            )
     messages.append({"role": "user", "content": request.user_prompt})
     return messages
 

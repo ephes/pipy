@@ -253,10 +253,6 @@ def _validate_provider_request_values(request: ProviderRequest) -> None:
         raise TypeError("ProviderRequest.provider_turn_index must be nonnegative int")
     if request.tool_observation is not None:
         raise TypeError("ProviderRequest.tool_observation is not an agent-loop input")
-    if request.no_tool_repl_context is not None:
-        raise TypeError(
-            "ProviderRequest.no_tool_repl_context is not an agent-loop input"
-        )
     _validate_messages(request.messages)
     if type(request.available_tools) is not tuple:
         raise TypeError("ProviderRequest.available_tools must be an exact tuple")

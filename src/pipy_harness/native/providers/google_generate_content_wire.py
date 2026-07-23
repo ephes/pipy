@@ -8,7 +8,7 @@ the byte-identical translation in both directions:
 
 - :func:`gemini_contents` serializes a canonical ``ProviderRequest`` into the
   Gemini ``contents`` list (``functionCall``/``functionResponse``/``inlineData``
-  parts), with the legacy single-turn/no-tool REPL fallback.
+  parts), with the legacy single-turn fallback.
 - :func:`envelope_to_content` translates one ``AgentMessage`` envelope.
 - :func:`serialize_tool_for_gemini` turns one ``ToolDefinition`` into the Gemini
   function-declaration shape.
@@ -69,10 +69,10 @@ def gemini_contents(
     """Build Gemini ``contents`` from a ``ProviderRequest``.
 
     When ``request.messages`` is non-empty, translate the envelope. Otherwise
-    fall back to ``no_tool_repl_context`` (if any) followed by the current
-    ``user_prompt``. ``attach_images`` is the Generative-AI-only extension: when
-    enabled, ``inlineData`` image parts ride on the current user turn. Vertex
-    passes ``attach_images=False`` and gets no image attachment.
+    fall back to the current ``user_prompt``. ``attach_images`` is the
+    Generative-AI-only extension: when enabled, ``inlineData`` image parts ride
+    on the current user turn. Vertex passes ``attach_images=False`` and gets no
+    image attachment.
     """
 
     contents: list[dict[str, Any]] = []
@@ -84,20 +84,6 @@ def gemini_contents(
         if attach_images:
             _attach_images(contents, request)
         return contents
-    if request.no_tool_repl_context is not None:
-        for exchange in request.no_tool_repl_context.exchanges:
-            contents.append(
-                {
-                    "role": "user",
-                    "parts": [{"text": exchange.user_prompt}],
-                }
-            )
-            contents.append(
-                {
-                    "role": "model",
-                    "parts": [{"text": exchange.provider_final_text}],
-                }
-            )
     contents.append(
         {"role": "user", "parts": [{"text": request.user_prompt}]}
     )
