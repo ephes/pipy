@@ -112,8 +112,8 @@ extend-select = ["C901"]
 # per-module override below opts the four fully-typed leaves (Slice 7.2), the
 # native.providers package and native/http.py (Slice 7.3), the native session
 # core (Slice 7.6a), native extension discovery (Slice 7.6b), native REPL
-# state (Slice 7.6c), and the top-level CLI (Slice 7.6d) into `--strict`; the
-# remaining root modules advance one
+# state (Slice 7.6c), the top-level CLI (Slice 7.6d), and the tool-loop
+# composition root (Slice 7.6e) into `--strict`; the remaining root modules advance one
 # bounded slice at a time. The override lists the per-module `--strict` sub-flags
 # explicitly rather than `strict = true`,
 # because mypy applies a per-module `strict = true` globally (leaking the
@@ -137,6 +137,7 @@ module = [
     "pipy_harness.native.http",
     "pipy_harness.native.repl_state",
     "pipy_harness.native.session",
+    "pipy_harness.native.tool_loop_session",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

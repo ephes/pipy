@@ -119,14 +119,14 @@ from pipy_harness.native.agent.usage import (
     AgentUsageAccumulator,
 )
 from pipy_harness.native.agent_adapters import (
-    NativeProductSessionActionSink,
+    NativeProductSessionActionSink as NativeProductSessionActionSink,
     ProductSessionEventProjection,
     SynchronousAgentEventComposite,
     WorkflowArchiveAgentEventAdapter,
 )
 from pipy_harness.native.agent_runtime import (
-    NativeAgentQueuedInputPort,
-    NativeAgentUsagePublisher,
+    NativeAgentQueuedInputPort as NativeAgentQueuedInputPort,
+    NativeAgentUsagePublisher as NativeAgentUsagePublisher,
 )
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding import CodingInputQueue
@@ -211,7 +211,7 @@ from pipy_harness.native.export_distribution import (
     default_html_export_path,
     export_native_branch_to_jsonl,
     export_native_session_to_html,
-    import_native_session_jsonl,
+    import_native_session_jsonl as import_native_session_jsonl,
     parse_command_path_argument,
     resolve_github_token,
     share_native_session,
@@ -312,7 +312,7 @@ from pipy_harness.native.extension_hooks import (
     dispatch_before_agent_start_hooks,
     dispatch_before_provider_headers_hooks,
     dispatch_input_hooks,
-    dispatch_session_before_hooks,
+    dispatch_session_before_hooks as dispatch_session_before_hooks,
     dispatch_tool_call_hooks,
     dispatch_tool_result_hooks,
     dispatch_user_bash_hooks,
@@ -348,7 +348,7 @@ from pipy_harness.native.tui import (
     HOTKEY_THINKING_CYCLE,
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
-    TURN_ABORTED,
+    TURN_ABORTED as TURN_ABORTED,
     TURN_LOCAL_COMMAND,
     TURN_SETTLED,
     TURN_STEERED,
@@ -380,7 +380,7 @@ from pipy_harness.native.tool_capabilities import (
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_renderers import (
-    _ToolLoopRenderer,
+    _ToolLoopRenderer as _ToolLoopRenderer,
     _extension_tool_renderer_map,
     _parse_tool_input,
 )

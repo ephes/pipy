@@ -3398,6 +3398,26 @@ and its pin is deleted, lowering repository C901 104/44 -> 101/43 (`src`
 passed Ruff, Mypy, and 4,533 tests (2 skipped); `just docs-build` passed.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Strict Mypy gate for the tool-loop composition root (Slice 7.6e) — DONE (2026-07-23)
+
+Fifth strict-root follow-on slice. Add
+`pipy_harness.native.tool_loop_session` to the existing enumerated per-module
+strict override. The measured focused surface is already clean after the
+adapter relocations, so this should be a ratchet-only change. Verify the full
+Mypy graph and focused session/import boundaries; make no source change unless
+the actual scoped gate requires a real typed fix. No `strict = true`, sub-flag
+relaxation, ignore, cast hiding `Any`, exclusion, dependency, C901 pin, or
+behavior change.
+
+Landed shape: the composition root joins the enumerated strict override. Full
+Mypy exposed seven intentional module-attribute compatibility/monkeypatch
+seams; same-name import aliases make those re-exports explicit under
+`no_implicit_reexport` with no runtime change. No other source edit was needed.
+Focused verification passed 288 tests; final `just check` passed Ruff, Mypy,
+and 4,533 tests (2 skipped); `just docs-build` passed. C901 remains 101/43,
+`src` ignores remain 28, and the root remains 5,829 lines. Review: Pi GPT-5.6
+Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from
