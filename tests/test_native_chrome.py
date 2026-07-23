@@ -17,6 +17,16 @@ import pytest
 from pipy_harness.native import chrome
 
 
+def test_sol_uses_372k_status_budget() -> None:
+    sol = chrome._context_budget_for("openai-codex", "gpt-5.6-sol")
+    assert sol.budget_label == "372k"
+    assert sol.token_budget == 372_000
+    # Other GPT-5 Codex models keep the 272k subscription denominator.
+    assert chrome._context_budget_for(
+        "openai-codex", "gpt-5.5"
+    ).budget_label == "272k"
+
+
 def test_format_bottom_status_line_aligns_left_and_right() -> None:
     fields = chrome.BottomStatusFields(
         cwd_label="",

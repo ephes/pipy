@@ -3535,6 +3535,32 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Relocate status, compaction-summary, and render-sink helpers (Slice 7.5n) — DONE (2026-07-23)
+
+Fourteenth composition-root slimming cut. Relocate the context-budget,
+reasoning-effort, cwd/branch-label, agent-history compaction-summary, and
+extension render-details sink helpers from `native.tool_loop_session` into
+their existing `native.chrome`, `native.agent.history`, and
+`native.tool_renderers` owners. Repoint direct private-helper tests to those
+owners; delete the superseded root definitions without aliases. Preserve exact
+labels, fallback budgets, git traversal, summary bytes, sink identity, captured
+versus TUI selection, and renderer behavior. No behavior, public export,
+dependency reversal, unchecked `Any`, ignore, Mypy exclusion, or C901 pin.
+
+Landed shape: the context-budget value and model budget/effort/cwd/branch
+projections now live beside `BottomStatusFields` in `native.chrome`; the
+count-only compaction summary lives beside `AgentHistoryCompaction`; and the
+typed captured/TUI render-details sink selection lives beside the concrete
+tool renderer. Direct private-helper tests import the new owners, render-sink
+tests pin writer identity and opposite-sink absence, and the superseded root
+definitions are deleted. The composition root falls 5,206 -> 5,080 physical
+lines. Focused plus architecture verification passed 286 tests; final
+`just check` passed Ruff, Mypy, and 4,543 tests (2 skipped);
+`just docs-build` completed cleanly. Repository C901 remains 91/34 (`src`
+75/25), `src` ignores remain 27, and no ratchet changed. Review: Pi GPT-5.6
+Sol, 2 rounds, 1 finding (direct private imports preserved the former root
+paths; fixed with qualified owner-module references), explicit CLEAN.
+
 ### Decompose resource discovery, terminal comparison, and schema validation (Slice 7.7n) — DONE (2026-07-23)
 
 Fifteenth directional C901 batch. Decompose the sole finding in

@@ -39,6 +39,19 @@ class AgentHistoryCompaction:
             )
 
 
+def _agent_history_summary(result: AgentHistoryCompaction) -> str:
+    """Build the product-owned count-only provider context summary."""
+
+    return (
+        "[Context compacted to save space: "
+        f"{result.dropped_group_count} earlier exchange(s) "
+        f"({result.dropped_assistant_count} assistant turn(s), "
+        f"{result.dropped_tool_call_count} tool call(s)) were summarized and removed "
+        "from this request. Their details are no longer available; continue "
+        "from the retained recent turns below.]"
+    )
+
+
 def compact_agent_history(
     messages: Sequence[AgentMessage],
     *,

@@ -316,6 +316,103 @@ def pipy_version_label() -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class _ContextBudget:
+    """Approximate provider/model context-window budget for the meter.
+
+    ``token_budget`` is the absolute denominator; ``budget_label`` is the
+    short label rendered into the bottom status (e.g. ``272k`` for the
+    272 000-token GPT-5.5 context).
+    """
+
+    token_budget: int
+    budget_label: str
+
+
+_CODEX_GPT_5_5_BUDGET = _ContextBudget(token_budget=272_000, budget_label="272k")
+_CODEX_GPT_5_6_SOL_BUDGET = _ContextBudget(token_budget=372_000, budget_label="372k")
+_DEFAULT_CONTEXT_BUDGET = _ContextBudget(token_budget=128_000, budget_label="128k")
+
+
+def _context_budget_for(provider_name: str, model_id: str) -> _ContextBudget:
+    """Return the rough context-window budget label for the bottom status.
+
+    The mapping deliberately covers the providers/models that pipy is
+    tested against today. Unknown selections fall back to the safe
+    128k default so the meter still renders. Switching to authoritative
+    provider usage telemetry is a separate follow-up.
+    """
+
+    if provider_name == "openai-codex":
+        if model_id == "gpt-5.6-sol":
+            return _CODEX_GPT_5_6_SOL_BUDGET
+        if model_id.startswith("gpt-5"):
+            return _CODEX_GPT_5_5_BUDGET
+    if provider_name in {"anthropic"} and "sonnet" in model_id.lower():
+        return _ContextBudget(token_budget=200_000, budget_label="200k")
+    return _DEFAULT_CONTEXT_BUDGET
+
+
+def _effort_label_for(provider_name: str, model_id: str) -> str:
+    """Return the reasoning-effort label the bottom status surfaces.
+
+    Pi shows ``high`` for the codex GPT-5.x family because those models
+    default to high reasoning effort. Other providers / unknown
+    configurations keep the safe ``default`` label.
+    """
+
+    if provider_name == "openai-codex" and model_id.startswith("gpt-5"):
+        return "high"
+    return "default"
+
+
+def _friendly_cwd_label(cwd: Path) -> str:
+    """Render ``cwd`` as ``~/<rel> (branch)`` when inside the user's home.
+
+    Falls back to the absolute path when ``cwd`` is outside ``~`` or
+    when the home directory cannot be resolved. The ``(branch)`` suffix
+    is appended when ``cwd`` (or any parent up to the home directory)
+    contains a ``.git`` directory whose ``HEAD`` can be read.
+    """
+
+    label = str(cwd)
+    try:
+        home = Path.home()
+    except RuntimeError:
+        home = None
+    if home is not None:
+        try:
+            relative = cwd.resolve().relative_to(home.resolve())
+            relative_str = relative.as_posix()
+            label = "~" if relative_str in {"", "."} else f"~/{relative_str}"
+        except ValueError:
+            pass
+    branch = _detect_git_branch(cwd)
+    if branch:
+        label = f"{label} ({branch})"
+    return label
+
+
+def _detect_git_branch(cwd: Path) -> str | None:
+    """Walk up from ``cwd`` looking for ``.git/HEAD`` and return the branch."""
+
+    candidate: Path | None = cwd
+    while candidate is not None and candidate != candidate.parent:
+        head = candidate / ".git" / "HEAD"
+        try:
+            text = head.read_text(encoding="utf-8")
+        except OSError:
+            candidate = candidate.parent
+            continue
+        text = text.strip()
+        if text.startswith("ref: refs/heads/"):
+            return text.split("refs/heads/", 1)[1]
+        if text:
+            return text[:7]
+        return None
+    return None
+
+
+@dataclass(frozen=True, slots=True)
 class BottomStatusFields:
     """Inputs for the persistent bottom status line.
 

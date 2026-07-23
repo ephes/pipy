@@ -15,7 +15,18 @@ from pipy_harness.native.tools.base import (
     ToolRequest,
     make_tool_request_id,
 )
+from pipy_harness.native.tool_renderers import _extension_render_details_sinks
 from pipy_harness.native.tui import ToolLoopTerminalUi, _TuiToolLoopRenderer
+
+
+def test_render_details_sinks_select_renderer_and_preserve_writer_identity():
+    tui = _extension_render_details_sinks(has_terminal_ui=True)
+    assert tui.writer is tui.tui
+    assert tui.captured is None
+
+    captured = _extension_render_details_sinks(has_terminal_ui=False)
+    assert captured.writer is captured.captured
+    assert captured.tui is None
 
 
 def _registered(handler, **kw):

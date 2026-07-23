@@ -6,6 +6,7 @@ import json
 import os
 import threading
 from collections.abc import Callable, Iterable, Mapping, MutableMapping
+from dataclasses import dataclass
 from typing import Any, ClassVar, TextIO
 
 from pipy_harness.native.agent import (
@@ -23,6 +24,7 @@ from pipy_harness.native.extension_runtime import (
     RegisteredTool,
     ThemeColor,
     ToolRenderContext,
+    ToolRenderDetailsWriter,
     ToolRenderTheme,
     coerce_tool_render_lines,
 )
@@ -166,6 +168,25 @@ def render_chrome_component(
         lines = lines[:max_lines]
         lines.append(_CHROME_TRUNCATION_MARKER)
     return lines
+
+
+@dataclass(frozen=True, slots=True)
+class _ExtensionRenderDetailsSinks:
+    """Typed render-details handoff for one terminal or captured renderer."""
+
+    writer: ToolRenderDetailsWriter
+    tui: dict[str, object | None] | None = None
+    captured: dict[str, object | None] | None = None
+
+
+def _extension_render_details_sinks(
+    has_terminal_ui: bool,
+) -> _ExtensionRenderDetailsSinks:
+    if has_terminal_ui:
+        tui: dict[str, object | None] = {}
+        return _ExtensionRenderDetailsSinks(writer=tui, tui=tui)
+    captured: dict[str, object | None] = {}
+    return _ExtensionRenderDetailsSinks(writer=captured, captured=captured)
 
 
 class _ToolLoopRenderer:

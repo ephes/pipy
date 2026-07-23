@@ -35,7 +35,10 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     UsageUpdated,
 )
-from pipy_harness.native.agent.history import AgentHistoryCompaction
+from pipy_harness.native.agent.history import (
+    AgentHistoryCompaction,
+    _agent_history_summary,
+)
 from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
 from pipy_harness.native.agent.loop_policy import MAX_AGENT_TOOL_BUDGET
 from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
@@ -56,10 +59,7 @@ from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_tool_names,
     load_extension_provider_contributions,
 )
-from pipy_harness.native.tool_loop_session import (
-    _agent_history_summary,
-    _wait_for_provider_interrupt,
-)
+from pipy_harness.native.tool_loop_session import _wait_for_provider_interrupt
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_state import (
     ModelRuntime,

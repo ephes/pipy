@@ -141,13 +141,3 @@ class TestThinkingCycle:
         assert session._effort_label("openai", "gpt-5.5") in {"high", "default"}
         state.thinking_level = "low"
         assert session._effort_label("openai", "gpt-5.5") == "low"
-
-
-def test_sol_uses_372k_status_budget():
-    from pipy_harness.native.tool_loop_session import _context_budget_for
-
-    sol = _context_budget_for("openai-codex", "gpt-5.6-sol")
-    assert sol.budget_label == "372k"
-    assert sol.token_budget == 372_000
-    # other GPT-5 Codex models keep the 272k subscription denominator
-    assert _context_budget_for("openai-codex", "gpt-5.5").budget_label == "272k"

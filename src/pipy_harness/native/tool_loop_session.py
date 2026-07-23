@@ -46,6 +46,9 @@ from typing import Any, ClassVar, TextIO
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
+import pipy_harness.native.agent.history as _agent_history
+import pipy_harness.native.chrome as _chrome
+import pipy_harness.native.tool_renderers as _tool_renderers
 from pipy_harness.native.clipboard import (
     ClipboardResult,
     ImageClipboardResult,
@@ -82,7 +85,6 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.history import (
-    AgentHistoryCompaction,
     compact_agent_history,
     should_compact_agent_history,
 )
@@ -423,118 +425,9 @@ def _pricing_for(provider_name: str, model_id: str) -> AgentTokenPricing | None:
     return None
 
 
-@dataclass(frozen=True, slots=True)
-class _ContextBudget:
-    """Approximate provider/model context-window budget for the meter.
-
-    ``token_budget`` is the absolute denominator; ``budget_label`` is the
-    short label rendered into the bottom status (e.g. ``272k`` for the
-    272 000-token GPT-5.5 context).
-    """
-
-    token_budget: int
-    budget_label: str
-
-
-_CODEX_GPT_5_5_BUDGET = _ContextBudget(token_budget=272_000, budget_label="272k")
-_CODEX_GPT_5_6_SOL_BUDGET = _ContextBudget(token_budget=372_000, budget_label="372k")
-_DEFAULT_CONTEXT_BUDGET = _ContextBudget(token_budget=128_000, budget_label="128k")
-
 _AGENT_HISTORY_KEEP_RECENT_GROUPS = 2
 _AGENT_HISTORY_MAX_MESSAGES = 40
 _AGENT_HISTORY_MAX_BYTES = 48 * 1024
-
-
-def _agent_history_summary(result: AgentHistoryCompaction) -> str:
-    """Build the product-owned count-only provider context summary."""
-
-    return (
-        "[Context compacted to save space: "
-        f"{result.dropped_group_count} earlier exchange(s) "
-        f"({result.dropped_assistant_count} assistant turn(s), "
-        f"{result.dropped_tool_call_count} tool call(s)) were summarized and removed "
-        "from this request. Their details are no longer available; continue "
-        "from the retained recent turns below.]"
-    )
-
-
-def _context_budget_for(provider_name: str, model_id: str) -> _ContextBudget:
-    """Return the rough context-window budget label for the bottom status.
-
-    The mapping deliberately covers the providers/models that pipy is
-    tested against today. Unknown selections fall back to the safe
-    128k default so the meter still renders. Switching to authoritative
-    provider usage telemetry is a separate follow-up.
-    """
-
-    if provider_name == "openai-codex":
-        if model_id == "gpt-5.6-sol":
-            return _CODEX_GPT_5_6_SOL_BUDGET
-        if model_id.startswith("gpt-5"):
-            return _CODEX_GPT_5_5_BUDGET
-    if provider_name in {"anthropic"} and "sonnet" in model_id.lower():
-        return _ContextBudget(token_budget=200_000, budget_label="200k")
-    return _DEFAULT_CONTEXT_BUDGET
-
-
-def _effort_label_for(provider_name: str, model_id: str) -> str:
-    """Return the reasoning-effort label the bottom status surfaces.
-
-    Pi shows ``high`` for the codex GPT-5.x family because those models
-    default to high reasoning effort. Other providers / unknown
-    configurations keep the safe ``default`` label.
-    """
-
-    if provider_name == "openai-codex" and model_id.startswith("gpt-5"):
-        return "high"
-    return "default"
-
-
-def _friendly_cwd_label(cwd: Path) -> str:
-    """Render ``cwd`` as ``~/<rel> (branch)`` when inside the user's home.
-
-    Falls back to the absolute path when ``cwd`` is outside ``~`` or
-    when the home directory cannot be resolved. The ``(branch)`` suffix
-    is appended when ``cwd`` (or any parent up to the home directory)
-    contains a ``.git`` directory whose ``HEAD`` can be read.
-    """
-
-    label = str(cwd)
-    try:
-        home = Path.home()
-    except RuntimeError:
-        home = None
-    if home is not None:
-        try:
-            relative = cwd.resolve().relative_to(home.resolve())
-            relative_str = relative.as_posix()
-            label = "~" if relative_str in {"", "."} else f"~/{relative_str}"
-        except ValueError:
-            pass
-    branch = _detect_git_branch(cwd)
-    if branch:
-        label = f"{label} ({branch})"
-    return label
-
-
-def _detect_git_branch(cwd: Path) -> str | None:
-    """Walk up from ``cwd`` looking for ``.git/HEAD`` and return the branch."""
-
-    candidate: Path | None = cwd
-    while candidate is not None and candidate != candidate.parent:
-        head = candidate / ".git" / "HEAD"
-        try:
-            text = head.read_text(encoding="utf-8")
-        except OSError:
-            candidate = candidate.parent
-            continue
-        text = text.strip()
-        if text.startswith("ref: refs/heads/"):
-            return text.split("refs/heads/", 1)[1]
-        if text:
-            return text[:7]
-        return None
-    return None
 
 
 def production_tool_registry() -> dict[str, ToolPort]:
@@ -620,25 +513,6 @@ def _tool_loop_command_descriptions(
     descriptions.update(resources.template_descriptions())
     descriptions.update(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
     return descriptions
-
-
-@dataclass(frozen=True, slots=True)
-class _ExtensionRenderDetailsSinks:
-    """Typed render-details handoff for one terminal or captured renderer."""
-
-    writer: ToolRenderDetailsWriter
-    tui: dict[str, object | None] | None = None
-    captured: dict[str, object | None] | None = None
-
-
-def _extension_render_details_sinks(
-    has_terminal_ui: bool,
-) -> _ExtensionRenderDetailsSinks:
-    if has_terminal_ui:
-        tui: dict[str, object | None] = {}
-        return _ExtensionRenderDetailsSinks(writer=tui, tui=tui)
-    captured: dict[str, object | None] = {}
-    return _ExtensionRenderDetailsSinks(writer=captured, captured=captured)
 
 
 @dataclass(slots=True)
@@ -1819,7 +1693,7 @@ class _ProviderMutationEffects:
         )
         if not result.changed:
             return "pipy: nothing to compact yet."
-        summary_block = _agent_history_summary(result)
+        summary_block = _agent_history._agent_history_summary(result)
         self.product_session.apply_compaction(
             CodingProductSessionCompaction(
                 retained_messages=result.messages,
@@ -3272,7 +3146,9 @@ class NativeToolReplSession:
         # Adapt activated extension tools at the product composition seam. The
         # shared built-in registry is never mutated; the capability facade owns
         # the run-local merged registry, visibility, and executor context.
-        render_details = _extension_render_details_sinks(terminal_ui is not None)
+        render_details = _tool_renderers._extension_render_details_sinks(
+            terminal_ui is not None
+        )
         extension_tool_renderers = _extension_tool_renderer_map(_ext_runtime.tools)
         extension_tool_registry: dict[str, ToolPort] = {}
         for _registered_tool in _ext_runtime.tools:
@@ -3450,9 +3326,7 @@ class NativeToolReplSession:
         # workflow archive -> caller (optional) order. Extension lifecycle
         # mapping wraps that completed product composition as one sink.
         product_action_sink = NativeProductSessionActionSink(append_agent_message)
-        immediate_sinks: list[AgentEventSink] = [
-            RenderingAgentEventAdapter(renderer)
-        ]
+        immediate_sinks: list[AgentEventSink] = [RenderingAgentEventAdapter(renderer)]
         if self.automation_observer is not None:
             immediate_sinks.append(
                 AutomationAgentEventAdapter(self.automation_observer)
@@ -4292,7 +4166,7 @@ class NativeToolReplSession:
         level = getattr(self.provider_state, "thinking_level", None)
         if isinstance(level, str) and level:
             return level
-        return _effort_label_for(provider_name, model_id)
+        return _chrome._effort_label_for(provider_name, model_id)
 
     def _footer_text(
         self,
@@ -4306,7 +4180,7 @@ class NativeToolReplSession:
         usage_snapshot: CodingSessionUsageSnapshot | None = None,
     ) -> str:
         plan_label = "sub" if provider_name == "openai-codex" else "api"
-        budget = _context_budget_for(provider_name, model_id)
+        budget = _chrome._context_budget_for(provider_name, model_id)
         used_pct = 0.0
         if budget.token_budget > 0:
             if usage_snapshot is not None and usage_snapshot.last_total_tokens > 0:
@@ -4350,7 +4224,7 @@ class NativeToolReplSession:
         )
         status_width = max(20, chrome_width(error_stream))
         status_line = format_bottom_status_line(status_width, fields)
-        cwd_label = _friendly_cwd_label(cwd)
+        cwd_label = _chrome._friendly_cwd_label(cwd)
         return f"{cwd_label}\n{status_line}"
 
     def _estimated_context_tokens(
