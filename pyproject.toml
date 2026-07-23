@@ -66,9 +66,10 @@ extend-select = ["C901"]
 # parser/verifier owner; Slice 7.7q dropped the REPL-input owner; Slice 7.7r
 # dropped the command outcome, model resolver, and models.json owners; Slice
 # 7.7s dropped the editor-completion and extension-discovery owners; Slice 7.7t
-# dropped the tool-renderer, edit-diff, and grep owners). Do not add entries to
-# grow the baseline; only remove entries as functions are genuinely simplified
-# below the threshold.
+# dropped the tool-renderer, edit-diff, and grep owners; Slice 7.7u dropped the
+# native session policy, session-tree reconstruction, and session-tree command
+# owners). Do not add entries to grow the baseline; only remove entries as
+# functions are genuinely simplified below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
@@ -78,9 +79,6 @@ extend-select = ["C901"]
 "src/pipy_harness/native/_resource_files.py" = ["C901"]
 "src/pipy_harness/native/coding/session_controller.py" = ["C901"]
 "src/pipy_harness/native/provider_construction.py" = ["C901"]
-"src/pipy_harness/native/session_tree_commands.py" = ["C901"]
-"src/pipy_harness/native/session_tree.py" = ["C901"]
-"src/pipy_harness/native/session.py" = ["C901"]
 "src/pipy_harness/native/terminal_driver.py" = ["C901"]
 "src/pipy_harness/native/tool_loop_session.py" = ["C901"]
 "src/pipy_harness/native/tui.py" = ["C901"]

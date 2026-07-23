@@ -493,27 +493,38 @@ def _entry_preview(tree: NativeSessionTree, entry: SessionEntry) -> str:
     label = tree.get_label(entry.id)
     label_prefix = f"[{label}] " if label else ""
     if isinstance(entry, MessageEntry):
-        message = entry.message
-        if isinstance(message, AgentUserMessage):
-            return f"{label_prefix}user: {_truncate(message.content.value)}"
-        if isinstance(message, AgentAssistantMessage):
-            text = message.content.value or "(tool call)"
-            return f"{label_prefix}assistant: {_truncate(text)}"
-        if isinstance(message, AgentToolResultMessage):
-            return f"{label_prefix}tool: {_truncate(message.content.value)}"
-        if isinstance(message, _UnresolvedToolResultMessage):
-            return f"{label_prefix}tool: {_truncate(message.content)}"
+        preview = _message_entry_preview(entry)
+    else:
+        preview = _metadata_entry_preview(entry)
+    return f"{label_prefix}{preview}"
+
+
+def _message_entry_preview(entry: MessageEntry) -> str:
+    message = entry.message
+    if isinstance(message, AgentUserMessage):
+        return f"user: {_truncate(message.content.value)}"
+    if isinstance(message, AgentAssistantMessage):
+        text = message.content.value or "(tool call)"
+        return f"assistant: {_truncate(text)}"
+    if isinstance(message, AgentToolResultMessage):
+        return f"tool: {_truncate(message.content.value)}"
+    if isinstance(message, _UnresolvedToolResultMessage):
+        return f"tool: {_truncate(message.content)}"
+    return entry.type
+
+
+def _metadata_entry_preview(entry: SessionEntry) -> str:
     if isinstance(entry, BranchSummaryEntry):
-        return f"{label_prefix}branch-summary: {_truncate(entry.summary)}"
+        return f"branch-summary: {_truncate(entry.summary)}"
     if isinstance(entry, CompactionEntry):
-        return f"{label_prefix}compaction: {_truncate(entry.summary)}"
+        return f"compaction: {_truncate(entry.summary)}"
     if isinstance(entry, CustomMessageEntry):
-        return f"{label_prefix}custom: {_truncate(entry.content)}"
+        return f"custom: {_truncate(entry.content)}"
     if isinstance(entry, ModelChangeEntry):
-        return f"{label_prefix}model: {entry.provider}/{entry.model_id}"
+        return f"model: {entry.provider}/{entry.model_id}"
     if isinstance(entry, SessionInfoEntry):
-        return f"{label_prefix}name: {entry.name}"
-    return f"{label_prefix}{entry.type}"
+        return f"name: {entry.name}"
+    return entry.type
 
 
 def _truncate(text: str, limit: int = 60) -> str:
@@ -809,65 +820,112 @@ def _resolve_startup_tree(
     if mode == "none":
         return None
     if mode in ("continue", "resume"):
-        existing = NativeSessionTree.continue_recent(
-            resolved_cwd, session_dir=proj_dir
-        )
-        if existing is not None:
-            return existing
-        return NativeSessionTree.create(resolved_cwd, session_dir=proj_dir)
+        return _continue_or_create_startup_tree(resolved_cwd, proj_dir)
     if mode == "session-id":
-        if not target:
-            raise ValueError("--session-id requires an id")
-        existing_entry = next(
-            (
-                entry
-                for entry in list_native_sessions(proj_dir)
-                if entry.session_id == target
-            ),
-            None,
-        )
-        if existing_entry is not None:
-            return NativeSessionTree.open(existing_entry.path)
-        return NativeSessionTree.create(
-            resolved_cwd, session_dir=proj_dir, session_id=target
-        )
+        return _resolve_session_id_startup_tree(resolved_cwd, proj_dir, target)
     if mode == "session":
-        if not target:
-            raise ValueError("--session requires a path or id")
-        ref = resolve_session_ref(
-            resolved_cwd, target, state_root=state_root, sessions_root=sessions_root
+        return _resolve_named_startup_tree(
+            resolved_cwd,
+            proj_dir,
+            target,
+            session_id=session_id,
+            state_root=state_root,
+            sessions_root=sessions_root,
+            confirm_fork=confirm_fork,
         )
-        if ref.kind == "not_found" or ref.path is None:
-            raise ValueError(f"no native session matched {target!r}")
-        if ref.kind == "global":
-            if confirm_fork is not None and not confirm_fork(ref):
-                raise StartupSessionAborted(ref.cwd or "")
-            return NativeSessionTree.fork_from(
-                ref.path, resolved_cwd, session_dir=proj_dir, session_id=session_id
-            )
-        return NativeSessionTree.open(ref.path)
     if mode == "fork":
-        if not target:
-            raise ValueError("--fork requires a path or id")
-        # --fork --session-id names the new file; reject an id that already
-        # exists locally rather than writing a duplicate-id session (Pi
-        # main.ts findLocalSessionByExactId guard). (--session is mutually
-        # exclusive with --session-id, so only fork mode can carry one here.)
-        if session_id is not None and any(
-            e.session_id == session_id for e in list_native_sessions(proj_dir)
-        ):
-            raise ValueError(
-                f"a native session already exists with id {session_id!r}"
-            )
-        ref = resolve_session_ref(
-            resolved_cwd, target, state_root=state_root, sessions_root=sessions_root
+        return _resolve_fork_startup_tree(
+            resolved_cwd,
+            proj_dir,
+            target,
+            session_id=session_id,
+            state_root=state_root,
+            sessions_root=sessions_root,
         )
-        if ref.kind == "not_found" or ref.path is None:
-            raise ValueError(f"no native session matched {target!r}")
+    return NativeSessionTree.create(resolved_cwd, session_dir=proj_dir)
+
+
+def _continue_or_create_startup_tree(
+    resolved_cwd: Path, proj_dir: Path
+) -> NativeSessionTree:
+    existing = NativeSessionTree.continue_recent(
+        resolved_cwd, session_dir=proj_dir
+    )
+    if existing is not None:
+        return existing
+    return NativeSessionTree.create(resolved_cwd, session_dir=proj_dir)
+
+
+def _resolve_session_id_startup_tree(
+    resolved_cwd: Path, proj_dir: Path, target: str | None
+) -> NativeSessionTree:
+    if not target:
+        raise ValueError("--session-id requires an id")
+    existing_entry = next(
+        (
+            entry
+            for entry in list_native_sessions(proj_dir)
+            if entry.session_id == target
+        ),
+        None,
+    )
+    if existing_entry is not None:
+        return NativeSessionTree.open(existing_entry.path)
+    return NativeSessionTree.create(
+        resolved_cwd, session_dir=proj_dir, session_id=target
+    )
+
+
+def _resolve_named_startup_tree(
+    resolved_cwd: Path,
+    proj_dir: Path,
+    target: str | None,
+    *,
+    session_id: str | None,
+    state_root: Path | None,
+    sessions_root: Path | None,
+    confirm_fork: Callable[[SessionRefResult], bool] | None,
+) -> NativeSessionTree:
+    if not target:
+        raise ValueError("--session requires a path or id")
+    ref = resolve_session_ref(
+        resolved_cwd, target, state_root=state_root, sessions_root=sessions_root
+    )
+    if ref.kind == "not_found" or ref.path is None:
+        raise ValueError(f"no native session matched {target!r}")
+    if ref.kind == "global":
+        if confirm_fork is not None and not confirm_fork(ref):
+            raise StartupSessionAborted(ref.cwd or "")
         return NativeSessionTree.fork_from(
             ref.path, resolved_cwd, session_dir=proj_dir, session_id=session_id
         )
-    return NativeSessionTree.create(resolved_cwd, session_dir=proj_dir)
+    return NativeSessionTree.open(ref.path)
+
+
+def _resolve_fork_startup_tree(
+    resolved_cwd: Path,
+    proj_dir: Path,
+    target: str | None,
+    *,
+    session_id: str | None,
+    state_root: Path | None,
+    sessions_root: Path | None,
+) -> NativeSessionTree:
+    if not target:
+        raise ValueError("--fork requires a path or id")
+    # Reject a duplicate local destination id before resolving the source.
+    if session_id is not None and any(
+        entry.session_id == session_id for entry in list_native_sessions(proj_dir)
+    ):
+        raise ValueError(f"a native session already exists with id {session_id!r}")
+    ref = resolve_session_ref(
+        resolved_cwd, target, state_root=state_root, sessions_root=sessions_root
+    )
+    if ref.kind == "not_found" or ref.path is None:
+        raise ValueError(f"no native session matched {target!r}")
+    return NativeSessionTree.fork_from(
+        ref.path, resolved_cwd, session_dir=proj_dir, session_id=session_id
+    )
 
 
 def delete_native_session(path: Path) -> tuple[bool, str]:

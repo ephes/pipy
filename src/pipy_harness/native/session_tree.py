@@ -442,95 +442,114 @@ def _entry_to_json(entry: SessionEntry) -> dict[str, Any]:
 def _entry_from_json(
     body: dict[str, Any], by_id: dict[str, SessionEntry]
 ) -> SessionEntry | None:
-    entry_type = body.get("type")
+    identity = _entry_identity_from_json(body)
+    if identity is None:
+        return None
+    entry_id, parent_id, timestamp = identity
+    try:
+        return _decode_entry_from_json(
+            body, by_id, entry_id, parent_id, timestamp
+        )
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+def _entry_identity_from_json(
+    body: dict[str, Any],
+) -> tuple[str, str | None, str] | None:
     entry_id = body.get("id")
     if not isinstance(entry_id, str) or not entry_id:
         return None
     parent_id = body.get("parentId")
     if parent_id is not None and not isinstance(parent_id, str):
         return None
-    timestamp = str(body.get("timestamp", ""))
-    try:
-        if entry_type == "message":
-            return MessageEntry(
-                id=entry_id,
-                parent_id=parent_id,
-                timestamp=timestamp,
-                message=_message_from_json(
-                    dict(body.get("message", {})),
-                    parent_id=parent_id,
-                    by_id=by_id,
-                ),
-            )
-        if entry_type == "model_change":
-            return ModelChangeEntry(
-                id=entry_id,
-                parent_id=parent_id,
-                timestamp=timestamp,
-                provider=str(body["provider"]),
-                model_id=str(body["modelId"]),
-            )
-        if entry_type == "thinking_level_change":
-            return ThinkingLevelChangeEntry(
-                id=entry_id,
-                parent_id=parent_id,
-                timestamp=timestamp,
-                thinking_level=str(body["thinkingLevel"]),
-            )
-        if entry_type == "compaction":
-            return CompactionEntry(
-                id=entry_id,
-                parent_id=parent_id,
-                timestamp=timestamp,
-                summary=str(body.get("summary", "")),
-                first_kept_entry_id=str(body["firstKeptEntryId"]),
-                tokens_before=int(body.get("tokensBefore", 0)),
-            )
-        if entry_type == "branch_summary":
-            return BranchSummaryEntry(
-                id=entry_id,
-                parent_id=parent_id,
-                timestamp=timestamp,
-                from_id=str(body.get("fromId", "root")),
-                summary=str(body.get("summary", "")),
-            )
-        if entry_type == "label":
-            label = body.get("label")
-            return LabelEntry(
-                id=entry_id,
-                parent_id=parent_id,
-                timestamp=timestamp,
-                target_id=str(body["targetId"]),
-                label=None if label is None else str(label),
-            )
-        if entry_type == "session_info":
-            name = body.get("name")
-            return SessionInfoEntry(
-                id=entry_id,
-                parent_id=parent_id,
-                timestamp=timestamp,
-                name=None if name is None else str(name),
-            )
-        if entry_type == "custom":
-            return CustomEntry(
-                id=entry_id,
-                parent_id=parent_id,
-                timestamp=timestamp,
-                custom_type=str(body.get("customType", "")),
-                data=body.get("data"),
-            )
-        if entry_type == "custom_message":
-            return CustomMessageEntry(
-                id=entry_id,
-                parent_id=parent_id,
-                timestamp=timestamp,
-                custom_type=str(body.get("customType", "")),
-                content=str(body.get("content", "")),
-                display=bool(body.get("display", True)),
-                details=body.get("details"),
-            )
-    except (KeyError, ValueError, TypeError):
-        return None
+    return entry_id, parent_id, str(body.get("timestamp", ""))
+
+
+def _decode_entry_from_json(
+    body: dict[str, Any],
+    by_id: dict[str, SessionEntry],
+    entry_id: str,
+    parent_id: str | None,
+    timestamp: str,
+) -> SessionEntry | None:
+    entry_type = body.get("type")
+    if entry_type == "message":
+        return MessageEntry(
+            id=entry_id,
+            parent_id=parent_id,
+            timestamp=timestamp,
+            message=_message_from_json(
+                dict(body.get("message", {})), parent_id=parent_id, by_id=by_id
+            ),
+        )
+    if entry_type == "model_change":
+        return ModelChangeEntry(
+            id=entry_id,
+            parent_id=parent_id,
+            timestamp=timestamp,
+            provider=str(body["provider"]),
+            model_id=str(body["modelId"]),
+        )
+    if entry_type == "thinking_level_change":
+        return ThinkingLevelChangeEntry(
+            id=entry_id,
+            parent_id=parent_id,
+            timestamp=timestamp,
+            thinking_level=str(body["thinkingLevel"]),
+        )
+    if entry_type == "compaction":
+        return CompactionEntry(
+            id=entry_id,
+            parent_id=parent_id,
+            timestamp=timestamp,
+            summary=str(body.get("summary", "")),
+            first_kept_entry_id=str(body["firstKeptEntryId"]),
+            tokens_before=int(body.get("tokensBefore", 0)),
+        )
+    if entry_type == "branch_summary":
+        return BranchSummaryEntry(
+            id=entry_id,
+            parent_id=parent_id,
+            timestamp=timestamp,
+            from_id=str(body.get("fromId", "root")),
+            summary=str(body.get("summary", "")),
+        )
+    if entry_type == "label":
+        label = body.get("label")
+        return LabelEntry(
+            id=entry_id,
+            parent_id=parent_id,
+            timestamp=timestamp,
+            target_id=str(body["targetId"]),
+            label=None if label is None else str(label),
+        )
+    if entry_type == "session_info":
+        name = body.get("name")
+        return SessionInfoEntry(
+            id=entry_id,
+            parent_id=parent_id,
+            timestamp=timestamp,
+            name=None if name is None else str(name),
+        )
+    if entry_type == "custom":
+        return CustomEntry(
+            id=entry_id,
+            parent_id=parent_id,
+            timestamp=timestamp,
+            custom_type=str(body.get("customType", "")),
+            data=body.get("data"),
+        )
+    if entry_type == "custom_message":
+        return CustomMessageEntry(
+            id=entry_id,
+            parent_id=parent_id,
+            timestamp=timestamp,
+            custom_type=str(body.get("customType", "")),
+            content=str(body.get("content", "")),
+            display=bool(body.get("display", True)),
+            details=body.get("details"),
+        )
     return None
 
 
@@ -581,26 +600,36 @@ def build_context(
 
     if by_id is None:
         by_id = {entry.id: entry for entry in entries}
-
-    if leaf_id is None and entries:
-        # Explicit root navigation (leaf before first entry) is signalled by
-        # callers via a dedicated marker; an unset leaf with entries present
-        # means "no leaf chosen yet" only at construction time. The manager
-        # always passes its own leaf, so leaf_id is authoritative here: None
-        # means an empty/root context.
+    path = _active_branch_path(leaf_id, by_id)
+    if not path:
         return SessionContext(messages=(), thinking_level="off", model=None)
+    thinking_level, model, compaction = _reconstruct_context_settings(path)
+    return SessionContext(
+        messages=tuple(_project_context_messages(path, compaction)),
+        thinking_level=thinking_level,
+        model=model,
+    )
 
-    leaf: SessionEntry | None = by_id.get(leaf_id) if leaf_id else None
+
+def _active_branch_path(
+    leaf_id: str | None, by_id: dict[str, SessionEntry]
+) -> list[SessionEntry]:
+    """Return the active root-to-leaf path, or empty for root/unknown leaves."""
+
+    leaf = by_id.get(leaf_id) if leaf_id else None
     if leaf is None:
-        return SessionContext(messages=(), thinking_level="off", model=None)
-
-    # Walk leaf -> root.
+        return []
     path: list[SessionEntry] = []
     current: SessionEntry | None = leaf
     while current is not None:
         path.insert(0, current)
         current = by_id.get(current.parent_id) if current.parent_id else None
+    return path
 
+
+def _reconstruct_context_settings(
+    path: list[SessionEntry],
+) -> tuple[str, tuple[str, str] | None, CompactionEntry | None]:
     thinking_level = "off"
     model: tuple[str, str] | None = None
     compaction: CompactionEntry | None = None
@@ -611,48 +640,55 @@ def build_context(
             model = (entry.provider, entry.model_id)
         elif isinstance(entry, CompactionEntry):
             compaction = entry
+    return thinking_level, model, compaction
 
-    messages: list[AgentMessage] = []
 
-    def append_message(entry: SessionEntry) -> None:
-        if isinstance(entry, MessageEntry) and isinstance(
-            entry.message,
-            (AgentUserMessage, AgentAssistantMessage, AgentToolResultMessage),
-        ):
-            messages.append(entry.message)
-        elif isinstance(entry, CustomMessageEntry):
-            messages.append(AgentUserMessage(content=ProductContent(entry.content)))
-        elif isinstance(entry, BranchSummaryEntry) and entry.summary:
-            messages.append(_branch_summary_message(entry.summary))
+def _project_context_entry(entry: SessionEntry) -> AgentMessage | None:
+    if isinstance(entry, MessageEntry) and isinstance(
+        entry.message,
+        (AgentUserMessage, AgentAssistantMessage, AgentToolResultMessage),
+    ):
+        return entry.message
+    if isinstance(entry, CustomMessageEntry):
+        return AgentUserMessage(content=ProductContent(entry.content))
+    if isinstance(entry, BranchSummaryEntry) and entry.summary:
+        return _branch_summary_message(entry.summary)
+    return None
 
-    if compaction is not None:
-        messages.append(_compaction_summary_message(compaction.summary))
-        compaction_idx = next(
-            (
-                i
-                for i, entry in enumerate(path)
-                if isinstance(entry, CompactionEntry) and entry.id == compaction.id
-            ),
-            -1,
-        )
-        found_first_kept = False
-        for i in range(compaction_idx):
-            entry = path[i]
-            if entry.id == compaction.first_kept_entry_id:
-                found_first_kept = True
-            if found_first_kept:
-                append_message(entry)
-        for i in range(compaction_idx + 1, len(path)):
-            append_message(path[i])
-    else:
-        for entry in path:
-            append_message(entry)
 
-    return SessionContext(
-        messages=tuple(messages),
-        thinking_level=thinking_level,
-        model=model,
+def _project_context_messages(
+    path: list[SessionEntry], compaction: CompactionEntry | None
+) -> list[AgentMessage]:
+    if compaction is None:
+        return [
+            message
+            for entry in path
+            if (message := _project_context_entry(entry)) is not None
+        ]
+    messages: list[AgentMessage] = [
+        _compaction_summary_message(compaction.summary)
+    ]
+    compaction_idx = next(
+        (
+            index
+            for index, entry in enumerate(path)
+            if isinstance(entry, CompactionEntry) and entry.id == compaction.id
+        ),
+        -1,
     )
+    found_first_kept = False
+    for entry in path[:compaction_idx]:
+        if entry.id == compaction.first_kept_entry_id:
+            found_first_kept = True
+        if found_first_kept:
+            message = _project_context_entry(entry)
+            if message is not None:
+                messages.append(message)
+    for entry in path[compaction_idx + 1 :]:
+        message = _project_context_entry(entry)
+        if message is not None:
+            messages.append(message)
+    return messages
 
 
 # ---------------------------------------------------------------------------

@@ -3535,6 +3535,38 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose native session policy, reconstruction, and startup resolution (Slice 7.7u) — DONE (2026-07-23)
+
+Twenty-second directional C901 batch. Decompose the eight findings across
+`native.session`, `native.session_tree`, and `native.session_tree_commands` at
+run orchestration, intent/read-only/patch validation, entry decoding, active
+branch/context reconstruction, preview projection, and startup-mode resolution
+phases. Preserve agent event ordering, safe metadata and privacy defaults,
+tool/follow-up/patch/verification gate timing, session JSONL compatibility,
+compaction/branch-summary replay, model/thinking reconstruction, terminal-safe
+previews, local/global reference precedence, cross-project fork confirmation,
+and exact errors and session-file mutation order. Add characterization only
+where precedence or failure order is not already pinned. Each clean file leaves
+the C901 pin list. No behavior, session/wire format, dependency, unchecked
+`Any`, ignore, Mypy exclusion, or new pin.
+
+Landed shape: the native run now delegates the tool phase, missing-intent
+outcome, noop/read-only follow-up, and patch/verification phase through typed
+results while retaining the original event and gate order. Intent, read-only
+fixture, and patch-proposal validation separate identity/envelope, tool-policy,
+privacy, count/label, and typed decode checks in their original precedence.
+Session-tree loading separates fail-soft entry identity from typed entry
+decoding; context reconstruction separates active-path walking, last-setting
+selection, and compaction-aware message projection. Tree commands project
+message/metadata previews separately and resolve continue, session-id, named,
+and fork startup modes through narrow helpers with unchanged matching,
+confirmation, errors, and mutation order. All three owners are clean and their
+pins are deleted, lowering repository C901 59/21 -> 51/18 (`src` 43/12 ->
+35/9). Focused verification passed 156 tests; final `just check` passed Ruff,
+Mypy, and 4,580 tests (2 skipped); `just docs-build` completed cleanly. `src`
+ignores remain 27 and the root remains 5,080 lines. Review: Pi GPT-5.6 Sol,
+1 round, 0 findings, explicit CLEAN.
+
 ### Decompose tool rendering, diff application, and grep (Slice 7.7t) — DONE (2026-07-23)
 
 Twenty-first directional C901 batch. Decompose the eight findings across

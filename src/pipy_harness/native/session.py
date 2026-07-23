@@ -327,6 +327,16 @@ class _ParsedPatchProposal:
     proposal: NativePatchProposal | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _ToolPhaseResult:
+    tool_result: NativeToolResult | None = None
+    observation_failure_reason: NativeToolObservationReason | None = None
+    follow_up_provider_result: ProviderResult | None = None
+    follow_up_provider_usage: Mapping[str, int | float] = field(default_factory=dict)
+    patch_apply_result: NativePatchApplyResult | None = None
+    verification_result: NativeVerificationResult | None = None
+
+
 @dataclass(slots=True)
 class NativeAgentSession:
     """Owns one minimal native pipy turn."""
@@ -391,172 +401,31 @@ class NativeAgentSession:
             stream_sink=self.stream_sink,
             agent_event_sink=canonical_events,
         )
+        tool_phase = self._run_tool_phase(
+            run_input,
+            event_sink,
+            safe_context,
+            conversation_state,
+            provider_result,
+            provider_usage,
+            composed_system_prompt,
+            canonical_events,
+        )
 
-        tool_result: NativeToolResult | None = None
-        read_only_result: NativeExplicitFileExcerptResult | None = None
-        observation_failure_reason: NativeToolObservationReason | None = None
-        follow_up_provider_result: ProviderResult | None = None
-        follow_up_provider_usage: dict[str, int | float] = {}
-        patch_apply_result: NativePatchApplyResult | None = None
-        verification_result: NativeVerificationResult | None = None
-        if provider_result.status == HarnessStatus.SUCCEEDED:
-            parsed_intent = _parse_tool_intent(provider_result)
-            if parsed_intent.intent is not None:
-                _emit_tool_intent_detected(
-                    event_sink, safe_context, parsed_intent.intent
-                )
-                if _is_read_only_intent(parsed_intent.intent):
-                    tool_result, read_only_result = self._invoke_read_only_tool(
-                        run_input,
-                        event_sink,
-                        safe_context,
-                        provider_result,
-                        parsed_intent.intent,
-                    )
-                else:
-                    tool_result = self._invoke_noop_tool(
-                        event_sink, safe_context, parsed_intent.intent
-                    )
-                if tool_result.status == NativeToolStatus.SUCCEEDED:
-                    if read_only_result is not None:
-                        observation = _read_only_observation(read_only_result)
-                        _emit_tool_observation_recorded(
-                            event_sink, safe_context, observation
-                        )
-                        conversation_state, follow_up_provider_turn = (
-                            _append_provider_turn(
-                                conversation_state,
-                                provider_turn_label=POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL,
-                            )
-                        )
-                        # Streaming is scoped to the initial provider turn per the
-                        # Streaming Output Parity Track in docs/backlog.md; the
-                        # post-tool follow-up turn intentionally stays buffered.
-                        follow_up_provider_result, follow_up_provider_usage = (
-                            _call_provider_turn(
-                                self.provider,
-                                run_input,
-                                event_sink,
-                                safe_context,
-                                user_prompt=_build_post_tool_user_prompt(
-                                    observation, read_only_result
-                                ),
-                                provider_turn=follow_up_provider_turn,
-                                tool_observation=observation,
-                                system_prompt=composed_system_prompt,
-                                agent_event_sink=canonical_events,
-                                prior_usage=provider_usage,
-                            )
-                        )
-                        if follow_up_provider_result.status == HarnessStatus.SUCCEEDED:
-                            parsed_proposal = _parse_patch_proposal(
-                                follow_up_provider_result
-                            )
-                            if parsed_proposal.proposal is not None:
-                                _emit_patch_proposal_recorded(
-                                    event_sink,
-                                    safe_context,
-                                    parsed_proposal.proposal,
-                                )
-                                if (
-                                    parsed_proposal.proposal.status
-                                    == NativePatchProposalStatus.PROPOSED
-                                    and self.patch_apply_request is not None
-                                ):
-                                    patch_apply_result = self._invoke_patch_apply(
-                                        run_input,
-                                        event_sink,
-                                        safe_context,
-                                    )
-                                    if (
-                                        patch_apply_result.status
-                                        == NativeToolStatus.SUCCEEDED
-                                        and self.verification_request is not None
-                                    ):
-                                        verification_result = self._invoke_verification(
-                                            run_input,
-                                            event_sink,
-                                            safe_context,
-                                        )
-                    else:
-                        parsed_observation = _parse_tool_observation_fixture(
-                            provider_result, tool_result
-                        )
-                        if parsed_observation.observation is not None:
-                            _emit_tool_observation_recorded(
-                                event_sink,
-                                safe_context,
-                                parsed_observation.observation,
-                            )
-                            conversation_state, follow_up_provider_turn = (
-                                _append_provider_turn(
-                                    conversation_state,
-                                    provider_turn_label=POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL,
-                                )
-                            )
-                            follow_up_provider_result, follow_up_provider_usage = (
-                                _call_provider_turn(
-                                    self.provider,
-                                    run_input,
-                                    event_sink,
-                                    safe_context,
-                                    user_prompt=_build_post_tool_user_prompt(
-                                        parsed_observation.observation
-                                    ),
-                                    provider_turn=follow_up_provider_turn,
-                                    tool_observation=parsed_observation.observation,
-                                    system_prompt=composed_system_prompt,
-                                    agent_event_sink=canonical_events,
-                                    prior_usage=provider_usage,
-                                )
-                            )
-                        elif parsed_observation.skipped_observation is not None:
-                            observation_failure_reason = (
-                                parsed_observation.skipped_observation.reason_label
-                            )
-                            _emit_tool_observation_recorded(
-                                event_sink,
-                                safe_context,
-                                parsed_observation.skipped_observation,
-                            )
-            elif parsed_intent.skipped_request is not None:
-                tool_result = _skipped_tool_result(
-                    parsed_intent.skipped_request,
-                    error_type="NativeToolIntentSkipped",
-                    error_message=parsed_intent.reason or "tool_intent_skipped",
-                )
-                _emit_tool_result_event(
-                    event_sink,
-                    safe_context,
-                    parsed_intent.skipped_request,
-                    tool_result,
-                    reason=parsed_intent.reason,
-                )
-        else:
-            tool_request = _noop_tool_request()
-            tool_result = _skipped_tool_result(
-                tool_request,
-                error_type="NativeToolSkipped",
-                error_message="provider_not_succeeded",
-            )
-            _emit_tool_result_event(
-                event_sink,
-                safe_context,
-                tool_request,
-                tool_result,
-                reason="provider_not_succeeded",
-            )
-
-        final_provider_result = follow_up_provider_result or provider_result
-        final_usage = _merge_provider_usage(provider_usage, follow_up_provider_usage)
+        final_provider_result = (
+            tool_phase.follow_up_provider_result or provider_result
+        )
+        final_usage = _merge_provider_usage(
+            provider_usage, tool_phase.follow_up_provider_usage
+        )
         ended_at = utc_now()
         final_status, error_type, error_message = _final_outcome(
             provider_result,
-            tool_result,
-            observation_failure_reason=observation_failure_reason,
-            follow_up_provider_result=follow_up_provider_result,
-            patch_apply_result=patch_apply_result,
-            verification_result=verification_result,
+            tool_phase.tool_result,
+            observation_failure_reason=tool_phase.observation_failure_reason,
+            follow_up_provider_result=tool_phase.follow_up_provider_result,
+            patch_apply_result=tool_phase.patch_apply_result,
+            verification_result=tool_phase.verification_result,
         )
         exit_code = 0 if final_status == HarnessStatus.SUCCEEDED else 1
         run_messages: tuple[
@@ -612,6 +481,221 @@ class NativeAgentSession:
             error_type=error_type,
             error_message=error_message,
         )
+
+    def _run_tool_phase(
+        self,
+        run_input: NativeRunInput,
+        event_sink: EventSink,
+        safe_context: Mapping[str, object],
+        conversation_state: NativeConversationState,
+        provider_result: ProviderResult,
+        provider_usage: Mapping[str, int | float],
+        composed_system_prompt: str,
+        canonical_events: AgentEventSink,
+    ) -> _ToolPhaseResult:
+        if provider_result.status != HarnessStatus.SUCCEEDED:
+            tool_request = _noop_tool_request()
+            tool_result = _skipped_tool_result(
+                tool_request,
+                error_type="NativeToolSkipped",
+                error_message="provider_not_succeeded",
+            )
+            _emit_tool_result_event(
+                event_sink,
+                safe_context,
+                tool_request,
+                tool_result,
+                reason="provider_not_succeeded",
+            )
+            return _ToolPhaseResult(tool_result=tool_result)
+
+        parsed_intent = _parse_tool_intent(provider_result)
+        if parsed_intent.intent is None:
+            return self._handle_missing_tool_intent(
+                event_sink, safe_context, parsed_intent
+            )
+        intent = parsed_intent.intent
+        _emit_tool_intent_detected(event_sink, safe_context, intent)
+        read_only_result: NativeExplicitFileExcerptResult | None = None
+        if _is_read_only_intent(intent):
+            tool_result, read_only_result = self._invoke_read_only_tool(
+                run_input, event_sink, safe_context, provider_result, intent
+            )
+        else:
+            tool_result = self._invoke_noop_tool(event_sink, safe_context, intent)
+        if tool_result.status != NativeToolStatus.SUCCEEDED:
+            return _ToolPhaseResult(tool_result=tool_result)
+        if read_only_result is not None:
+            return self._run_read_only_follow_up(
+                run_input,
+                event_sink,
+                safe_context,
+                conversation_state,
+                provider_usage,
+                composed_system_prompt,
+                canonical_events,
+                tool_result,
+                read_only_result,
+            )
+        return self._run_noop_follow_up(
+            run_input,
+            event_sink,
+            safe_context,
+            conversation_state,
+            provider_result,
+            provider_usage,
+            composed_system_prompt,
+            canonical_events,
+            tool_result,
+        )
+
+    def _handle_missing_tool_intent(
+        self,
+        event_sink: EventSink,
+        safe_context: Mapping[str, object],
+        parsed_intent: _ParsedToolIntent,
+    ) -> _ToolPhaseResult:
+        if parsed_intent.skipped_request is None:
+            return _ToolPhaseResult()
+        tool_result = _skipped_tool_result(
+            parsed_intent.skipped_request,
+            error_type="NativeToolIntentSkipped",
+            error_message=parsed_intent.reason or "tool_intent_skipped",
+        )
+        _emit_tool_result_event(
+            event_sink,
+            safe_context,
+            parsed_intent.skipped_request,
+            tool_result,
+            reason=parsed_intent.reason,
+        )
+        return _ToolPhaseResult(tool_result=tool_result)
+
+    def _run_noop_follow_up(
+        self,
+        run_input: NativeRunInput,
+        event_sink: EventSink,
+        safe_context: Mapping[str, object],
+        conversation_state: NativeConversationState,
+        provider_result: ProviderResult,
+        provider_usage: Mapping[str, int | float],
+        composed_system_prompt: str,
+        canonical_events: AgentEventSink,
+        tool_result: NativeToolResult,
+    ) -> _ToolPhaseResult:
+        parsed_observation = _parse_tool_observation_fixture(
+            provider_result, tool_result
+        )
+        observation = parsed_observation.observation
+        if observation is not None:
+            _emit_tool_observation_recorded(event_sink, safe_context, observation)
+            _, follow_up_provider_turn = _append_provider_turn(
+                conversation_state,
+                provider_turn_label=POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL,
+            )
+            follow_up_result, follow_up_usage = _call_provider_turn(
+                self.provider,
+                run_input,
+                event_sink,
+                safe_context,
+                user_prompt=_build_post_tool_user_prompt(observation),
+                provider_turn=follow_up_provider_turn,
+                tool_observation=observation,
+                system_prompt=composed_system_prompt,
+                agent_event_sink=canonical_events,
+                prior_usage=provider_usage,
+            )
+            return _ToolPhaseResult(
+                tool_result=tool_result,
+                follow_up_provider_result=follow_up_result,
+                follow_up_provider_usage=follow_up_usage,
+            )
+        skipped_observation = parsed_observation.skipped_observation
+        if skipped_observation is not None:
+            _emit_tool_observation_recorded(
+                event_sink, safe_context, skipped_observation
+            )
+            return _ToolPhaseResult(
+                tool_result=tool_result,
+                observation_failure_reason=skipped_observation.reason_label,
+            )
+        return _ToolPhaseResult(tool_result=tool_result)
+
+    def _run_read_only_follow_up(
+        self,
+        run_input: NativeRunInput,
+        event_sink: EventSink,
+        safe_context: Mapping[str, object],
+        conversation_state: NativeConversationState,
+        provider_usage: Mapping[str, int | float],
+        composed_system_prompt: str,
+        canonical_events: AgentEventSink,
+        tool_result: NativeToolResult,
+        read_only_result: NativeExplicitFileExcerptResult,
+    ) -> _ToolPhaseResult:
+        observation = _read_only_observation(read_only_result)
+        _emit_tool_observation_recorded(event_sink, safe_context, observation)
+        _, follow_up_provider_turn = _append_provider_turn(
+            conversation_state,
+            provider_turn_label=POST_TOOL_OBSERVATION_PROVIDER_TURN_LABEL,
+        )
+        # Streaming is scoped to the initial provider turn; the post-tool
+        # follow-up intentionally stays buffered.
+        follow_up_result, follow_up_usage = _call_provider_turn(
+            self.provider,
+            run_input,
+            event_sink,
+            safe_context,
+            user_prompt=_build_post_tool_user_prompt(observation, read_only_result),
+            provider_turn=follow_up_provider_turn,
+            tool_observation=observation,
+            system_prompt=composed_system_prompt,
+            agent_event_sink=canonical_events,
+            prior_usage=provider_usage,
+        )
+        patch_apply_result: NativePatchApplyResult | None = None
+        verification_result: NativeVerificationResult | None = None
+        if follow_up_result.status == HarnessStatus.SUCCEEDED:
+            patch_apply_result, verification_result = self._run_patch_phase(
+                run_input, event_sink, safe_context, follow_up_result
+            )
+        return _ToolPhaseResult(
+            tool_result=tool_result,
+            follow_up_provider_result=follow_up_result,
+            follow_up_provider_usage=follow_up_usage,
+            patch_apply_result=patch_apply_result,
+            verification_result=verification_result,
+        )
+
+    def _run_patch_phase(
+        self,
+        run_input: NativeRunInput,
+        event_sink: EventSink,
+        safe_context: Mapping[str, object],
+        follow_up_result: ProviderResult,
+    ) -> tuple[NativePatchApplyResult | None, NativeVerificationResult | None]:
+        parsed_proposal = _parse_patch_proposal(follow_up_result)
+        proposal = parsed_proposal.proposal
+        if proposal is None:
+            return None, None
+        _emit_patch_proposal_recorded(event_sink, safe_context, proposal)
+        if (
+            proposal.status != NativePatchProposalStatus.PROPOSED
+            or self.patch_apply_request is None
+        ):
+            return None, None
+        patch_apply_result = self._invoke_patch_apply(
+            run_input, event_sink, safe_context
+        )
+        if (
+            patch_apply_result.status != NativeToolStatus.SUCCEEDED
+            or self.verification_request is None
+        ):
+            return patch_apply_result, None
+        verification_result = self._invoke_verification(
+            run_input, event_sink, safe_context
+        )
+        return patch_apply_result, verification_result
 
     def _invoke_noop_tool(
         self,
@@ -1184,6 +1268,20 @@ def _unsafe_intent_reason(
     raw_intent: Mapping[object, object],
     identity: NativeToolRequestIdentity,
 ) -> str | None:
+    identity_reason = _unsafe_intent_identity_reason(raw_intent, identity)
+    if identity_reason is not None:
+        return identity_reason
+    if _has_unsafe_intent_tool_policy(raw_intent):
+        return "unsafe_tool_intent_policy"
+    if _has_unsafe_intent_privacy_policy(raw_intent):
+        return "unsafe_tool_intent_policy"
+    return None
+
+
+def _unsafe_intent_identity_reason(
+    raw_intent: Mapping[object, object],
+    identity: NativeToolRequestIdentity,
+) -> str | None:
     if any(not isinstance(key, str) for key in raw_intent):
         return "unsafe_tool_intent_keys"
     if set(raw_intent) - _ALLOWED_INTENT_KEYS:
@@ -1195,42 +1293,41 @@ def _unsafe_intent_reason(
     intent_source = raw_intent.get("intent_source", "provider_metadata")
     if intent_source not in _SUPPORTED_INTENT_SOURCES:
         return "unsafe_tool_intent_source"
-    if (
+    return None
+
+
+def _has_unsafe_intent_tool_policy(
+    raw_intent: Mapping[object, object],
+) -> bool:
+    is_read_only = (
         raw_intent.get("tool_name") == READ_ONLY_TOOL_NAME
         and raw_intent.get("tool_kind") == READ_ONLY_TOOL_KIND
-    ):
-        if (
+    )
+    if is_read_only:
+        return (
             raw_intent.get("approval_policy", NativeToolApprovalMode.REQUIRED.value)
             != NativeToolApprovalMode.REQUIRED.value
-        ):
-            return "unsafe_tool_intent_policy"
-        if raw_intent.get("approval_required", True) is not True:
-            return "unsafe_tool_intent_policy"
-        if (
-            raw_intent.get(
+            or raw_intent.get("approval_required", True) is not True
+            or raw_intent.get(
                 "sandbox_policy", NativeToolSandboxMode.READ_ONLY_WORKSPACE.value
             )
             != NativeToolSandboxMode.READ_ONLY_WORKSPACE.value
-        ):
-            return "unsafe_tool_intent_policy"
-        if raw_intent.get("workspace_read_allowed", True) is not True:
-            return "unsafe_tool_intent_policy"
-    else:
-        if (
-            raw_intent.get("approval_policy", NativeToolApprovalPolicy().label)
-            != NativeToolApprovalPolicy().label
-        ):
-            return "unsafe_tool_intent_policy"
-        if raw_intent.get("approval_required", False) is not False:
-            return "unsafe_tool_intent_policy"
-        if (
-            raw_intent.get("sandbox_policy", NativeToolSandboxPolicy().label)
-            != NativeToolSandboxPolicy().label
-        ):
-            return "unsafe_tool_intent_policy"
-        if raw_intent.get("workspace_read_allowed", False) is not False:
-            return "unsafe_tool_intent_policy"
-    for key in (
+            or raw_intent.get("workspace_read_allowed", True) is not True
+        )
+    return (
+        raw_intent.get("approval_policy", NativeToolApprovalPolicy().label)
+        != NativeToolApprovalPolicy().label
+        or raw_intent.get("approval_required", False) is not False
+        or raw_intent.get("sandbox_policy", NativeToolSandboxPolicy().label)
+        != NativeToolSandboxPolicy().label
+        or raw_intent.get("workspace_read_allowed", False) is not False
+    )
+
+
+def _has_unsafe_intent_privacy_policy(
+    raw_intent: Mapping[object, object],
+) -> bool:
+    denied_keys = (
         "filesystem_mutation_allowed",
         "shell_execution_allowed",
         "network_access_allowed",
@@ -1239,10 +1336,8 @@ def _unsafe_intent_reason(
         "stderr_stored",
         "diffs_stored",
         "file_contents_stored",
-    ):
-        if raw_intent.get(key, False) is not False:
-            return "unsafe_tool_intent_policy"
-    return None
+    )
+    return any(raw_intent.get(key, False) is not False for key in denied_keys)
 
 
 def _safe_intent_metadata(value: object) -> dict[str, object] | None:
@@ -1359,51 +1454,64 @@ def _parse_read_only_tool_fixture(
         return _ParsedReadOnlyToolFixture(reason="missing_read_only_context")
     if not isinstance(raw_fixture, Mapping):
         return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+    fixture_reason = _read_only_fixture_envelope_reason(raw_fixture, identity)
+    if fixture_reason is not None:
+        return _ParsedReadOnlyToolFixture(reason=fixture_reason)
+    try:
+        return _decode_read_only_tool_fixture(raw_fixture, identity)
+    except ValueError:
+        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+
+
+def _read_only_fixture_envelope_reason(
+    raw_fixture: Mapping[object, object],
+    identity: NativeToolRequestIdentity,
+) -> str | None:
     if any(not isinstance(key, str) for key in raw_fixture):
-        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+        return "unsafe_read_only_context"
     if set(raw_fixture) - _ALLOWED_READ_ONLY_FIXTURE_KEYS:
-        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+        return "unsafe_read_only_context"
     if raw_fixture.get("fixture_source") != _SUPPORTED_READ_ONLY_FIXTURE_SOURCE:
-        return _ParsedReadOnlyToolFixture(reason="unsupported_read_only_context")
+        return "unsupported_read_only_context"
     if raw_fixture.get("tool_request_id") != identity.request_id:
-        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+        return "unsafe_read_only_context"
     if raw_fixture.get("turn_index") != identity.turn_index:
-        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
+        return "unsafe_read_only_context"
     if (
         raw_fixture.get("request_kind")
         != NativeReadOnlyToolRequestKind.EXPLICIT_FILE_EXCERPT.value
     ):
-        return _ParsedReadOnlyToolFixture(reason="unsupported_read_only_context")
+        return "unsupported_read_only_context"
+    return None
 
-    try:
-        approval_decision = NativeReadOnlyApprovalDecision(
-            str(raw_fixture.get("approval_decision"))
-        )
-        gate_decision = NativeReadOnlyGateDecision(
-            approval_decision=approval_decision,
-            decision_authority=str(raw_fixture.get("decision_authority", "pipy-owned")),
-            reason_label=_read_only_fixture_optional_text(
-                raw_fixture.get("decision_reason_label")
-            ),
-        )
-        target_path = raw_fixture.get("workspace_relative_path")
-        if not isinstance(target_path, str):
-            return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
-        target = NativeExplicitFileExcerptTarget(
-            workspace_relative_path=target_path,
-            target_authority=str(raw_fixture.get("target_authority", "pipy-owned")),
-        )
-        request = NativeReadOnlyToolRequest(
-            tool_request_id=identity.request_id,
-            turn_index=identity.turn_index,
-            request_kind=NativeReadOnlyToolRequestKind.EXPLICIT_FILE_EXCERPT,
-            scope_label=_read_only_fixture_optional_text(
-                raw_fixture.get("scope_label")
-            ),
-        )
-    except ValueError:
-        return _ParsedReadOnlyToolFixture(reason="unsafe_read_only_context")
 
+def _decode_read_only_tool_fixture(
+    raw_fixture: Mapping[object, object],
+    identity: NativeToolRequestIdentity,
+) -> _ParsedReadOnlyToolFixture:
+    approval_decision = NativeReadOnlyApprovalDecision(
+        str(raw_fixture.get("approval_decision"))
+    )
+    gate_decision = NativeReadOnlyGateDecision(
+        approval_decision=approval_decision,
+        decision_authority=str(raw_fixture.get("decision_authority", "pipy-owned")),
+        reason_label=_read_only_fixture_optional_text(
+            raw_fixture.get("decision_reason_label")
+        ),
+    )
+    target_path = raw_fixture.get("workspace_relative_path")
+    if not isinstance(target_path, str):
+        raise ValueError("read-only fixture path must be a string")
+    target = NativeExplicitFileExcerptTarget(
+        workspace_relative_path=target_path,
+        target_authority=str(raw_fixture.get("target_authority", "pipy-owned")),
+    )
+    request = NativeReadOnlyToolRequest(
+        tool_request_id=identity.request_id,
+        turn_index=identity.turn_index,
+        request_kind=NativeReadOnlyToolRequestKind.EXPLICIT_FILE_EXCERPT,
+        scope_label=_read_only_fixture_optional_text(raw_fixture.get("scope_label")),
+    )
     return _ParsedReadOnlyToolFixture(
         request=request,
         gate_decision=gate_decision,
@@ -1473,15 +1581,33 @@ def _unsafe_patch_proposal_reason(
     raw_proposal: Mapping[object, object],
     identity: NativeToolRequestIdentity,
 ) -> NativePatchProposalReason | None:
-    if any(not isinstance(key, str) for key in raw_proposal):
+    if _has_unsafe_patch_identity(raw_proposal, identity):
         return NativePatchProposalReason.UNSAFE_PROPOSAL
-    if set(raw_proposal) - _ALLOWED_PATCH_PROPOSAL_KEYS:
+    if _has_unsafe_patch_privacy_metadata(raw_proposal):
         return NativePatchProposalReason.UNSAFE_PROPOSAL
-    if raw_proposal.get("tool_request_id") != identity.request_id:
+    if _has_unsafe_patch_counts(raw_proposal):
         return NativePatchProposalReason.UNSAFE_PROPOSAL
-    if raw_proposal.get("turn_index") != identity.turn_index:
+    if _has_unsafe_patch_operation_labels(raw_proposal):
         return NativePatchProposalReason.UNSAFE_PROPOSAL
-    for key in (
+    return None
+
+
+def _has_unsafe_patch_identity(
+    raw_proposal: Mapping[object, object],
+    identity: NativeToolRequestIdentity,
+) -> bool:
+    return (
+        any(not isinstance(key, str) for key in raw_proposal)
+        or bool(set(raw_proposal) - _ALLOWED_PATCH_PROPOSAL_KEYS)
+        or raw_proposal.get("tool_request_id") != identity.request_id
+        or raw_proposal.get("turn_index") != identity.turn_index
+    )
+
+
+def _has_unsafe_patch_privacy_metadata(
+    raw_proposal: Mapping[object, object],
+) -> bool:
+    private_keys = (
         "patch_text_stored",
         "diffs_stored",
         "file_contents_stored",
@@ -1490,19 +1616,25 @@ def _unsafe_patch_proposal_reason(
         "provider_responses_stored",
         "raw_transcript_imported",
         "workspace_mutated",
-    ):
-        if raw_proposal.get(key, False) is not False:
-            return NativePatchProposalReason.UNSAFE_PROPOSAL
+    )
+    return any(raw_proposal.get(key, False) is not False for key in private_keys)
+
+
+def _has_unsafe_patch_counts(raw_proposal: Mapping[object, object]) -> bool:
     for key in ("file_count", "operation_count"):
         value = raw_proposal.get(key, 0)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-            return NativePatchProposalReason.UNSAFE_PROPOSAL
+            return True
+    return False
+
+
+def _has_unsafe_patch_operation_labels(
+    raw_proposal: Mapping[object, object],
+) -> bool:
     operation_labels = raw_proposal.get("operation_labels", ())
     if not isinstance(operation_labels, list | tuple):
-        return NativePatchProposalReason.UNSAFE_PROPOSAL
-    if any(not isinstance(label, str) for label in operation_labels):
-        return NativePatchProposalReason.UNSAFE_PROPOSAL
-    return None
+        return True
+    return any(not isinstance(label, str) for label in operation_labels)
 
 
 def _unsupported_or_unsafe_patch_proposal_reason(
