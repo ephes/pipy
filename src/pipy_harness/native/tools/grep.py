@@ -41,6 +41,14 @@ TRUNCATION_MARKER = "... (truncated)"
 
 
 @dataclass(frozen=True, slots=True)
+class _SearchLocation:
+    search_root: Path
+    root: Path
+    relative_root: str
+    display_prefix: str
+
+
+@dataclass(frozen=True, slots=True)
 class GrepTool:
     """Search for a literal string across workspace files."""
 
@@ -137,75 +145,90 @@ class GrepTool:
     def invoke(
         self, request: ToolRequest, context: ToolContext
     ) -> ToolExecutionResult:
+        pattern = self._validated_pattern(request)
+        location = self._search_location(request, context)
+        if isinstance(location, ToolExecutionResult):
+            return location
+        output, truncated = self._search(pattern, location)
+        return self._result(request, output, truncated)
+
+    @staticmethod
+    def _validated_pattern(request: ToolRequest) -> str:
         pattern = request.arguments["pattern"]
-        path_arg = request.arguments.get("path", ".")
         if not isinstance(pattern, str) or not pattern:
             raise ToolArgumentError(
                 "grep",
                 "pattern must be a non-empty string",
                 field_path=("pattern",),
             )
+        return pattern
 
+    def _search_location(
+        self, request: ToolRequest, context: ToolContext
+    ) -> _SearchLocation | ToolExecutionResult:
+        path_arg = request.arguments.get("path", ".")
         if path_arg == ".":
             workspace = context.workspace_root.resolve()
-            root = workspace
-            search_root = workspace
-            relative_root = ""
-            display_prefix = ""
-        else:
-            try:
-                resolved = resolve_tool_path(
-                    path_arg,
-                    workspace_root=context.workspace_root,
-                    reference_roots=context.reference_roots,
-                )
-            except ValueError as exc:
-                raise ToolArgumentError(
-                    "grep", str(exc), field_path=("path",)
-                ) from None
-            root = resolved.root
-            search_root = resolved.resolved
-            relative_root = resolved.relative_label if resolved.relative_label != "." else ""
-            if _is_ignored_or_generated(
-                resolved.relative_label, root
-            ):
-                return self._error(
-                    request,
-                    "path is ignored or under .git/generated directories",
-                )
-            if not search_root.exists():
-                return self._error(request, "path does not exist")
-            if resolved.is_workspace:
-                display_prefix = ""
-            else:
-                root_label = root.name or "reference-root"
-                display_prefix = root_label + "/"
-
-        if shutil.which("rg") is not None:
-            output, truncated = self._search_with_rg(
-                pattern=pattern,
-                search_root=search_root,
-                root=root,
-                relative_root=relative_root,
-                display_prefix=display_prefix,
+            return _SearchLocation(workspace, workspace, "", "")
+        try:
+            resolved = resolve_tool_path(
+                path_arg,
+                workspace_root=context.workspace_root,
+                reference_roots=context.reference_roots,
             )
-        else:
-            output, truncated = self._search_with_stdlib(
-                pattern=pattern,
-                search_root=search_root,
-                root=root,
-                relative_root=relative_root,
-                display_prefix=display_prefix,
+        except ValueError as exc:
+            raise ToolArgumentError(
+                "grep", str(exc), field_path=("path",)
+            ) from None
+        if _is_ignored_or_generated(resolved.relative_label, resolved.root):
+            return self._error(
+                request,
+                "path is ignored or under .git/generated directories",
             )
+        if not resolved.resolved.exists():
+            return self._error(request, "path does not exist")
+        relative_root = (
+            resolved.relative_label if resolved.relative_label != "." else ""
+        )
+        display_prefix = self._display_prefix(resolved.root, resolved.is_workspace)
+        return _SearchLocation(
+            resolved.resolved, resolved.root, relative_root, display_prefix
+        )
 
+    @staticmethod
+    def _display_prefix(root: Path, is_workspace: bool) -> str:
+        if is_workspace:
+            return ""
+        return (root.name or "reference-root") + "/"
+
+    def _search(
+        self, pattern: str, location: _SearchLocation
+    ) -> tuple[str, bool]:
+        search = (
+            self._search_with_rg
+            if shutil.which("rg") is not None
+            else self._search_with_stdlib
+        )
+        return search(
+            pattern=pattern,
+            search_root=location.search_root,
+            root=location.root,
+            relative_root=location.relative_root,
+            display_prefix=location.display_prefix,
+        )
+
+    @staticmethod
+    def _result(
+        request: ToolRequest, output: str, truncated: bool
+    ) -> ToolExecutionResult:
         if truncated:
-            if output:
-                output = output + "\n" + TRUNCATION_MARKER
-            else:
-                output = TRUNCATION_MARKER
+            output = (
+                output + "\n" + TRUNCATION_MARKER
+                if output
+                else TRUNCATION_MARKER
+            )
         if not output:
             output = "(no matches)"
-
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
             output_text=output,
@@ -308,45 +331,51 @@ class GrepTool:
         display_prefix: str,
     ) -> tuple[str, bool]:
         rows: list[str] = []
-        truncated = False
         cumulative_bytes = 0
         for relative_label in self._walk(search_root, root):
             if len(rows) >= self.max_results:
-                truncated = True
-                break
-            candidate = root / relative_label
-            try:
-                if candidate.stat().st_size > self.max_scan_file_bytes:
-                    continue
-            except OSError:
+                return ("\n".join(rows), True)
+            text = self._read_searchable_text(root / relative_label)
+            if text is None:
                 continue
-            try:
-                text = candidate.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            if "\x00" in text:
-                continue
-            if any(char in _CONTROL_CHARS for char in text):
-                continue
-            if has_secret_shaped_content(text):
-                continue
-            for line_number, line in enumerate(text.splitlines(), start=1):
-                if pattern in line:
-                    if len(rows) >= self.max_results:
-                        truncated = True
-                        break
-                    display_label = display_prefix + relative_label
-                    row = f"{display_label}:{line_number}:{line}"
-                    row_bytes = len(row.encode("utf-8")) + 1
-                    if cumulative_bytes + row_bytes > self.max_output_bytes:
-                        truncated = True
-                        break
-                    cumulative_bytes += row_bytes
-                    rows.append(row)
-            if truncated:
-                break
-            _ = relative_root  # documents that the walk is already rooted
-        return ("\n".join(rows), truncated)
+            for row in self._matching_rows(
+                text, pattern, display_prefix + relative_label
+            ):
+                if len(rows) >= self.max_results:
+                    return ("\n".join(rows), True)
+                row_bytes = len(row.encode("utf-8")) + 1
+                if cumulative_bytes + row_bytes > self.max_output_bytes:
+                    return ("\n".join(rows), True)
+                cumulative_bytes += row_bytes
+                rows.append(row)
+            _ = relative_root  # the walk is already rooted at this path
+        return ("\n".join(rows), False)
+
+    def _read_searchable_text(self, candidate: Path) -> str | None:
+        try:
+            if candidate.stat().st_size > self.max_scan_file_bytes:
+                return None
+        except OSError:
+            return None
+        try:
+            text = candidate.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        if "\x00" in text:
+            return None
+        if any(char in _CONTROL_CHARS for char in text):
+            return None
+        if has_secret_shaped_content(text):
+            return None
+        return text
+
+    @staticmethod
+    def _matching_rows(
+        text: str, pattern: str, display_label: str
+    ) -> Iterable[str]:
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if pattern in line:
+                yield f"{display_label}:{line_number}:{line}"
 
     @staticmethod
     def _walk(search_root: Path, root: Path) -> Iterable[str]:

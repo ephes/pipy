@@ -118,6 +118,35 @@ def render_tool_phase(
 _CHROME_TRUNCATION_MARKER = "  … (chrome truncated)"
 
 
+def _produce_chrome_lines(source: object, *, width: int) -> object | None:
+    """Resolve a chrome source and invoke components fail-soft."""
+
+    component: object | None = None
+    if callable(source):
+        try:
+            component = source()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - a bad factory falls back
+            return None
+    elif not isinstance(source, (str, bytes, bytearray)) and callable(
+        getattr(source, "render", None)
+    ):
+        component = source
+    if component is None:
+        return source
+
+    render = getattr(component, "render", None)
+    if not callable(render):
+        return None
+    try:
+        return render(width)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - a bad render() falls back
+        return None
+
+
 def render_chrome_component(
     source: object,
     *,
@@ -135,31 +164,7 @@ def render_chrome_component(
     (clear the region / use the built-in). KeyboardInterrupt/SystemExit
     propagate."""
 
-    component: object | None = None
-    if callable(source):
-        try:
-            component = source()
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - a bad factory falls back
-            return None
-    elif not isinstance(source, (str, bytes, bytearray)) and callable(
-        getattr(source, "render", None)
-    ):
-        # A direct ChromeComponent object (e.g. lines_component(...)).
-        component = source
-    if component is not None:
-        render = getattr(component, "render", None)
-        if not callable(render):
-            return None
-        try:
-            produced = render(width)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - a bad render() falls back
-            return None
-    else:
-        produced = source
+    produced = _produce_chrome_lines(source, width=width)
     coerced = coerce_tool_render_lines(produced)
     if coerced is None:
         return None
@@ -733,38 +738,55 @@ class _ToolLoopRenderer:
     ) -> None:
         pending = self._pending_render
         self._pending_render = None
-        if pending is not None:
-            tool = self._tool_renderers.get(self._last_tool_name)
-            if tool is not None and tool.render_result is not None:
-                details = None
-                if self._render_details_sink is not None:
-                    details = self._render_details_sink.pop(str(pending["corr"]), None)
-                lines = self._dispatch_render(
-                    tool.render_result,
-                    pending["args"],
-                    pending["state"],
-                    is_result=True,
-                    content=output_text,
-                    details=details,
-                    is_error=is_error,
-                )
-                if lines is not None:
-                    for line in lines:
-                        self._error_stream.write(self._tool_panel_line(line))
-                    if duration_seconds is not None:
-                        self._error_stream.write(self._tool_panel_blank_line())
-                        self._error_stream.write(
-                            self._tool_panel_line(
-                                f"Took {duration_seconds:.1f}s", style=self._ANSI_DIM
-                            )
-                        )
-                    self._error_stream.write(self._tool_panel_blank_line())
-                    self._error_stream.flush()
-                    return
-        # --- existing default body ---
+        lines = self._extension_result_lines(pending, output_text, is_error)
+        if lines is not None:
+            self._write_extension_result(lines, duration_seconds)
+            return
+        self._write_default_result(output_text, is_error, duration_seconds)
+
+    def _extension_result_lines(
+        self,
+        pending: dict[str, object] | None,
+        output_text: str,
+        is_error: bool,
+    ) -> list[str] | None:
+        if pending is None:
+            return None
+        tool = self._tool_renderers.get(self._last_tool_name)
+        if tool is None or tool.render_result is None:
+            return None
+        details = None
+        if self._render_details_sink is not None:
+            details = self._render_details_sink.pop(str(pending["corr"]), None)
+        return self._dispatch_render(
+            tool.render_result,
+            pending["args"],
+            pending["state"],
+            is_result=True,
+            content=output_text,
+            details=details,
+            is_error=is_error,
+        )
+
+    def _write_extension_result(
+        self, lines: list[str], duration_seconds: float | None
+    ) -> None:
+        for line in lines:
+            self._error_stream.write(self._tool_panel_line(line))
+        if duration_seconds is not None:
+            self._write_result_duration(duration_seconds)
+        self._error_stream.write(self._tool_panel_blank_line())
+        self._error_stream.flush()
+
+    def _write_default_result(
+        self,
+        output_text: str,
+        is_error: bool,
+        duration_seconds: float | None,
+    ) -> None:
         lines = output_text.splitlines() or [""]
-        preview_lines = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
-        earlier = len(lines) - len(preview_lines)
+        tail_preview = lines[: self._RESULT_LINE_PREVIEW_MAX_LENGTH]
+        earlier = len(lines) - len(tail_preview)
         if earlier > 0:
             self._error_stream.write(
                 self._tool_panel_line(
@@ -773,8 +795,6 @@ class _ToolLoopRenderer:
                 )
             )
             tail_preview = lines[-self._RESULT_LINE_PREVIEW_MAX_LENGTH :]
-        else:
-            tail_preview = preview_lines
         for line in tail_preview:
             self._error_stream.write(self._tool_panel_line(line, style=self._ANSI_DIM))
         if is_error:
@@ -784,20 +804,20 @@ class _ToolLoopRenderer:
                     style=self._ANSI_RED + self._ANSI_DIM,
                 )
             )
-        # Pi keeps the `Took {n}s` caption inside the panel so the
-        # block reads as one contiguous strip. Emit a blank panel row
-        # for breathing room, then the duration, then a final blank
-        # panel row before the next block starts.
         if duration_seconds is not None:
-            self._error_stream.write(self._tool_panel_blank_line())
-            self._error_stream.write(
-                self._tool_panel_line(
-                    f"Took {duration_seconds:.1f}s",
-                    style=self._ANSI_DIM,
-                )
-            )
+            self._write_result_duration(duration_seconds)
         self._error_stream.write(self._tool_panel_blank_line())
         self._error_stream.flush()
+
+    def _write_result_duration(self, duration_seconds: float) -> None:
+        # Keep the caption inside the contiguous panel with a breathing row.
+        self._error_stream.write(self._tool_panel_blank_line())
+        self._error_stream.write(
+            self._tool_panel_line(
+                f"Took {duration_seconds:.1f}s",
+                style=self._ANSI_DIM,
+            )
+        )
 
     def _dispatch_render(
         self, renderer, args, state, *, is_result, content, details, is_error
@@ -967,6 +987,14 @@ class _ToolLoopRenderer:
         preview = self._argument_preview(arguments_json)
         return [(f"{tool_name}({preview})", bold)]
 
+    @staticmethod
+    def _header_data(arguments_json: str) -> dict[str, object]:
+        try:
+            data = json.loads(arguments_json)
+        except (json.JSONDecodeError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
     def _format_pi_call_header(self, tool_name: str, arguments_json: str) -> str:
         """Render a Pi-shape one-line tool header.
 
@@ -977,37 +1005,24 @@ class _ToolLoopRenderer:
         invocation.
         """
 
-        try:
-            data = json.loads(arguments_json)
-        except (json.JSONDecodeError, ValueError):
-            data = None
-        if not isinstance(data, dict):
-            data = {}
+        data = self._header_data(arguments_json)
         if tool_name == "read":
             path = data.get("path", "")
             prefix = "read resource" if str(path).startswith("/") else "read"
             range_label = self._read_range_label(data)
             return f"{prefix} {path}{range_label} (ctrl+o to expand)"
-        if tool_name == "ls":
-            path = data.get("path", ".")
-            return f"ls {path}"
-        if tool_name == "grep":
+        if tool_name in {"grep", "find"}:
             pattern = data.get("pattern", "")
             path = data.get("path", ".")
-            return f'grep "{pattern}" {path}'
-        if tool_name == "find":
-            pattern = data.get("pattern", "")
-            path = data.get("path", ".")
-            return f'find "{pattern}" {path}'
-        if tool_name == "write":
-            path = data.get("path", "")
-            return f"write {path}"
-        if tool_name == "edit":
-            path = data.get("path", "")
-            return f"edit {path}"
-        if tool_name == "edit_diff":
-            path = data.get("path", "")
-            return f"edit_diff {path}"
+            return f'{tool_name} "{pattern}" {path}'
+        path_defaults = {
+            "ls": ".",
+            "write": "",
+            "edit": "",
+            "edit_diff": "",
+        }
+        if tool_name in path_defaults:
+            return f"{tool_name} {data.get('path', path_defaults[tool_name])}"
         if tool_name == "truncate":
             return "truncate"
         preview = self._argument_preview(arguments_json)

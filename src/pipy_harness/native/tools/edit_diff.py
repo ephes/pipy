@@ -19,6 +19,7 @@ import difflib
 import os
 import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import ClassVar
 
 from pipy_harness.native.read_only_tool import (
@@ -51,6 +52,13 @@ class _Hunk:
 
 class _DiffParseError(ValueError):
     """Raised when the unified diff text cannot be parsed."""
+
+
+@dataclass(frozen=True, slots=True)
+class _AppliedPatch:
+    original_text: str
+    new_text: str
+    hunks: list[_Hunk]
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,9 +123,28 @@ class EditDiffTool:
     def invoke(
         self, request: ToolRequest, context: ToolContext
     ) -> ToolExecutionResult:
+        path_arg, unified_diff = self._validated_arguments(request)
+        target = self._preflight_target(request, context, path_arg)
+        if isinstance(target, ToolExecutionResult):
+            return target
+        original_text = self._read_original(request, target)
+        if isinstance(original_text, ToolExecutionResult):
+            return original_text
+        patch = self._prepare_patch(request, path_arg, unified_diff, original_text)
+        if isinstance(patch, ToolExecutionResult):
+            return patch
+
+        try:
+            _atomic_write(target, patch.new_text)
+        except OSError as exc:
+            return self._error(request, f"failed to write file: {exc}")
+        self._stream_diff(context, path_arg, patch)
+        return self._success_result(request, path_arg, patch.hunks)
+
+    @staticmethod
+    def _validated_arguments(request: ToolRequest) -> tuple[str, str]:
         path_arg = request.arguments["path"]
         unified_diff = request.arguments["unified_diff"]
-
         try:
             _validate_workspace_relative_path(path_arg)
         except ValueError as exc:
@@ -130,7 +157,13 @@ class EditDiffTool:
                 "unified_diff must be a non-empty string",
                 field_path=("unified_diff",),
             )
+        # The path validator rejects every non-string value above.
+        assert isinstance(path_arg, str)
+        return path_arg, unified_diff
 
+    def _preflight_target(
+        self, request: ToolRequest, context: ToolContext, path_arg: str
+    ) -> Path | ToolExecutionResult:
         workspace = context.workspace_root.resolve()
         candidate = (workspace / path_arg).resolve()
         if not _is_relative_to(candidate, workspace):
@@ -145,6 +178,11 @@ class EditDiffTool:
                 request,
                 "path is ignored or under .git/generated directories",
             )
+        return self._check_target_file(request, candidate)
+
+    def _check_target_file(
+        self, request: ToolRequest, candidate: Path
+    ) -> Path | ToolExecutionResult:
         if not candidate.exists():
             return self._error(request, "file does not exist")
         if not candidate.is_file():
@@ -154,7 +192,11 @@ class EditDiffTool:
                 return self._error(request, "file exceeds max_content_bytes")
         except OSError as exc:
             return self._error(request, f"failed to stat file: {exc}")
+        return candidate
 
+    def _read_original(
+        self, request: ToolRequest, candidate: Path
+    ) -> str | ToolExecutionResult:
         try:
             original_bytes = candidate.read_bytes()
         except OSError as exc:
@@ -164,42 +206,49 @@ class EditDiffTool:
         if len(original_bytes) > self.max_content_bytes:
             return self._error(request, "file exceeds max_content_bytes")
         try:
-            original_text = original_bytes.decode("utf-8")
+            return original_bytes.decode("utf-8")
         except UnicodeDecodeError:
             return self._error(request, "non-UTF-8 content")
 
+    def _prepare_patch(
+        self,
+        request: ToolRequest,
+        path_arg: str,
+        unified_diff: str,
+        original_text: str,
+    ) -> _AppliedPatch | ToolExecutionResult:
         try:
             hunks = _parse_unified_diff(unified_diff, path_arg=path_arg)
         except _DiffParseError as exc:
             return self._error(request, f"malformed diff: {exc}")
         if not hunks:
             return self._error(request, "malformed diff: no hunks present")
-
-        original_lines = original_text.splitlines(keepends=True)
         try:
-            new_lines = _apply_hunks(original_lines, hunks)
+            new_lines = _apply_hunks(original_text.splitlines(keepends=True), hunks)
         except _DiffParseError as exc:
             return self._error(request, f"hunk failed to apply: {exc}")
         new_text = "".join(new_lines)
-
         if len(new_text.encode("utf-8")) > self.max_content_bytes:
             return self._error(
                 request, "patched content exceeds max_content_bytes"
             )
+        return _AppliedPatch(original_text, new_text, hunks)
 
-        try:
-            _atomic_write(candidate, new_text)
-        except OSError as exc:
-            return self._error(request, f"failed to write file: {exc}")
-
+    def _stream_diff(
+        self, context: ToolContext, path_arg: str, patch: _AppliedPatch
+    ) -> None:
         diff_text = self._unified_diff(
             path_arg=path_arg,
-            original_text=original_text,
-            new_text=new_text,
+            original_text=patch.original_text,
+            new_text=patch.new_text,
         )
         if context.stderr_sink is not None and diff_text:
             context.stderr_sink(diff_text)
 
+    @staticmethod
+    def _success_result(
+        request: ToolRequest, path_arg: str, hunks: list[_Hunk]
+    ) -> ToolExecutionResult:
         added = sum(1 for hunk in hunks for tag, _ in hunk.body if tag == "+")
         removed = sum(1 for hunk in hunks for tag, _ in hunk.body if tag == "-")
         return ToolExecutionResult(
@@ -255,6 +304,40 @@ def _atomic_write(target, text: str) -> None:
         raise
 
 
+def _parse_file_headers(lines: list[str], *, path_arg: str) -> int:
+    """Validate file headers and return the first hunk index."""
+
+    index = 0
+    while index < len(lines) and lines[index].strip() == "":
+        index += 1
+    if index >= len(lines):
+        raise _DiffParseError("missing --- header")
+
+    expected_minus = f"--- a/{path_arg}"
+    minus_line = lines[index].rstrip("\n").rstrip("\r")
+    if not minus_line.startswith("--- "):
+        raise _DiffParseError("missing --- header")
+    minus_value = minus_line[4:].split("\t", 1)[0]
+    if minus_value != f"a/{path_arg}":
+        raise _DiffParseError(
+            f"--- header must be {expected_minus!r}; got {minus_line!r}"
+        )
+    index += 1
+
+    if index >= len(lines):
+        raise _DiffParseError("missing +++ header")
+    expected_plus = f"+++ b/{path_arg}"
+    plus_line = lines[index].rstrip("\n").rstrip("\r")
+    if not plus_line.startswith("+++ "):
+        raise _DiffParseError("missing +++ header")
+    plus_value = plus_line[4:].split("\t", 1)[0]
+    if plus_value != f"b/{path_arg}":
+        raise _DiffParseError(
+            f"+++ header must be {expected_plus!r}; got {plus_line!r}"
+        )
+    return index + 1
+
+
 def _parse_unified_diff(text: str, *, path_arg: str) -> list[_Hunk]:
     """Parse a unified-diff text into a list of hunks.
 
@@ -267,39 +350,7 @@ def _parse_unified_diff(text: str, *, path_arg: str) -> list[_Hunk]:
     if not lines:
         raise _DiffParseError("empty diff")
 
-    expected_minus = f"--- a/{path_arg}"
-    expected_plus = f"+++ b/{path_arg}"
-    index = 0
-
-    # Skip any leading blank lines.
-    while index < len(lines) and lines[index].strip() == "":
-        index += 1
-
-    if index >= len(lines):
-        raise _DiffParseError("missing --- header")
-    minus_line = lines[index].rstrip("\n").rstrip("\r")
-    if not minus_line.startswith("--- "):
-        raise _DiffParseError("missing --- header")
-    # Allow optional trailing tab + timestamp by truncating at the first tab.
-    minus_value = minus_line[4:].split("\t", 1)[0]
-    if minus_value != f"a/{path_arg}":
-        raise _DiffParseError(
-            f"--- header must be {expected_minus!r}; got {minus_line!r}"
-        )
-    index += 1
-
-    if index >= len(lines):
-        raise _DiffParseError("missing +++ header")
-    plus_line = lines[index].rstrip("\n").rstrip("\r")
-    if not plus_line.startswith("+++ "):
-        raise _DiffParseError("missing +++ header")
-    plus_value = plus_line[4:].split("\t", 1)[0]
-    if plus_value != f"b/{path_arg}":
-        raise _DiffParseError(
-            f"+++ header must be {expected_plus!r}; got {plus_line!r}"
-        )
-    index += 1
-
+    index = _parse_file_headers(lines, path_arg=path_arg)
     hunks: list[_Hunk] = []
     while index < len(lines):
         header = lines[index]
@@ -414,70 +465,73 @@ def _parse_range(token: str) -> tuple[int, int]:
     return start, count
 
 
+def _hunk_target(
+    hunk: _Hunk, *, cursor: int, source_length: int
+) -> int:
+    # Zero-count ranges insert after old_start; other ranges are 1-based.
+    target = hunk.old_start if hunk.old_count == 0 else hunk.old_start - 1
+    if target < cursor:
+        raise _DiffParseError(f"hunks out of order at line {hunk.old_start}")
+    if target > source_length:
+        raise _DiffParseError(
+            f"hunk references line {hunk.old_start} past end of file"
+        )
+    return target
+
+
+def _apply_hunk_line(
+    original_lines: list[str],
+    result: list[str],
+    cursor: int,
+    tag: str,
+    body_line: str,
+) -> int:
+    if tag == "+":
+        result.append(body_line)
+        return cursor
+    if tag not in {" ", "-"}:  # pragma: no cover - guarded by parser
+        raise _DiffParseError(f"unexpected tag {tag!r}")
+    if cursor >= len(original_lines):
+        action = "context" if tag == " " else "delete"
+        raise _DiffParseError(
+            f"{action} line past end of file at line {cursor + 1}"
+        )
+    actual = original_lines[cursor]
+    if tag == " ":
+        if not _lines_equal(actual, body_line):
+            raise _DiffParseError(f"context mismatch at line {cursor + 1}")
+        result.append(actual)
+        return cursor + 1
+    if not _lines_equal(actual, body_line):
+        raise _DiffParseError(
+            f"delete-line mismatch at line {cursor + 1}"
+        )
+    return cursor + 1
+
+
+def _apply_hunk_body(
+    original_lines: list[str], result: list[str], cursor: int, hunk: _Hunk
+) -> int:
+    for tag, body_line in hunk.body:
+        cursor = _apply_hunk_line(
+            original_lines, result, cursor, tag, body_line
+        )
+    return cursor
+
+
 def _apply_hunks(
     original_lines: list[str], hunks: list[_Hunk]
 ) -> list[str]:
-    """Apply parsed hunks to `original_lines` and return the new lines."""
+    """Apply parsed hunks to `original_lines` in their declared order."""
 
     result: list[str] = []
-    # `cursor` is the 0-based index into original_lines for the next
-    # unprocessed source line.
     cursor = 0
     for hunk in hunks:
-        # Convert 1-based old_start to 0-based. Empty-count hunks (insertions
-        # against an empty source range) use old_start as the line *after*
-        # which to insert; the unified-diff convention is that when
-        # old_count==0, old_start is the line number after which to insert,
-        # so the target index is old_start (1-based -> 0-based is the same).
-        if hunk.old_count == 0:
-            target = hunk.old_start
-        else:
-            target = hunk.old_start - 1
-
-        if target < cursor:
-            raise _DiffParseError(
-                f"hunks out of order at line {hunk.old_start}"
-            )
-        if target > len(original_lines):
-            raise _DiffParseError(
-                f"hunk references line {hunk.old_start} past end of file"
-            )
-        # Copy lines between the previous cursor and the start of this hunk.
+        target = _hunk_target(
+            hunk, cursor=cursor, source_length=len(original_lines)
+        )
         result.extend(original_lines[cursor:target])
-        cursor = target
-
-        for tag, body_line in hunk.body:
-            if tag == " ":
-                if cursor >= len(original_lines):
-                    raise _DiffParseError(
-                        "context line past end of file at "
-                        f"line {cursor + 1}"
-                    )
-                actual = original_lines[cursor]
-                if not _lines_equal(actual, body_line):
-                    raise _DiffParseError(
-                        f"context mismatch at line {cursor + 1}"
-                    )
-                result.append(actual)
-                cursor += 1
-            elif tag == "-":
-                if cursor >= len(original_lines):
-                    raise _DiffParseError(
-                        "delete line past end of file at "
-                        f"line {cursor + 1}"
-                    )
-                actual = original_lines[cursor]
-                if not _lines_equal(actual, body_line):
-                    raise _DiffParseError(
-                        f"delete-line mismatch at line {cursor + 1}"
-                    )
-                cursor += 1
-            elif tag == "+":
-                result.append(body_line)
-            else:  # pragma: no cover - guarded by parser
-                raise _DiffParseError(f"unexpected tag {tag!r}")
-
-    # Append any trailing source lines after the last hunk.
+        cursor = _apply_hunk_body(original_lines, result, target, hunk)
     result.extend(original_lines[cursor:])
     return result
 

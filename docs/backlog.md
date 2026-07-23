@@ -3535,6 +3535,35 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose tool rendering, diff application, and grep (Slice 7.7t) — DONE (2026-07-23)
+
+Twenty-first directional C901 batch. Decompose the eight findings across
+`native.tool_renderers`, `native.tools.edit_diff`, and `native.tools.grep` at
+chrome coercion, tool-result/header projection, edit target/content/parse/
+hunk-application, and grep search-root/backend/result phases. Preserve
+renderer fail-soft and styled/plain output bytes/order, tool detail correlation,
+diff validation/error and atomic-write ordering, hunk matching/newline
+semantics, grep rg/stdlib parity, containment/ignore/binary/decode/limit rules,
+and exact tool-result/error shapes. Add characterization only where precedence
+is not already pinned. Each clean file leaves the C901 pin list. No behavior,
+tool/wire shape, dependency, unchecked `Any`, ignore, Mypy exclusion, or new
+pin.
+
+Landed shape: tool rendering separates fail-soft extension invocation,
+extension-detail correlation, chrome/header projection, and the default
+result-tail/duration panel while preserving styled and plain output ordering.
+Edit-diff parses typed file/hunk phases, validates targets and bodies
+separately, and applies hunks through the same exact context/delete checks
+before the original atomic write and streamed diff. Grep resolves a typed
+search location, selects the `rg` or bounded stdlib backend, and projects the
+same capped result/error shapes with the original containment, ignore, binary,
+decode, and output limits. All three owners are clean and their pins are
+deleted, lowering repository C901 67/24 -> 59/21 (`src` 51/15 -> 43/12).
+Focused verification passed 93 tests; final `just check` passed Ruff, Mypy,
+and 4,580 tests (2 skipped); `just docs-build` completed cleanly. `src`
+ignores remain 27 and the root remains 5,080 lines. Review: Pi GPT-5.6 Sol,
+1 round, 0 findings, explicit CLEAN.
+
 ### Decompose editor and extension candidate discovery (Slice 7.7s) — DONE (2026-07-23)
 
 Twentieth directional C901 batch. Decompose the six findings across
