@@ -283,6 +283,7 @@ from pipy_harness.native.extension_runtime import (
     RegisteredShortcut,
     RegisteredTool,
     RenderedCustomEntry,
+    ToolRenderDetailsWriter,
     _ExtensionToolPort,
     _custom_entry_redraw_rows,
     _custom_entry_renderer_payload,
@@ -668,6 +669,25 @@ def _tool_loop_command_descriptions(
 
 
 @dataclass(frozen=True, slots=True)
+class _ExtensionRenderDetailsSinks:
+    """Typed render-details handoff for one terminal or captured renderer."""
+
+    writer: ToolRenderDetailsWriter
+    tui: dict[str, object | None] | None = None
+    captured: dict[str, object | None] | None = None
+
+
+def _extension_render_details_sinks(
+    has_terminal_ui: bool,
+) -> _ExtensionRenderDetailsSinks:
+    if has_terminal_ui:
+        tui: dict[str, object | None] = {}
+        return _ExtensionRenderDetailsSinks(writer=tui, tui=tui)
+    captured: dict[str, object | None] = {}
+    return _ExtensionRenderDetailsSinks(writer=captured, captured=captured)
+
+
+@dataclass(frozen=True, slots=True)
 class _ExtensionRuntime:
     """The activated-extension contributions wired into one session run."""
 
@@ -952,7 +972,7 @@ class _BuiltinCommandInterpreter:
         extension_send_message: Callable[
             [str, str, bool, "Mapping[str, object]", object | None], object
         ],
-        extension_render_details: dict[str, object],
+        extension_render_details: ToolRenderDetailsWriter,
         extension_set_active_tools: Callable[[Sequence[str]], bool],
         _extension_notify: Callable[[str, str], None],
         _bind_unavailable_after_reload: Callable[[str], None],
@@ -3733,7 +3753,7 @@ class NativeToolReplSession:
         # Adapt activated extension tools at the product composition seam. The
         # shared built-in registry is never mutated; the capability facade owns
         # the run-local merged registry, visibility, and executor context.
-        extension_render_details: dict[str, object] = {}
+        render_details = _extension_render_details_sinks(terminal_ui is not None)
         extension_tool_renderers = _extension_tool_renderer_map(_ext_runtime.tools)
         extension_tool_registry: dict[str, ToolPort] = {}
         for _registered_tool in _ext_runtime.tools:
@@ -3745,7 +3765,7 @@ class NativeToolReplSession:
                     provider_mutation.extension_set_active_tools(names)
                 ),
                 flags=extension_flag_values,
-                render_details_sink=extension_render_details,
+                render_details_sink=render_details.writer,
                 project_trusted=settings.project_trusted,
             )
             extension_tool_registry[_port.definition.name] = _port
@@ -3799,14 +3819,14 @@ class NativeToolReplSession:
             renderer = _TuiToolLoopRenderer(
                 ui=terminal_ui,
                 tool_renderers=extension_tool_renderers,
-                render_details_sink=extension_render_details,
+                render_details_sink=render_details.tui,
             )
         else:
             renderer = _ToolLoopRenderer(
                 output_stream=output_stream,
                 error_stream=error_stream,
                 tool_renderers=extension_tool_renderers,
-                render_details_sink=extension_render_details,
+                render_details_sink=render_details.captured,
             )
         # `session_start` fires once the session is set up (reason "startup");
         # `session_shutdown` fires when the run ends.
@@ -4210,7 +4230,7 @@ class NativeToolReplSession:
                 summarize_branch=collaborators.summarize_branch,
                 extension_session_allows=collaborators.extension_session_allows,
                 extension_send_message=custom_renderer.extension_send_message,
-                extension_render_details=extension_render_details,
+                extension_render_details=render_details.writer,
                 extension_set_active_tools=provider_mutation.extension_set_active_tools,
                 _extension_notify=_extension_notify,
                 _bind_unavailable_after_reload=_bind_unavailable_after_reload,

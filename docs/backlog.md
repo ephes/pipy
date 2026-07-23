@@ -3418,6 +3418,36 @@ and 4,533 tests (2 skipped); `just docs-build` passed. C901 remains 101/43,
 `src` ignores remain 28, and the root remains 5,829 lines. Review: Pi GPT-5.6
 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Strict Mypy gate for the native TUI (Slice 7.6f) — DONE (2026-07-23)
+
+Sixth and final requested strict-root follow-on. Add `pipy_harness.native.tui`
+to the enumerated override and close its measured 28 errors: one tuple subclass
+signature family, typed chrome-style returns, and the custom tool-render
+dispatcher signature. Preserve all terminal rendering, styling, extension
+renderer, input, and TUI behavior. No `strict = true`, relaxed flag, ignore,
+unchecked `Any`, exclusion, dependency, C901 pin, or redesign.
+
+Landed shape: the native TUI joins the enumerated strict override, completing
+the requested strict-root frontier. Typed tuple construction, chrome-style
+returns, pending custom-render state, and custom-render dispatch close the 28
+measured errors. The render-details handoff gains a write-only protocol plus
+separate typed terminal/captured sinks so manually injected non-mapping
+details continue to reach extension renderers unchanged; a regression test
+pins that compatibility seam. The full gate caught the composition-root
+architecture guard at 805 lines after the first typed setup; a small
+module-level sink-bundle helper restored `NativeToolReplSession.run()` to 798
+AST lines. Focused verification passed 299 tests; final `just check` passed
+Ruff, Mypy, and 4,534 tests (2 skipped); `just docs-build` passed. The first
+full run encountered two PTY timing failures; the editor case passed in a
+paired isolation run, the known multi-tool race passed alone, and the complete
+rerun was green. C901 remains 101/43, `src` ignores remain 28, and the root
+remains 5,829 physical lines. Review: Pi GPT-5.6 Sol, 3 rounds, 2 findings,
+final explicit CLEAN. Round one caught the mapping-only internal reader type;
+round two rejected widening the public `ToolRenderContext.details` contract.
+The final shape keeps extension writes and the public context mapping-typed
+while isolating legacy opaque reader values at one internal compatibility
+bridge.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

@@ -4,6 +4,7 @@ from pathlib import Path
 from pipy_harness.extensions import (
     ExtensionTool,
     RegisteredTool,
+    ToolRenderContext,
     ToolResult,
     lines_component,
 )
@@ -94,6 +95,41 @@ def test_tui_renderer_uses_render_result(tmp_path):
     assert blocks, "expected a tool_result_custom block"
     text = "\n".join(blocks[-1][1])
     assert "key=v" in text and "err=False" in text
+
+
+def test_tui_renderer_forwards_manually_injected_non_mapping_details(
+    tmp_path: Path,
+) -> None:
+    seen: list[object | None] = []
+
+    def render_result(ctx: ToolRenderContext) -> object:
+        seen.append(ctx.details)
+        return lines_component(["custom"])
+
+    tool = ExtensionTool(
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
+        handler=lambda ctx, inp: ToolResult(content="ignored"),
+        render_result=render_result,
+    )
+    ui = _tui(tmp_path)
+    sink: dict[str, object | None] = {"corr-1": "manually-injected"}
+    renderer = _TuiToolLoopRenderer(
+        ui=ui,
+        tool_renderers={"kv": tool},
+        render_details_sink=sink,
+    )
+    renderer.render_tool_call(
+        AgentToolCall(
+            provider_correlation_id="corr-1",
+            tool_name="kv",
+            arguments_json=ProductContent("{}"),
+        )
+    )
+    renderer.render_tool_result(output_text="ignored", is_error=False)
+
+    assert seen == ["manually-injected"]
 
 
 def test_tui_renderer_falls_back_when_renderer_crashes(tmp_path):

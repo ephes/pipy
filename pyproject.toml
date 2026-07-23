@@ -113,9 +113,9 @@ extend-select = ["C901"]
 # native.providers package and native/http.py (Slice 7.3), the native session
 # core (Slice 7.6a), native extension discovery (Slice 7.6b), native REPL
 # state (Slice 7.6c), the top-level CLI (Slice 7.6d), and the tool-loop
-# composition root (Slice 7.6e) into `--strict`; the remaining root modules advance one
-# bounded slice at a time. The override lists the per-module `--strict` sub-flags
-# explicitly rather than `strict = true`,
+# composition root (Slice 7.6e) and native TUI (Slice 7.6f) into `--strict`.
+# This completes the requested strict-root frontier. The override lists the
+# per-module `--strict` sub-flags explicitly rather than `strict = true`,
 # because mypy applies a per-module `strict = true` globally (leaking the
 # strict checks onto every other module and the test suite); the explicit
 # flags stay scoped to the matched packages. The two strict sub-flags that mypy
@@ -138,6 +138,7 @@ module = [
     "pipy_harness.native.repl_state",
     "pipy_harness.native.session",
     "pipy_harness.native.tool_loop_session",
+    "pipy_harness.native.tui",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

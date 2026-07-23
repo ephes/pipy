@@ -149,6 +149,17 @@ if False:  # pragma: no cover - imported for type checkers only
     )
 
 CommandHandler = Callable[..., object]
+ToolRenderDetails: TypeAlias = Mapping[str, object] | None
+ToolRenderDetailsSink: TypeAlias = MutableMapping[str, object | None]
+
+
+class ToolRenderDetailsWriter(Protocol):
+    """Write-only side of the render-details handoff."""
+
+    def __setitem__(
+        self, correlation_id: str, details: ToolRenderDetails, /
+    ) -> None: ...
+
 
 # Bound an extension tool's provider-visible output.
 _TOOL_OUTPUT_MAX_CHARS: int = 32 * 1024
@@ -254,7 +265,7 @@ class _ExtensionToolPort:
         notify_sink: Callable[[str, str], None] | None = None,
         set_active_tools_fn: Callable[[Sequence[str]], bool] | None = None,
         flags: Mapping[str, object] | None = None,
-        render_details_sink: MutableMapping[str, object] | None = None,
+        render_details_sink: ToolRenderDetailsWriter | None = None,
         project_trusted: bool = False,
     ) -> None:
         self._registered = registered

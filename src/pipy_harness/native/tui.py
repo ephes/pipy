@@ -25,7 +25,7 @@ import time
 from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, TextIO, cast
+from typing import Any, ClassVar, Self, TYPE_CHECKING, TextIO, TypedDict, cast
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
@@ -42,6 +42,7 @@ from pipy_harness.native.autocomplete_provider import (
     line_col_to_cursor,
 )
 from pipy_harness.native.chrome import (
+    ChromeStyle,
     chrome_style_for,
     discover_loaded_resource_names,
     pipy_version_label,
@@ -60,6 +61,7 @@ from pipy_harness.native.extension_runtime import (
     FooterData,
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
+    ToolRenderDetailsSink,
     normalize_shortcut_key,
     render_extension_entry,
     render_extension_message,
@@ -96,6 +98,9 @@ from pipy_harness.native.terminal_driver import (
     _TITLE_MAX_CHARS,
 )
 from pipy_harness.native.themes import NativeThemeStore, select_theme
+
+if TYPE_CHECKING:
+    from pipy_harness.native.extension_types import ToolRenderContext
 
 
 # Sentinel returned by the session-picker key handler to mean "stay open"
@@ -809,12 +814,14 @@ def _clip_custom_overlay_text(text: str, width: int) -> str:
     return "".join(clipped)
 
 
-class _HistoryBlockTuple(tuple):
+class _HistoryBlockTuple(tuple[str, tuple[str, ...]]):
     """Tuple-compatible history block with optional live render metadata."""
 
     state: object | None
 
-    def __new__(cls, kind: str, lines: tuple[str, ...], state: object | None = None):
+    def __new__(
+        cls, kind: str, lines: tuple[str, ...], state: object | None = None
+    ) -> Self:
         obj = tuple.__new__(cls, (kind, lines))
         obj.state = state
         return obj
@@ -4900,7 +4907,9 @@ class ToolLoopTerminalUi:
             )
         return lines
 
-    def _styled_line(self, line: _FrameLine, *, style: Any, width: int) -> str:
+    def _styled_line(
+        self, line: _FrameLine, *, style: ChromeStyle, width: int
+    ) -> str:
         raw_text = line.text
         text = raw_text.rstrip()
         if line.kind == "title":
@@ -6253,6 +6262,23 @@ class ToolLoopTerminalUi:
         return max(12, min(32, widest))
 
 
+class _PendingToolRender(TypedDict):
+    corr: str
+    args: dict[str, object]
+    state: dict[str, object]
+
+
+def _forward_legacy_render_details(
+    ctx: ToolRenderContext, details: object
+) -> None:
+    """Preserve opaque values manually inserted into the internal reader sink."""
+
+    # The public context deliberately remains mapping-only. Older/manual callers
+    # could still insert an opaque value into this internal handoff, so bypass the
+    # frozen field only at this compatibility seam rather than widening its type.
+    object.__setattr__(ctx, "details", details)
+
+
 class _TuiToolLoopRenderer:
     """Tool-loop renderer backed by the pipy-owned terminal UI shell."""
 
@@ -6267,7 +6293,7 @@ class _TuiToolLoopRenderer:
         *,
         ui: ToolLoopTerminalUi,
         tool_renderers: Mapping[str, ExtensionTool] | None = None,
-        render_details_sink: MutableMapping[str, object] | None = None,
+        render_details_sink: ToolRenderDetailsSink | None = None,
     ) -> None:
         self._ui = ui
         self._streamed_any = False
@@ -6276,7 +6302,7 @@ class _TuiToolLoopRenderer:
         self._last_tool_name = ""
         self._tool_renderers = dict(tool_renderers or {})
         self._render_details_sink = render_details_sink
-        self._pending_render: dict[str, object] | None = None
+        self._pending_render: _PendingToolRender | None = None
 
     @property
     def streamed_any(self) -> bool:
@@ -6418,9 +6444,9 @@ class _TuiToolLoopRenderer:
         if pending is not None:
             tool = self._tool_renderers.get(self._last_tool_name)
             if tool is not None and tool.render_result is not None:
-                details = None
+                details: object | None = None
                 if self._render_details_sink is not None:
-                    details = self._render_details_sink.pop(str(pending["corr"]), None)
+                    details = self._render_details_sink.pop(pending["corr"], None)
                 lines = self._dispatch_render(
                     tool.render_result,
                     pending["args"],
@@ -6459,8 +6485,16 @@ class _TuiToolLoopRenderer:
         )
 
     def _dispatch_render(
-        self, renderer, args, state, *, is_result, content, details, is_error
-    ):
+        self,
+        renderer: Callable[[ToolRenderContext], object],
+        args: Mapping[str, object],
+        state: MutableMapping[str, object],
+        *,
+        is_result: bool,
+        content: str | None,
+        details: object | None,
+        is_error: bool,
+    ) -> list[str] | None:
         # Local imports: the render-theme machinery is only needed on the
         # rarely-hit custom-renderer branch, so it is imported here rather than
         # at module top to keep this module's import-time dependency surface
@@ -6473,18 +6507,21 @@ class _TuiToolLoopRenderer:
         from pipy_harness.extensions import ToolRenderContext
 
         style = chrome_style_for(self._ui.terminal_stream)
+        typed_details = details if isinstance(details, Mapping) else None
         ctx = ToolRenderContext(
             tool_name=self._last_tool_name,
             args=args,
             is_result=is_result,
             is_error=is_error,
             content=content,
-            details=details,
+            details=typed_details,
             expanded=self._ui.tools_expanded,
             width=self._ui._driver.size()[0],
             theme=build_tool_render_theme(style),
             state=state,
         )
+        if details is not None and typed_details is None:
+            _forward_legacy_render_details(ctx, details)
         return render_tool_phase(renderer, ctx)
 
     def _visible_tool_result_lines(self, lines: list[str]) -> list[str]:
