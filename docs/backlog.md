@@ -2797,6 +2797,30 @@ gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
 
+### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
+
+Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from
+`native/tool_loop_session.py` into `native.extension_runtime`, which already
+owns `RegisteredTool`, `ExtensionTool`, `ToolResult`, context construction, and
+extension handler fail-soft policy. The composition root imports the adapter
+for initial activation and reload, direct custom-renderer tests import the
+extension owner, and the superseded definition is deleted. Preserve schema-
+validated input, trusted-local handler execution, bounded error/output shaping,
+model-runtime controls, flags/trust/UI context, render-details capture, and
+provider correlation exactly. No permission redesign, feature, public surface,
+dependency, unchecked `Any`, `type: ignore`, C901 pin, or Mypy exclusion.
+
+Landed shape: the byte-identical `_ExtensionToolPort` now lives only in
+`native.extension_runtime`; the composition root imports it for initial
+activation and reload, and the direct render-details tests import the extension
+owner. Obsolete root imports and the superseded class are deleted. The
+composition root falls from 6,340 to 6,238 lines; repository C901 stays 142/70
+and `src` `type: ignore` stays 32, with no pin/exclusion added. Focused
+extension-tool/renderer/session/import-boundary verification passed 269 tests;
+final `just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### TUI tool-loop renderer relocation to the terminal owner (Slice 7.5c) — DONE (2026-07-23)
 
 Third composition-root slimming cut. Relocate `_TuiToolLoopRenderer` from

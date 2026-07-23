@@ -8,7 +8,7 @@ from pipy_harness.extensions import (
     lines_component,
 )
 from pipy_harness.native.agent import AgentToolCall, ProductContent
-from pipy_harness.native.tool_loop_session import _ExtensionToolPort
+from pipy_harness.native.extension_runtime import _ExtensionToolPort
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolRequest,
