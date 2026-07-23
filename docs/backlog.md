@@ -3535,6 +3535,37 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose resource discovery, terminal decoding, and archive catalog (Slice 7.7w) — DONE (2026-07-23)
+
+Twenty-fourth directional C901 batch. Decompose the seven findings across
+`native._resource_files`, `native.terminal_driver`, and `pipy_session.catalog`
+at source/candidate/load/frontmatter phases, scalar/control/escape decoding,
+archive traversal/classification, record resolution, and metadata/event/
+Markdown search. Preserve explicit/default/package precedence, containment and
+first-wins dedup, filter-before-cap accounting, bounded reads and hashing,
+frontmatter/body bytes, UTF-8 buffering, control and CSI/kitty key mappings,
+archive privacy and symlink/finalization checks, ambiguity/error text, and
+summary-safe search ordering. Add characterization only where precedence is
+not already pinned. Each clean file leaves the C901 pin list. No behavior,
+resource/session format, dependency, unchecked `Any`, ignore, Mypy exclusion,
+or new pin.
+
+Landed shape: resource discovery assembles typed sources, screens contained
+candidates, performs bounded pre-cap loads, applies filter/name selection, and
+hashes only accepted records; frontmatter delimiter, field, and body-newline
+phases remain stdlib-only. Terminal decoding separates explicit control/scalar
+aliases from CSI reads and paste/modifier/legacy classification without changing
+UTF-8 buffering or key names. Archive verification separates partial-file and
+per-entry classification, record resolution separates explicit paths from
+name/stem matches, and search projects only allowlisted metadata, event
+type/summary, and Markdown summary phases with the original fail-soft ordering.
+All three owners are clean and their pins are deleted, lowering repository
+C901 46/16 -> 39/13 (`src` 30/7 -> 23/4), meeting the directional sub-40
+target. Focused verification passed 128 tests; final `just check` passed Ruff,
+Mypy, and 4,585 tests (2 skipped); `just docs-build` completed cleanly. `src`
+ignores remain 27 and the root remains 5,080 lines. Review: Pi GPT-5.6 Sol,
+1 round, 0 findings, explicit CLEAN.
+
 ### Decompose coding-session control and provider construction (Slice 7.7v) — DONE (2026-07-23)
 
 Twenty-third directional C901 batch. Decompose the five findings across

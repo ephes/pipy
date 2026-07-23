@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -90,6 +90,27 @@ class _RawResourceFile:
     byte_length: int
     truncated: bool
     absolute_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class _ResourceSource:
+    path: Path
+    kind: str
+    ignore_root: Path
+    package_filters: tuple[str, ...]
+    explicit_file: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _LoadedResourceCandidate:
+    candidate: Path
+    resolved_path: Path
+    name: str
+    description: str
+    body: str
+    byte_length: int
+    head: bytes
+    truncated: bool
 
 
 def resolve_global_resource_root(
@@ -183,20 +204,21 @@ def discover_resource_files(
       treated as "no resources here" and never raised.
     """
 
-    if per_file_byte_cap < 1:
-        raise ValueError(
-            f"per_file_byte_cap must be >= 1; got {per_file_byte_cap}"
-        )
-    if total_byte_cap < 1:
-        raise ValueError(
-            f"total_byte_cap must be >= 1; got {total_byte_cap}"
-        )
-
+    _validate_resource_byte_caps(per_file_byte_cap, total_byte_cap)
     resolved_workspace = workspace_root.expanduser().resolve()
-    workspace_dir = resolved_workspace / WORKSPACE_PIPY_DIR_NAME / workspace_subdir
-
     global_root = resolve_global_resource_root(env=config_home_env, home_dir=home_dir)
-    global_dir = global_root / global_subdir
+    sources = _assemble_resource_sources(
+        resolved_workspace=resolved_workspace,
+        workspace_subdir=workspace_subdir,
+        global_root=global_root,
+        global_subdir=global_subdir,
+        package_roots=package_roots,
+        explicit_paths=explicit_paths,
+        include_defaults=include_defaults,
+        include_workspace_defaults=include_workspace_defaults,
+        include_global_defaults=include_global_defaults,
+        include_package_defaults=include_package_defaults,
+    )
 
     seen_paths: set[Path] = set()
     seen_names: set[str] = set()
@@ -204,138 +226,228 @@ def discover_resource_files(
     total_loaded = 0
     cap_reached = False
 
-    # (dir/file, kind, ignore_root, per-package filters, explicit_file_only).
-    # CLI paths carry no per-package filter and are searched first.
-    sources: list[tuple[Path, str, Path, tuple[str, ...], bool]] = []
+    for source in sources:
+        for candidate, resolved_candidate in _screen_resource_candidates(
+            source, seen_paths
+        ):
+            loaded = _load_resource_candidate(
+                candidate, resolved_candidate, per_file_byte_cap
+            )
+            if loaded is None or not _resource_name_is_selected(
+                loaded.name,
+                package_filters=source.package_filters,
+                dedupe_by_name=dedupe_by_name,
+                seen_names=seen_names,
+            ):
+                continue
+            if total_loaded + loaded.byte_length > total_byte_cap:
+                cap_reached = True
+                break
+            resource = _materialize_resource_candidate(
+                loaded, source_kind=source.kind, workspace=resolved_workspace
+            )
+            if resource is None:
+                continue
+            raw_files.append(resource)
+            seen_paths.add(loaded.resolved_path)
+            if dedupe_by_name:
+                seen_names.add(loaded.name)
+            total_loaded += loaded.byte_length
+        if cap_reached:
+            break
+
+    return raw_files, cap_reached
+
+
+def _validate_resource_byte_caps(per_file_byte_cap: int, total_byte_cap: int) -> None:
+    if per_file_byte_cap < 1:
+        raise ValueError(
+            f"per_file_byte_cap must be >= 1; got {per_file_byte_cap}"
+        )
+    if total_byte_cap < 1:
+        raise ValueError(f"total_byte_cap must be >= 1; got {total_byte_cap}")
+
+
+def _assemble_resource_sources(
+    *,
+    resolved_workspace: Path,
+    workspace_subdir: str,
+    global_root: Path,
+    global_subdir: str,
+    package_roots: "Sequence[PackageRoot]",
+    explicit_paths: Sequence[Path],
+    include_defaults: bool,
+    include_workspace_defaults: bool,
+    include_global_defaults: bool,
+    include_package_defaults: bool,
+) -> list[_ResourceSource]:
+    """Assemble CLI and default sources in their first-wins search order."""
+
+    sources: list[_ResourceSource] = []
     for explicit in explicit_paths:
         path = explicit.expanduser()
         if not path.is_absolute():
             path = (resolved_workspace / path).resolve()
-        if path.suffix == ".md":
-            sources.append((path, "cli", path.parent, (), True))
-        else:
-            sources.append((path, "cli", path, (), False))
-    if include_defaults:
-        if include_workspace_defaults:
-            sources.append(
-                (workspace_dir, "workspace", resolved_workspace, (), False)
+        explicit_file = path.suffix == ".md"
+        sources.append(
+            _ResourceSource(
+                path=path,
+                kind="cli",
+                ignore_root=path.parent if explicit_file else path,
+                package_filters=(),
+                explicit_file=explicit_file,
             )
-        if include_global_defaults:
-            sources.append((global_dir, "global", global_root, (), False))
-        # Package roots are already concrete resource dirs; each is its own
-        # containment + ignore root, searched after workspace/global.
-        if include_package_defaults:
-            sources.extend(
-                (root.path, "package", root.path, tuple(root.filters), False)
-                for root in package_roots
-            )
+        )
+    if not include_defaults:
+        return sources
 
-    for source_dir, source_kind, ignore_root, package_filters, explicit_file in sources:
-        if cap_reached:
-            break
+    if include_workspace_defaults:
+        sources.append(
+            _ResourceSource(
+                path=(
+                    resolved_workspace
+                    / WORKSPACE_PIPY_DIR_NAME
+                    / workspace_subdir
+                ),
+                kind="workspace",
+                ignore_root=resolved_workspace,
+                package_filters=(),
+                explicit_file=False,
+            )
+        )
+    if include_global_defaults:
+        sources.append(
+            _ResourceSource(
+                path=global_root / global_subdir,
+                kind="global",
+                ignore_root=global_root,
+                package_filters=(),
+                explicit_file=False,
+            )
+        )
+    if include_package_defaults:
+        sources.extend(
+            _ResourceSource(
+                path=root.path,
+                kind="package",
+                ignore_root=root.path,
+                package_filters=tuple(root.filters),
+                explicit_file=False,
+            )
+            for root in package_roots
+        )
+    return sources
+
+
+def _screen_resource_candidates(
+    source: _ResourceSource,
+    seen_paths: set[Path],
+) -> Iterator[tuple[Path, Path]]:
+    """Resolve candidates and enforce source containment and filename safety."""
+
+    try:
+        if source.path.is_symlink() and not source.explicit_file:
+            return
+        containment_root = (
+            source.path.parent.expanduser().resolve()
+            if source.explicit_file
+            else source.path.expanduser().resolve()
+        )
+    except OSError:
+        return
+
+    candidates = [source.path] if source.explicit_file else _iter_md_files(source.path)
+    for candidate in candidates:
         try:
-            if source_dir.is_symlink() and not explicit_file:
-                continue
-            containment_root = (
-                source_dir.parent.expanduser().resolve()
-                if explicit_file
-                else source_dir.expanduser().resolve()
-            )
-        except OSError:
+            resolved_candidate = candidate.resolve()
+            resolved_candidate.relative_to(containment_root)
+        except (OSError, ValueError):
             continue
-        candidates = [source_dir] if explicit_file else _iter_md_files(source_dir)
-        for candidate in candidates:
-            try:
-                resolved_candidate = candidate.resolve()
-            except OSError:
-                continue
-            try:
-                resolved_candidate.relative_to(containment_root)
-            except (OSError, ValueError):
-                continue
-            if resolved_candidate in seen_paths:
-                continue
-            if not _candidate_name_is_safe(candidate.name, ignore_root):
-                continue
-            # Cheap size for cap eligibility — avoids a full read of a file
-            # that will be rejected by the total byte cap.
-            try:
-                byte_length = resolved_candidate.stat().st_size
-            except OSError:
-                continue
-            # Bounded head read for the binary check, name/filter/dedup
-            # decisions, and the (possibly truncated) body. The full file is
-            # only hashed once the file is known to be included, so a unique
-            # over-cap or filtered/duplicate file is never fully read/hashed.
-            try:
-                head = _read_head_bytes(resolved_candidate, per_file_byte_cap)
-            except OSError:
-                continue
-            if b"\x00" in head:
-                # Binary content: never compose a binary body into a
-                # provider-visible instruction or template.
-                continue
-            truncated = byte_length > per_file_byte_cap
-            if truncated:
-                content = head.decode("utf-8", errors="replace") + (
-                    PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
-                )
-            else:
-                content = head.decode("utf-8", errors="replace")
-            name, description, body = _parse_frontmatter(content, fallback_name=candidate.stem)
-            # Filter/dedup skips happen BEFORE the byte-cap accounting so a
-            # skipped (filtered or duplicate) file never counts toward the
-            # total cap nor halts discovery of later distinct resources.
-            #
-            # Per-package filter: a package's object-form `+/-pattern`
-            # filter scopes only that package's own resources by name.
-            if package_filters and not _name_passes_filter(name, package_filters):
-                continue
-            # Name dedup (first wins): matches Pi's name-deduped skill/prompt
-            # loading so a package resource cannot duplicate a local one in
-            # the listing/autocomplete/system surfaces.
-            if dedupe_by_name and name in seen_names:
-                continue
-            # This file is a keeper; now apply the total byte cap. Once a
-            # keeper would exceed the cap, stop (the partial file is not
-            # included), matching the prior cap semantics.
-            if total_loaded + byte_length > total_byte_cap:
-                cap_reached = True
-                break
-            # Included → hash the on-disk file. A non-truncated file's head IS
-            # the whole file, so reuse it; only a truncated keeper needs the
-            # extra streaming pass for its full-file digest.
-            try:
-                sha256 = (
-                    _hash_file(resolved_candidate)
-                    if truncated
-                    else hashlib.sha256(head).hexdigest()
-                )
-            except OSError:
-                continue
-            seen_paths.add(resolved_candidate)
-            if dedupe_by_name:
-                seen_names.add(name)
-            path_label = _path_label_for(
-                candidate=candidate,
-                source_kind=source_kind,
-                workspace=resolved_workspace,
-            )
-            raw_files.append(
-                _RawResourceFile(
-                    path_label=path_label,
-                    name=name,
-                    description=description,
-                    body=body,
-                    sha256=sha256,
-                    byte_length=byte_length,
-                    truncated=truncated,
-                    absolute_path=resolved_candidate,
-                )
-            )
-            total_loaded += byte_length
+        if resolved_candidate in seen_paths:
+            continue
+        if not _candidate_name_is_safe(candidate.name, source.ignore_root):
+            continue
+        yield candidate, resolved_candidate
 
-    return raw_files, cap_reached
+
+def _load_resource_candidate(
+    candidate: Path,
+    resolved_candidate: Path,
+    per_file_byte_cap: int,
+) -> _LoadedResourceCandidate | None:
+    """Stat and bounded-read one screened candidate without hashing it."""
+
+    try:
+        byte_length = resolved_candidate.stat().st_size
+        head = _read_head_bytes(resolved_candidate, per_file_byte_cap)
+    except OSError:
+        return None
+    if b"\x00" in head:
+        return None
+
+    truncated = byte_length > per_file_byte_cap
+    content = head.decode("utf-8", errors="replace")
+    if truncated:
+        content += PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
+    name, description, body = _parse_frontmatter(
+        content, fallback_name=candidate.stem
+    )
+    return _LoadedResourceCandidate(
+        candidate=candidate,
+        resolved_path=resolved_candidate,
+        name=name,
+        description=description,
+        body=body,
+        byte_length=byte_length,
+        head=head,
+        truncated=truncated,
+    )
+
+
+def _resource_name_is_selected(
+    name: str,
+    *,
+    package_filters: tuple[str, ...],
+    dedupe_by_name: bool,
+    seen_names: set[str],
+) -> bool:
+    """Apply package filtering and optional first-wins name deduplication."""
+
+    if package_filters and not _name_passes_filter(name, package_filters):
+        return False
+    return not dedupe_by_name or name not in seen_names
+
+
+def _materialize_resource_candidate(
+    loaded: _LoadedResourceCandidate,
+    *,
+    source_kind: str,
+    workspace: Path,
+) -> _RawResourceFile | None:
+    """Hash an accepted candidate and project it to the discovered record."""
+
+    try:
+        sha256 = (
+            _hash_file(loaded.resolved_path)
+            if loaded.truncated
+            else hashlib.sha256(loaded.head).hexdigest()
+        )
+    except OSError:
+        return None
+    return _RawResourceFile(
+        path_label=_path_label_for(
+            candidate=loaded.candidate,
+            source_kind=source_kind,
+            workspace=workspace,
+        ),
+        name=loaded.name,
+        description=loaded.description,
+        body=loaded.body,
+        sha256=sha256,
+        byte_length=loaded.byte_length,
+        truncated=loaded.truncated,
+        absolute_path=loaded.resolved_path,
+    )
 
 
 def _name_passes_filter(name: str, filters: tuple[str, ...]) -> bool:
@@ -516,25 +628,44 @@ def _parse_frontmatter(
     lines = content.splitlines(keepends=False)
     if not lines or lines[0].rstrip("\r") != "---":
         return fallback_name, "", content
-    end_index = -1
+    end_index = _frontmatter_end_index(lines)
+    if end_index is None:
+        return fallback_name, "", content
+    name, description = _parse_frontmatter_fields(
+        lines[1:end_index], fallback_name=fallback_name
+    )
+    body = _reconstruct_frontmatter_body(content, lines[end_index + 1 :])
+    return name, description, body
+
+
+def _frontmatter_end_index(lines: list[str]) -> int | None:
     for index in range(1, len(lines)):
         if lines[index].rstrip("\r") == "---":
-            end_index = index
-            break
-    if end_index == -1:
-        return fallback_name, "", content
+            return index
+    return None
+
+
+def _parse_frontmatter_fields(
+    lines: list[str],
+    *,
+    fallback_name: str,
+) -> tuple[str, str]:
+    """Parse the supported, single-line frontmatter label fields."""
+
     name = fallback_name
     description = ""
-    for raw_line in lines[1:end_index]:
+    for raw_line in lines:
         stripped = raw_line.rstrip("\r")
-        if not stripped or stripped.lstrip().startswith("#"):
-            continue
-        if ":" not in stripped:
+        if not stripped or stripped.lstrip().startswith("#") or ":" not in stripped:
             continue
         key, _, value = stripped.partition(":")
         key = key.strip().lower()
         value = value.strip()
-        if value.startswith(("'", '"')) and value.endswith(("'", '"')) and len(value) >= 2:
+        if (
+            value.startswith(("'", '"'))
+            and value.endswith(("'", '"'))
+            and len(value) >= 2
+        ):
             value = value[1:-1]
         if key == "name":
             sanitized = _sanitize_label(value)
@@ -542,13 +673,18 @@ def _parse_frontmatter(
                 name = sanitized
         elif key == "description":
             description = _sanitize_label(value)
-    body_lines = lines[end_index + 1 :]
+    return name, description
+
+
+def _reconstruct_frontmatter_body(content: str, body_lines: list[str]) -> str:
+    """Rebuild body newlines exactly as the legacy frontmatter parser did."""
+
     body = "\n".join(body_lines)
     if content.endswith("\n") and not body.endswith("\n"):
-        body = body + "\n"
+        body += "\n"
     if body.startswith("\n"):
         body = body.lstrip("\n")
-    return name, description, body
+    return body
 
 
 _LABEL_MAX_LENGTH: int = 256

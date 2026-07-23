@@ -363,93 +363,103 @@ def verify_session_archive(root: str | Path | None = None) -> SessionArchiveVeri
 
     root_path = resolve_session_root(root)
     archive_dir = root_path / PROJECT_NAME
-    issues: list[VerificationIssue] = []
-
-    if root_path.exists():
-        for path in sorted(root_path.rglob("*.partial")):
-            if path.is_file():
-                issues.append(
-                    VerificationIssue(
-                        severity="warning",
-                        kind="partial-file",
-                        path=path,
-                        detail="sync-excluded partial file exists",
-                    )
-                )
-
+    issues = _partial_file_issues(root_path)
     finalized_jsonl_paths: list[Path] = []
+
     if archive_dir.exists():
         for path in sorted(archive_dir.rglob("*")):
-            if path.is_symlink():
-                issues.append(
-                    VerificationIssue(
-                        severity="error",
-                        kind="archive-symlink",
-                        path=path,
-                        detail="finalized archive entries must be regular files, not symlinks",
-                    )
-                )
-                continue
-            if not path.is_file() or path.name.endswith(".partial"):
-                continue
-
-            relative = path.relative_to(archive_dir)
-            if not _is_year_month_archive_file(relative):
-                issues.append(
-                    VerificationIssue(
-                        severity="error",
-                        kind="unexpected-archive-file",
-                        path=path,
-                        detail="expected finalized files directly under pipy/YYYY/MM/",
-                    )
-                )
-                continue
-
-            if path.suffix == ".jsonl":
-                if FILENAME_RE.match(path.name) is None:
-                    issues.append(
-                        VerificationIssue(
-                            severity="error",
-                            kind="malformed-filename",
-                            path=path,
-                            detail=(
-                                "filename must match "
-                                "YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.jsonl"
-                            ),
-                        )
-                    )
-                    continue
-
-                finalized_jsonl_paths.append(path)
-                issue = _first_event_verification_issue(path)
-                if issue is not None:
-                    issues.append(issue)
-                continue
-
-            if path.suffix == ".md":
-                if not path.with_suffix(".jsonl").exists():
-                    issues.append(
-                        VerificationIssue(
-                            severity="warning",
-                            kind="orphan-summary",
-                            path=path,
-                            detail="missing sibling JSONL",
-                        )
-                    )
-                continue
-
-            issues.append(
-                VerificationIssue(
-                    severity="warning",
-                    kind="unsupported-archive-file",
-                    path=path,
-                    detail="unsupported file suffix under finalized archive",
-                )
-            )
+            issue, finalized_path = _classify_archive_file(path, archive_dir)
+            if issue is not None:
+                issues.append(issue)
+            if finalized_path is not None:
+                finalized_jsonl_paths.append(finalized_path)
 
     issues.extend(_ambiguous_name_issues(finalized_jsonl_paths))
     issues.sort(key=_verification_issue_sort_key)
     return SessionArchiveVerification(root=root_path, issues=issues)
+
+
+def _partial_file_issues(root_path: Path) -> list[VerificationIssue]:
+    """Project sync-excluded partial files outside and inside the archive."""
+
+    if not root_path.exists():
+        return []
+    return [
+        VerificationIssue(
+            severity="warning",
+            kind="partial-file",
+            path=path,
+            detail="sync-excluded partial file exists",
+        )
+        for path in sorted(root_path.rglob("*.partial"))
+        if path.is_file()
+    ]
+
+
+def _classify_archive_file(
+    path: Path,
+    archive_dir: Path,
+) -> tuple[VerificationIssue | None, Path | None]:
+    """Classify one archive entry and identify valid finalized JSONL paths."""
+
+    if path.is_symlink():
+        return (
+            VerificationIssue(
+                severity="error",
+                kind="archive-symlink",
+                path=path,
+                detail="finalized archive entries must be regular files, not symlinks",
+            ),
+            None,
+        )
+    if not path.is_file() or path.name.endswith(".partial"):
+        return None, None
+    if not _is_year_month_archive_file(path.relative_to(archive_dir)):
+        return (
+            VerificationIssue(
+                severity="error",
+                kind="unexpected-archive-file",
+                path=path,
+                detail="expected finalized files directly under pipy/YYYY/MM/",
+            ),
+            None,
+        )
+    if path.suffix == ".jsonl":
+        if FILENAME_RE.match(path.name) is None:
+            return (
+                VerificationIssue(
+                    severity="error",
+                    kind="malformed-filename",
+                    path=path,
+                    detail=(
+                        "filename must match "
+                        "YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.jsonl"
+                    ),
+                ),
+                None,
+            )
+        return _first_event_verification_issue(path), path
+    if path.suffix == ".md":
+        if not path.with_suffix(".jsonl").exists():
+            return (
+                VerificationIssue(
+                    severity="warning",
+                    kind="orphan-summary",
+                    path=path,
+                    detail="missing sibling JSONL",
+                ),
+                None,
+            )
+        return None, None
+    return (
+        VerificationIssue(
+            severity="warning",
+            kind="unsupported-archive-file",
+            path=path,
+            detail="unsupported file suffix under finalized archive",
+        ),
+        None,
+    )
 
 
 def resolve_finalized_record(record: str | Path, *, root: str | Path | None = None) -> Path:
@@ -457,36 +467,49 @@ def resolve_finalized_record(record: str | Path, *, root: str | Path | None = No
 
     root_path = resolve_session_root(root)
     candidate = Path(record).expanduser()
-
     if candidate.is_absolute() or candidate.parent != Path("."):
-        if not candidate.is_absolute() and not candidate.exists():
-            candidate = root_path / candidate
-        if not candidate.exists():
-            raise FileNotFoundError(f"finalized session not found: {record}")
-        if not _is_finalized_archive_jsonl(candidate, root_path):
-            raise ValueError(f"not a finalized archive JSONL record: {candidate}")
-        return candidate
+        return _resolve_finalized_record_path(candidate, record=record, root=root_path)
 
-    archive_dir = root_path / PROJECT_NAME
-    matches: list[Path] = []
-    if archive_dir.exists():
-        query = candidate.name
-        for path in archive_dir.glob("*/*/*.jsonl"):
-            if not path.is_file() or path.name.endswith(".partial"):
-                continue
-            if query.endswith(".jsonl"):
-                matched = path.name == query
-            else:
-                matched = path.stem == query
-            if matched and _is_finalized_archive_jsonl(path, root_path):
-                matches.append(path)
-
+    matches = _find_finalized_record_name_matches(candidate.name, root=root_path)
     if not matches:
         raise FileNotFoundError(f"finalized session not found: {record}")
     if len(matches) > 1:
         formatted = ", ".join(str(path) for path in sorted(matches))
         raise ValueError(f"ambiguous finalized session record {record!s}: {formatted}")
     return matches[0]
+
+
+def _resolve_finalized_record_path(
+    candidate: Path,
+    *,
+    record: str | Path,
+    root: Path,
+) -> Path:
+    """Resolve and validate the explicit path form of a record selector."""
+
+    if not candidate.is_absolute() and not candidate.exists():
+        candidate = root / candidate
+    if not candidate.exists():
+        raise FileNotFoundError(f"finalized session not found: {record}")
+    if not _is_finalized_archive_jsonl(candidate, root):
+        raise ValueError(f"not a finalized archive JSONL record: {candidate}")
+    return candidate
+
+
+def _find_finalized_record_name_matches(query: str, *, root: Path) -> list[Path]:
+    """Find finalized records matching a basename or stem selector."""
+
+    archive_dir = root / PROJECT_NAME
+    if not archive_dir.exists():
+        return []
+    matches: list[Path] = []
+    for path in archive_dir.glob("*/*/*.jsonl"):
+        if not path.is_file() or path.name.endswith(".partial"):
+            continue
+        matched = path.name == query if query.endswith(".jsonl") else path.stem == query
+        if matched and _is_finalized_archive_jsonl(path, root):
+            matches.append(path)
+    return matches
 
 
 def format_session_inspection(inspection: FinalizedSessionInspection) -> str:
@@ -583,7 +606,21 @@ def _search_finalized_listing(
     listing: FinalizedSessionListing,
     normalized_query: str,
 ) -> list[FinalizedSessionSearchMatch]:
-    matches: list[FinalizedSessionSearchMatch] = []
+    matches = _metadata_search_matches(listing, normalized_query)
+    event_matches = _event_search_matches(listing.jsonl_path, normalized_query)
+    if event_matches is None:
+        # A malformed record is fail-soft and suppresses even metadata matches.
+        return []
+    matches.extend(event_matches)
+    matches.extend(_markdown_search_matches(listing.markdown_path, normalized_query))
+    return matches
+
+
+def _metadata_search_matches(
+    listing: FinalizedSessionListing,
+    normalized_query: str,
+) -> list[FinalizedSessionSearchMatch]:
+    """Project query matches from the catalog's metadata allowlist."""
 
     metadata = {
         "started": listing.started,
@@ -595,67 +632,94 @@ def _search_finalized_listing(
     }
     if listing.markdown_path is not None:
         metadata["markdown_path"] = str(listing.markdown_path)
+    return [
+        FinalizedSessionSearchMatch(
+            field=f"metadata.{field}",
+            snippet=_snippet(value, normalized_query),
+        )
+        for field, value in metadata.items()
+        if _matches_query(value, normalized_query)
+    ]
 
-    for field, value in metadata.items():
-        if _matches_query(value, normalized_query):
-            matches.append(
-                FinalizedSessionSearchMatch(
-                    field=f"metadata.{field}",
-                    snippet=_snippet(value, normalized_query),
-                )
-            )
 
+def _event_search_matches(
+    path: Path,
+    normalized_query: str,
+) -> list[FinalizedSessionSearchMatch] | None:
+    """Search only event types and explicit summary fields, failing softly."""
+
+    matches: list[FinalizedSessionSearchMatch] = []
     try:
-        with listing.jsonl_path.open(encoding="utf-8") as handle:
+        with path.open(encoding="utf-8") as handle:
             for line_number, line in enumerate(handle, start=1):
                 event = json.loads(line)
                 if not isinstance(event, dict):
-                    return []
-
-                event_type_value = event.get("type")
-                event_type = str(event_type_value) if event_type_value else None
-                if isinstance(event_type_value, str) and _matches_query(
-                    event_type_value,
-                    normalized_query,
-                ):
-                    matches.append(
-                        FinalizedSessionSearchMatch(
-                            field="event.type",
-                            event_type=event_type,
-                            line=line_number,
-                            snippet=_snippet(event_type_value, normalized_query),
-                        )
-                    )
-
-                summary = event.get("summary")
-                if isinstance(summary, str) and _matches_query(summary, normalized_query):
-                    matches.append(
-                        FinalizedSessionSearchMatch(
-                            field="event.summary",
-                            event_type=event_type,
-                            line=line_number,
-                            snippet=_snippet(summary, normalized_query),
-                        )
-                    )
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return []
-
-    if listing.markdown_path is not None:
-        try:
-            markdown_text = listing.markdown_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            markdown_text = ""
-
-        if _matches_query(markdown_text, normalized_query):
-            matches.append(
-                FinalizedSessionSearchMatch(
-                    field="markdown.summary",
-                    line=_line_number_for_match(markdown_text, normalized_query),
-                    snippet=_snippet(markdown_text, normalized_query),
+                    return None
+                matches.extend(
+                    _event_search_projections(event, line_number, normalized_query)
                 )
-            )
-
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
     return matches
+
+
+def _event_search_projections(
+    event: dict[str, Any],
+    line_number: int,
+    normalized_query: str,
+) -> list[FinalizedSessionSearchMatch]:
+    """Project privacy-safe type and summary matches from one event."""
+
+    matches: list[FinalizedSessionSearchMatch] = []
+    event_type_value = event.get("type")
+    event_type = str(event_type_value) if event_type_value else None
+    if isinstance(event_type_value, str) and _matches_query(
+        event_type_value, normalized_query
+    ):
+        matches.append(
+            FinalizedSessionSearchMatch(
+                field="event.type",
+                event_type=event_type,
+                line=line_number,
+                snippet=_snippet(event_type_value, normalized_query),
+            )
+        )
+    summary = event.get("summary")
+    if isinstance(summary, str) and _matches_query(summary, normalized_query):
+        matches.append(
+            FinalizedSessionSearchMatch(
+                field="event.summary",
+                event_type=event_type,
+                line=line_number,
+                snippet=_snippet(summary, normalized_query),
+            )
+        )
+    return matches
+
+
+def _markdown_search_matches(
+    path: Path | None,
+    normalized_query: str,
+) -> list[FinalizedSessionSearchMatch]:
+    """Project at most one match from the finalized Markdown summary."""
+
+    if path is None:
+        return []
+    try:
+        markdown_text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        markdown_text = ""
+    if not _matches_query(markdown_text, normalized_query):
+        return []
+    return [
+        FinalizedSessionSearchMatch(
+            field="markdown.summary",
+            line=_line_number_for_match(markdown_text, normalized_query),
+            snippet=_snippet(markdown_text, normalized_query),
+        )
+    ]
+
+
 def _matches_query(value: str, normalized_query: str) -> bool:
     return normalized_query in value.casefold()
 

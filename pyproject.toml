@@ -69,19 +69,18 @@ extend-select = ["C901"]
 # dropped the tool-renderer, edit-diff, and grep owners; Slice 7.7u dropped the
 # native session policy, session-tree reconstruction, and session-tree command
 # owners; Slice 7.7v dropped the coding-session controller and provider
-# construction owners). Do not add entries to grow the baseline; only remove
-# entries as functions are genuinely simplified below the threshold.
+# construction owners; Slice 7.7w dropped the resource-file discovery,
+# terminal-driver, and archive-catalog owners). Do not add entries to grow the
+# baseline; only remove entries as functions are genuinely simplified below the
+# threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
 "scripts/parity_lessons.py" = ["C901"]
 "scripts/parity_runner.py" = ["C901"]
 "src/pipy_harness/cli.py" = ["C901"]
-"src/pipy_harness/native/_resource_files.py" = ["C901"]
-"src/pipy_harness/native/terminal_driver.py" = ["C901"]
 "src/pipy_harness/native/tool_loop_session.py" = ["C901"]
 "src/pipy_harness/native/tui.py" = ["C901"]
-"src/pipy_session/catalog.py" = ["C901"]
 "src/pipy_session/cli.py" = ["C901"]
 "tests/test_native_agent_loop_policy_adapters.py" = ["C901"]
 "tests/test_native_tool_loop_session_fork_clone.py" = ["C901"]

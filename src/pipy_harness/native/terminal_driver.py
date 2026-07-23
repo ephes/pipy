@@ -413,39 +413,35 @@ class TerminalDriver:
             return None
         if ch == "\x1b":
             return self._read_escape_sequence(fd)
-        if ch in {"\r", "\n"}:
-            return "enter"
-        if ch == "\t":
-            return "tab"
-        if ch in {"\x7f", "\b"}:
-            return "backspace"
-        if ch == "\x03":
-            return "ctrl-c"
-        if ch == "\x04":
-            return "ctrl-d"
-        if ch == "\x15":
-            return "ctrl-u"
-        if ch == "\x19":
-            return "ctrl-y"
-        if ch == "\x1a":
-            return "ctrl-z"
-        if ch == "\x01":
-            return "home"
-        if ch == "\x05":
-            return "end"
-        if ch == "\x0f":
-            return "ctrl-o"
-        if ch == "\x10":
-            return "ctrl-p"
-        if ch == "\x14":
-            return "ctrl-t"
-        if ch == "\x16":
-            return "ctrl-v"
+        return self._decode_control_or_scalar(ch)
+
+    @staticmethod
+    def _decode_control_or_scalar(ch: str) -> str:
+        """Map C0 controls with explicit aliases before returning a scalar."""
+
+        aliases = {
+            "\r": "enter",
+            "\n": "enter",
+            "\t": "tab",
+            "\x7f": "backspace",
+            "\b": "backspace",
+            "\x03": "ctrl-c",
+            "\x04": "ctrl-d",
+            "\x15": "ctrl-u",
+            "\x19": "ctrl-y",
+            "\x1a": "ctrl-z",
+            "\x01": "home",
+            "\x05": "end",
+            "\x0f": "ctrl-o",
+            "\x10": "ctrl-p",
+            "\x14": "ctrl-t",
+            "\x16": "ctrl-v",
+        }
+        alias = aliases.get(ch)
+        if alias is not None:
+            return alias
         # Decode any remaining C0 control byte (Ctrl+letter) to a named
-        # "ctrl-<letter>" form so extension shortcuts can bind it. The explicit
-        # aliases above (home/end and the app/editor hotkeys) take precedence;
-        # an unbound control key still does nothing (it is not a length-1
-        # printable, so it is never inserted as text).
+        # "ctrl-<letter>" form. Explicit aliases above retain precedence.
         code = ord(ch)
         if 1 <= code <= 26:
             return f"ctrl-{chr(code + 96)}"
@@ -484,39 +480,38 @@ class TerminalDriver:
             return "alt-enter"
         if next1 != "[":
             return "esc"
+        return self._decode_csi_sequence(fd, self._read_csi_sequence(fd))
+
+    def _read_csi_sequence(self, fd: int) -> str:
+        """Read CSI parameters through the required final byte, if present."""
+
         sequence = ""
         while True:
             byte = self._read_byte_with_timeout(fd, 0.05)
             if byte == "":
                 break
             sequence += byte
-            # Stop at any CSI final byte in 0x40-0x7e. This covers the legacy
-            # finals (``A``-``F``, ``Z``=0x5a), the bracketed-paste ``~`` (0x7e),
-            # AND the kitty keyboard-protocol ``u`` (0x75) - so CSI-u sequences
-            # like ``112;6u`` (Shift+Ctrl+P) are read whole and reach the
-            # matchers below, not timed out as a bare Esc.
+            # Any CSI final byte in 0x40-0x7e closes the sequence, including
+            # legacy keys, bracketed paste (~), and kitty keyboard protocol (u).
             if "\x40" <= byte <= "\x7e":
                 break
+        return sequence
+
+    def _decode_csi_sequence(self, fd: int, sequence: str) -> str:
+        """Classify bracketed paste, modifier aliases, and legacy CSI keys."""
+
         if sequence == _BRACKETED_PASTE_START:
             self._last_paste = self._read_bracketed_paste(fd)
             return "paste"
-        # Alt-modified arrows / Enter arrive as CSI sequences with a `;3`
-        # (alt) modifier; map the ones this track binds. ``alt+up`` dequeues
-        # queued messages; ``alt+enter`` queues a follow-up.
+        # Alt-modified arrows differ in the modifier alias used by terminals.
         if sequence in {"1;3A", "1;9A"}:
             return "alt-up"
-        # Shift+Tab (CSI Z) cycles the thinking level. Shift+Ctrl+P arrives as
-        # CSI u with a ctrl+shift modifier (6) under the kitty keyboard protocol
-        # or as a modifyOtherKeys CSI ``~`` sequence under xterm. Terminals
-        # differ on whether the codepoint is the base lowercase ``p`` (112) or
-        # the shifted uppercase ``P`` (80), so accept all four forms. Legacy
-        # terminals with neither protocol cannot distinguish it from Ctrl+P and
-        # fall through to forward cycling; reverse cycling stays available via
-        # ``/scoped-models prev`` (documented limit).
         if sequence == "Z":
             return "shift-tab"
         if sequence in {"13;2u", "27;2;13~"}:
             return "shift-enter"
+        # Kitty CSI-u and xterm modifyOtherKeys may report lowercase or shifted
+        # uppercase P for Shift+Ctrl+P, so preserve all accepted forms.
         if sequence in {"112;6u", "27;6;112~", "80;6u", "27;6;80~"}:
             return "shift-ctrl-p"
         return {
