@@ -68,6 +68,14 @@ class _ComparisonPair:
     target: dict[str, Any] | None
 
 
+@dataclass(frozen=True, slots=True)
+class _ComparisonResults:
+    deltas: list[DeltaRecord]
+    viewport_deltas: list[ViewportDeltaRecord]
+    background_deltas: list[BackgroundDeltaRecord]
+    visual_region_deltas: list[BackgroundDeltaRecord]
+
+
 def compare_screen_metrics(
     *,
     reference_jsonl: Path,
@@ -87,16 +95,73 @@ def compare_screen_metrics(
     reference_records = _load_records(reference_jsonl)
     target_records = _load_records(target_jsonl)
     pairs = _comparison_pairs(reference_records, target_records)
+    comparison = _compare_frame_pairs(
+        pairs,
+        reference_label=reference_label,
+        target_label=target_label,
+        max_row_delta=max_row_delta,
+        max_column_delta=max_column_delta,
+    )
+    anomalies = _metric_anomalies(comparison.deltas)
+    anomalies.extend(_viewport_anomalies(comparison.viewport_deltas))
+    anomalies.extend(_background_anomalies(comparison.background_deltas))
+    anomalies.extend(_visual_region_anomalies(comparison.visual_region_deltas))
+
+    report = {
+        "reference_label": reference_label,
+        "target_label": target_label,
+        "reference_metrics": str(reference_jsonl),
+        "target_metrics": str(target_jsonl),
+        "compared_frames": len(pairs),
+        "delta_count": len(comparison.deltas),
+        "anomaly_count": len(anomalies),
+        "viewport_delta_count": len(comparison.viewport_deltas),
+        "final_viewport_delta_count": sum(
+            1 for delta in comparison.viewport_deltas if delta.phase == "final"
+        ),
+        "prompt_background_delta_count": len(comparison.background_deltas),
+        "final_prompt_background_delta_count": sum(
+            1 for delta in comparison.background_deltas if delta.phase == "final"
+        ),
+        "visual_region_delta_count": len(comparison.visual_region_deltas),
+        "active_visual_region_delta_count": sum(
+            1 for delta in comparison.visual_region_deltas if delta.phase == "active"
+        ),
+        "final_visual_region_delta_count": sum(
+            1 for delta in comparison.visual_region_deltas if delta.phase == "final"
+        ),
+        "max_row_delta": max_row_delta,
+        "max_column_delta": max_column_delta,
+    }
+    _write_json(out_json, [asdict(delta) for delta in comparison.deltas])
+    _write_tsv(out_tsv, comparison.deltas)
+    if viewport_json is not None:
+        _write_json(
+            viewport_json,
+            [asdict(delta) for delta in comparison.viewport_deltas],
+        )
+    if viewport_tsv is not None:
+        _write_viewport_tsv(viewport_tsv, comparison.viewport_deltas)
+    _write_anomalies(anomalies_tsv, anomalies)
+    return report
+
+
+def _compare_frame_pairs(
+    pairs: list[_ComparisonPair],
+    *,
+    reference_label: str,
+    target_label: str,
+    max_row_delta: int,
+    max_column_delta: int,
+) -> _ComparisonResults:
     deltas: list[DeltaRecord] = []
     viewport_deltas: list[ViewportDeltaRecord] = []
     background_deltas: list[BackgroundDeltaRecord] = []
     visual_region_deltas: list[BackgroundDeltaRecord] = []
-    anomalies: list[tuple[str, str, str]] = []
 
     for pair_index, pair in enumerate(pairs):
         reference = pair.reference or {}
         target = pair.target or {}
-        phase = pair.phase
         for metric in _FINDING_KEYS:
             reference_point = _finding_point(reference, metric)
             target_point = _finding_point(target, metric)
@@ -105,7 +170,7 @@ def compare_screen_metrics(
             deltas.append(
                 _delta_record(
                     frame_index=pair_index,
-                    phase=phase,
+                    phase=pair.phase,
                     metric=metric,
                     reference_label=reference_label,
                     reference_point=reference_point,
@@ -115,40 +180,20 @@ def compare_screen_metrics(
                     max_column_delta=max_column_delta,
                 )
             )
-        for metric, reference_point, target_point in (
-            (
-                "input_row",
-                _row_point(reference.get("inferred_input_row")),
-                _row_point(target.get("inferred_input_row")),
-            ),
-            (
-                "live_cursor",
-                _cursor_point(reference.get("live_cursor")),
-                _cursor_point(target.get("live_cursor")),
-            ),
-            (
-                "drawn_cursor",
-                _reverse_cursor_point(reference),
-                _reverse_cursor_point(target),
-            ),
-        ):
-            deltas.append(
-                _delta_record(
-                    frame_index=pair_index,
-                    phase=phase,
-                    metric=metric,
-                    reference_label=reference_label,
-                    reference_point=reference_point,
-                    target_label=target_label,
-                    target_point=target_point,
-                    max_row_delta=max_row_delta,
-                    max_column_delta=max_column_delta,
-                )
+        deltas.extend(
+            _standard_metric_deltas(
+                frame_index=pair_index,
+                pair=pair,
+                reference_label=reference_label,
+                target_label=target_label,
+                max_row_delta=max_row_delta,
+                max_column_delta=max_column_delta,
             )
+        )
         viewport_deltas.extend(
             _viewport_delta_records(
                 frame_index=pair_index,
-                phase=phase,
+                phase=pair.phase,
                 reference_label=reference_label,
                 reference=pair.reference,
                 target_label=target_label,
@@ -157,7 +202,7 @@ def compare_screen_metrics(
         )
         background_delta = _background_delta_record(
             frame_index=pair_index,
-            phase=phase,
+            phase=pair.phase,
             reference_label=reference_label,
             reference=pair.reference,
             target_label=target_label,
@@ -168,7 +213,7 @@ def compare_screen_metrics(
         visual_region_deltas.extend(
             _visual_region_delta_records(
                 frame_index=pair_index,
-                phase=phase,
+                phase=pair.phase,
                 reference_label=reference_label,
                 reference=pair.reference,
                 target_label=target_label,
@@ -176,6 +221,60 @@ def compare_screen_metrics(
             )
         )
 
+    return _ComparisonResults(
+        deltas,
+        viewport_deltas,
+        background_deltas,
+        visual_region_deltas,
+    )
+
+
+def _standard_metric_deltas(
+    *,
+    frame_index: int,
+    pair: _ComparisonPair,
+    reference_label: str,
+    target_label: str,
+    max_row_delta: int,
+    max_column_delta: int,
+) -> list[DeltaRecord]:
+    reference = pair.reference or {}
+    target = pair.target or {}
+    points = (
+        (
+            "input_row",
+            _row_point(reference.get("inferred_input_row")),
+            _row_point(target.get("inferred_input_row")),
+        ),
+        (
+            "live_cursor",
+            _cursor_point(reference.get("live_cursor")),
+            _cursor_point(target.get("live_cursor")),
+        ),
+        (
+            "drawn_cursor",
+            _reverse_cursor_point(reference),
+            _reverse_cursor_point(target),
+        ),
+    )
+    return [
+        _delta_record(
+            frame_index=frame_index,
+            phase=pair.phase,
+            metric=metric,
+            reference_label=reference_label,
+            reference_point=reference_point,
+            target_label=target_label,
+            target_point=target_point,
+            max_row_delta=max_row_delta,
+            max_column_delta=max_column_delta,
+        )
+        for metric, reference_point, target_point in points
+    ]
+
+
+def _metric_anomalies(deltas: list[DeltaRecord]) -> list[tuple[str, str, str]]:
+    anomalies: list[tuple[str, str, str]] = []
     for delta in deltas:
         if delta.within_tolerance is False and delta.phase == "final":
             anomalies.append(
@@ -204,102 +303,76 @@ def compare_screen_metrics(
                     f"{delta.metric} missing on one side of comparison",
                 )
             )
-    if viewport_deltas:
-        final_viewport_delta_count = sum(
-            1 for delta in viewport_deltas if delta.phase == "final"
-        )
-        if final_viewport_delta_count:
-            anomalies.append(
-                (
-                    "final",
-                    "error",
-                    f"final viewport differs on {final_viewport_delta_count} rows",
-                )
-            )
-            for viewport_delta in viewport_deltas[:20]:
-                if viewport_delta.phase != "final":
-                    continue
-                anomalies.append(
-                    (
-                        f"{viewport_delta.frame_index}:{viewport_delta.phase}",
-                        "error",
-                        (
-                            f"viewport row {viewport_delta.row} differs: "
-                            f"{viewport_delta.reference_label}="
-                            f"{viewport_delta.reference_text!r} "
-                            f"{viewport_delta.target_label}="
-                            f"{viewport_delta.target_text!r}"
-                        ),
-                    )
-                )
+    return anomalies
 
-    for background_delta in background_deltas:
-        if background_delta.phase != "final":
+
+def _viewport_anomalies(
+    viewport_deltas: list[ViewportDeltaRecord],
+) -> list[tuple[str, str, str]]:
+    anomalies: list[tuple[str, str, str]] = []
+    final_count = sum(1 for delta in viewport_deltas if delta.phase == "final")
+    if not final_count:
+        return anomalies
+    anomalies.append(
+        ("final", "error", f"final viewport differs on {final_count} rows")
+    )
+    for delta in viewport_deltas[:20]:
+        if delta.phase != "final":
             continue
         anomalies.append(
             (
-                f"{background_delta.frame_index}:{background_delta.phase}",
+                f"{delta.frame_index}:{delta.phase}",
                 "error",
                 (
-                    f"{background_delta.metric} differ: "
-                    f"{background_delta.reference_label}="
-                    f"{background_delta.reference_rows!r} "
-                    f"{background_delta.target_label}="
-                    f"{background_delta.target_rows!r}"
+                    f"viewport row {delta.row} differs: "
+                    f"{delta.reference_label}={delta.reference_text!r} "
+                    f"{delta.target_label}={delta.target_text!r}"
                 ),
             )
         )
-    for visual_delta in visual_region_deltas:
-        if visual_delta.phase not in {"active", "final"}:
+    return anomalies
+
+
+def _background_anomalies(
+    background_deltas: list[BackgroundDeltaRecord],
+) -> list[tuple[str, str, str]]:
+    anomalies: list[tuple[str, str, str]] = []
+    for delta in background_deltas:
+        if delta.phase != "final":
             continue
         anomalies.append(
             (
-                f"{visual_delta.frame_index}:{visual_delta.phase}",
+                f"{delta.frame_index}:{delta.phase}",
                 "error",
                 (
-                    f"{visual_delta.metric} differ: "
-                    f"{visual_delta.reference_label}="
-                    f"{visual_delta.reference_rows!r} "
-                    f"{visual_delta.target_label}="
-                    f"{visual_delta.target_rows!r}"
+                    f"{delta.metric} differ: "
+                    f"{delta.reference_label}={delta.reference_rows!r} "
+                    f"{delta.target_label}={delta.target_rows!r}"
                 ),
             )
         )
+    return anomalies
 
-    report = {
-        "reference_label": reference_label,
-        "target_label": target_label,
-        "reference_metrics": str(reference_jsonl),
-        "target_metrics": str(target_jsonl),
-        "compared_frames": len(pairs),
-        "delta_count": len(deltas),
-        "anomaly_count": len(anomalies),
-        "viewport_delta_count": len(viewport_deltas),
-        "final_viewport_delta_count": sum(
-            1 for delta in viewport_deltas if delta.phase == "final"
-        ),
-        "prompt_background_delta_count": len(background_deltas),
-        "final_prompt_background_delta_count": sum(
-            1 for delta in background_deltas if delta.phase == "final"
-        ),
-        "visual_region_delta_count": len(visual_region_deltas),
-        "active_visual_region_delta_count": sum(
-            1 for delta in visual_region_deltas if delta.phase == "active"
-        ),
-        "final_visual_region_delta_count": sum(
-            1 for delta in visual_region_deltas if delta.phase == "final"
-        ),
-        "max_row_delta": max_row_delta,
-        "max_column_delta": max_column_delta,
-    }
-    _write_json(out_json, [asdict(delta) for delta in deltas])
-    _write_tsv(out_tsv, deltas)
-    if viewport_json is not None:
-        _write_json(viewport_json, [asdict(delta) for delta in viewport_deltas])
-    if viewport_tsv is not None:
-        _write_viewport_tsv(viewport_tsv, viewport_deltas)
-    _write_anomalies(anomalies_tsv, anomalies)
-    return report
+
+def _visual_region_anomalies(
+    visual_region_deltas: list[BackgroundDeltaRecord],
+) -> list[tuple[str, str, str]]:
+    anomalies: list[tuple[str, str, str]] = []
+    for delta in visual_region_deltas:
+        if delta.phase not in {"active", "final"}:
+            continue
+        anomalies.append(
+            (
+                f"{delta.frame_index}:{delta.phase}",
+                "error",
+                (
+                    f"{delta.metric} differ: "
+                    f"{delta.reference_label}={delta.reference_rows!r} "
+                    f"{delta.target_label}={delta.target_rows!r}"
+                ),
+            )
+        )
+    return anomalies
 
 
 def _comparison_pairs(

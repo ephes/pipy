@@ -3535,6 +3535,33 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose resource discovery, terminal comparison, and schema validation (Slice 7.7n) — DONE (2026-07-23)
+
+Fifteenth directional C901 batch. Decompose the sole finding in
+`native.chrome.discover_loaded_resource_names`,
+`native.terminal_compare.compare_screen_metrics`, and
+`native.tools.base._validate_schema_shape` at cohesive category, comparison,
+and schema-kind boundaries. Preserve resource discovery order, trust and
+enablement semantics; metric/anomaly order and artifact bytes; and schema
+validation error type, message, and first-failure order. Add characterization
+only where those contracts are not already pinned. Each clean file leaves the
+C901 pin list. No behavior, wire/artifact shape, dependency, unchecked `Any`,
+ignore, Mypy exclusion, or new pin.
+
+Landed shape: startup chrome delegates context, skill, and directory-store
+discovery to category-specific helpers while preserving deduplication, limits,
+loader/filter parity, trust, and fail-safe behavior. Terminal comparison now
+separates per-frame delta collection from metric, viewport, prompt-background,
+and visual-region anomaly projection without changing list order or artifacts.
+Schema-shape validation dispatches to object/array/scalar validators while
+retaining key, property, recursive, required, and additional-property
+first-failure order and exact errors. All three owners are clean and their pins
+are deleted, lowering repository C901 94/37 -> 91/34 (`src` 78/28 -> 75/25).
+Focused verification passed 74 tests; final `just check` passed Ruff, Mypy, and
+4,542 tests (2 skipped); `just docs-build` completed cleanly. `src` ignores
+remain 27 and the root remains 5,206 lines. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Decompose runner, trust, and read-only policy owners (Slice 7.7m) — DONE (2026-07-23)
 
 Fourteenth directional C901 batch. Decompose the sole finding in

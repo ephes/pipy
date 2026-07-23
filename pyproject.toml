@@ -59,9 +59,11 @@ extend-select = ["C901"]
 # owners; Slice 7.7g dropped the `read`/`write`/`ls` file-tool owners; Slice
 # 7.7h dropped three typed state/package/provider leaf owners; Slice 7.7i
 # dropped the agent request/executor and resource-dispatch owners; Slice 7.7j
-# dropped the auth/fake/Vertex owners). Do not add entries to grow the baseline;
-# Slice 7.7k dropped the three-finding native request-invariant owner. Only
-# remove entries as functions are genuinely simplified below the threshold.
+# dropped the auth/fake/Vertex owners; Slice 7.7k dropped the three-finding
+# native request-invariant owner; Slices 7.7l-7.7n dropped nine more leaf
+# policy/projection/discovery/comparison/schema owners). Do not add entries to
+# grow the baseline; only remove entries as functions are genuinely simplified
+# below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
@@ -69,7 +71,6 @@ extend-select = ["C901"]
 "scripts/parity_runner.py" = ["C901"]
 "src/pipy_harness/cli.py" = ["C901"]
 "src/pipy_harness/native/_resource_files.py" = ["C901"]
-"src/pipy_harness/native/chrome.py" = ["C901"]
 "src/pipy_harness/native/coding/commands.py" = ["C901"]
 "src/pipy_harness/native/coding/session_controller.py" = ["C901"]
 "src/pipy_harness/native/editor_completion.py" = ["C901"]
@@ -81,12 +82,10 @@ extend-select = ["C901"]
 "src/pipy_harness/native/session_tree_commands.py" = ["C901"]
 "src/pipy_harness/native/session_tree.py" = ["C901"]
 "src/pipy_harness/native/session.py" = ["C901"]
-"src/pipy_harness/native/terminal_compare.py" = ["C901"]
 "src/pipy_harness/native/terminal_driver.py" = ["C901"]
 "src/pipy_harness/native/terminal_screen.py" = ["C901"]
 "src/pipy_harness/native/tool_loop_session.py" = ["C901"]
 "src/pipy_harness/native/tool_renderers.py" = ["C901"]
-"src/pipy_harness/native/tools/base.py" = ["C901"]
 "src/pipy_harness/native/tools/bash.py" = ["C901"]
 "src/pipy_harness/native/tools/edit_diff.py" = ["C901"]
 "src/pipy_harness/native/tools/edit.py" = ["C901"]

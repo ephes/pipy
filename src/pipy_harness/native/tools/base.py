@@ -392,6 +392,97 @@ def validate_arguments(
     return validated
 
 
+def _validate_object_schema_shape(schema: Mapping[str, Any]) -> None:
+    for key in schema.keys():
+        if key not in _ALLOWED_OBJECT_KEYS:
+            raise ValueError(f"Unsupported object schema key: {key!r}")
+    properties = _validate_object_properties(schema)
+    _validate_object_requirements(schema, properties)
+
+
+def _validate_object_properties(
+    schema: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    properties = schema.get("properties", {})
+    if not isinstance(properties, Mapping):
+        raise ValueError("object schema 'properties' must be a mapping")
+    for name, sub in properties.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("object property names must be non-empty strings")
+        if not isinstance(sub, Mapping):
+            raise ValueError(f"object property {name!r} schema must be a mapping")
+        _validate_schema_shape(sub, top_level=False)
+    return properties
+
+
+def _validate_object_requirements(
+    schema: Mapping[str, Any], properties: Mapping[str, Any]
+) -> None:
+    required = schema.get("required", [])
+    if not isinstance(required, list) or not all(
+        isinstance(item, str) for item in required
+    ):
+        raise ValueError("object schema 'required' must be a list of strings")
+    for required_name in required:
+        if required_name not in properties:
+            raise ValueError(
+                f"required key {required_name!r} is not declared in properties"
+            )
+    additional = schema.get("additionalProperties", False)
+    if not isinstance(additional, bool):
+        raise ValueError("object schema 'additionalProperties' must be a bool")
+
+
+def _validate_array_schema_shape(schema: Mapping[str, Any]) -> None:
+    for key in schema.keys():
+        if key not in _ALLOWED_ARRAY_KEYS:
+            raise ValueError(f"Unsupported array schema key: {key!r}")
+    items = schema.get("items")
+    if items is None:
+        raise ValueError("array schema must declare 'items'")
+    if not isinstance(items, Mapping):
+        raise ValueError("array schema 'items' must be a mapping")
+    _validate_schema_shape(items, top_level=False)
+
+
+def _validate_string_schema_shape(schema: Mapping[str, Any]) -> None:
+    for key in schema.keys():
+        if key not in _ALLOWED_STRING_KEYS:
+            raise ValueError(f"Unsupported string schema key: {key!r}")
+    enum_values = schema.get("enum")
+    if enum_values is not None:
+        if not isinstance(enum_values, list) or not all(
+            isinstance(item, str) for item in enum_values
+        ):
+            raise ValueError("string schema 'enum' must be a list of strings")
+    min_length = schema.get("minLength")
+    if min_length is not None and (
+        not isinstance(min_length, int) or min_length < 0
+    ):
+        raise ValueError("string schema 'minLength' must be a non-negative int")
+    max_length = schema.get("maxLength")
+    if max_length is not None and (
+        not isinstance(max_length, int) or max_length < 0
+    ):
+        raise ValueError("string schema 'maxLength' must be a non-negative int")
+
+
+def _validate_integer_schema_shape(schema: Mapping[str, Any]) -> None:
+    for key in schema.keys():
+        if key not in _ALLOWED_INTEGER_KEYS:
+            raise ValueError(f"Unsupported integer schema key: {key!r}")
+    for bound_key in ("minimum", "maximum"):
+        bound = schema.get(bound_key)
+        if bound is not None and not isinstance(bound, int):
+            raise ValueError(f"integer schema {bound_key!r} must be an int")
+
+
+def _validate_boolean_schema_shape(schema: Mapping[str, Any]) -> None:
+    for key in schema.keys():
+        if key not in _ALLOWED_BOOLEAN_KEYS:
+            raise ValueError(f"Unsupported boolean schema key: {key!r}")
+
+
 def _validate_schema_shape(schema: Mapping[str, Any], *, top_level: bool) -> None:
     schema_type = schema.get("type")
     if top_level and schema_type not in _ALLOWED_TOP_LEVEL_TYPES:
@@ -402,77 +493,15 @@ def _validate_schema_shape(schema: Mapping[str, Any], *, top_level: bool) -> Non
             f"allowed: {_ALLOWED_TYPES}"
         )
     if schema_type == "object":
-        for key in schema.keys():
-            if key not in _ALLOWED_OBJECT_KEYS:
-                raise ValueError(f"Unsupported object schema key: {key!r}")
-        properties = schema.get("properties", {})
-        if not isinstance(properties, Mapping):
-            raise ValueError("object schema 'properties' must be a mapping")
-        for name, sub in properties.items():
-            if not isinstance(name, str) or not name:
-                raise ValueError("object property names must be non-empty strings")
-            if not isinstance(sub, Mapping):
-                raise ValueError(f"object property {name!r} schema must be a mapping")
-            _validate_schema_shape(sub, top_level=False)
-        required = schema.get("required", [])
-        if not isinstance(required, list) or not all(
-            isinstance(item, str) for item in required
-        ):
-            raise ValueError("object schema 'required' must be a list of strings")
-        for required_name in required:
-            if required_name not in properties:
-                raise ValueError(
-                    f"required key {required_name!r} is not declared in properties"
-                )
-        additional = schema.get("additionalProperties", False)
-        if not isinstance(additional, bool):
-            raise ValueError("object schema 'additionalProperties' must be a bool")
+        _validate_object_schema_shape(schema)
     elif schema_type == "array":
-        for key in schema.keys():
-            if key not in _ALLOWED_ARRAY_KEYS:
-                raise ValueError(f"Unsupported array schema key: {key!r}")
-        items = schema.get("items")
-        if items is None:
-            raise ValueError("array schema must declare 'items'")
-        if not isinstance(items, Mapping):
-            raise ValueError("array schema 'items' must be a mapping")
-        _validate_schema_shape(items, top_level=False)
+        _validate_array_schema_shape(schema)
     elif schema_type == "string":
-        for key in schema.keys():
-            if key not in _ALLOWED_STRING_KEYS:
-                raise ValueError(f"Unsupported string schema key: {key!r}")
-        enum_values = schema.get("enum")
-        if enum_values is not None:
-            if not isinstance(enum_values, list) or not all(
-                isinstance(item, str) for item in enum_values
-            ):
-                raise ValueError(
-                    "string schema 'enum' must be a list of strings"
-                )
-        min_length = schema.get("minLength")
-        if min_length is not None and (
-            not isinstance(min_length, int) or min_length < 0
-        ):
-            raise ValueError("string schema 'minLength' must be a non-negative int")
-        max_length = schema.get("maxLength")
-        if max_length is not None and (
-            not isinstance(max_length, int) or max_length < 0
-        ):
-            raise ValueError("string schema 'maxLength' must be a non-negative int")
+        _validate_string_schema_shape(schema)
     elif schema_type == "integer":
-        for key in schema.keys():
-            if key not in _ALLOWED_INTEGER_KEYS:
-                raise ValueError(f"Unsupported integer schema key: {key!r}")
-        for bound_key in ("minimum", "maximum"):
-            bound = schema.get(bound_key)
-            if bound is not None and not isinstance(bound, int):
-                raise ValueError(
-                    f"integer schema {bound_key!r} must be an int"
-                )
+        _validate_integer_schema_shape(schema)
     elif schema_type == "boolean":
-        for key in schema.keys():
-            if key not in _ALLOWED_BOOLEAN_KEYS:
-                raise ValueError(f"Unsupported boolean schema key: {key!r}")
+        _validate_boolean_schema_shape(schema)
 
 
 def _validate_value(

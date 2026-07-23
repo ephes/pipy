@@ -671,88 +671,127 @@ def discover_loaded_resource_names(
     unaffected.
     """
 
-    names: list[str] = []
-    seen: set[str] = set()
-
-    def add(name: str) -> None:
-        if name and name not in seen:
-            seen.add(name)
-            names.append(name)
-
     home = Path.home()
     global_sources = _STARTUP_CHROME_GLOBAL_RESOURCE_SOURCES.get(category, ())
     workspace_sources = _STARTUP_CHROME_RESOURCE_SOURCES.get(category, ())
-
     if category == "context":
-        # The loader takes only the first matching candidate per
-        # directory (see `workspace_context.discover_workspace_instructions`
-        # / `_load_first_candidate`). Chrome mirrors that — without
-        # this, a case-insensitive filesystem would surface both
-        # `AGENTS.md` and `AGENTS.MD` even though they resolve to the
-        # same file and the loader only composes one of them.
-        global_label = _global_context_label(home)
-        if global_label is not None:
-            add(global_label)
-        for display in _ancestor_context_labels(cwd):
-            add(display)
-            if len(names) >= max_items:
-                return tuple(names)
-        for candidate_name in workspace_sources:
-            candidate = cwd / candidate_name
-            if not _candidate_resolves_inside(cwd, candidate):
-                continue
-            add(candidate_name)
-            break
-        return tuple(names)
-
-    if category == "skills":
-        # Honest listing: the names a user can actually load with
-        # `/skill <name>`, sourced from the same loader the dispatcher
-        # uses (workspace `.pipy/skills/*.md` then global
-        # `<config>/skills/*.md`). This supersedes the earlier
-        # display-only subdirectory scan.
-        from pipy_harness.native.resource_enablement import is_resource_enabled
-        from pipy_harness.native.skills import discover_workspace_skills
-
-        package_roots, skills_patterns, enable_skill_commands = _startup_skill_settings(
-            cwd, project_trusted=include_workspace_defaults
+        return _discover_context_resource_names(
+            cwd,
+            home=home,
+            workspace_sources=workspace_sources,
+            max_items=max_items,
         )
-        # `enableSkillCommands=false` registers no skills, so list none.
-        if not enable_skill_commands:
-            return tuple(names)
-        try:
-            skills, _ = discover_workspace_skills(
-                cwd,
-                package_roots=package_roots,
-                include_workspace_defaults=include_workspace_defaults,
-            )
-        except OSError:
-            return tuple(names)
-        for skill in skills:
-            # Mirror session registration: a `-pattern`-disabled skill is not
-            # loadable, so it must not appear as loaded in the chrome listing.
-            if skills_patterns and not is_resource_enabled(
-                skill.name, list(skills_patterns)
-            ):
-                continue
-            add(skill.name)
-            if len(names) >= max_items:
-                break
-        return tuple(names)
+    if category == "skills":
+        return _discover_skill_resource_names(
+            cwd,
+            max_items=max_items,
+            include_workspace_defaults=include_workspace_defaults,
+        )
+    return _discover_directory_resource_names(
+        cwd,
+        home=home,
+        global_sources=global_sources,
+        workspace_sources=workspace_sources,
+        max_items=max_items,
+        include_workspace_defaults=include_workspace_defaults,
+    )
 
-    # Directory-style categories (prompts, extensions): list the
-    # immediate child directory names found under each known store.
+
+def _add_resource_name(names: list[str], seen: set[str], name: str) -> None:
+    if name and name not in seen:
+        seen.add(name)
+        names.append(name)
+
+
+def _discover_context_resource_names(
+    cwd: Path,
+    *,
+    home: Path,
+    workspace_sources: tuple[str, ...],
+    max_items: int,
+) -> tuple[str, ...]:
+    names: list[str] = []
+    seen: set[str] = set()
+
+    # The loader takes only the first matching candidate per directory (see
+    # `workspace_context.discover_workspace_instructions` /
+    # `_load_first_candidate`). Chrome mirrors that — without this, a
+    # case-insensitive filesystem could surface two names for one loaded file.
+    global_label = _global_context_label(home)
+    if global_label is not None:
+        _add_resource_name(names, seen, global_label)
+    for display in _ancestor_context_labels(cwd):
+        _add_resource_name(names, seen, display)
+        if len(names) >= max_items:
+            return tuple(names)
+    for candidate_name in workspace_sources:
+        candidate = cwd / candidate_name
+        if not _candidate_resolves_inside(cwd, candidate):
+            continue
+        _add_resource_name(names, seen, candidate_name)
+        break
+    return tuple(names)
+
+
+def _discover_skill_resource_names(
+    cwd: Path,
+    *,
+    max_items: int,
+    include_workspace_defaults: bool,
+) -> tuple[str, ...]:
+    # Use the same loader and enablement filters as `/skill <name>`.
+    from pipy_harness.native.resource_enablement import is_resource_enabled
+    from pipy_harness.native.skills import discover_workspace_skills
+
+    names: list[str] = []
+    seen: set[str] = set()
+    package_roots, skills_patterns, enable_skill_commands = _startup_skill_settings(
+        cwd, project_trusted=include_workspace_defaults
+    )
+    if not enable_skill_commands:
+        return tuple(names)
+    try:
+        skills, _ = discover_workspace_skills(
+            cwd,
+            package_roots=package_roots,
+            include_workspace_defaults=include_workspace_defaults,
+        )
+    except OSError:
+        return tuple(names)
+    for skill in skills:
+        if skills_patterns and not is_resource_enabled(
+            skill.name, list(skills_patterns)
+        ):
+            continue
+        _add_resource_name(names, seen, skill.name)
+        if len(names) >= max_items:
+            break
+    return tuple(names)
+
+
+def _discover_directory_resource_names(
+    cwd: Path,
+    *,
+    home: Path,
+    global_sources: tuple[str, ...],
+    workspace_sources: tuple[str, ...],
+    max_items: int,
+    include_workspace_defaults: bool,
+) -> tuple[str, ...]:
+    names: list[str] = []
+    seen: set[str] = set()
+
     for source in global_sources:
         global_dir, _display = _global_candidate_path(source, home)
         for entry_name in _directory_entry_names(global_dir):
-            add(entry_name)
+            _add_resource_name(names, seen, entry_name)
             if len(names) >= max_items:
                 return tuple(names)
     if include_workspace_defaults:
         for source in workspace_sources:
             workspace_dir = cwd / source
             for entry_name in _directory_entry_names(workspace_dir):
-                add(entry_name)
+                _add_resource_name(names, seen, entry_name)
                 if len(names) >= max_items:
                     return tuple(names)
     return tuple(names)
