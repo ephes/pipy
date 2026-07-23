@@ -140,6 +140,19 @@ def test_ls_tool_truncates_with_deterministic_marker(tmp_path: Path):
     assert result.output_text.count("file f") == 3
 
 
+def test_ls_tool_filters_ignored_children_before_row_cap(tmp_path: Path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "a.txt").write_text("a", encoding="utf-8")
+    (tmp_path / "z.txt").write_text("z", encoding="utf-8")
+    tool = LsTool(max_entries=1)
+    context = ToolContext(workspace_root=tmp_path)
+
+    result = tool.invoke(_make_request({"path": "."}), context)
+
+    assert result.is_error is False
+    assert result.output_text == f"file a.txt\n{TRUNCATION_MARKER}"
+
+
 def test_ls_tool_empty_directory_reports_safely(tmp_path: Path):
     (tmp_path / "empty").mkdir()
     tool = LsTool()

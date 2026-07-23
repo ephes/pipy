@@ -120,6 +120,17 @@ def test_write_tool_refuses_parent_traversal(tmp_path: Path):
         tool.invoke(request, context)
 
 
+def test_write_tool_validates_path_before_content_type(tmp_path: Path):
+    tool = WriteTool()
+    context = ToolContext(workspace_root=tmp_path)
+    request = _make_request({"path": "../escape.txt", "content": 7})
+
+    with pytest.raises(ToolArgumentError) as info:
+        tool.invoke(request, context)
+
+    assert info.value.field_path == ("path",)
+
+
 def test_write_tool_refuses_missing_parent_directory(tmp_path: Path):
     tool = WriteTool()
     context = ToolContext(workspace_root=tmp_path)
@@ -176,8 +187,7 @@ def test_write_tool_does_not_invoke_archive_recorder(tmp_path: Path, monkeypatch
 
 def test_write_tool_source_does_not_import_recorder():
     source = (
-        Path(__file__).parents[1]
-        / "src/pipy_harness/native/tools/write.py"
+        Path(__file__).parents[1] / "src/pipy_harness/native/tools/write.py"
     ).read_text(encoding="utf-8")
 
     assert "import pipy_session" not in source

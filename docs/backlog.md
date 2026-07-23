@@ -3166,6 +3166,33 @@ final `just check` passed Ruff, Mypy, and 4,515 tests (2 skipped);
 `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
 0 findings, explicit CLEAN.
 
+### C901 core file-tool decomposition (Slice 7.7g) — DONE (2026-07-23)
+
+Eighth directional complexity batch. Remove the sole finding from each of the
+strictly bounded `read`, `write`, and `ls` tool owners by separating target
+resolution/preflight, filesystem read/write/list execution, content/child
+validation, and result formatting. Preserve ToolArgumentError vs error-result
+boundaries, exact first-failure order/messages, workspace/reference-root and
+ignore/symlink policy, read privacy checks and truncation, create-only write
+and diff emission, deterministic listing/filter/order/truncation, and provider
+correlation. Every clean file leaves the pin list. No tool schema/policy,
+archive, behavior, dependency, unchecked `Any`, `type: ignore`, Mypy
+exclusion, or new pin.
+
+Landed shape: `ReadTool` separates path resolution, target preflight,
+stat/read, content validation, and line-before-byte excerpting; `WriteTool`
+separates path/content argument validation, ordered destination preflight,
+filesystem mutation, and post-success diff streaming; `LsTool` separates
+target resolution, sorted listing, child visibility/containment, type
+classification, row capping, and output formatting. Typed local target/failure
+values preserve ToolArgumentError vs provider-visible error results. New tests
+pin UTF-8 truncation order, path-before-content validation, and ignored-child
+filtering before the row cap. All three owners are C901-clean and leave the pin
+list, lowering repository C901 116/56 -> 113/53 (`src` 100/47 -> 97/44).
+Focused verification passed 61 tests; final `just check` passed Ruff, Mypy, and
+4,518 tests (2 skipped); `just docs-build` reported no issues. Review: Pi
+GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

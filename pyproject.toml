@@ -56,8 +56,9 @@ extend-select = ["C901"]
 # dropped the six-finding extension runtime owner; Slice 7.7e1 retired four of
 # eight findings in the Codex provider owner; Slice 7.7e2 dropped its remaining
 # four findings and pin; Slice 7.7f dropped three workspace/pure-UI leaf
-# owners). Do not add entries to grow the baseline; only remove them as
-# functions are genuinely simplified below the threshold.
+# owners; Slice 7.7g dropped the `read`/`write`/`ls` file-tool owners). Do not
+# add entries to grow the baseline; only remove them as functions are genuinely
+# simplified below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
@@ -103,9 +104,6 @@ extend-select = ["C901"]
 "src/pipy_harness/native/tools/edit.py" = ["C901"]
 "src/pipy_harness/native/tools/find.py" = ["C901"]
 "src/pipy_harness/native/tools/grep.py" = ["C901"]
-"src/pipy_harness/native/tools/ls.py" = ["C901"]
-"src/pipy_harness/native/tools/read.py" = ["C901"]
-"src/pipy_harness/native/tools/write.py" = ["C901"]
 "src/pipy_harness/native/tui.py" = ["C901"]
 "src/pipy_harness/runner.py" = ["C901"]
 "src/pipy_session/catalog.py" = ["C901"]

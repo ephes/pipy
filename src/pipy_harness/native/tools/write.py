@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import difflib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import ClassVar
 
 from pipy_harness.native.read_only_tool import (
@@ -28,6 +29,16 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolRequest,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _WriteFailure:
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class _WriteTarget:
+    candidate: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,8 +86,7 @@ class WriteTool:
                         "type": "string",
                         "maxLength": self.max_content_bytes,
                         "description": (
-                            "UTF-8 file content. Empty strings create an "
-                            "empty file."
+                            "UTF-8 file content. Empty strings create an empty file."
                         ),
                     },
                 },
@@ -85,17 +95,10 @@ class WriteTool:
             },
         )
 
-    def invoke(
-        self, request: ToolRequest, context: ToolContext
-    ) -> ToolExecutionResult:
-        path_arg = request.arguments["path"]
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        path_value = request.arguments["path"]
         content = request.arguments["content"]
-        try:
-            _validate_workspace_relative_path(path_arg)
-        except ValueError as exc:
-            raise ToolArgumentError(
-                "write", str(exc), field_path=("path",)
-            ) from None
+        path_arg = self._validated_path_argument(path_value)
         if not isinstance(content, str):
             raise ToolArgumentError(
                 "write",
@@ -103,50 +106,74 @@ class WriteTool:
                 field_path=("content",),
             )
 
-        workspace = context.workspace_root.resolve()
-        candidate = (workspace / path_arg).resolve()
-        if not _is_relative_to(candidate, workspace):
-            return self._error(request, "path escapes the workspace")
-        resolved_label = _resolved_relative_label(candidate, workspace)
-        if resolved_label is None:
-            return self._error(request, "path escapes the workspace")
-        if _is_ignored_or_generated(
-            path_arg, workspace
-        ) or _is_ignored_or_generated(resolved_label, workspace):
-            return self._error(
-                request,
-                "path is ignored or under .git/generated directories",
-            )
-        if candidate.exists():
-            return self._error(request, "file already exists")
-        parent = candidate.parent
-        if not parent.exists():
-            return self._error(request, "parent directory does not exist")
-        if not parent.is_dir():
-            return self._error(request, "parent is not a directory")
-        parent_label = _resolved_relative_label(parent.resolve(), workspace)
-        if parent_label is None:
-            return self._error(request, "parent directory escapes the workspace")
-        if parent_label and _is_ignored_or_generated(parent_label, workspace):
-            return self._error(
-                request,
-                "parent directory is ignored or under .git/generated directories",
-            )
+        target = self._resolve_target(path_arg, context.workspace_root)
+        if isinstance(target, _WriteFailure):
+            return self._error(request, target.message)
 
-        try:
-            candidate.write_text(content, encoding="utf-8")
-        except OSError as exc:
-            return self._error(request, f"failed to write file: {exc}")
+        write_failure = self._write_content(target.candidate, content)
+        if write_failure is not None:
+            return self._error(request, write_failure.message)
 
-        diff_text = self._unified_diff(path_arg=path_arg, new_content=content)
-        if context.stderr_sink is not None and diff_text:
-            context.stderr_sink(diff_text)
-
+        self._stream_diff(path_arg, content, context)
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
             output_text=f"wrote {path_arg} ({len(content.encode('utf-8'))} bytes)",
             provider_correlation_id=request.provider_correlation_id,
         )
+
+    @staticmethod
+    def _validated_path_argument(path_arg: object) -> str:
+        try:
+            if not isinstance(path_arg, str):
+                raise ValueError("workspace_relative_path must be a string")
+            _validate_workspace_relative_path(path_arg)
+        except ValueError as exc:
+            raise ToolArgumentError("write", str(exc), field_path=("path",)) from None
+        return path_arg
+
+    @staticmethod
+    def _resolve_target(
+        path_arg: str, workspace_root: Path
+    ) -> _WriteTarget | _WriteFailure:
+        workspace = workspace_root.resolve()
+        candidate = (workspace / path_arg).resolve()
+        if not _is_relative_to(candidate, workspace):
+            return _WriteFailure("path escapes the workspace")
+        resolved_label = _resolved_relative_label(candidate, workspace)
+        if resolved_label is None:
+            return _WriteFailure("path escapes the workspace")
+        if _is_ignored_or_generated(path_arg, workspace) or _is_ignored_or_generated(
+            resolved_label, workspace
+        ):
+            return _WriteFailure("path is ignored or under .git/generated directories")
+        if candidate.exists():
+            return _WriteFailure("file already exists")
+        parent = candidate.parent
+        if not parent.exists():
+            return _WriteFailure("parent directory does not exist")
+        if not parent.is_dir():
+            return _WriteFailure("parent is not a directory")
+        parent_label = _resolved_relative_label(parent.resolve(), workspace)
+        if parent_label is None:
+            return _WriteFailure("parent directory escapes the workspace")
+        if parent_label and _is_ignored_or_generated(parent_label, workspace):
+            return _WriteFailure(
+                "parent directory is ignored or under .git/generated directories"
+            )
+        return _WriteTarget(candidate=candidate)
+
+    @staticmethod
+    def _write_content(candidate: Path, content: str) -> _WriteFailure | None:
+        try:
+            candidate.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            return _WriteFailure(f"failed to write file: {exc}")
+        return None
+
+    def _stream_diff(self, path_arg: str, content: str, context: ToolContext) -> None:
+        diff_text = self._unified_diff(path_arg=path_arg, new_content=content)
+        if context.stderr_sink is not None and diff_text:
+            context.stderr_sink(diff_text)
 
     @staticmethod
     def _unified_diff(*, path_arg: str, new_content: str) -> str:

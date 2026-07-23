@@ -198,7 +198,9 @@ def test_read_tool_truncates_to_byte_limit(tmp_path: Path):
 
 def test_read_tool_truncates_to_line_limit(tmp_path: Path):
     target = tmp_path / "multi.txt"
-    target.write_text("\n".join(f"line {i}" for i in range(50)) + "\n", encoding="utf-8")
+    target.write_text(
+        "\n".join(f"line {i}" for i in range(50)) + "\n", encoding="utf-8"
+    )
     tool = ReadTool(byte_limit=4096, line_limit=5)
     context = ToolContext(workspace_root=tmp_path)
     request = _make_request({"path": "multi.txt"})
@@ -207,6 +209,21 @@ def test_read_tool_truncates_to_line_limit(tmp_path: Path):
 
     assert result.is_error is False
     assert result.output_text.count("\n") <= 5
+
+
+def test_read_tool_applies_line_limit_then_keeps_utf8_boundary(tmp_path: Path):
+    target = tmp_path / "unicode.txt"
+    target.write_text("éé\nlater\n", encoding="utf-8")
+    context = ToolContext(workspace_root=tmp_path)
+    request = _make_request({"path": "unicode.txt"})
+
+    line_limited = ReadTool(byte_limit=6, line_limit=1).invoke(request, context)
+    byte_limited = ReadTool(byte_limit=3, line_limit=2).invoke(request, context)
+
+    assert line_limited.is_error is False
+    assert line_limited.output_text == "éé\n"
+    assert byte_limited.is_error is False
+    assert byte_limited.output_text == "é"
 
 
 def test_read_tool_rejects_invalid_limits():

@@ -16,11 +16,13 @@ not the provider-visible output text.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import ClassVar
 
 from pipy_harness.native.read_only_tool import (
     _CONTROL_CHARS,
     _is_ignored_or_generated,
+    ResolvedToolPath,
     has_secret_shaped_content,
     resolve_tool_path,
 )
@@ -31,6 +33,11 @@ from pipy_harness.native.tools.base import (
     ToolExecutionResult,
     ToolRequest,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _ReadFailure:
+    message: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,66 +104,87 @@ class ReadTool:
             },
         )
 
-    def invoke(
-        self, request: ToolRequest, context: ToolContext
-    ) -> ToolExecutionResult:
-        path_arg = request.arguments["path"]
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        resolved = self._resolve_target(request.arguments["path"], context)
+        if isinstance(resolved, _ReadFailure):
+            return self._error(request, resolved.message)
+
+        target_failure = self._validate_target(resolved)
+        if target_failure is not None:
+            return self._error(request, target_failure.message)
+
+        loaded = self._read_bytes(resolved.resolved)
+        if isinstance(loaded, _ReadFailure):
+            return self._error(request, loaded.message)
+
+        text = self._validate_content(loaded)
+        if isinstance(text, _ReadFailure):
+            return self._error(request, text.message)
+
+        return ToolExecutionResult(
+            tool_request_id=request.tool_request_id,
+            output_text=self._excerpt(text),
+            provider_correlation_id=request.provider_correlation_id,
+        )
+
+    @staticmethod
+    def _resolve_target(
+        path_arg: object, context: ToolContext
+    ) -> ResolvedToolPath | _ReadFailure:
         try:
+            if not isinstance(path_arg, str):
+                raise ValueError("path must be a string")
             resolved = resolve_tool_path(
                 path_arg,
                 workspace_root=context.workspace_root,
                 reference_roots=context.reference_roots,
             )
         except ValueError as exc:
-            raise ToolArgumentError(
-                "read", str(exc), field_path=("path",)
-            ) from None
+            raise ToolArgumentError("read", str(exc), field_path=("path",)) from None
+        if _is_ignored_or_generated(resolved.relative_label, resolved.root):
+            return _ReadFailure("path is ignored or under .git/generated directories")
+        return resolved
 
+    @staticmethod
+    def _validate_target(resolved: ResolvedToolPath) -> _ReadFailure | None:
         candidate = resolved.resolved
-        if _is_ignored_or_generated(
-            resolved.relative_label, resolved.root
-        ):
-            return self._error(
-                request,
-                "path is ignored or under .git/generated directories",
-            )
         if not candidate.exists():
-            return self._error(request, "file does not exist")
+            return _ReadFailure("file does not exist")
         if not candidate.is_file():
-            return self._error(request, "path is not a regular file")
+            return _ReadFailure("path is not a regular file")
+        return None
+
+    def _read_bytes(self, candidate: Path) -> bytes | _ReadFailure:
         try:
             if candidate.stat().st_size > self.MAX_CONTENT_BYTES:
-                return self._error(request, "file exceeds max_content_bytes")
+                return _ReadFailure("file exceeds max_content_bytes")
         except OSError as exc:
-            return self._error(request, f"failed to stat file: {exc}")
+            return _ReadFailure(f"failed to stat file: {exc}")
         try:
-            raw = candidate.read_bytes()
+            return candidate.read_bytes()
         except OSError as exc:
-            return self._error(request, f"failed to read file: {exc}")
+            return _ReadFailure(f"failed to read file: {exc}")
+
+    def _validate_content(self, raw: bytes) -> str | _ReadFailure:
         if b"\0" in raw[: self.byte_limit + 1]:
-            return self._error(request, "binary content detected")
+            return _ReadFailure("binary content detected")
         try:
             text = raw.decode("utf-8")
         except UnicodeDecodeError:
-            return self._error(request, "non-UTF-8 content")
+            return _ReadFailure("non-UTF-8 content")
         if any(char in _CONTROL_CHARS for char in text):
-            return self._error(request, "binary content detected")
+            return _ReadFailure("binary content detected")
         if has_secret_shaped_content(text):
-            return self._error(request, "secret-looking content detected")
+            return _ReadFailure("secret-looking content detected")
+        return text
 
+    def _excerpt(self, text: str) -> str:
         lines = text.splitlines(keepends=True)
         truncated_text = "".join(lines[: self.line_limit])
         encoded = truncated_text.encode("utf-8")
         if len(encoded) > self.byte_limit:
-            truncated_text = encoded[: self.byte_limit].decode(
-                "utf-8", errors="ignore"
-            )
-
-        return ToolExecutionResult(
-            tool_request_id=request.tool_request_id,
-            output_text=truncated_text,
-            provider_correlation_id=request.provider_correlation_id,
-        )
+            return encoded[: self.byte_limit].decode("utf-8", errors="ignore")
+        return truncated_text
 
     def _error(self, request: ToolRequest, message: str) -> ToolExecutionResult:
         return ToolExecutionResult(
