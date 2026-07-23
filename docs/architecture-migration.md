@@ -4932,6 +4932,15 @@ The default sequence is:
 | 7.7m (decompose runner, trust, and read-only policy owners) | This commit — `refactor: decompose runner trust and read policies` | Fourteenth directional C901 batch. `HarnessRunner.run` preserves its original straight-line lifecycle and locals, extracting only terminal status -> completion-event selection; a strengthened clock characterization pins every event timestamp, completion duration, Markdown end time, final duration, finalized-event time, and total call count. `resolve_project_trust` delegates the extension-decision/optional-remember, shared store-error, and UI-selection rungs while preserving override -> no-resources -> extension -> saved -> default -> UI -> headless precedence, diagnostic timing, atomic option updates, fail-closed store errors, and winning source/evidence. `NativeExplicitFileExcerptTool.invoke` uses typed path/stat/bounds preflight and content-read values before the same result builder, preserving request/approval, containment/generated/existence/shape/stat, pre-read bounds, read/binary/encoding/control/secret, and post-read byte/line first-failure order. The first implementation wrapper hung after leaving an overbroad runner lifecycle state-machine and formatter churn; coordinator inspection rejected that shape and the recovery restored the straight-line owner before applying the minimal helpers. New tests pin extension remember-write failure before saved/UI fallback and generated-target rejection before missing-file shape. All three owners are clean and their pins are deleted, lowering repository C901 98/40 -> 95/37 (`src` 82/31 -> 79/28). No runner/archive, privacy/trust, read-only policy/result, public API, dependency, unchecked `Any`, ignore, Mypy exclusion, or new pin changes. Focused verification passed 101 tests; final `just check` passed Ruff, Mypy, and 4,537 tests (2 skipped). `src` `type: ignore` remains 28 and the root remains 5,382 physical lines. Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN. |
 | 7.5m (relocate the session-tree command adapter) | This commit — `refactor: relocate session tree command adapter` | Thirteenth composition-root slimming cut. `TreeCommandOutcome`, branch-summary switching, and captured `/tree` show/select/label/filter/unknown dispatch move into `native.session_tree_commands`, which already owns selection, rendering, filtering, and entry-reference semantics. The owner accepts only diagnostic and optional interactive-selector callbacks and gains an architecture rule forbidding root/TUI imports. The root retains `_run_interactive_tree_selector` and a thin `_handle_tree_command` wrapper that supplies the callback only when the terminal supports it; the superseded root outcome, summary, and captured dispatcher bodies are deleted with no alias. Moved select/label/filter/show logic is decomposed by real subcommand semantics, so no finding moves into the already-pinned owner and the root's `_handle_tree_command` C901 finding disappears. Typing the selected value as the existing `SessionEntry` union removes the old `attr-defined` ignore. No-argument routing, tree/help diagnostic bytes/order, ref/filter resolution, last summarize-token/focus behavior, abandoned-branch attachment, cancellation/no-op, mutation/rebuild timing, user prefill, and label/filter/unknown results are unchanged. Five owner characterizations pin captured diagnostics, selection/prefill/rebuild, summary cancellation/success, label/filter, and interactive callback routing. The root shrinks 5,382 -> 5,206 physical lines; repository C901 falls 95/37 -> 94/37 (`src` 79/28 -> 78/28); `src` `type: ignore` falls 28 -> 27. No TUI/session format/provider summary/public CLI behavior, dependency, unchecked `Any`, new ignore, Mypy exclusion, or C901 pin change. Focused verification passed 231 tests; final `just check` passed Ruff, Mypy, and 4,542 tests (2 skipped). Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN. |
 
+| 7.7n (decompose discovery, comparison, and schema leaves) | `bab27e0` — `refactor: decompose discovery comparison and schemas` | Startup resource discovery, terminal comparison, and JSON-schema kind validation split at their existing category/delta/anomaly and schema-kind phases. Three clean owners left the pin list, taking repository C901 94/37 -> 91/34 (`src` 78/28 -> 75/25). Focused verification passed 74 tests; final `just check` passed 4,542 tests (2 skipped), docs built cleanly, and Pi review was CLEAN in one round with zero findings. |
+| 7.5n (relocate status, history, and render helpers) | `d588915` — `refactor: relocate status and render helpers` | Context budget/effort/cwd status projections moved to `native.chrome`, the count-only compaction summary moved to `native.agent.history`, and captured/TUI render-sink selection moved to `native.tool_renderers`. Superseded root definitions were deleted; the composition root shrank 5,206 -> 5,080 lines. Pi round one found one stale private root-path exposure; all owner references were fixed together and round two was CLEAN. Final `just check` passed 4,543 tests (2 skipped) and docs built cleanly. |
+| 7.7o–7.7q (decompose concrete tools and terminal input/screen owners) | `68af6d2`, `35650cb`, `a1fb71a` | Bash/edit/find phases, terminal-screen CSI/anomaly/region phases, and REPL-input action/key/backend/completion phases were extracted without changing command, terminal, or completion behavior. Five owner pins were deleted across the three commits, lowering repository C901 91/34 -> 80/29 (`src` 75/25 -> 64/20). Focused verification passed 50, 12, and 75 tests; every `just check`/docs build was green and each Pi primary review was CLEAN in one round with zero findings. |
+| 7.7r–7.7t (decompose model/discovery/render/tool owners) | `d6fa8e7`, `c2a2be2`, `92b9a12` | Command/model resolution, editor/extension discovery, tool rendering, edit-diff, and grep split at genuine resolution, inventory, fail-soft render, parse/hunk, and backend/projection boundaries. Eight owner pins were deleted, lowering repository C901 80/29 -> 59/21 (`src` 64/20 -> 43/12). Focused verification passed 295, 102, and 93 tests; final gates stayed green at up to 4,580 tests (2 skipped), docs built cleanly, and each Pi primary review was CLEAN in one round with zero findings. |
+| 7.7u (decompose native session policy and reconstruction) | `9219559` — `refactor: decompose native session policy` | Native tool/follow-up/patch orchestration, intent/fixture/privacy validation, session entry decoding/context reconstruction, and tree preview/startup resolution split along existing policy phases. Three owner pins were deleted, lowering repository C901 59/21 -> 51/18 (`src` 43/12 -> 35/9). Focused verification passed 156 tests; final `just check` passed 4,580 tests (2 skipped), docs built cleanly, and Pi review was CLEAN in one round with zero findings. |
+| 7.7v (decompose coding-session and provider construction control) | `16b0608` — `refactor: decompose coding and provider control` | Closed loop-step validation, lifecycle/command routing, thinking-format resolution, and authenticated API-family construction split while the architecture-enforced literal loop stayed in `CodingSessionController.run_loop`. Two pins were deleted, lowering repository C901 51/18 -> 46/16 (`src` 35/9 -> 30/7). Pi round one found a mapped non-reasoning fallback wire-shape regression across five formats; a parameterized regression restored it and round two was CLEAN. Final `just check` passed 4,585 tests (2 skipped) and docs built cleanly. |
+| 7.7w (reach the directional sub-40 C901 target) | `92b1f26` — `refactor: decompose resource and catalog flows` | Resource source/candidate/load/frontmatter phases, terminal control/CSI decoding, and archive verification/resolution/summary-safe search split without weakening containment, cap, terminal, or archive-privacy behavior. Three pins were deleted, lowering repository C901 46/16 -> 39/13 (`src` 30/7 -> 23/4) and meeting the directional target. Focused verification passed 128 tests; final `just check` passed 4,585 tests (2 skipped), docs built cleanly, and Pi review was CLEAN in one round with zero findings. |
+| 7.8a (remove and justify source typing suppressions) | `52daff0` — `refactor: replace source typing suppressions` | Concrete session-entry generics, typed awaitable/error transport, trust literals, the existing custom-component protocol, explicit model replacements, shared JSON-client injection, and bounded stdlib connection types reduced `src` `type: ignore` 27 -> 1 (32 -> 1 over the full follow-on). The sole survivor is the runtime-selected stdlib connection subclass and has its specific Mypy limitation and runtime safety stated immediately beside it. Focused verification passed 315 tests; final `just check` passed 4,585 tests (2 skipped), docs built cleanly, and Pi review was CLEAN in one round with zero findings. |
+
 The earlier code-quality audit remains evidence, with this mapping:
 
 - **CQ-B (provider consolidation):** Phase 5.
@@ -5017,32 +5026,62 @@ the baseline is the canonical event seam, because it gives the agent loop, UI,
 automation, persistence, and extensions one explicit contract to migrate
 against.
 
-### Phase 7 disposition (2026-07-23)
+### Phase 7 disposition (final refresh 2026-07-23)
 
-With Slices 7.1–7.4 landed, the structural completion criteria are met and the
-two baseline-reduction criteria are on a gated, honestly-recorded downward path:
+The architecture migration and its four-track quality follow-on are complete
+within the recorded scope. Every implementation slice passed focused tests,
+`just check`, `just docs-build`, and an explicit CLEAN Pi gate before commit.
+The final full gate runs 4,585 tests green (2 skipped).
 
-- **Deterministic CI suite** — met; `just check` runs 4,509 tests green.
-- **Headless core agent loop / no UI imports in agent+provider layers /
-  headless commands and coding-session transitions** — met by Phases 3–6 and
-  guarded by the import-boundary tests.
-- **Golden JSON/RPC/session/extension contracts** — met and still green; Phase 7
-  changed no wire, session, or extension surface.
-- **`run()` is composition** — met at Phase 3.1 acceptance.
-- **Catalog-driven provider construction / protocol-family de-duplication** —
-  met at Phase 5.
-- **Extensions exercised through a fake host** — met at Phase 6.
-- **Inline TUI + privacy/trust PTY/conformance gates green** — met and
-  unchanged.
-- **Complexity and unchecked-type baselines materially declined without
-  weakening behavior** — *in progress, now gated.* Strict Mypy covers the four
-  leaf packages plus `native.providers`/`native.http` (Slices 7.2–7.3); Ruff
-  C901 is gated at a pinned, burn-down baseline (Slice 7.4). Current standing:
-  142 C901 findings (down from 144) and 32 `src` `type: ignore` uses. The
-  end-state targets (fewer than 40 C901 findings, fewer than 30 justified
-  `type: ignore`, no extreme-complexity critical path) remain **directional**:
-  they are deliberately not forced in a single slice — cosmetic splitting to hit
-  a number is a non-goal — and are burned down in later measured steps that each
-  decompose genuinely separable functions and extend the strict frontier to the
-  heavier-debt root `native/` modules (`session.py`, `extensions.py`,
-  `tool_loop_session.py`). No slice may raise either baseline.
+- **Structural criteria** — met. The headless agent/coding boundaries,
+  catalog-driven provider construction, fake extension host, golden
+  JSON/RPC/session/extension contracts, inline TUI, and privacy/trust gates
+  remain green. No follow-on slice changed a public wire, session, extension,
+  provider-request, event-ordering, or TUI contract.
+- **C901 ratchet** — target met. Repository Ruff C901 falls 142 findings /
+  70 pinned files -> 39 / 13; `src` falls 126 / 61 -> 23 / 4. Every owner that
+  became clean left the pin list, and no pin was added. The 39 residual
+  findings are: 23 source findings in the top-level CLI (5), composition root
+  (4), TUI state machines (13), and `pipy-session` CLI (1); plus 16 findings
+  across two executable examples (3), three parity/conformance scripts (9),
+  and four branch-heavy invariant tests (4). These remain pinned rather than
+  cosmetically split: the source functions are cross-boundary orchestration or
+  terminal/CLI state machines, while the script/example/test findings encode
+  sequential checks. Further reduction needs a separately justified behavior
+  or ownership slice, not helper-count gaming.
+- **Strict Mypy frontier** — requested target met. The enumerated
+  `--strict`-equivalent override now covers the four leaf packages,
+  `native.providers.*`, `native.http`, and each named root frontier module:
+  `session`, `extensions`, `repl_state`, top-level `cli`,
+  `tool_loop_session`, and `tui`. The repository default intentionally remains
+  non-strict; this disposition does not claim an unrequested repo-wide strict
+  flip. Per-module `strict = true` remains prohibited because Mypy applies it
+  globally; the explicit sub-flags preserve the scoped gate.
+- **Typing suppressions** — target exceeded. `src` `type: ignore` falls
+  32 -> 1. The sole survivor is the runtime-selected subclass declaration in
+  `native.http._registering_connection`; Mypy cannot express subclassing that
+  bounded runtime class. Its adjacent comment records the limitation and the
+  safety argument: the base is bounded to `HTTPConnection`, only `connect` is
+  overridden, and the same concrete connection family is returned.
+- **Composition root** — materially slimmed. `native/tool_loop_session.py`
+  falls 7,626 -> 5,085 physical lines (2,541 lines, 33.3%). Concrete UI,
+  rendering, extension, provider-turn, session-tree, status/history, and
+  tool-result adapters/helpers moved to their existing owners with the
+  superseded root definitions deleted in the same slice. The remaining
+  `_RunControlState`, `_BuiltinCommandInterpreter`, `_ProviderMutationEffects`,
+  `_ReplLoopStep`, and `_SessionCollaborators` are cross-boundary composition
+  state/coordinators, not misplaced boundary adapters; forcing them into one
+  dependency owner would reopen the completed architecture design.
+- **No extreme-complexity critical path** — not met; explicitly deferred.
+  The aggregate target and adapter-relocation scope are complete, but the root
+  still contains `interpret` at complexity 97 and `step_once`/`run` at 43;
+  TUI/CLI state machines include `read_line` at 44,
+  `wait_for_active_turn_interrupt` at 35, `_styled_line` at 29, and both CLI
+  `main` functions at 28. Honest reduction of those orchestration/state-machine
+  paths requires separately scoped behavior or ownership work with dedicated
+  characterization; this follow-on does not claim that end-state.
+
+The four user-scoped burn-down tracks are complete; the original broader
+no-extreme-complexity end-state remains an explicit residual risk. The
+repository is below 40, the ratchet prevents regression, and this effort
+intentionally preferred honest ownership over cosmetic decomposition.

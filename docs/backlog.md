@@ -3535,6 +3535,31 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Close the Phase 7 quality burn-down disposition (Slice 7.8b) — DONE (2026-07-23)
+
+Final coordinator-owned documentation slice. Refresh the Phase 7 disposition
+and ledger with the measured end state; close the four-track burn-down without
+claiming that the repository default is strict or that residual cross-boundary
+or TUI state machines are honestly decomposable inside this scope. Record the
+remaining C901 pins and one stdlib typing suppression with their rationale,
+the completed requested strict-root frontier, and the composition-root
+reduction. No production, configuration, test, behavior, or ratchet change.
+
+Landed disposition: repository C901 closes at 39 findings / 13 pinned files
+from 142/70 (`src` 23/4 from 126/61); the requested strict frontier covers all
+six named root modules in addition to the strict leaf/provider/HTTP areas;
+`src` `type: ignore` closes at 1 from 32 with its stdlib dynamic-subclass
+limitation justified adjacent to the line; and the composition root closes at
+5,085 physical lines from 7,626 (2,541 lines / 33.3% smaller). The architecture
+ledger records the missing follow-on rows, the residual pin categories, the
+scope distinction between the completed strict-root frontier and a repo-wide
+strict flip, the remaining cross-boundary composition coordinators, and the
+original no-extreme-complexity end-state as explicitly deferred residual risk.
+No production/configuration/test change.
+Final `just check` passed Ruff, Mypy, and 4,585 tests (2 skipped);
+`just docs-build` completed cleanly. Review: Pi GPT-5.6 Sol, 2 rounds,
+1 finding fixed, explicit CLEAN.
+
 ### Remove and justify the remaining source typing suppressions (Slice 7.8a) — DONE (2026-07-23)
 
 Final `src` `type: ignore` sweep. Replace suppressions with real typing where
@@ -3560,7 +3585,8 @@ subclass declaration, immediately justified as a Mypy limitation with the
 runtime bound and override safety stated beside it. `src` `type: ignore` falls
 27 -> 1. Focused verification passed 315 tests; final `just check` passed Ruff,
 Mypy, and 4,585 tests (2 skipped); `just docs-build` completed cleanly.
-Repository C901 remains 39/13 (`src` 23/4) and the root remains 5,080 lines.
+Repository C901 remains 39/13 (`src` 23/4) and the root is 5,085 lines after
+the literal trust-value typing expanded its declaration by five physical lines.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
 ### Decompose resource discovery, terminal decoding, and archive catalog (Slice 7.7w) — DONE (2026-07-23)
