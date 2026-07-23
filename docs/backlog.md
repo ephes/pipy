@@ -3535,6 +3535,34 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose REPL input editor and backend selection (Slice 7.7q) — DONE (2026-07-23)
+
+Eighteenth directional C901 batch. Decompose the four findings in
+`native.repl_input`: slash-menu editor key dispatch, escape/control key
+decoding, explicit/automatic backend construction, and safe workspace path
+completion. Preserve terminal state restoration, render/finalize/return and
+exception order, all byte-sequence mappings and bounded reads, explicit
+runtime errors versus automatic fail-soft fallback precedence, and completion
+sort/containment/ignore/type-label behavior. Add focused characterization for
+dispatch and fallback precedence where not already pinned. The clean file
+leaves the C901 pin list. No behavior, TTY/output/completion shape, dependency,
+unchecked `Any`, ignore, Mypy exclusion, or new pin.
+
+Landed shape: the slash-menu editor separates raw-mode setup, read-until-done,
+typed terminal actions, and menu/editing dispatch while retaining one finalizer
+and unconditional original-termios restoration. Escape/CSI decoding and
+ordinary control mapping are separate bounded paths. Explicit runtime
+construction is isolated from automatic slash-menu > prompt-toolkit > readline
+> plain attempts, and completion directory resolution is isolated from sorted
+child projection. New tests pin forwarded auto-runtime options and fail-soft
+precedence, all supported key encodings, menu dispatch plus termios calls, and
+inside/outside symlink completion. The owner is clean and its pin is deleted,
+lowering repository C901 84/30 -> 80/29 (`src` 68/21 -> 64/20). Focused
+verification passed 75 tests; final `just check` passed Ruff, Mypy, and 4,572
+tests (2 skipped); `just docs-build` completed cleanly. `src` ignores remain
+27 and the root remains 5,080 lines. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Decompose terminal-screen parsing and verification (Slice 7.7p) — DONE (2026-07-23)
 
 Seventeenth directional C901 batch. Decompose the four findings in

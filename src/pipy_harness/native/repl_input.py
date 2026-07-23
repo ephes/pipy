@@ -7,6 +7,7 @@ import select
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, AsyncIterator, Iterable, Protocol, TextIO
 
@@ -465,6 +466,13 @@ class SlashMenuNativeReplInput:
 _SLASH_MENU_MAX_ITEMS = 8
 
 
+class _LineEditorAction(Enum):
+    CONTINUE = auto()
+    RETURN_EMPTY = auto()
+    RETURN_SUBMITTED = auto()
+    RAISE_INTERRUPT = auto()
+
+
 @dataclass(slots=True)
 class _SlashMenuLineEditor:
     """Stateful per-call helper that owns one read_line invocation."""
@@ -493,127 +501,149 @@ class _SlashMenuLineEditor:
             )
         old_state = self.termios_module.tcgetattr(self.input_fd)
         try:
-            self.tty_module.setcbreak(self.input_fd, self.termios_module.TCSANOW)
-            new_state = self.termios_module.tcgetattr(self.input_fd)
-            new_state[3] &= ~self.termios_module.ECHO
-            self.termios_module.tcsetattr(
-                self.input_fd, self.termios_module.TCSANOW, new_state
-            )
+            self._enable_raw_input()
             self._render()
-            while True:
-                key = self._read_key()
-                if key is None:
-                    self._finalize_and_print_buffer(submitted=False)
-                    return ""
-                if key == "ctrl-c":
-                    self._finalize_and_print_buffer(submitted=False)
-                    raise KeyboardInterrupt
-                if key == "ctrl-d" and not self._buffer:
-                    self._finalize_and_print_buffer(submitted=False)
-                    return ""
-                if key == "enter":
-                    if self._menu_open and self._filtered_commands():
-                        matches = self._filtered_commands()
-                        if self._buffer not in matches:
-                            self._accept_menu_selection()
-                    self._finalize_and_print_buffer(submitted=True)
-                    return self._buffer + "\n"
-                if key == "shift-enter":
-                    self._insert_char("\n")
-                    continue
-                if key in ("up", "down"):
-                    self._navigate_menu(key)
-                    continue
-                if key == "tab":
-                    if self._menu_open and self._filtered_commands():
-                        self._accept_menu_selection()
-                    continue
-                if key == "esc":
-                    if self._menu_open:
-                        self._menu_open = False
-                        self._render()
-                    continue
-                if key == "backspace":
-                    self._handle_backspace()
-                    continue
-                if key in ("left", "right", "home", "end"):
-                    self._handle_cursor_move(key)
-                    continue
-                if key == "ctrl-u":
-                    self._buffer = self._buffer[self._cursor :]
-                    self._cursor = 0
-                    self._refresh_menu_state()
-                    self._render()
-                    continue
-                if len(key) == 1 and key.isprintable():
-                    self._insert_char(key)
-                    continue
+            return self._read_until_done()
         finally:
             self.termios_module.tcsetattr(
                 self.input_fd, self.termios_module.TCSADRAIN, old_state
             )
+
+    def _enable_raw_input(self) -> None:
+        self.tty_module.setcbreak(self.input_fd, self.termios_module.TCSANOW)
+        new_state = self.termios_module.tcgetattr(self.input_fd)
+        new_state[3] &= ~self.termios_module.ECHO
+        self.termios_module.tcsetattr(
+            self.input_fd, self.termios_module.TCSANOW, new_state
+        )
+
+    def _read_until_done(self) -> str:
+        while True:
+            action = self._dispatch_key(self._read_key())
+            if action is _LineEditorAction.CONTINUE:
+                continue
+            submitted = action is _LineEditorAction.RETURN_SUBMITTED
+            self._finalize_and_print_buffer(submitted=submitted)
+            if action is _LineEditorAction.RAISE_INTERRUPT:
+                raise KeyboardInterrupt
+            if submitted:
+                return self._buffer + "\n"
+            return ""
+
+    def _dispatch_key(self, key: str | None) -> _LineEditorAction:
+        if key is None or key in ("ctrl-c", "ctrl-d", "enter"):
+            return self._dispatch_terminal_key(key)
+        if key == "shift-enter":
+            self._insert_char("\n")
+            return _LineEditorAction.CONTINUE
+        if key in ("up", "down", "tab", "esc"):
+            self._dispatch_menu_key(key)
+            return _LineEditorAction.CONTINUE
+        self._dispatch_editing_key(key)
+        return _LineEditorAction.CONTINUE
+
+    def _dispatch_terminal_key(self, key: str | None) -> _LineEditorAction:
+        if key is None:
+            return _LineEditorAction.RETURN_EMPTY
+        if key == "ctrl-c":
+            return _LineEditorAction.RAISE_INTERRUPT
+        if key == "ctrl-d":
+            if not self._buffer:
+                return _LineEditorAction.RETURN_EMPTY
+            return _LineEditorAction.CONTINUE
+        self._prepare_submission()
+        return _LineEditorAction.RETURN_SUBMITTED
+
+    def _prepare_submission(self) -> None:
+        if self._menu_open and self._filtered_commands():
+            matches = self._filtered_commands()
+            if self._buffer not in matches:
+                self._accept_menu_selection()
+
+    def _dispatch_menu_key(self, key: str) -> None:
+        if key in ("up", "down"):
+            self._navigate_menu(key)
+            return
+        if key == "tab":
+            if self._menu_open and self._filtered_commands():
+                self._accept_menu_selection()
+            return
+        if self._menu_open:
+            self._menu_open = False
+            self._render()
+
+    def _dispatch_editing_key(self, key: str) -> None:
+        if key == "backspace":
+            self._handle_backspace()
+            return
+        if key in ("left", "right", "home", "end"):
+            self._handle_cursor_move(key)
+            return
+        if key == "ctrl-u":
+            self._buffer = self._buffer[self._cursor :]
+            self._cursor = 0
+            self._refresh_menu_state()
+            self._render()
+            return
+        if len(key) == 1 and key.isprintable():
+            self._insert_char(key)
 
     def _read_key(self) -> str | None:
         ch = self._read_byte()
         if ch == "":
             return None
         if ch == "\x1b":
-            next1 = self._read_byte_with_timeout(0.05)
-            if next1 == "":
-                return "esc"
-            # Alt/shift + Enter is reported by most terminals as
-            # `ESC \r` or `ESC \n`; treat it as a newline insertion
-            # request to match pi's "Shift+Enter = newline" UX.
-            if next1 == "\r" or next1 == "\n":
-                return "shift-enter"
-            if next1 != "[":
-                return "esc"
-            next2 = self._read_byte_with_timeout(0.05)
-            if next2 == "A":
-                return "up"
-            if next2 == "B":
-                return "down"
-            if next2 == "C":
-                return "right"
-            if next2 == "D":
-                return "left"
-            if next2 == "H":
-                return "home"
-            if next2 == "F":
-                return "end"
-            # xterm `modifyOtherKeys=2` encodes Shift+Enter as
-            # `ESC [ 27 ; 2 ; 13 ~`. Drain the params and return
-            # shift-enter when the trailing key matches Enter (13).
-            if next2 == "2":
-                rest = self._read_csi_remainder()
-                if rest == "7;2;13~":
-                    return "shift-enter"
-                return "esc"
-            # kitty keyboard protocol encodes Shift+Enter as
-            # `ESC [ 13 ; 2 u`. Detect the `13;2u` suffix.
-            if next2 == "1":
-                rest = self._read_csi_remainder()
-                if rest == "3;2u":
-                    return "shift-enter"
-                return "esc"
+            return self._decode_escape_sequence()
+        return self._map_ordinary_key(ch)
+
+    def _decode_escape_sequence(self) -> str:
+        next1 = self._read_byte_with_timeout(0.05)
+        if next1 == "":
             return "esc"
-        if ch == "\r" or ch == "\n":
-            return "enter"
-        if ch == "\t":
-            return "tab"
-        if ch == "\x7f" or ch == "\x08":
-            return "backspace"
-        if ch == "\x03":
-            return "ctrl-c"
-        if ch == "\x04":
-            return "ctrl-d"
-        if ch == "\x15":
-            return "ctrl-u"
-        if ch == "\x01":
-            return "home"
-        if ch == "\x05":
-            return "end"
-        return ch
+        # Alt/shift + Enter is reported by most terminals as `ESC \r` or
+        # `ESC \n`; treat it as pi's Shift+Enter newline insertion request.
+        if next1 in ("\r", "\n"):
+            return "shift-enter"
+        if next1 != "[":
+            return "esc"
+        return self._decode_csi_sequence(self._read_byte_with_timeout(0.05))
+
+    def _decode_csi_sequence(self, first: str) -> str:
+        simple_keys = {
+            "A": "up",
+            "B": "down",
+            "C": "right",
+            "D": "left",
+            "H": "home",
+            "F": "end",
+        }
+        simple_key = simple_keys.get(first)
+        if simple_key is not None:
+            return simple_key
+        # xterm modifyOtherKeys and kitty encode Shift+Enter with the first
+        # parameter digit already consumed here.
+        shift_enter_remainders = {"2": "7;2;13~", "1": "3;2u"}
+        expected_remainder = shift_enter_remainders.get(first)
+        if expected_remainder is None:
+            return "esc"
+        if self._read_csi_remainder() == expected_remainder:
+            return "shift-enter"
+        return "esc"
+
+    def _map_ordinary_key(self, ch: str) -> str:
+        key_labels = {
+            "\r": "enter",
+            "\n": "enter",
+            "\t": "tab",
+            "\x7f": "backspace",
+            "\x08": "backspace",
+            "\x03": "ctrl-c",
+            "\x04": "ctrl-d",
+            "\x15": "ctrl-u",
+            "\x01": "home",
+            "\x05": "end",
+        }
+        return key_labels.get(ch, ch)
 
     def _read_byte(self) -> str:
         return read_terminal_utf8_char(
@@ -916,6 +946,36 @@ def native_repl_input_for(
 
     if input_runtime not in SUPPORTED_REPL_INPUT_RUNTIMES:
         raise ValueError(f"unsupported native REPL input runtime: {input_runtime}")
+    if input_runtime != REPL_INPUT_RUNTIME_AUTO:
+        return _explicit_native_repl_input_for(
+            input_stream=input_stream,
+            error_stream=error_stream,
+            input_runtime=input_runtime,
+            workspace=workspace,
+            command_names=command_names,
+            command_descriptions=command_descriptions,
+            autocomplete_max_visible=autocomplete_max_visible,
+        )
+    return _automatic_native_repl_input_for(
+        input_stream=input_stream,
+        error_stream=error_stream,
+        workspace=workspace,
+        command_names=command_names,
+        command_descriptions=command_descriptions,
+        autocomplete_max_visible=autocomplete_max_visible,
+    )
+
+
+def _explicit_native_repl_input_for(
+    *,
+    input_stream: TextIO,
+    error_stream: TextIO,
+    input_runtime: str,
+    workspace: Path | None,
+    command_names: tuple[str, ...] | None,
+    command_descriptions: Mapping[str, str] | None,
+    autocomplete_max_visible: int,
+) -> NativeReplInput:
     if input_runtime == REPL_INPUT_RUNTIME_PLAIN:
         return PlainNativeReplInput(
             input_stream=input_stream, error_stream=error_stream
@@ -932,16 +992,25 @@ def native_repl_input_for(
             error_stream=error_stream,
             workspace=workspace,
         )
-    if input_runtime == REPL_INPUT_RUNTIME_SLASH_MENU:
-        return SlashMenuNativeReplInput.create(
-            input_stream=input_stream,
-            error_stream=error_stream,
-            workspace=workspace,
-            command_names=command_names,
-            command_descriptions=command_descriptions,
-            autocomplete_max_visible=autocomplete_max_visible,
-        )
+    return SlashMenuNativeReplInput.create(
+        input_stream=input_stream,
+        error_stream=error_stream,
+        workspace=workspace,
+        command_names=command_names,
+        command_descriptions=command_descriptions,
+        autocomplete_max_visible=autocomplete_max_visible,
+    )
 
+
+def _automatic_native_repl_input_for(
+    *,
+    input_stream: TextIO,
+    error_stream: TextIO,
+    workspace: Path | None,
+    command_names: tuple[str, ...] | None,
+    command_descriptions: Mapping[str, str] | None,
+    autocomplete_max_visible: int,
+) -> NativeReplInput:
     if _slash_menu_streams_supported(input_stream, error_stream):
         try:
             return SlashMenuNativeReplInput.create(
@@ -1154,11 +1223,40 @@ def _workspace_path_completion_labels(
     workspace: Path, path_prefix: str
 ) -> tuple[str, ...]:
     directory_prefix, name_prefix = _path_completion_parts(path_prefix)
-    if not _safe_path_completion_prefix(directory_prefix, allow_empty=True):
+    resolved_directory = _resolve_workspace_completion_directory(
+        workspace,
+        path_prefix=path_prefix,
+        directory_prefix=directory_prefix,
+    )
+    if resolved_directory is None:
         return ()
-    if not _safe_path_completion_prefix(path_prefix, allow_empty=True):
+    workspace_root, directory = resolved_directory
+    children = _sorted_completion_children(directory)
+    if children is None:
         return ()
 
+    matches: list[str] = []
+    for child in children:
+        label = _workspace_completion_label_for_child(
+            child,
+            workspace_root=workspace_root,
+            name_prefix=name_prefix,
+        )
+        if label is not None:
+            matches.append(label)
+    return tuple(matches)
+
+
+def _resolve_workspace_completion_directory(
+    workspace: Path,
+    *,
+    path_prefix: str,
+    directory_prefix: str,
+) -> tuple[Path, Path] | None:
+    if not _safe_path_completion_prefix(directory_prefix, allow_empty=True):
+        return None
+    if not _safe_path_completion_prefix(path_prefix, allow_empty=True):
+        return None
     try:
         workspace_root = workspace.expanduser().resolve()
         directory = (
@@ -1166,37 +1264,44 @@ def _workspace_path_completion_labels(
             if directory_prefix
             else workspace_root
         )
-    except OSError:
-        return ()
-    if not _is_relative_to(directory, workspace_root):
-        return ()
-    if not directory.is_dir():
-        return ()
+    except (OSError, ValueError):
+        return None
+    if not _is_relative_to(directory, workspace_root) or not directory.is_dir():
+        return None
+    return workspace_root, directory
 
-    matches: list[str] = []
+
+def _sorted_completion_children(directory: Path) -> tuple[Path, ...] | None:
     try:
-        children = sorted(directory.iterdir(), key=lambda path: path.name)
+        return tuple(sorted(directory.iterdir(), key=lambda path: path.name))
     except OSError:
-        return ()
-    for child in children:
-        if not child.name.startswith(name_prefix):
-            continue
-        try:
-            relative_label = child.relative_to(workspace_root).as_posix()
-            resolved_child = child.resolve()
-        except (OSError, ValueError):
-            continue
-        if not _is_relative_to(resolved_child, workspace_root):
-            continue
-        if not _safe_workspace_completion_label(relative_label):
-            continue
-        if _is_ignored_or_generated(relative_label, workspace_root):
-            continue
-        if child.is_dir():
-            matches.append(f"{relative_label}/")
-        elif child.is_file():
-            matches.append(relative_label)
-    return tuple(matches)
+        return None
+
+
+def _workspace_completion_label_for_child(
+    child: Path,
+    *,
+    workspace_root: Path,
+    name_prefix: str,
+) -> str | None:
+    if not child.name.startswith(name_prefix):
+        return None
+    try:
+        relative_label = child.relative_to(workspace_root).as_posix()
+        resolved_child = child.resolve()
+    except (OSError, ValueError):
+        return None
+    if not _is_relative_to(resolved_child, workspace_root):
+        return None
+    if not _safe_workspace_completion_label(relative_label):
+        return None
+    if _is_ignored_or_generated(relative_label, workspace_root):
+        return None
+    if child.is_dir():
+        return f"{relative_label}/"
+    if child.is_file():
+        return relative_label
+    return None
 
 
 def _path_completion_parts(path_prefix: str) -> tuple[str, str]:

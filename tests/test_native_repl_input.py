@@ -25,6 +25,7 @@ from pipy_harness.native.repl_input import (
     PromptToolkitSlashCommandCompleter,
     ReadlineNativeReplInput,
     ReplInputUnavailableError,
+    SlashMenuNativeReplInput,
     _prompt_toolkit_multiline_key_bindings,
     _readline_backend_is_libedit,
     _SlashMenuLineEditor,
@@ -112,6 +113,87 @@ def test_auto_repl_input_uses_plain_for_captured_streams() -> None:
 
     assert isinstance(repl_input, PlainNativeReplInput)
     assert repl_input.runtime_label == REPL_INPUT_RUNTIME_PLAIN
+
+
+def test_auto_repl_input_prefers_slash_menu_and_forwards_its_options(
+    monkeypatch, tmp_path: Path
+) -> None:
+    tty_input = TtyStringIO()
+    tty_error = TtyStringIO()
+    selected = PlainNativeReplInput(StringIO(), StringIO())
+    created: dict[str, object] = {}
+
+    def create_slash_menu(**kwargs):
+        created.update(kwargs)
+        return selected
+
+    monkeypatch.setattr(sys, "stdin", tty_input)
+    monkeypatch.setattr(sys, "stderr", tty_error)
+    monkeypatch.setattr(
+        SlashMenuNativeReplInput, "create", staticmethod(create_slash_menu)
+    )
+    monkeypatch.setattr(
+        PromptToolkitNativeReplInput,
+        "create",
+        staticmethod(lambda **kwargs: pytest.fail("prompt-toolkit must not be tried")),
+    )
+    monkeypatch.setattr(
+        ReadlineNativeReplInput,
+        "create",
+        staticmethod(lambda **kwargs: pytest.fail("readline must not be tried")),
+    )
+
+    repl_input = native_repl_input_for(
+        input_stream=tty_input,
+        error_stream=tty_error,
+        workspace=tmp_path,
+        command_names=("/custom",),
+        command_descriptions={"/custom": "Custom"},
+        autocomplete_max_visible=3,
+    )
+
+    assert repl_input is selected
+    assert created == {
+        "input_stream": tty_input,
+        "error_stream": tty_error,
+        "workspace": tmp_path,
+        "command_names": ("/custom",),
+        "command_descriptions": {"/custom": "Custom"},
+        "autocomplete_max_visible": 3,
+    }
+
+
+def test_auto_repl_input_fails_soft_from_slash_menu_to_prompt_toolkit(
+    monkeypatch,
+) -> None:
+    tty_input = TtyStringIO()
+    tty_error = TtyStringIO()
+    selected = PromptToolkitNativeReplInput(session=object())
+
+    monkeypatch.setattr(sys, "stdin", tty_input)
+    monkeypatch.setattr(sys, "stderr", tty_error)
+    monkeypatch.setattr(
+        SlashMenuNativeReplInput,
+        "create",
+        staticmethod(lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom"))),
+    )
+    monkeypatch.setattr(
+        PromptToolkitNativeReplInput,
+        "create",
+        staticmethod(lambda **kwargs: selected),
+    )
+    monkeypatch.setattr(
+        ReadlineNativeReplInput,
+        "create",
+        staticmethod(lambda **kwargs: pytest.fail("readline must not be tried")),
+    )
+
+    repl_input = native_repl_input_for(
+        input_stream=tty_input,
+        error_stream=tty_error,
+    )
+
+    assert repl_input is selected
 
 
 def test_explicit_prompt_toolkit_repl_input_rejects_captured_streams() -> None:
@@ -462,6 +544,24 @@ def test_prompt_toolkit_repl_completer_suggests_file_references_in_provider_prom
     ]
 
 
+def test_prompt_toolkit_repl_completer_excludes_symlinks_outside_workspace(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside\n", encoding="utf-8")
+    inside = workspace / "inside.txt"
+    inside.write_text("inside\n", encoding="utf-8")
+    (workspace / "inside-link.txt").symlink_to(inside)
+    (workspace / "outside-link.txt").symlink_to(outside)
+    completer = PromptToolkitReplCompleter(FakeCompletion, workspace=workspace)
+
+    matches = list(completer.get_completions(FakeDocument("compare @"), None))
+
+    assert [match.text for match in matches] == ["@inside-link.txt", "@inside.txt"]
+
+
 def test_prompt_toolkit_repl_completer_restricts_file_references_to_safe_contexts(
     tmp_path: Path,
 ) -> None:
@@ -801,6 +901,91 @@ def test_slash_menu_key_decoder_reads_complete_utf8_character() -> None:
         assert editor._read_key() == "ö"
     finally:
         os.close(read_fd)
+
+
+@pytest.mark.parametrize(
+    ("encoded_key", "expected"),
+    [
+        (b"\x1b[A", "up"),
+        (b"\x1b[B", "down"),
+        (b"\x1b[C", "right"),
+        (b"\x1b[D", "left"),
+        (b"\x1b[H", "home"),
+        (b"\x1b[F", "end"),
+        (b"\x1b\r", "shift-enter"),
+        (b"\x1b[27;2;13~", "shift-enter"),
+        (b"\x1b[13;2u", "shift-enter"),
+        (b"\x1b[Z", "esc"),
+        (b"\x1b", "esc"),
+        (b"\r", "enter"),
+        (b"\t", "tab"),
+        (b"\x7f", "backspace"),
+        (b"\x03", "ctrl-c"),
+        (b"\x04", "ctrl-d"),
+        (b"\x15", "ctrl-u"),
+        (b"\x01", "home"),
+        (b"\x05", "end"),
+    ],
+)
+def test_slash_menu_key_decoder_preserves_terminal_key_labels(
+    encoded_key: bytes, expected: str
+) -> None:
+    editor = _make_slash_menu_editor()
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, encoded_key)
+    os.close(write_fd)
+    try:
+        editor.input_fd = read_fd
+
+        assert editor._read_key() == expected
+    finally:
+        os.close(read_fd)
+
+
+def test_slash_menu_run_dispatches_menu_keys_and_restores_termios() -> None:
+    class FakeTermios:
+        TCSANOW = 1
+        TCSADRAIN = 2
+        ECHO = 8
+
+        def __init__(self) -> None:
+            self.set_calls: list[tuple[int, int, list[int]]] = []
+
+        def tcgetattr(self, fd: int) -> list[int]:
+            return [0, 0, 0, 15]
+
+        def tcsetattr(self, fd: int, when: int, state: list[int]) -> None:
+            self.set_calls.append((fd, when, list(state)))
+
+    class FakeTty:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        def setcbreak(self, fd: int, when: int) -> None:
+            self.calls.append((fd, when))
+
+    termios_module = FakeTermios()
+    tty_module = FakeTty()
+    error_stream = StringIO()
+    editor = _make_slash_menu_editor(error_stream=error_stream)
+    editor.termios_module = termios_module
+    editor.tty_module = tty_module
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"/\x1b[B\t\r")
+    os.close(write_fd)
+    try:
+        editor.input_fd = read_fd
+
+        assert editor.run() == "/compact\n"
+    finally:
+        os.close(read_fd)
+
+    assert tty_module.calls == [(read_fd, termios_module.TCSANOW)]
+    assert termios_module.set_calls == [
+        (read_fd, termios_module.TCSANOW, [0, 0, 0, 7]),
+        (read_fd, termios_module.TCSADRAIN, [0, 0, 0, 15]),
+    ]
+    assert error_stream.getvalue().endswith("> /compact\n")
 
 
 def test_slash_menu_timeout_reader_reads_pending_byte_without_fd_activity() -> None:

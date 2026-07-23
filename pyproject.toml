@@ -63,8 +63,9 @@ extend-select = ["C901"]
 # native request-invariant owner; Slices 7.7l-7.7n dropped nine more leaf
 # policy/projection/discovery/comparison/schema owners; Slice 7.7o dropped the
 # bash/edit/find concrete-tool owners; Slice 7.7p dropped the terminal-screen
-# parser/verifier owner). Do not add entries to grow the baseline; only remove
-# entries as functions are genuinely simplified below the threshold.
+# parser/verifier owner; Slice 7.7q dropped the REPL-input owner). Do not add
+# entries to grow the baseline; only remove entries as functions are genuinely
+# simplified below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
@@ -79,7 +80,6 @@ extend-select = ["C901"]
 "src/pipy_harness/native/model_resolver.py" = ["C901"]
 "src/pipy_harness/native/models_json.py" = ["C901"]
 "src/pipy_harness/native/provider_construction.py" = ["C901"]
-"src/pipy_harness/native/repl_input.py" = ["C901"]
 "src/pipy_harness/native/session_tree_commands.py" = ["C901"]
 "src/pipy_harness/native/session_tree.py" = ["C901"]
 "src/pipy_harness/native/session.py" = ["C901"]
