@@ -3251,6 +3251,38 @@ first full run hit the documented unrelated PTY worker-timing flake, which
 passed immediately in isolation; the complete rerun was green. Review: Pi
 GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Extension-aware agent event adapter relocation (Slice 7.5i) — DONE (2026-07-23)
+
+Ninth composition-root slimming cut. Relocate the agent-event-to-extension-
+lifecycle wrapper from `native.tool_loop_session` into the existing
+`native.extension_hooks` owner while leaving construction of the fixed
+renderer/automation/product/archive/caller projection chain in the composition
+root. The relocated adapter receives that immediate sink and adds only the
+extension lifecycle projection. Preserve renderer-first synchronous ordering,
+stop-on-first-failure behavior, caller/archive/product ordering, exact
+agent/turn lifecycle mapping, observe-only `agent_settled`, mutable hook/flag
+replacement, extension context, and JSON/RPC settled-event ownership. Delete
+the root class and update direct tests/import boundaries with no alias. No
+event, lifecycle, extension, automation, persistence, or privacy redesign;
+no public SDK change, dependency, unchecked `Any`, `type: ignore`, C901 pin,
+or Mypy exclusion.
+
+Landed shape: private `_ExtensionLifecycleAgentEventAdapter` now lives in
+`native.extension_hooks`, receives one already-composed immediate sink, and
+owns only immediate-first delivery, canonical run/turn lifecycle mapping,
+replaceable hook/flag snapshots, lifecycle dispatch context, and extension-only
+settled notification. The composition root still explicitly assembles
+renderer, optional automation, product persistence, metadata-only workflow
+archive, and optional caller sinks in the original order. Direct tests move to
+the owner and add immediate-before-extension/failure-stop plus dispatch-context
+characterization. The root shrinks 5,989 -> 5,904 lines. Repository C901 stays
+110/50 (`src` 94/41) and `src` `type: ignore` stays 28. Focused verification
+passed 305 tests; the coordinator’s full Mypy gate caught one test-only opaque
+driver typed as `object`, fixed with an explicit `ExtensionUiDriver` cast.
+Final `just check` passed Ruff, Mypy, and 4,523 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

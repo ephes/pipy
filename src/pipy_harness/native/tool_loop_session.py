@@ -71,18 +71,13 @@ from pipy_harness.native.automation.agent_events import AutomationAgentEventAdap
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentCancellationReason,
-    AgentEvent,
     AgentEventSink,
     AgentFailure,
     AgentMessage,
-    AgentRunCompleted,
-    AgentRunStarted,
     AgentToolCall,
     AgentToolResultMessage,
     AgentUserMessage,
     ProductContent,
-    TurnCompleted,
-    TurnStarted,
 )
 from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.history import (
@@ -124,7 +119,6 @@ from pipy_harness.native.agent.usage import (
 )
 from pipy_harness.native.agent_adapters import (
     NativeProductSessionActionSink,
-    ProductSessionActionSink,
     ProductSessionEventProjection,
     SynchronousAgentEventComposite,
     WorkflowArchiveAgentEventAdapter,
@@ -258,9 +252,6 @@ from pipy_harness.native.session_tree_commands import (
     visible_tree_entries,
 )
 from pipy_harness.native.extension_runtime import (
-    EVENT_AGENT_END,
-    EVENT_AGENT_SETTLED,
-    EVENT_AGENT_START,
     EVENT_BEFORE_AGENT_START,
     EVENT_BEFORE_PROVIDER_HEADERS,
     EVENT_BEFORE_PROVIDER_REQUEST,
@@ -272,8 +263,6 @@ from pipy_harness.native.extension_runtime import (
     EVENT_SESSION_BEFORE_SWITCH,
     EVENT_SESSION_BEFORE_TREE,
     EVENT_TOOL_RESULT,
-    EVENT_TURN_END,
-    EVENT_TURN_START,
     EVENT_USER_BASH,
     LIFECYCLE_EVENTS,
     ExtensionCapabilityError,
@@ -282,7 +271,6 @@ from pipy_harness.native.extension_runtime import (
     ExtensionTool,
     ExtensionUiDriver,
     HookHandler,
-    LifecycleEvent,
     ExtensionActivationBatch,
     QueuedCustomMessage,
     QueuedUserMessage,
@@ -318,11 +306,11 @@ from pipy_harness.native.extension_runtime import (
     render_extension_message,
     safe_custom_entry_data,
 )
+from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.extension_hooks import (
     dispatch_before_agent_start_hooks,
     dispatch_before_provider_headers_hooks,
     dispatch_input_hooks,
-    dispatch_lifecycle_hooks,
     dispatch_session_before_hooks,
     dispatch_tool_call_hooks,
     dispatch_tool_result_hooks,
@@ -894,93 +882,6 @@ def _activate_workspace_extensions(
     )
 
 
-class _ExtensionAwareAgentEventSink:
-    """Fixed synchronous projection chain for one tool-loop run mode.
-
-    Canonical events reach rendering first, then Pi automation, the internal
-    persistence/archive projections, an optional caller-supplied sink, and
-    observe-only extension lifecycle hooks last. This preserves renderer-first
-    output ordering and ensures any projection failure stops later callbacks.
-    """
-
-    def __init__(
-        self,
-        sink: AutomationEventSink | None,
-        *,
-        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
-        agent_event_sink: AgentEventSink | None,
-        product_action_sink: ProductSessionActionSink | None,
-        lifecycle_hooks: dict[str, tuple[HookHandler, ...]],
-        cwd: Path,
-        has_ui: bool,
-        notify_sink: Callable[[str, str], None] | None = None,
-        ui_driver: ExtensionUiDriver | None = None,
-        flags: Mapping[str, object] | None = None,
-        project_trusted: bool = False,
-    ) -> None:
-        immediate_sinks: list[AgentEventSink] = [RenderingAgentEventAdapter(renderer)]
-        if sink is not None:
-            immediate_sinks.append(AutomationAgentEventAdapter(sink))
-        immediate_sinks.extend(
-            (
-                ProductSessionEventProjection(product_action_sink),
-                WorkflowArchiveAgentEventAdapter(),
-            )
-        )
-        if agent_event_sink is not None:
-            immediate_sinks.append(agent_event_sink)
-        self._immediate = SynchronousAgentEventComposite(tuple(immediate_sinks))
-        self._lifecycle_hooks = lifecycle_hooks
-        self._lifecycle_cwd = str(cwd)
-        self._lifecycle_has_ui = has_ui
-        self._lifecycle_notify_sink = notify_sink
-        self._lifecycle_ui_driver = ui_driver
-        self._lifecycle_flags = dict(flags or {})
-        self._lifecycle_project_trusted = bool(project_trusted)
-
-    def emit(self, event: AgentEvent) -> None:
-        """Synchronously deliver one canonical event in fixed projection order."""
-
-        self._immediate.emit(event)
-        if isinstance(event, AgentRunStarted):
-            self.fire_lifecycle(EVENT_AGENT_START)
-        elif isinstance(event, AgentRunCompleted):
-            self.fire_lifecycle(EVENT_AGENT_END)
-        elif isinstance(event, TurnStarted):
-            self.fire_lifecycle(EVENT_TURN_START)
-        elif isinstance(event, TurnCompleted):
-            self.fire_lifecycle(EVENT_TURN_END)
-
-    def set_lifecycle_hooks(
-        self, lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
-    ) -> None:
-        self._lifecycle_hooks = lifecycle_hooks
-
-    def set_flags(self, flags: Mapping[str, object]) -> None:
-        self._lifecycle_flags = dict(flags)
-
-    def fire_lifecycle(self, name: str, *, reason: str | None = None) -> None:
-        hooks = self._lifecycle_hooks.get(name)
-        if not hooks:
-            return
-        dispatch_lifecycle_hooks(
-            hooks,
-            LifecycleEvent(name=name, reason=reason),
-            cwd=self._lifecycle_cwd,
-            has_ui=self._lifecycle_has_ui,
-            notify_sink=self._lifecycle_notify_sink,
-            ui_driver=self._lifecycle_ui_driver,
-            flags=self._lifecycle_flags,
-            project_trusted=self._lifecycle_project_trusted,
-        )
-
-    def agent_settled(self) -> None:
-        # Extension-only: JSON and RPC own their protocol `agent_settled`
-        # synthesis at mode-specific idle boundaries. Sending this through the
-        # shared canonical event stream would duplicate those public events.
-        self.fire_lifecycle(EVENT_AGENT_SETTLED)
-
-
 @dataclass(frozen=True, slots=True)
 class _TreeCommandOutcome:
     """Result of handling a ``/tree`` command in the tool loop.
@@ -1022,7 +923,7 @@ class _BuiltinCommandInterpreter:
         terminal_ui: ToolLoopTerminalUi | None,
         renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
         error_stream: TextIO,
-        emitter: _ExtensionAwareAgentEventSink,
+        emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
         keybindings: KeybindingsManager,
         settings: SettingsManager,
         cwd: Path,
@@ -2452,7 +2353,7 @@ class _ReplLoopStep:
         coding_state: CodingSessionState,
         repl_input: "ToolLoopTerminalUi | NativeReplInput",
         renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
-        emitter: _ExtensionAwareAgentEventSink,
+        emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
         settings: SettingsManager,
         cwd: Path,
         started_at: datetime,
@@ -3022,10 +2923,14 @@ class _ReplLoopStep:
             ended_at=ended_at,
         )
 
-    def fire_session_start(self, *, emitter: _ExtensionAwareAgentEventSink) -> None:
+    def fire_session_start(
+        self, *, emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
+    ) -> None:
         emitter.fire_lifecycle(EVENT_SESSION_START, reason="startup")
 
-    def fire_session_shutdown(self, *, emitter: _ExtensionAwareAgentEventSink) -> None:
+    def fire_session_shutdown(
+        self, *, emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
+    ) -> None:
         emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
 
     def consume_settle_pending(self, *, ctl: _RunControlState) -> bool:
@@ -4076,21 +3981,31 @@ class NativeToolReplSession:
         append_agent_message = product_session.append_message
 
         # Slice 3.3: durable product-session persistence is a live projection in
-        # the mode's fixed composite. This sink forwards each projected
-        # `AppendProductMessage` to `product_session.append_message` (the same
-        # coding-state + session-tree write the deleted run-effect append used).
-        # It is built after `product_session`, so the emitter (Pi-shaped
-        # automation transport plus extension `@api.on(...)` lifecycle observers,
-        # both no-ops when unattached) is composed here rather than before the
-        # session-tree/product-session setup band.
+        # the mode's fixed immediate composite. The composition root owns the
+        # renderer -> automation (optional) -> product session -> metadata-only
+        # workflow archive -> caller (optional) order. Extension lifecycle
+        # mapping wraps that completed product composition as one sink.
         product_action_sink = NativeProductSessionActionSink(append_agent_message)
-        emitter = _ExtensionAwareAgentEventSink(
-            self.automation_observer,
-            renderer=renderer,
-            agent_event_sink=self.agent_event_sink,
-            product_action_sink=product_action_sink,
+        immediate_sinks: list[AgentEventSink] = [
+            RenderingAgentEventAdapter(renderer)
+        ]
+        if self.automation_observer is not None:
+            immediate_sinks.append(
+                AutomationAgentEventAdapter(self.automation_observer)
+            )
+        immediate_sinks.extend(
+            (
+                ProductSessionEventProjection(product_action_sink),
+                WorkflowArchiveAgentEventAdapter(),
+            )
+        )
+        if self.agent_event_sink is not None:
+            immediate_sinks.append(self.agent_event_sink)
+        immediate_sink = SynchronousAgentEventComposite(tuple(immediate_sinks))
+        emitter = _extension_hooks._ExtensionLifecycleAgentEventAdapter(
+            immediate_sink,
             lifecycle_hooks=extension_lifecycle_hooks,
-            cwd=cwd,
+            cwd=str(cwd),
             has_ui=terminal_ui is not None,
             notify_sink=_extension_notify,
             ui_driver=extension_ui_driver,

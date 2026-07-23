@@ -26,10 +26,16 @@ the final `ProviderRequestTransform` with each transformed field bounded by
 runs mutation-only header hooks serially and fail-soft over one shared
 mutable mapping.
 
-It depends only on the `_drive_awaitable` coroutine driver from
-`extension_loader`, the hook value objects from `extension_types`, and the
-`_CommandContext` / `_CollectingUi` builders plus the `EVENT_*` event-name
-constants from `extension_runtime`. The dependency is one-way and
+It also owns the internal canonical-agent lifecycle adapter. The product
+composition root supplies one already-composed immediate `AgentEventSink`; the
+adapter delivers to it first, maps canonical run/turn boundaries to extension
+lifecycle events, carries the extension dispatch context, and keeps
+`agent_settled` extension-only.
+
+It depends only on canonical agent contracts, the `_drive_awaitable` coroutine
+driver from `extension_loader`, the hook value objects from `extension_types`,
+and the `_CommandContext` / `_CollectingUi` builders plus the `EVENT_*`
+event-name constants from `extension_runtime`. The dependency is one-way and
 cycle-free: `extension_runtime` never imports back from this module.
 
 The `before_agent_start` and `tool_result` injections are each bounded by
@@ -43,10 +49,23 @@ import inspect
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from typing import Literal, cast
 
+from pipy_harness.native.agent import (
+    AgentEvent,
+    AgentEventSink,
+    AgentRunCompleted,
+    AgentRunStarted,
+    TurnCompleted,
+    TurnStarted,
+)
 from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_runtime import (
+    EVENT_AGENT_END,
+    EVENT_AGENT_SETTLED,
+    EVENT_AGENT_START,
     EVENT_PROJECT_TRUST,
     EVENT_TOOL_CALL,
+    EVENT_TURN_END,
+    EVENT_TURN_START,
     ActivatedExtension,
     ExtensionUiDriver,
     HookHandler,
@@ -322,6 +341,79 @@ def dispatch_lifecycle_hooks(
             raise
         except BaseException:  # noqa: BLE001 - an observer must not break the session
             continue
+
+
+class _ExtensionLifecycleAgentEventAdapter:
+    """Deliver canonical events immediately, then notify extension lifecycle hooks.
+
+    Product projection composition remains outside this adapter: the supplied
+    sink is the root-owned renderer/automation/product/archive/caller composite.
+    Lifecycle observers run only after that sink accepts an event, so a failed
+    immediate projection prevents the corresponding extension callback.
+    """
+
+    def __init__(
+        self,
+        immediate_sink: AgentEventSink,
+        *,
+        lifecycle_hooks: dict[str, tuple[HookHandler, ...]],
+        cwd: str,
+        has_ui: bool,
+        notify_sink: Callable[[str, str], None] | None = None,
+        ui_driver: ExtensionUiDriver | None = None,
+        flags: Mapping[str, object] | None = None,
+        project_trusted: bool = False,
+    ) -> None:
+        self._immediate_sink = immediate_sink
+        self._lifecycle_hooks = lifecycle_hooks
+        self._lifecycle_cwd = cwd
+        self._lifecycle_has_ui = has_ui
+        self._lifecycle_notify_sink = notify_sink
+        self._lifecycle_ui_driver = ui_driver
+        self._lifecycle_flags = dict(flags or {})
+        self._lifecycle_project_trusted = bool(project_trusted)
+
+    def emit(self, event: AgentEvent) -> None:
+        """Synchronously deliver one event before its lifecycle callback."""
+
+        self._immediate_sink.emit(event)
+        if isinstance(event, AgentRunStarted):
+            self.fire_lifecycle(EVENT_AGENT_START)
+        elif isinstance(event, AgentRunCompleted):
+            self.fire_lifecycle(EVENT_AGENT_END)
+        elif isinstance(event, TurnStarted):
+            self.fire_lifecycle(EVENT_TURN_START)
+        elif isinstance(event, TurnCompleted):
+            self.fire_lifecycle(EVENT_TURN_END)
+
+    def set_lifecycle_hooks(
+        self, lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
+    ) -> None:
+        self._lifecycle_hooks = lifecycle_hooks
+
+    def set_flags(self, flags: Mapping[str, object]) -> None:
+        self._lifecycle_flags = dict(flags)
+
+    def fire_lifecycle(self, name: str, *, reason: str | None = None) -> None:
+        hooks = self._lifecycle_hooks.get(name)
+        if not hooks:
+            return
+        dispatch_lifecycle_hooks(
+            hooks,
+            LifecycleEvent(name=name, reason=reason),
+            cwd=self._lifecycle_cwd,
+            has_ui=self._lifecycle_has_ui,
+            notify_sink=self._lifecycle_notify_sink,
+            ui_driver=self._lifecycle_ui_driver,
+            flags=self._lifecycle_flags,
+            project_trusted=self._lifecycle_project_trusted,
+        )
+
+    def agent_settled(self) -> None:
+        # Extension-only: JSON and RPC own their protocol `agent_settled`
+        # synthesis at mode-specific idle boundaries. Sending this through the
+        # shared canonical event stream would duplicate those public events.
+        self.fire_lifecycle(EVENT_AGENT_SETTLED)
 
 
 def dispatch_tool_call_hooks(

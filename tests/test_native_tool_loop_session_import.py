@@ -31,6 +31,9 @@ from pipy_harness.native.export_distribution import (
     NativeExportError,
     export_native_branch_to_jsonl,
 )
+from pipy_harness.native.extension_hooks import (
+    _ExtensionLifecycleAgentEventAdapter,
+)
 from pipy_harness.native.extension_runtime import SessionDecision
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.session_tree import NativeSessionTree
@@ -637,7 +640,7 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
     )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
     monkeypatch.setattr(
-        loop_module._ExtensionAwareAgentEventSink, "fire_lifecycle", fire_lifecycle
+        _ExtensionLifecycleAgentEventAdapter, "fire_lifecycle", fire_lifecycle
     )
 
     _result, _output, _error = _run(

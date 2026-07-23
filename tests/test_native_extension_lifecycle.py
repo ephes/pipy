@@ -12,13 +12,31 @@ from __future__ import annotations
 import io
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
+
+import pytest
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native import extension_hooks as extension_hooks_module
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentEvent,
+    AgentRunCompleted,
+    AgentRunOutcome,
+    AgentRunResult,
+    AgentRunStarted,
+    AgentTurnOutcome,
+    ProductContent,
+    TurnCompleted,
+    TurnStarted,
+)
 from pipy_harness.native.extension_runtime import (
+    ExtensionUiDriver,
     LifecycleEvent,
     activate_extensions,
 )
 from pipy_harness.native.extension_hooks import (
+    _ExtensionLifecycleAgentEventAdapter,
     dispatch_lifecycle_hooks,
     extension_event_hooks,
 )
@@ -185,6 +203,128 @@ def test_async_lifecycle_hook(tmp_path: Path) -> None:
     _dispatch(workspace, "agent_start")
 
     assert proof.read_text() == "async-ran"
+
+
+def test_agent_event_adapter_delivers_immediately_then_maps_lifecycle() -> None:
+    trace: list[str] = []
+
+    class ImmediateSink:
+        def emit(self, event: AgentEvent) -> None:
+            trace.append(f"immediate:{type(event).__name__}")
+
+    def observe(event: LifecycleEvent, _ctx: object) -> None:
+        trace.append(f"extension:{event.name}")
+
+    lifecycle_names = (
+        "agent_start",
+        "turn_start",
+        "turn_end",
+        "agent_end",
+        "agent_settled",
+    )
+    adapter = _ExtensionLifecycleAgentEventAdapter(
+        ImmediateSink(),
+        lifecycle_hooks={name: (observe,) for name in lifecycle_names},
+        cwd="/workspace",
+        has_ui=False,
+    )
+    assistant = AgentAssistantMessage(ProductContent("done"))
+    events: tuple[AgentEvent, ...] = (
+        AgentRunStarted(),
+        TurnStarted(0),
+        TurnCompleted(0, AgentTurnOutcome.SUCCEEDED, assistant),
+        AgentRunCompleted(
+            AgentRunResult(AgentRunOutcome.SUCCEEDED, (assistant,))
+        ),
+    )
+
+    for event in events:
+        adapter.emit(event)
+    adapter.agent_settled()
+
+    assert trace == [
+        "immediate:AgentRunStarted",
+        "extension:agent_start",
+        "immediate:TurnStarted",
+        "extension:turn_start",
+        "immediate:TurnCompleted",
+        "extension:turn_end",
+        "immediate:AgentRunCompleted",
+        "extension:agent_end",
+        "extension:agent_settled",
+    ]
+
+    class FailingSink:
+        def emit(self, event: AgentEvent) -> None:
+            del event
+            raise RuntimeError("projection failed")
+
+    failing = _ExtensionLifecycleAgentEventAdapter(
+        FailingSink(),
+        lifecycle_hooks={"agent_start": (observe,)},
+        cwd="/workspace",
+        has_ui=False,
+    )
+    with pytest.raises(RuntimeError, match="projection failed"):
+        failing.emit(AgentRunStarted())
+    assert trace[-1] == "extension:agent_settled"
+
+
+def test_agent_event_adapter_replaces_hooks_and_dispatch_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[object, ...]] = []
+
+    def old_hook(_event: object, _ctx: object) -> None:
+        return None
+
+    def new_hook(_event: object, _ctx: object) -> None:
+        return None
+
+    driver = cast(ExtensionUiDriver, object())
+
+    def capture_dispatch(
+        hooks: object,
+        event: LifecycleEvent,
+        **context: object,
+    ) -> None:
+        captured.append((hooks, event, context))
+
+    class ImmediateSink:
+        def emit(self, event: AgentEvent) -> None:
+            del event
+
+    monkeypatch.setattr(
+        extension_hooks_module, "dispatch_lifecycle_hooks", capture_dispatch
+    )
+    flags = {"plan": False}
+    adapter = _ExtensionLifecycleAgentEventAdapter(
+        ImmediateSink(),
+        lifecycle_hooks={"session_start": (old_hook,)},
+        cwd="/workspace",
+        has_ui=True,
+        notify_sink=None,
+        ui_driver=driver,
+        flags={"initial": True},
+        project_trusted=True,
+    )
+    adapter.set_lifecycle_hooks({"session_start": (new_hook,)})
+    adapter.set_flags(flags)
+    flags["plan"] = True
+
+    adapter.fire_lifecycle("session_start", reason="startup")
+
+    hooks, event, context = captured[0]
+    assert hooks == (new_hook,)
+    assert event == LifecycleEvent(name="session_start", reason="startup")
+    assert context == {
+        "cwd": "/workspace",
+        "has_ui": True,
+        "notify_sink": None,
+        "ui_driver": driver,
+        "flags": {"plan": False},
+        "project_trusted": True,
+    }
 
 
 def test_lifecycle_events_fire_through_the_session(tmp_path, monkeypatch) -> None:
