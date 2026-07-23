@@ -2947,6 +2947,33 @@ final `just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
 `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
 0 findings, explicit CLEAN.
 
+### Custom-entry renderer helper relocation (Slice 7.5f) — DONE (2026-07-23)
+
+Sixth composition-root slimming cut. Relocate the custom-message payload,
+stored custom-entry payload, redraw-row type, and pure active-branch redraw
+projection from `native.tool_loop_session` into `native.extension_runtime`,
+beside registered message/entry renderers, `safe_custom_entry_data`, and the
+extension render dispatchers they compose. Keep the stateful
+`_CustomEntryRenderer` terminal adapter in the root, importing the four moved
+helpers. Repoint direct tests and delete the superseded definitions. Preserve
+Pi-shaped payload keys, sanitization, entry/message filtering, renderer
+metadata, fallback lines, ordering, styled/plain tags, and terminal redraw
+bytes. No public extension surface, behavior change, dependency, unchecked
+`Any`, `type: ignore`, C901 pin, or Mypy exclusion.
+
+Landed shape: the four private definitions now live only in
+`native.extension_runtime`; the redraw function imports the two session-tree
+entry classes locally for cycle-safe runtime checks, while postponed
+annotations retain strict types. The root imports the payload/redraw helpers
+for its unchanged stateful `_CustomEntryRenderer`, and direct tests import the
+extension owner. Payloads, sanitization, branch order, tags, metadata rows, and
+fallback lines are unchanged. The composition root falls from 6,182 to 6,100
+lines. Repository C901 stays 136/64 and `src` `type: ignore` stays 29; no
+pin/exclusion was added. Focused renderer/session/import-boundary verification
+passed 311 tests; final `just check` passed Ruff, Mypy, and 4,509 tests
+(2 skipped); `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol,
+1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

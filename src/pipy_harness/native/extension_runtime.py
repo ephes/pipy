@@ -39,11 +39,11 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, TypeAlias, runtime_checkable
 
 from pipy_harness.native.extension_loader import (
     _import_entry_module,
@@ -140,6 +140,8 @@ from pipy_harness.native.tools.base import (
 
 if False:  # pragma: no cover - imported for type checkers only
     from pipy_harness.native.session_tree import (
+        CustomEntry as _CustomEntry,
+        CustomMessageEntry as _CustomMessageEntry,
         NativeSessionTree,
         SessionEntry,
         SessionHeader,
@@ -1869,6 +1871,98 @@ def safe_custom_entry_data(data: object | None) -> object | None:
         "truncated": True,
         "text": encoded[: _CUSTOM_ENTRY_DATA_MAX_CHARS - 128],
     }
+
+
+def _custom_message_renderer_payload(entry: _CustomMessageEntry) -> dict[str, object]:
+    """Return the Pi-shaped payload passed to CustomMessageEntry renderers."""
+
+    return {
+        "customType": entry.custom_type,
+        "content": entry.content,
+        "display": entry.display,
+        "details": safe_custom_entry_data(entry.details),
+    }
+
+
+def _custom_entry_renderer_payload(entry: _CustomEntry) -> dict[str, object]:
+    """Return the Pi-shaped full stored entry passed to entry renderers."""
+
+    return {
+        "type": "custom",
+        "id": entry.id,
+        "parentId": entry.parent_id,
+        "timestamp": entry.timestamp,
+        "customType": entry.custom_type,
+        "data": safe_custom_entry_data(entry.data),
+    }
+
+
+_CustomEntryRedrawRow: TypeAlias = (
+    tuple[str, str, tuple[str, ...]]
+    | tuple[
+        str,
+        str,
+        tuple[str, ...],
+        object | None,
+        Mapping[str, RegisteredMessageRenderer] | Mapping[str, RegisteredEntryRenderer],
+    ]
+)
+
+
+def _custom_entry_redraw_rows(
+    branch: Iterable[object],
+    render_custom_entry: Callable[[_CustomEntry], RenderedCustomEntry | None],
+    render_custom_message_entry: Callable[[_CustomMessageEntry], RenderedCustomEntry]
+    | None = None,
+    *,
+    render_metadata: Mapping[str, RegisteredMessageRenderer] | None = None,
+    entry_render_metadata: Mapping[str, RegisteredEntryRenderer] | None = None,
+) -> list[_CustomEntryRedrawRow]:
+    """Build TUI redraw rows for active-branch extension custom entries."""
+
+    from pipy_harness.native.session_tree import (
+        CustomEntry as _CustomEntry,
+    )
+    from pipy_harness.native.session_tree import (
+        CustomMessageEntry as _CustomMessageEntry,
+    )
+
+    rows: list[_CustomEntryRedrawRow] = []
+    for entry in branch:
+        if isinstance(entry, _CustomEntry):
+            data = _custom_entry_renderer_payload(entry)
+            rendered = render_custom_entry(entry)
+            if rendered is None:
+                continue
+            row: _CustomEntryRedrawRow = (
+                "entry",
+                entry.custom_type,
+                tuple(rendered.lines),
+            )
+            if entry_render_metadata is not None:
+                row = (*row, data, entry_render_metadata)
+            rows.append(row)
+        elif isinstance(entry, _CustomMessageEntry) and entry.display:
+            if render_custom_message_entry is not None:
+                data = _custom_message_renderer_payload(entry)
+                rendered = render_custom_message_entry(entry)
+                row = (
+                    "styled" if rendered.styled else "plain",
+                    entry.custom_type,
+                    tuple(rendered.lines),
+                )
+                if render_metadata is not None:
+                    row = (*row, data, render_metadata)
+                rows.append(row)
+            else:
+                rows.append(
+                    (
+                        "plain",
+                        entry.custom_type,
+                        tuple(entry.content.splitlines() or [""]),
+                    )
+                )
+    return rows
 
 
 def _renderer_wants_context(renderer: Callable[..., object]) -> bool:

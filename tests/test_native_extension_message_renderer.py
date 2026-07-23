@@ -168,7 +168,7 @@ def test_custom_message_renderer_payload_fields():
     from datetime import UTC, datetime
 
     from pipy_harness.native.session_tree import CustomMessageEntry
-    from pipy_harness.native.tool_loop_session import _custom_message_renderer_payload
+    from pipy_harness.native.extension_runtime import _custom_message_renderer_payload
 
     entry = CustomMessageEntry(
         "1",
@@ -193,7 +193,7 @@ def test_custom_entry_redraw_rows_renders_custom_messages():
 
     from pipy_harness.native.extension_runtime import RenderedCustomEntry
     from pipy_harness.native.session_tree import CustomEntry, CustomMessageEntry
-    from pipy_harness.native.tool_loop_session import _custom_entry_redraw_rows
+    from pipy_harness.native.extension_runtime import _custom_entry_redraw_rows
 
     now = datetime.now(UTC)
     rows = _custom_entry_redraw_rows(
@@ -219,7 +219,7 @@ def test_custom_entry_redraw_rows_custom_message_falls_back_to_content():
 
     from pipy_harness.native.extension_runtime import RenderedCustomEntry
     from pipy_harness.native.session_tree import CustomMessageEntry
-    from pipy_harness.native.tool_loop_session import _custom_entry_redraw_rows
+    from pipy_harness.native.extension_runtime import _custom_entry_redraw_rows
 
     now = datetime.now(UTC)
     rows = _custom_entry_redraw_rows(
@@ -298,7 +298,7 @@ def test_custom_entry_redraw_rows_dispatches_branch_entries():
 
     from pipy_harness.native.extension_runtime import RenderedCustomEntry
     from pipy_harness.native.session_tree import CustomEntry, CustomMessageEntry
-    from pipy_harness.native.tool_loop_session import _custom_entry_redraw_rows
+    from pipy_harness.native.extension_runtime import _custom_entry_redraw_rows
 
     called = []
 
@@ -332,7 +332,7 @@ def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
     from typing import TextIO, cast
 
     from pipy_harness.native.session_tree import CustomMessageEntry
-    from pipy_harness.native.tool_loop_session import (
+    from pipy_harness.native.extension_runtime import (
         _custom_entry_redraw_rows,
         _custom_message_renderer_payload,
     )

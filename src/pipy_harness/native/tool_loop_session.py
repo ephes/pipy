@@ -41,8 +41,8 @@ from dataclasses import InitVar, dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
-from typing import Any, ClassVar, Protocol, TextIO, TypeAlias, runtime_checkable
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from typing import Any, ClassVar, Protocol, TextIO, runtime_checkable
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
@@ -292,6 +292,9 @@ from pipy_harness.native.extension_runtime import (
     RegisteredTool,
     RenderedCustomEntry,
     _ExtensionToolPort,
+    _custom_entry_redraw_rows,
+    _custom_entry_renderer_payload,
+    _custom_message_renderer_payload,
     activate_extensions,
     dispatch_extension_command,
     dispatch_extension_shortcut,
@@ -531,91 +534,6 @@ def _wait_for_external_abort(
                 return ProviderTurnInterruption.SETTLED
     finally:
         unregister()
-
-
-def _custom_message_renderer_payload(entry: _CustomMessageEntry) -> dict[str, object]:
-    """Return the Pi-shaped payload passed to CustomMessageEntry renderers."""
-
-    return {
-        "customType": entry.custom_type,
-        "content": entry.content,
-        "display": entry.display,
-        "details": safe_custom_entry_data(entry.details),
-    }
-
-
-def _custom_entry_renderer_payload(entry: _CustomEntry) -> dict[str, object]:
-    """Return the Pi-shaped full stored entry passed to entry renderers."""
-
-    return {
-        "type": "custom",
-        "id": entry.id,
-        "parentId": entry.parent_id,
-        "timestamp": entry.timestamp,
-        "customType": entry.custom_type,
-        "data": safe_custom_entry_data(entry.data),
-    }
-
-
-_CustomEntryRedrawRow: TypeAlias = (
-    tuple[str, str, tuple[str, ...]]
-    | tuple[
-        str,
-        str,
-        tuple[str, ...],
-        object | None,
-        Mapping[str, RegisteredMessageRenderer] | Mapping[str, RegisteredEntryRenderer],
-    ]
-)
-
-
-def _custom_entry_redraw_rows(
-    branch: Iterable[object],
-    render_custom_entry: Callable[[_CustomEntry], RenderedCustomEntry | None],
-    render_custom_message_entry: Callable[[_CustomMessageEntry], RenderedCustomEntry]
-    | None = None,
-    *,
-    render_metadata: Mapping[str, RegisteredMessageRenderer] | None = None,
-    entry_render_metadata: Mapping[str, RegisteredEntryRenderer] | None = None,
-) -> list[_CustomEntryRedrawRow]:
-    """Build TUI redraw rows for active-branch extension custom entries."""
-
-    rows: list[_CustomEntryRedrawRow] = []
-    for entry in branch:
-        if isinstance(entry, _CustomEntry):
-            data = _custom_entry_renderer_payload(entry)
-            rendered = render_custom_entry(entry)
-            if rendered is None:
-                continue
-            row: _CustomEntryRedrawRow = (
-                "entry",
-                entry.custom_type,
-                tuple(rendered.lines),
-            )
-            if entry_render_metadata is not None:
-                row = (*row, data, entry_render_metadata)
-            rows.append(row)
-        elif isinstance(entry, _CustomMessageEntry) and entry.display:
-            if render_custom_message_entry is not None:
-                data = _custom_message_renderer_payload(entry)
-                rendered = render_custom_message_entry(entry)
-                row = (
-                    "styled" if rendered.styled else "plain",
-                    entry.custom_type,
-                    tuple(rendered.lines),
-                )
-                if render_metadata is not None:
-                    row = (*row, data, render_metadata)
-                rows.append(row)
-            else:
-                rows.append(
-                    (
-                        "plain",
-                        entry.custom_type,
-                        tuple(entry.content.splitlines() or [""]),
-                    )
-                )
-    return rows
 
 
 _PRICING_TABLE: dict[tuple[str, str], AgentTokenPricing] = {
