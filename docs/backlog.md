@@ -3050,6 +3050,40 @@ provider, and tool conformance scripts all passed; final `just check` passed
 Ruff, Mypy, and 4,512 tests (2 skipped); `just docs-build` reported no issues.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### C901 Codex transport and event decomposition (Slice 7.7e1) — DONE (2026-07-23)
+
+Fifth directional complexity batch, bounded to the transport-facing half of
+`native.openai_codex_provider`. Decompose the four measured findings in
+`WebsocketsSyncClient.post_events`, its event iterator,
+`UrllibSseHTTPClient.post_sse`, and `_parse_response_events` along genuine
+connection setup, stream-read normalization, event-family accumulation, and
+terminal finalization seams. Preserve exact WebSocket/SSE request bytes and
+headers, cancellation registration and precedence, retryability metadata,
+fallback eligibility, progress marking, sink/event order, first-terminal
+authority, iterator closing, error sanitization, tool-call assembly, and usage
+extraction. This partial owner slice does not remove the file pin; the provider
+request/retry/error half follows independently. No protocol redesign,
+provider consolidation, behavior change, dependency, unchecked `Any`,
+`type: ignore`, Mypy exclusion, or new pin.
+
+Landed shape: typed WebSocket and streaming-HTTP protocols make the optional
+runtime boundaries explicit. WebSocket handshake, send, receive, interruption,
+registration, and close handling are separate helpers; SSE opening/status
+normalization and lazy event iteration/cleanup are separate helpers.
+Transport-neutral response assembly uses one typed accumulator with distinct
+content, function-call, terminal, status, and finalization helpers. Exact
+cancellation precedence, progress marking, first-terminal closure, sanitized
+errors, retry/fallback metadata, sink ordering, and tool-call assembly remain
+covered by the existing focused tests. The four target functions and every new
+helper are C901-clean; the four deferred request/retry/error findings keep the
+file pinned for Slice 7.7e2. Repository C901 falls 127 -> 123 findings across
+the same 60 files (`src` 111 -> 107 across 51). Focused verification passed
+127 tests; final `just check` passed Ruff, Mypy, and 4,513 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 2 rounds,
+1 finding, final round explicit CLEAN. Round one caught that a malformed
+arguments-done event no longer reserved its valid item ID's source-order slot;
+the reservation order was restored and a regression test added.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

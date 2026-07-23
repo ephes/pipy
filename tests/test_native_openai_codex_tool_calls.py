@@ -557,6 +557,69 @@ def test_openai_codex_merges_added_metadata_into_done_placeholder(
     assert result.tool_calls[0].arguments_json == '{"path": "x.py"}'
 
 
+def test_openai_codex_malformed_done_reserves_function_call_order(tmp_path: Path):
+    client = FakeSseHTTPClient(
+        SseResponse(
+            status_code=200,
+            body=sse_payload(
+                [
+                    {
+                        "type": "response.function_call_arguments.done",
+                        "item_id": "fc_early",
+                        "arguments": {"unsupported": "shape"},
+                    },
+                    {
+                        "type": "response.output_item.added",
+                        "item": {
+                            "type": "function_call",
+                            "id": "fc_late",
+                            "call_id": "call_late",
+                            "name": "read",
+                            "arguments": '{"path": "late.py"}',
+                        },
+                    },
+                    {
+                        "type": "response.output_item.added",
+                        "item": {
+                            "type": "function_call",
+                            "id": "fc_early",
+                            "call_id": "call_early",
+                            "name": "read",
+                            "arguments": '{"path": "early.py"}',
+                        },
+                    },
+                    {
+                        "type": "response.completed",
+                        "response": {"status": "completed"},
+                    },
+                ]
+            ),
+        )
+    )
+    provider = OpenAICodexResponsesProvider(
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+    )
+
+    result = provider.complete(
+        ProviderRequest(
+            system_prompt="SYS",
+            user_prompt="go",
+            provider_name="openai-codex",
+            model_id="gpt-test",
+            cwd=tmp_path,
+            messages=(AgentUserMessage(content=ProductContent("go")),),
+            available_tools=(ReadTool().definition,),
+        )
+    )
+
+    assert [call.provider_correlation_id for call in result.tool_calls] == [
+        "call_early|fc_early",
+        "call_late|fc_late",
+    ]
+
+
 def test_openai_codex_serializes_tool_result_envelope(tmp_path: Path):
     client = FakeSseHTTPClient(
         SseResponse(

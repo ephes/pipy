@@ -186,6 +186,26 @@ class SseHTTPClient(Protocol):
         """
 
 
+class _SyncWebSocket(Protocol):
+    """Structural boundary for the optional synchronous WebSocket runtime."""
+
+    def send(self, message: str) -> None: ...
+
+    def recv(self, *, timeout: float | None = None) -> object: ...
+
+    def close(self) -> None: ...
+
+
+class _StreamingHTTPResponse(Protocol):
+    """Subset of urllib's streaming response consumed by the SSE adapter."""
+
+    def getcode(self) -> int: ...
+
+    def __iter__(self) -> Iterator[bytes]: ...
+
+    def close(self) -> None: ...
+
+
 class OAuthHTTPClient(Protocol):
     """Minimal injectable OAuth form HTTP client."""
 
@@ -254,86 +274,21 @@ class WebsocketsSyncClient:
         except Exception as exc:  # noqa: BLE001
             if cancel_token is not None:
                 cancel_token.raise_if_cancelled()
-            if isinstance(exc, WebSocketException | InvalidHandshake):
-                raise OpenAICodexTransportError(
-                    "OpenAI Codex transport failed while waiting for response headers.",
-                    metadata={
-                        "phase": "headers",
-                        "retryable": True,
-                        "transport": "websocket",
-                    },
-                ) from exc
-            normalized = _normalize_transport_exception(
-                exc, transport="websocket", phase="headers", stream=False
+            normalized = _normalize_websocket_handshake_exception(
+                exc,
+                handshake_errors=(WebSocketException, InvalidHandshake),
             )
             if normalized is not None:
                 raise normalized from exc
             raise
-
-        def _events() -> Iterator[Mapping[str, Any]]:
-            registered = False
-            try:
-                if cancel_token is not None:
-                    cancel_token.register(websocket)
-                    registered = True
-                    cancel_token.raise_if_cancelled()
-                try:
-                    websocket.send(json.dumps({"type": "response.create", **body}))
-                except Exception as exc:  # noqa: BLE001
-                    if cancel_token is not None:
-                        cancel_token.raise_if_cancelled()
-                    normalized = _normalize_transport_exception(
-                        exc, transport="websocket", phase="headers", stream=False
-                    )
-                    if normalized is not None:
-                        raise normalized from exc
-                    raise
-                while True:
-                    if cancel_token is not None:
-                        cancel_token.raise_if_cancelled()
-                    try:
-                        message = websocket.recv(timeout=idle_timeout_seconds)
-                    except StopIteration:
-                        return
-                    except TimeoutError as exc:
-                        if cancel_token is not None:
-                            cancel_token.raise_if_cancelled()
-                        raise OpenAICodexStreamInterruptedError(
-                            "OpenAI Codex stream was interrupted before completion.",
-                            metadata={"phase": "stream", "retryable": True, "transport": "websocket"},
-                        ) from exc
-                    except ConnectionClosedOK:
-                        return
-                    except ConnectionClosed as exc:
-                        if cancel_token is not None:
-                            cancel_token.raise_if_cancelled()
-                        raise OpenAICodexStreamInterruptedError(
-                            "OpenAI Codex stream was interrupted before completion.",
-                            metadata={"phase": "stream", "retryable": True, "transport": "websocket"},
-                        ) from exc
-                    except Exception as exc:  # noqa: BLE001
-                        if cancel_token is not None:
-                            cancel_token.raise_if_cancelled()
-                        normalized = _normalize_transport_exception(
-                            exc, transport="websocket", phase="stream", stream=True
-                        )
-                        if normalized is not None:
-                            raise normalized from exc
-                        raise
-                    if not isinstance(message, str):
-                        raise OpenAICodexResponseParseError(
-                            "OpenAI Codex stream included a non-text WebSocket message."
-                        )
-                    yield _decode_websocket_event(message)
-            finally:
-                if cancel_token is not None and registered:
-                    cancel_token.unregister(websocket)
-                try:
-                    websocket.close()
-                except Exception:  # noqa: BLE001
-                    pass
-
-        return _events()
+        return _iter_websocket_events(
+            websocket,
+            body=body,
+            idle_timeout_seconds=idle_timeout_seconds,
+            cancel_token=cancel_token,
+            connection_closed=ConnectionClosed,
+            connection_closed_ok=ConnectionClosedOK,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,86 +316,212 @@ class UrllibSseHTTPClient:
     ) -> SseResponse:
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
-        encoded = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(
             url,
-            data=encoded,
+            data=json.dumps(body).encode("utf-8"),
             headers=dict(headers),
             method="POST",
         )
-        try:
-            # open_url_cancellable registers the underlying connection on the
-            # token, so an active-turn cancel closes the socket during the
-            # header wait or while the stream is read; the streaming loop below
-            # converts the resulting read failure into ProviderCancelledError.
-            response = open_url_cancellable(
-                request,
-                timeout_seconds=timeout_seconds,
+        response = _open_sse_response(
+            request,
+            timeout_seconds=timeout_seconds,
+            cancel_token=cancel_token,
+            retry_clock=self.retry_clock,
+        )
+        # The iterator captures the raw decoded body progressively for
+        # compatibility with the historical response boundary.
+        collected_body: list[str] = []
+        return SseResponse(
+            status_code=response.getcode(),
+            body="",
+            event_stream=_iter_sse_response_events(
+                response,
+                collected_body=collected_body,
                 cancel_token=cancel_token,
-            )
-        except urllib.error.HTTPError as exc:
-            raise OpenAICodexHTTPStatusError.from_http_error(
-                exc,
-                cancel_token=cancel_token,
-                now_seconds=self.retry_clock(),
-            ) from exc
-        except ProviderCancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - recognized transport failures only
+            ),
+        )
+
+
+def _normalize_websocket_handshake_exception(
+    exc: BaseException,
+    *,
+    handshake_errors: tuple[type[BaseException], ...],
+) -> OpenAICodexTransportError | None:
+    if isinstance(exc, handshake_errors):
+        return OpenAICodexTransportError(
+            "OpenAI Codex transport failed while waiting for response headers.",
+            metadata={
+                "phase": "headers",
+                "retryable": True,
+                "transport": "websocket",
+            },
+        )
+    return _normalize_transport_exception(
+        exc, transport="websocket", phase="headers", stream=False
+    )
+
+
+def _iter_websocket_events(
+    websocket: _SyncWebSocket,
+    *,
+    body: Mapping[str, Any],
+    idle_timeout_seconds: float | None,
+    cancel_token: CancelToken | None,
+    connection_closed: type[BaseException],
+    connection_closed_ok: type[BaseException],
+) -> Iterator[Mapping[str, Any]]:
+    registered = False
+    try:
+        if cancel_token is not None:
+            cancel_token.register(websocket)
+            registered = True
+            cancel_token.raise_if_cancelled()
+        _send_websocket_request(websocket, body=body, cancel_token=cancel_token)
+        while True:
             if cancel_token is not None:
                 cancel_token.raise_if_cancelled()
-            normalized = _normalize_transport_exception(
-                exc,
-                transport="sse",
-                phase="headers",
-                stream=False,
+            event = _receive_websocket_event(
+                websocket,
+                idle_timeout_seconds=idle_timeout_seconds,
+                cancel_token=cancel_token,
+                connection_closed=connection_closed,
+                connection_closed_ok=connection_closed_ok,
             )
-            if normalized is None:
-                raise
-            raise normalized from exc
+            if event is None:
+                return
+            yield event
+    finally:
+        if cancel_token is not None and registered:
+            cancel_token.unregister(websocket)
+        _safe_close(websocket)
 
-        status_code = response.getcode()
-        # Build a streaming iterator that yields parsed events as they
-        # arrive. The iterator also captures the raw decoded body into
-        # `collected_body` so the SseResponse retains an after-the-fact
-        # transcript for tests and diagnostics.
-        collected_body: list[str] = []
 
-        def _events() -> Iterator[Mapping[str, Any]]:
-            try:
-                for payload in iter_sse_event_payloads(response, collected_body):
-                    event = _decode_sse_event(payload)
-                    if cancel_token is not None:
-                        cancel_token.raise_if_cancelled()
-                    yield event
-            except ProviderCancelledError:
-                raise
-            except Exception as exc:  # noqa: BLE001 - recognized transport failures only
-                if cancel_token is not None and cancel_token.cancelled:
-                    raise ProviderCancelledError(
-                        "native provider turn cancelled"
-                    ) from exc
-                normalized = _normalize_transport_exception(
-                    exc,
-                    transport="sse",
-                    phase="stream",
-                    stream=True,
-                )
-                if normalized is None:
-                    raise
-                raise normalized from exc
-            finally:
-                # The connection (registered by open_url_cancellable) is closed
-                # here; the per-turn token is discarded after the turn, so the
-                # closed connection it still references is a harmless no-op for
-                # any later cancel().
-                _safe_close(response)
-
-        return SseResponse(
-            status_code=status_code,
-            body="",  # populated lazily as the stream is consumed
-            event_stream=_events(),
+def _send_websocket_request(
+    websocket: _SyncWebSocket,
+    *,
+    body: Mapping[str, Any],
+    cancel_token: CancelToken | None,
+) -> None:
+    try:
+        websocket.send(json.dumps({"type": "response.create", **body}))
+    except Exception as exc:  # noqa: BLE001
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        normalized = _normalize_transport_exception(
+            exc, transport="websocket", phase="headers", stream=False
         )
+        if normalized is not None:
+            raise normalized from exc
+        raise
+
+
+def _receive_websocket_event(
+    websocket: _SyncWebSocket,
+    *,
+    idle_timeout_seconds: float | None,
+    cancel_token: CancelToken | None,
+    connection_closed: type[BaseException],
+    connection_closed_ok: type[BaseException],
+) -> Mapping[str, Any] | None:
+    try:
+        message = websocket.recv(timeout=idle_timeout_seconds)
+    except StopIteration:
+        return None
+    except (TimeoutError, connection_closed) as exc:
+        if isinstance(exc, connection_closed_ok):
+            return None
+        _raise_websocket_stream_interruption(exc, cancel_token=cancel_token)
+    except Exception as exc:  # noqa: BLE001
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        normalized = _normalize_transport_exception(
+            exc, transport="websocket", phase="stream", stream=True
+        )
+        if normalized is not None:
+            raise normalized from exc
+        raise
+    if not isinstance(message, str):
+        raise OpenAICodexResponseParseError(
+            "OpenAI Codex stream included a non-text WebSocket message."
+        )
+    return _decode_websocket_event(message)
+
+
+def _raise_websocket_stream_interruption(
+    exc: BaseException,
+    *,
+    cancel_token: CancelToken | None,
+) -> None:
+    if cancel_token is not None:
+        cancel_token.raise_if_cancelled()
+    raise OpenAICodexStreamInterruptedError(
+        "OpenAI Codex stream was interrupted before completion.",
+        metadata={"phase": "stream", "retryable": True, "transport": "websocket"},
+    ) from exc
+
+
+def _open_sse_response(
+    request: urllib.request.Request,
+    *,
+    timeout_seconds: float | None,
+    cancel_token: CancelToken | None,
+    retry_clock: Callable[[], float],
+) -> _StreamingHTTPResponse:
+    try:
+        # The cancellable opener registers the connection before waiting for
+        # headers, so the same token also interrupts later streaming reads.
+        response: _StreamingHTTPResponse = open_url_cancellable(
+            request,
+            timeout_seconds=timeout_seconds,
+            cancel_token=cancel_token,
+        )
+        return response
+    except urllib.error.HTTPError as exc:
+        raise OpenAICodexHTTPStatusError.from_http_error(
+            exc,
+            cancel_token=cancel_token,
+            now_seconds=retry_clock(),
+        ) from exc
+    except ProviderCancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - recognized transport failures only
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        normalized = _normalize_transport_exception(
+            exc, transport="sse", phase="headers", stream=False
+        )
+        if normalized is not None:
+            raise normalized from exc
+        raise
+
+
+def _iter_sse_response_events(
+    response: _StreamingHTTPResponse,
+    *,
+    collected_body: list[str],
+    cancel_token: CancelToken | None,
+) -> Iterator[Mapping[str, Any]]:
+    try:
+        for payload in iter_sse_event_payloads(response, collected_body):
+            event = _decode_sse_event(payload)
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            yield event
+    except ProviderCancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - recognized transport failures only
+        if cancel_token is not None and cancel_token.cancelled:
+            raise ProviderCancelledError("native provider turn cancelled") from exc
+        normalized = _normalize_transport_exception(
+            exc, transport="sse", phase="stream", stream=True
+        )
+        if normalized is not None:
+            raise normalized from exc
+        raise
+    finally:
+        # The per-turn token is discarded after the turn, so its reference to
+        # this closed connection is a harmless no-op for a later cancel().
+        _safe_close(response)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1440,6 +1521,25 @@ def _parse_sse_response(
     )
 
 
+@dataclass(slots=True)
+class _ResponseEventAccumulator:
+    text_chunks: list[str] = field(default_factory=list)
+    fallback_text_chunks: list[str] = field(default_factory=list)
+    function_call_items: dict[str, _StreamingFunctionCall] = field(default_factory=dict)
+    next_call_order: int = 0
+
+    def function_call(self, item_id: str) -> _StreamingFunctionCall:
+        call = self.function_call_items.get(item_id)
+        if call is None:
+            call = _StreamingFunctionCall(
+                item_id=item_id,
+                order_index=self.next_call_order,
+            )
+            self.function_call_items[item_id] = call
+            self.next_call_order += 1
+        return call
+
+
 def _parse_response_events(
     events: Iterator[Mapping[str, Any]],
     *,
@@ -1451,166 +1551,203 @@ def _parse_response_events(
 ) -> ParsedOpenAICodexResponse:
     """Assemble a transport-neutral stream of accepted Responses events."""
 
-    text_chunks: list[str] = []
-    fallback_text_chunks: list[str] = []
-    terminal_response: Mapping[str, Any] | None = None
-    terminal_event_type: str | None = None
-    function_call_items: dict[str, _StreamingFunctionCall] = {}
-    next_call_order = 0
-
+    accumulator = _ResponseEventAccumulator()
+    terminal: tuple[str, Mapping[str, Any] | None] | None = None
     attempt_progress = progress if progress is not None else StreamProgress()
     for event in events:
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
-        # Progress changes before any event-specific processing, including
-        # metadata, explicit errors, reasoning, text, and tool assembly.
         event_type = event.get("type")
-        if event_type == "error" and event.get("code") == "websocket_connection_limit_reached":
-            safe_code = _safe_codex_api_label(event.get("code"))
-            pre_progress_metadata: dict[str, Any] = {
-                "provider_response_store_requested": False,
-                "response_status": "unknown",
-            }
-            if safe_code is not None:
-                pre_progress_metadata["api_error_code"] = safe_code
-            raise OpenAICodexResponseParseError(
-                "OpenAI Codex stream returned an error event.",
-                metadata=pre_progress_metadata,
-            )
+        if _is_websocket_connection_limit(event, event_type=event_type):
+            raise _response_error_event(event)
+        # Mark progress before all ordinary event-specific processing.
         attempt_progress.mark_event()
-        if event_type == "response.reasoning_summary_text.delta":
-            delta = event.get("delta")
-            if reasoning_sink is not None and isinstance(delta, str) and delta:
-                reasoning_sink(delta)
-            continue
-        if event_type == "response.reasoning_summary_part.added":
-            # Part boundaries inside a reasoning summary; emit a paragraph
-            # break so the rendered text retains Pi's section-like cadence.
-            if reasoning_sink is not None:
-                reasoning_sink("\n\n")
-            continue
         if event_type == "error":
-            safe_code = _safe_codex_api_label(event.get("code"))
-            metadata: dict[str, Any] = {
-                "provider_response_store_requested": False,
-                "response_status": "unknown",
-            }
-            if safe_code is not None:
-                metadata["api_error_code"] = safe_code
-            raise OpenAICodexResponseParseError(
-                "OpenAI Codex stream returned an error event.",
-                metadata=metadata,
-            )
-        if event_type == "response.output_text.delta":
-            delta = event.get("delta")
-            if isinstance(delta, str):
-                text_chunks.append(delta)
-                if stream_sink is not None and delta:
-                    stream_sink(delta)
+            raise _response_error_event(event)
+        if _accumulate_content_event(
+            accumulator,
+            event,
+            event_type=event_type,
+            stream_sink=stream_sink,
+            reasoning_sink=reasoning_sink,
+        ):
             continue
-        if event_type == "response.output_item.added":
-            item = event.get("item")
-            if isinstance(item, Mapping) and item.get("type") == "function_call":
-                item_id = _safe_str(item.get("id"))
-                if item_id is not None:
-                    call = function_call_items.get(item_id)
-                    if call is None:
-                        call = _StreamingFunctionCall(
-                            item_id=item_id,
-                            call_id=_safe_str(item.get("call_id")),
-                            name=_safe_str(item.get("name")),
-                            order_index=next_call_order,
-                        )
-                        function_call_items[item_id] = call
-                        next_call_order += 1
-                    else:
-                        # A delta or done event may have already created a
-                        # placeholder for this item_id. Merge the metadata
-                        # from `added` into that placeholder so finalization
-                        # does not drop a partially-described call.
-                        if call.call_id is None:
-                            call.call_id = _safe_str(item.get("call_id"))
-                        if call.name is None:
-                            call.name = _safe_str(item.get("name"))
-                    initial_arguments = item.get("arguments")
-                    if isinstance(initial_arguments, str) and initial_arguments:
-                        call.argument_deltas.append(initial_arguments)
-            continue
-        if event_type == "response.function_call_arguments.delta":
-            item_id = _safe_str(event.get("item_id"))
-            delta = event.get("delta")
-            if item_id is None or not isinstance(delta, str):
-                continue
-            call = function_call_items.get(item_id)
-            if call is None:
-                call = _StreamingFunctionCall(
-                    item_id=item_id, order_index=next_call_order
-                )
-                function_call_items[item_id] = call
-                next_call_order += 1
-            call.argument_deltas.append(delta)
-            continue
-        if event_type == "response.function_call_arguments.done":
-            item_id = _safe_str(event.get("item_id"))
-            if item_id is None:
-                continue
-            arguments = event.get("arguments")
-            call = function_call_items.get(item_id)
-            if call is None:
-                call = _StreamingFunctionCall(
-                    item_id=item_id, order_index=next_call_order
-                )
-                function_call_items[item_id] = call
-                next_call_order += 1
-            if isinstance(arguments, str):
-                call.final_arguments = arguments
-            continue
-        if event_type == "response.output_item.done":
-            item = event.get("item")
-            if isinstance(item, Mapping):
-                if item.get("type") == "function_call":
-                    item_id = _safe_str(item.get("id"))
-                    if item_id is not None:
-                        call = function_call_items.get(item_id)
-                        if call is None:
-                            call = _StreamingFunctionCall(
-                                item_id=item_id, order_index=next_call_order
-                            )
-                            function_call_items[item_id] = call
-                            next_call_order += 1
-                        if call.call_id is None:
-                            call.call_id = _safe_str(item.get("call_id"))
-                        if call.name is None:
-                            call.name = _safe_str(item.get("name"))
-                        final_arguments = item.get("arguments")
-                        if isinstance(final_arguments, str):
-                            call.final_arguments = final_arguments
-                else:
-                    fallback_text_chunks.extend(_extract_output_text_chunks(item))
-            continue
-        if event_type in {
-            "response.cancelled",
-            "response.completed",
-            "response.done",
-            "response.failed",
-            "response.incomplete",
-        }:
-            terminal_event_type = event_type
-            terminal_response = _event_response(event)
-            # The first terminal event is authoritative. Closing a real SSE
-            # generator runs its ``finally`` immediately and closes the HTTP
-            # response, while preventing later bytes/events or a late socket
-            # error from changing an already terminal outcome.
+        _accumulate_function_call_event(accumulator, event, event_type=event_type)
+        terminal = _terminal_event(event, event_type=event_type)
+        if terminal is not None:
+            # The first terminal is authoritative; generator close also closes
+            # a live SSE/WebSocket transport before any later event is read.
             _close_event_iterator(events)
             break
 
-    # A cancel that shuts the socket down makes the stream end at EOF (a clean
-    # iterator stop, not an exception), so re-check after the loop: a cancelled
-    # turn must raise rather than return a partial "successful" result.
+    # Cancellation wins over a clean EOF caused by closing the live socket.
     if cancel_token is not None:
         cancel_token.raise_if_cancelled()
+    return _finalize_response_events(accumulator, terminal, transport=transport)
 
-    if terminal_event_type is None:
+
+def _is_websocket_connection_limit(
+    event: Mapping[str, Any],
+    *,
+    event_type: object,
+) -> bool:
+    return (
+        event_type == "error"
+        and event.get("code") == "websocket_connection_limit_reached"
+    )
+
+
+def _response_error_event(event: Mapping[str, Any]) -> OpenAICodexResponseParseError:
+    metadata: dict[str, Any] = {
+        "provider_response_store_requested": False,
+        "response_status": "unknown",
+    }
+    safe_code = _safe_codex_api_label(event.get("code"))
+    if safe_code is not None:
+        metadata["api_error_code"] = safe_code
+    return OpenAICodexResponseParseError(
+        "OpenAI Codex stream returned an error event.",
+        metadata=metadata,
+    )
+
+
+def _accumulate_content_event(
+    accumulator: _ResponseEventAccumulator,
+    event: Mapping[str, Any],
+    *,
+    event_type: object,
+    stream_sink: StreamChunkSink | None,
+    reasoning_sink: StreamChunkSink | None,
+) -> bool:
+    if event_type == "response.reasoning_summary_text.delta":
+        delta = event.get("delta")
+        if reasoning_sink is not None and isinstance(delta, str) and delta:
+            reasoning_sink(delta)
+        return True
+    if event_type == "response.reasoning_summary_part.added":
+        if reasoning_sink is not None:
+            reasoning_sink("\n\n")
+        return True
+    if event_type != "response.output_text.delta":
+        return False
+    delta = event.get("delta")
+    if isinstance(delta, str):
+        accumulator.text_chunks.append(delta)
+        if stream_sink is not None and delta:
+            stream_sink(delta)
+    return True
+
+
+def _accumulate_function_call_event(
+    accumulator: _ResponseEventAccumulator,
+    event: Mapping[str, Any],
+    *,
+    event_type: object,
+) -> None:
+    if event_type == "response.output_item.added":
+        _accumulate_function_call_added(accumulator, event)
+    elif event_type == "response.function_call_arguments.delta":
+        _accumulate_function_call_delta(accumulator, event)
+    elif event_type == "response.function_call_arguments.done":
+        _accumulate_function_call_arguments_done(accumulator, event)
+    elif event_type == "response.output_item.done":
+        _accumulate_output_item_done(accumulator, event)
+
+
+def _accumulate_function_call_added(
+    accumulator: _ResponseEventAccumulator,
+    event: Mapping[str, Any],
+) -> None:
+    item = event.get("item")
+    if not isinstance(item, Mapping) or item.get("type") != "function_call":
+        return
+    item_id = _safe_str(item.get("id"))
+    if item_id is None:
+        return
+    call = accumulator.function_call(item_id)
+    _merge_function_call_item(call, item)
+    initial_arguments = item.get("arguments")
+    if isinstance(initial_arguments, str) and initial_arguments:
+        call.argument_deltas.append(initial_arguments)
+
+
+def _merge_function_call_item(
+    call: _StreamingFunctionCall,
+    item: Mapping[str, Any],
+) -> None:
+    if call.call_id is None:
+        call.call_id = _safe_str(item.get("call_id"))
+    if call.name is None:
+        call.name = _safe_str(item.get("name"))
+
+
+def _accumulate_function_call_delta(
+    accumulator: _ResponseEventAccumulator,
+    event: Mapping[str, Any],
+) -> None:
+    item_id = _safe_str(event.get("item_id"))
+    delta = event.get("delta")
+    if item_id is None or not isinstance(delta, str):
+        return
+    accumulator.function_call(item_id).argument_deltas.append(delta)
+
+
+def _accumulate_function_call_arguments_done(
+    accumulator: _ResponseEventAccumulator,
+    event: Mapping[str, Any],
+) -> None:
+    item_id = _safe_str(event.get("item_id"))
+    if item_id is None:
+        return
+    call = accumulator.function_call(item_id)
+    arguments = event.get("arguments")
+    if isinstance(arguments, str):
+        call.final_arguments = arguments
+
+
+def _accumulate_output_item_done(
+    accumulator: _ResponseEventAccumulator,
+    event: Mapping[str, Any],
+) -> None:
+    item = event.get("item")
+    if not isinstance(item, Mapping):
+        return
+    if item.get("type") != "function_call":
+        accumulator.fallback_text_chunks.extend(_extract_output_text_chunks(item))
+        return
+    item_id = _safe_str(item.get("id"))
+    if item_id is None:
+        return
+    call = accumulator.function_call(item_id)
+    _merge_function_call_item(call, item)
+    final_arguments = item.get("arguments")
+    if isinstance(final_arguments, str):
+        call.final_arguments = final_arguments
+
+
+def _terminal_event(
+    event: Mapping[str, Any],
+    *,
+    event_type: object,
+) -> tuple[str, Mapping[str, Any] | None] | None:
+    if event_type not in {
+        "response.cancelled",
+        "response.completed",
+        "response.done",
+        "response.failed",
+        "response.incomplete",
+    }:
+        return None
+    return str(event_type), _event_response(event)
+
+
+def _finalize_response_events(
+    accumulator: _ResponseEventAccumulator,
+    terminal: tuple[str, Mapping[str, Any] | None] | None,
+    *,
+    transport: str,
+) -> ParsedOpenAICodexResponse:
+    if terminal is None:
         raise OpenAICodexStreamInterruptedError(
             "OpenAI Codex stream was interrupted before completion.",
             metadata={
@@ -1621,21 +1758,7 @@ def _parse_response_events(
                 "transport": transport,
             },
         )
-
-    terminal_failure_status = {
-        "response.cancelled": "cancelled",
-        "response.failed": "failed",
-        "response.incomplete": "incomplete",
-    }.get(terminal_event_type)
-    if terminal_failure_status is not None:
-        response_status = terminal_failure_status
-        if terminal_response is None:
-            terminal_response = {}
-    elif terminal_response is None:
-        response_status = "unknown"
-        terminal_response = {}
-    else:
-        response_status = _safe_codex_response_status(terminal_response.get("status"))
+    response_status, terminal_response = _terminal_response_status(*terminal)
     if response_status != "completed":
         raise OpenAICodexResponseParseError(
             "OpenAI Codex response did not complete successfully.",
@@ -1644,10 +1767,8 @@ def _parse_response_events(
                 "response_status": response_status,
             },
         )
-
-    final_text_assembled = "".join(text_chunks) if text_chunks else "".join(fallback_text_chunks)
-    final_text: str | None = final_text_assembled if final_text_assembled else None
-    tool_calls = _finalize_streaming_function_calls(function_call_items)
+    final_text = _assembled_response_text(accumulator)
+    tool_calls = _finalize_streaming_function_calls(accumulator.function_call_items)
     if final_text is None and not tool_calls:
         raise OpenAICodexResponseParseError(
             "OpenAI Codex response did not include final output text or tool calls.",
@@ -1656,7 +1777,6 @@ def _parse_response_events(
                 "response_status": response_status,
             },
         )
-
     return ParsedOpenAICodexResponse(
         final_text=final_text,
         usage=extract_responses_usage(
@@ -1665,6 +1785,32 @@ def _parse_response_events(
         response_status=response_status,
         tool_calls=tool_calls,
     )
+
+
+def _terminal_response_status(
+    event_type: str,
+    terminal_response: Mapping[str, Any] | None,
+) -> tuple[str, Mapping[str, Any]]:
+    failure_status = {
+        "response.cancelled": "cancelled",
+        "response.failed": "failed",
+        "response.incomplete": "incomplete",
+    }.get(event_type)
+    if failure_status is not None:
+        return failure_status, terminal_response or {}
+    if terminal_response is None:
+        return "unknown", {}
+    return _safe_codex_response_status(terminal_response.get("status")), terminal_response
+
+
+def _assembled_response_text(accumulator: _ResponseEventAccumulator) -> str | None:
+    chunks = (
+        accumulator.text_chunks
+        if accumulator.text_chunks
+        else accumulator.fallback_text_chunks
+    )
+    assembled = "".join(chunks)
+    return assembled if assembled else None
 
 
 def _finalize_streaming_function_calls(

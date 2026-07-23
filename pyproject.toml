@@ -53,9 +53,10 @@ extend-select = ["C901"]
 # `image_attachment.py` and `command_sandbox.py`; Slice 7.7a dropped three
 # strict-leaf invariant owners; Slice 7.7b dropped three strict provider/wire
 # owners; Slice 7.7c dropped three more strict provider owners; Slice 7.7d
-# dropped the six-finding extension runtime owner). Do not add entries to grow
-# the baseline; only remove them as functions are genuinely simplified below
-# the threshold.
+# dropped the six-finding extension runtime owner; Slice 7.7e1 retired four of
+# eight findings in the still-pinned Codex provider owner). Do not add entries
+# to grow the baseline; only remove them as functions are genuinely simplified
+# below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
