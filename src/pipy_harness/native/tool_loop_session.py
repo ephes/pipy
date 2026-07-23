@@ -167,6 +167,7 @@ from pipy_harness.native.coding.session_controller import (
     CodingLoopStepKind,
     CodingSessionController,
     LoopStepSignal,
+    _CallableCodingCommandEffects,
 )
 from pipy_harness.native.coding.state import (
     CodingSessionState,
@@ -1184,63 +1185,6 @@ class _TreeCommandOutcome:
 
     prefill: str | None = None
     filter_mode: str | None = None
-
-
-class _CodingCommandEffectsAdapter:
-    """Composition-root :class:`CodingCommandEffects` port over run() closures.
-
-    The controller owns the built-in>resource>extension precedence; this adapter
-    performs each effect (diagnostics, footer painting, the resource-invocation
-    counter, and resource/extension dispatch) through callables that close over
-    the live run-loop state, so a ``/reload`` that rebinds the workspace
-    resources or extension registry is reflected on the next dispatch.
-    """
-
-    __slots__ = (
-        "_emit",
-        "_footer",
-        "_interpret",
-        "_record_resource",
-        "_resolve_extension",
-        "_resolve_resource",
-    )
-
-    def __init__(
-        self,
-        *,
-        emit: Callable[[str], None],
-        footer: Callable[[], None],
-        interpret: Callable[[CodingCommandOutcome], None],
-        record_resource: Callable[[], None],
-        resolve_resource: Callable[[str], ResourceDispatchResolution | None],
-        resolve_extension: Callable[[str], ExtensionDispatchResolution | None],
-    ) -> None:
-        self._emit = emit
-        self._footer = footer
-        self._interpret = interpret
-        self._record_resource = record_resource
-        self._resolve_resource = resolve_resource
-        self._resolve_extension = resolve_extension
-
-    def emit_diagnostic(self, message: str) -> None:
-        self._emit(message)
-
-    def refresh_footer(self) -> None:
-        self._footer()
-
-    def interpret_builtin(self, outcome: CodingCommandOutcome) -> None:
-        self._interpret(outcome)
-
-    def record_resource_invocation(self) -> None:
-        self._record_resource()
-
-    def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution | None:
-        return self._resolve_resource(command_text)
-
-    def dispatch_extension(
-        self, command_text: str
-    ) -> ExtensionDispatchResolution | None:
-        return self._resolve_extension(command_text)
 
 
 class _BuiltinCommandInterpreter:
@@ -4585,7 +4529,7 @@ class NativeToolReplSession:
         # bundle) exactly as the superseded inline INTERPRET_BUILTIN branch did.
         builtin_interpreter = _BuiltinCommandInterpreter()
 
-        command_effects: CodingCommandEffects = _CodingCommandEffectsAdapter(
+        command_effects: CodingCommandEffects = _CallableCodingCommandEffects(
             emit=collaborators.diag,
             footer=footer.refresh_legacy_footer,
             interpret=lambda outcome: builtin_interpreter.interpret(

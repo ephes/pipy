@@ -2845,6 +2845,32 @@ architecture verification passed 372 tests; final `just check` passed Ruff,
 Mypy, and 4,509 tests (2 skipped); `just docs-build` reported no issues.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Callable coding-command effects adapter relocation (Slice 7.5e) — DONE (2026-07-23)
+
+Fifth composition-root slimming cut. Relocate the private callable-backed
+implementation of `CodingCommandEffects` from `native.tool_loop_session` to
+`native.coding.session_controller`, beside the port and dispatch precedence it
+implements. Keep it private and callback-only: the strict coding owner must not
+gain product UI, resource, extension, session, provider, or persistence
+imports. The root constructs the imported adapter with the same six live
+callables and deletes its local class. Preserve built-in > resource > extension
+ordering, diagnostics, footer refresh, invocation counting, reload-visible
+resolution, and every command outcome. No public export, behavior change,
+dependency, unchecked `Any`, `type: ignore`, C901 pin, or Mypy exclusion.
+
+Landed shape: the byte-identical six-callable adapter now lives privately as
+`_CallableCodingCommandEffects` beside the strict `CodingCommandEffects` port;
+it is not exported. The product root imports and constructs it with the same
+diagnostic, footer, built-in interpretation, resource-count, resource-resolver,
+and extension-resolver callables, so live `/reload` rebinding remains visible.
+The coding owner's import set remains headless and unchanged in kind, and the
+superseded root class is deleted. The composition root falls from 6,238 to
+6,182 lines. Repository C901 stays 139/67 and `src` `type: ignore` stays 32;
+no pin/exclusion was added. Focused coding/session/import-boundary verification
+passed 558 tests; final `just check` passed Ruff, Mypy, and 4,509 tests
+(2 skipped); `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol,
+1 round, 0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

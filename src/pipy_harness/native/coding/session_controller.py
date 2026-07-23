@@ -88,15 +88,16 @@ class SettledEventEmitter(Protocol):
 
 @runtime_checkable
 class CodingCommandEffects(Protocol):
-    """Composition-root effect port for the command-dispatch precedence.
+    """Injected effect port for the command-dispatch precedence.
 
-    Every method performs a composition-root effect the headless controller may
-    not reach directly (terminal/renderer diagnostics, footer painting, resource/
-    extension dispatch, the resource-invocation counter, and the continuing
-    built-in's imperative per-action effect chain). The controller owns only the
-    ordering/precedence and the resulting
-    :class:`~pipy_harness.native.coding.commands.CommandDispatchResolution`; the
-    concrete port implementation stays in the composition root.
+    Every method performs a product effect the headless controller may not reach
+    directly (terminal/renderer diagnostics, footer painting, resource/extension
+    dispatch, the resource-invocation counter, and the continuing built-in's
+    imperative per-action effect chain). The controller owns only the ordering/
+    precedence and the resulting
+    :class:`~pipy_harness.native.coding.commands.CommandDispatchResolution`.
+    The concrete callable adapter is owned beside this port, while the product
+    effects it invokes remain injected from the composition root.
     """
 
     def emit_diagnostic(self, message: str) -> None: ...
@@ -114,6 +115,63 @@ class CodingCommandEffects(Protocol):
     def dispatch_extension(
         self, command_text: str
     ) -> ExtensionDispatchResolution | None: ...
+
+
+class _CallableCodingCommandEffects:
+    """Composition-root :class:`CodingCommandEffects` port over run() closures.
+
+    The controller owns the built-in>resource>extension precedence; this adapter
+    performs each effect (diagnostics, footer painting, the resource-invocation
+    counter, and resource/extension dispatch) through callables that close over
+    the live run-loop state, so a ``/reload`` that rebinds the workspace
+    resources or extension registry is reflected on the next dispatch.
+    """
+
+    __slots__ = (
+        "_emit",
+        "_footer",
+        "_interpret",
+        "_record_resource",
+        "_resolve_extension",
+        "_resolve_resource",
+    )
+
+    def __init__(
+        self,
+        *,
+        emit: Callable[[str], None],
+        footer: Callable[[], None],
+        interpret: Callable[[CodingCommandOutcome], None],
+        record_resource: Callable[[], None],
+        resolve_resource: Callable[[str], ResourceDispatchResolution | None],
+        resolve_extension: Callable[[str], ExtensionDispatchResolution | None],
+    ) -> None:
+        self._emit = emit
+        self._footer = footer
+        self._interpret = interpret
+        self._record_resource = record_resource
+        self._resolve_resource = resolve_resource
+        self._resolve_extension = resolve_extension
+
+    def emit_diagnostic(self, message: str) -> None:
+        self._emit(message)
+
+    def refresh_footer(self) -> None:
+        self._footer()
+
+    def interpret_builtin(self, outcome: CodingCommandOutcome) -> None:
+        self._interpret(outcome)
+
+    def record_resource_invocation(self) -> None:
+        self._record_resource()
+
+    def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution | None:
+        return self._resolve_resource(command_text)
+
+    def dispatch_extension(
+        self, command_text: str
+    ) -> ExtensionDispatchResolution | None:
+        return self._resolve_extension(command_text)
 
 
 class CodingLoopStepKind(Enum):
