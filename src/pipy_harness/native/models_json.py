@@ -552,37 +552,48 @@ def _merge_compat(
 def _apply_model_override(
     row: NativeModelSpec, override: ModelOverride
 ) -> NativeModelSpec:
-    changes: dict[str, object] = {}
-    if override.name is not None:
-        changes["display_name"] = override.name
-    if override.reasoning is not None:
-        changes["reasoning"] = override.reasoning
+    thinking_level_map = row.thinking_level_map
     if override.thinking_level_map is not None:
-        changes["thinking_level_map"] = {
+        thinking_level_map = {
             **dict(row.thinking_level_map),
             **dict(override.thinking_level_map),
         }
-    if override.input is not None:
-        changes["input"] = override.input
-    if override.context_window is not None:
-        changes["context_window"] = override.context_window
-    if override.max_tokens is not None:
-        changes["max_tokens"] = override.max_tokens
+
+    cost = row.cost
     if override.cost is not None:
         # Partial merge: each present sub-field (incl. explicit 0) wins; absent
         # sub-fields fall back to the built-in row's value.
-        changes["cost"] = NativeModelCost(
+        cost = NativeModelCost(
             input=override.cost.get("input", row.cost.input),
             output=override.cost.get("output", row.cost.output),
             cache_read=override.cost.get("cache_read", row.cost.cache_read),
             cache_write=override.cost.get("cache_write", row.cost.cache_write),
         )
-    if override.headers is not None:
-        changes["headers"] = dict(override.headers)
-    merged_compat = _merge_compat(row.compat, override.compat)
-    if merged_compat is not None:
-        changes["compat"] = merged_compat
-    return replace(row, **changes)  # type: ignore[arg-type]
+
+    return replace(
+        row,
+        display_name=override.name if override.name is not None else row.display_name,
+        reasoning=(
+            override.reasoning
+            if override.reasoning is not None
+            else row.reasoning
+        ),
+        thinking_level_map=thinking_level_map,
+        input=override.input if override.input is not None else row.input,
+        cost=cost,
+        context_window=(
+            override.context_window
+            if override.context_window is not None
+            else row.context_window
+        ),
+        max_tokens=(
+            override.max_tokens
+            if override.max_tokens is not None
+            else row.max_tokens
+        ),
+        headers=(dict(override.headers) if override.headers is not None else row.headers),
+        compat=_merge_compat(row.compat, override.compat),
+    )
 
 
 def _apply_provider_override(

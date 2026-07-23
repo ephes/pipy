@@ -3535,6 +3535,34 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Remove and justify the remaining source typing suppressions (Slice 7.8a) — DONE (2026-07-23)
+
+Final `src` `type: ignore` sweep. Replace suppressions with real typing where
+the runtime contract is statically expressible: preserve concrete append-entry
+return types, typed awaitable/error transport, literal trust choices, extension
+component protocols, and model override field types. Retain a suppression only
+at a genuinely dynamic boundary (heterogeneous provider test-client injection
+or stdlib `urllib` connection subclassing), and give every survivor its own
+specific adjacent justification. Preserve runtime behavior, exception identity,
+extension fail-soft handling, provider client injection, and cancellation
+socket registration exactly. No looser annotation, unchecked `Any`, dependency,
+Mypy exclusion, C901 pin, or behavior change.
+
+Landed shape: a bounded generic preserves concrete session-entry subtypes;
+typed awaitable worker state re-raises the original `BaseException`; the trust
+selector carries the existing literal union; the custom overlay uses the
+existing `CustomComponent` protocol; model overrides pass explicit typed
+dataclass fields; and one shared `JsonHTTPClient` protocol plus a typed optional
+kwargs shape covers every provider adapter and injected test client. A bounded
+stdlib connection TypeVar removes the two `urllib.do_open` argument
+suppressions. The only survivor is the runtime-selected `HTTPConnection`
+subclass declaration, immediately justified as a Mypy limitation with the
+runtime bound and override safety stated beside it. `src` `type: ignore` falls
+27 -> 1. Focused verification passed 315 tests; final `just check` passed Ruff,
+Mypy, and 4,585 tests (2 skipped); `just docs-build` completed cleanly.
+Repository C901 remains 39/13 (`src` 23/4) and the root remains 5,080 lines.
+Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Decompose resource discovery, terminal decoding, and archive catalog (Slice 7.7w) — DONE (2026-07-23)
 
 Twenty-fourth directional C901 batch. Decompose the seven findings across

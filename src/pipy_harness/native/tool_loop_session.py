@@ -197,6 +197,7 @@ from pipy_harness.native.changelog import (
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.project_trust import (
+    DefaultProjectTrust,
     ProjectTrustError,
     ProjectTrustStore,
     get_project_trust_options,
@@ -4601,7 +4602,11 @@ class NativeToolReplSession:
     ) -> None:
         """Select Pi's global-only trust fallback for future startups."""
 
-        values = ("ask", "always", "never")
+        values: tuple[DefaultProjectTrust, ...] = (
+            "ask",
+            "always",
+            "never",
+        )
         labels = {
             "ask": "Ask",
             "always": "Trust",
@@ -4626,7 +4631,7 @@ class NativeToolReplSession:
             return
         value = values[chosen]
         try:
-            settings.set_default_project_trust(value)  # type: ignore[arg-type]
+            settings.set_default_project_trust(value)
         except (OSError, RuntimeError, ValueError) as exc:
             terminal_ui.add_notice(
                 f"pipy: could not update default project trust: {exc}"

@@ -36,7 +36,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, TypeVar
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
@@ -268,6 +268,8 @@ SessionEntry = (
     | CustomEntry
     | CustomMessageEntry
 )
+
+_SessionEntryT = TypeVar("_SessionEntryT", bound=SessionEntry)
 
 
 # ---------------------------------------------------------------------------
@@ -960,7 +962,7 @@ class NativeSessionTree:
 
     # -- append -------------------------------------------------------------
 
-    def _append_entry(self, entry: SessionEntry) -> SessionEntry:
+    def _append_entry(self, entry: _SessionEntryT) -> _SessionEntryT:
         with self._write_lock:
             self.entries.append(entry)
             self.by_id[entry.id] = entry
@@ -981,7 +983,7 @@ class NativeSessionTree:
             timestamp=_now_iso(),
             message=message,
         )
-        return self._append_entry(entry)  # type: ignore[return-value]
+        return self._append_entry(entry)
 
     def append_model_change(self, provider: str, model_id: str) -> ModelChangeEntry:
         entry = ModelChangeEntry(
@@ -991,7 +993,7 @@ class NativeSessionTree:
             provider=provider,
             model_id=model_id,
         )
-        return self._append_entry(entry)  # type: ignore[return-value]
+        return self._append_entry(entry)
 
     def append_thinking_level_change(
         self, thinking_level: str
@@ -1010,7 +1012,7 @@ class NativeSessionTree:
             timestamp=_now_iso(),
             thinking_level=thinking_level,
         )
-        return self._append_entry(entry)  # type: ignore[return-value]
+        return self._append_entry(entry)
 
     def append_compaction(
         self, *, summary: str, first_kept_entry_id: str, tokens_before: int
@@ -1023,7 +1025,7 @@ class NativeSessionTree:
             first_kept_entry_id=first_kept_entry_id,
             tokens_before=tokens_before,
         )
-        return self._append_entry(entry)  # type: ignore[return-value]
+        return self._append_entry(entry)
 
     def append_custom(self, custom_type: str, data: Any = None) -> CustomEntry:
         entry = CustomEntry(
@@ -1033,7 +1035,7 @@ class NativeSessionTree:
             custom_type=custom_type,
             data=data,
         )
-        return self._append_entry(entry)  # type: ignore[return-value]
+        return self._append_entry(entry)
 
     def append_custom_message(
         self,
@@ -1052,7 +1054,7 @@ class NativeSessionTree:
             display=display,
             details=details,
         )
-        return self._append_entry(entry)  # type: ignore[return-value]
+        return self._append_entry(entry)
 
     def append_session_info(self, name: str | None) -> SessionInfoEntry:
         cleaned = None if name is None else name.strip()[: self.MAX_NAME_LENGTH]
@@ -1064,7 +1066,7 @@ class NativeSessionTree:
         )
         appended = self._append_entry(entry)
         self._name = cleaned or None
-        return appended  # type: ignore[return-value]
+        return appended
 
     def append_label_change(self, target_id: str, label: str | None) -> LabelEntry:
         if target_id not in self.by_id:
@@ -1083,7 +1085,7 @@ class NativeSessionTree:
         else:
             self.labels_by_id.pop(target_id, None)
             self.label_timestamps_by_id.pop(target_id, None)
-        return appended  # type: ignore[return-value]
+        return appended
 
     def _clone_entry_onto_leaf(
         self, entry: SessionEntry, *, id_map: dict[str, str] | None = None
@@ -1162,7 +1164,7 @@ class NativeSessionTree:
             from_id=branch_from_id or "root",
             summary=summary,
         )
-        return self._append_entry(entry)  # type: ignore[return-value]
+        return self._append_entry(entry)
 
     # -- queries ------------------------------------------------------------
 

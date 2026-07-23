@@ -49,7 +49,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from pipy_harness.native.auth_store import (
     AuthStore,
@@ -62,6 +62,7 @@ from pipy_harness.native.extension_types import (
     RegisteredProvider,
     _safe_diagnostic,
 )
+from pipy_harness.native.http import JsonHTTPClient
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.retry import RetryPolicy
 from pipy_harness.native.routing import model_request_routing
@@ -636,7 +637,7 @@ def build_provider(
     spec: NativeModelSpec | None = None,
     thinking_level: str | None = None,
     options: ConstructionOptions | None = None,
-    http_client: object | None = None,
+    http_client: JsonHTTPClient | None = None,
 ) -> ProviderPort:
     """Construct a ``ProviderPort`` from a resolved catalog model.
 
@@ -672,15 +673,23 @@ def build_provider(
     return _build_catalog_provider(resolved, http_client=http_client)
 
 
+class _HttpClientKwargs(TypedDict):
+    """Optional injected transport shared by every catalog provider adapter."""
+
+    http_client: NotRequired[JsonHTTPClient]
+
+
 def _build_catalog_provider(
     resolved: ResolvedConstruction,
     *,
-    http_client: object | None,
+    http_client: JsonHTTPClient | None,
 ) -> ProviderPort:
     """Select and construct one authenticated catalog-wired API family."""
 
     # When ``http_client`` is None each adapter's own default applies.
-    http_kwargs = {} if http_client is None else {"http_client": http_client}
+    http_kwargs: _HttpClientKwargs = (
+        {} if http_client is None else {"http_client": http_client}
+    )
 
     if resolved.api == "google-generative-ai":
         from pipy_harness.native.providers.google_generative_ai import (
@@ -702,7 +711,7 @@ def _build_catalog_provider(
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
             thinking_disabled=resolved.thinking_disabled,
-            **http_kwargs,  # type: ignore[arg-type]
+            **http_kwargs,
         )
 
     if resolved.api == "azure-openai-responses":
@@ -717,7 +726,7 @@ def _build_catalog_provider(
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
-            **http_kwargs,  # type: ignore[arg-type]
+            **http_kwargs,
         )
 
     if resolved.api == "cloudflare-workers-ai":
@@ -733,7 +742,7 @@ def _build_catalog_provider(
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
-            **http_kwargs,  # type: ignore[arg-type]
+            **http_kwargs,
         )
 
     if resolved.api in _IAM_FAMILIES:
@@ -752,7 +761,7 @@ def _build_catalog_provider(
         return OpenAIChatCompletionsProvider(
             model_id=resolved.model_id,
             api_key=resolved.api_key,
-            http_client=client,  # type: ignore[arg-type]
+            http_client=client,
             endpoint=endpoint,
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
@@ -772,7 +781,7 @@ def _build_catalog_provider(
             reasoning_effort=resolved.reasoning_effort,
             thinking_disabled=resolved.thinking_disabled,
             supports_tool_references=resolved.supports_tool_references,
-            **http_kwargs,  # type: ignore[arg-type]
+            **http_kwargs,
         )
 
     if resolved.api == "openai-responses":
@@ -788,7 +797,7 @@ def _build_catalog_provider(
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
             supports_tool_search=resolved.supports_tool_search,
-            **http_kwargs,  # type: ignore[arg-type]
+            **http_kwargs,
         )
 
     from pipy_harness.native.providers.mistral import MistralProvider
@@ -800,13 +809,13 @@ def _build_catalog_provider(
         provider_name=resolved.provider_name,
         extra_headers=dict(resolved.headers),
         reasoning_effort=resolved.reasoning_effort,
-        **http_kwargs,  # type: ignore[arg-type]
+        **http_kwargs,
     )
 
 
 def _build_iam_provider(
     resolved: ResolvedConstruction,
-    http_kwargs: Mapping[str, object],
+    http_kwargs: _HttpClientKwargs,
 ) -> ProviderPort:
     """Construct a Tier 3 IAM/OAuth adapter from a resolved catalog model.
 
@@ -835,7 +844,7 @@ def _build_iam_provider(
             provider_name=resolved.provider_name,
             extra_headers=dict(resolved.headers),
             reasoning_effort=resolved.reasoning_effort,
-            **http_kwargs,  # type: ignore[arg-type]
+            **http_kwargs,
         )
 
     from pipy_harness.native.providers.google_vertex import GoogleVertexProvider
@@ -847,7 +856,7 @@ def _build_iam_provider(
         extra_headers=dict(resolved.headers),
         reasoning_effort=resolved.reasoning_effort,
         thinking_disabled=resolved.thinking_disabled,
-        **http_kwargs,  # type: ignore[arg-type]
+        **http_kwargs,
     )
 
 

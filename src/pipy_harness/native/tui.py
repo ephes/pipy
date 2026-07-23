@@ -119,7 +119,12 @@ from pipy_harness.native.terminal_driver import (
 from pipy_harness.native.themes import NativeThemeStore, select_theme
 
 if TYPE_CHECKING:
-    from pipy_harness.native.extension_types import ToolRenderContext
+    from pipy_harness.native.extension_types import (
+        CustomComponent,
+        CustomComponentFactory,
+        CustomComponentOptions,
+        ToolRenderContext,
+    )
 
 
 # Sentinel returned by the session-picker key handler to mean "stay open"
@@ -1425,7 +1430,7 @@ class ToolLoopTerminalUi:
     # renders its own full-screen lines and consumes keys; the driver only
     # paints its lines and routes keystrokes, running no provider turn.
     custom_overlay_open: bool = False
-    _custom_component: object | None = None
+    _custom_component: CustomComponent | None = None
     _custom_component_render_width: int | None = None
     _custom_overlay_hidden: bool = False
     _custom_overlay_focused: bool = False
@@ -2767,8 +2772,8 @@ class ToolLoopTerminalUi:
 
     def run_custom_component(
         self,
-        factory: "Callable[[Callable[..., None]], object]",
-        options: object = None,
+        factory: CustomComponentFactory,
+        options: CustomComponentOptions | None = None,
     ) -> object:
         """Drive a trusted extension custom component; return its result.
 
@@ -2820,7 +2825,7 @@ class ToolLoopTerminalUi:
                     if self._custom_overlay_hidden or not self._custom_overlay_focused:
                         self.paint()
                         continue
-                    component.handle_input(key)  # type: ignore[attr-defined]
+                    component.handle_input(key)
                 except (KeyboardInterrupt, SystemExit):
                     raise
                 except BaseException:  # noqa: BLE001 - a bad component cancels
@@ -3497,7 +3502,7 @@ class ToolLoopTerminalUi:
             return []
         try:
             render_width = self._custom_component_render_width or width
-            raw = component.render(render_width)  # type: ignore[attr-defined]
+            raw = component.render(render_width)
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException:  # noqa: BLE001 - never let a bad render crash paint

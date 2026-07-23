@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, ClassVar, Protocol, Self
+from typing import Any, ClassVar, Protocol, Self, TypeVar
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
@@ -117,7 +117,12 @@ class _ConnectionCloser:
             pass
 
 
-def _registering_connection(base: type, cancel_token: CancelToken) -> type:
+_ConnectionT = TypeVar("_ConnectionT", bound=http.client.HTTPConnection)
+
+
+def _registering_connection(
+    base: type[_ConnectionT], cancel_token: CancelToken
+) -> type[_ConnectionT]:
     """Subclass an ``http.client`` connection that registers itself on connect.
 
     Registering the *connection* (not just the post-``urlopen`` response) is
@@ -129,7 +134,10 @@ def _registering_connection(base: type, cancel_token: CancelToken) -> type:
     later body/stream ``read()`` on the same connection.
     """
 
-    class _RegisteringConnection(base):  # type: ignore[misc]
+    # Mypy cannot express subclassing a runtime-selected stdlib connection
+    # class; ``base`` is bounded to HTTPConnection and this subclass only
+    # overrides ``connect`` before returning the same concrete class family.
+    class _RegisteringConnection(base):  # type: ignore[misc, valid-type]
         def connect(self) -> None:
             super().connect()
             # register() closes + raises immediately if cancel() already fired,
@@ -152,7 +160,7 @@ def _build_cancellable_opener(
     class _CancelHTTPHandler(urllib.request.HTTPHandler):
         def http_open(self, req: urllib.request.Request) -> Any:
             return self.do_open(
-                _registering_connection(http.client.HTTPConnection, cancel_token),  # type: ignore[arg-type]
+                _registering_connection(http.client.HTTPConnection, cancel_token),
                 req,
             )
 
@@ -171,7 +179,7 @@ def _build_cancellable_opener(
             if check_hostname is not None:
                 kwargs["check_hostname"] = check_hostname
             return self.do_open(
-                _registering_connection(http.client.HTTPSConnection, cancel_token),  # type: ignore[arg-type]
+                _registering_connection(http.client.HTTPSConnection, cancel_token),
                 req,
                 **kwargs,
             )

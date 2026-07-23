@@ -26,6 +26,8 @@ import hashlib
 import importlib.machinery
 import importlib.util
 import sys
+from collections.abc import Awaitable
+from dataclasses import dataclass
 from pathlib import Path
 
 from pipy_harness.native.extension_types import (
@@ -137,13 +139,13 @@ def _safe_module_segment(name: str) -> str:
     return "".join(ch if (ch.isalnum() or ch == "_") else "_" for ch in name)
 
 
-def _run_awaitable(awaitable: object) -> None:
+def _run_awaitable(awaitable: Awaitable[object]) -> None:
     """Drive an async `activate` coroutine to completion (return ignored)."""
 
     _drive_awaitable(awaitable)
 
 
-def _drive_awaitable(awaitable: object) -> object:
+def _drive_awaitable(awaitable: Awaitable[object]) -> object:
     """Drive an awaitable to completion and return its result.
 
     Works whether or not the caller is already inside a running event
@@ -161,20 +163,20 @@ def _drive_awaitable(awaitable: object) -> object:
 
     import threading
 
-    box: dict[str, object] = {}
+    outcome = _AwaitableOutcome()
 
     def _runner() -> None:
         try:
-            box["value"] = asyncio.run(_as_coroutine(awaitable))
+            outcome.value = asyncio.run(_as_coroutine(awaitable))
         except BaseException as err:  # noqa: BLE001 - re-raised below
-            box["err"] = err
+            outcome.error = err
 
     thread = threading.Thread(target=_runner, name="pipy-ext-activate")
     thread.start()
     thread.join()
-    if "err" in box:
-        raise box["err"]  # type: ignore[misc]
-    return box.get("value")
+    if outcome.error is not None:
+        raise outcome.error
+    return outcome.value
 
 
 def _event_loop_is_running() -> bool:
@@ -187,5 +189,13 @@ def _event_loop_is_running() -> bool:
     return True
 
 
-async def _as_coroutine(awaitable: object) -> object:
-    return await awaitable  # type: ignore[misc]
+@dataclass(slots=True)
+class _AwaitableOutcome:
+    """Result transport from the private event-loop worker thread."""
+
+    value: object = None
+    error: BaseException | None = None
+
+
+async def _as_coroutine(awaitable: Awaitable[object]) -> object:
+    return await awaitable
