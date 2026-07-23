@@ -149,7 +149,7 @@ def test_tui_renderer_falls_back_when_render_call_crashes(tmp_path):
 
 
 def test_captured_renderer_emits_custom_lines(tmp_path):
-    from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
+    from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 
     out, err = io.StringIO(), io.StringIO()
     tool = ExtensionTool(
@@ -174,7 +174,7 @@ def test_captured_renderer_emits_custom_lines(tmp_path):
 
 
 def test_captured_renderer_emits_custom_call_lines(tmp_path):
-    from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
+    from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 
     out, err = io.StringIO(), io.StringIO()
     tool = ExtensionTool(
@@ -197,7 +197,7 @@ def test_captured_renderer_emits_custom_call_lines(tmp_path):
 
 
 def test_captured_renderer_refreshes_tool_renderers_after_reload():
-    from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
+    from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 
     out, err = io.StringIO(), io.StringIO()
     first = ExtensionTool(

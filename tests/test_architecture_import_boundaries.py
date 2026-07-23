@@ -949,6 +949,17 @@ ARCHITECTURE_RULES = (
         reason="UI adapters must consume ports/events instead of session internals",
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.tool_renderers",
+        forbidden_imports=(
+            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.tui",
+        ),
+        reason=(
+            "line-oriented renderers must consume canonical events and rendering "
+            "contracts instead of composition-root or terminal-UI implementations"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.extensions",
         forbidden_imports=(
             "pipy_harness.native.tui",

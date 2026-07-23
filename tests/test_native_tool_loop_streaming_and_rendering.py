@@ -58,7 +58,7 @@ from pipy_harness.native.agent.tools import (
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.tool_loop_session import _ToolLoopRenderer
+from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,

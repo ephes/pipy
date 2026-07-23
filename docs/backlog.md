@@ -2797,6 +2797,37 @@ gate) — 1 round, 2 findings total, final round clean across both lenses
 (behavior; invariants). Coding-session loose params remain 6.3c; the UI callables
 remain 6.4.
 
+### Line-oriented tool-loop renderer relocation to its rendering owner (Slice 7.5b) — DONE (2026-07-23)
+
+Second composition-root slimming cut. Relocate the complete line-oriented
+`_ToolLoopRenderer` implementation and its JSON tool-input coercion helper out
+of `native/tool_loop_session.py` into the existing
+`native/tool_renderers.py` owner. The composition root continues to construct
+and type against the imported collaborator; the TUI renderer remains in place
+for its own later slice. Repoint direct renderer tests to the owner while
+preserving root-level monkeypatch seams that exercise composition. Preserve
+every captured/non-TTY byte, ANSI/TUI detection rule, spinner/reasoning stream,
+tool-call/result panel, custom extension renderer fallback, duration caption,
+and error/cancellation path. No C901 gaming or behavior redesign; no new public
+surface, runtime dependency, unchecked `Any`, `type: ignore`, C901 pin, or
+Mypy exclusion.
+
+Landed shape: the 850-line `_ToolLoopRenderer` and `_parse_tool_input`
+definitions now live only in `native.tool_renderers`; the composition root
+imports both collaborators and retains `_TuiToolLoopRenderer` for Slice 7.5c.
+Direct renderer tests import the new owner while the root's imported binding
+continues to support composition-level monkeypatch tests. A new import-boundary
+rule prevents `native.tool_renderers` from importing `tool_loop_session` or
+`tui`. Mechanical comparison against the pre-move class showed only its
+now-redundant local self-imports removed. The composition root falls from 7,530
+to 6,653 lines. Repository C901 remains 142/70: two findings move with the
+class from `tool_loop_session` (7 -> 5) to the already-pinned
+`tool_renderers` owner (1 -> 3), so no pin is added; `src` `type: ignore`
+remains 32. Focused renderer/session/import-boundary verification passed 344
+tests; final `just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Live extension UI driver relocation to the terminal owner (Slice 7.5a) — DONE (2026-07-23)
 
 First directional Phase 7 follow-on cut. Relocate the concrete
