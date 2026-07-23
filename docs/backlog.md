@@ -2895,6 +2895,31 @@ discovery/package and import-boundary verification passed 206 tests; final
 `just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
 0 findings, explicit CLEAN.
 
+### C901 provider preflight and response-text decomposition (Slice 7.7b) — DONE (2026-07-23)
+
+Second directional complexity batch. Remove the single C901 finding from each
+of the strict Azure Responses and OpenAI Chat Completions adapters by hoisting
+their ordered model/base-url/auth configuration preflight into a named typed
+helper, and remove the single finding from the shared OpenAI Responses wire
+translator by isolating its nested message/content text traversal. Preserve
+the first failure selected, environment/header read timing, request bytes,
+error metadata, parsed output ordering, and tool/usage results. Each clean file
+must leave the C901 pin list. No protocol consolidation, behavior change,
+dependency, unchecked `Any`, `type: ignore`, Mypy exclusion, or new pin.
+
+Landed shape: the Azure adapter's typed preflight resolves its base URL,
+deployment, API key, explicit-auth state, and ordered header snapshot once
+after cancellation while retaining model -> base URL -> auth failure order;
+the OpenAI Completions preflight retains model -> auth order, the untrimmed
+request model, and trimmed key. The shared Responses translator delegates only
+its nested message/content traversal to a pure ordered chunk collector.
+Golden fixtures remain byte-identical. All three files are C901-clean and
+their pins are deleted, lowering repository C901 139/67 -> 136/64 (`src`
+123/58 -> 120/55). Focused provider/fixture verification passed 46 tests;
+final `just check` passed Ruff, Mypy, and 4,509 tests (2 skipped);
+`just docs-build` reported no issues. Review: Pi GPT-5.6 Sol, 1 round,
+0 findings, explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from

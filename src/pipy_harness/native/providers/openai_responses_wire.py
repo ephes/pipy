@@ -220,16 +220,8 @@ def parse_response(
     )
 
 
-def extract_final_text(body: Mapping[str, Any]) -> str | None:
-    """Extract the assistant final text from a Responses body."""
-
-    output_text = body.get("output_text")
-    if isinstance(output_text, str) and output_text:
-        return output_text
-
-    output = body.get("output")
-    if not isinstance(output, list):
-        return None
+def _message_output_text_chunks(output: list[object]) -> list[str]:
+    """Collect message output-text chunks in Responses wire order."""
 
     chunks: list[str] = []
     for item in output:
@@ -247,6 +239,21 @@ def extract_final_text(body: Mapping[str, Any]) -> str | None:
                 content_item.get("text"), str
             ):
                 chunks.append(content_item["text"])
+    return chunks
+
+
+def extract_final_text(body: Mapping[str, Any]) -> str | None:
+    """Extract the assistant final text from a Responses body."""
+
+    output_text = body.get("output_text")
+    if isinstance(output_text, str) and output_text:
+        return output_text
+
+    output = body.get("output")
+    if not isinstance(output, list):
+        return None
+
+    chunks = _message_output_text_chunks(output)
     if not chunks:
         return None
     return "".join(chunks)

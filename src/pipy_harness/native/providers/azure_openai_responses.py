@@ -16,6 +16,7 @@ import os
 import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_responses
@@ -43,6 +44,17 @@ AZURE_OPENAI_NESTED_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("input_tokens_details", "cached_tokens"),
     ("output_tokens_details", "reasoning_tokens"),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _AzureOpenAIRequestConfiguration:
+    """Validated, single-read configuration for one Responses request."""
+
+    url: str
+    deployment: str
+    api_key: str | None
+    has_explicit_auth: bool
+    extra_headers: tuple[tuple[str, str], ...]
 
 
 def _parse_deployment_name_map(value: str | None) -> dict[str, str]:
@@ -188,18 +200,13 @@ class AzureOpenAIResponsesProvider:
         ).get(self.model_id)
         return mapped or self.model_id
 
-    def complete(
+    def _configuration_preflight(
         self,
         request: ProviderRequest,
-        *,
-        stream_sink: StreamChunkSink | None = None,
-        reasoning_sink: StreamChunkSink | None = None,
-        cancel_token: CancelToken | None = None,
-    ) -> ProviderResult:
-        del stream_sink, reasoning_sink
-        if cancel_token is not None:
-            cancel_token.raise_if_cancelled()
-        started_at = utc_now()
+        started_at: datetime,
+    ) -> _AzureOpenAIRequestConfiguration | ProviderResult:
+        """Validate and resolve request configuration in failure-order."""
+
         if not self.model_id:
             return failed_provider_result(
                 request,
@@ -223,9 +230,10 @@ class AzureOpenAIResponsesProvider:
                     f"native provider {self.name}."
                 ),
             )
+        extra_headers = tuple(self.extra_headers.items())
         has_explicit_auth = any(
             header_name.lower() in ("authorization", "api-key")
-            for header_name in self.extra_headers
+            for header_name, _ in extra_headers
         )
         if not self.api_key and not has_explicit_auth:
             return failed_provider_result(
@@ -241,14 +249,34 @@ class AzureOpenAIResponsesProvider:
 
         deployment = self._resolve_deployment()
         normalized_endpoint = _normalize_azure_base_url(base_url)
-        url = (
-            f"{normalized_endpoint}/responses?api-version={self.api_version}"
+        return _AzureOpenAIRequestConfiguration(
+            url=f"{normalized_endpoint}/responses?api-version={self.api_version}",
+            deployment=deployment,
+            api_key=self.api_key,
+            has_explicit_auth=has_explicit_auth,
+            extra_headers=extra_headers,
         )
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        del stream_sink, reasoning_sink
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
+        started_at = utc_now()
+        configuration = self._configuration_preflight(request, started_at)
+        if isinstance(configuration, ProviderResult):
+            return configuration
 
         body: dict[str, Any] = {
             # Pi's AzureOpenAI v1 surface passes the deployment as the body
             # ``model`` field (buildParams: ``model: deploymentName``).
-            "model": deployment,
+            "model": configuration.deployment,
             "instructions": request.system_prompt,
             "input": responses_input(
                 request,
@@ -266,17 +294,17 @@ class AzureOpenAIResponsesProvider:
             body["reasoning"] = {"effort": self.reasoning_effort}
         headers = {"Content-Type": "application/json"}
         # Merged models.json/model headers (may include an explicit api-key).
-        for header_name, header_value in self.extra_headers.items():
+        for header_name, header_value in configuration.extra_headers:
             headers[header_name] = header_value
         # Apply the native ``api-key`` header only when no explicit auth header
         # is present, so an explicit models.json auth header wins.
-        if self.api_key and not has_explicit_auth:
-            headers["api-key"] = self.api_key
+        if configuration.api_key and not configuration.has_explicit_auth:
+            headers["api-key"] = configuration.api_key
         headers = apply_provider_headers(request, headers)
 
         try:
             response = self.http_client.post_json(
-                url,
+                configuration.url,
                 headers=headers,
                 body=body,
                 timeout_seconds=self.timeout_seconds,
