@@ -43,6 +43,7 @@ from pipy_harness.native.session_tree import (
     SessionHeader,
     SessionInfoEntry,
 )
+from pipy_harness.native.session_tree_commands import TreeCommandOutcome
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
@@ -382,10 +383,10 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
 
     def handle_tree(
         self: NativeToolReplSession, argument: str, **_kwargs: object
-    ) -> loop_module._TreeCommandOutcome:
+    ) -> TreeCommandOutcome:
         del self
         handled_arguments.append(argument)
-        return loop_module._TreeCommandOutcome()
+        return TreeCommandOutcome()
 
     monkeypatch.setattr(
         loop_module,
@@ -475,8 +476,6 @@ def test_tree_gate_controlled_fatal_cuts_off_handler_and_footer(
 def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
-
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, persist=False)
     trace: list[str] = []
@@ -494,15 +493,13 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
         rebuild_messages: Callable[[], None],
         summarizer: Callable[[list[AgentMessage], str | None], str | None]
         | None = None,
-    ) -> loop_module._TreeCommandOutcome:
+    ) -> TreeCommandOutcome:
         del self, session_tree, terminal_ui, error_stream, repl_input
         del rebuild_messages, summarizer
         trace.append(f"handler:{argument}:{filter_mode}")
         if argument == "filter default":
-            return loop_module._TreeCommandOutcome(
-                prefill="RESTORED", filter_mode="all"
-            )
-        return loop_module._TreeCommandOutcome()
+            return TreeCommandOutcome(prefill="RESTORED", filter_mode="all")
+        return TreeCommandOutcome()
 
     def diagnostic(ui: ToolLoopTerminalUi | None, stream: TextIO, message: str) -> None:
         if "editor rehydrated" in message:

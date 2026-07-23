@@ -11,13 +11,16 @@ from pathlib import Path
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentMessage,
     AgentUserMessage,
     ProductContent,
 )
 from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
 from pipy_harness.native.session_tree_commands import (
+    TreeCommandOutcome,
     apply_tree_selection,
     format_session_status,
+    handle_tree_command,
     render_tree_lines,
     resolve_entry_ref,
     resolve_startup_session,
@@ -166,6 +169,142 @@ def test_resolve_startup_session_modes(tmp_path: Path) -> None:
     assert forked.session_id != first_id
     assert forked.path is not None
     assert "parentSession" in forked.path.read_text(encoding="utf-8")
+
+
+def test_tree_command_adapter_renders_lines_then_help(tmp_path: Path) -> None:
+    tree = _seed(tmp_path)
+    diagnostics: list[str] = []
+
+    outcome = handle_tree_command(
+        "",
+        session_tree=tree,
+        filter_mode="default",
+        rebuild_messages=lambda: None,
+        diagnostic=diagnostics.append,
+    )
+
+    assert outcome == TreeCommandOutcome()
+    assert diagnostics == [
+        *render_tree_lines(tree),
+        "pipy: use '/tree select <n|id>' to move, "
+        "'/tree label <n|id> [text]' to (un)label, "
+        "'/tree filter <mode>' to filter.",
+    ]
+
+
+def test_tree_command_adapter_prefers_interactive_callback_for_bare_command(
+    tmp_path: Path,
+) -> None:
+    tree = _seed(tmp_path)
+    diagnostics: list[str] = []
+    expected = TreeCommandOutcome(prefill="RESTORED", filter_mode="all")
+
+    outcome = handle_tree_command(
+        "",
+        session_tree=tree,
+        filter_mode="default",
+        rebuild_messages=lambda: None,
+        diagnostic=diagnostics.append,
+        interactive_selector=lambda: expected,
+    )
+
+    assert outcome is expected
+    assert diagnostics == []
+
+
+def test_tree_command_adapter_label_filter_and_unknown_dispatch(
+    tmp_path: Path,
+) -> None:
+    tree = _seed(tmp_path)
+    first = visible_tree_entries(tree)[0]
+    diagnostics: list[str] = []
+
+    label_outcome = handle_tree_command(
+        "LABEL 1 marked",
+        session_tree=tree,
+        filter_mode="default",
+        rebuild_messages=lambda: None,
+        diagnostic=diagnostics.append,
+    )
+    filter_outcome = handle_tree_command(
+        "filter ALL",
+        session_tree=tree,
+        filter_mode="default",
+        rebuild_messages=lambda: None,
+        diagnostic=diagnostics.append,
+    )
+    unknown_outcome = handle_tree_command(
+        "mystery alpha",
+        session_tree=tree,
+        filter_mode="default",
+        rebuild_messages=lambda: None,
+        diagnostic=diagnostics.append,
+    )
+
+    assert label_outcome == TreeCommandOutcome()
+    assert tree.get_label(first.id) == "marked"
+    assert filter_outcome == TreeCommandOutcome(filter_mode="all")
+    assert unknown_outcome == TreeCommandOutcome()
+    assert diagnostics == [
+        f"pipy: labeled {first.id[:8]} 'marked'.",
+        "pipy: /tree filter set to all.",
+        "pipy: unknown /tree subcommand 'mystery'; use select, label, or filter.",
+    ]
+
+
+def test_tree_command_adapter_summary_focus_and_prefill(tmp_path: Path) -> None:
+    tree = _seed(tmp_path)
+    root = _user_entry(tree, "ROOT")
+    summary_calls: list[tuple[list[str], str | None]] = []
+    rebuilds: list[None] = []
+    diagnostics: list[str] = []
+
+    def summarize(messages: list[AgentMessage], focus: str | None) -> str:
+        summary_calls.append(([message.content.value for message in messages], focus))
+        return "abandoned summary"
+
+    outcome = handle_tree_command(
+        f"select {root.id} summarize:first summarize:last",
+        session_tree=tree,
+        filter_mode="default",
+        rebuild_messages=lambda: rebuilds.append(None),
+        diagnostic=diagnostics.append,
+        summarizer=summarize,
+    )
+
+    assert outcome == TreeCommandOutcome(prefill="ROOT")
+    assert summary_calls and summary_calls[0][1] == "last"
+    assert rebuilds == [None]
+    assert diagnostics == ["pipy: recorded branch summary and switched branches."]
+
+
+def test_tree_command_adapter_summary_cancellation_leaves_tree_unchanged(
+    tmp_path: Path,
+) -> None:
+    tree = _seed(tmp_path)
+    root = _user_entry(tree, "ROOT")
+    old_leaf = tree.get_leaf_id()
+    old_count = len(tree.get_entries())
+    diagnostics: list[str] = []
+
+    def unexpected_rebuild() -> None:
+        raise AssertionError("must not rebuild")
+
+    outcome = handle_tree_command(
+        f"select {root.id} summarize",
+        session_tree=tree,
+        filter_mode="default",
+        rebuild_messages=unexpected_rebuild,
+        diagnostic=diagnostics.append,
+        summarizer=lambda _messages, _focus: None,
+    )
+
+    assert outcome == TreeCommandOutcome()
+    assert tree.get_leaf_id() == old_leaf
+    assert len(tree.get_entries()) == old_count
+    assert diagnostics == [
+        "pipy: branch summary cancelled; tree and leaf unchanged."
+    ]
 
 
 def test_user_only_filter_hides_assistant_entries(tmp_path: Path) -> None:

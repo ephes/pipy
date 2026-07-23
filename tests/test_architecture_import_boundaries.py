@@ -957,6 +957,17 @@ ARCHITECTURE_RULES = (
         ),
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.session_tree_commands",
+        forbidden_imports=(
+            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.tui",
+        ),
+        reason=(
+            "session-tree command ownership must stay product-loop and "
+            "terminal-UI independent behind injected callbacks"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.tool_renderers",
         forbidden_imports=(
             "pipy_harness.native.tool_loop_session",

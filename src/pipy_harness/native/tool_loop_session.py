@@ -232,15 +232,14 @@ from pipy_harness.native.session_tree import (
 )
 from pipy_harness.native.session_tree_commands import (
     FILTER_MODES,
-    abandoned_branch_messages,
+    TreeCommandOutcome,
     apply_tree_selection,
-    branch_summary_attach_parent,
     delete_native_session,
     entry_preview,
     format_session_status,
+    handle_tree_command,
     list_all_native_sessions,
     list_native_sessions,
-    render_tree_lines,
     resolve_entry_ref,
     resolve_session_target,
     sanitize_label_text,
@@ -696,19 +695,6 @@ class _RunControlState:
     # iteration;
     # the setup-scope changelog loop that reuses the name never seeds it here.
     line: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class _TreeCommandOutcome:
-    """Result of handling a ``/tree`` command in the tool loop.
-
-    ``prefill`` is text to rehydrate into the next prompt (user-message
-    selection); ``filter_mode`` is a new active ``/tree`` filter to remember.
-    Both are ``None`` when unchanged.
-    """
-
-    prefill: str | None = None
-    filter_mode: str | None = None
 
 
 class _BuiltinCommandInterpreter:
@@ -5102,7 +5088,7 @@ class NativeToolReplSession:
         error_stream: TextIO,
         filter_mode: str,
         rebuild_messages: Callable[[], None],
-    ) -> _TreeCommandOutcome:
+    ) -> TreeCommandOutcome:
         """Drive the live-TTY ``/tree`` selector and apply the chosen entry.
 
         Builds filtered rows for the selector, toggles labels on demand, and on
@@ -5140,7 +5126,7 @@ class NativeToolReplSession:
         new_filter = terminal_ui.tree_selector_filter
         if chosen is None:
             self._emit_diagnostic(terminal_ui, error_stream, "pipy: /tree cancelled.")
-            return _TreeCommandOutcome(filter_mode=new_filter)
+            return TreeCommandOutcome(filter_mode=new_filter)
         selection = apply_tree_selection(session_tree, chosen)
         rebuild_messages()
         if selection.is_noop:
@@ -5149,14 +5135,14 @@ class NativeToolReplSession:
                 error_stream,
                 "pipy: already at the selected point (no change).",
             )
-            return _TreeCommandOutcome(filter_mode=new_filter)
+            return TreeCommandOutcome(filter_mode=new_filter)
         if selection.is_user_selection:
             self._emit_diagnostic(
                 terminal_ui,
                 error_stream,
                 "pipy: selected user message; rehydrating editor for a new branch.",
             )
-            return _TreeCommandOutcome(
+            return TreeCommandOutcome(
                 prefill=selection.editor_text, filter_mode=new_filter
             )
         self._emit_diagnostic(
@@ -5164,56 +5150,7 @@ class NativeToolReplSession:
             error_stream,
             f"pipy: continuing from entry {sanitize_label_text(chosen[:8])}.",
         )
-        return _TreeCommandOutcome(filter_mode=new_filter)
-
-    def _select_with_branch_summary(
-        self,
-        *,
-        session_tree: NativeSessionTree,
-        entry: object,
-        directive: str,
-        summarizer: Callable[[list[AgentMessage], str | None], str | None],
-        rebuild_messages: Callable[[], None],
-        terminal_ui: "ToolLoopTerminalUi | None",
-        error_stream: TextIO,
-    ) -> "_TreeCommandOutcome | None":
-        """Record a branch summary while switching branches via ``/tree``.
-
-        Collects the abandoned branch (old leaf back to the common ancestor of
-        the target attachment point), summarizes it through the active
-        provider, and appends a ``branch_summary`` entry at the attachment
-        point, advancing the leaf to it. Returns ``None`` (falling back to a
-        plain selection) when there is nothing to summarize or the summary is
-        cancelled/fails, leaving the tree and leaf unchanged.
-        """
-
-        entry_id = entry.id  # type: ignore[attr-defined]
-        old_leaf = session_tree.get_leaf_id()
-        attach_parent = branch_summary_attach_parent(session_tree, entry_id)
-        abandoned = abandoned_branch_messages(session_tree, old_leaf, attach_parent)
-        if not abandoned:
-            return None
-        focus = directive.split(":", 1)[1] if ":" in directive else None
-        summary_text = summarizer(list(abandoned), focus)
-        if not summary_text:
-            self._emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                "pipy: branch summary cancelled; tree and leaf unchanged.",
-            )
-            return _TreeCommandOutcome()
-        session_tree.branch_with_summary(attach_parent, summary_text)
-        rebuild_messages()
-        editor_text: str | None = None
-        message = getattr(entry, "message", None)
-        if isinstance(entry, _MessageEntry) and isinstance(message, AgentUserMessage):
-            editor_text = message.content.value
-        self._emit_diagnostic(
-            terminal_ui,
-            error_stream,
-            "pipy: recorded branch summary and switched branches.",
-        )
-        return _TreeCommandOutcome(prefill=editor_text)
+        return TreeCommandOutcome(filter_mode=new_filter)
 
     def _handle_tree_command(
         self,
@@ -5227,144 +5164,31 @@ class NativeToolReplSession:
         rebuild_messages: Callable[[], None],
         summarizer: Callable[[list[AgentMessage], str | None], str | None]
         | None = None,
-    ) -> _TreeCommandOutcome:
-        """Handle ``/tree`` and its captured-stream subcommands.
+    ) -> TreeCommandOutcome:
+        """Adapt the owner command handler to optional terminal interaction."""
 
-        This runs no model-visible tool call. With no argument it prints the
-        current session tree (a live-TTY interactive selector is layered on in
-        the TUI). The ``select``/``label``/``filter`` subcommands give
-        captured-stream callers and scripts a deterministic way to drive Pi
-        ``/tree`` selection semantics without a TTY. Appending ``summarize`` (or
-        ``summarize:<focus>``) to ``select`` records a branch summary of the
-        abandoned branch through the active provider before switching.
-        """
-
-        parts = argument.split(maxsplit=1)
-        if not parts:
-            if terminal_ui is not None and hasattr(terminal_ui, "run_tree_selector"):
-                return self._run_interactive_tree_selector(
-                    session_tree=session_tree,
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
-                    filter_mode=filter_mode,
-                    rebuild_messages=rebuild_messages,
-                )
-            for line in render_tree_lines(session_tree, filter_mode=filter_mode):
-                self._emit_diagnostic(terminal_ui, error_stream, line)
-            self._emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                "pipy: use '/tree select <n|id>' to move, "
-                "'/tree label <n|id> [text]' to (un)label, "
-                "'/tree filter <mode>' to filter.",
+        del repl_input
+        interactive_selector: Callable[[], TreeCommandOutcome] | None = None
+        if terminal_ui is not None and hasattr(terminal_ui, "run_tree_selector"):
+            interactive_selector = partial(
+                self._run_interactive_tree_selector,
+                session_tree=session_tree,
+                terminal_ui=terminal_ui,
+                error_stream=error_stream,
+                filter_mode=filter_mode,
+                rebuild_messages=rebuild_messages,
             )
-            return _TreeCommandOutcome()
-
-        sub = parts[0].lower()
-        rest = parts[1].strip() if len(parts) > 1 else ""
-
-        if sub == "select":
-            select_tokens = rest.split()
-            ref = select_tokens[0] if select_tokens else ""
-            summarize_directive: str | None = None
-            for token in select_tokens[1:]:
-                if token == "summarize" or token.startswith("summarize:"):
-                    summarize_directive = token
-            entry = resolve_entry_ref(session_tree, ref, filter_mode=filter_mode)
-            if entry is None:
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    f"pipy: no tree entry matched {ref!r}.",
-                )
-                return _TreeCommandOutcome()
-            if summarize_directive is not None and summarizer is not None:
-                summary_outcome = self._select_with_branch_summary(
-                    session_tree=session_tree,
-                    entry=entry,
-                    directive=summarize_directive,
-                    summarizer=summarizer,
-                    rebuild_messages=rebuild_messages,
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
-                )
-                if summary_outcome is not None:
-                    return summary_outcome
-            selection = apply_tree_selection(session_tree, entry.id)
-            rebuild_messages()
-            if selection.is_noop:
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    "pipy: already at the selected point (no change).",
-                )
-                return _TreeCommandOutcome()
-            if selection.is_user_selection:
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    "pipy: selected user message; rehydrating editor for a new branch.",
-                )
-                return _TreeCommandOutcome(prefill=selection.editor_text)
-            self._emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                f"pipy: continuing from entry {sanitize_label_text(entry.id[:8])}.",
-            )
-            return _TreeCommandOutcome()
-
-        if sub == "label":
-            label_parts = rest.split(maxsplit=1)
-            if not label_parts:
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    "pipy: usage: /tree label <n|id> [text]",
-                )
-                return _TreeCommandOutcome()
-            entry = resolve_entry_ref(
-                session_tree, label_parts[0], filter_mode=filter_mode
-            )
-            if entry is None:
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    f"pipy: no tree entry matched {label_parts[0]!r}.",
-                )
-                return _TreeCommandOutcome()
-            label_text = label_parts[1].strip() if len(label_parts) > 1 else ""
-            session_tree.append_label_change(entry.id, label_text or None)
-            self._emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                (
-                    f"pipy: labeled {sanitize_label_text(entry.id[:8])} {label_text!r}."
-                    if label_text
-                    else f"pipy: cleared label on {sanitize_label_text(entry.id[:8])}."
-                ),
-            )
-            return _TreeCommandOutcome()
-
-        if sub == "filter":
-            mode = rest.lower()
-            if mode not in FILTER_MODES:
-                self._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    "pipy: filter must be one of " + ", ".join(FILTER_MODES),
-                )
-                return _TreeCommandOutcome()
-            self._emit_diagnostic(
-                terminal_ui, error_stream, f"pipy: /tree filter set to {mode}."
-            )
-            return _TreeCommandOutcome(filter_mode=mode)
-
-        self._emit_diagnostic(
-            terminal_ui,
-            error_stream,
-            f"pipy: unknown /tree subcommand {sub!r}; use select, label, or filter.",
+        return handle_tree_command(
+            argument,
+            session_tree=session_tree,
+            filter_mode=filter_mode,
+            rebuild_messages=rebuild_messages,
+            diagnostic=lambda message: self._emit_diagnostic(
+                terminal_ui, error_stream, message
+            ),
+            summarizer=summarizer,
+            interactive_selector=interactive_selector,
         )
-        return _TreeCommandOutcome()
 
     @staticmethod
     def _last_assistant_answer(messages: Sequence[AgentMessage]) -> str:

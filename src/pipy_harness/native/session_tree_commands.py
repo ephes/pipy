@@ -46,6 +46,19 @@ FILTER_MODES = ("default", "no-tools", "user-only", "labeled-only", "all")
 
 
 @dataclass(frozen=True, slots=True)
+class TreeCommandOutcome:
+    """Result of handling a ``/tree`` command.
+
+    ``prefill`` is text to rehydrate into the next prompt (user-message
+    selection); ``filter_mode`` is a new active ``/tree`` filter to remember.
+    Both are ``None`` when unchanged.
+    """
+
+    prefill: str | None = None
+    filter_mode: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class TreeSelectionResult:
     """Outcome of selecting an entry in ``/tree``.
 
@@ -165,6 +178,215 @@ def abandoned_branch_messages(
                 AgentUserMessage(content=ProductContent(entry.content))
             )
     return messages
+
+
+# ---------------------------------------------------------------------------
+# Product command adapter
+# ---------------------------------------------------------------------------
+
+
+def handle_tree_command(
+    argument: str,
+    *,
+    session_tree: NativeSessionTree,
+    filter_mode: str,
+    rebuild_messages: Callable[[], None],
+    diagnostic: Callable[[str], None],
+    summarizer: Callable[[list[AgentMessage], str | None], str | None] | None = None,
+    interactive_selector: Callable[[], TreeCommandOutcome] | None = None,
+) -> TreeCommandOutcome:
+    """Handle ``/tree`` independently of the REPL loop and terminal UI.
+
+    A composition root may supply ``interactive_selector`` for bare ``/tree``;
+    otherwise bare invocation renders the captured-stream tree and help text.
+    """
+
+    parts = argument.split(maxsplit=1)
+    if not parts:
+        if interactive_selector is not None:
+            return interactive_selector()
+        return _show_tree(session_tree, filter_mode, diagnostic)
+
+    sub = parts[0].lower()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    if sub == "select":
+        return _handle_tree_select(
+            rest,
+            session_tree=session_tree,
+            filter_mode=filter_mode,
+            rebuild_messages=rebuild_messages,
+            diagnostic=diagnostic,
+            summarizer=summarizer,
+        )
+    if sub == "label":
+        return _handle_tree_label(
+            rest,
+            session_tree=session_tree,
+            filter_mode=filter_mode,
+            diagnostic=diagnostic,
+        )
+    if sub == "filter":
+        return _handle_tree_filter(rest, diagnostic)
+    diagnostic(
+        f"pipy: unknown /tree subcommand {sub!r}; use select, label, or filter."
+    )
+    return TreeCommandOutcome()
+
+
+def _show_tree(
+    session_tree: NativeSessionTree,
+    filter_mode: str,
+    diagnostic: Callable[[str], None],
+) -> TreeCommandOutcome:
+    for line in render_tree_lines(session_tree, filter_mode=filter_mode):
+        diagnostic(line)
+    diagnostic(
+        "pipy: use '/tree select <n|id>' to move, "
+        "'/tree label <n|id> [text]' to (un)label, "
+        "'/tree filter <mode>' to filter."
+    )
+    return TreeCommandOutcome()
+
+
+def _handle_tree_select(
+    argument: str,
+    *,
+    session_tree: NativeSessionTree,
+    filter_mode: str,
+    rebuild_messages: Callable[[], None],
+    diagnostic: Callable[[str], None],
+    summarizer: Callable[[list[AgentMessage], str | None], str | None] | None,
+) -> TreeCommandOutcome:
+    select_tokens = argument.split()
+    ref = select_tokens[0] if select_tokens else ""
+    entry = resolve_entry_ref(session_tree, ref, filter_mode=filter_mode)
+    if entry is None:
+        diagnostic(f"pipy: no tree entry matched {ref!r}.")
+        return TreeCommandOutcome()
+
+    directive = _summarize_directive(select_tokens[1:])
+    if directive is not None and summarizer is not None:
+        outcome = _select_with_branch_summary(
+            session_tree=session_tree,
+            entry=entry,
+            directive=directive,
+            summarizer=summarizer,
+            rebuild_messages=rebuild_messages,
+            diagnostic=diagnostic,
+        )
+        if outcome is not None:
+            return outcome
+    return _apply_resolved_tree_selection(
+        session_tree, entry, rebuild_messages, diagnostic
+    )
+
+
+def _summarize_directive(tokens: list[str]) -> str | None:
+    directive: str | None = None
+    for token in tokens:
+        if token == "summarize" or token.startswith("summarize:"):
+            directive = token
+    return directive
+
+
+def _select_with_branch_summary(
+    *,
+    session_tree: NativeSessionTree,
+    entry: SessionEntry,
+    directive: str,
+    summarizer: Callable[[list[AgentMessage], str | None], str | None],
+    rebuild_messages: Callable[[], None],
+    diagnostic: Callable[[str], None],
+) -> TreeCommandOutcome | None:
+    """Summarize an abandoned branch while switching to ``entry``."""
+
+    attach_parent = branch_summary_attach_parent(session_tree, entry.id)
+    abandoned = abandoned_branch_messages(
+        session_tree, session_tree.get_leaf_id(), attach_parent
+    )
+    if not abandoned:
+        return None
+    focus = directive.split(":", 1)[1] if ":" in directive else None
+    summary_text = summarizer(list(abandoned), focus)
+    if not summary_text:
+        diagnostic("pipy: branch summary cancelled; tree and leaf unchanged.")
+        return TreeCommandOutcome()
+    session_tree.branch_with_summary(attach_parent, summary_text)
+    rebuild_messages()
+    editor_text = _selected_user_message_text(entry)
+    diagnostic("pipy: recorded branch summary and switched branches.")
+    return TreeCommandOutcome(prefill=editor_text)
+
+
+def _selected_user_message_text(entry: SessionEntry) -> str | None:
+    if isinstance(entry, MessageEntry) and isinstance(
+        entry.message, AgentUserMessage
+    ):
+        return entry.message.content.value
+    return None
+
+
+def _apply_resolved_tree_selection(
+    session_tree: NativeSessionTree,
+    entry: SessionEntry,
+    rebuild_messages: Callable[[], None],
+    diagnostic: Callable[[str], None],
+) -> TreeCommandOutcome:
+    selection = apply_tree_selection(session_tree, entry.id)
+    rebuild_messages()
+    if selection.is_noop:
+        diagnostic("pipy: already at the selected point (no change).")
+        return TreeCommandOutcome()
+    if selection.is_user_selection:
+        diagnostic(
+            "pipy: selected user message; rehydrating editor for a new branch."
+        )
+        return TreeCommandOutcome(prefill=selection.editor_text)
+    diagnostic(
+        f"pipy: continuing from entry {sanitize_label_text(entry.id[:8])}."
+    )
+    return TreeCommandOutcome()
+
+
+def _handle_tree_label(
+    argument: str,
+    *,
+    session_tree: NativeSessionTree,
+    filter_mode: str,
+    diagnostic: Callable[[str], None],
+) -> TreeCommandOutcome:
+    label_parts = argument.split(maxsplit=1)
+    if not label_parts:
+        diagnostic("pipy: usage: /tree label <n|id> [text]")
+        return TreeCommandOutcome()
+    entry = resolve_entry_ref(
+        session_tree, label_parts[0], filter_mode=filter_mode
+    )
+    if entry is None:
+        diagnostic(f"pipy: no tree entry matched {label_parts[0]!r}.")
+        return TreeCommandOutcome()
+    label_text = label_parts[1].strip() if len(label_parts) > 1 else ""
+    session_tree.append_label_change(entry.id, label_text or None)
+    diagnostic(_label_diagnostic(entry, label_text))
+    return TreeCommandOutcome()
+
+
+def _label_diagnostic(entry: SessionEntry, label_text: str) -> str:
+    entry_id = sanitize_label_text(entry.id[:8])
+    if label_text:
+        return f"pipy: labeled {entry_id} {label_text!r}."
+    return f"pipy: cleared label on {entry_id}."
+
+
+def _handle_tree_filter(
+    argument: str, diagnostic: Callable[[str], None]
+) -> TreeCommandOutcome:
+    mode = argument.lower()
+    if mode not in FILTER_MODES:
+        diagnostic("pipy: filter must be one of " + ", ".join(FILTER_MODES))
+        return TreeCommandOutcome()
+    diagnostic(f"pipy: /tree filter set to {mode}.")
+    return TreeCommandOutcome(filter_mode=mode)
 
 
 # ---------------------------------------------------------------------------

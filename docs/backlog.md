@@ -3565,6 +3565,37 @@ Focused verification passed 101 tests; final `just check` passed Ruff, Mypy,
 and 4,537 tests (2 skipped). `src` ignores remain 28 and the root remains
 5,382 lines. Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Session-tree command adapter relocation (Slice 7.5m) — DONE (2026-07-23)
+
+Thirteenth composition-root slimming cut. Relocate `TreeCommandOutcome`, branch
+summary selection, and captured `/tree` show/select/label/filter dispatch from
+`native.tool_loop_session` into the existing
+`native.session_tree_commands` owner. Inject only diagnostics and the optional
+interactive selector callback so the owner remains TUI/root independent; keep
+the live selector wrapper in the root. Split moved subcommands along their
+actual semantics so the root's C901 finding disappears rather than moving to
+the already-pinned owner. Type the selected entry with the existing
+`SessionEntry` union and remove the attr-defined ignore. Preserve selection,
+summary, mutation, rebuild, diagnostic, filter, and prefill order exactly. No
+new module, public CLI surface, behavior, dependency, ignore, Mypy exclusion,
+or C901 pin.
+
+Landed shape: `TreeCommandOutcome`, branch-summary switching, and captured
+show/select/label/filter/unknown dispatch move to
+`native.session_tree_commands`. The owner accepts only diagnostic and optional
+interactive-selector callbacks and gains an import rule forbidding TUI/root
+dependencies. The root retains its live selector and a thin wrapper, with the
+superseded outcome/summary/dispatcher bodies deleted. Moved subcommands own
+cohesive helpers, so no finding moves into the already-pinned owner and the
+root loses `_handle_tree_command` C901. Existing `SessionEntry` typing removes
+the attr-defined ignore. Five new owner tests pin captured diagnostics,
+selection/prefill/rebuild, summary cancellation/success, label/filter, and
+interactive callback routing. The root shrinks 5,382 -> 5,206 physical lines;
+repository C901 95/37 -> 94/37 (`src` 79/28 -> 78/28); `src` ignores 28 -> 27.
+Focused verification passed 231 tests; final `just check` passed Ruff, Mypy,
+and 4,542 tests (2 skipped). Review: Pi GPT-5.6 Sol, 1 round, 0 findings,
+explicit CLEAN.
+
 ### Extension tool-port adapter relocation to the extension runtime (Slice 7.5d) — DONE (2026-07-23)
 
 Fourth composition-root slimming cut. Relocate `_ExtensionToolPort` from
