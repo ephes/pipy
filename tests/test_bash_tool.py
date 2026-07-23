@@ -10,6 +10,8 @@ also pin the move to genuine shell parity.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -22,7 +24,7 @@ from pipy_harness.native.tools.base import (
     ToolRequest,
     make_tool_request_id,
 )
-from pipy_harness.native.tools.bash import BashTool
+from pipy_harness.native.tools.bash import BashTool, _stream_output
 
 
 def _ctx(
@@ -237,3 +239,23 @@ def test_no_sink_still_returns_full_output(tmp_path: Path) -> None:
     )
     assert result.is_error is False
     assert "AAABBB" in result.output_text
+
+
+def test_stream_flushes_incomplete_utf8_and_closes_stdout() -> None:
+    proc = subprocess.Popen(  # noqa: S603 - fixed interpreter and test payload
+        [sys.executable, "-c", "import os; os.write(1, b'\\xe2\\x82')"],
+        stdout=subprocess.PIPE,
+    )
+    streamed: list[str] = []
+
+    outcome = _stream_output(
+        proc,
+        sink=streamed.append,
+        timeout=None,
+        max_output_bytes=16,
+    )
+
+    assert outcome == ("\ufffd", False, False, False)
+    assert streamed == ["\ufffd"]
+    assert proc.stdout is not None and proc.stdout.closed
+    assert proc.returncode == 0

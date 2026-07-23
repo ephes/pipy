@@ -3535,6 +3535,34 @@ Focused verification passed 283 tests; final `just check` passed Ruff, Mypy,
 and 4,535 tests (2 skipped). C901 remains 98/40 and `src` ignores remain 28.
 Review: Pi GPT-5.6 Sol, 1 round, 0 findings, explicit CLEAN.
 
+### Decompose bash streaming, edit, and find tool owners (Slice 7.7o) — DONE (2026-07-23)
+
+Sixteenth directional C901 batch. Decompose
+`native.tools.bash._stream_output`, `native.tools.edit.EditTool.invoke`, and
+`native.tools.find.FindTool.invoke` at cohesive streaming-state,
+path/content-preflight, and search-root/result-projection boundaries. Preserve
+timeout/cancellation/process-group cleanup and live-chunk order; edit
+validation/error/write/diff order; and find pattern/path/ignore/glob/sort/
+truncation semantics. Add characterization only where first-failure or cleanup
+order is not already pinned. Each clean file leaves the C901 pin list. No
+behavior, tool-result/wire shape, dependency, unchecked `Any`, ignore, Mypy
+exclusion, or new pin.
+
+Landed shape: bash streaming owns bounded raw/decoder/emission state and
+separates the selectable read, post-EOF process wait, and post-kill drain while
+retaining one deadline and cancellation precedence. Edit delegates validated
+arguments, resolved target, bounded text read, replacement, write, and
+post-write diff streaming through typed outcomes. Find delegates pattern
+validation, search-root resolution, match containment/filtering, and output
+projection. New tests pin decoder finalization/stdout cleanup, edit
+argument/error and write-before-diff ordering, and sorted reference-root
+projection with symlink and `.git` exclusion. All three owners are clean and
+their pins are deleted, lowering repository C901 91/34 -> 88/31 (`src` 75/25
+-> 72/22). Focused verification passed 50 tests; final `just check` passed
+Ruff, Mypy, and 4,548 tests (2 skipped); `just docs-build` completed cleanly.
+`src` ignores remain 27 and the root remains 5,080 lines. Review: Pi GPT-5.6
+Sol, 1 round, 0 findings, explicit CLEAN.
+
 ### Relocate status, compaction-summary, and render-sink helpers (Slice 7.5n) — DONE (2026-07-23)
 
 Fourteenth composition-root slimming cut. Relocate the context-budget,

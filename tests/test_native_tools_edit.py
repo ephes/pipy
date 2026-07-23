@@ -75,6 +75,53 @@ def test_edit_tool_replaces_unique_match_and_streams_diff(tmp_path: Path):
     assert "+DEBUG = True" in diff
 
 
+def test_edit_tool_writes_before_streaming_exact_diff(tmp_path: Path):
+    target = tmp_path / "note.txt"
+    target.write_text("before\n", encoding="utf-8")
+    observed: list[tuple[str, bytes]] = []
+
+    def sink(diff_text: str) -> None:
+        observed.append((target.read_text(encoding="utf-8"), diff_text.encode("utf-8")))
+
+    result = EditTool().invoke(
+        _make_request(
+            {
+                "path": "note.txt",
+                "old_string": "before",
+                "new_string": "after",
+            }
+        ),
+        ToolContext(workspace_root=tmp_path, stderr_sink=sink),
+    )
+
+    assert observed == [
+        (
+            "after\n",
+            b"--- a/note.txt\n+++ b/note.txt\n@@ -1 +1 @@\n-before\n+after\n",
+        )
+    ]
+    assert result.output_text == "edited note.txt (1 replacement(s))"
+
+
+def test_edit_tool_preserves_argument_failure_order(tmp_path: Path):
+    tool = EditTool()
+    context = ToolContext(workspace_root=tmp_path)
+
+    with pytest.raises(ToolArgumentError) as path_info:
+        tool.invoke(
+            _make_request({"path": "/etc/passwd", "old_string": "", "new_string": 1}),
+            context,
+        )
+    with pytest.raises(ToolArgumentError) as old_info:
+        tool.invoke(
+            _make_request({"path": "valid.txt", "old_string": "", "new_string": 1}),
+            context,
+        )
+
+    assert path_info.value.field_path == ("path",)
+    assert old_info.value.field_path == ("old_string",)
+
+
 def test_edit_tool_rejects_duplicate_when_replace_all_false(tmp_path: Path):
     target = tmp_path / "dup.py"
     target.write_text("X = 1\nX = 1\n", encoding="utf-8")

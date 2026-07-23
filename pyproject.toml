@@ -61,9 +61,9 @@ extend-select = ["C901"]
 # dropped the agent request/executor and resource-dispatch owners; Slice 7.7j
 # dropped the auth/fake/Vertex owners; Slice 7.7k dropped the three-finding
 # native request-invariant owner; Slices 7.7l-7.7n dropped nine more leaf
-# policy/projection/discovery/comparison/schema owners). Do not add entries to
-# grow the baseline; only remove entries as functions are genuinely simplified
-# below the threshold.
+# policy/projection/discovery/comparison/schema owners; Slice 7.7o dropped the
+# bash/edit/find concrete-tool owners). Do not add entries to grow the baseline;
+# only remove entries as functions are genuinely simplified below the threshold.
 "docs/examples/extensions/answer.py" = ["C901"]
 "docs/examples/extensions/pipy-extension-conformance.py" = ["C901"]
 "scripts/parity_checks/extension_message_renderer_conformance.py" = ["C901"]
@@ -86,10 +86,7 @@ extend-select = ["C901"]
 "src/pipy_harness/native/terminal_screen.py" = ["C901"]
 "src/pipy_harness/native/tool_loop_session.py" = ["C901"]
 "src/pipy_harness/native/tool_renderers.py" = ["C901"]
-"src/pipy_harness/native/tools/bash.py" = ["C901"]
 "src/pipy_harness/native/tools/edit_diff.py" = ["C901"]
-"src/pipy_harness/native/tools/edit.py" = ["C901"]
-"src/pipy_harness/native/tools/find.py" = ["C901"]
 "src/pipy_harness/native/tools/grep.py" = ["C901"]
 "src/pipy_harness/native/tui.py" = ["C901"]
 "src/pipy_session/catalog.py" = ["C901"]

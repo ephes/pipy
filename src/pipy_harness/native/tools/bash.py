@@ -42,7 +42,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
@@ -191,6 +191,130 @@ class BashTool:
         )
 
 
+@dataclass(slots=True)
+class _OutputState:
+    """Bounded result bytes and incremental sink-decoder state."""
+
+    sink: Callable[[str], None] | None
+    max_output_bytes: int
+    raw_tail: bytearray = field(default_factory=bytearray)
+    pending: list[str] = field(default_factory=list)
+    truncated: bool = False
+    decoder: codecs.IncrementalDecoder = field(init=False)
+    last_emit: float = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self.last_emit = time.monotonic()
+
+    def absorb(self, data: bytes) -> None:
+        if self.sink is not None:
+            text = self.decoder.decode(data)
+            if text:
+                self.pending.append(text)
+        self.raw_tail.extend(data)
+        if len(self.raw_tail) > self.max_output_bytes:
+            del self.raw_tail[: len(self.raw_tail) - self.max_output_bytes]
+            self.truncated = True
+
+    def emit(self, *, force: bool) -> None:
+        if self.sink is None or not self.pending:
+            return
+        if force or (time.monotonic() - self.last_emit) >= _STREAM_THROTTLE_SECONDS:
+            self.sink("".join(self.pending))
+            self.pending.clear()
+            self.last_emit = time.monotonic()
+
+    def finish_decoder(self) -> None:
+        if self.sink is None:
+            return
+        final = self.decoder.decode(b"", final=True)
+        if final:
+            self.pending.append(final)
+
+    def output(self) -> str:
+        return bytes(self.raw_tail).decode("utf-8", "replace")
+
+
+@dataclass(frozen=True, slots=True)
+class _StreamOutcome:
+    eof: bool = False
+    timed_out: bool = False
+    cancelled: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class _WaitDecision:
+    wait_seconds: float
+    interruption: _StreamOutcome | None = None
+
+
+def _next_wait(
+    cancel_event: "threading.Event | None", deadline: float | None
+) -> _WaitDecision:
+    # Cancellation intentionally wins when it races the deadline.
+    if cancel_event is not None and cancel_event.is_set():
+        return _WaitDecision(0, _StreamOutcome(cancelled=True))
+    if deadline is None:
+        return _WaitDecision(_STREAM_THROTTLE_SECONDS)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return _WaitDecision(0, _StreamOutcome(timed_out=True))
+    return _WaitDecision(min(_STREAM_THROTTLE_SECONDS, remaining))
+
+
+def _read_output_phase(
+    selector: selectors.BaseSelector,
+    fd: int,
+    state: _OutputState,
+    *,
+    cancel_event: "threading.Event | None",
+    deadline: float | None,
+) -> _StreamOutcome:
+    while True:
+        decision = _next_wait(cancel_event, deadline)
+        if decision.interruption is not None:
+            return decision.interruption
+        if selector.select(timeout=decision.wait_seconds):
+            data = os.read(fd, _READ_CHUNK_BYTES)
+            if not data:
+                return _StreamOutcome(eof=True)
+            state.absorb(data)
+        state.emit(force=False)
+
+
+def _wait_after_stdout_eof(
+    proc: subprocess.Popen[bytes],
+    *,
+    cancel_event: "threading.Event | None",
+    deadline: float | None,
+) -> _StreamOutcome:
+    # A process can close or redirect stdout and keep running. Continue using
+    # the original deadline and cancellation token until it exits.
+    while proc.poll() is None:
+        decision = _next_wait(cancel_event, deadline)
+        if decision.interruption is not None:
+            return decision.interruption
+        try:
+            proc.wait(timeout=decision.wait_seconds)
+        except subprocess.TimeoutExpired:
+            pass
+    return _StreamOutcome(eof=True)
+
+
+def _drain_nonblocking(
+    selector: selectors.BaseSelector, fd: int, state: _OutputState
+) -> None:
+    try:
+        while selector.select(timeout=0):
+            data = os.read(fd, _READ_CHUNK_BYTES)
+            if not data:
+                break
+            state.absorb(data)
+    except OSError:
+        pass
+
+
 def _stream_output(
     proc: subprocess.Popen[bytes],
     *,
@@ -199,130 +323,44 @@ def _stream_output(
     max_output_bytes: int,
     cancel_event: "threading.Event | None" = None,
 ) -> tuple[str, bool, bool, bool]:
-    """Drain ``proc`` stdout on the calling thread, emitting chunks as they come.
+    """Drain stdout, stream chunks, and enforce one monotonic deadline.
 
-    A single ``selectors`` poll loop reads whatever the process has flushed and,
-    if ``sink`` is set, emits it to the live UI throttled to
-    ``_STREAM_THROTTLE_SECONDS``. The returned result keeps only a bounded *tail*
-    of the raw output (the last ``max_output_bytes`` bytes), so an unbounded
-    producer (``yes``, a noisy build) cannot grow memory without limit; the live
-    sink streams everything (the UI bounds its own view).
-
-    The timeout is one monotonic deadline. It is enforced on the read loop *and*
-    after stdout EOF: a command that closes its stdout but keeps running cannot
-    hang ``invoke()`` — once the deadline passes the whole process group is
-    killed. No reader thread, so there is no join race on the timeout path.
-
-    When ``cancel_event`` is supplied and becomes set (the user pressed Escape
-    while a ``!`` shortcut runs), the whole process group is killed and the
-    partial output returned with ``cancelled=True``. Returns
-    ``(output, truncated, timed_out, cancelled)``.
+    The returned tail is byte-bounded while the optional live sink receives all
+    decoded chunks in order. Timeout and cancellation kill the process group and
+    drain bytes already available from the pipe before final decoder flush.
     """
 
     assert proc.stdout is not None
     fd = proc.stdout.fileno()
-    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     selector = selectors.DefaultSelector()
     selector.register(fd, selectors.EVENT_READ)
-
-    raw_tail = bytearray()
-    truncated = False
-    pending: list[str] = []
-    last_emit = time.monotonic()
+    state = _OutputState(sink=sink, max_output_bytes=max_output_bytes)
     deadline = None if timeout is None else time.monotonic() + timeout
-    timed_out = False
-    cancelled = False
-    eof = False
 
-    def emit(force: bool) -> None:
-        nonlocal last_emit
-        if sink is None or not pending:
-            return
-        if force or (time.monotonic() - last_emit) >= _STREAM_THROTTLE_SECONDS:
-            sink("".join(pending))
-            pending.clear()
-            last_emit = time.monotonic()
-
-    def absorb(data: bytes) -> None:
-        nonlocal truncated
-        if sink is not None:
-            text = decoder.decode(data)
-            if text:
-                pending.append(text)
-        raw_tail.extend(data)
-        if len(raw_tail) > max_output_bytes:
-            del raw_tail[: len(raw_tail) - max_output_bytes]
-            truncated = True
-
-    def drain_nonblocking() -> None:
-        try:
-            while selector.select(timeout=0):
-                data = os.read(fd, _READ_CHUNK_BYTES)
-                if not data:
-                    break
-                absorb(data)
-        except OSError:
-            pass
-
-    while True:
-        if cancel_event is not None and cancel_event.is_set():
-            cancelled = True
-            break
-        if deadline is not None:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                timed_out = True
-                break
-            wait = min(_STREAM_THROTTLE_SECONDS, remaining)
-        else:
-            wait = _STREAM_THROTTLE_SECONDS
-        if selector.select(timeout=wait):
-            data = os.read(fd, _READ_CHUNK_BYTES)
-            if not data:  # EOF: the process closed stdout.
-                eof = True
-                break
-            absorb(data)
-        emit(force=False)
-
-    if not timed_out and eof:
-        # stdout is closed, but the process may still be running (it can close
-        # or redirect its fds and keep working). Keep enforcing the deadline and
-        # cancellation so such a child cannot hang invoke() or survive a TUI
-        # /quit after it disconnected its output.
-        while proc.poll() is None:
-            if cancel_event is not None and cancel_event.is_set():
-                cancelled = True
-                break
-            if deadline is not None:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    timed_out = True
-                    break
-                wait_for = min(_STREAM_THROTTLE_SECONDS, remaining)
-            else:
-                wait_for = _STREAM_THROTTLE_SECONDS
-            try:
-                proc.wait(timeout=wait_for)
-            except subprocess.TimeoutExpired:
-                pass
-
-    if timed_out or cancelled:
+    outcome = _read_output_phase(
+        selector,
+        fd,
+        state,
+        cancel_event=cancel_event,
+        deadline=deadline,
+    )
+    if outcome.eof:
+        outcome = _wait_after_stdout_eof(
+            proc, cancel_event=cancel_event, deadline=deadline
+        )
+    if outcome.timed_out or outcome.cancelled:
         _kill_process_group(proc)
-        drain_nonblocking()
+        _drain_nonblocking(selector, fd, state)
 
-    if sink is not None:
-        final = decoder.decode(b"", final=True)
-        if final:
-            pending.append(final)
-    emit(force=True)
-
+    state.finish_decoder()
+    state.emit(force=True)
     selector.close()
     try:
         proc.stdout.close()
     except OSError:
         pass
     proc.wait()
-    return bytes(raw_tail).decode("utf-8", "replace"), truncated, timed_out, cancelled
+    return state.output(), state.truncated, outcome.timed_out, outcome.cancelled
 
 
 @dataclass(slots=True)

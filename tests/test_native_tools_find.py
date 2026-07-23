@@ -85,6 +85,43 @@ def test_find_tool_skips_dot_git(tmp_path: Path):
     assert ".git" not in result.output_text
 
 
+def test_find_tool_projects_sorted_reference_root_results(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    reference = tmp_path / "reference"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    reference.mkdir()
+    outside.mkdir()
+    (reference / "b.py").write_text("", encoding="utf-8")
+    (reference / "a.py").write_text("", encoding="utf-8")
+    (reference / ".git").mkdir()
+    (reference / ".git" / "hidden.py").write_text("", encoding="utf-8")
+    (outside / "leaked.py").write_text("", encoding="utf-8")
+    (reference / "leak.py").symlink_to(outside / "leaked.py")
+    context = ToolContext(
+        workspace_root=workspace,
+        reference_roots=(reference,),
+    )
+
+    result = FindTool().invoke(
+        _make_request({"pattern": "**/*.py", "path": str(reference)}),
+        context,
+    )
+
+    assert result.is_error is False
+    assert result.output_text == "reference/a.py\nreference/b.py"
+
+
+def test_find_tool_validates_pattern_before_search_root(tmp_path: Path):
+    request = _make_request({"pattern": "../*.py", "path": "/outside"})
+
+    with pytest.raises(ToolArgumentError) as info:
+        FindTool().invoke(request, ToolContext(workspace_root=tmp_path))
+
+    assert info.value.field_path == ("pattern",)
+    assert str(info.value) == "find.pattern: pattern must not contain '..'"
+
+
 def test_find_tool_rejects_absolute_pattern():
     tool = FindTool()
     context = ToolContext(workspace_root=Path("/tmp").resolve())
