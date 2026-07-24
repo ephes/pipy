@@ -2605,6 +2605,16 @@ def test_pty_local_command_during_multi_tool_call_balances_results(
         assert _wait_for(err_chunks, "first-tool-running"), "bash tool never streamed"
         os.write(in_master, b"/hotkeys\n")
         assert _wait_for(err_chunks, "Keyboard Shortcuts"), "/hotkeys did not run"
+        # The notice is painted before the outer loop re-enters read_line. Wait
+        # for its later bracketed-paste enable byte: enter_raw_mode emits it
+        # only after the TCSAFLUSH transition, so follow-up input cannot be
+        # discarded between the notice paint and prompt readiness.
+        assert _wait_for_predicate(
+            lambda: (
+                b"\x1b[?2004h"
+                in b"".join(err_chunks).partition(b"Keyboard Shortcuts")[2]
+            )
+        ), "post-command input never entered raw mode"
         os.write(in_master, b"after interrupt\n")
         assert _wait_for_predicate(provider.balanced.is_set), "tool results unbalanced"
         assert _wait_for(err_chunks, "HISTORY_BALANCED"), "follow-up never completed"
