@@ -28,7 +28,7 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 2 — canonical session-extension generation**. Product-parity deltas in
+is **Slice 3 — transactional extension reload commit**. Product-parity deltas in
 the Pi audit remain selection candidates after the architecture program and do
 not expand an architecture slice.
 
@@ -56,6 +56,22 @@ Progress:
   7,017 `tui.py` lines. The four focused tests and all 4,589 repository tests
   pass, `just docs-build` is clean, and Pi review is CLEAN in two rounds with
   zero findings (the second pass covers this final ledger/pointer update).
+- **Slice 2 — canonical session-extension generation: SHIPPED in this commit**
+  (`refactor: unify session extension state`). `_RunControlState` now owns one
+  typed extension generation (activated runtime plus parsed flags) instead of a
+  runtime handle plus 23 mirrored contribution fields. Commands, hooks, outboxes, renderers,
+  providers, tools, shortcuts, and flags resolve through that generation; a
+  narrow TUI adapter preserves live outbox/renderer lookup without adding a
+  second source of truth. Focused extension/reload/RPC/TUI coverage passes (463
+  tests), including a new exact outbox-identity and generation-rebind
+  characterization; the full gate passes with 4,591 tests and two skips. One
+  unrelated project-trust PTY selector timing failure passed both isolated and
+  on the immediate full retry. Ruff, focused Mypy, and the docs build are clean.
+  Reload ordering, custom-message delivery, old/new outbox separation, and the
+  intentionally non-transactional malformed-flag behavior remain unchanged;
+  transactional replacement stays deferred to Slice 3. The final Pi review is
+  CLEAN with zero findings and no scoped omissions; one preceding transport
+  attempt was INVALID before emitting a review and was retried fail-closed.
 
 ## Current State
 

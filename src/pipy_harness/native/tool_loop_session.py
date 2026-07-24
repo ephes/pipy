@@ -254,17 +254,15 @@ from pipy_harness.native.extension_runtime import (
     ExtensionCapabilityError,
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
-    ExtensionTool,
     ExtensionUiDriver,
     HookHandler,
     ExtensionActivationBatch,
     QueuedCustomMessage,
     QueuedUserMessage,
-    RegisteredCommand,
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
     ToolRenderDetailsWriter,
-    _ExtensionRuntime,
+    _SessionExtensionGeneration,
     _ExtensionToolPort,
     dispatch_extension_command,
     dispatch_extension_shortcut,
@@ -540,36 +538,52 @@ class _RunControlState:
     pending_prefill: str | None
     package_roots: PackageResourceRoots
     workspace_resources: WorkspaceResources
-    _ext_runtime: _ExtensionRuntime
-    extension_commands: dict[str, RegisteredCommand]
-    extension_menu_names: tuple[str, ...]
-    extension_descriptions: dict[str, str]
-    extension_tool_call_hooks_: tuple[HookHandler, ...]
-    extension_lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
-    extension_input_hooks: tuple[HookHandler, ...]
-    extension_before_agent_start_hooks: tuple[HookHandler, ...]
-    extension_tool_result_hooks: tuple[HookHandler, ...]
-    extension_user_bash_hooks: tuple[HookHandler, ...]
-    extension_before_provider_headers_hooks: tuple[HookHandler, ...]
-    extension_before_provider_request_hooks: tuple[HookHandler, ...]
-    extension_session_before_switch_hooks: tuple[HookHandler, ...]
-    extension_session_before_fork_hooks: tuple[HookHandler, ...]
-    extension_session_before_compact_hooks: tuple[HookHandler, ...]
-    extension_session_before_tree_hooks: tuple[HookHandler, ...]
-    extension_message_outbox: list[QueuedUserMessage]
-    extension_custom_message_outbox: list[QueuedCustomMessage]
-    extension_renderer_map: dict[str, RegisteredMessageRenderer]
-    extension_entry_renderer_map: dict[str, RegisteredEntryRenderer]
-    extension_activation_custom_messages: tuple[QueuedCustomMessage, ...]
-    extension_flag_values: dict[str, object]
-    extension_tool_renderers: dict[str, ExtensionTool]
-    extension_tool_registry: dict[str, ToolPort]
+    extension_generation: _SessionExtensionGeneration
     agent_settled_pending: bool
     extension_in_agent_turn: bool
     # ``line`` is (re)assigned by ``_ReplLoopStep.step_once`` before any read every
     # iteration;
     # the setup-scope changelog loop that reuses the name never seeds it here.
     line: str = ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ExtensionCustomEntryRunState:
+    """Narrow TUI adapter over the canonical extension generation.
+
+    ``_CustomEntryRenderer`` intentionally accepts a structural live-state
+    protocol. Keep that UI boundary cycle-free while forwarding every
+    extension-owned value to the generation rather than mirroring it on run
+    control.
+    """
+
+    ctl: _RunControlState
+
+    @property
+    def session_tree(self) -> NativeSessionTree:
+        return self.ctl.session_tree
+
+    @property
+    def extension_renderer_map(self) -> Mapping[str, RegisteredMessageRenderer]:
+        return self.ctl.extension_generation.runtime.message_renderers
+
+    @property
+    def extension_entry_renderer_map(
+        self,
+    ) -> Mapping[str, RegisteredEntryRenderer]:
+        return self.ctl.extension_generation.runtime.entry_renderers
+
+    @property
+    def extension_message_outbox(self) -> list[QueuedUserMessage]:
+        return self.ctl.extension_generation.runtime.outbox
+
+    @property
+    def extension_custom_message_outbox(self) -> list[QueuedCustomMessage]:
+        return self.ctl.extension_generation.runtime.custom_outbox
+
+    @property
+    def extension_in_agent_turn(self) -> bool:
+        return self.ctl.extension_in_agent_turn
 
 
 class _BuiltinCommandInterpreter:
@@ -692,7 +706,7 @@ class _BuiltinCommandInterpreter:
             elif command_outcome.action is CodingCommandAction.NEW_SESSION:
                 # Start a fresh native product session in the same store.
                 if extension_session_allows(
-                    ctl.extension_session_before_switch_hooks,
+                    ctl.extension_generation.runtime.session_before_switch_hooks,
                     operation="switch",
                     target="new",
                 ):
@@ -723,7 +737,7 @@ class _BuiltinCommandInterpreter:
                     not argument and terminal_ui is not None
                 ) or tree_sub in {"select", "label", "filter"}
                 tree_allowed = not tree_may_change or extension_session_allows(
-                    ctl.extension_session_before_tree_hooks,
+                    ctl.extension_generation.runtime.session_before_tree_hooks,
                     operation="tree",
                     target=argument or None,
                 )
@@ -796,7 +810,7 @@ class _BuiltinCommandInterpreter:
                     ):
                         diag("pipy: already on the selected native session.")
                     elif extension_session_allows(
-                        ctl.extension_session_before_switch_hooks,
+                        ctl.extension_generation.runtime.session_before_switch_hooks,
                         operation="switch",
                         target=str(picked_session),
                     ):
@@ -860,7 +874,7 @@ class _BuiltinCommandInterpreter:
                     if target is None:
                         diag(f"pipy: no native session matched {argument!r}.")
                     elif extension_session_allows(
-                        ctl.extension_session_before_switch_hooks,
+                        ctl.extension_generation.runtime.session_before_switch_hooks,
                         operation="switch",
                         target=str(target),
                     ):
@@ -908,7 +922,7 @@ class _BuiltinCommandInterpreter:
                     else:
                         fork_leaf = ctl.session_tree.get_leaf_id()
                     if fork_target_resolved and extension_session_allows(
-                        ctl.extension_session_before_fork_hooks,
+                        ctl.extension_generation.runtime.session_before_fork_hooks,
                         operation="fork",
                         target=fork_leaf,
                     ):
@@ -948,7 +962,7 @@ class _BuiltinCommandInterpreter:
                     error_stream=error_stream,
                     current_session_dir=current_session_dir,
                     session_switch_allows=lambda target: extension_session_allows(
-                        ctl.extension_session_before_switch_hooks,
+                        ctl.extension_generation.runtime.session_before_switch_hooks,
                         operation="switch",
                         target=target,
                     ),
@@ -1184,7 +1198,7 @@ class _BuiltinCommandInterpreter:
                 # extension cannot leave stale widgets/header/footer/title.
                 if terminal_ui is not None:
                     terminal_ui.clear_extension_chrome()
-                ctl._ext_runtime = _activate_workspace_extensions(
+                reloaded_extension_runtime = _activate_workspace_extensions(
                     cwd,
                     ctl.workspace_resources,
                     tuple(session.tool_registry.keys()),
@@ -1196,43 +1210,16 @@ class _BuiltinCommandInterpreter:
                     include_default_extensions=not resource_options.no_extensions,
                     include_workspace_defaults=settings.project_trusted,
                 )
-                ctl.extension_commands = ctl._ext_runtime.commands
-                ctl.extension_menu_names = ctl._ext_runtime.menu_names
-                ctl.extension_descriptions = ctl._ext_runtime.descriptions
-                ctl.extension_tool_call_hooks_ = ctl._ext_runtime.tool_call_hooks
-                ctl.extension_lifecycle_hooks = ctl._ext_runtime.lifecycle_hooks
-                ctl.extension_input_hooks = ctl._ext_runtime.input_hooks
-                ctl.extension_before_agent_start_hooks = (
-                    ctl._ext_runtime.before_agent_start_hooks
+                # Preserve the established reload ordering: the newly activated
+                # contributions become live before extension custom messages and
+                # flag parsing. A malformed flag therefore still leaves the new
+                # runtime paired with the prior parsed values; Slice 3 owns making
+                # this replacement transactional.
+                ctl.extension_generation = _SessionExtensionGeneration(
+                    runtime=reloaded_extension_runtime,
+                    flag_values=ctl.extension_generation.flag_values,
                 )
-                ctl.extension_tool_result_hooks = ctl._ext_runtime.tool_result_hooks
-                ctl.extension_user_bash_hooks = ctl._ext_runtime.user_bash_hooks
-                ctl.extension_before_provider_headers_hooks = (
-                    ctl._ext_runtime.before_provider_headers_hooks
-                )
-                ctl.extension_before_provider_request_hooks = (
-                    ctl._ext_runtime.before_provider_request_hooks
-                )
-                ctl.extension_session_before_switch_hooks = (
-                    ctl._ext_runtime.session_before_switch_hooks
-                )
-                ctl.extension_session_before_fork_hooks = (
-                    ctl._ext_runtime.session_before_fork_hooks
-                )
-                ctl.extension_session_before_compact_hooks = (
-                    ctl._ext_runtime.session_before_compact_hooks
-                )
-                ctl.extension_session_before_tree_hooks = (
-                    ctl._ext_runtime.session_before_tree_hooks
-                )
-                ctl.extension_message_outbox = ctl._ext_runtime.outbox
-                ctl.extension_custom_message_outbox = ctl._ext_runtime.custom_outbox
-                ctl.extension_renderer_map = ctl._ext_runtime.message_renderers
-                ctl.extension_entry_renderer_map = ctl._ext_runtime.entry_renderers
-                ctl.extension_activation_custom_messages = (
-                    ctl._ext_runtime.custom_messages
-                )
-                for custom_message in ctl.extension_activation_custom_messages:
+                for custom_message in reloaded_extension_runtime.custom_messages:
                     extension_send_message(
                         custom_message.custom_type,
                         custom_message.content,
@@ -1240,9 +1227,8 @@ class _BuiltinCommandInterpreter:
                         custom_message.options,
                         custom_message.details,
                     )
-                ctl.extension_activation_custom_messages = ()
                 reloaded_flag_values, reloaded_flag_error = parse_extension_flag_tokens(
-                    ctl._ext_runtime.flags,
+                    reloaded_extension_runtime.flags,
                     tuple(resource_options.extension_flag_tokens),
                 )
                 if reloaded_flag_error is not None:
@@ -1252,8 +1238,11 @@ class _BuiltinCommandInterpreter:
                         f"pipy: {reloaded_flag_error}",
                     )
                 else:
-                    ctl.extension_flag_values = reloaded_flag_values
-                    emitter.set_flags(ctl.extension_flag_values)
+                    ctl.extension_generation = _SessionExtensionGeneration(
+                        runtime=reloaded_extension_runtime,
+                        flag_values=reloaded_flag_values,
+                    )
+                    emitter.set_flags(ctl.extension_generation.flag_values)
                 state = session.provider_state
                 if isinstance(state, NativeReplProviderState):
                     runtime = state.model_runtime
@@ -1264,8 +1253,8 @@ class _BuiltinCommandInterpreter:
                         )
                         catalog_state.refresh()
                         catalog_state.set_extension_provider_contributions(
-                            ctl._ext_runtime.providers,
-                            ctl._ext_runtime.unregistered_providers,
+                            ctl.extension_generation.runtime.providers,
+                            ctl.extension_generation.runtime.unregistered_providers,
                         )
                         selection_disappeared = (
                             not state.current_selection_supported()
@@ -1360,12 +1349,12 @@ class _BuiltinCommandInterpreter:
                                 )
                 # Replace the run's extension capability registry and
                 # custom renderer map with the reloaded generation.
-                ctl.extension_tool_renderers = _extension_tool_renderer_map(
-                    ctl._ext_runtime.tools
+                reloaded_tool_renderers = _extension_tool_renderer_map(
+                    ctl.extension_generation.runtime.tools
                 )
-                renderer.refresh_tool_renderers(ctl.extension_tool_renderers)
-                ctl.extension_tool_registry = {}
-                for _registered_tool in ctl._ext_runtime.tools:
+                renderer.refresh_tool_renderers(reloaded_tool_renderers)
+                reloaded_tool_registry: dict[str, ToolPort] = {}
+                for _registered_tool in ctl.extension_generation.runtime.tools:
                     _port = _ExtensionToolPort(
                         _registered_tool,
                         has_ui=terminal_ui is not None,
@@ -1373,12 +1362,12 @@ class _BuiltinCommandInterpreter:
                         set_active_tools_fn=lambda names: extension_set_active_tools(
                             names
                         ),
-                        flags=ctl.extension_flag_values,
+                        flags=ctl.extension_generation.flag_values,
                         render_details_sink=extension_render_details,
                         project_trusted=settings.project_trusted,
                     )
-                    ctl.extension_tool_registry[_port.definition.name] = _port
-                tool_capabilities.replace_extensions(ctl.extension_tool_registry)
+                    reloaded_tool_registry[_port.definition.name] = _port
+                tool_capabilities.replace_extensions(reloaded_tool_registry)
                 unknown_filter_names = tool_capabilities.unknown_filter_names
                 if unknown_filter_names:
                     known = (
@@ -1393,8 +1382,10 @@ class _BuiltinCommandInterpreter:
                     )
                 # Refresh the emitter's lifecycle hooks so reloaded
                 # extensions observe subsequent agent/turn events.
-                emitter.set_lifecycle_hooks(ctl.extension_lifecycle_hooks)
-                emitter.set_flags(ctl.extension_flag_values)
+                emitter.set_lifecycle_hooks(
+                    ctl.extension_generation.runtime.lifecycle_hooks
+                )
+                emitter.set_flags(ctl.extension_generation.flag_values)
                 # Re-apply the edited theme (settings is source of truth over the
                 # persisted store) and the derived UI settings.
                 reloaded_theme = settings.get_theme()
@@ -1405,13 +1396,15 @@ class _BuiltinCommandInterpreter:
                         settings.get_autocomplete_max_visible()
                     )
                     terminal_ui.command_names = _tool_loop_command_names(
-                        ctl.workspace_resources, ctl.extension_menu_names
+                        ctl.workspace_resources,
+                        ctl.extension_generation.runtime.menu_names,
                     )
                     terminal_ui.command_descriptions = _tool_loop_command_descriptions(
-                        ctl.workspace_resources, ctl.extension_descriptions
+                        ctl.workspace_resources,
+                        ctl.extension_generation.runtime.descriptions,
                     )
                     terminal_ui.extension_shortcut_keys = frozenset(
-                        ctl._ext_runtime.shortcuts
+                        ctl.extension_generation.runtime.shortcuts
                     )
                     redraw_custom_entries_for_active_branch()
                 load_errors = settings.load_errors()
@@ -1472,10 +1465,10 @@ class _ProviderMutationEffects:
     ``NativeToolReplSession.run()``. They call one another densely (the compaction
     hook path and ``extension_set_model`` re-enter the peer effects), so the
     handler is a frozen, slotted, keyword-only dataclass that holds the run's
-    mutable control-state holder ``ctl`` (its ``session_tree``,
-    ``extension_session_before_compact_hooks``, and ``extension_flag_values`` are
-    read fresh on every call so a ``/reload``/``/new``/``/resume``/``/fork``/
-    ``/clone`` rebind is reflected exactly as it was inline) plus the stable
+    mutable control-state holder ``ctl`` (its ``session_tree`` and canonical
+    ``extension_generation`` are read fresh on every call so a
+    ``/reload``/``/new``/``/resume``/``/fork``/``/clone`` rebind is reflected
+    exactly as it was inline) plus the stable
     run-scope collaborators — the owning session (for its live
     ``provider_state``), the coding state, the product session, the terminal UI,
     the tool-capability facade, settings, cwd, the input/error streams, the
@@ -1674,7 +1667,7 @@ class _ProviderMutationEffects:
         """
 
         decision = dispatch_session_before_hooks(
-            self.ctl.extension_session_before_compact_hooks,
+            self.ctl.extension_generation.runtime.session_before_compact_hooks,
             operation="compact",
             cwd=str(self.cwd),
             has_ui=self.terminal_ui is not None,
@@ -1682,7 +1675,7 @@ class _ProviderMutationEffects:
             notify_sink=self.extension_notify,
             ui_driver=self.extension_ui_driver,
             model_runtime=self.model_runtime_control(),
-            flags=self.ctl.extension_flag_values,
+            flags=self.ctl.extension_generation.flag_values,
             project_trusted=self.settings.project_trusted,
         )
         if not decision.allow:
@@ -1902,7 +1895,7 @@ class _ReplLoopStep:
             shortcut_key = command_text[len(HOTKEY_EXTENSION_SHORTCUT_PREFIX) :]
             shortcut_dispatch = dispatch_extension_shortcut(
                 shortcut_key,
-                ctl._ext_runtime.shortcuts,
+                ctl.extension_generation.runtime.shortcuts,
                 cwd=str(cwd),
                 has_ui=terminal_ui is not None,
                 coding_session=coding_session_control(),
@@ -1910,7 +1903,7 @@ class _ReplLoopStep:
                 ui_custom_driver=_extension_custom_driver,
                 ui_driver=extension_ui_driver,
                 model_runtime=model_runtime,
-                flags=ctl.extension_flag_values,
+                flags=ctl.extension_generation.flag_values,
                 project_trusted=settings.project_trusted,
             )
             if (
@@ -1961,10 +1954,10 @@ class _ReplLoopStep:
                 terminal_ui=terminal_ui,
                 error_stream=error_stream,
                 cwd=cwd,
-                user_bash_hooks=ctl.extension_user_bash_hooks,
+                user_bash_hooks=ctl.extension_generation.runtime.user_bash_hooks,
                 model_runtime=model_runtime,
                 ui_driver=extension_ui_driver,
-                flags=ctl.extension_flag_values,
+                flags=ctl.extension_generation.flag_values,
                 project_trusted=settings.project_trusted,
             )
             if shell_context_text is not None:
@@ -2025,7 +2018,7 @@ class _ReplLoopStep:
         # the metadata-only workflow archive.
         def _transform_accepted_input(prompt: str) -> str:
             return dispatch_input_hooks(
-                ctl.extension_input_hooks,
+                ctl.extension_generation.runtime.input_hooks,
                 prompt,
                 cwd=str(cwd),
                 has_ui=terminal_ui is not None,
@@ -2060,14 +2053,14 @@ class _ReplLoopStep:
 
         def _accepted_system_prompt_suffix(base_prompt: str) -> str | None:
             before_agent_result = dispatch_before_agent_start_hooks(
-                ctl.extension_before_agent_start_hooks,
+                ctl.extension_generation.runtime.before_agent_start_hooks,
                 cwd=str(cwd),
                 has_ui=terminal_ui is not None,
                 system_prompt=base_prompt,
                 notify_sink=_extension_notify,
                 ui_driver=extension_ui_driver,
                 model_runtime=model_runtime,
-                flags=ctl.extension_flag_values,
+                flags=ctl.extension_generation.flag_values,
                 project_trusted=settings.project_trusted,
             )
             return before_agent_result.append_system_prompt
@@ -2142,11 +2135,14 @@ class _ReplLoopStep:
                     active_input=loop_active_input,
                 ),
             )
+            live_tool_renderers = _extension_tool_renderer_map(
+                ctl.extension_generation.runtime.tools
+            )
             renderer.refresh_tool_renderers(
                 {
-                    name: ctl.extension_tool_renderers[name]
+                    name: live_tool_renderers[name]
                     for name in snapshot.advertised_tool_names
-                    if name in ctl.extension_tool_renderers
+                    if name in live_tool_renderers
                 }
             )
             return AgentLoopRequestPreparation(coding_state.messages, snapshot)
@@ -2381,7 +2377,7 @@ class _SessionCollaborators:
     ``extension_session_allows``/``summarize_branch`` call ``diag``/
     ``active_provider_header_callback``), so the handler is a frozen, slotted,
     keyword-only dataclass holding the run's mutable control-state holder ``ctl``
-    (its ``session_tree``, extension command/hook/flag bundle is read fresh on
+    (its ``session_tree`` and canonical extension generation are read fresh on
     every call so a ``/reload``/``/new``/``/resume``/``/fork``/``/clone`` rebind is
     reflected exactly as it was inline) plus the stable run-scope collaborators —
     the owning session, the coding state, the product session, the coding input
@@ -2479,7 +2475,7 @@ class _SessionCollaborators:
             notify_sink=self.extension_notify,
             ui_driver=self.extension_ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(),
-            flags=self.ctl.extension_flag_values,
+            flags=self.ctl.extension_generation.flag_values,
             project_trusted=self.settings.project_trusted,
         )
         if decision.allow:
@@ -2553,13 +2549,13 @@ class _SessionCollaborators:
         self, headers: MutableMapping[str, str | None]
     ) -> None:
         dispatch_before_provider_headers_hooks(
-            self.ctl.extension_before_provider_headers_hooks,
+            self.ctl.extension_generation.runtime.before_provider_headers_hooks,
             headers,
             cwd=str(self.cwd),
             has_ui=self.terminal_ui is not None,
             notify_sink=self.extension_notify,
             ui_driver=self.extension_ui_driver,
-            flags=self.ctl.extension_flag_values,
+            flags=self.ctl.extension_generation.flag_values,
             session_tree=self.ctl.session_tree,
             project_trusted=self.settings.project_trusted,
         )
@@ -2567,7 +2563,7 @@ class _SessionCollaborators:
     def active_provider_header_callback(
         self,
     ) -> Callable[[MutableMapping[str, str | None]], None] | None:
-        if not self.ctl.extension_before_provider_headers_hooks:
+        if not self.ctl.extension_generation.runtime.before_provider_headers_hooks:
             return None
         return self.dispatch_extension_provider_headers
 
@@ -2576,7 +2572,7 @@ class _SessionCollaborators:
     ) -> AgentProviderRequestSnapshot:
         return prepare_provider_request(
             policy_input,
-            self.ctl.extension_before_provider_request_hooks,
+            self.ctl.extension_generation.runtime.before_provider_request_hooks,
             NativeProviderRequestHookContext(
                 cwd=str(self.cwd),
                 has_ui=self.terminal_ui is not None,
@@ -2585,7 +2581,7 @@ class _SessionCollaborators:
                 model_runtime=self.provider_mutation.model_runtime_control(
                     allow_model=False
                 ),
-                flags=self.ctl.extension_flag_values,
+                flags=self.ctl.extension_generation.flag_values,
                 project_trusted=self.settings.project_trusted,
             ),
         )
@@ -2594,7 +2590,7 @@ class _SessionCollaborators:
         self, call: AgentToolCall
     ) -> AgentToolPolicyDecision:
         tool_block = dispatch_tool_call_hooks(
-            self.ctl.extension_tool_call_hooks_,
+            self.ctl.extension_generation.runtime.tool_call_hooks,
             tool_name=call.tool_name,
             tool_input=_parse_tool_input(call.arguments_json.value),
             cwd=str(self.cwd),
@@ -2604,7 +2600,7 @@ class _SessionCollaborators:
             model_runtime=self.provider_mutation.model_runtime_control(
                 allow_model=False
             ),
-            flags=self.ctl.extension_flag_values,
+            flags=self.ctl.extension_generation.flag_values,
             project_trusted=self.settings.project_trusted,
         )
         if tool_block is None:
@@ -2614,10 +2610,10 @@ class _SessionCollaborators:
     def transform_extension_tool_result(
         self, call: AgentToolCall, result: AgentToolResultMessage
     ) -> ProductContent:
-        if not self.ctl.extension_tool_result_hooks:
+        if not self.ctl.extension_generation.runtime.tool_result_hooks:
             return result.content
         transformed = dispatch_tool_result_hooks(
-            self.ctl.extension_tool_result_hooks,
+            self.ctl.extension_generation.runtime.tool_result_hooks,
             tool_name=call.tool_name,
             content=result.content.value,
             is_error=result.is_error,
@@ -2628,7 +2624,7 @@ class _SessionCollaborators:
             model_runtime=self.provider_mutation.model_runtime_control(
                 allow_model=False
             ),
-            flags=self.ctl.extension_flag_values,
+            flags=self.ctl.extension_generation.flag_values,
             project_trusted=self.settings.project_trusted,
         )
         return ProductContent(transformed)
@@ -2662,7 +2658,7 @@ class _SessionCollaborators:
     ) -> ExtensionDispatchResolution | None:
         extension_dispatch = dispatch_extension_command(
             command_text,
-            self.ctl.extension_commands,
+            self.ctl.extension_generation.runtime.commands,
             cwd=str(self.cwd),
             has_ui=self.terminal_ui is not None,
             coding_session=self.coding_session_control(),
@@ -2670,7 +2666,7 @@ class _SessionCollaborators:
             ui_custom_driver=self.extension_custom_driver,
             ui_driver=self.extension_ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(),
-            flags=self.ctl.extension_flag_values,
+            flags=self.ctl.extension_generation.flag_values,
             project_trusted=self.settings.project_trusted,
         )
         if extension_dispatch is None:
@@ -2990,7 +2986,7 @@ class NativeToolReplSession:
         # disabled without affecting the session.
         # Built-in tool names are reserved so an extension tool can never
         # shadow a built-in tool.
-        _ext_runtime = _activate_workspace_extensions(
+        extension_runtime = _activate_workspace_extensions(
             cwd,
             workspace_resources,
             tuple(self.tool_registry.keys()),
@@ -3003,34 +2999,8 @@ class NativeToolReplSession:
             include_workspace_defaults=settings.project_trusted,
             activation_batch=self.initial_extension_batch,
         )
-        extension_commands = _ext_runtime.commands
-        extension_menu_names = _ext_runtime.menu_names
-        extension_descriptions = _ext_runtime.descriptions
-        extension_tool_call_hooks_ = _ext_runtime.tool_call_hooks
-        extension_lifecycle_hooks = _ext_runtime.lifecycle_hooks
-        extension_input_hooks = _ext_runtime.input_hooks
-        extension_before_agent_start_hooks = _ext_runtime.before_agent_start_hooks
-        extension_tool_result_hooks = _ext_runtime.tool_result_hooks
-        extension_user_bash_hooks = _ext_runtime.user_bash_hooks
-        extension_before_provider_headers_hooks = (
-            _ext_runtime.before_provider_headers_hooks
-        )
-        extension_before_provider_request_hooks = (
-            _ext_runtime.before_provider_request_hooks
-        )
-        extension_session_before_switch_hooks = _ext_runtime.session_before_switch_hooks
-        extension_session_before_fork_hooks = _ext_runtime.session_before_fork_hooks
-        extension_session_before_compact_hooks = (
-            _ext_runtime.session_before_compact_hooks
-        )
-        extension_session_before_tree_hooks = _ext_runtime.session_before_tree_hooks
-        extension_message_outbox = _ext_runtime.outbox
-        extension_custom_message_outbox = _ext_runtime.custom_outbox
-        extension_renderer_map = _ext_runtime.message_renderers
-        extension_entry_renderer_map = _ext_runtime.entry_renderers
-        extension_activation_custom_messages = _ext_runtime.custom_messages
         extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
-            _ext_runtime.flags,
+            extension_runtime.flags,
             tuple(resource_options.extension_flag_tokens),
         )
         if extension_flag_error is not None:
@@ -3046,6 +3016,10 @@ class NativeToolReplSession:
                 error_type="ExtensionFlagError",
                 error_message=extension_flag_error,
             )
+        extension_generation = _SessionExtensionGeneration(
+            runtime=extension_runtime,
+            flag_values=extension_flag_values,
+        )
         if isinstance(self.provider_state, NativeReplProviderState):
             runtime = self.provider_state.model_runtime
             if runtime is not None:
@@ -3054,8 +3028,8 @@ class NativeToolReplSession:
                     self.provider_state.current_selection_uses_extension_provider()
                 )
                 catalog_state.set_extension_provider_contributions(
-                    _ext_runtime.providers,
-                    _ext_runtime.unregistered_providers,
+                    extension_generation.runtime.providers,
+                    extension_generation.runtime.unregistered_providers,
                 )
                 if not self.provider_state.current_selection_supported() or (
                     was_extension_selection
@@ -3097,9 +3071,9 @@ class NativeToolReplSession:
             resources=workspace_resources,
             autocomplete_max_visible=settings.get_autocomplete_max_visible(),
             keybindings_manager=keybindings,
-            extension_menu_names=extension_menu_names,
-            extension_descriptions=extension_descriptions,
-            extension_shortcut_keys=frozenset(_ext_runtime.shortcuts),
+            extension_menu_names=extension_generation.runtime.menu_names,
+            extension_descriptions=extension_generation.runtime.descriptions,
+            extension_shortcut_keys=frozenset(extension_generation.runtime.shortcuts),
             include_workspace_defaults=settings.project_trusted,
         )
         if (
@@ -3120,7 +3094,9 @@ class NativeToolReplSession:
                 for key in keybindings.keys_for("app.editor.external")
                 if (normalized := normalize_shortcut_key(key))
             }
-            shadowed_keys = sorted(editor_keys.intersection(_ext_runtime.shortcuts))
+            shadowed_keys = sorted(
+                editor_keys.intersection(extension_generation.runtime.shortcuts)
+            )
             for key in shadowed_keys:
                 print(
                     "pipy: extension shortcut "
@@ -3150,9 +3126,11 @@ class NativeToolReplSession:
         render_details = _tool_renderers._extension_render_details_sinks(
             terminal_ui is not None
         )
-        extension_tool_renderers = _extension_tool_renderer_map(_ext_runtime.tools)
+        extension_tool_renderers = _extension_tool_renderer_map(
+            extension_generation.runtime.tools
+        )
         extension_tool_registry: dict[str, ToolPort] = {}
-        for _registered_tool in _ext_runtime.tools:
+        for _registered_tool in extension_generation.runtime.tools:
             _port = _ExtensionToolPort(
                 _registered_tool,
                 has_ui=terminal_ui is not None,
@@ -3160,7 +3138,7 @@ class NativeToolReplSession:
                 set_active_tools_fn=lambda names: (
                     provider_mutation.extension_set_active_tools(names)
                 ),
-                flags=extension_flag_values,
+                flags=extension_generation.flag_values,
                 render_details_sink=render_details.writer,
                 project_trusted=settings.project_trusted,
             )
@@ -3251,30 +3229,7 @@ class NativeToolReplSession:
             pending_prefill=None,
             package_roots=package_roots,
             workspace_resources=workspace_resources,
-            _ext_runtime=_ext_runtime,
-            extension_commands=extension_commands,
-            extension_menu_names=extension_menu_names,
-            extension_descriptions=extension_descriptions,
-            extension_tool_call_hooks_=extension_tool_call_hooks_,
-            extension_lifecycle_hooks=extension_lifecycle_hooks,
-            extension_input_hooks=extension_input_hooks,
-            extension_before_agent_start_hooks=extension_before_agent_start_hooks,
-            extension_tool_result_hooks=extension_tool_result_hooks,
-            extension_user_bash_hooks=extension_user_bash_hooks,
-            extension_before_provider_headers_hooks=extension_before_provider_headers_hooks,
-            extension_before_provider_request_hooks=extension_before_provider_request_hooks,
-            extension_session_before_switch_hooks=extension_session_before_switch_hooks,
-            extension_session_before_fork_hooks=extension_session_before_fork_hooks,
-            extension_session_before_compact_hooks=extension_session_before_compact_hooks,
-            extension_session_before_tree_hooks=extension_session_before_tree_hooks,
-            extension_message_outbox=extension_message_outbox,
-            extension_custom_message_outbox=extension_custom_message_outbox,
-            extension_renderer_map=extension_renderer_map,
-            extension_entry_renderer_map=extension_entry_renderer_map,
-            extension_activation_custom_messages=extension_activation_custom_messages,
-            extension_flag_values=extension_flag_values,
-            extension_tool_renderers=extension_tool_renderers,
-            extension_tool_registry=extension_tool_registry,
+            extension_generation=extension_generation,
             agent_settled_pending=agent_settled_pending,
             extension_in_agent_turn=extension_in_agent_turn,
         )
@@ -3343,12 +3298,12 @@ class NativeToolReplSession:
         immediate_sink = SynchronousAgentEventComposite(tuple(immediate_sinks))
         emitter = _extension_hooks._ExtensionLifecycleAgentEventAdapter(
             immediate_sink,
-            lifecycle_hooks=extension_lifecycle_hooks,
+            lifecycle_hooks=extension_generation.runtime.lifecycle_hooks,
             cwd=str(cwd),
             has_ui=terminal_ui is not None,
             notify_sink=_extension_notify,
             ui_driver=extension_ui_driver,
-            flags=extension_flag_values,
+            flags=extension_generation.flag_values,
             project_trusted=settings.project_trusted,
         )
 
@@ -3415,20 +3370,19 @@ class NativeToolReplSession:
 
         # Custom-entry / custom-message rendering and the extension outbox drain
         # live in the module-level `_CustomEntryRenderer` handler (symmetric with
-        # `_ReplLoopStep`/`_BuiltinCommandInterpreter`). It holds the mutable `ctl`
-        # holder (renderer maps, session tree, outboxes, and the
-        # `extension_in_agent_turn` flag are read fresh so a `/reload` rebind is
-        # reflected) plus the stable run-scope collaborators, and its bound methods
-        # are passed wherever the deleted closures were consumed.
+        # `_ReplLoopStep`/`_BuiltinCommandInterpreter`). A narrow adapter reads
+        # renderer maps and outboxes through `ctl.extension_generation`, while the
+        # session tree and `extension_in_agent_turn` remain live run control. Its
+        # bound methods are passed wherever the deleted closures were consumed.
         custom_renderer = _CustomEntryRenderer(
             session=self,
-            ctl=ctl,
+            ctl=_ExtensionCustomEntryRunState(ctl=ctl),
             terminal_ui=terminal_ui,
             coding_input_queue=coding_input_queue,
             error_stream=error_stream,
         )
 
-        for custom_message in ctl.extension_activation_custom_messages:
+        for custom_message in ctl.extension_generation.runtime.custom_messages:
             custom_renderer.extension_send_message(
                 custom_message.custom_type,
                 custom_message.content,
@@ -3436,7 +3390,6 @@ class NativeToolReplSession:
                 custom_message.options,
                 custom_message.details,
             )
-        ctl.extension_activation_custom_messages = ()
 
         repl_input = (
             terminal_ui
@@ -3446,8 +3399,8 @@ class NativeToolReplSession:
                 error_stream=error_stream,
                 workspace=cwd,
                 resources=workspace_resources,
-                extension_menu_names=extension_menu_names,
-                extension_descriptions=extension_descriptions,
+                extension_menu_names=extension_generation.runtime.menu_names,
+                extension_descriptions=extension_generation.runtime.descriptions,
             )
         )
         # Terminal chrome owns the footer effect adapter. Inject the session's
