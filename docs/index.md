@@ -1,10 +1,11 @@
 # pipy documentation
 
-Pipy is a local-first coding-agent harness experiment. The product direction is
-`pipy-native`: a Python runtime that owns provider access, tool boundaries,
-session semantics, and privacy-conscious archive metadata. Pipy is intended to
-work both as a CLI/TUI application and as an embeddable headless Python runtime
-for programs that need agentic workflow support.
+Pipy is a native Python coding-agent product with a Pi-shaped interactive TUI,
+headless JSON/RPC/SDK modes, direct provider transports, model-driven tools,
+extensions, and private full-content product sessions. A separate metadata-only
+workflow archive supports summary-safe capture and learning; it is not the
+product session store. Subprocess wrapping remains a reference/capture facility,
+not the primary runtime.
 
 **Start here for the parity roadmap:** [Parity Plan](parity-plan.md) is the
 single clear plan for reaching real feature parity with Pi — the slash-command
@@ -34,10 +35,12 @@ Read these documents in order to learn the project from the outside in:
 9. Automation and embedding: [JSON Mode](json.md) for one-shot full event
     streams, [RPC Mode](rpc.md) for long-lived JSONL control, and
     [Python SDK and Headless Embedding](sdk.md) for in-process Python callers.
-10. [Architecture](architecture.md): the current runtime, diagrams, codebase
-    map, and the isolation boundary between domain logic and adapters. The
-    [Architecture Migration Plan](architecture-migration.md) defines the
-    ordered internal improvement slices and their acceptance gates.
+10. [Architecture](architecture.md): the current runtime, ownership boundaries,
+    executable gates, and measured residual risks. The Phase 0–7
+    [Architecture Migration](architecture-migration.md) is completed historical
+    evidence; the reviewed
+    [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
+    defines the active ordered structural slices.
 11. [Pi Parity](pi-parity.md): what has already been slopforked from Pi, what
     remains, and how pipy's architecture differs from Pi's.
 12. [Parity Plan](parity-plan.md): the clear plan to reach real Pi parity —
@@ -62,8 +65,8 @@ Read these documents in order to learn the project from the outside in:
 17. [Backlog](backlog.md): current product planning, completed slices,
     near-term priorities, and deferred boundaries.
 
-The short version: pipy is no longer just a session recorder. The repository now
-contains a line-oriented native shell, direct provider ports, bounded read,
-proposal and apply boundaries, conservative archive tooling, and
-a subprocess capture path kept for reference workflows rather than the product
-runtime.
+The short version: pipy is a native coding agent. Its canonical agent and
+coding-session layers drive direct providers, tools, extensions, private product
+sessions, automation transports, and an inline-scrollback terminal UI; the
+metadata workflow archive and subprocess capture path remain separate auxiliary
+facilities.

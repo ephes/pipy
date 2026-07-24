@@ -1,7 +1,7 @@
 [project]
 name = "pipy"
 version = "0.1.0"
-description = "Local tooling for pipy coding-agent session records."
+description = "Native Python coding agent with TUI, providers, tools, extensions, and headless automation."
 readme = "README.md"
 requires-python = ">=3.11"
 # Runtime dependencies are intentionally minimal; development tools live in the dev dependency group.

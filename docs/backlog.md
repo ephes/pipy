@@ -21,6 +21,42 @@ audit for current slice selection. The big-topic specs it indexes are
 [tui-workflow.md](tui-workflow.md), and
 [export-distribution.md](export-distribution.md).
 
+## Active Reviewed Program — Architecture Quality
+
+The active queue is the ordered
+[Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md).
+It follows the completed Phase 0–7
+[Architecture Migration](architecture-migration.md) without reopening that
+historical ledger. Implement one numbered slice at a time; the current pointer
+is **Slice 2 — canonical session-extension generation**. Product-parity deltas in
+the Pi audit remain selection candidates after the architecture program and do
+not expand an architecture slice.
+
+Progress:
+
+- **Slice 0 — reviewed program plan: SHIPPED.** Commit `b4e9daa`
+  (`docs: plan architecture quality improvements`) records the reviewed scope,
+  invariants, ordering, acceptance criteria, and coordinator protocol; no
+  production code changed.
+- **PTY gate prerequisite from Slice 14: SHIPPED.** Commit `3d2fd0b`
+  (`test: synchronize local-command PTY readiness`) replaces the
+  notice-paint/readiness race in the multi-tool local-command PTY proof with an
+  observable post-`TCSAFLUSH` raw-mode byte handshake. The formerly failing
+  case passed 20 isolated runs, ten three-test grouped runs, its 49-test module,
+  the eight-test PTY smoke gate, and the full 4,585-test check. Pi review was
+  CLEAN in one round with zero findings. The rest of Slice 14 remains queued.
+- **Slice 1 — living documentation and reproducible metrics: SHIPPED in this
+  commit** (`docs: establish living architecture baseline`). The slice refreshes the architecture,
+  migration notice, backlog, Pi 0.82 audit, docs index, and package description,
+  and adds the read-only architecture metrics helper plus focused tests. The
+  helper establishes `ToolLoopTerminalUi` baseline **B = 128** with explicit
+  field names. Its Slice 1 snapshot reports 77,982 `src` Python lines, 112,778
+  test Python lines (including the new focused tests), 39 repository / 23 `src`
+  C901 findings, one `src` type-ignore, 5,085 `tool_loop_session.py` lines, and
+  7,017 `tui.py` lines. The four focused tests and all 4,589 repository tests
+  pass, `just docs-build` is clean, and Pi review is CLEAN in two rounds with
+  zero findings (the second pass covers this final ledger/pointer update).
+
 ## Current State
 
 Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only
@@ -31,22 +67,21 @@ summary-safe catalog/learning utility, not the product parity surface. The first
 local model path is `ds4` (`antirez/ds4` DeepSeek V4 Flash) through the
 OpenAI-compatible Chat Completions machinery with tool-loop support. Specific
 feature coverage and parity status live in [pi-parity.md](pi-parity.md). Code
-shape lives in [architecture.md](architecture.md). The ordered internal
-improvement program lives in
-[architecture-migration.md](architecture-migration.md); it supersedes the
-ordering—but not the still-relevant findings—of Tracks CQ-B through CQ-F.
+shape lives in [architecture.md](architecture.md). The Phase 0–7 internal migration in
+[architecture-migration.md](architecture-migration.md) is completed historical
+evidence. The active reviewed architecture-quality program is linked above and
+supersedes the old migration ordering—but not its recorded findings or ledger.
 
 This page is the forward-planning index:
 
-- `Pi Parity Roadmap` is the broad ladder toward full Pi-class capability.
-- The named parity tracks below record the work blocks that landed or are
-  still in flight (Tool-Loop, OpenAI Responses + Codex Tool-Call, Workspace
-  Context Loading, Streaming Output, and the 2026-05-26 Code Quality Audit
-  Track CQ-A through CQ-F).
-- `Next Slice` is the only current implementation target.
-- `Near Term` explains why that slice is the next one.
-- `Deferred` and `Explicitly Not Now` define boundaries that should not be
-  crossed opportunistically.
+- `Active Reviewed Program` is the only current architecture implementation
+  queue and names the exact ordered slice.
+- `Pi Parity Roadmap` and the refreshed Pi audit rank product gaps without
+  silently adding them to architecture work.
+- The named parity and quality tracks below preserve shipped detail and
+  historical evidence.
+- `Near Term`, `Deferred`, and `Explicitly Not Now` retain relevant boundaries;
+  they do not override the active slice pointer above.
 
 ## Pi Parity Roadmap
 
@@ -275,14 +310,14 @@ compared at the terminal-layer checkpoint. The current direction is a narrow
 custom terminal layer stay on the table for when the product needs a fuller UI
 surface or lower-level terminal ownership.
 
-### Current Largest Pi Feature Gaps (groomed 2026-07-14)
+### Historical Pi Feature Gap Snapshot (groomed 2026-07-14)
 
-This snapshot compares the current worktree with local Pi main at `b084d2fb`
+This retained snapshot compares the 2026-07-14 worktree with local Pi main at `b084d2fb`
 (`0.80.6` plus the 2026-07-13 unreleased changes). It supersedes the 2026-07-06
-ranking after the OpenAI-Codex transport closeout and a fresh audit of Pi's
-project-trust, RPC, extension, provider, package, settings, and TUI changes. It
-is a slice-selection aid, not a replacement for `docs/pi-parity.md` or the
-per-topic specs.
+ranking after the OpenAI-Codex transport closeout. It is historical evidence,
+not a current slice-selection aid. Use the refreshed
+[Pi gap audit](pi-mono-gap-audit.md), `docs/pi-parity.md`, and the per-topic
+specs for current product-gap decisions.
 
 Shipped foundations that should no longer be selected as large topics:
 
@@ -1612,7 +1647,13 @@ scrolling, the `/copy` command, and the interactive `/model` selector — see Pi
 Gap Queue items 2 and 3 above for the current behavior; the menu now lists
 `help`, `model`, `settings`, `copy`, `exit`, `quit`.)
 
-## Next Slice
+## Next Slice (historical architecture-migration marker; completed)
+
+The heading is retained because executable historical backlog contracts use it
+as a section boundary. The entries in this section are the former migration
+queue. They are preserved
+for auditability and do **not** identify the current implementation target; use
+`Active Reviewed Program` above.
 
 ### Architecture migration baseline — SHIPPED (2026-07-17)
 
@@ -2194,7 +2235,7 @@ resource/custom-command and extension precedence, the model-change/tree and
 extension-hook gap, Phase 3.2 registry metadata, Phase 3.3 write ownership, and
 Phase 4 UI movement remain outside this slice.
 
-### Typed Import Command — IN PROGRESS (2026-07-20)
+### Typed Import Command — SHIPPED (2026-07-20)
 
 Phase 3.1d.4d adds the exact full-content `SESSION_IMPORT` outcome for bare and
 literal-space `/import` forms with the standard footer. The action carries the
@@ -2428,7 +2469,7 @@ coordinator; the raw native tree stays distinct from the counts-only archive
 session-integration assertions were retargeted onto `outcome.final_history` and
 the projection action sink. No new runtime dependency, `Any`, or `type: ignore`.
 
-### Terminal output + raw-mode + restoration driver (Slice 4.2) — IN PROGRESS (2026-07-22)
+### Terminal output + raw-mode + restoration driver (Slice 4.2) — SHIPPED (2026-07-22)
 
 Phase 4.2's first cut extracts `native.terminal_driver`. The new strict-typed
 `TerminalDriver` owns `ToolLoopTerminalUi`'s terminal I/O: the input/terminal
@@ -4335,7 +4376,7 @@ and `automation_rpc_conformance` reported ALL PASS; `just test-pty-smoke` 8/8;
 are green. Review: Pending review — Claude Opus panel (user-directed substitution
 for the different-family gate). The UI callables remain 6.4.
 
-### Pure UI state reducer (Slice 4.1) — IN PROGRESS (2026-07-22)
+### Pure UI state reducer (Slice 4.1) — SHIPPED (2026-07-22)
 
 Phase 4.1 introduces the terminal-free `native.ui` package. `native.ui.state`
 adds the frozen `UiState` (`assistant_active`/`assistant_streamed`/
@@ -4371,7 +4412,7 @@ format, event-ordering, or terminal-behavior change; no new runtime dependency,
 boundary), terminal driver (Slice 4.2), and extension-UI relocation (Slice 6.4)
 remain deferred.
 
-### Agent-run collaborator adapter relocation — IN PROGRESS (2026-07-21)
+### Agent-run collaborator adapter relocation — SHIPPED (2026-07-21)
 
 Phase 3.1e (accepted-input and agent-run coordinator) begins with sub-slice
 3.1e.1: relocate the three generic agent-loop collaborator wrappers from the
@@ -5348,7 +5389,7 @@ within Claude Code. The first selected local integration is `ds4`, using
 it is registered as tool-loop capable after live ds4 smoke proved OpenAI-style
 tool-call round trips with pipy's loop.
 
-The current implementation target is in `Next Slice` above.
+The current implementation target is in `Active Reviewed Program` above.
 
 Historical gates before the single product REPL are preserved in `Done` and
 `docs/harness-spec.md` for auditability, but they are not current product
@@ -5587,8 +5628,8 @@ summaries. Raw transcript import from external agents remains deferred.
 
 ## Maintenance Notes
 
-- Remove completed slices from `Next Slice` or `Near Term` in the same change
-  that implements them; the git log is the authoritative record of shipped work.
+- Advance the pointer in `Active Reviewed Program` only when the coordinator
+  accepts the current slice; the git log is the authoritative record of shipped work.
 - Keep deferred items here brief; put detailed design and rationale in
   `docs/harness-spec.md`.
 - Keep archive and privacy rules aligned with `docs/session-storage.md`.

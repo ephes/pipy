@@ -1,12 +1,18 @@
 # Architecture Migration Plan
 
-Status: active engineering plan
+Status: completed historical engineering plan.
 
-This document is the source of truth for improving pipy's internal architecture
-while preserving its shipped Pi-shaped product behavior. It turns the
-code-quality tracks in [Backlog](backlog.md) into an ordered migration. Pi is
-the behavioral reference, Tau is a useful example of Python package boundaries,
-and pipy's parity, protocol, and real-PTY tests are the compatibility harness.
+> **Historical notice:** Phase 0–7 and the recorded quality burn-down are
+> complete. Preserve the slice narratives and ledger below as contemporaneous
+> implementation evidence. For the current code shape, read the living
+> [Architecture Overview](architecture.md); for active structural work, read the
+> reviewed [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md).
+
+This document was the source of truth for improving pipy's internal architecture
+while preserving its shipped Pi-shaped product behavior. It turned the
+code-quality tracks in [Backlog](backlog.md) into an ordered migration. Pi was
+the behavioral reference, Tau a useful example of Python package boundaries,
+and pipy's parity, protocol, and real-PTY tests the compatibility harness.
 
 The migration is deliberately incremental. It is not a rewrite, a package
 rename, or a pause in parity work. Each slice must leave `main` releasable and

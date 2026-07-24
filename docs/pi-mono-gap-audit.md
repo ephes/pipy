@@ -1,648 +1,134 @@
 # Pi-Mono Gap Audit
 
-Status: comparison snapshot and implementation specification, originally
-written 2026-06-02 and comprehensively refreshed 2026-07-14 after the
-OpenAI-Codex transport closeout. The current delta pass compares pipy with local
-Pi main `b084d2fb` (`0.80.6` plus 2026-07-13 unreleased changes) and adds the
-project-trust, `max` thinking, RPC, extension, package, provider, settings, and
-TUI changes that landed after the earlier June snapshot.
+Status: product-gap selection snapshot refreshed 2026-07-24.
 
-This audit compares pipy's current docs/specs and command help with the local Pi
-reference in `/Users/jochen/src/pi-mono` at `b084d2fb`.
-The dynamic-tool-loading row was refreshed independently on 2026-07-17 against
-Pi `c8560b8d`; the other rows retain the broader `b084d2fb` snapshot.
-It is a slice-selection aid: the detailed behavioral specs remain the source of
-truth for each topic, but this page records the biggest remaining gaps in one
-place and states what pipy should implement next.
-
-## Active next gap (groomed 2026-07-17)
-
-The **project-trust design, trust-core/settings-resource,
-interactive-management, and extension-surface slices have shipped**:
-the reviewed design pins the
-trust-store ancestry, protected/exempt inputs, final-cwd loading order,
-interactive/headless defaults, CLI/package overrides, `/trust` and reload
-semantics, and extension decision/read ownership. See
-[`docs/specs/2026-07-15-project-trust-design.md`](specs/2026-07-15-project-trust-design.md)
-and its ordered
-[`implementation plan`](specs/2026-07-15-project-trust-implementation-plan.md).
-The **`before_provider_headers` extension hook has shipped** across every real
-HTTP adapter, with Bedrock mutation before SigV4 signing and one Codex snapshot
-reused across retries and WebSocket-to-SSE fallback. The extension-surface
-**`agent_settled` lifecycle hook has also shipped** at the true-idle boundary,
-and **durable TUI-only entry rendering has shipped** through the separate
-`register_entry_renderer` registry. Cache-friendly dynamic tool loading now
-ships for Anthropic and OpenAI/Codex Responses with durable load points,
-provider-specific compat gating, and native reference/search placement. Kimi
-Chat Completions remains the next provider-owned follow-on.
-
-GPT-5.6 Sol plus model-aware `max` thinking **shipped** (see
-[gpt-5-6-sol-plan.md](gpt-5-6-sol-plan.md) and the changelog):
-`openai-codex/gpt-5.6-sol` is a built-in Codex row (372K context, image input);
-the thinking vocabulary is now `off|minimal|low|medium|high|xhigh|max`; the Codex
-request clamps an unsupported stored level to the nearest supported one and emits
-it as `reasoning.effort` (Pi's per-request `clampThinkingLevel`); Shift+Tab
-cycling is model-aware; and Sol renders a `372k` status budget. As designed, the
-slice did **not** include Terra/Luna, other GPT-5.6 distributions, API pricing
-tiers, or generalized (cross-provider) thinking clamping — the last remains a
-named follow-on (port `clampThinkingLevel` so unsupported stored levels clamp,
-not omit, uniformly across every provider and effort-label surface).
-
-## Fresh Pi 0.80.6 delta classification
-
-| Priority | Pi delta | Pipy classification |
-| --- | --- | --- |
-| 1 | GPT-5.6 Sol + `max` thinking | **Shipped** 2026-07-14; generalized cross-provider clamping remains a named follow-on. |
-| 2 | Project trust (`trust.json`, `defaultProjectTrust`, `--approve`/`--no-approve`, `/trust`, extension decision/read APIs) | **Shipped** across the design, core/resource, interactive/management, and extension-surface slices. |
-| 3 | RPC `get_entries`/`get_tree` and `agent_settled` | `get_entries`/`get_tree` **shipped** 2026-07-14 (green 31-command baseline); `agent_settled` **shipped on `--mode rpc` and `--mode json`** 2026-07-14 and on the extension surface 2026-07-16, without protocol duplication. |
-| 4 | `before_provider_headers`, `agent_settled`, and `registerEntryRenderer` | **Shipped**: the first two landed 2026-07-16 and durable TUI-only entry rendering landed 2026-07-17. |
-| 5 | Message-anchored dynamic tool loading | **Anthropic and OpenAI/Codex Responses slices shipped** 2026-07-17; Kimi Chat Completions deferred tools remain a provider-owned gap. |
-| 6 | Bare self-only `update` and `--all` | Real CLI/package semantic drift; project-local `config -l` and its trust integration already ship. |
-| 7 | Forced tool choice, OpenRouter session affinity, Copilot MAI routing, Bedrock/Cloudflare auth, pricing/catalog refreshes | Real provider candidates, but audit and split by adapter/request ownership rather than bundling. |
-| 8 | Ctrl+X transcript copy, cache-miss notices, automatic theme mode, output padding, editor/shell refinements | Real but lower-priority product polish; `/copy` already covers the main copy workflow. |
-| Out of scope | `pi-agent` storage exports, TypeScript source compatibility, reusable `pi-tui` API parity, experimental orchestrator | Not pipy-native product parity targets. |
-
-## Recently shipped operator-selected gap (2026-07-13)
-
-OpenAI-Codex transport reliability has shipped ahead of the older ranked queue.
-The delivered slices replace the hard-coded 60-second SSE socket timeout with a
-configurable 300-second idle-timeout policy, normalize recognized
-transport/read failures, retry bounded transient request-plus-stream attempts
-only before the first provider event, and make `transport: auto|sse|websocket`
-real with Pi-shaped pre-event SSE fallback. Cancellation remains non-retryable
-and the no-post-event-replay boundary prevents duplicate text, reasoning, tool
-calls, or effects.
-
-Parity-runner recognition of the exact historical raw timeout tail also ships
-as defense in depth, with structured attempt lifecycle logging and retry still
-guarded by the no-progress branch/HEAD/ref/worktree invariant. The documented
-residual non-goals are long-lived WebSocket reuse/continuation caching and any
-post-event turn replay. See the reviewed research, design, and plan under
-`docs/specs/` and `docs/plans/`. With this gap closed, slice selection follows the fresh
-queue above and in `docs/backlog.md`.
-
-## Sources checked
-
-Pipy docs/specs:
-
-- `docs/parity-plan.md`, `docs/backlog.md`, `docs/pi-parity.md`,
-  `docs/parity-criterion.md`
-- `docs/provider-catalog.md`, `docs/settings-config.md`,
-  `docs/tui-workflow.md`, `docs/automation-rpc.md`,
-  `docs/export-distribution.md`, `docs/extension-api.md`,
-  `docs/session-tree.md`, `docs/user-documentation.md`
-- current `uv run pipy --help`, `uv run pipy run --help`,
-  `uv run pipy repl --help`
-- current provider-catalog gate:
-  `uv run python scripts/parity_checks/provider_catalog_conformance.py --json`
-
-Pi reference:
-
-- `packages/coding-agent/src/core/slash-commands.ts`
-- `packages/coding-agent/src/cli/args.ts`
-- `packages/coding-agent/src/core/model-registry.ts`,
-  `model-resolver.ts`, `auth-storage.ts`, `settings-manager.ts`,
-  `keybindings.ts`, `resource-loader.ts`, `package-manager.ts`
-- `packages/coding-agent/src/package-manager-cli.ts`
-- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
-- `packages/coding-agent/src/modes/print-mode.ts`,
-  `modes/rpc/rpc-types.ts`, `modes/rpc/rpc-mode.ts`
-- `packages/coding-agent/src/core/export-html/*`
-- `packages/coding-agent/src/core/extensions/*`
-- `packages/coding-agent/src/core/project-trust.ts`, `trust-manager.ts`, and
-  `docs/security.md`
-- `packages/ai/src/models*.ts`, `oauth.ts`, `env-api-keys.ts`, and provider
-  implementations
-- `packages/coding-agent/CHANGELOG.md` through `0.80.6` plus its current
-  unreleased section
-
-## Fresh command-surface deltas from this grooming pass
-
-The direct help/source comparison remains the fastest sanity check for parity
-drift. After the 2026-07-14 grooming pass, the important command-surface deltas
-are:
-
-- `pi --help` is a single top-level product command with interactive, print,
-  JSON, RPC, session, provider/model, settings/resource, package-management,
-  export, and update flags. `uv run pipy --help` is now Pi-shaped: bare `pipy`
-  and `pipy "<prompt>"` launch the interactive session and the help text reads
-  as a single product command, with `auth|run|repl|config|install|...` kept as
-  secondary subcommands (a bare subcommand-name token is a documented
-  reserved-word exception). The top-level compatibility dispatch shipped in the
-  2026-06-20 cleanup.
-- Pi top-level package commands are partially present in pipy: `install`,
-  `remove`/`uninstall`, `list`, and `config` now manage local-path and managed
-  git package sources plus resource filters; installed packages contribute
-  extensions/skills/prompts/themes through discovery. Package `update` refreshes
-  managed git caches. PyPI/`npm:` sources remain deferred to a broader
-  supply-chain policy.
-- Pi now gates project-local settings, packages, and executable resources behind
-  a saved or temporary trust decision. Its top-level and package/config surfaces
-  accept `--approve`/`--no-approve`, `/trust` persists a decision, and global or
-  CLI extensions may handle `project_trust`. Pipy has now reviewed and committed
-  the Pi-sourced design/loading order and ships the trust store, final-cwd
-  resolver, settings/resource gate, five-choice interactive selector, `/trust`,
-  reload persistence, global default control, run-only overrides, and
-  management-command integration, pre-trust global/CLI extension decisions with
-  single activation reuse, and run-local trust read callbacks.
-- Pi's bare `update` is now self-only; `update --all` composes self plus
-  packages, while `--extensions` remains packages-only. Pipy's bare update still
-  composes both halves and must be realigned rather than documented as parity.
-- Pi automation modes (`--mode json`, `--mode rpc`, `--print`/`-p`) ship in
-  pipy under the REPL product path and are backed by the native session tree.
-  RPC thinking-level commands now update catalog-backed provider request
-  construction for subsequent prompts; broader live provider switching over RPC
-  remains a documented follow-on. The old metadata-only `--native-output json`
-  has been **removed** (2026-06-20); callers use `--mode json`, and the removed
-  flag emits guidance naming it.
-- Pi's RPC union has grown from 29 to 31 commands with read-only `get_entries`
-  (optional `since`) and `get_tree`; pipy **shipped** both 2026-07-14, so its
-  protocol is green at the full 31-command Pi vocabulary. Pipy also **shipped**
-  the payload-free `agent_settled` event on 2026-07-14 on both the `--mode rpc`
-  and `--mode json` streams, emitted once retries, compaction retries, and queued
-  continuations are fully idle (json mode is one-shot, so it settles when the run
-  returns). The extension-surface hook shipped separately on 2026-07-16 without
-  adding another protocol event.
-- Pi session flags and picker workflows now ship: `--session-id`,
-  `--session-dir`, `--name/-n`, `-c`, `-r`, `--session`, `--fork`, and
-  `--no-session`, with Pi-style mutual exclusion and the cross-project fork
-  prompt.
-- Pi resource/settings flags mostly ship on pipy's current product surface:
-  system-prompt replace/append, `--no-context-files`, `--version`, resource
-  enablement through `pipy config`, per-run source-loading flags
-  (`--extension`, `--skill`, `--prompt-template`, `--theme`, and matching
-  `--no-*` cutoffs), `/reload`, `/hotkeys`, `/scoped-models`, `/changelog`,
-  settings/keybindings files, and scoped model cycling. The resource-wrapper
-  cleanup landed (2026-06-20): the `/template` wrapper was dropped (templates are
-  `/<name>`); `/clear`, `/status`, `/help`, and `/theme` were removed outright
-  (no aliases); `/skill` is kept and pipy now advertises discovered skills in the
-  system prompt (loaded via the `read` tool); theme selection moved into
-  `/settings`. `--verbose` and `--offline` now ship: verbose overrides
-  `quietStartup` for startup chrome without changing settings, and offline sets
-  pipy's startup network guards. Tool allow/deny flags (`--tools`/`-t`,
-  `--exclude-tools`/`-xt`, `--no-tools`/`-nt`, and
-  `--no-builtin-tools`/`-nbt`) now ship through the native tool-loop boundary.
-  Current Pi also accepts `max` thinking and has newer settings such as
-  `defaultProjectTrust`, prompt-cache miss notices, automatic theme mode, and
-  output padding; these are follow-ons rather than part of pipy's green June
-  settings baseline.
-
-The extension/package closeout changed the next-topic ordering, the
-export/import/share/distribution baseline has since landed, and the
-product-TUI long-input wrapping gap is now closed. Core local extension
-workflows, local-path and managed-git package runtime composition, package
-update, product export/import/share, and soft-wrapped long editable prompts now
-ship. Extension/package work remains the largest follow-on area, but its next
-slices are richer platform APIs and any future PyPI/npm source policy rather
-than the just-landed package cache/update runtime.
-
-## Ranked biggest gaps
-
-### 1. Product-TUI long-input wrapping — shipped
-
-Pipy now soft-wraps long typed input inside the input frame, with the cursor
-moving across wrapped rows while footer/status rows stay pinned. The renderer
-uses wrapped input frame rows with cursor metadata instead of the former
-horizontally scrolling one-row projection, and the provider still receives the
-literal submitted text including pasted newlines.
-
-Shipped in pipy:
-
-1. Replaced `ToolLoopTerminalUi._input_view(width)` and the one-row input
-   `_FrameLine` projection with a soft-wrapped input region.
-2. Reserved dynamic input height in the live-region budget while keeping footer
-   and status rows pinned.
-3. Mapped cursor index to wrapped row/column and preserved literal submitted text,
-   including pasted newlines.
-4. Added real-PTY coverage at 80x24 and 100x40 for long typing, paste, cursor
-   movement, and resize.
-5. Updated docs/spec rows that previously described horizontal scrolling as
-   shipped parity.
-
-### 2. Export / import / share / distribution — baseline shipped
-
-**Why it is first now:** the native session tree now stores full product
-sessions and the extension/package slice-12 closeout has landed, so Pi-style
-full export/import/share is unblocked and comparatively bounded.
-
-Pi reference:
-
-- `core/export-html/*`: self-contained HTML export with embedded session data.
-- `agent-session.ts`: `exportToHtml`, `exportToJsonl`.
-- `agent-session-runtime.ts`: `importFromJsonl`.
-- `interactive-mode.ts`: `/export`, `/import`, `/share`, `/changelog`.
-- `main.ts` and `args.ts`: `--export <file>` export-and-exit.
-- `package-manager-cli.ts`, `version-check.ts`, and config helpers: install
-  docs, version checks, update command family.
-
-Pipy current state:
-
-- Product native sessions exist and contain full transcripts.
-- `/export`, `/import`, `/share`, top-level `--export`, and self-update
-  planning now ship through pipy-owned stdlib boundaries.
-- `pipy-session export` remains metadata-only and is not the product parity
-  export path.
-
-The export conformance gate has been added and passes:
+Reference: local `/Users/jochen/src/pi-mono` commit
+`7df73a00c6cf85c000bf1ce1594c9284067a92f0`, package version `0.82.0`.
+That commit is the empty post-release `[Unreleased]` opener immediately after
+tag `v0.82.0` (`083e6162`). Reproduce the reference with:
 
 ```sh
-uv run python scripts/parity_checks/export_distribution_conformance.py --json
-just check
+git -C /Users/jochen/src/pi-mono rev-parse HEAD
+node -p "require('/Users/jochen/src/pi-mono/packages/coding-agent/package.json').version"
 ```
 
-### 3. Extension and package platform follow-ons
+This page is a selection aid, not an implementation plan and not a claim of
+line-by-line TypeScript parity. Detailed pipy behavior remains owned by the
+topic specs and conformance gates. The active implementation queue is currently
+the reviewed [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md);
+none of the product gaps below is part of its slices.
 
-**Why it remains important:** Pi's extension/package story is still broader and
-more mature. Pipy is now Pi-shaped for core local extension workflows, but not
-Pi-equivalent as a platform.
+## Current reading
 
-Pipy current state:
+Pipy already has the important native product foundations: a headless canonical
+agent loop, a headless coding-session layer, private full-content product
+sessions, Pi-shaped JSON/RPC modes, a deep inline TUI, project trust,
+catalog-driven construction for its implemented provider families, and a broad
+Python extension host. The local Pi reference has moved from the previous
+`b084d2fb` / 0.80.6 audit through releases 0.80.7–0.82.0. The material new
+deltas are capability-gated constrained sampling, provider-owned OAuth and
+catalog growth, session-aware/direct-RPC bash behavior, and broader retry
+lifecycles.
 
-- `docs/extension-api.md` defines and tracks a Python-only, Pi-shaped API.
-- Extension slices 1–12 have shipped: local discovery/inventory, activation,
-  command dispatch, `tool_call` gates, lifecycle/input/before-agent-start hooks,
-  extension tool registration, `tool_result` transforms, minimal UI
-  notification, golden conformance, shortcuts, provider-registration mechanics, OAuth metadata preservation,
-  catalog/`/model` wiring for extension-registered providers, local-path and
-  managed git package CLI, package runtime composition for installed package
-  resources, package `update`, and per-run source-loading flags for explicit
-  extensions, skills, prompt templates, and themes.
-- Extension slice 13 has shipped: live-session hooks for `user_bash`,
-  `before_provider_request`, session switch/fork/tree/compaction gates, and
-  dynamic active tool/model/thinking controls through the command/hook context.
-- Extension slices 14–16 have shipped: dynamic `pipy repl` tool-loop CLI flags
-  (`ExtensionFlag` + `ctx.flags`), simple command/shortcut UI primitives
-  (`ctx.ui.select`/`input`/`confirm`/`set_status`/`set_working_*`), and the
-  first custom session-entry/message-rendering slice. Durable
-  `ctx.append_entry` display has since moved to its Pi-faithful independent
-  `api.register_entry_renderer` registry; message renderers own custom messages.
-- Extension slice 17 has shipped: custom tool renderers — `ExtensionTool`
-  `render_call`/`render_result` callables render an extension's own tool
-  call/result rows with themed color (render-once snapshot, fail-soft fallback)
-  in both the product TUI and captured output. The renderer map now refreshes
-  across `/reload`, so added/changed/removed extension renderers take effect in
-  the existing session.
-- Extension slice 18 has shipped: persistent chrome widgets —
-  `ctx.ui.set_widget`/`set_header`/`set_footer`/`set_title`/`set_working_indicator`
-  pin an above/below-editor widget, an exclusive custom header and footer, the
-  terminal title, and a custom working indicator, with a width-reactive snapshot
-  model, fail-soft rendering, dispose-on-replace/clear, and live `session_start`
-  rendering in an interactive TTY.
-- Extension slice 19 has shipped: rich message renderers (rich-UI item C) — a
-  `register_message_renderer` renderer that requires a second `(data, ctx)`
-  parameter receives a `MessageRenderContext` and may return a themed component,
-  committed SGR-preserving with no forced `[custom_type]` label. The retained
-  TUI snapshot re-renders in place when Ctrl+O / `ctx.ui.set_tools_expanded(...)`
-  changes `ctx.expanded` (fail-soft to the plain path, no duplicate rows); a
-  1-arg `renderer(data)` keeps slice-16 plain behavior. The rendered body is
-  live-only and never archived. Active-branch custom entries now replay into
-  startup-opened TUI sessions through the same renderer dispatch without
-  mutating the session file.
-- Extension slice 20 has shipped: the command/shortcut `ctx.ui.editor(...)`
-  helper opens a focused multi-line product-TUI overlay, returns `None`
-  headlessly like Pi's no-op UI context, submits on Enter, accepts Shift+Enter
-  where decoded plus Alt+Enter as pipy's portable newline fallback, and cancels
-  on Esc/Ctrl-C. The editor also matches Pi's Ctrl+G `$VISUAL`/`$EDITOR`
-  handoff: it restores normal terminal mode while the external editor owns
-  stdio, reloads the temp markdown file only on a successful exit, and keeps the
-  prior buffer on failure.
-- Extension slice 21 has shipped: command/shortcut theme controls (rich-UI
-  item E) — `ctx.ui.theme` (current `ChromePalette`), `ctx.ui.get_all_themes()`
-  (`{"name", "path": None}` per available theme, default first),
-  `ctx.ui.get_theme(name)` (palette by name without switching, `None` when
-  unknown), and `ctx.ui.set_theme(name_or_palette)` (`{"success", "error"}`),
-  mirroring Pi's `theme`/`getAllThemes`/`getTheme`/`setTheme`. Reads are ambient
-  (the global package theme registry plus `PIPY_THEME`/the chrome store), so they
-  work deterministically even headless; `set_theme` requires a live UI and
-  returns `{"success": False, "error": "UI not available"}` headless without
-  mutating process state, while a live call reuses the `/settings` `select_theme`
-  mechanism so the next frame repaints. `path` is always `None` (the session
-  theme registry retains only `name -> palette`; package file paths are not
-  exposed to extension code).
-- Extension slice 22 plus session metadata actions have shipped: `ctx.session_manager`
-  plus Pi-shaped `ctx.sessionManager` expose active-session read-only views, and
-  command/shortcut contexts can persist display names and labels with
-  `ctx.set_session_name` / `ctx.setSessionName`, `ctx.get_session_name` /
-  `ctx.getSessionName`, and `ctx.set_label` / `ctx.setLabel`, all through native
-  session-info/label entries rather than mutable tree exposure.
-- The editor text helpers now include Pi-canonical camelCase aliases:
-  `ctx.ui.getEditorText`, `ctx.ui.setEditorText`, and
-  `ctx.ui.pasteToEditor` delegate to the shipped snake_case Python helpers,
-  preserving live editor read/write/paste behavior and headless
-  no-op/empty-string semantics.
-- Extension slice 23 has shipped: live product-TUI autocomplete provider
-  wrappers — `ctx.ui.add_autocomplete_provider` plus Pi-shaped
-  `ctx.ui.addAutocompleteProvider` compose providers with Pi-shaped
-  `get_suggestions`/`apply_completion`/optional
-  `should_trigger_file_completion` methods for `@` and forced Tab completion,
-  while headless contexts remain deterministic no-ops.
-- Extension slice 24 has shipped and now includes bounded live custom editor integration: `ctx.ui.set_editor_component` / `setEditorComponent` calls the factory in the product TUI, routes decoded keys to the returned component, wires submit/change callbacks, forwards autocomplete providers, passes Pi-style keybinding specs plus live decoded-key aliases, wires app-action callbacks/handlers for model/thinking/tool/follow-up/external-editor delegation (including `app.editor.external` through `$VISUAL`/`$EDITOR`), keeps paste image on a special callback path, preserves editor text when clearing back to the default editor, and keeps headless contexts no-op/return `None` like Pi RPC. The live getter now returns the configured factory even when construction fails soft or returns no active component, matching Pi's stored-factory semantics. Broader Pi component-library parity remains deferred.
-- Bounded custom overlay options and handle controls have shipped for
-  `ctx.ui.custom`: command and shortcut contexts accept
-  `custom(factory, options=None)` with Pi-shaped `overlay`,
-  `overlayOptions`/`overlay_options`, and `onHandle`/`on_handle` fields. Pipy
-  keeps both overlay modes on its existing inline renderer in this slice, but
-  honors width hints, exposes Pi-shaped `hide`, `setHidden`, `isHidden`,
-  `focus`, `unfocus`, and `isFocused` handle methods (plus repaint aliases),
-  disposes components on close, and preserves deterministic headless
-  no-construction behavior. Hidden overlays skip render/input; unfocused
-  visible overlays keep rendering but skip input until focused again.
-- Extension slice 25 has shipped: tool-output expansion controls —
-  `ctx.ui.get_tools_expanded` / `getToolsExpanded` and
-  `ctx.ui.set_tools_expanded` / `setToolsExpanded` read and set the live
-  product-TUI expansion state used by built-in tool-row expansion, repainting on
-  writes; headless contexts return `False` and no-op writes like Pi RPC. The
-  Pi-shaped hidden-thinking label control also ships: live command/shortcut
-  contexts can call `ctx.ui.set_hidden_thinking_label` /
-  `setHiddenThinkingLabel` to change the folded-thinking label, and headless
-  contexts no-op like Pi RPC.
-- Extension OAuth `/login` auth-store wiring has shipped: OAuth-backed
-  extension providers use the normalized provider name as Pi's derived OAuth id,
-  `/login <provider>` invokes the extension's sync `login(callbacks)` with
-  Pi-shaped stdio auth/device/prompt/select/progress callbacks, stores
-  `{type:"oauth", ...credentials}` in `AuthStore`, and `/logout <provider>`
-  removes it. OAuth-backed extension providers are `login-required` until stored
-  credentials exist; non-OAuth extension providers remain factory-owned and
-  available.
-- Extension `before_provider_headers` has shipped: serial fail-soft handlers
-  mutate one request-local `str | None` header map, every real HTTP adapter
-  applies it at its owned seam, Bedrock signs mutations, Codex reuses them
-  across retries/fallback, and the live header data is never archived or sent
-  on JSON/RPC stdout.
-- Extension chrome `requestRender` parity has shipped: widget/header/footer factories receive a Pi-shaped live TUI handle, factory components re-render every frame, and `requestRender()` repaints without a provider turn.
-- Extension footer-data provider parity has shipped: `ctx.ui.set_footer` passes
-  read-only Pi-shaped `FooterData` with `getGitBranch()`,
-  `getExtensionStatuses()`, `getAvailableProviderCount()`, and live product-TUI
-  `onBranchChange(...)` callbacks; headless snapshots keep a safe no-op
-  disposer.
-- Durable entry-renderer replay/redraw parity has shipped: active-branch
-  `ctx.append_entry` records replay into startup-opened TUI sessions and redraw
-  with the current run's independent entry renderer after `/resume`, expanded-
-  state changes, and `/reload`; renderer output remains TUI-only and fail-soft.
-- Package resources now flow through discovery at deterministic lowest
-  precedence with filters applied, and the package conformance gate proves no
-  source path or resource body leaks to safe metadata. The same gate now covers
-  explicit source-loading paths with matching default discovery and persisted
-  filters disabled.
+Kimi deferred tools are **not “the next new Pi gap.”** Pi shipped the
+Chat-Completions Kimi deferred-tool protocol in 0.80.8/0.80.9. Pipy's
+provider-neutral load-point marker and Anthropic/OpenAI Responses projections
+still do not implement that provider-specific shape, so it remains a valid
+provider gap, but it is now an older candidate to rank alongside newer 0.81/0.82
+deltas—not the active queue by default.
 
-Follow-ons:
+## Material delta classification
 
-1. Richer Pi extension APIs: broader custom editor/component-library parity
-   beyond the landed live `setEditorComponent` integration and bounded custom
-   overlay options,
-   live custom message component invalidation/re-rendering beyond the landed
-   single-component rich message renderer (item C), richer tool-output
-   expansion integration beyond the landed live `getToolsExpanded`/`setToolsExpanded` controls, and the deferred message-entry follow-ons beyond shipped
-   `send_message` `triggerTurn`, `deliverAs: "nextTurn"`, streaming
-   `steer`/`followUp` delivery, custom-entry `/resume` redraw, and
-   `CustomMessageEntry` renderer dispatch), live tool-render invalidation beyond the landed
-   render-once snapshot, broader dynamic-flag integration beyond the landed
-   tool-loop `ctx.flags` and extension-owned `api.get_flag` slice, and broader extension state helpers beyond the landed command/shortcut
-   session-manager view and name/label metadata actions.
-2. Broader provider/auth helpers beyond the landed extension OAuth `/login`
-   auth-store wiring, including declarative API-backed provider config and any
-   future credential injection boundary for provider factories.
-3. Future PyPI/npm package sources only after a broader supply-chain/update
-   policy; managed git sources and package `update` now ship.
+| Pi 0.81–0.82 delta | Evidence at `7df73a00` | Pipy status and selection guidance |
+| --- | --- | --- |
+| Constrained tool sampling and capability gates | `pi-ai` adds `Tool.constrainedSampling`: strict JSON Schema `prefer`/`require` plus OpenAI Lark/regex grammar tools. `supportsStrictTools` and `supportsGrammarTools` model metadata prevent unsupported requests across OpenAI, Anthropic, Bedrock, Google, Mistral, Azure, and compatible surfaces. | **Missing, high-value but cross-cutting.** Pipy's tool definition and model spec have no constrained-sampling or matching capability fields. Specify the provider-neutral contract and fail-closed capability checks first; then land strict-schema and grammar wire families independently. Do not send unsupported constraints or silently degrade `require`. |
+| Kimi Code subscription OAuth | Pi's `kimi-coding` provider owns device authorization, refresh, host overrides, auth availability, and subscription model behavior. | **Missing provider/auth family.** Pipy has no Kimi Coding provider or provider-owned OAuth flow. Treat auth, provider transport/catalog rows, thinking/replay behavior, implied cost, and deferred tools as reviewed sub-slices rather than one “Kimi parity” bundle. |
+| OpenRouter OAuth | Pi adds provider-owned PKCE login that mints a user-controlled API key usable by chat and image providers. | **Missing OAuth path; API-key provider already ships.** Pipy's OpenRouter Chat Completions adapter and API-key availability remain valid. Add PKCE only through the existing auth-store/catalog boundary, with secret-safe diagnostics and refresh/logout tests; do not fork a second OpenRouter construction path. |
+| Session-aware bash environment | Built-in and factory-created Pi bash tools receive `PI_SESSION_ID`, `PI_SESSION_FILE`, `PI_PROVIDER`, `PI_MODEL`, and `PI_REASONING_LEVEL`; the tool explicitly clears inherited stale values before injecting the current session snapshot. | **Missing.** Pipy's model-visible bash streams output and enforces its existing process/timeout boundary, but does not inject equivalent run metadata. This is a bounded tool/composition slice, with privacy and stale-environment characterization required before implementation. Decide pipy-prefixed naming deliberately rather than copying Pi environment names accidentally. |
+| Direct RPC bash streaming | Pi emits correlated `bash_execution_update` events for the direct RPC `bash` command. | **Missing protocol delta.** Pipy's direct RPC bash has a bounded worker/correlation boundary but no update event. Specify event shape, ordering, cancellation, terminal response, truncation, and stdout JSONL purity; keep this separate from model-tool streaming, which already exists. |
+| RPC thinking-level discovery | Pi 0.81 adds `get_available_thinking_levels` and a matching client method over the active catalog/model capabilities. | **Missing small RPC/catalog projection.** Pipy can set thinking level over RPC but does not expose this query. Add it only after pinning whether the response reflects the active model, scoped selection, and extension/catalog refresh snapshot. |
+| Compaction and branch-summary retry lifecycle | Pi 0.81.1 routes transient summary failures through the configured retry policy and emits scheduled / attempt-start / finished events to interactive, JSON, RPC, and SDK consumers. | **Missing and semantically significant.** Pipy compaction/branch summarization does not expose this lifecycle. Add only after characterizing queue, cancellation, persistence, and true-idle behavior; these retries must not duplicate summary writes or consume queued input early. |
+| Assistant/provider retry refinements | Pi classifies OpenAI Responses early EOF and DNS failures as retryable, makes OpenAI/Anthropic retry waits abortable and delay-bounded, and retries a missing Codex WebSocket continuation once without the stale continuation. | **Partially covered, not equivalent.** Pipy has robust pre-first-event Codex transport retry/fallback and cancellation, but the canonical agent policy remains zero-retry and other providers do not share Pi's lifecycle. Split transport classification, cancellable backoff, agent retry events, and Codex continuation recovery by owner. Preserve pipy's no-post-progress replay guarantee. |
+| Provider/catalog growth and refresh | Pi adds Qwen Token Plan (international/China), a llama.cpp router plus Hugging Face search/load UI, complete native extension providers with refresh/filter/auth, generated catalog separation/freshness, provider-verified effort levels, and refreshed model/image rows. | **Real family of gaps, not one slice.** Pipy has catalog-driven construction, `models.json`, extension provider rows, and local ds4, but not these provider products or Pi's dynamic catalog machinery. Select one provider or catalog behavior at a time. Generated row churn alone is lower priority than capability/auth/transport correctness. |
+| Usage/session refinements | Pi persists tool, compaction, and branch-summary usage in session totals and isolates summary requests with fresh routing session IDs and cache writes disabled. | **Partial.** Pipy tracks agent/provider usage and durable compaction metadata but should be compared with exact product-session totals and summary request/cache semantics before claiming equivalence. Keep accounting and routing/cache policy as separate slices if both differ. |
+| Smaller 0.81–0.82 fixes | Literal bracketed scoped-model IDs, `/model` reloading changed `models.json`, model catalog startup refresh timing, Wayland clipboard fallback, loaded llama output limits, and release packaging/catalog freshness. | **Groom individually.** Some are applicable correctness fixes, some concern Pi-only packaging/provider surfaces, and none should be bundled into the architecture program. |
 
-### 4. User documentation parity
+## Recommended product queue after the architecture program
 
-**Why it is needed:** pipy now has enough shipped product surface that internal
-specs are no longer sufficient. Pi has user-facing pages for installation,
-first run, providers, settings, keybindings, sessions, compaction,
-customization, automation, SDK/RPC, and terminal/platform setup.
+This is a ranking for grooming, not authorization to bypass the parity-loop
+review protocol.
 
-Implement in pipy:
+1. **Constrained sampling contract and capability gates.** It affects tool
+   authority and provider request validity, so define the neutral model/tool
+   vocabulary and unsupported-request behavior before adding wire variants.
+2. **Retry lifecycle decision.** Compare pipy's canonical zero-retry policy and
+   Codex-only pre-progress retry with Pi's assistant, compaction, and branch
+   summary lifecycles. Land one owner at a time, with JSON/RPC/SDK event and
+   true-idle characterization.
+3. **Direct RPC bash updates.** The protocol addition is bounded and useful once
+   event ordering, cancellation, and truncation are pinned. Session-aware bash
+   environment injection is adjacent but should remain a separate tool-policy
+   slice.
+4. **Provider-owned auth:** OpenRouter PKCE first because the provider and
+   API-key catalog path already exist; Kimi Code requires a larger new provider
+   family and should follow a dedicated spec.
+5. **Provider/catalog candidates:** Qwen Token Plan, llama.cpp router/model
+   management, dynamic provider refresh, generated catalog freshness/effort
+   metadata, and current row refreshes. Choose by user value and testability;
+   never treat generated model count as parity by itself.
+6. **Kimi Chat-Completions deferred tools.** Still a real missing adapter shape,
+   but no longer a fresh “next gap”; schedule it with Kimi/OpenAI-compatible
+   transport work when that provider family is selected.
+7. **Small product polish and prior residuals:** bare-update realignment,
+   Ctrl+X transcript copy, prompt-cache notices, automatic theme mode, output
+   padding, and other previously audited request/auth details remain independent
+   candidates.
 
-1. User-facing quickstart and usage pages now ship:
-   [quickstart.md](quickstart.md) and [usage.md](usage.md) cover first run,
-   provider setup, common TUI/session workflows, and the current CLI reference.
-   Terminal setup and tmux pages also ship:
-   [terminal-setup.md](/terminal-setup/), [tmux.md](/tmux/).
-2. Provider/model user docs now ship in [providers.md](providers.md): model
-   listing, provider selection, credentials, `models.json`, ds4, thinking/images
-   metadata, and current follow-ons.
-3. Settings and keybindings user docs now ship in [settings.md](settings.md)
-   and [keybindings.md](keybindings.md).
-4. Customization and package user docs now ship in
-   [customization.md](customization.md) and [packages.md](packages.md): skills,
-   prompt templates, custom slash commands, chrome themes, trusted package
-   install/remove/list/config/update workflows, local-path and managed-git
-   sources, filtering, and current remote-source limitations. Automation and
-   embedding user docs now ship in [json.md](json.md), [rpc.md](rpc.md), and
-   [sdk.md](sdk.md).
-5. Keep README short and outside-in.
-6. Separate shipped behavior from target specs; do not present pipy-only
-   divergences as parity.
-7. Audit docs against `uv run pipy --help`, `uv run pipy repl --help`,
-   `uv run pipy run --help`, and the relevant conformance gates.
+## Shipped foundations not to reselect as large gaps
 
-Owning spec: [user-documentation.md](user-documentation.md).
+- native product session tree and the session/new/tree/resume/fork/clone/
+  compact/import/export/share workflows;
+- inline product TUI with editor history, paste, undo/redo, resize, selectors,
+  overlays, queued steering/follow-up, images, folding, and cancellation;
+- project trust, layered settings/keybindings, resource loading, managed-git
+  packages, and local extension discovery/activation;
+- canonical full-content events, Pi-shaped JSON/print/RPC modes, read-only
+  session-tree RPC access, and true-idle `agent_settled`;
+- extension commands, tools, providers, hooks, custom messages/entries,
+  renderers, editor/components/overlays, chrome, terminal input, model controls,
+  and session metadata actions;
+- catalog-backed construction for pipy's implemented HTTP provider families;
+- Anthropic and OpenAI/Codex Responses cache-friendly dynamic tool loading;
+- GPT-5.6 Sol and `max` thinking; and
+- OpenAI-Codex configurable timeout, pre-progress retries, cancellation, and
+  WebSocket-to-SSE fallback.
 
-### 5. Provider/model catalog follow-ons
+Reusable TypeScript package API parity (`pi-ai`, `pi-agent`, `pi-tui`), the
+experimental orchestrator, npm/PyPI execution, and literal source compatibility
+remain outside the pipy-native product target unless product direction changes.
 
-**Why it is now narrower:** the catalog construction foundation has shipped for
-the implemented adapter families, one-shot runs, and startup resolution.
-Remaining work is adapter/product polish rather than the broad catalog track.
+## Sources inspected
 
-Follow-ons:
+Pipy:
 
-- live Anthropic and GitHub Copilot login UX;
-- (shipped) google-generative-ai thinking: the `google-generative-ai` adapter now
-  injects Pi's per-model `generationConfig.thinkingConfig` — a `thinkingLevel`
-  enum for Gemini 3 Pro/Flash and Gemma 4, a `thinkingBudget` token count for the
-  Gemini 2.5 family (`includeThoughts: true` when on), and a per-model disabled
-  config when a reasoning model runs with thinking off/unset — matching
-  `google.ts`;
-- (shipped) google-vertex thinking: the `google-vertex` adapter now injects Pi's
-  per-model `generationConfig.thinkingConfig` from `google-vertex.ts` (its
-  `THINKING_LEVEL_MAP` variant) — a `thinkingLevel` enum for Gemini 3 Pro/Flash
-  and a `thinkingBudget` token count otherwise, `includeThoughts: true` when
-  thinking is on, and a per-model disabled config when a reasoning model runs
-  with thinking off/unset, in both Express (api-key) and ADC (bearer) request
-  modes. It deliberately diverges from `google-generative-ai` in two places
-  (matching `google-vertex.ts`): no `2.5-flash-lite` budget table (flash-lite
-  falls into the `2.5-flash` branch → minimal `128`, not `512`) and no Gemma 4
-  special-casing (Gemma is not a Vertex Gemini model). Catalog construction
-  forwards the resolved `reasoning_effort`/`thinking_disabled`;
-- (shipped) Vertex API-key auth: the `google-vertex` adapter now supports Pi's
-  Vertex Express api-key mode (`GOOGLE_CLOUD_API_KEY`) — global
-  `aiplatform.googleapis.com/v1/publishers/google/models/{model}:generateContent`
-  host with the `x-goog-api-key` header — alongside the existing ADC bearer path.
-  Catalog construction forwards the resolved key; the `<authenticated>` sentinel
-  and `gcp-vertex-credentials` marker fall back to ADC, matching Pi's
-  `resolveApiKey`. Availability now honors `GOOGLE_CLOUD_API_KEY`;
-- (shipped) Azure URL/api-version parity: the `azure-openai-responses` adapter
-  now matches Pi's `AzureOpenAI` SDK v1 surface — default `api-version=v1`,
-  Azure-host base URLs normalized to `/openai/v1`, request URL
-  `{normalized_base}/responses?api-version=...`, and the deployment carried as
-  the body `model` field. Custom/non-Azure base URLs are respected verbatim. The
-  resource-name default-base builder (env `AZURE_OPENAI_RESOURCE_NAME` →
-  `https://{name}.openai.azure.com/openai/v1`), the
-  `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` model→deployment map, and the
-  `AZURE_OPENAI_BASE_URL` env name have now shipped (the pipy-only
-  `AZURE_OPENAI_ENDPOINT` name was dropped), matching Pi's
-  `resolveAzureConfig`/`resolveDeploymentName` precedence;
-- (shipped) Pi's explicit `thinking: {type: "disabled"}` shape on the
-  `anthropic-messages` adapter when a reasoning-capable model runs with thinking
-  off/unset; the model's reasoning-capability intent is threaded through
-  construction (`ResolvedConstruction.thinking_disabled`). The bedrock adapter is
-  excluded by design — Pi omits thinking fields there rather than sending a
-  disabled shape, and pipy already omits. (The `anthropic-messages`
-  adaptive-thinking request shape and the bedrock adaptive/budget
-  `display: "summarized"` field — omitted only on GovCloud targets — shipped
-  earlier.)
-- (shipped) OpenRouter reasoning off-state: the `openai-completions` OpenRouter
-  thinking format now emits `reasoning: {effort: <off-value>}` when a
-  reasoning-capable model runs with thinking off/unset (Pi
-  `openai-completions.ts:578-580`), instead of omitting the field. The off value
-  follows `thinkingLevelMap?.off ?? "none"` after the `!== null` gate (absent →
-  `"none"`, explicit `null` → suppress, string → verbatim), gated on the model
-  being reasoning-capable and the raw level off/unset, mirroring the
-  `anthropic-messages` disabled-thinking off-state. The on-state nested emission
-  is unchanged;
-- (shipped) DeepSeek reasoning request shape: the `openai-completions` `deepseek`
-  thinking format now emits a top-level `thinking: {type: "enabled"|"disabled"}`
-  object for reasoning-capable models (`enabled` on-state, a Pi-forced explicit
-  `disabled` off/unset) plus top-level `reasoning_effort` on the on-state when
-  the model `supportsReasoningEffort`, matching Pi `openai-completions.ts:565-570`.
-  The format follows Pi's `getCompat` precedence (explicit `compat.thinkingFormat`
-  over `deepseek`/`deepseek.com` detection) and `supportsReasoningEffort` is
-  resolved independently via Pi's `detectCompat` exclusion list. The remaining
-  completions `thinkingFormat` variant (string-thinking),
-  the DeepSeek `requiresReasoningContentOnAssistantMessages` message transform,
-  and a full `detectCompat` port remain separate follow-ons;
-- (shipped) Together reasoning request shape: the `openai-completions` `together`
-  thinking format now emits a top-level `reasoning: {enabled: true|false}` object
-  for reasoning-capable models (`enabled: true` on-state, a Pi-forced explicit
-  `enabled: false` off/unset) plus top-level `reasoning_effort` on the on-state
-  **only** when the model `supportsReasoningEffort`, matching Pi
-  `openai-completions.ts:586-594`. The format follows Pi's `getCompat` precedence
-  (explicit `compat.thinkingFormat` over `together`/`api.together.ai`/
-  `api.together.xyz` detection, ordered before `openrouter`) and
-  `supportsReasoningEffort` is resolved independently via Pi's `detectCompat`
-  exclusion list — which **includes** Together, so an auto-detected Together model
-  omits `reasoning_effort` unless an explicit `supportsReasoningEffort=true` (or an
-  explicit `thinkingFormat="together"` on a non-excluded provider) flips it on. A full `detectCompat` port remains a separate follow-on;
-- (shipped) Z.ai (`zai`) reasoning request shape: the `openai-completions` `zai`
-  thinking format now emits a single top-level boolean `enable_thinking` for
-  reasoning-capable models (`true` on-state, a Pi-forced explicit `false`
-  off/unset) and **no** `reasoning_effort` at all, matching Pi
-  `openai-completions.ts:556-557`. The format follows Pi's `getCompat` precedence
-  (explicit `compat.thinkingFormat` over `zai`/`api.z.ai` detection, ordered
-  before `together` and `openrouter` in the `detectCompat` chain). Unlike
-  DeepSeek/Together, the `zai` branch never consults `supportsReasoningEffort`, so
-  no `reasoning_effort` is ever added. A full `detectCompat` port remains a separate follow-on;
-- (shipped) Qwen (`qwen` / `qwen-chat-template`) reasoning request shape: both are
-  the same `enable_thinking` bare-boolean family as `zai`. The `openai-completions`
-  `qwen` format emits a top-level boolean `enable_thinking` for reasoning-capable
-  models (`true` on-state, a Pi-forced explicit `false` off/unset) and **no**
-  `reasoning_effort`, matching Pi `openai-completions.ts:558-559`;
-  `qwen-chat-template` nests the same boolean in a `chat_template_kwargs` object
-  with a constant `preserve_thinking: true` (`openai-completions.ts:560-564`), also
-  with no `reasoning_effort`. Both are **explicit-compat-only** — Pi's
-  `detectCompat` has no `qwen` rung, so they are reached only via an explicit
-  `compat.thinkingFormat` and add no provider/base-URL detection. Like `zai` they
-  never consult `supportsReasoningEffort`. A full `detectCompat` port remains a separate follow-on;
-- (shipped) ant-ling reasoning request shape: the `openai-completions` `ant-ling`
-  thinking format now emits a nested `reasoning: {effort: <mapped>}` object on the
-  on-state only, matching Pi `openai-completions.ts:581-585`. The effort is the
-  **raw** `thinkingLevelMap[level]` lookup with no `?? level` fallback (emitted
-  only when that lookup is a string, so a model with no map emits nothing), the
-  off-state is fully **silent** (the only emitting completions variant with no
-  off-state shape), and `supportsReasoningEffort` is never consulted. Unlike
-  `qwen`/`string-thinking`, `ant-ling` **is** auto-detected — Pi's `detectCompat`
-  `thinkingFormat` chain has an `isAntLing` rung ordered after `together` and
-  before `openrouter`, so pipy adds both the detection rung at that position and
-  the request-shape branch (covered by conformance items 18m, 18n). A full `detectCompat` port remains a separate follow-on;
+- `docs/parity-plan.md`, `docs/backlog.md`, `docs/pi-parity.md`, and the topic
+  specs for providers, extensions, automation/RPC, settings, sessions, and TUI;
+- `src/pipy_harness/native/agent/`, `coding/`, `automation/`, `providers/`,
+  `provider_construction.py`, `catalog_data.py`, `auth_store.py`, `retry.py`,
+  `openai_codex_provider.py`, `tools/bash.py`, `extension_runtime.py`, and
+  `tool_loop_session.py`; and
+- the current provider, automation/RPC, extension, session, and architecture
+  conformance descriptions.
 
-- String-thinking reasoning request shape has shipped: for the `openai-completions`
-  `string-thinking` format, a reasoning-capable model emits a top-level string
-  `thinking` field on both the on-state and off-state, matching Pi's
-  `thinkingFormat === "string-thinking"` branch (`openai-completions.ts:595-601`).
-  The on-state uses the mapped thinking value with the same `?? level` fallback as
-  DeepSeek/Together/OpenRouter; the off-state uses `thinkingLevelMap.off ??
-  "none"` after the `!== null` gate, so absent `off` emits `"none"`, explicit
-  `null`/`None` suppresses the field, and a string off mapping is emitted
-  verbatim. The branch never consults `supportsReasoningEffort` and never emits
-  top-level `reasoning_effort`. It is **explicit-compat-only** — Pi's
-  `detectCompat` has no `string-thinking` rung — so pipy adds only the
-  request-shape branch and no provider/base-URL detection. A full `detectCompat`
-  port remains a separate follow-on.
+Pi at exact commit `7df73a00`:
 
-- broader local-provider maturity and benchmarking.
-
-Owning spec: [provider-catalog.md](provider-catalog.md).
-
-### 6. Top-level CLI compatibility and parity cleanup — largely shipped (2026-06-20)
-
-The 2026-06-20 top-level CLI cleanup landed the bulk of this item across four
-code slices:
-
-- **Top-level shape is now Pi-like:** bare `pipy` and `pipy "<prompt>"` launch
-  the interactive product session (a bare positional prompt seeds the first
-  message); `auth|run|repl|config|install|...` remain reachable as subcommands.
-  Reserved-word exception: a bare token equal to a subcommand name dispatches
-  that subcommand (escape via `pipy repl "<word>"` / `pipy -p "<word>"`).
-- **Removed (hard):** the no-tool REPL (`--repl-mode`,
-  `NativeNoToolReplSession`, and `/read` `/ask-file` `/propose-file`
-  `/apply-proposal` + their archive-side events), `--native-output json`
-  (callers use `--mode json`), the `--archive-transcript` sidecar (the native
-  session tree is the transcript), the pipy-only `/template` wrapper, and the
-  pipy-only `/clear`, `/status`, `/help`, and `/theme` commands (removed outright,
-  no deprecation aliases or notices; Pi has none — use `/new`, `/session`,
-  `/hotkeys`, and theme selection in `/settings`).
-- **Templates:** prompt templates are invokable as their own `/<template-name>`
-  commands.
-
-**The two earlier follow-ups are now done:**
-
-- `/skill` is **kept** — Pi advertises skills in the system prompt *and* keeps a
-  `/skill:name` expansion, so pipy's `/skill` is parity-consistent. pipy now also
-  wires its own advertisement: discovered skills are advertised in the tool-loop
-  system prompt (name + description + absolute location) when the `read` tool is
-  available, and the model loads a skill body on demand via `read` (skill dirs
-  are added to the read-only reference roots).
-- Theme selection moved into the `/settings` dialog (a theme row + picker); the
-  pipy-only `/theme` command was removed outright.
-
-`--read-root(s)`, `--tool-budget`, `--input-runtime`, and the persistent prompt
-history are kept as internal mechanisms (decision 3), de-emphasized in docs as
-internal, not parity features.
-
-### 7. Verification policy through extensions
-
-The former pipy-only `/verify just-check` command is gone. Richer verification
-or permission policy should arrive as extension-defined tools/hooks once the
-extension platform exists, matching Pi's extensibility posture rather than
-adding another bespoke slash command.
-
-## Recommended implementation order
-
-1. GPT-5.6 Sol plus model-aware `max` thinking — **shipped** 2026-07-14 without
-   broadening into every GPT-5.6/provider surface.
-2. Project trust — design, trust core/settings-resource gating,
-   interactive/package management integration, and extension decision/read APIs
-   **shipped** 2026-07-16.
-3. RPC `get_entries`/`get_tree` and true-idle `agent_settled` — **shipped**
-   2026-07-14 as independent protocol slices; JSON-mode `agent_settled` shipped
-   the same day and the extension-surface hook shipped 2026-07-16.
-4. Extension deltas — `before_provider_headers` and true-idle `agent_settled`
-   **shipped** 2026-07-16; durable entry renderers **shipped** 2026-07-17.
-   Resume the broader component/overlay/invalidation track after the higher-
-   priority dynamic-tool-loading ownership slice.
-5. Cache-friendly dynamic tool loading — the provider-agnostic marker and
-   Anthropic `tool_reference` plus OpenAI/Codex Responses client tool-search
-   slices **shipped** 2026-07-17. Continue with Kimi Chat Completions as an
-   independent provider-owned slice rather than extending the wrapper blindly.
-6. Package/update realignment — bare self-only update and `--all`; project-local
-   `config -l` already ships with trust semantics.
-7. Provider and TUI polish — split the July request-shape/auth/catalog deltas
-   and Ctrl+X copy into narrow adapter/UI slices.
-
-User documentation and top-level CLI consolidation are shipped foundations;
-keep them synchronized rather than treating them as standalone tracks.
-Verification remains the model-visible `bash` tool plus extension gates, not a
-revived `/verify` command. The extension/package platform remains the largest
-follow-on by surface area, and remote PyPI/npm execution stays behind a broader
-supply-chain policy.
+- `packages/coding-agent/CHANGELOG.md` and `packages/ai/CHANGELOG.md` through
+  0.82.0;
+- coding-agent `core/agent-session.ts`, compaction and branch-summarization,
+  `core/tools/bash.ts`, settings/model runtime, RPC types/server/client,
+  interactive mode, and provider docs;
+- pi-ai `types.ts`, `models.ts`, provider factories/catalogs, auth OAuth loaders
+  (including Kimi and OpenRouter), constrained-sampling helpers, retry helpers,
+  and OpenAI/Anthropic/Bedrock/Google/Mistral adapters; and
+- git history from the prior broad reference `b084d2fb` through `7df73a00`,
+  including the tagged 0.80.7–0.82.0 release changes.
