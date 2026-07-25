@@ -704,6 +704,16 @@ generation pointer:
   and
 - `package_roots` and `workspace_resources`.
 
+**When this becomes load-bearing.** While the only publisher is `/reload` on
+the session thread, a consumer that re-reads the live generation per access
+cannot observe two generations within one operation — there is no concurrent
+writer to interleave with. Snapshot discipline is therefore introduced with the
+reference (S3.4) but only becomes *required* in the slice that lets a detached
+worker publish or that adds generation-bound ports (S3.7). That slice must
+convert consumers before, not after, it introduces the second publisher;
+shipping the publisher first would open exactly the mixed-generation window
+this section forbids.
+
 The snapshot deliberately does **not** pin provider selection, thinking level,
 or the active tool set. Established behavior lets a `before_agent_start` hook
 change the model for the current turn, so those are read under the lock at their
@@ -780,12 +790,24 @@ mutating a published registry through `replace_extensions`. Introduce a narrow
 ### S3.4 — session-owned generation reference
 
 A session-owned module (`native/session_generation.py` if a module is
-warranted) holding the generation reference, its identity, the shared lock, and
-the publication gate.
+warranted) holding the generation reference, its identity, and the shared lock.
+
+Two pieces are deliberately **not** in this slice, because landing them here
+would mean production state with no caller and no test that exercises it:
+
+- the **publication gate**, which lands with the provider projection in S3.7
+  where the class A ports that must observe it exist; and
+- the **consumer conversion to one snapshot per operation**. This slice
+  provides `snapshot()` and routes every read through the session mutex, but
+  consumers still read per access. That is sound only while `/reload` on the
+  session thread is the sole publisher — see "When this becomes load-bearing"
+  under Snapshot discipline. S3.7 must convert consumers *before* it introduces
+  a second publisher.
+
 `_ExtensionRuntime` ownership stays in `extension_runtime.py`; that module must
 not start importing settings, keybindings, provider construction, coding state,
-or the TUI. Consumers move to one snapshot per operation; separately refreshed
-hook/flag paths are deleted only once the snapshot path is complete.
+or the TUI. Separately refreshed hook/flag paths are deleted only once the
+snapshot path is complete.
 
 ### S3.5 — immutable settings and keybinding state
 

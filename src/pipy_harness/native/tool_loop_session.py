@@ -219,6 +219,10 @@ from pipy_harness.native.export_distribution import (
     resolve_github_token,
     share_native_session,
 )
+from pipy_harness.native.session_generation import (
+    SessionExtensionGeneration,
+    SessionGenerationRef,
+)
 from pipy_harness.native.session_resume import (
     ResumeContext,
     compose_resume_status_line,
@@ -262,7 +266,6 @@ from pipy_harness.native.extension_runtime import (
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
     ToolRenderDetailsWriter,
-    _SessionExtensionGeneration,
     _ExtensionToolPort,
     dispatch_extension_command,
     dispatch_extension_shortcut,
@@ -538,13 +541,44 @@ class _RunControlState:
     pending_prefill: str | None
     package_roots: PackageResourceRoots
     workspace_resources: WorkspaceResources
-    extension_generation: _SessionExtensionGeneration
+    generation_ref: SessionGenerationRef
     agent_settled_pending: bool
     extension_in_agent_turn: bool
     # ``line`` is (re)assigned by ``_ReplLoopStep.step_once`` before any read every
     # iteration;
     # the setup-scope changelog loop that reuses the name never seeds it here.
     line: str = ""
+
+    @property
+    def extension_generation(self) -> SessionExtensionGeneration:
+        """The live extension generation, read under the session mutex.
+
+        Every consumer keeps reading ``ctl.extension_generation`` exactly where
+        it did before; the difference is that the read now goes through the
+        session's one synchronization boundary instead of touching a bare
+        attribute a reload could be rewriting.
+
+        This is a per-access read, **not** the per-operation snapshot the
+        concurrency contract ultimately requires: an operation that reads it
+        twice would see two generations if a publication landed in between.
+        Today it cannot, because the only publisher is ``/reload`` on the
+        session thread. Converting consumers to
+        :meth:`SessionGenerationRef.snapshot` is a precondition of the slice
+        that lets a detached worker publish.
+        """
+
+        return self.generation_ref.current
+
+    @extension_generation.setter
+    def extension_generation(self, generation: SessionExtensionGeneration) -> None:
+        """Publish a new generation under the session mutex.
+
+        The value this replaces is deliberately kept alive until after the lock
+        is released, so no finalizer runs inside the critical section.
+        """
+
+        retired = self.generation_ref.publish(generation)
+        del retired
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1215,7 +1249,7 @@ class _BuiltinCommandInterpreter:
                 # flag parsing. A malformed flag therefore still leaves the new
                 # runtime paired with the prior parsed values; Slice 3 owns making
                 # this replacement transactional.
-                ctl.extension_generation = _SessionExtensionGeneration(
+                ctl.extension_generation = SessionExtensionGeneration(
                     runtime=reloaded_extension_runtime,
                     flag_values=ctl.extension_generation.flag_values,
                 )
@@ -1238,7 +1272,7 @@ class _BuiltinCommandInterpreter:
                         f"pipy: {reloaded_flag_error}",
                     )
                 else:
-                    ctl.extension_generation = _SessionExtensionGeneration(
+                    ctl.extension_generation = SessionExtensionGeneration(
                         runtime=reloaded_extension_runtime,
                         flag_values=reloaded_flag_values,
                     )
@@ -3022,10 +3056,16 @@ class NativeToolReplSession:
                 error_type="ExtensionFlagError",
                 error_message=extension_flag_error,
             )
-        extension_generation = _SessionExtensionGeneration(
-            runtime=extension_runtime,
-            flag_values=extension_flag_values,
+        # One reference, one lock, for the whole run. Every owner of state a
+        # detached worker can reach takes this same mutex; see
+        # `docs/specs/2026-07-25-transactional-extension-reload-rebuild.md`.
+        generation_ref = SessionGenerationRef(
+            SessionExtensionGeneration(
+                runtime=extension_runtime,
+                flag_values=extension_flag_values,
+            )
         )
+        extension_generation = generation_ref.current
         if isinstance(self.provider_state, NativeReplProviderState):
             runtime = self.provider_state.model_runtime
             if runtime is not None:
@@ -3157,6 +3197,12 @@ class NativeToolReplSession:
             stderr_sink=_stderr_sink,
             filter_options=self.tool_filter_options,
             cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
+            # Share the session mutex rather than letting the capability owner
+            # create a private one: an extension tool handler reaching
+            # `set_active_tools` from a worker thread and a reload publishing a
+            # new generation must serialize against each other, which two
+            # separate locks would not do.
+            state_lock=generation_ref.lock,
         )
         provider_turn_executor = ProviderTurnExecutor(
             cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
@@ -3235,7 +3281,7 @@ class NativeToolReplSession:
             pending_prefill=None,
             package_roots=package_roots,
             workspace_resources=workspace_resources,
-            extension_generation=extension_generation,
+            generation_ref=generation_ref,
             agent_settled_pending=agent_settled_pending,
             extension_in_agent_turn=extension_in_agent_turn,
         )

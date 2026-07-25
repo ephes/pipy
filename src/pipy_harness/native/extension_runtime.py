@@ -521,20 +521,6 @@ class _ExtensionRuntime:
 
 
 @dataclass(frozen=True, slots=True)
-class _SessionExtensionGeneration:
-    """Canonical live extension state for one session generation.
-
-    The activated runtime owns every registered contribution and the outbox
-    lists extensions retain after activation. Parsed flag values belong beside
-    that runtime because every command, hook, provider, tool, renderer, and UI
-    dispatch must observe flags from the same live generation.
-    """
-
-    runtime: _ExtensionRuntime
-    flag_values: dict[str, object]
-
-
-@dataclass(frozen=True, slots=True)
 class _ContributionNames:
     """Accepted contribution names, grouped in collision-check order."""
 
