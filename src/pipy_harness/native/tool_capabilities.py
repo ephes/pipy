@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
 
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.tools import (
@@ -62,8 +64,90 @@ class ToolFilterOptions:
         return frozenset(names)
 
 
+@dataclass(frozen=True, slots=True)
+class ToolCapabilityState:
+    """One complete, immutable tool-capability generation.
+
+    Registries, the merged view, the executor bound to that view, and the
+    provider-visible selection are built together and never mutated afterwards.
+    A reload prepares a whole replacement value and publishes it with a single
+    assignment, so no reader can observe a registry that has been rebuilt while
+    its executor or visibility selection still belongs to the previous
+    generation.
+    """
+
+    builtin_registry: Mapping[str, ToolPort]
+    extension_registry: Mapping[str, ToolPort]
+    registry: Mapping[str, ToolPort]
+    executor: ToolExecutor
+    filter_options: ToolFilterOptions
+    active_tool_names: frozenset[str] | None
+
+    @property
+    def filter_configured(self) -> bool:
+        return self.filter_options != ToolFilterOptions.empty()
+
+    @classmethod
+    def build(
+        cls,
+        builtin_registry: Mapping[str, ToolPort],
+        extension_registry: Mapping[str, ToolPort],
+        *,
+        filter_options: ToolFilterOptions,
+        cancel_join_timeout_seconds: float,
+        carried_active_tool_names: frozenset[str] | None = None,
+    ) -> "ToolCapabilityState":
+        """Build a complete capability value without touching any live state.
+
+        A configured `--allow`/`--exclude` filter re-derives the visible set
+        from the new registry. Without one, an extension's `set_active_tools`
+        selection is carried across unchanged, which is the established
+        behavior.
+        """
+
+        builtin = dict(builtin_registry)
+        extensions = dict(extension_registry)
+        registry = dict(builtin)
+        registry.update(extensions)
+        active = carried_active_tool_names
+        if filter_options != ToolFilterOptions.empty():
+            active = filter_options.provider_visible_names(
+                builtin_names=builtin,
+                registered_names=registry,
+            )
+        executor = ToolExecutor(
+            registry,
+            cancel_join_timeout_seconds=cancel_join_timeout_seconds,
+        )
+        # Hand out read-only views. The dicts above are unreachable afterwards,
+        # so a holder of a published state cannot desynchronize the registry
+        # from the executor built over it.
+        return cls(
+            builtin_registry=MappingProxyType(builtin),
+            extension_registry=MappingProxyType(extensions),
+            registry=MappingProxyType(registry),
+            executor=executor,
+            filter_options=filter_options,
+            active_tool_names=active,
+        )
+
+
 class NativeToolCapabilities:
-    """Compose product tool registries, visibility policy, and execution."""
+    """Compose product tool registries, visibility policy, and execution.
+
+    The instance identity is caller-owned and stable for the whole run; every
+    mutable member lives inside one :class:`ToolCapabilityState` value that is
+    replaced wholesale rather than edited in place.
+
+    The live state pointer is guarded state: an extension tool handler running
+    on a worker thread can reach ``set_active_tools`` while the session thread
+    publishes a reloaded generation. Every read and write of the pointer
+    therefore takes ``state_lock``, and validation and assignment happen inside
+    one critical section so neither writer can resurrect the other's superseded
+    value. ``state_lock`` is injectable precisely so the session can pass its
+    single mutex once that exists; the default is only for callers that own no
+    session.
+    """
 
     def __init__(
         self,
@@ -75,71 +159,108 @@ class NativeToolCapabilities:
         stderr_sink: Callable[[str], None],
         filter_options: ToolFilterOptions,
         cancel_join_timeout_seconds: float,
+        state_lock: "threading.RLock | None" = None,
     ) -> None:
-        self._builtin_registry = dict(builtin_registry)
-        self._extension_registry = dict(extension_registry)
-        self._filter_options = filter_options
-        self._filter_configured = filter_options != ToolFilterOptions.empty()
-        self._active_tool_names: set[str] | None = None
         self._context = ToolContext(
             workspace_root=workspace_root,
             stderr_sink=stderr_sink,
             reference_roots=reference_roots,
         )
         self._cancel_join_timeout_seconds = cancel_join_timeout_seconds
-        self._registry: dict[str, ToolPort] = {}
-        self._executor: ToolExecutor
-        self._rebuild_registry()
-        if self._filter_configured:
-            self._active_tool_names = self._configured_tool_names()
+        self._state_lock = state_lock if state_lock is not None else threading.RLock()
+        self._state = ToolCapabilityState.build(
+            builtin_registry,
+            extension_registry,
+            filter_options=filter_options,
+            cancel_join_timeout_seconds=cancel_join_timeout_seconds,
+        )
+
+    @property
+    def state(self) -> ToolCapabilityState:
+        """The live capability value. Read once per operation."""
+
+        with self._state_lock:
+            return self._state
 
     @property
     def builtin_names(self) -> tuple[str, ...]:
-        return tuple(self._builtin_registry)
+        return tuple(self.state.builtin_registry)
 
     @property
     def registered_names(self) -> tuple[str, ...]:
-        return tuple(self._registry)
+        return tuple(self.state.registry)
 
     @property
     def unknown_filter_names(self) -> tuple[str, ...]:
-        configured_names = set(self._filter_options.allow) | set(
-            self._filter_options.exclude
+        state = self.state
+        configured_names = set(state.filter_options.allow) | set(
+            state.filter_options.exclude
         )
-        return tuple(sorted(configured_names.difference(self._registry)))
+        return tuple(sorted(configured_names.difference(state.registry)))
 
     def set_active_tools(self, names: Sequence[str]) -> bool:
-        """Atomically replace the provider-visible tool-name selection."""
+        """Atomically replace the provider-visible tool-name selection.
 
-        normalized = {str(name) for name in names if str(name)}
-        if any(name not in self._registry for name in normalized):
-            return False
-        self._active_tool_names = normalized
+        Validation and assignment share one critical section, so a concurrent
+        publication can neither be undone by a selection derived from the
+        superseded registry nor slip a name past the registry check.
+        """
+
+        normalized = frozenset(str(name) for name in names if str(name))
+        with self._state_lock:
+            state = self._state
+            if any(name not in state.registry for name in normalized):
+                return False
+            self._state = replace(state, active_tool_names=normalized)
         return True
 
-    def replace_extensions(self, mapping: Mapping[str, ToolPort]) -> None:
-        """Replace extension tools while preserving the run's visibility mode."""
+    def prepare_extensions(
+        self, mapping: Mapping[str, ToolPort]
+    ) -> ToolCapabilityState:
+        """Build the capability value a reload would publish, changing nothing.
 
-        self._extension_registry = dict(mapping)
-        self._rebuild_registry()
-        if self._filter_configured:
-            self._active_tool_names = self._configured_tool_names()
+        Candidate-only: the returned value is unreachable from the live state
+        until :meth:`publish` assigns it, so a reload that fails afterwards
+        leaves the previous generation complete.
+
+        The carried selection here is a preview only. Where it is carried rather
+        than re-derived from a filter, :meth:`publish` rebinds it to whatever is
+        live at the swap, so a selection accepted while this candidate was being
+        built is not overwritten.
+        """
+
+        state = self.state
+        return ToolCapabilityState.build(
+            state.builtin_registry,
+            mapping,
+            filter_options=state.filter_options,
+            cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
+            carried_active_tool_names=state.active_tool_names,
+        )
+
+    def publish(self, state: ToolCapabilityState) -> None:
+        """Make a prepared capability value live. Never fails.
+
+        Without a configured `--allow`/`--exclude` filter the visible selection
+        is carried across a reload, and it is rebound to the **live** selection
+        here rather than to the one sampled during preparation. An extension
+        handler may narrow the active tools while a reload is being prepared;
+        publishing the earlier sample would silently discard that update. The
+        rebind is a reference assignment inside the same critical section as the
+        swap, so no accepted selection can be lost.
+        """
+
+        with self._state_lock:
+            if not state.filter_configured:
+                state = replace(state, active_tool_names=self._state.active_tool_names)
+            self._state = state
 
     def definitions(
         self,
         allowed_names: Sequence[str] | None = None,
         /,
     ) -> tuple[ToolDefinition, ...]:
-        allowed = (
-            {str(name) for name in allowed_names}
-            if allowed_names is not None
-            else self._active_tool_names
-        )
-        return tuple(
-            port.definition
-            for name, port in self._registry.items()
-            if allowed is None or name in allowed
-        )
+        return _definitions_for(self.state, allowed_names)
 
     def execute(
         self,
@@ -148,15 +269,27 @@ class NativeToolCapabilities:
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
     ) -> ToolExecutionOutcome:
-        visible_before = tuple(definition.name for definition in self.definitions(None))
-        outcome = self._executor.execute(
+        state = self.state
+        visible_before = tuple(
+            definition.name for definition in _definitions_for(state, None)
+        )
+        outcome = state.executor.execute(
             call,
             replace(self._context, output_sink=output_sink),
             wait_for_interrupt=wait_for_interrupt,
         )
-        visible_after = tuple(definition.name for definition in self.definitions(None))
+        # Re-read deliberately: an extension tool may widen visibility through
+        # `set_active_tools` during its own call, and the model must be told.
+        # Only compare within one generation, though — a `/reload` that landed
+        # mid-call replaces the registry wholesale, and its differences are not
+        # this call's additions.
+        state_after = self.state
+        visible_after = tuple(
+            definition.name for definition in _definitions_for(state_after, None)
+        )
         if (
-            call.tool_name in self._extension_registry
+            state_after.registry is state.registry
+            and call.tool_name in state.extension_registry
             and not outcome.result.is_error
             and set(visible_before).issubset(visible_after)
         ):
@@ -180,20 +313,22 @@ class NativeToolCapabilities:
         output_text: str,
         /,
     ) -> AgentToolResultMessage:
-        return self._executor.error_result(call, output_text)
+        return self.state.executor.error_result(call, output_text)
 
-    def _configured_tool_names(self) -> set[str]:
-        return set(
-            self._filter_options.provider_visible_names(
-                builtin_names=self._builtin_registry,
-                registered_names=self._registry,
-            )
-        )
 
-    def _rebuild_registry(self) -> None:
-        self._registry = dict(self._builtin_registry)
-        self._registry.update(self._extension_registry)
-        self._executor = ToolExecutor(
-            self._registry,
-            cancel_join_timeout_seconds=self._cancel_join_timeout_seconds,
-        )
+def _definitions_for(
+    state: ToolCapabilityState,
+    allowed_names: Sequence[str] | None,
+) -> tuple[ToolDefinition, ...]:
+    """Project one capability value's visible definitions. Pure."""
+
+    allowed: frozenset[str] | None = (
+        frozenset(str(name) for name in allowed_names)
+        if allowed_names is not None
+        else state.active_tool_names
+    )
+    return tuple(
+        port.definition
+        for name, port in state.registry.items()
+        if allowed is None or name in allowed
+    )

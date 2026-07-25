@@ -1367,7 +1367,13 @@ class _BuiltinCommandInterpreter:
                         project_trusted=settings.project_trusted,
                     )
                     reloaded_tool_registry[_port.definition.name] = _port
-                tool_capabilities.replace_extensions(reloaded_tool_registry)
+                # Candidate-only build, then one non-fallible publication. The
+                # split is what Slice 3.9 needs to move the publication into
+                # the atomic commit; today the two steps still run back to back
+                # so reload behavior is unchanged.
+                tool_capabilities.publish(
+                    tool_capabilities.prepare_extensions(reloaded_tool_registry)
+                )
                 unknown_filter_names = tool_capabilities.unknown_filter_names
                 if unknown_filter_names:
                     known = (

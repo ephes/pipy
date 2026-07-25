@@ -697,6 +697,14 @@ _TOOL_CAPABILITIES_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.tools.ToolContext",
         "pipy_harness.native.tools.ToolDefinition",
         "pipy_harness.native.tools.ToolPort",
+        # The live capability state pointer is guarded state (an extension tool
+        # handler can reach `set_active_tools` from a worker thread while the
+        # session publishes a reloaded generation), and published registries are
+        # handed out as read-only views. Both are stdlib leaves, not new layer
+        # dependencies.
+        "threading",
+        "types",
+        "types.MappingProxyType",
     }
 )
 

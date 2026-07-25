@@ -198,6 +198,18 @@ generation" ambiguous in the first attempt:
   then owns its own selection state, and the retired generation's copy stops
   being read at the swap.
 
+  **A prepared value must never restore a superseded selection.** Reading the
+  outgoing value at gate-open is only sound while the gate is open. Where a
+  component publishes without one — a sub-slice landing before the gate exists,
+  or any publication path that does not open it — the rebind must instead read
+  the live selection *inside the publication critical section* and assign that
+  reference onto the value being published. This is still a reference
+  assignment, so it does not weaken the pointer-only rule, and it is strictly
+  stronger than the gate for this field: no mutation accepted at any point
+  before the swap can be overwritten. Publishing a selection captured earlier,
+  outside the critical section, is the lost-update bug this contract exists to
+  prevent.
+
 So a retired generation is immutable where it matters and inert where it is not.
 No part is ever shared with a successor: a new generation gets new projections,
 new sidecars, and its own rebased selection state.

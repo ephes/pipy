@@ -230,7 +230,11 @@ def test_extension_replacement_preserves_unfiltered_sentinel(
         extensions=(_RecordingTool("old_extension"),),
     )
 
-    capabilities.replace_extensions({"new_extension": _RecordingTool("new_extension")})
+    capabilities.publish(
+        capabilities.prepare_extensions(
+            {"new_extension": _RecordingTool("new_extension")}
+        )
+    )
 
     assert _names(capabilities) == ("builtin", "new_extension")
 
@@ -248,7 +252,11 @@ def test_extension_replacement_recomputes_configured_filters(
         ),
     )
 
-    capabilities.replace_extensions({"new_extension": _RecordingTool("new_extension")})
+    capabilities.publish(
+        capabilities.prepare_extensions(
+            {"new_extension": _RecordingTool("new_extension")}
+        )
+    )
 
     assert _names(capabilities) == ("new_extension",)
     assert capabilities.unknown_filter_names == ("old_extension",)
@@ -264,7 +272,11 @@ def test_extension_replacement_preserves_explicit_active_narrowing(
     )
     assert capabilities.set_active_tools(("builtin", "old_extension")) is True
 
-    capabilities.replace_extensions({"new_extension": _RecordingTool("new_extension")})
+    capabilities.publish(
+        capabilities.prepare_extensions(
+            {"new_extension": _RecordingTool("new_extension")}
+        )
+    )
 
     assert _names(capabilities) == ("builtin",)
 
@@ -415,3 +427,191 @@ def test_filtered_out_registered_calls_execute_pending_request_seam(
 
     assert outcome.result.content == ProductContent("result:hidden")
     assert len(hidden.requests) == 1
+
+
+def test_prepared_extensions_leave_the_live_generation_untouched(
+    tmp_path: Path,
+) -> None:
+    """Candidate preparation must deliver nothing until it is published."""
+
+    capabilities = _capabilities(
+        tmp_path,
+        builtins=(_RecordingTool("builtin"),),
+        extensions=(_RecordingTool("old_extension"),),
+    )
+    live_before = capabilities.state
+
+    candidate = capabilities.prepare_extensions(
+        {"new_extension": _RecordingTool("new_extension")}
+    )
+
+    assert capabilities.state is live_before
+    assert _names(capabilities) == ("builtin", "old_extension")
+    assert tuple(candidate.registry) == ("builtin", "new_extension")
+    assert candidate.executor is not live_before.executor
+    assert candidate.registry is not live_before.registry
+
+    capabilities.publish(candidate)
+
+    # Publication rebinds the carried selection to whatever is live at the
+    # swap, so the published value equals the candidate rather than being it.
+    assert capabilities.state.registry is candidate.registry
+    assert capabilities.state.executor is candidate.executor
+    assert _names(capabilities) == ("builtin", "new_extension")
+
+
+def test_retained_capability_state_is_unchanged_by_later_publication(
+    tmp_path: Path,
+) -> None:
+    """A retained generation must not follow the live one."""
+
+    capabilities = _capabilities(
+        tmp_path,
+        builtins=(_RecordingTool("builtin"),),
+        extensions=(_RecordingTool("old_extension"),),
+    )
+    retained = capabilities.state
+
+    capabilities.publish(
+        capabilities.prepare_extensions(
+            {"new_extension": _RecordingTool("new_extension")}
+        )
+    )
+    assert capabilities.set_active_tools(("builtin",)) is True
+
+    assert tuple(retained.registry) == ("builtin", "old_extension")
+    assert retained.active_tool_names is None
+    assert tuple(retained.extension_registry) == ("old_extension",)
+
+
+def test_set_active_tools_replaces_state_without_mutating_the_old_value(
+    tmp_path: Path,
+) -> None:
+    capabilities = _capabilities(
+        tmp_path,
+        builtins=(_RecordingTool("first"), _RecordingTool("second")),
+    )
+    before = capabilities.state
+
+    assert capabilities.set_active_tools(("second",)) is True
+
+    assert capabilities.state is not before
+    assert before.active_tool_names is None
+    assert capabilities.state.active_tool_names == frozenset({"second"})
+    # A rejected selection leaves the live value in place entirely.
+    rejected_from = capabilities.state
+    assert capabilities.set_active_tools(("missing",)) is False
+    assert capabilities.state is rejected_from
+
+
+def test_published_state_mappings_are_read_only(tmp_path: Path) -> None:
+    capabilities = _capabilities(
+        tmp_path,
+        builtins=(_RecordingTool("builtin"),),
+        extensions=(_RecordingTool("extension"),),
+    )
+    state = capabilities.state
+
+    for mapping in (state.registry, state.builtin_registry, state.extension_registry):
+        with pytest.raises(TypeError):
+            cast(dict[str, object], mapping)["injected"] = _RecordingTool("injected")
+
+
+def test_reload_during_a_call_is_not_reported_as_added_tools(
+    tmp_path: Path,
+) -> None:
+    """A generation swap mid-call must not masquerade as tool widening."""
+
+    reloading = _RecordingTool("reloading")
+    capabilities = _capabilities(
+        tmp_path,
+        builtins=(_RecordingTool("builtin"),),
+        extensions=(reloading,),
+    )
+    assert capabilities.set_active_tools(("reloading",)) is True
+
+    def _publish_new_generation(_request: ToolRequest, _context: ToolContext) -> None:
+        capabilities.publish(
+            capabilities.prepare_extensions(
+                {
+                    "reloading": reloading,
+                    "arrived_on_reload": _RecordingTool("arrived_on_reload"),
+                }
+            )
+        )
+
+    reloading.invoke_hook = _publish_new_generation
+
+    outcome = capabilities.execute(_call("reloading"))
+
+    assert outcome.result.added_tool_names == ()
+
+
+def test_active_tool_widening_during_a_call_is_still_reported(
+    tmp_path: Path,
+) -> None:
+    """The generation check must not suppress the real widening case."""
+
+    widening = _RecordingTool("widening")
+    capabilities = _capabilities(
+        tmp_path,
+        builtins=(_RecordingTool("builtin"),),
+        extensions=(widening,),
+    )
+    assert capabilities.set_active_tools(("widening",)) is True
+
+    def _widen(_request: ToolRequest, _context: ToolContext) -> None:
+        assert capabilities.set_active_tools(("widening", "builtin")) is True
+
+    widening.invoke_hook = _widen
+
+    outcome = capabilities.execute(_call("widening"))
+
+    assert outcome.result.added_tool_names == ("builtin",)
+
+
+def test_publication_does_not_overwrite_a_selection_accepted_while_preparing(
+    tmp_path: Path,
+) -> None:
+    """A reload must not restore a selection sampled before it was superseded."""
+
+    capabilities = _capabilities(
+        tmp_path,
+        builtins=(_RecordingTool("builtin"),),
+        extensions=(_RecordingTool("old_extension"),),
+    )
+    assert capabilities.set_active_tools(("builtin", "old_extension")) is True
+
+    candidate = capabilities.prepare_extensions(
+        {"new_extension": _RecordingTool("new_extension")}
+    )
+    # An extension handler narrows the selection while the reload is prepared.
+    assert capabilities.set_active_tools(("builtin",)) is True
+
+    capabilities.publish(candidate)
+
+    assert capabilities.state.active_tool_names == frozenset({"builtin"})
+    assert _names(capabilities) == ("builtin",)
+
+
+def test_configured_filters_still_re_derive_visibility_on_publication(
+    tmp_path: Path,
+) -> None:
+    """The live-rebind must not defeat an explicitly configured filter."""
+
+    capabilities = _capabilities(
+        tmp_path,
+        builtins=(_RecordingTool("builtin"),),
+        extensions=(_RecordingTool("old_extension"),),
+        options=ToolFilterOptions(
+            allow=("builtin", "old_extension", "new_extension"),
+            exclude=("builtin",),
+        ),
+    )
+
+    candidate = capabilities.prepare_extensions(
+        {"new_extension": _RecordingTool("new_extension")}
+    )
+    capabilities.publish(candidate)
+
+    assert _names(capabilities) == ("new_extension",)
