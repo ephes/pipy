@@ -11,7 +11,47 @@ This file is for coding agents working in this repository. It records local proj
 - Keep `pipy-native` as the product runtime direction. Codex, Claude, Pi, or other CLI wrapping may be useful for capture/reference work, but must not become the main product execution path unless the project direction explicitly changes.
 - Keep capture metadata-first by default; see Session Capture and Workflow Learning Capture below for privacy rules.
 - For nontrivial implementation slices, expect focused tests, `just check`, relevant docs updates, and an independent review pass before treating the work as complete.
-- Scale repeated review passes to risk: a clean first review can close low-risk planning-only or docs-only slices, while implementation slices usually need a clean follow-up after fixes. Stop after a clean second review unless scope, risk, or implementation changed.
+- Scale repeated review passes to risk: a clean first review can close low-risk planning-only or docs-only slices, while implementation slices usually need a clean follow-up after fixes. Stop after a clean second review unless scope, risk, or implementation changed. See **Review budget** below for the caps and the triage rule.
+
+## Review budget
+
+An independent review is a gate against shipping defects, not a search for a
+perfect artifact. A `CLEAN` verdict is evidence, not the objective. These caps
+are the default and hold even when a prompt says "review until clean" — read
+that as "do not ship a defect", not as "iterate without bound".
+
+- **Docs, specs, and plans: at most 2 review rounds.** Prose has no fixed point;
+  a reviewer can always ask for more precision. Land what is right and record
+  what is still open as an explicit question owned by a later slice.
+- **Code: at most 3 review rounds.** If it is not clean by then, report the
+  outstanding findings rather than continuing.
+
+Triage findings by what they change, and do not fix everything a review reports:
+
+| The finding says | In a docs/spec slice | In a code slice |
+| --- | --- | --- |
+| This design is wrong, races, or loses data | Fix now | Fix now |
+| This is underspecified | Note it as a later slice's decision | Fix now |
+| These two statements contradict each other | Fix only if it changes the code written next | Fix now |
+
+Two signals mean stop even before the cap:
+
+- **Self-inflicted churn.** When a round's finding exists only because of the
+  previous round's fix, the loop is consuming itself. Once is normal; twice in a
+  row means stop iterating. Stopping the loop is not permission to land a known
+  defect: any unresolved correctness finding still blocks the commit and is
+  reported. What gets landed is work whose remaining findings are precision or
+  consistency issues.
+- **Specifying what a test would pin better.** A spec should fix ownership and
+  invariants. Protocols, orderings, and delivery semantics belong in the slice
+  that implements them, where they are executable.
+
+One class of finding is exempt from every cap above: **correctness defects in
+shared mutable state** — unsynchronized check-then-mutate, lost updates, or a
+guard taken by only some of a field's readers and writers. Later slices build on
+those assumptions, so they cannot be deferred and fixed later. If two reviews
+report the same class of such defect, stop implementing and revise the written
+contract before writing more code.
 
 ## No-deprecation policy
 - pipy has no users yet and stays private until Pi parity is reached. Do not add
