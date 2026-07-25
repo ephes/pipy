@@ -68,7 +68,9 @@ class _ExtensionOAuthCallbacks:
         self.on_auth(info)
 
     def on_device_code(self, info: Mapping[str, object]) -> None:
-        uri = sanitize_text(str(info.get("verificationUri", info.get("url", "")))).strip()
+        uri = sanitize_text(
+            str(info.get("verificationUri", info.get("url", "")))
+        ).strip()
         code = sanitize_text(str(info.get("userCode", ""))).strip()
         if uri:
             print(f"Open this URL in your browser:\n{uri}", file=self.output_stream)
@@ -296,15 +298,23 @@ class NativeDefaultsStore:
             return None
         if not isinstance(body, dict):
             return None
-        if body.get("schema") != "pipy.native-defaults" or body.get("schema_version") != 1:
+        if (
+            body.get("schema") != "pipy.native-defaults"
+            or body.get("schema_version") != 1
+        ):
             return None
         provider_name = body.get("provider")
         model_id = body.get("model_id")
-        if not isinstance(provider_name, str) or provider_name not in SUPPORTED_NATIVE_PROVIDERS:
+        if (
+            not isinstance(provider_name, str)
+            or provider_name not in SUPPORTED_NATIVE_PROVIDERS
+        ):
             return None
         if not isinstance(model_id, str) or not model_id.strip():
             return None
-        return NativeModelSelection(provider_name=provider_name, model_id=model_id.strip())
+        return NativeModelSelection(
+            provider_name=provider_name, model_id=model_id.strip()
+        )
 
     def save(self, selection: NativeModelSelection) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -347,6 +357,9 @@ class NativeReplProviderState:
     defaults_store: NativeDefaultsStore | None = None
     auth_manager_factory: Callable[[], OpenAICodexAuthManager] = OpenAICodexAuthManager
     persist_defaults: bool = True
+    # Set by a selection change, drained by `flush_pending_default`
+    # after the selection is live. Never written to disk inline.
+    pending_default: NativeModelSelection | None = None
     thinking_level: str | None = None
 
     @property
@@ -389,11 +402,7 @@ class NativeReplProviderState:
         options: list[NativeModelOption] = []
         for row in state.get_all():
             available = state.provider_available(row.provider_name)
-            reason = (
-                None
-                if available
-                else state.availability_reason(row.provider_name)
-            )
+            reason = None if available else state.availability_reason(row.provider_name)
             options.append(
                 NativeModelOption(
                     NativeModelSelection(row.provider_name, row.model_id),
@@ -407,10 +416,25 @@ class NativeReplProviderState:
             )
         return options
 
+    def _begin_selection_transaction(self) -> None:
+        """Discard any default queued by an earlier, abandoned operation.
+
+        The queue is scoped to one selection operation. Without this, a model
+        switch that queued a default and then failed before committing would
+        leave that value sitting in the queue for the next unrelated flush —
+        an auth command, say — to persist a selection that was never live.
+        """
+
+        self.pending_default = None
+
     def select_model(self, reference: str) -> tuple[bool, str]:
+        self._begin_selection_transaction()
         parsed = reference.strip()
         if not parsed:
-            return False, "pipy: malformed /model command. Provide <provider>/<model> or <model>."
+            return (
+                False,
+                "pipy: malformed /model command. Provide <provider>/<model> or <model>.",
+            )
 
         return self._catalog_select_model(parsed)
 
@@ -441,6 +465,7 @@ class NativeReplProviderState:
     ) -> NativeModelSelection | None:
         """Reset to the first available catalog option, optionally tool-capable."""
 
+        self._begin_selection_transaction()
         for option in self.model_options():
             if not option.available:
                 continue
@@ -499,7 +524,10 @@ class NativeReplProviderState:
         suffix = f" ({'; '.join(notes)})" if notes else ""
         return True, f"pipy: selected model {selection.reference}{suffix}."
 
-    def login(self, provider_name: str, *, input_stream: TextIO, output_stream: TextIO) -> tuple[bool, str]:
+    def login(
+        self, provider_name: str, *, input_stream: TextIO, output_stream: TextIO
+    ) -> tuple[bool, str]:
+        self._begin_selection_transaction()
         provider = provider_name.strip() or "openai-codex"
         if provider == "openai-codex":
             self.auth_manager_factory().login_interactive(
@@ -518,13 +546,16 @@ class NativeReplProviderState:
         return False, "pipy: unsupported login provider."
 
     def logout(self, provider_name: str) -> tuple[bool, str]:
+        self._begin_selection_transaction()
         provider = provider_name.strip() or "openai-codex"
         if provider == "openai-codex":
             removed = self.auth_manager_factory().logout()
             if self.selection.provider_name == "openai-codex":
                 # Persist the shared inert default; the product REPL normalizes the
                 # live selection to a tool-capable fake at its consumption point.
-                self.selection = NativeModelSelection("fake", DEFAULT_NATIVE_MODELS["fake"])
+                self.selection = NativeModelSelection(
+                    "fake", DEFAULT_NATIVE_MODELS["fake"]
+                )
                 self._save_default(self.selection)
             if removed:
                 return True, "pipy: openai-codex OAuth credentials removed."
@@ -548,12 +579,17 @@ class NativeReplProviderState:
         provider_name = registered.provider.name
         try:
             credentials = oauth.login(
-                _ExtensionOAuthCallbacks(input_stream=input_stream, output_stream=output_stream)
+                _ExtensionOAuthCallbacks(
+                    input_stream=input_stream, output_stream=output_stream
+                )
             )
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException as err:  # noqa: BLE001 - extension-owned callback
-            return False, f"pipy: {provider_name} OAuth login failed with {type(err).__name__}."
+            return (
+                False,
+                f"pipy: {provider_name} OAuth login failed with {type(err).__name__}.",
+            )
         if inspect.isawaitable(credentials):
             close = getattr(credentials, "close", None)
             if callable(close):
@@ -584,12 +620,44 @@ class NativeReplProviderState:
         return True, f"pipy: no {provider_name} OAuth credentials were stored."
 
     def _save_default(self, selection: NativeModelSelection) -> None:
+        """Queue the selection for post-commit persistence.
+
+        The write itself is deliberately *not* done here. Persisting a default
+        is irreversible file I/O and must happen after the semantic selection
+        is published, not part-way through it — see
+        ``docs/specs/2026-07-25-transactional-extension-reload-rebuild.md``.
+        Callers publish the selection, then call
+        :meth:`flush_pending_default` and surface whatever diagnostic it
+        returns.
+        """
+
         if not self.persist_defaults or self.defaults_store is None:
             return
+        self.pending_default = selection
+
+    def flush_pending_default(self) -> str | None:
+        """Persist a queued default. Returns a safe diagnostic on failure.
+
+        Idempotent: the payload is derived entirely from the selection, so
+        repeating a flush rewrites the same bytes. Failure is fail-soft — the
+        semantic selection is already live and stays live; only the *next*
+        session's remembered default is affected, and the caller reports that
+        rather than pretending the selection rolled back.
+        """
+
+        selection = self.pending_default
+        if selection is None or self.defaults_store is None:
+            return None
+        self.pending_default = None
         try:
             self.defaults_store.save(selection)
-        except OSError:
-            pass
+        except OSError as exc:
+            return (
+                "pipy: selected model is active but could not be saved as the "
+                f"default ({sanitize_text(type(exc).__name__)}); this session "
+                "is unaffected."
+            )
+        return None
 
 
 @dataclass(slots=True)
@@ -615,7 +683,9 @@ class StaticNativeReplProviderState:
     def select_model(self, reference: str) -> tuple[bool, str]:
         return False, "pipy: /model is unavailable for this REPL provider state."
 
-    def login(self, provider_name: str, *, input_stream: TextIO, output_stream: TextIO) -> tuple[bool, str]:
+    def login(
+        self, provider_name: str, *, input_stream: TextIO, output_stream: TextIO
+    ) -> tuple[bool, str]:
         return False, "pipy: /login is unavailable for this REPL provider state."
 
     def logout(self, provider_name: str) -> tuple[bool, str]:

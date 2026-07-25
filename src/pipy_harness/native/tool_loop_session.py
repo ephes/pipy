@@ -1345,6 +1345,18 @@ class _BuiltinCommandInterpreter:
                                                 "supports tool calls after reload; "
                                                 f"selected {fallback.reference}.",
                                             )
+                                            # Post-commit: the fallback is now
+                                            # bound, so persisting it is safe
+                                            # and its failure is reported.
+                                            persistence_error = (
+                                                _report_default_persistence(state)
+                                            )
+                                            if persistence_error is not None:
+                                                session._emit_diagnostic(
+                                                    terminal_ui,
+                                                    error_stream,
+                                                    persistence_error,
+                                                )
                                         else:
                                             message = (
                                                 "active model no longer supports "
@@ -1382,6 +1394,16 @@ class _BuiltinCommandInterpreter:
                                         "reload; selected "
                                         f"{fallback.reference}.",
                                     )
+                                    # Post-commit: the fallback is bound.
+                                    persistence_error = _report_default_persistence(
+                                        state
+                                    )
+                                    if persistence_error is not None:
+                                        session._emit_diagnostic(
+                                            terminal_ui,
+                                            error_stream,
+                                            persistence_error,
+                                        )
                                 else:
                                     message = (
                                         "active model disappeared on reload and "
@@ -1507,6 +1529,19 @@ class _BuiltinCommandInterpreter:
                 refresh_legacy_footer_with_usage()
             else:
                 raise AssertionError("handled command requires a closed footer policy")
+
+
+def _report_default_persistence(
+    state: "NativeReplProviderState",
+) -> str | None:
+    """Drain a queued default after its selection is live.
+
+    Returns the diagnostic so a caller can surface it. Persistence is
+    irreversible, so it deliberately runs only once the semantic rebind has
+    completed; a failure leaves the live selection untouched and says so.
+    """
+
+    return state.flush_pending_default()
 
 
 def _deny_model_mutation(_reference: str) -> bool:
@@ -1733,6 +1768,12 @@ class _ProviderMutationEffects:
             ),
         )
         self.refresh_footer_text()
+        # Post-commit: the selection is already live. Persisting it is
+        # irreversible file I/O, so it runs after publication and reports
+        # failure without claiming the selection rolled back.
+        persistence_error = state.flush_pending_default()
+        if persistence_error is not None:
+            message = f"{message}\n{persistence_error}"
         return True, message
 
     def apply_auth_change(self, action: str, argument: str) -> str:
@@ -1793,6 +1834,10 @@ class _ProviderMutationEffects:
             ),
         )
         self.refresh_footer_text()
+        # Post-commit: the logout-reset selection is already live.
+        persistence_error = state.flush_pending_default()
+        if persistence_error is not None:
+            message = f"{message}\n{persistence_error}"
         return message
 
     def apply_compaction(self, trigger: str) -> str:
@@ -3220,6 +3265,13 @@ class NativeToolReplSession:
                         f"{fallback.reference}.",
                         file=error_stream,
                     )
+                    # Post-commit: the fallback is bound, so persist it and
+                    # report a failure without claiming the binding reverted.
+                    startup_persistence_error = (
+                        self.provider_state.flush_pending_default()
+                    )
+                    if startup_persistence_error is not None:
+                        print(startup_persistence_error, file=error_stream)
         extension_in_agent_turn = False
         # Set immediately before an accepted agent run starts and cleared only
         # when its extension-surface true-idle notification has fired. Keeping

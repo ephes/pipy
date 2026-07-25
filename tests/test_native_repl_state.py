@@ -13,6 +13,7 @@ from pipy_harness.native.catalog import (
     build_builtin_catalog,
 )
 from pipy_harness.native.repl_state import (
+    NativeDefaultsStore,
     AUTO_DEFAULT_PROVIDER_PRIORITY,
     ModelRuntime,
     NativeModelSelection,
@@ -226,6 +227,10 @@ def test_logout_persists_shared_bootstrap_default_not_fake_tools(tmp_path):
     assert ok
     # Shared/persisted default is the inert bootstrap, NOT fake-tools.
     assert state.selection == NativeModelSelection("fake", "fake-native-bootstrap")
+    # Persistence is post-commit: the selection is live immediately, the file
+    # is written only when the caller drains the pending default.
+    assert store.load() is None
+    assert state.flush_pending_default() is None
     assert store.load() == NativeModelSelection("fake", "fake-native-bootstrap")
     # The REPL consumption point still yields a tool-capable selection.
     assert normalize_repl_fake_selection(state.selection) == NativeModelSelection(
@@ -376,8 +381,11 @@ def test_current_provider_catalog_constructs_custom_completions_provider(tmp_pat
                         "apiKey": "local-key",
                         "api": "openai-completions",
                         "models": [
-                            {"id": "deepseek-v4-flash", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"}}
+                            {
+                                "id": "deepseek-v4-flash",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                            }
                         ],
                     }
                 }
@@ -569,8 +577,11 @@ def test_product_path_thinking_level_reaches_constructed_adapter(tmp_path):
                     "apiKey": "local",
                     "api": "openai-completions",
                     "models": [
-                        {"id": "deepseek-v4-flash", "reasoning": True,
-                         "thinkingLevelMap": {"medium": "medium", "high": "high"}}
+                        {
+                            "id": "deepseek-v4-flash",
+                            "reasoning": True,
+                            "thinkingLevelMap": {"medium": "medium", "high": "high"},
+                        }
                     ],
                 }
             }
@@ -629,7 +640,9 @@ def _codex_repl_state(tmp_path, model_id, thinking_level):
     )
     from pipy_harness.native.retry import RetryPolicy
 
-    policy = RetryPolicy(max_attempts=7, initial_delay_seconds=1.5, max_delay_seconds=9.0)
+    policy = RetryPolicy(
+        max_attempts=7, initial_delay_seconds=1.5, max_delay_seconds=9.0
+    )
     state = ProviderCatalogState(
         models_json_path=tmp_path / "models.json",
         auth_store=AuthStore(path=tmp_path / "auth.json"),
@@ -681,3 +694,138 @@ def test_codex_provider_omits_effort_when_off(tmp_path):
 def test_codex_provider_omits_effort_when_no_level(tmp_path):
     repl_state, _ = _codex_repl_state(tmp_path, "gpt-5.6-sol", None)
     assert repl_state.current_provider().reasoning_effort is None
+
+
+def _persisting_state(tmp_path: Path) -> NativeReplProviderState:
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+
+    catalog = ProviderCatalogState(
+        env={},
+        models_json_path=tmp_path / "models.json",
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+    return NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        model_runtime=ModelRuntime(catalog=catalog),
+        defaults_store=NativeDefaultsStore(path=tmp_path / "state" / "defaults.json"),
+    )
+
+
+def test_defaults_persistence_creates_the_file_when_none_exists(
+    tmp_path: Path,
+) -> None:
+    """The first-ever save has no prior file and no prior directory."""
+
+    state = _persisting_state(tmp_path)
+    target = tmp_path / "state" / "defaults.json"
+    assert not target.parent.exists()
+
+    state._save_default(NativeModelSelection("fake", "fake-tools"))
+    assert state.flush_pending_default() is None
+
+    assert target.exists()
+    assert state.defaults_store is not None
+    assert state.defaults_store.load() == NativeModelSelection("fake", "fake-tools")
+
+
+def test_defaults_persistence_is_idempotent(tmp_path: Path) -> None:
+    """Repeating a flush rewrites the same bytes; a drained queue is a no-op."""
+
+    state = _persisting_state(tmp_path)
+    target = tmp_path / "state" / "defaults.json"
+
+    state._save_default(NativeModelSelection("fake", "fake-tools"))
+    assert state.flush_pending_default() is None
+    first = target.read_bytes()
+
+    # Queue drained: nothing further to do, and nothing changes.
+    assert state.flush_pending_default() is None
+    assert target.read_bytes() == first
+
+    # Re-queueing the same selection reproduces byte-identical content.
+    state._save_default(NativeModelSelection("fake", "fake-tools"))
+    assert state.flush_pending_default() is None
+    assert target.read_bytes() == first
+
+
+def test_defaults_persistence_failure_reports_without_claiming_rollback(
+    tmp_path: Path,
+) -> None:
+    """An unwritable location is diagnosed; the live selection is untouched."""
+
+    blocker = tmp_path / "state"
+    blocker.write_text("not a directory", encoding="utf-8")
+    state = _persisting_state(tmp_path)
+    state.selection = NativeModelSelection("fake", "fake-tools")
+
+    state._save_default(NativeModelSelection("fake", "fake-tools"))
+    diagnostic = state.flush_pending_default()
+
+    assert diagnostic is not None
+    assert "could not be saved as the default" in diagnostic
+    assert "this session is unaffected" in diagnostic
+    # No claim that the semantic selection rolled back — it did not.
+    assert state.selection == NativeModelSelection("fake", "fake-tools")
+    assert "rolled back" not in diagnostic
+
+
+def test_a_concurrent_overwrite_never_leaves_a_torn_defaults_file(
+    tmp_path: Path,
+) -> None:
+    """Atomic replace: a reader sees one whole revision, never a partial one."""
+
+    import threading
+
+    state = _persisting_state(tmp_path)
+    target = tmp_path / "state" / "defaults.json"
+    state._save_default(NativeModelSelection("fake", "fake-tools"))
+    assert state.flush_pending_default() is None
+
+    other = NativeDefaultsStore(path=target)
+    stop = threading.Event()
+    torn: list[str] = []
+
+    def _write_repeatedly() -> None:
+        index = 0
+        while not stop.is_set():
+            index += 1
+            model = "fake-tools" if index % 2 else "fake-native-bootstrap"
+            other.save(NativeModelSelection("fake", model))
+
+    worker = threading.Thread(target=_write_repeatedly, daemon=True)
+    worker.start()
+    try:
+        for _ in range(2000):
+            loaded = other.load()
+            # `load` returns None for an unparseable body, which is exactly
+            # what a torn write would produce.
+            if loaded is None:
+                torn.append("unparseable defaults file")
+                break
+    finally:
+        stop.set()
+        worker.join(timeout=5)
+
+    assert torn == [], torn
+
+
+def test_an_abandoned_selection_does_not_leak_into_a_later_flush(
+    tmp_path: Path,
+) -> None:
+    """A queued default belongs to its own operation, not to the next one."""
+
+    state = _persisting_state(tmp_path)
+    assert state.defaults_store is not None
+
+    # An operation queues a default and is then abandoned without flushing.
+    state._save_default(NativeModelSelection("fake", "fake-tools"))
+    assert state.pending_default == NativeModelSelection("fake", "fake-tools")
+
+    # A later, unrelated selection operation starts from an empty queue, so the
+    # abandoned value can never be persisted by that operation's flush.
+    state.reset_to_first_available_model()
+    assert state.pending_default != NativeModelSelection("fake", "fake-tools")
+
+    state.pending_default = None
+    assert state.flush_pending_default() is None
+    assert state.defaults_store.load() is None
