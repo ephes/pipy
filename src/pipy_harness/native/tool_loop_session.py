@@ -1561,6 +1561,13 @@ class _ProviderMutationEffects:
     refresh_footer_text: Callable[[], None]
     extension_notify: Callable[[str, str], None]
     extension_ui_driver: _LiveExtensionUiDriver | None
+    # Orders a mutation's decision against its own follow-on I/O. Two callers
+    # that assign under the session mutex and then append to the session tree
+    # outside it could otherwise persist their changes in the opposite order,
+    # leaving the durable record disagreeing with live state. Held *outside*
+    # the session mutex, never inside it, so file I/O still never runs under
+    # the session boundary.
+    mutation_io_lock: "threading.RLock"
 
     def _mutation_refused_during_publication(self) -> bool:
         """Whether a reload is mid-publication, so mutations must fail closed.
@@ -1575,15 +1582,16 @@ class _ProviderMutationEffects:
         **Admission is atomic only where the effect is.** Reading this flag and
         then applying a mutation are two critical sections, so a worker can
         pass the check and land its effect after a reload opens the gate.
-        ``extension_set_active_tools`` closes that window by holding the
-        session mutex across both. ``extension_set_model`` and
-        ``extension_set_thinking_level`` cannot yet: their effects persist a
-        default and append to the session tree, and holding the session mutex
+        ``extension_set_active_tools`` and ``extension_set_thinking_level``
+        close that window by holding the session mutex across the check and the
+        assignment, with their session-tree and rendering effects moved after
+        the critical section. ``extension_set_model`` cannot yet: its effect
+        persists a default part-way through, and holding the session mutex
         across file I/O is exactly what the concurrency contract forbids.
-        Closing their window needs provider construction and persistence split
+        Closing its window needs provider construction and persistence split
         out of the mutation, which is Slice 3.7c and 3.8 work; until then the
-        gate narrows the window rather than eliminating it, and this is
-        recorded as a residual in the rebuild plan.
+        gate narrows that one port's window rather than eliminating it, and
+        this is recorded as a residual in the rebuild plan.
         """
 
         return self.ctl.generation_ref.publication_pending
@@ -1608,16 +1616,48 @@ class _ProviderMutationEffects:
         return ok
 
     def extension_set_thinking_level(self, level: str) -> bool:
-        """Set the active reasoning level through the provider state."""
+        """Set the active reasoning level through the provider state.
 
-        if self._mutation_refused_during_publication():
-            return False
+        The gate check, the eligibility checks, and the assignment share one
+        critical section, so a publication cannot open between admitting this
+        call and applying it. Everything after the assignment — the session-tree
+        append and the footer refresh — is a post-mutation effect and runs
+        outside that lock, keeping file I/O and rendering off the session mutex.
+
+        ``mutation_io_lock`` spans the decision *and* those effects so two
+        concurrent callers cannot assign in one order and append in the other,
+        which would leave the durable thinking-level record disagreeing with
+        live state. Lock order is always this lock first, then the session
+        mutex.
+        """
+
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                if self._mutation_refused_during_publication():
+                    return False
+                # Normalize exactly once: persisting a separately re-derived
+                # value could disagree with what was assigned.
+                normalized = self._assign_thinking_level_locked(level)
+                if normalized is None:
+                    return False
+            self.ctl.session_tree.append_thinking_level_change(normalized)
+            self.refresh_footer_text()
+        return True
+
+    def _assign_thinking_level_locked(self, level: str) -> str | None:
+        """Validate and assign the level, returning the value actually set.
+
+        Caller holds the session mutex. Returns ``None`` when the level is
+        refused, so the caller persists exactly the string that was assigned
+        rather than re-deriving it.
+        """
+
         state = self.session.provider_state
         if not isinstance(state, NativeReplProviderState):
-            return False
+            return None
         normalized = str(level).strip().lower()
         if normalized not in THINKING_LEVELS:
-            return False
+            return None
         current = state.current_selection()
         supports_thinking = any(
             option.selection.provider_name == current.provider_name
@@ -1626,11 +1666,9 @@ class _ProviderMutationEffects:
             for option in state.model_options()
         )
         if normalized != "off" and not supports_thinking:
-            return False
+            return None
         state.thinking_level = normalized
-        self.ctl.session_tree.append_thinking_level_change(normalized)
-        self.refresh_footer_text()
-        return True
+        return normalized
 
     def model_runtime_control(
         self, *, allow_model: bool = True
@@ -3616,6 +3654,7 @@ class NativeToolReplSession:
             refresh_footer_text=footer.refresh_footer_text,
             extension_notify=_extension_notify,
             extension_ui_driver=extension_ui_driver,
+            mutation_io_lock=threading.RLock(),
         )
 
         # The residual run-loop collaborators (diagnostics, session-name setters,

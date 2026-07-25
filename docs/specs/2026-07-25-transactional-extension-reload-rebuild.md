@@ -469,9 +469,12 @@ assignments does not close that window.
   provider selection, tool visibility, and renderer projections afterwards;
   reopening mutations at the swap would let a change be accepted and then
   overwritten by those later projections.
-- The gate also closes *before* post-reload extension lifecycle hooks run. A
-  `session_start` hook from the freshly activated generation may legitimately
-  call `setModel`; refusing it would be a behavior change, not a protection.
+- The gate also closes *before* post-reload extension lifecycle hooks run.
+  This is defensive rather than load-bearing today: a lifecycle-hook context
+  carries no class A port, so there is currently nothing for the gate to refuse
+  there. The ordering is fixed now, and a test pins the capability fact, so
+  wiring those controls into lifecycle contexts later cannot silently start
+  refusing legitimate reload hooks.
 - A rejected candidate closes the gate under the lock with no swap, and
   mutations are accepted again. **Closing the gate is guaranteed, not
   best-effort:** it happens in a `finally`, and before the candidate's fallible
@@ -486,12 +489,14 @@ applying a mutation are two critical sections; a port that does so can pass the
 check and land its effect after a reload has already read the state it will
 republish. A gate-checking port must therefore hold the session mutex across
 both the check and the effect. That is only possible where the effect is purely
-in memory: `set_active_tools` qualifies, while `set_model` and
-`set_thinking_level` currently persist a default and append to the session tree
-inside the mutation, and holding the mutex across file I/O is forbidden above.
-Until provider construction and persistence are lifted out of those two ports
-(S3.7c and S3.8), the gate narrows their window rather than closing it. This is
-a recorded residual, not a met guarantee.
+in memory. `set_active_tools` qualifies directly. `set_thinking_level`
+qualifies once its session-tree append and footer refresh are moved *after* the
+critical section — they are post-mutation effects, not part of the decision.
+`set_model` does not: it persists a default part-way through its mutation, and
+holding the mutex across file I/O is forbidden above. Until provider
+construction and persistence are lifted out of that port (S3.7c and S3.8), the
+gate narrows its window rather than closing it. That single port is a recorded
+residual, not a met guarantee.
 
 No accepted mutation can occur between the candidate's read of live state and
 the commit, so the candidate cannot overwrite one. Because the gate is opened

@@ -3282,3 +3282,60 @@ def test_command_dispatch_precedence_kernel_resource_extension_fallback(
     # (2): ``/bogus`` — no built-in, no resource, no extension command — lands
     # on the single unknown-``/`` fallback diagnostic.
     assert "'/bogus' is not handled in tool-loop mode" in err
+
+
+def test_lifecycle_hook_contexts_expose_no_model_runtime_controls(
+    tmp_path: Path,
+) -> None:
+    """Lifecycle hooks cannot reach the gated mutation ports.
+
+    The publication gate refuses `setModel` / `setThinkingLevel` /
+    `setActiveTools` while a reload republishes its projections, and the reload
+    closes the gate before firing `session_start` so a hook is never refused by
+    it. That ordering is defensive today: a lifecycle-hook context does not
+    carry the model-runtime controls at all, so there is nothing for the gate
+    to refuse. This pins that fact — if the controls are ever wired into
+    lifecycle contexts, the gate ordering must already be correct, and this
+    test is the reminder to re-check it.
+    """
+
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    marker = extension_dir / "hook_capabilities.txt"
+    (extension_dir / "reload_hook.py").write_text(
+        "from pathlib import Path\n"
+        "\n"
+        "MARKER = Path(__file__).with_name('hook_capabilities.txt')\n"
+        "\n"
+        "def activate(api):\n"
+        "    @api.on('session_start')\n"
+        "    def _on_start(ctx, event):\n"
+        "        names = [\n"
+        "            name\n"
+        "            for name in (\n"
+        "                'set_model', 'setModel',\n"
+        "                'set_thinking_level', 'setThinkingLevel',\n"
+        "                'set_active_tools', 'setActiveTools',\n"
+        "            )\n"
+        "            if hasattr(ctx, name)\n"
+        "        ]\n"
+        "        with MARKER.open('a', encoding='utf-8') as handle:\n"
+        "            handle.write(repr(names) + '\\n')\n",
+        encoding="utf-8",
+    )
+
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
+    session = NativeToolReplSession(provider=provider)
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/reload\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    records = marker.read_text(encoding="utf-8").splitlines()
+    # Startup fires `session_start` once and `/reload` fires it again, so a
+    # second record proves the reloaded generation's hook ran too rather than
+    # the assertion passing on the startup fire alone.
+    assert len(records) >= 2, records
+    assert set(records) == {"[]"}, records
