@@ -285,6 +285,7 @@ class _ToolLoopRenderer:
         self._tool_renderers = dict(tool_renderers or {})
         self._render_details_sink = render_details_sink
         self._pending_render: dict[str, object] | None = None
+        self._pending_tool: "ExtensionTool | None" = None
         self._last_tool_name = ""
 
     def refresh_tool_renderers(
@@ -682,10 +683,16 @@ class _ToolLoopRenderer:
         self._close_reasoning()
         self._last_tool_name = call.tool_name
         self._pending_render = None
+        self._pending_tool = None
         tool = self._tool_renderers.get(call.tool_name)
         if tool is not None:
             args = _parse_tool_input(call.arguments_json.value)
             state: dict[str, object] = {}
+            # Pin the resolved renderer to this call. `/reload` may replace the
+            # live renderer map while the call is in flight, so re-resolving at
+            # result time could render the result with a different extension's
+            # renderer, or with none.
+            self._pending_tool = tool
             self._pending_render = {
                 "corr": call.provider_correlation_id,
                 "args": args,
@@ -737,8 +744,10 @@ class _ToolLoopRenderer:
         duration_seconds: float | None = None,
     ) -> None:
         pending = self._pending_render
+        tool = self._pending_tool
         self._pending_render = None
-        lines = self._extension_result_lines(pending, output_text, is_error)
+        self._pending_tool = None
+        lines = self._extension_result_lines(pending, tool, output_text, is_error)
         if lines is not None:
             self._write_extension_result(lines, duration_seconds)
             return
@@ -747,13 +756,11 @@ class _ToolLoopRenderer:
     def _extension_result_lines(
         self,
         pending: dict[str, object] | None,
+        tool: "ExtensionTool | None",
         output_text: str,
         is_error: bool,
     ) -> list[str] | None:
-        if pending is None:
-            return None
-        tool = self._tool_renderers.get(self._last_tool_name)
-        if tool is None or tool.render_result is None:
+        if pending is None or tool is None or tool.render_result is None:
             return None
         details = None
         if self._render_details_sink is not None:

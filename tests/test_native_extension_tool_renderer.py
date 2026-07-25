@@ -332,3 +332,81 @@ def test_tui_renderer_refreshes_tool_renderers_after_reload(tmp_path):
         ("CALL:second",),
     ]
     assert ui._history_blocks[-1][0] == "tool"
+
+
+def _renderer_pair(marker: str) -> ExtensionTool:
+    return ExtensionTool(
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
+        handler=lambda ctx, inp: ToolResult(content="x"),
+        render_call=lambda ctx: lines_component([f"CALL:{marker}"]),
+        render_result=lambda ctx: lines_component([f"RESULT:{marker}"]),
+    )
+
+
+def test_captured_renderer_pins_result_renderer_to_its_call():
+    """A reload mid-call must not re-target the in-flight result renderer."""
+
+    from pipy_harness.native.tool_renderers import _ToolLoopRenderer
+
+    out, err = io.StringIO(), io.StringIO()
+    renderer = _ToolLoopRenderer(
+        output_stream=out,
+        error_stream=err,
+        tool_renderers={"kv": _renderer_pair("first")},
+        render_details_sink={},
+    )
+    renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
+    renderer.refresh_tool_renderers({"kv": _renderer_pair("second")})
+    renderer.render_tool_result(output_text="x", is_error=False)
+
+    rendered = err.getvalue()
+    assert "CALL:first" in rendered
+    assert "RESULT:first" in rendered
+    assert "RESULT:second" not in rendered
+
+
+def test_captured_renderer_pins_result_renderer_when_tool_is_removed():
+    """Losing the tool on reload must not silently drop the pending result."""
+
+    from pipy_harness.native.tool_renderers import _ToolLoopRenderer
+
+    out, err = io.StringIO(), io.StringIO()
+    renderer = _ToolLoopRenderer(
+        output_stream=out,
+        error_stream=err,
+        tool_renderers={"kv": _renderer_pair("first")},
+        render_details_sink={},
+    )
+    renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
+    renderer.refresh_tool_renderers({})
+    renderer.render_tool_result(output_text="x", is_error=False)
+
+    assert "RESULT:first" in err.getvalue()
+
+
+def test_tui_renderer_pins_result_renderer_to_its_call(tmp_path):
+    ui = _tui(tmp_path)
+    renderer = _TuiToolLoopRenderer(
+        ui=ui, tool_renderers={"kv": _renderer_pair("first")}
+    )
+    renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
+    renderer.refresh_tool_renderers({"kv": _renderer_pair("second")})
+    renderer.render_tool_result(output_text="x", is_error=False)
+
+    result_blocks = [b for b in ui._history_blocks if b[0] == "tool_result_custom"]
+    assert [tuple(b[1]) for b in result_blocks] == [("RESULT:first",)]
+
+
+def test_tui_renderer_pins_result_renderer_when_tool_is_removed(tmp_path):
+    ui = _tui(tmp_path)
+    renderer = _TuiToolLoopRenderer(
+        ui=ui, tool_renderers={"kv": _renderer_pair("first")}
+    )
+    renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
+    renderer.refresh_tool_renderers({})
+    renderer.render_tool_result(output_text="x", is_error=False)
+
+    result_blocks = [b for b in ui._history_blocks if b[0] == "tool_result_custom"]
+    assert [tuple(b[1]) for b in result_blocks] == [("RESULT:first",)]

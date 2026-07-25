@@ -6563,6 +6563,12 @@ class _PendingToolRender(TypedDict):
     corr: str
     args: dict[str, object]
     state: dict[str, object]
+    # The renderer resolved when the call was rendered. Pinning it here keeps a
+    # result bound to the tool set advertised for its request: `/reload` may
+    # replace the live renderer map while a tool call is in flight, and a
+    # second lookup at result time would then render the result with a
+    # different extension's renderer, or with none.
+    tool: "ExtensionTool"
 
 
 def _forward_legacy_render_details(ctx: ToolRenderContext, details: object) -> None:
@@ -6708,6 +6714,7 @@ class _TuiToolLoopRenderer:
                 "corr": call.provider_correlation_id,
                 "args": args,
                 "state": state,
+                "tool": tool,
             }
             if tool.render_call is not None:
                 lines = self._dispatch_render(
@@ -6737,8 +6744,8 @@ class _TuiToolLoopRenderer:
         pending = self._pending_render
         self._pending_render = None
         if pending is not None:
-            tool = self._tool_renderers.get(self._last_tool_name)
-            if tool is not None and tool.render_result is not None:
+            tool = pending["tool"]
+            if tool.render_result is not None:
                 details: object | None = None
                 if self._render_details_sink is not None:
                     details = self._render_details_sink.pop(pending["corr"], None)
