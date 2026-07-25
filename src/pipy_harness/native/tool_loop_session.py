@@ -3008,6 +3008,12 @@ class NativeToolReplSession:
         keybindings.bind_state_lock(session_state_lock)
         settings = self.settings_manager or SettingsManager.for_workspace(cwd)
         settings.bind_state_lock(session_state_lock)
+        # The coding state is built in `__post_init__`, before a session
+        # exists, so it starts on a private lock and adopts the shared one
+        # here. An extension handler reaching `set_model` from a worker thread
+        # rebinds its provider and clears its history; that must serialize
+        # against the session thread's own reads and writes.
+        coding_state.bind_state_lock(session_state_lock)
         resource_options = self.resource_options
         # Compose installed package resources: resolve local paths and managed
         # git caches, then install the package theme registry so package

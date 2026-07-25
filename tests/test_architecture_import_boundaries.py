@@ -327,6 +327,10 @@ _CODING_STATE_ALLOWED_DIRECT_IMPORTS = frozenset(
         "pipy_harness.native.agent.usage.AgentUsageAccumulator",
         "pipy_harness.native.provider",
         "pipy_harness.native.provider.ProviderPort",
+        # The provider binding, history, usage, and compaction group is guarded
+        # state: an extension handler reaches it from a worker thread through
+        # `set_model`. A stdlib leaf, not a new layer dependency.
+        "threading",
     }
 )
 

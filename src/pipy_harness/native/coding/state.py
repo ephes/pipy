@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from dataclasses import dataclass
 from math import isfinite
 
@@ -143,10 +145,25 @@ class CodingSessionState:
     Provider construction, pricing lookup, persistence, rendering, and agent-loop
     invocation remain composition concerns. A supplied usage accumulator transfers
     to this object; callers interact with it through typed state transitions.
+
+    **Synchronization.** The provider binding, canonical history, usage
+    accumulator, and compaction state are guarded state: an extension handler
+    on a detached worker thread reaches them through ``set_model``, which
+    rebinds the provider, clears live history, and resets usage. Every reader
+    and writer of that group therefore takes ``state_lock`` — the session
+    thread included, since a lock only one side takes excludes nobody.
+
+    The remaining counters (turn, tool, resource, file-reference, and
+    image-attachment tallies, plus the provider-failure slot) are written only
+    by the agent loop on the session thread and are documented as
+    session-thread-owned; they are reset inside the same critical section as a
+    ``begin_run`` rebind so a snapshot never mixes generations. ``state_lock``
+    is injectable so the composition root can pass the one session mutex.
     """
 
     __slots__ = (
         "_binding",
+        "_state_lock",
         "_budget_exhausted_count",
         "_compaction_count",
         "_compaction_dropped_group_count",
@@ -175,7 +192,9 @@ class CodingSessionState:
         model_id: str,
         usage_accumulator: AgentUsageAccumulator | None = None,
         messages: tuple[AgentMessage, ...] = (),
+        state_lock: "threading.RLock | None" = None,
     ) -> None:
+        self._state_lock = state_lock if state_lock is not None else threading.RLock()
         self._binding = CodingProviderBinding(provider, provider_name, model_id)
         self._usage_accumulator = (
             AgentUsageAccumulator()
@@ -201,29 +220,47 @@ class CodingSessionState:
         self._compaction_dropped_group_count = 0
         self._provider_failure: AgentFailure | None = None
 
+    def bind_state_lock(self, lock: "threading.RLock") -> None:
+        """Adopt the session's mutex, keeping this object's identity.
+
+        **Composition-time only**: call while the session is still being
+        assembled, before any worker thread can reach this state.
+        """
+
+        with self._state_lock:
+            if lock is self._state_lock:
+                return
+            self._state_lock = lock
+
     @property
     def provider(self) -> ProviderPort:
-        return self._binding.provider
+        with self._state_lock:
+            return self._binding.provider
 
     @property
     def provider_binding(self) -> CodingProviderBinding:
-        return self._binding
+        with self._state_lock:
+            return self._binding
 
     @property
     def provider_name(self) -> str:
-        return self._binding.provider_name
+        with self._state_lock:
+            return self._binding.provider_name
 
     @property
     def model_id(self) -> str:
-        return self._binding.model_id
+        with self._state_lock:
+            return self._binding.model_id
 
     @property
     def messages(self) -> tuple[AgentMessage, ...]:
-        return tuple(self._messages)
+        with self._state_lock:
+            return tuple(self._messages)
 
     @property
     def compaction_suffix(self) -> str:
-        return self._compaction_suffix
+        with self._state_lock:
+            return self._compaction_suffix
 
     @property
     def provider_failure(self) -> AgentFailure | None:
@@ -279,24 +316,32 @@ class CodingSessionState:
 
     @property
     def compaction_count(self) -> int:
-        return self._compaction_count
+        with self._state_lock:
+            return self._compaction_count
 
     @property
     def compaction_dropped_group_count(self) -> int:
-        return self._compaction_dropped_group_count
+        with self._state_lock:
+            return self._compaction_dropped_group_count
 
     @property
     def usage(self) -> AgentUsage:
-        return self._usage_accumulator.agent_usage()
+        with self._state_lock:
+            return self._usage_accumulator.agent_usage()
 
     def usage_snapshot(self) -> CodingSessionUsageSnapshot:
-        """Return immutable footer/status inputs without exposing mutation."""
+        """Return immutable footer/status inputs without exposing mutation.
 
-        return CodingSessionUsageSnapshot(
-            usage=self._usage_accumulator.agent_usage(),
-            last_total_tokens=self._usage_accumulator.last_total_tokens,
-            cache_hit_percent=self._usage_accumulator.cache_hit_percent,
-        )
+        Read under the lock so a rebind replacing the accumulator cannot land
+        between the fields of one snapshot.
+        """
+
+        with self._state_lock:
+            return CodingSessionUsageSnapshot(
+                usage=self._usage_accumulator.agent_usage(),
+                last_total_tokens=self._usage_accumulator.last_total_tokens,
+                cache_hit_percent=self._usage_accumulator.cache_hit_percent,
+            )
 
     def begin_run(
         self,
@@ -313,43 +358,46 @@ class CodingSessionState:
             model_id,
         )
         accumulator = _require_usage_accumulator(usage_accumulator)
-        self._binding = binding
-        self._usage_accumulator = accumulator
-        self._messages.clear()
-        self._user_turn_count = 0
-        self._tool_invocation_count = 0
-        self._resource_invocation_count = 0
-        self._malformed_argument_count = 0
-        self._consecutive_malformed_streak = 0
-        self._budget_exhausted_count = 0
-        self._file_reference_count = 0
-        self._file_reference_loaded_count = 0
-        self._file_reference_failed_count = 0
-        self._image_attachment_count = 0
-        self._image_attachment_loaded_count = 0
-        self._image_attachment_failed_count = 0
-        self._compaction_suffix = ""
-        self._compaction_count = 0
-        self._compaction_dropped_group_count = 0
-        self._provider_failure = None
+        with self._state_lock:
+            self._binding = binding
+            self._usage_accumulator = accumulator
+            self._messages.clear()
+            self._user_turn_count = 0
+            self._tool_invocation_count = 0
+            self._resource_invocation_count = 0
+            self._malformed_argument_count = 0
+            self._consecutive_malformed_streak = 0
+            self._budget_exhausted_count = 0
+            self._file_reference_count = 0
+            self._file_reference_loaded_count = 0
+            self._file_reference_failed_count = 0
+            self._image_attachment_count = 0
+            self._image_attachment_loaded_count = 0
+            self._image_attachment_failed_count = 0
+            self._compaction_suffix = ""
+            self._compaction_count = 0
+            self._compaction_dropped_group_count = 0
+            self._provider_failure = None
 
     def refresh_provider(self, provider: ProviderPort) -> None:
         """Replace a same-context provider port while retaining all state."""
 
-        self._binding = CodingProviderBinding(
-            provider,
-            self._binding.provider_name,
-            self._binding.model_id,
-        )
+        with self._state_lock:
+            self._binding = CodingProviderBinding(
+                provider,
+                self._binding.provider_name,
+                self._binding.model_id,
+            )
 
     def mark_provider_unavailable(self, provider: ProviderPort) -> None:
         """Bind an unavailable port while retaining labels and live context."""
 
-        self._binding = CodingProviderBinding(
-            provider,
-            self._binding.provider_name,
-            self._binding.model_id,
-        )
+        with self._state_lock:
+            self._binding = CodingProviderBinding(
+                provider,
+                self._binding.provider_name,
+                self._binding.model_id,
+            )
 
     def rebind_provider(
         self,
@@ -367,33 +415,40 @@ class CodingSessionState:
 
         binding = CodingProviderBinding(provider, provider_name, model_id)
         accumulator = _require_usage_accumulator(usage_accumulator)
-        self._binding = binding
-        self._usage_accumulator = accumulator
-        self._messages.clear()
+        # Binding, usage, and history move together or not at all: a reader
+        # must never see the new provider paired with the old usage.
+        with self._state_lock:
+            self._binding = binding
+            self._usage_accumulator = accumulator
+            self._messages.clear()
 
     def append_message(self, message: AgentMessage) -> None:
         """Append the exact canonical message object to live history."""
 
         require_exact_agent_message(message, "message")
-        self._messages.append(message)
+        with self._state_lock:
+            self._messages.append(message)
 
     def mirror_history(self, messages: tuple[AgentMessage, ...]) -> None:
         """Mirror an agent-loop history without changing compaction metadata."""
 
         require_exact_agent_messages(messages)
-        self._messages = list(messages)
+        with self._state_lock:
+            self._messages = list(messages)
 
     def clear_history(self) -> None:
         """Clear live history without changing compaction metadata."""
 
-        self._messages.clear()
+        with self._state_lock:
+            self._messages.clear()
 
     def rebuild_history(self, messages: tuple[AgentMessage, ...]) -> None:
         """Replace history from product persistence and clear its live suffix."""
 
         require_exact_agent_messages(messages)
-        self._messages = list(messages)
-        self._compaction_suffix = ""
+        with self._state_lock:
+            self._messages = list(messages)
+            self._compaction_suffix = ""
 
     def sync_tool_policy(self, state: AgentToolPolicyState) -> None:
         """Mirror the exact reusable-loop cumulative tool counters."""
@@ -472,7 +527,8 @@ class CodingSessionState:
             sample.effective_total_tokens,
             "sample.effective_total_tokens",
         )
-        self._usage_accumulator.absorb(sample)
+        with self._state_lock:
+            self._usage_accumulator.absorb(sample)
 
     def apply_compaction(
         self,
@@ -491,10 +547,11 @@ class CodingSessionState:
         _require_non_negative_int(dropped_group_count, "dropped_group_count")
         if dropped_group_count == 0:
             raise ValueError("dropped_group_count must be positive")
-        self._messages = list(messages)
-        self._compaction_suffix = summary_suffix
-        self._compaction_count += 1
-        self._compaction_dropped_group_count += dropped_group_count
+        with self._state_lock:
+            self._messages = list(messages)
+            self._compaction_suffix = summary_suffix
+            self._compaction_count += 1
+            self._compaction_dropped_group_count += dropped_group_count
 
     def record_provider_failure(self, failure: AgentFailure) -> None:
         _require_agent_failure(failure, "failure")
@@ -504,8 +561,16 @@ class CodingSessionState:
         self._provider_failure = None
 
     def result_snapshot(self) -> CodingSessionResultSnapshot:
-        """Return a recursively validated immutable projection."""
+        """Return a recursively validated immutable projection.
 
+        Built under the lock so binding, history, and usage in one snapshot
+        always come from the same generation.
+        """
+
+        with self._state_lock:
+            return self._result_snapshot_locked()
+
+    def _result_snapshot_locked(self) -> CodingSessionResultSnapshot:
         return CodingSessionResultSnapshot(
             provider_name=self._binding.provider_name,
             model_id=self._binding.model_id,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError, replace
 from typing import cast
@@ -93,6 +95,7 @@ def _state(
     provider: ProviderPort | None = None,
     messages: tuple[AgentMessage, ...] = (),
     accumulator: AgentUsageAccumulator | None = None,
+    state_lock: "threading.RLock | None" = None,
 ) -> CodingSessionState:
     return CodingSessionState(
         provider=provider or _provider(),
@@ -100,6 +103,7 @@ def _state(
         model_id="explicit-model",
         usage_accumulator=accumulator or AgentUsageAccumulator(),
         messages=messages,
+        state_lock=state_lock,
     )
 
 
@@ -878,3 +882,100 @@ def test_provider_binding_and_usage_snapshot_reject_invalid_substitutions() -> N
         replace(usage_snapshot, cache_hit_percent=cast(float, 1))
     with pytest.raises(ValueError, match="finite and nonnegative"):
         replace(usage_snapshot, cache_hit_percent=float("nan"))
+
+
+def test_coding_state_shares_the_session_mutex_when_bound() -> None:
+    """Two locks would not serialize a worker rebind against the session."""
+
+    session_lock = threading.RLock()
+    state = _state()
+    private = state._state_lock
+    assert private is not session_lock
+
+    state.bind_state_lock(session_lock)
+    assert state._state_lock is session_lock
+    state.bind_state_lock(session_lock)
+    assert state._state_lock is session_lock
+
+
+def _blocks_while_lock_held(
+    lock: "threading.RLock", operation: "Callable[[], object]"
+) -> bool:
+    """Whether ``operation`` waits for ``lock`` instead of running through it.
+
+    Deterministic rather than probabilistic: rather than racing threads and
+    hoping to observe a torn read, this holds the mutex and asserts the
+    operation cannot make progress. An operation that skipped the lock would
+    finish immediately and the helper returns False.
+    """
+
+    started = threading.Event()
+    finished = threading.Event()
+
+    def _run() -> None:
+        started.set()
+        operation()
+        finished.set()
+
+    worker = threading.Thread(target=_run, daemon=True)
+    with lock:
+        worker.start()
+        assert started.wait(timeout=5)
+        blocked = not finished.wait(timeout=0.2)
+    worker.join(timeout=5)
+    assert finished.wait(timeout=5), "operation never completed after release"
+    return blocked
+
+
+def test_provider_rebind_waits_for_the_shared_mutex() -> None:
+    """The straggler-reachable write participates in the boundary."""
+
+    lock = threading.RLock()
+    state = _state(state_lock=lock)
+
+    def _rebind() -> None:
+        state.rebind_provider(
+            _provider("late", "late-model"),
+            provider_name="late",
+            model_id="late-model",
+            usage_accumulator=AgentUsageAccumulator(),
+        )
+
+    assert _blocks_while_lock_held(lock, _rebind) is True
+    assert state.provider_name == "late"
+
+
+def test_result_and_usage_snapshots_wait_for_the_shared_mutex() -> None:
+    """Readers take the boundary too; a one-sided lock excludes nobody."""
+
+    lock = threading.RLock()
+    state = _state(state_lock=lock)
+
+    assert _blocks_while_lock_held(lock, lambda: state.result_snapshot()) is True
+    assert _blocks_while_lock_held(lock, lambda: state.usage_snapshot()) is True
+    assert _blocks_while_lock_held(lock, lambda: state.messages) is True
+
+
+def test_history_append_waits_for_the_shared_mutex() -> None:
+    lock = threading.RLock()
+    state = _state(state_lock=lock)
+
+    assert (
+        _blocks_while_lock_held(lock, lambda: state.append_message(_message("x")))
+        is True
+    )
+    assert [message.content.value for message in state.messages] == ["x"]
+
+
+def test_compaction_metadata_readers_wait_for_the_shared_mutex() -> None:
+    """Compaction counters are part of the guarded group, so readers join it."""
+
+    lock = threading.RLock()
+    state = _state(state_lock=lock)
+
+    assert _blocks_while_lock_held(lock, lambda: state.compaction_count) is True
+    assert (
+        _blocks_while_lock_held(lock, lambda: state.compaction_dropped_group_count)
+        is True
+    )
+    assert _blocks_while_lock_held(lock, lambda: state.compaction_suffix) is True
