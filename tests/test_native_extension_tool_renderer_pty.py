@@ -68,12 +68,15 @@ def test_pty_custom_tool_result_renders_colored(monkeypatch, tmp_path: Path):
         cwd=tmp_path,
     )
     tool = ExtensionTool(
-        name="kv", description="d", input_schema={"type": "object"},
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="x", details={"k": "v"}),
         render_result=_render_result,
     )
     renderer = _TuiToolLoopRenderer(
-        ui=ui, tool_renderers={"kv": tool},
+        ui=ui,
+        tool_renderers={"kv": tool},
         render_details_sink={"c": {"k": "v"}},
     )
     renderer.render_tool_call(

@@ -41,16 +41,24 @@ def test_at_least_35_app_bindings_present() -> None:
 def test_documented_app_defaults() -> None:
     assert DEFAULT_KEYBINDINGS["app.interrupt"].default_keys == ["escape"]
     assert DEFAULT_KEYBINDINGS["app.model.cycleForward"].default_keys == ["ctrl+p"]
-    assert DEFAULT_KEYBINDINGS["app.model.cycleBackward"].default_keys == ["shift+ctrl+p"]
+    assert DEFAULT_KEYBINDINGS["app.model.cycleBackward"].default_keys == [
+        "shift+ctrl+p"
+    ]
     # Array of alternatives.
-    assert DEFAULT_KEYBINDINGS["app.tree.foldOrUp"].default_keys == ["ctrl+left", "alt+left"]
+    assert DEFAULT_KEYBINDINGS["app.tree.foldOrUp"].default_keys == [
+        "ctrl+left",
+        "alt+left",
+    ]
     # Intentionally unbound by default.
     assert DEFAULT_KEYBINDINGS["app.session.new"].default_keys == []
 
 
 def test_tui_base_bindings_present() -> None:
     assert DEFAULT_KEYBINDINGS["tui.input.submit"].default_keys == ["enter"]
-    assert DEFAULT_KEYBINDINGS["tui.editor.cursorLeft"].default_keys == ["left", "ctrl+b"]
+    assert DEFAULT_KEYBINDINGS["tui.editor.cursorLeft"].default_keys == [
+        "left",
+        "ctrl+b",
+    ]
 
 
 # --- resolved lookup --------------------------------------------------------
@@ -67,9 +75,7 @@ def test_user_single_spec_overrides_default() -> None:
 
 
 def test_user_array_of_alternatives_overrides_default() -> None:
-    mgr = KeybindingsManager(
-        user_bindings={"app.tree.foldOrUp": ["ctrl+h", "alt+h"]}
-    )
+    mgr = KeybindingsManager(user_bindings={"app.tree.foldOrUp": ["ctrl+h", "alt+h"]})
     assert mgr.keys_for("app.tree.foldOrUp") == ["ctrl+h", "alt+h"]
 
 
@@ -195,7 +201,10 @@ def test_loading_never_writes_back_migrated_config(tmp_path: Path) -> None:
 
 def test_key_display_text_capitalizes_and_joins() -> None:
     assert key_display_text(["ctrl+p"], platform="linux") == "Ctrl+P"
-    assert key_display_text(["ctrl+left", "alt+left"], platform="linux") == "Ctrl+Left/Alt+Left"
+    assert (
+        key_display_text(["ctrl+left", "alt+left"], platform="linux")
+        == "Ctrl+Left/Alt+Left"
+    )
     assert key_display_text([], platform="linux") == ""
 
 
@@ -208,7 +217,9 @@ def test_render_hotkeys_reflects_resolved_user_override() -> None:
     out = render_hotkeys(mgr, platform="linux")
     # Built from the resolved manager: the override shows, the default does not.
     assert "Ctrl+J" in out
-    assert "Ctrl+P" not in out.split("Cycle models")[0].splitlines()[-1] or "Ctrl+J" in out
+    assert (
+        "Ctrl+P" not in out.split("Cycle models")[0].splitlines()[-1] or "Ctrl+J" in out
+    )
     assert "Navigation" in out
     assert "Editing" in out
 

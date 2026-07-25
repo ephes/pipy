@@ -137,10 +137,13 @@ def test_filter_options_are_the_canonical_provider_visibility_policy(
     options: ToolFilterOptions,
     expected: frozenset[str],
 ) -> None:
-    assert options.provider_visible_names(
-        builtin_names=("read",),
-        registered_names=("read", "extension"),
-    ) == expected
+    assert (
+        options.provider_visible_names(
+            builtin_names=("read",),
+            registered_names=("read", "extension"),
+        )
+        == expected
+    )
 
 
 def test_definitions_preserve_merged_registry_order_and_report_unknown_filters(

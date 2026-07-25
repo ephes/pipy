@@ -1539,9 +1539,7 @@ def test_scoped_models_write_failure_preserves_settings_and_usage_footer_order(
     assert result.status is HarnessStatus.SUCCEEDED
     assert trace == ["footer", "settings-write", "diagnostic", "footer"]
     assert footer_usage_flags == [True, True]
-    assert diagnostics == [
-        "pipy: could not update scoped models: disk is read-only"
-    ]
+    assert diagnostics == ["pipy: could not update scoped models: disk is read-only"]
     assert manager.get_enabled_models() == ["openai/*"]
     assert json.loads(settings_path.read_text(encoding="utf-8")) == {
         "enabledModels": ["openai/*"],
@@ -2610,9 +2608,7 @@ def test_tree_commands_apply_standard_footer_without_provider_turn(
 
     assert len(footer_kwargs) == 3
     assert footer_kwargs[0].get("usage_snapshot") is not None
-    assert all(
-        kwargs.get("usage_snapshot") is None for kwargs in footer_kwargs[1:]
-    )
+    assert all(kwargs.get("usage_snapshot") is None for kwargs in footer_kwargs[1:])
     assert provider._call_counter[0] == 0
 
 
@@ -2636,9 +2632,7 @@ def test_resume_commands_apply_standard_footer_without_provider_turn(
 
     assert len(footer_kwargs) == 3
     assert footer_kwargs[0].get("usage_snapshot") is not None
-    assert all(
-        kwargs.get("usage_snapshot") is None for kwargs in footer_kwargs[1:]
-    )
+    assert all(kwargs.get("usage_snapshot") is None for kwargs in footer_kwargs[1:])
     assert provider._call_counter[0] == 0
 
 
@@ -3271,9 +3265,7 @@ def test_command_dispatch_precedence_kernel_resource_extension_fallback(
     # ``greet`` extension command. Pin that here so ``not greet_marker.exists()``
     # cannot pass vacuously if a future change ever folded template names into
     # the reserved set.
-    reserved = extension_reserved_command_names(
-        resources.custom_command_slash_names()
-    )
+    reserved = extension_reserved_command_names(resources.custom_command_slash_names())
     assert "greet" not in reserved
     assert "extonly" not in reserved
     # The extension reserved set is widened to the full built-in vocabulary as

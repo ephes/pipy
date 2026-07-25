@@ -68,9 +68,7 @@ TUI_KEYBINDINGS: dict[str, KeybindingDefault] = {
     "tui.editor.deleteWordBackward": _kb(
         ["ctrl+w", "alt+backspace"], "Delete word backward"
     ),
-    "tui.editor.deleteWordForward": _kb(
-        ["alt+d", "alt+delete"], "Delete word forward"
-    ),
+    "tui.editor.deleteWordForward": _kb(["alt+d", "alt+delete"], "Delete word forward"),
     "tui.editor.deleteToLineStart": _kb("ctrl+u", "Delete to line start"),
     "tui.editor.deleteToLineEnd": _kb("ctrl+k", "Delete to line end"),
     "tui.editor.yank": _kb("ctrl+y", "Paste most recently deleted text"),
@@ -140,7 +138,10 @@ APP_KEYBINDINGS: dict[str, KeybindingDefault] = {
 }
 
 # Full default table for resolution (base then app).
-DEFAULT_KEYBINDINGS: dict[str, KeybindingDefault] = {**TUI_KEYBINDINGS, **APP_KEYBINDINGS}
+DEFAULT_KEYBINDINGS: dict[str, KeybindingDefault] = {
+    **TUI_KEYBINDINGS,
+    **APP_KEYBINDINGS,
+}
 
 # Legacy flat names -> namespaced ids (Pi KEYBINDING_NAME_MIGRATIONS).
 KEYBINDING_NAME_MIGRATIONS: dict[str, str] = {
@@ -364,7 +365,10 @@ def key_display_text(
     # simplification only differs for a hypothetical spec containing "/".
     plat = platform if platform is not None else sys.platform
     rendered = [
-        "+".join(_format_part(p, capitalize=capitalize, platform=plat) for p in key.split("+"))
+        "+".join(
+            _format_part(p, capitalize=capitalize, platform=plat)
+            for p in key.split("+")
+        )
         for key in keys
     ]
     return "/".join(rendered)
@@ -386,7 +390,10 @@ _HOTKEY_GROUPS: list[tuple[str, list[tuple[list[str], str]]]] = [
                 ],
                 "Move cursor / browse history (Up when empty)",
             ),
-            (["tui.editor.cursorWordLeft", "tui.editor.cursorWordRight"], "Move by word"),
+            (
+                ["tui.editor.cursorWordLeft", "tui.editor.cursorWordRight"],
+                "Move by word",
+            ),
             (["tui.editor.cursorLineStart"], "Start of line"),
             (["tui.editor.cursorLineEnd"], "End of line"),
             (["tui.editor.jumpForward"], "Jump forward to character"),

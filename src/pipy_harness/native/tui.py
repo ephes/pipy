@@ -5208,9 +5208,7 @@ class ToolLoopTerminalUi:
             )
         return lines
 
-    def _styled_line(
-        self, line: _FrameLine, *, style: ChromeStyle, width: int
-    ) -> str:
+    def _styled_line(self, line: _FrameLine, *, style: ChromeStyle, width: int) -> str:
         raw_text = line.text
         text = raw_text.rstrip()
         if line.kind == "title":
@@ -6168,9 +6166,7 @@ class ToolLoopTerminalUi:
         self._pending_drain.extend(self._pending_steering)
         self._pending_drain_kinds.extend("steering" for _ in self._pending_steering)
         self._pending_drain.extend(self._pending_follow_up)
-        self._pending_drain_kinds.extend(
-            "follow_up" for _ in self._pending_follow_up
-        )
+        self._pending_drain_kinds.extend("follow_up" for _ in self._pending_follow_up)
         self._pending_steering.clear()
         self._pending_follow_up.clear()
 
@@ -6569,9 +6565,7 @@ class _PendingToolRender(TypedDict):
     state: dict[str, object]
 
 
-def _forward_legacy_render_details(
-    ctx: ToolRenderContext, details: object
-) -> None:
+def _forward_legacy_render_details(ctx: ToolRenderContext, details: object) -> None:
     """Preserve opaque values manually inserted into the internal reader sink."""
 
     # The public context deliberately remains mapping-only. Older/manual callers

@@ -233,9 +233,7 @@ def test_agent_event_adapter_delivers_immediately_then_maps_lifecycle() -> None:
         AgentRunStarted(),
         TurnStarted(0),
         TurnCompleted(0, AgentTurnOutcome.SUCCEEDED, assistant),
-        AgentRunCompleted(
-            AgentRunResult(AgentRunOutcome.SUCCEEDED, (assistant,))
-        ),
+        AgentRunCompleted(AgentRunResult(AgentRunOutcome.SUCCEEDED, (assistant,))),
     )
 
     for event in events:

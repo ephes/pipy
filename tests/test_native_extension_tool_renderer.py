@@ -31,8 +31,11 @@ def test_render_details_sinks_select_renderer_and_preserve_writer_identity():
 
 def _registered(handler, **kw):
     tool = ExtensionTool(
-        name="kv", description="d",
-        input_schema={"type": "object"}, handler=handler, **kw,
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
+        handler=handler,
+        **kw,
     )
     return RegisteredTool(tool=tool, extension="ext")
 
@@ -44,11 +47,14 @@ def test_port_writes_details_to_sink(tmp_path: Path):
             lambda ctx, inp: ToolResult(content="c", details={"k": "v"}),
             render_result=lambda ctx: None,
         ),
-        has_ui=False, render_details_sink=sink,
+        has_ui=False,
+        render_details_sink=sink,
     )
     req = ToolRequest(
-        tool_request_id=make_tool_request_id(), tool_name="kv",
-        arguments={}, provider_correlation_id="corr-1",
+        tool_request_id=make_tool_request_id(),
+        tool_name="kv",
+        arguments={},
+        provider_correlation_id="corr-1",
     )
     port.invoke(req, ToolContext(workspace_root=tmp_path.resolve()))
     assert sink["corr-1"] == {"k": "v"}
@@ -61,11 +67,14 @@ def test_port_writes_none_details_when_absent(tmp_path: Path):
             lambda ctx, inp: ToolResult(content="c"),
             render_result=lambda ctx: None,
         ),
-        has_ui=False, render_details_sink=sink,
+        has_ui=False,
+        render_details_sink=sink,
     )
     req = ToolRequest(
-        tool_request_id=make_tool_request_id(), tool_name="kv",
-        arguments={}, provider_correlation_id="corr-2",
+        tool_request_id=make_tool_request_id(),
+        tool_name="kv",
+        arguments={},
+        provider_correlation_id="corr-2",
     )
     port.invoke(req, ToolContext(workspace_root=tmp_path.resolve()))
     assert sink["corr-2"] is None
@@ -81,7 +90,9 @@ def _tui(tmp_path):
 
 def test_tui_renderer_uses_render_result(tmp_path):
     tool = ExtensionTool(
-        name="kv", description="d", input_schema={"type": "object"},
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="ignored", details={"k": "v"}),
         render_result=lambda ctx: lines_component(
             [f"key={ctx.details['k']}", f"err={ctx.is_error}"]
@@ -148,13 +159,17 @@ def test_tui_renderer_falls_back_when_renderer_crashes(tmp_path):
         raise RuntimeError("nope")
 
     tool = ExtensionTool(
-        name="kv", description="d", input_schema={"type": "object"},
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="real-output"),
         render_result=boom,
     )
     ui = _tui(tmp_path)
     renderer = _TuiToolLoopRenderer(
-        ui=ui, tool_renderers={"kv": tool}, render_details_sink={},
+        ui=ui,
+        tool_renderers={"kv": tool},
+        render_details_sink={},
     )
     renderer.render_tool_call(
         AgentToolCall(
@@ -173,13 +188,17 @@ def test_tui_renderer_falls_back_when_render_call_crashes(tmp_path):
         raise RuntimeError("nope")
 
     tool = ExtensionTool(
-        name="kv", description="d", input_schema={"type": "object"},
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="x"),
         render_call=boom,
     )
     ui = _tui(tmp_path)
     renderer = _TuiToolLoopRenderer(
-        ui=ui, tool_renderers={"kv": tool}, render_details_sink={},
+        ui=ui,
+        tool_renderers={"kv": tool},
+        render_details_sink={},
     )
     renderer.render_tool_call(
         AgentToolCall(
@@ -197,12 +216,15 @@ def test_captured_renderer_emits_custom_lines(tmp_path):
 
     out, err = io.StringIO(), io.StringIO()
     tool = ExtensionTool(
-        name="kv", description="d", input_schema={"type": "object"},
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="x", details={"k": "v"}),
         render_result=lambda ctx: lines_component([f"KV:{ctx.details['k']}"]),
     )
     renderer = _ToolLoopRenderer(
-        output_stream=out, error_stream=err,
+        output_stream=out,
+        error_stream=err,
         tool_renderers={"kv": tool},
         render_details_sink={"c": {"k": "v"}},
     )
@@ -222,13 +244,17 @@ def test_captured_renderer_emits_custom_call_lines(tmp_path):
 
     out, err = io.StringIO(), io.StringIO()
     tool = ExtensionTool(
-        name="kv", description="d", input_schema={"type": "object"},
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="x"),
         render_call=lambda ctx: lines_component(["CALL:kv"]),
     )
     renderer = _ToolLoopRenderer(
-        output_stream=out, error_stream=err,
-        tool_renderers={"kv": tool}, render_details_sink={},
+        output_stream=out,
+        error_stream=err,
+        tool_renderers={"kv": tool},
+        render_details_sink={},
     )
     renderer.render_tool_call(
         AgentToolCall(
@@ -245,30 +271,30 @@ def test_captured_renderer_refreshes_tool_renderers_after_reload():
 
     out, err = io.StringIO(), io.StringIO()
     first = ExtensionTool(
-        name="kv", description="d", input_schema={"type": "object"},
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="x"),
         render_call=lambda ctx: lines_component(["CALL:first"]),
     )
     second = ExtensionTool(
-        name="kv", description="d", input_schema={"type": "object"},
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="x"),
         render_call=lambda ctx: lines_component(["CALL:second"]),
     )
     renderer = _ToolLoopRenderer(
-        output_stream=out, error_stream=err,
-        tool_renderers={"kv": first}, render_details_sink={},
+        output_stream=out,
+        error_stream=err,
+        tool_renderers={"kv": first},
+        render_details_sink={},
     )
-    renderer.render_tool_call(
-        AgentToolCall("c1", "kv", ProductContent("{}"))
-    )
+    renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({"kv": second})
-    renderer.render_tool_call(
-        AgentToolCall("c2", "kv", ProductContent("{}"))
-    )
+    renderer.render_tool_call(AgentToolCall("c2", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({})
-    renderer.render_tool_call(
-        AgentToolCall("c3", "kv", ProductContent("{}"))
-    )
+    renderer.render_tool_call(AgentToolCall("c3", "kv", ProductContent("{}")))
 
     rendered = err.getvalue()
     assert "CALL:first" in rendered
@@ -279,28 +305,26 @@ def test_captured_renderer_refreshes_tool_renderers_after_reload():
 
 def test_tui_renderer_refreshes_tool_renderers_after_reload(tmp_path):
     first = ExtensionTool(
-        name="kv", description="d", input_schema={"type": "object"},
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="x"),
         render_call=lambda ctx: lines_component(["CALL:first"]),
     )
     second = ExtensionTool(
-        name="kv", description="d", input_schema={"type": "object"},
+        name="kv",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: ToolResult(content="x"),
         render_call=lambda ctx: lines_component(["CALL:second"]),
     )
     ui = _tui(tmp_path)
     renderer = _TuiToolLoopRenderer(ui=ui, tool_renderers={"kv": first})
-    renderer.render_tool_call(
-        AgentToolCall("c1", "kv", ProductContent("{}"))
-    )
+    renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({"kv": second})
-    renderer.render_tool_call(
-        AgentToolCall("c2", "kv", ProductContent("{}"))
-    )
+    renderer.render_tool_call(AgentToolCall("c2", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({})
-    renderer.render_tool_call(
-        AgentToolCall("c3", "kv", ProductContent("{}"))
-    )
+    renderer.render_tool_call(AgentToolCall("c3", "kv", ProductContent("{}")))
 
     custom_blocks = [b for b in ui._history_blocks if b[0] == "tool_call_custom"]
     assert [tuple(b[1]) for b in custom_blocks] == [
