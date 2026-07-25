@@ -2993,7 +2993,19 @@ class NativeToolReplSession:
             )
             coding_state.mark_provider_unavailable(unavailable_provider)
 
-        keybindings = self.keybindings_manager or KeybindingsManager.create()
+        # The session's single synchronization boundary, created before the
+        # first owner of guarded state so every one of them shares this exact
+        # object. Two locks would not serialize a reload against a worker's
+        # mutation; see
+        # `docs/specs/2026-07-25-transactional-extension-reload-rebuild.md`.
+        # A caller-supplied manager keeps its identity but adopts this lock:
+        # leaving it on a private one would give the run two boundaries, which
+        # serialize nothing against each other.
+        session_state_lock = threading.RLock()
+        keybindings = self.keybindings_manager or KeybindingsManager.create(
+            state_lock=session_state_lock
+        )
+        keybindings.bind_state_lock(session_state_lock)
         settings = self.settings_manager or SettingsManager.for_workspace(cwd)
         resource_options = self.resource_options
         # Compose installed package resources: resolve local paths and managed
@@ -3056,14 +3068,12 @@ class NativeToolReplSession:
                 error_type="ExtensionFlagError",
                 error_message=extension_flag_error,
             )
-        # One reference, one lock, for the whole run. Every owner of state a
-        # detached worker can reach takes this same mutex; see
-        # `docs/specs/2026-07-25-transactional-extension-reload-rebuild.md`.
         generation_ref = SessionGenerationRef(
             SessionExtensionGeneration(
                 runtime=extension_runtime,
                 flag_values=extension_flag_values,
-            )
+            ),
+            lock=session_state_lock,
         )
         extension_generation = generation_ref.current
         if isinstance(self.provider_state, NativeReplProviderState):
@@ -3202,7 +3212,7 @@ class NativeToolReplSession:
             # `set_active_tools` from a worker thread and a reload publishing a
             # new generation must serialize against each other, which two
             # separate locks would not do.
-            state_lock=generation_ref.lock,
+            state_lock=session_state_lock,
         )
         provider_turn_executor = ProviderTurnExecutor(
             cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,

@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
+
+import pytest
 
 from pipy_harness.native.keybindings import (
     APP_KEYBINDINGS,
@@ -230,3 +233,108 @@ def test_render_hotkeys_has_grouped_tables() -> None:
     assert "**Navigation**" in out
     assert "**Editing**" in out
     assert "Send message" in out
+
+
+def test_keybindings_state_is_immutable_and_published_wholesale(
+    tmp_path: Path,
+) -> None:
+    """Overrides live in one frozen value, replaced rather than edited."""
+
+    config = tmp_path / "keybindings.json"
+    config.write_text('{"app.clear": "ctrl+q"}', encoding="utf-8")
+    manager = KeybindingsManager.from_file(config)
+    first = manager.state
+
+    assert manager.keys_for("app.clear") == ["ctrl+q"]
+    with pytest.raises(TypeError):
+        cast(dict[str, object], first.user_bindings)["app.clear"] = ("ctrl+z",)
+
+    config.write_text('{"app.clear": "ctrl+j"}', encoding="utf-8")
+    manager.reload()
+
+    assert manager.state is not first
+    assert manager.keys_for("app.clear") == ["ctrl+j"]
+    # The retained value did not follow the reload.
+    assert first.user_bindings["app.clear"] == ("ctrl+q",)
+
+
+def test_prepared_keybindings_are_not_live_until_published(tmp_path: Path) -> None:
+    config = tmp_path / "keybindings.json"
+    config.write_text('{"app.clear": "ctrl+q"}', encoding="utf-8")
+    manager = KeybindingsManager.from_file(config)
+
+    config.write_text('{"app.clear": "ctrl+j"}', encoding="utf-8")
+    candidate = manager.prepare_reload()
+
+    assert candidate is not None
+    assert candidate.user_bindings["app.clear"] == ("ctrl+j",)
+    # Nothing observable changed yet.
+    assert manager.keys_for("app.clear") == ["ctrl+q"]
+
+    manager.publish(candidate)
+    assert manager.keys_for("app.clear") == ["ctrl+j"]
+
+
+def test_prepare_reload_without_a_config_path_is_a_no_op() -> None:
+    manager = KeybindingsManager({"app.clear": "ctrl+q"})
+    before = manager.state
+
+    assert manager.prepare_reload() is None
+    manager.reload()
+
+    assert manager.state is before
+    assert manager.keys_for("app.clear") == ["ctrl+q"]
+
+
+def test_a_malformed_reload_falls_back_to_defaults_not_prior_bindings(
+    tmp_path: Path,
+) -> None:
+    """Established behavior: keybindings do not keep the prior good value."""
+
+    config = tmp_path / "keybindings.json"
+    config.write_text('{"app.clear": "ctrl+q"}', encoding="utf-8")
+    manager = KeybindingsManager.from_file(config)
+
+    config.write_text("{not json", encoding="utf-8")
+    manager.reload()
+
+    assert manager.has_user_binding("app.clear") is False
+    assert manager.keys_for("app.clear") == list(
+        DEFAULT_KEYBINDINGS["app.clear"].default_keys
+    )
+
+
+def test_a_caller_supplied_manager_adopts_the_session_mutex() -> None:
+    """Two boundaries serialize nothing; composition binds them to one."""
+
+    import threading
+
+    session_lock = threading.RLock()
+    manager = KeybindingsManager({"app.clear": "ctrl+q"})
+    private_lock = manager._state_lock
+
+    assert private_lock is not session_lock
+
+    manager.bind_state_lock(session_lock)
+    assert manager._state_lock is session_lock
+
+    # Idempotent: binding the same lock again changes nothing.
+    manager.bind_state_lock(session_lock)
+    assert manager._state_lock is session_lock
+    assert manager.keys_for("app.clear") == ["ctrl+q"]
+
+
+def test_keybindings_state_normalizes_a_plain_dict_at_construction() -> None:
+    """The immutability invariant belongs to the type, not just to from_config."""
+
+    from pipy_harness.native.keybindings import KeybindingsState
+
+    source = {"app.clear": ("ctrl+q",)}
+    state = KeybindingsState(source)
+
+    with pytest.raises(TypeError):
+        cast(dict[str, object], state.user_bindings)["app.clear"] = ("ctrl+z",)
+
+    # Mutating the caller's original dict cannot reach the published value.
+    source["app.clear"] = ("ctrl+z",)
+    assert state.user_bindings["app.clear"] == ("ctrl+q",)

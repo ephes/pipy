@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from .settings import resolve_config_home
@@ -279,23 +281,80 @@ def load_keybindings_file(path: Path) -> dict[str, list[str]]:
     return _coerce_config(migrated)
 
 
+@dataclass(frozen=True, slots=True)
+class KeybindingsState:
+    """One complete, immutable set of user keybinding overrides.
+
+    Values are tuples behind a read-only mapping so a published state cannot be
+    edited in place by anyone holding it. A reload builds a whole replacement
+    value and publishes it with one assignment, so no reader can observe a
+    half-applied override set.
+    """
+
+    user_bindings: Mapping[str, tuple[str, ...]]
+
+    def __post_init__(self) -> None:
+        # Enforce the invariant on the type, not just in the factories. A value
+        # constructed directly from a plain dict and handed to `publish` would
+        # otherwise let a holder mutate live bindings outside the lock.
+        object.__setattr__(
+            self,
+            "user_bindings",
+            MappingProxyType(
+                {
+                    str(action): tuple(keys)
+                    for action, keys in self.user_bindings.items()
+                }
+            ),
+        )
+
+    @classmethod
+    def from_config(
+        cls, user_bindings: Mapping[str, list[str] | str] | None
+    ) -> "KeybindingsState":
+        """Coerce caller-supplied overrides into an immutable value."""
+
+        coerced = _coerce_config(user_bindings or {})
+        return cls({action: tuple(keys) for action, keys in coerced.items()})
+
+    @classmethod
+    def load(cls, path: Path) -> "KeybindingsState":
+        """Read a candidate value from disk without touching any live state.
+
+        A missing or malformed file yields an empty override set, so the
+        manager falls back to the built-in defaults — the established behavior.
+        """
+
+        return cls.from_config(load_keybindings_file(path))
+
+
 class KeybindingsManager:
-    """Resolve actions to key specs, with user overrides and reloadable file."""
+    """Resolve actions to key specs, with user overrides and reloadable file.
+
+    The instance identity is caller-owned and stable; the overrides live in one
+    :class:`KeybindingsState` value that is replaced wholesale. ``state_lock``
+    is injectable so a session can pass its single mutex and have keybinding
+    publication serialize against every other guarded write.
+    """
 
     def __init__(
         self,
         user_bindings: Mapping[str, list[str] | str] | None = None,
         *,
         config_path: Path | None = None,
+        state_lock: "threading.RLock | None" = None,
     ) -> None:
         # Accept a single key spec or an array of alternatives per action and
-        # normalize to a list, so callers may pass either form.
-        self._user = _coerce_config(user_bindings or {})
+        # normalize, so callers may pass either form.
+        self._state_lock = state_lock if state_lock is not None else threading.RLock()
+        self._state = KeybindingsState.from_config(user_bindings)
         self._config_path = config_path
 
     @classmethod
-    def from_file(cls, path: Path) -> "KeybindingsManager":
-        return cls(load_keybindings_file(path), config_path=path)
+    def from_file(
+        cls, path: Path, *, state_lock: "threading.RLock | None" = None
+    ) -> "KeybindingsManager":
+        return cls(load_keybindings_file(path), config_path=path, state_lock=state_lock)
 
     @classmethod
     def create(
@@ -303,29 +362,75 @@ class KeybindingsManager:
         *,
         env: dict[str, str] | None = None,
         home_dir: Path | None = None,
+        state_lock: "threading.RLock | None" = None,
     ) -> "KeybindingsManager":
         path = resolve_config_home(env=env, home_dir=home_dir) / KEYBINDINGS_FILENAME
-        return cls.from_file(path)
+        return cls.from_file(path, state_lock=state_lock)
 
     @property
     def config_path(self) -> Path | None:
         return self._config_path
 
-    def reload(self) -> None:
+    def bind_state_lock(self, lock: "threading.RLock") -> None:
+        """Adopt the session's mutex, keeping this manager's identity.
+
+        A caller may construct the manager before a session exists, in which
+        case it starts with a private lock. Leaving it there would give the
+        session two synchronization boundaries, which serialize nothing against
+        each other — so the composition root binds every guarded owner to the
+        one mutex.
+
+        **Composition-time only.** This must be called while the session is
+        still being assembled, before any worker thread exists that could reach
+        this manager. It is a no-op when the lock is already the shared one.
+        """
+
+        with self._state_lock:
+            if lock is self._state_lock:
+                return
+            self._state_lock = lock
+
+    @property
+    def state(self) -> KeybindingsState:
+        """The live override value. Read once per operation."""
+
+        with self._state_lock:
+            return self._state
+
+    def prepare_reload(self) -> KeybindingsState | None:
+        """Read a candidate value from disk, changing nothing.
+
+        Returns ``None`` when there is no configured path, matching the
+        existing no-op reload. The file read happens here, outside any critical
+        section, so publication itself cannot fail.
+        """
+
         if self._config_path is None:
-            return
-        self._user = load_keybindings_file(self._config_path)
+            return None
+        return KeybindingsState.load(self._config_path)
+
+    def publish(self, state: KeybindingsState) -> None:
+        """Make a prepared value live. One assignment, never fails."""
+
+        with self._state_lock:
+            self._state = state
+
+    def reload(self) -> None:
+        candidate = self.prepare_reload()
+        if candidate is not None:
+            self.publish(candidate)
 
     def has_user_binding(self, action: str) -> bool:
         """Whether ``action`` is explicitly present in user keybindings."""
 
-        return action in self._user
+        return action in self.state.user_bindings
 
     def keys_for(self, action: str) -> list[str]:
         """Resolved key specs for ``action`` (user override, else default)."""
 
-        if action in self._user:
-            return list(self._user[action])
+        override = self.state.user_bindings.get(action)
+        if override is not None:
+            return list(override)
         default = DEFAULT_KEYBINDINGS.get(action)
         return list(default.default_keys) if default is not None else []
 

@@ -68,8 +68,16 @@ class SessionGenerationRef:
 
     __slots__ = ("_lock", "_generation", "_generation_id")
 
-    def __init__(self, generation: SessionExtensionGeneration) -> None:
-        self._lock = threading.RLock()
+    def __init__(
+        self,
+        generation: SessionExtensionGeneration,
+        *,
+        lock: "threading.RLock | None" = None,
+    ) -> None:
+        # The session creates the mutex before the first guarded owner exists
+        # and hands the same object to each of them. Accepting it here keeps
+        # this reference one *user* of the boundary rather than its owner.
+        self._lock = lock if lock is not None else threading.RLock()
         self._generation = generation
         self._generation_id = 0
 

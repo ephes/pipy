@@ -28,6 +28,7 @@ from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
+    ToolPort,
     ToolRequest,
 )
 
@@ -449,14 +450,14 @@ def test_prepared_extensions_leave_the_live_generation_untouched(
     assert _names(capabilities) == ("builtin", "old_extension")
     assert tuple(candidate.registry) == ("builtin", "new_extension")
     assert candidate.executor is not live_before.executor
-    assert candidate.registry is not live_before.registry
+    assert tuple(candidate.registry) != tuple(live_before.registry)
 
     capabilities.publish(candidate)
 
     # Publication rebinds the carried selection to whatever is live at the
     # swap, so the published value equals the candidate rather than being it.
-    assert capabilities.state.registry is candidate.registry
     assert capabilities.state.executor is candidate.executor
+    assert tuple(capabilities.state.registry) == tuple(candidate.registry)
     assert _names(capabilities) == ("builtin", "new_extension")
 
 
@@ -615,3 +616,24 @@ def test_configured_filters_still_re_derive_visibility_on_publication(
     capabilities.publish(candidate)
 
     assert _names(capabilities) == ("new_extension",)
+
+
+def test_capability_state_normalizes_registries_built_from_plain_dicts() -> None:
+    """The immutability invariant belongs to the type, not just to `build`."""
+
+    from pipy_harness.native.tool_capabilities import ToolCapabilityState
+    from pipy_harness.native.agent.tools import ToolExecutor
+
+    registry: dict[str, ToolPort] = {"tool": _RecordingTool("tool")}
+    state = ToolCapabilityState(
+        builtin_registry=dict(registry),
+        extension_registry={},
+        registry=dict(registry),
+        executor=ToolExecutor({}, cancel_join_timeout_seconds=1.0),
+        filter_options=ToolFilterOptions.empty(),
+        active_tool_names=None,
+    )
+
+    for mapping in (state.registry, state.builtin_registry, state.extension_registry):
+        with pytest.raises(TypeError):
+            cast(dict[str, object], mapping)["injected"] = _RecordingTool("injected")

@@ -83,6 +83,17 @@ class ToolCapabilityState:
     filter_options: ToolFilterOptions
     active_tool_names: frozenset[str] | None
 
+    def __post_init__(self) -> None:
+        # Enforce immutability on the type, not just in `build`. The copy is
+        # unconditional: a `MappingProxyType` is only a read-only *view*, so
+        # wrapping a caller's dict without copying would still let whoever
+        # retains that dict edit a published registry outside the lock and
+        # desynchronize it from the executor built over it.
+        for field_name in ("builtin_registry", "extension_registry", "registry"):
+            object.__setattr__(
+                self, field_name, MappingProxyType(dict(getattr(self, field_name)))
+            )
+
     @property
     def filter_configured(self) -> bool:
         return self.filter_options != ToolFilterOptions.empty()
@@ -119,13 +130,12 @@ class ToolCapabilityState:
             registry,
             cancel_join_timeout_seconds=cancel_join_timeout_seconds,
         )
-        # Hand out read-only views. The dicts above are unreachable afterwards,
-        # so a holder of a published state cannot desynchronize the registry
-        # from the executor built over it.
+        # `__post_init__` copies and freezes the mappings, so this hands over
+        # plain dicts and lets the type enforce its own invariant in one place.
         return cls(
-            builtin_registry=MappingProxyType(builtin),
-            extension_registry=MappingProxyType(extensions),
-            registry=MappingProxyType(registry),
+            builtin_registry=builtin,
+            extension_registry=extensions,
+            registry=registry,
             executor=executor,
             filter_options=filter_options,
             active_tool_names=active,
@@ -282,13 +292,15 @@ class NativeToolCapabilities:
         # `set_active_tools` during its own call, and the model must be told.
         # Only compare within one generation, though — a `/reload` that landed
         # mid-call replaces the registry wholesale, and its differences are not
-        # this call's additions.
+        # this call's additions. The executor is the generation marker: it is
+        # built once per `ToolCapabilityState.build`, and a visibility-only
+        # change carries the same executor forward while a reload does not.
         state_after = self.state
         visible_after = tuple(
             definition.name for definition in _definitions_for(state_after, None)
         )
         if (
-            state_after.registry is state.registry
+            state_after.executor is state.executor
             and call.tool_name in state.extension_registry
             and not outcome.result.is_error
             and set(visible_before).issubset(visible_after)
