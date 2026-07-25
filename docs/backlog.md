@@ -28,7 +28,7 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 3 — transactional extension reload commit**. Product-parity deltas in
+is **Slice 4 — session command effect family**. Product-parity deltas in
 the Pi audit remain selection candidates after the architecture program and do
 not expand an architecture slice.
 
@@ -101,6 +101,47 @@ Progress:
   itself the slice's main finding: the abandoned attempt's mechanism was
   unsound, and the contract stabilized only once every cross-thread field named
   one guard taken by all of its readers and writers.
+
+- **Slice 3 — transactional extension reload: sub-slices S3.0–S3.9 SHIPPED.**
+  Commits, in order: `6e66b74` (ruff-format baseline for the files the slice
+  touches), `46cf091` (tool result renderers pinned to their originating call,
+  so a reload mid-call cannot re-target them), `f61d492` (tool capabilities
+  behind one immutable `ToolCapabilityState` with candidate `prepare_extensions`
+  and non-fallible `publish`), `486272a` (`native/session_generation.py`: the
+  generation pointer, its identity, and the session's single mutex),
+  `94060c5` (keybinding overrides as one frozen value), `77a85c0` (layered
+  settings as one frozen value with an I/O-ordering lock and stale-candidate
+  refusal), `13f3df7` (coding provider binding, history, usage, and compaction
+  guarded by the session mutex on both sides), `909ef78` (publication gate
+  refusing extension mutations while a reload republishes), `5aad547`
+  (thinking-level admission made atomic, its persistence ordered), `c935a22`
+  (model defaults persisted only after the selection is live, with a fail-soft
+  diagnostic), and this commit (candidate flags parsed before anything goes
+  live; a malformed flag rejects the whole candidate).
+
+  Every sub-slice passed `just check`, `just docs-build`, `git diff --check`
+  and an explicit Pi CLEAN from `openai-codex/gpt-5.6-sol` with no skipped or
+  truncated files. Review rounds per sub-slice: 1, 1, 3, 3, 4, 4, 2, 3, 3, 3,
+  plus 33 for the plan itself. The full gate is 4,639 passed / 2 skipped.
+
+  **Behavior intentionally changed** (the one characterized change in this
+  slice): a malformed extension flag on `/reload` previously left the newly
+  activated runtime live against the previous generation's flag values; it now
+  rejects the candidate whole and keeps the prior generation, reporting
+  `keeping the previous extensions`. Settings, keybindings, package roots, and
+  workspace resources that reloaded successfully stay applied, and the rest of
+  the reload runs against the unchanged generation.
+
+  **Deferred, and recorded rather than claimed:** the candidate is not yet
+  activated against an isolated staging host, so candidate sealing and explicit
+  disposal of rejected listeners/chrome requests are not implemented — and
+  because activation still installs chrome against the live host, extension
+  chrome is cleared before activation, leaving a rejected candidate's retained
+  generation without its chrome; and
+  `set_model` still persists part-way through its mutation, so its
+  publication-gate admission narrows but does not close its race window. Both
+  are described in
+  [the rebuild plan](specs/2026-07-25-transactional-extension-reload-rebuild.md).
 
 ## Current State
 

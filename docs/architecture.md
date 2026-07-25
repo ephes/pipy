@@ -137,11 +137,28 @@ Extension ownership is split deliberately:
 
 Activation fails closed per extension. Trusted extension code may perform its
 own external effects, but pipy-owned registries do not publish a partial
-activation. The current session still mirrors many activated-runtime
-contributions into mutable `_RunControlState` fields and rebuilds those
-projections during `/reload`; replacing that duplication with one validated,
-transactionally published extension generation is the first active structural
-risk in the quality program.
+activation.
+
+The live extension state is one generation reached through
+`native/session_generation.py`. `SessionGenerationRef` owns the generation
+pointer, its identity, and the session's single mutex; `_RunControlState`
+reaches the generation only through that reference. `/reload` parses the
+candidate's flags before anything becomes live, so a malformed flag rejects the
+whole candidate and the previous generation stays complete — its commands,
+hooks, tools, providers, renderers and flag values together — instead of the
+new runtime being paired with stale flags. Only the extension generation is
+rejected: settings, keybindings, package roots, and workspace resources that
+reloaded successfully stay applied, and the rest of the reload runs against the
+unchanged generation.
+
+While a reload republishes its derived projections the reference opens a
+publication gate, and the extension mutation ports refuse changes for that
+window. `set_active_tools` and `set_thinking_level` take the session mutex
+across both the refusal check and their assignment; `set_model` still persists
+part-way through its mutation, so for that one port the gate narrows the window
+rather than closing it. Model defaults are queued during a selection and written
+only after the selection is live, and a persistence failure is reported without
+claiming the selection reverted.
 
 ## Sessions, automation, and trust domains
 
@@ -221,8 +238,14 @@ uv run python scripts/architecture_metrics.py --json
 
 The active program addresses ownership risks rather than cosmetic size:
 
-- extension reload currently publishes duplicated mutable projections rather
-  than one atomic generation;
+- extension reload publishes one generation and rejects a candidate whole, but
+  the candidate is not yet staged behind an isolated activation host. A
+  candidate activates against the live host, so extension chrome must still be
+  cleared before activation rather than after commit — which means a rejected
+  candidate leaves the retained generation's chrome cleared — and a timed-out
+  activation worker is not yet sealed out of its runtime;
+- `set_model` persists a default part-way through its mutation, so its
+  publication-gate admission is not yet atomic;
 - `_BuiltinCommandInterpreter.interpret` and `_ReplLoopStep.step_once` remain
   high-complexity cross-boundary orchestrators with wide collaborator lists;
 - strict typing has not yet reached every source module;

@@ -688,6 +688,22 @@ class _BuiltinCommandInterpreter:
         # refresh, ``unknown_filter_names``/``known``/``unknown`` in the
         # reload tool-filter check, and the ``_registered_tool``/``_port``/
         # ``custom_message`` loop variables) stay function-local.
+
+        def _apply_footer_policy() -> None:
+            """Apply the outcome's closed footer policy.
+
+            Shared by the normal tail and by the reload's early return on a
+            rejected candidate, so refusing a reload cannot skip the footer
+            refresh that every handled command performs.
+            """
+
+            if command_outcome.footer_policy is CodingCommandFooterPolicy.STANDARD:
+                refresh_legacy_footer()
+            elif command_outcome.footer_policy is CodingCommandFooterPolicy.USAGE_AWARE:
+                refresh_legacy_footer_with_usage()
+            else:
+                raise AssertionError("handled command requires a closed footer policy")
+
         if command_outcome.kind is CodingCommandOutcomeKind.CONTINUE:
             if command_outcome.action is CodingCommandAction.SHOW_HOTKEYS:
                 # Render from the resolved keybinding manager so user
@@ -1236,9 +1252,19 @@ class _BuiltinCommandInterpreter:
                     )
                     # Re-discover + re-activate extensions on reload (Pi
                     # /reload also reloads extensions). A failing extension is
-                    # disabled without affecting the session. Clear any chrome
-                    # set by the prior generation first so a removed/disabled
-                    # extension cannot leave stale widgets/header/footer/title.
+                    # disabled without affecting the session. Chrome set by the
+                    # prior generation is cleared first so a removed or
+                    # disabled extension cannot leave stale
+                    # widgets/header/footer/title behind.
+                    #
+                    # This has to precede activation while the candidate still
+                    # activates against the live host: clearing after the
+                    # commit would wipe the chrome the candidate installed
+                    # during its own activation. The cost is that a *rejected*
+                    # candidate leaves the retained generation's chrome
+                    # cleared. Fixing that needs the isolated staging host that
+                    # this slice does not yet build; it is recorded as deferred
+                    # in the rebuild plan rather than traded for a worse bug.
                     if terminal_ui is not None:
                         terminal_ui.clear_extension_chrome()
                     reloaded_extension_runtime = _activate_workspace_extensions(
@@ -1253,23 +1279,10 @@ class _BuiltinCommandInterpreter:
                         include_default_extensions=not resource_options.no_extensions,
                         include_workspace_defaults=settings.project_trusted,
                     )
-                    # Preserve the established reload ordering: the newly activated
-                    # contributions become live before extension custom messages and
-                    # flag parsing. A malformed flag therefore still leaves the new
-                    # runtime paired with the prior parsed values; Slice 3 owns making
-                    # this replacement transactional.
-                    ctl.extension_generation = SessionExtensionGeneration(
-                        runtime=reloaded_extension_runtime,
-                        flag_values=ctl.extension_generation.flag_values,
-                    )
-                    for custom_message in reloaded_extension_runtime.custom_messages:
-                        extension_send_message(
-                            custom_message.custom_type,
-                            custom_message.content,
-                            custom_message.display,
-                            custom_message.options,
-                            custom_message.details,
-                        )
+                    # Candidate phase: parse the candidate's flags *before*
+                    # anything becomes live. Flag parsing is the last fallible
+                    # step, so completing it here is what makes the publication
+                    # below a single non-fallible assignment.
                     reloaded_flag_values, reloaded_flag_error = (
                         parse_extension_flag_tokens(
                             reloaded_extension_runtime.flags,
@@ -1277,17 +1290,53 @@ class _BuiltinCommandInterpreter:
                         )
                     )
                     if reloaded_flag_error is not None:
+                        # Reject the whole candidate. The prior generation stays
+                        # complete — old commands, hooks, tools, providers and
+                        # renderers paired with the old flags — and the
+                        # candidate's queued custom messages are never
+                        # delivered, because nothing ever points at it.
+                        # Previously the new runtime went live before this
+                        # check, leaving new contributions paired with stale
+                        # flag values.
+                        #
+                        # Only the extension generation is rejected. Settings,
+                        # keybindings, package roots, and workspace resources
+                        # reloaded successfully above, so the rest of the reload
+                        # still runs — against the unchanged generation, whose
+                        # tool/renderer/provider projections it simply rebuilds
+                        # identically. Returning early here instead would leave
+                        # new settings and resources live with the UI
+                        # projections that depend on them never refreshed.
                         session._emit_diagnostic(
                             terminal_ui,
                             error_stream,
                             f"pipy: {reloaded_flag_error}",
                         )
+                        session._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            "pipy: keeping the previous extensions.",
+                        )
                     else:
+                        # Commit: one assignment publishes the candidate runtime
+                        # and its own parsed flags together.
                         ctl.extension_generation = SessionExtensionGeneration(
                             runtime=reloaded_extension_runtime,
                             flag_values=reloaded_flag_values,
                         )
                         emitter.set_flags(ctl.extension_generation.flag_values)
+                        # Post-commit: deliver the committed generation's queued
+                        # custom messages.
+                        for (
+                            custom_message
+                        ) in reloaded_extension_runtime.custom_messages:
+                            extension_send_message(
+                                custom_message.custom_type,
+                                custom_message.content,
+                                custom_message.display,
+                                custom_message.options,
+                                custom_message.details,
+                            )
                     state = session.provider_state
                     if isinstance(state, NativeReplProviderState):
                         runtime = state.model_runtime

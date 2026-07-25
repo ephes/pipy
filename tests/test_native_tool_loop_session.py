@@ -3339,3 +3339,71 @@ def test_lifecycle_hook_contexts_expose_no_model_runtime_controls(
     # the assertion passing on the startup fire alone.
     assert len(records) >= 2, records
     assert set(records) == {"[]"}, records
+
+
+def test_a_malformed_candidate_flag_retains_the_complete_prior_generation(
+    tmp_path: Path,
+) -> None:
+    """Rejecting a candidate must leave the old generation whole.
+
+    Before the transactional rebuild the reloaded runtime went live *before*
+    its flags were parsed, so a malformed flag left the candidate's commands
+    registered against the previous generation's flag values. Now the
+    candidate is rejected as a whole: the prior generation's command still
+    dispatches and the candidate's command never becomes live.
+    """
+
+    from pipy_harness.native.resource_loading import RuntimeResourceOptions
+
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "flagged.py").write_text(
+        "from pathlib import Path\n"
+        "\n"
+        "FLIPPED = Path(__file__).with_name('flipped.txt')\n"
+        "RAN = Path(__file__).with_name('ran.txt')\n"
+        "\n"
+        "def _mark(name):\n"
+        "    with RAN.open('a', encoding='utf-8') as handle:\n"
+        "        handle.write(name + '\\n')\n"
+        "\n"
+        "def activate(api):\n"
+        "    def flip(ctx, args):\n"
+        "        FLIPPED.write_text('yes', encoding='utf-8')\n"
+        "    api.register_command('flip', 'flip', flip)\n"
+        "    if FLIPPED.exists():\n"
+        "        # Candidate shape: the declared flag is gone, so the run's\n"
+        "        # --needs-value token no longer parses.\n"
+        "        api.register_command('new-only', 'new', lambda c, a: _mark('NEW'))\n"
+        "    else:\n"
+        "        from pipy_harness.extensions import ExtensionFlag\n"
+        "        api.register_flag(\n"
+        "            ExtensionFlag('needs-value', 'string', 'needs a value')\n"
+        "        )\n"
+        "        api.register_command('old-only', 'old', lambda c, a: _mark('OLD'))\n",
+        encoding="utf-8",
+    )
+
+    provider = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
+    session = NativeToolReplSession(
+        provider=provider,
+        resource_options=RuntimeResourceOptions(
+            extension_flag_tokens=("--needs-value=x",),
+        ),
+    )
+    error_stream = io.StringIO()
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/flip\n/reload\n/old-only\n/new-only\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    out = error_stream.getvalue()
+    assert "unknown extension flag" in out
+    assert "keeping the previous extensions" in out
+
+    dispatched = (extension_dir / "ran.txt").read_text(encoding="utf-8").split()
+    # The retained generation still serves its command; the rejected
+    # candidate's command never became live.
+    assert dispatched == ["OLD"], dispatched
