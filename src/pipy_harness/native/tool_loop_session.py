@@ -3007,6 +3007,7 @@ class NativeToolReplSession:
         )
         keybindings.bind_state_lock(session_state_lock)
         settings = self.settings_manager or SettingsManager.for_workspace(cwd)
+        settings.bind_state_lock(session_state_lock)
         resource_options = self.resource_options
         # Compose installed package resources: resolve local paths and managed
         # git caches, then install the package theme registry so package

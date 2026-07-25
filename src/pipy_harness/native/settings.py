@@ -21,9 +21,13 @@ import json
 import os
 import stat
 import tempfile
+import threading
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from .catalog import THINKING_LEVELS
 from .workspace_context import resolve_global_instruction_root
@@ -276,6 +280,89 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
         raise
 
 
+def _freeze_settings_value(value: Any) -> Any:
+    """Recursively convert loaded JSON into an unmutable equivalent.
+
+    Objects become read-only mappings and arrays become tuples, all the way
+    down. Wrapping only the top level would leave
+    ``state.scopes["global"]["retry"]["maxRetries"] = 99`` working on a
+    published value.
+    """
+
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {str(key): _freeze_settings_value(item) for key, item in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_settings_value(item) for item in value)
+    return value
+
+
+def _thaw_settings_value(value: Any) -> Any:
+    """Invert :func:`_freeze_settings_value` for values handed to callers.
+
+    Every public accessor returns ordinary ``dict``/``list`` JSON, so the
+    internal freezing is invisible at the boundary.
+    """
+
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_settings_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_settings_value(item) for item in value]
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsState:
+    """One complete, immutable snapshot of the loaded settings scopes.
+
+    Holding the per-scope bodies and their load errors together is the point: a
+    scope's contents and the diagnostic explaining why it kept its prior value
+    are two halves of one fact, and a reader must never see one updated without
+    the other.
+
+    The value is immutable **all the way down**: objects become read-only
+    mappings and arrays become tuples recursively, so no holder of a published
+    state can edit settings outside the lock. Public accessors thaw back to
+    ordinary ``dict``/``list`` JSON, so this is invisible at the boundary.
+    Writes replace the value rather than editing it.
+    """
+
+    scopes: Mapping[str, Mapping[str, Any]]
+    errors: Mapping[str, str]
+    # Which on-disk revision this value was read from. `publish` refuses a
+    # candidate whose epoch is no longer current, so a reload prepared before a
+    # concurrent `set_value` cannot revert memory to settings the file no
+    # longer holds.
+    source_epoch: int = 0
+
+    def __post_init__(self) -> None:
+        # Enforce the invariant on the type, not only in the factories: a
+        # `MappingProxyType` is a read-only *view*, so the bodies are copied
+        # before wrapping or whoever passed them in could still edit a
+        # published value outside the lock.
+        object.__setattr__(
+            self,
+            "scopes",
+            MappingProxyType(
+                {
+                    str(name): _freeze_settings_value(body)
+                    for name, body in self.scopes.items()
+                }
+            ),
+        )
+        object.__setattr__(self, "errors", MappingProxyType(dict(self.errors)))
+
+    def scope_body(self, scope: str) -> dict[str, Any]:
+        """A mutable, independent copy of one scope's settings."""
+
+        return cast("dict[str, Any]", _thaw_settings_value(self.scopes.get(scope, {})))
+
+    @classmethod
+    def empty(cls) -> "SettingsState":
+        return cls(scopes={}, errors={})
+
+
 class SettingsManager:
     """Layered global+project settings with Pi-equivalent semantics.
 
@@ -297,6 +384,7 @@ class SettingsManager:
         overrides: dict[str, Any] | None = None,
         base_defaults: dict[str, Any] | None = None,
         project_trusted: bool = True,
+        state_lock: "threading.RLock | None" = None,
     ) -> None:
         self.global_path = Path(global_path)
         self.project_path = Path(project_path) if project_path is not None else None
@@ -307,8 +395,19 @@ class SettingsManager:
         # while never overriding a value the user set in a settings file.
         self._base_defaults = copy.deepcopy(base_defaults) if base_defaults else {}
         self.project_trusted = bool(project_trusted)
-        self._raw: dict[str, dict[str, Any]] = {}
-        self._errors: dict[str, str] = {}
+        self._state_lock = state_lock if state_lock is not None else threading.RLock()
+        # Orders "touch the file, then publish what that implies" against
+        # itself. It is deliberately *not* the session mutex: settings file I/O
+        # must not run under the boundary a worker's `set_active_tools` takes.
+        # Without it, a reload could read the old file, a concurrent
+        # `set_value` could write and publish, and the reload would then
+        # publish its stale candidate over the newer one. Lock order is always
+        # this lock first, then `_state_lock`; never the reverse.
+        self._io_lock = threading.RLock()
+        # Bumped on every completed write; a candidate prepared before a bump
+        # is stale and is refused by `publish`.
+        self._io_epoch = 0
+        self._state = SettingsState.empty()
         self.reload()
 
     @classmethod
@@ -333,19 +432,48 @@ class SettingsManager:
 
     # --- loading -----------------------------------------------------------
 
-    def reload(self) -> None:
-        """Re-read both scopes (re-running migration + merge).
+    def bind_state_lock(self, lock: "threading.RLock") -> None:
+        """Adopt the session's mutex, keeping this manager's identity.
+
+        A caller may build the manager before a session exists, leaving it on a
+        private lock. Two boundaries serialize nothing against each other, so
+        the composition root binds every guarded owner to the one mutex.
+
+        **Composition-time only**: call while the session is still being
+        assembled, before any worker thread can reach this manager.
+        """
+
+        with self._state_lock:
+            if lock is self._state_lock:
+                return
+            self._state_lock = lock
+
+    @property
+    def state(self) -> "SettingsState":
+        """The live settings value. Read once per operation."""
+
+        with self._state_lock:
+            return self._state
+
+    def prepare_reload(self) -> "SettingsState":
+        """Read both scopes from disk into a candidate value, changing nothing.
 
         A scope that fails to parse keeps its **prior good state** rather than
         blanking to ``{}`` (matching Pi: a settings/theme load error surfaces a
         diagnostic but the previously-loaded good values stay in effect). On the
         first load there is no prior, so an error falls back to ``{}``.
         Keybindings are handled separately and instead fall back to defaults.
+
+        All file I/O happens here, outside the session mutex, so publication
+        itself cannot fail. The returned value records the on-disk epoch it was
+        read from; :meth:`publish` refuses it if a write has landed since.
         """
 
-        prior = self._raw
-        self._raw = {}
-        self._errors = {}
+        with self._io_lock:
+            source_epoch = self._io_epoch
+        prior = self.state
+        loaded: dict[str, dict[str, Any]] = {}
+        errors: dict[str, str] = {}
         scopes: list[tuple[str, Path | None]] = [
             (SCOPE_GLOBAL, self.global_path),
             (
@@ -358,10 +486,46 @@ class SettingsManager:
                 continue
             raw, err = _load_scope(path)
             if err is not None:
-                self._errors[scope] = err
-                self._raw[scope] = prior.get(scope, {})
+                errors[scope] = err
+                loaded[scope] = prior.scope_body(scope)
             else:
-                self._raw[scope] = raw
+                loaded[scope] = raw
+        return SettingsState(scopes=loaded, errors=errors, source_epoch=source_epoch)
+
+    def publish(self, state: "SettingsState") -> bool:
+        """Make a prepared value live unless it has already been superseded.
+
+        Returns ``True`` when published and ``False`` when the candidate has
+        been superseded — by a write, by an external file change picked up by
+        another reload, or simply by a second candidate prepared later and
+        published first. Every publication advances the epoch, so "superseded"
+        means *anything* became live after this candidate was prepared, not
+        only a write by this manager. Refusing is the point: publishing a stale
+        candidate would silently revert settings and their load errors.
+
+        The comparison, the advance, and the assignment share one critical
+        section, so this is a decision, not a check followed by an unguarded
+        write.
+        """
+
+        with self._io_lock:
+            if state.source_epoch != self._io_epoch:
+                return False
+            self._io_epoch += 1
+            with self._state_lock:
+                self._state = replace(state, source_epoch=self._io_epoch)
+        return True
+
+    def reload(self) -> None:
+        """Re-read both scopes and publish the result as one value.
+
+        The read and the publication are ordered against concurrent writes by
+        ``_io_lock``, so a reload cannot publish a candidate that was already
+        superseded on disk by a ``set_value`` completing in between.
+        """
+
+        with self._io_lock:
+            self.publish(self.prepare_reload())
 
     def set_project_trusted(self, trusted: bool) -> None:
         """Change the run-local project gate and reload both scopes."""
@@ -370,18 +534,19 @@ class SettingsManager:
         self.reload()
 
     def load_errors(self) -> dict[str, str]:
-        return dict(self._errors)
+        return dict(self.state.errors)
 
     def effective(self) -> dict[str, Any]:
+        state = self.state
         merged = deep_merge_settings({}, self._base_defaults)
-        merged = deep_merge_settings(merged, self._raw.get(SCOPE_GLOBAL, {}))
-        merged = deep_merge_settings(merged, self._raw.get(SCOPE_PROJECT, {}))
+        merged = deep_merge_settings(merged, state.scope_body(SCOPE_GLOBAL))
+        merged = deep_merge_settings(merged, state.scope_body(SCOPE_PROJECT))
         if self._overrides:
             merged = deep_merge_settings(merged, self._overrides)
         return merged
 
     def raw_scope(self, scope: str) -> dict[str, Any]:
-        return copy.deepcopy(self._raw.get(scope, {}))
+        return self.state.scope_body(scope)
 
     def merged_file_settings(self) -> dict[str, Any]:
         """Merge of the global+project settings *files* only.
@@ -393,8 +558,9 @@ class SettingsManager:
         fallback) without the store value masking an unset file key.
         """
 
-        merged = deep_merge_settings({}, self._raw.get(SCOPE_GLOBAL, {}))
-        return deep_merge_settings(merged, self._raw.get(SCOPE_PROJECT, {}))
+        state = self.state
+        merged = deep_merge_settings({}, state.scope_body(SCOPE_GLOBAL))
+        return deep_merge_settings(merged, state.scope_body(SCOPE_PROJECT))
 
     # --- writing -----------------------------------------------------------
 
@@ -420,25 +586,49 @@ class SettingsManager:
 
         if scope == SCOPE_PROJECT and not self.project_trusted:
             raise RuntimeError("refusing to write project settings while untrusted")
-        if scope in self._errors:
-            raise RuntimeError(
-                f"refusing to write {scope} settings: scope failed to load "
-                f"({self._errors[scope]})"
-            )
         parts = dotted_key.split(".")
         path = self._path_for_scope(scope)
-        with _FileLock(path):
-            current, error = _load_scope(path)
-            if error is not None:
+        # `_io_lock` spans the write and the publication that reflects it, so
+        # the in-memory value can never end up ordered differently from the
+        # file writes, and a concurrent reload cannot publish a candidate read
+        # before this write.
+        with self._io_lock:
+            errors = self.state.errors
+            if scope in errors:
                 raise RuntimeError(
-                    f"refusing to write {scope} settings: on-disk file failed "
-                    f"to load ({error})"
+                    f"refusing to write {scope} settings: scope failed to load "
+                    f"({errors[scope]})"
                 )
-            _apply_path(current, parts, value)
-            _atomic_write_json(path, current)
-        # Reflect the change in memory so effective() is consistent.
-        scope_raw = self._raw.setdefault(scope, {})
-        _apply_path(scope_raw, parts, value)
+            with _FileLock(path):
+                current, error = _load_scope(path)
+                if error is not None:
+                    raise RuntimeError(
+                        f"refusing to write {scope} settings: on-disk file failed "
+                        f"to load ({error})"
+                    )
+                _apply_path(current, parts, value)
+                _atomic_write_json(path, current)
+            # Reflect the change in memory so effective() is consistent: apply
+            # only the edited field onto the prior value. Publishing the
+            # freshly-read `current` wholesale would look more "consistent with
+            # disk", but it would also import unrelated keys another process
+            # edited since this manager last loaded — and pipy deliberately
+            # surfaces external edits on `/reload`, not as a side effect of
+            # writing one field
+            # (`test_reload_rereads_edited_settings_without_provider_turn`).
+            # Copy on write rather than editing the live value in place.
+            state = self._state
+            scopes = {name: state.scope_body(name) for name in state.scopes}
+            scope_raw = scopes.setdefault(scope, {})
+            _apply_path(scope_raw, parts, value)
+            published = self.publish(
+                SettingsState(
+                    scopes=scopes,
+                    errors=dict(state.errors),
+                    source_epoch=self._io_epoch,
+                )
+            )
+            assert published, "set_value holds the io lock across its publication"
 
     # --- typed accessors ---------------------------------------------------
 
@@ -483,7 +673,7 @@ class SettingsManager:
     def get_default_project_trust(self) -> Literal["ask", "always", "never"]:
         """Return Pi's global-only `ask|always|never` trust default."""
 
-        value = self._raw.get(SCOPE_GLOBAL, {}).get("defaultProjectTrust")
+        value = self.state.scopes.get(SCOPE_GLOBAL, {}).get("defaultProjectTrust")
         return value if value in {"ask", "always", "never"} else "ask"
 
     def set_default_project_trust(

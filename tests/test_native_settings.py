@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import stat
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -51,7 +52,9 @@ def test_deep_merge_shallow_merges_top_level_objects_one_level() -> None:
 def test_deep_merge_replaces_deeper_nested_object_wholesale() -> None:
     # retry is shallow-merged one level, but retry.provider (a deeper object)
     # is replaced wholesale by the higher-precedence layer, not recursed into.
-    base = {"retry": {"enabled": True, "provider": {"timeoutMs": 1000, "maxRetries": 5}}}
+    base = {
+        "retry": {"enabled": True, "provider": {"timeoutMs": 1000, "maxRetries": 5}}
+    }
     override = {"retry": {"provider": {"timeoutMs": 2000}}}
     assert deep_merge_settings(base, override) == {
         "retry": {"enabled": True, "provider": {"timeoutMs": 2000}}
@@ -668,6 +671,7 @@ def test_report_includes_thinking_and_cursor(tmp_path: Path) -> None:
     assert "defaultThinkingLevel: high" in text
     assert "showHardwareCursor=True" in text
 
+
 def test_retry_policy_from_settings_defaults(tmp_path: Path) -> None:
     from pipy_harness.native.retry import RetryPolicy
     from pipy_harness.native.settings import retry_policy_from_settings
@@ -733,7 +737,13 @@ def test_retry_policy_clamps_out_of_range(tmp_path: Path) -> None:
 
     _write_json(
         tmp_path / "config" / "settings.json",
-        {"retry": {"maxRetries": 99, "baseDelayMs": 999999, "provider": {"maxRetryDelayMs": 999999}}},
+        {
+            "retry": {
+                "maxRetries": 99,
+                "baseDelayMs": 999999,
+                "provider": {"maxRetryDelayMs": 999999},
+            }
+        },
     )
     policy = retry_policy_from_settings(_manager(tmp_path))
     assert policy.max_attempts == 10  # clamped to RetryPolicy bound
@@ -749,7 +759,11 @@ def test_resource_pattern_getters_and_enable_skill_commands(tmp_path: Path) -> N
     assert mgr.get_enable_skill_commands() is True
     _write_json(
         tmp_path / "config" / "settings.json",
-        {"skills": ["-review", "+draft"], "prompts": ["-x"], "enableSkillCommands": False},
+        {
+            "skills": ["-review", "+draft"],
+            "prompts": ["-x"],
+            "enableSkillCommands": False,
+        },
     )
     mgr2 = _manager(tmp_path)
     assert mgr2.get_skills_patterns() == ["-review", "+draft"]
@@ -764,7 +778,13 @@ def test_retry_policy_clamps_inversion_and_negatives(tmp_path: Path) -> None:
     # produce a valid RetryPolicy (no __post_init__ raise).
     _write_json(
         tmp_path / "config" / "settings.json",
-        {"retry": {"maxRetries": -3, "baseDelayMs": 90000, "provider": {"maxRetryDelayMs": 1000}}},
+        {
+            "retry": {
+                "maxRetries": -3,
+                "baseDelayMs": 90000,
+                "provider": {"maxRetryDelayMs": 1000},
+            }
+        },
     )
     policy = retry_policy_from_settings(_manager(tmp_path))
     assert policy.max_attempts >= 1
@@ -772,7 +792,9 @@ def test_retry_policy_clamps_inversion_and_negatives(tmp_path: Path) -> None:
     assert policy.max_delay_seconds >= policy.initial_delay_seconds
 
 
-def test_reload_keeps_prior_good_state_when_scope_becomes_malformed(tmp_path: Path) -> None:
+def test_reload_keeps_prior_good_state_when_scope_becomes_malformed(
+    tmp_path: Path,
+) -> None:
     gpath = tmp_path / "config" / "settings.json"
     _write_json(gpath, {"theme": "dark"})
     mgr = _manager(tmp_path)
@@ -841,3 +863,204 @@ def test_file_lock_removes_its_own_lock(tmp_path: Path) -> None:
         assert lock._fd is not None
         assert lock_path.exists()
     assert not lock_path.exists()
+
+
+def _state_manager(tmp_path: Path) -> SettingsManager:
+    return SettingsManager(
+        global_path=tmp_path / "global.json",
+        project_path=tmp_path / "project.json",
+    )
+
+
+def test_settings_state_is_immutable_at_the_scope_level(tmp_path: Path) -> None:
+    (tmp_path / "global.json").write_text('{"theme": "pi"}', encoding="utf-8")
+    manager = _state_manager(tmp_path)
+    state = manager.state
+
+    with pytest.raises(TypeError):
+        cast(dict[str, object], state.scopes)["global"] = {}
+    with pytest.raises(TypeError):
+        cast(dict[str, object], state.scopes["global"])["theme"] = "ocean"
+    with pytest.raises(TypeError):
+        cast(dict[str, object], state.errors)["global"] = "boom"
+
+
+def test_settings_state_deep_copies_bodies_handed_to_it() -> None:
+    from pipy_harness.native.settings import SettingsState
+
+    body = {"theme": "pi", "nested": {"a": 1}}
+    state = SettingsState(scopes={"global": body}, errors={})
+
+    body["theme"] = "ocean"
+    cast(dict[str, object], body["nested"])["a"] = 99
+
+    assert state.scopes["global"]["theme"] == "pi"
+    assert state.scopes["global"]["nested"] == {"a": 1}
+
+
+def test_prepared_settings_are_not_live_until_published(tmp_path: Path) -> None:
+    (tmp_path / "global.json").write_text('{"theme": "pi"}', encoding="utf-8")
+    manager = _state_manager(tmp_path)
+
+    (tmp_path / "global.json").write_text('{"theme": "ocean"}', encoding="utf-8")
+    candidate = manager.prepare_reload()
+
+    assert candidate.scopes["global"]["theme"] == "ocean"
+    # Nothing observable changed yet.
+    assert manager.get_theme() == "pi"
+
+    manager.publish(candidate)
+    assert manager.get_theme() == "ocean"
+
+
+def test_a_retained_settings_value_does_not_follow_a_later_reload(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "global.json").write_text('{"theme": "pi"}', encoding="utf-8")
+    manager = _state_manager(tmp_path)
+    retained = manager.state
+
+    (tmp_path / "global.json").write_text('{"theme": "ocean"}', encoding="utf-8")
+    manager.reload()
+
+    assert retained.scopes["global"]["theme"] == "pi"
+    assert manager.state.scopes["global"]["theme"] == "ocean"
+
+
+def test_a_failed_scope_keeps_prior_values_and_reports_one_coherent_state(
+    tmp_path: Path,
+) -> None:
+    """Contents and their load error are two halves of one value."""
+
+    (tmp_path / "global.json").write_text('{"theme": "pi"}', encoding="utf-8")
+    manager = _state_manager(tmp_path)
+
+    (tmp_path / "global.json").write_text("{ broken", encoding="utf-8")
+    manager.reload()
+
+    state = manager.state
+    assert state.scopes["global"]["theme"] == "pi"
+    assert "global" in state.errors
+    assert manager.get_theme() == "pi"
+    assert set(manager.load_errors()) == {"global"}
+
+
+def test_set_value_replaces_the_state_rather_than_editing_it(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "global.json").write_text('{"theme": "pi"}', encoding="utf-8")
+    manager = _state_manager(tmp_path)
+    before = manager.state
+
+    manager.set_value("theme", "ocean")
+
+    assert manager.state is not before
+    assert before.scopes["global"]["theme"] == "pi"
+    assert manager.get_theme() == "ocean"
+
+
+def test_a_caller_supplied_settings_manager_adopts_the_session_mutex(
+    tmp_path: Path,
+) -> None:
+    import threading
+
+    session_lock = threading.RLock()
+    manager = _state_manager(tmp_path)
+    assert manager._state_lock is not session_lock
+
+    manager.bind_state_lock(session_lock)
+    assert manager._state_lock is session_lock
+
+    manager.bind_state_lock(session_lock)
+    assert manager._state_lock is session_lock
+
+
+def test_settings_state_is_immutable_all_the_way_down(tmp_path: Path) -> None:
+    """A nested body must not be editable through a published value."""
+
+    (tmp_path / "global.json").write_text(
+        '{"retry": {"provider": {"maxRetries": 3}}, "skills": ["a"]}',
+        encoding="utf-8",
+    )
+    manager = _state_manager(tmp_path)
+    state = manager.state
+
+    nested = state.scopes["global"]["retry"]
+    with pytest.raises(TypeError):
+        cast(dict[str, object], nested)["provider"] = {}
+    with pytest.raises(TypeError):
+        cast(dict[str, object], nested["provider"])["maxRetries"] = 99
+    # Arrays are frozen too.
+    assert state.scopes["global"]["skills"] == ("a",)
+
+    # Accessors still hand back ordinary mutable JSON.
+    body = manager.raw_scope("global")
+    assert body["retry"]["provider"]["maxRetries"] == 3
+    assert body["skills"] == ["a"]
+    body["retry"]["provider"]["maxRetries"] = 99
+    assert manager.raw_scope("global")["retry"]["provider"]["maxRetries"] == 3
+    assert manager.get_retry_provider_max_retries() == 3
+
+
+def test_publish_refuses_a_candidate_superseded_by_a_write(tmp_path: Path) -> None:
+    """A stale reload must not revert memory to settings the file dropped."""
+
+    (tmp_path / "global.json").write_text('{"theme": "pi"}', encoding="utf-8")
+    manager = _state_manager(tmp_path)
+
+    candidate = manager.prepare_reload()
+    assert candidate.scopes["global"]["theme"] == "pi"
+
+    manager.set_value("theme", "ocean")
+    assert manager.get_theme() == "ocean"
+
+    assert manager.publish(candidate) is False
+    assert manager.get_theme() == "ocean"
+
+    # A freshly prepared candidate is accepted again.
+    assert manager.publish(manager.prepare_reload()) is True
+    assert manager.get_theme() == "ocean"
+
+
+def test_the_older_of_two_prepared_candidates_is_refused(tmp_path: Path) -> None:
+    """Any publication supersedes an earlier candidate, not only a write."""
+
+    (tmp_path / "global.json").write_text('{"theme": "pi"}', encoding="utf-8")
+    manager = _state_manager(tmp_path)
+
+    older = manager.prepare_reload()
+    (tmp_path / "global.json").write_text('{"theme": "ocean"}', encoding="utf-8")
+    newer = manager.prepare_reload()
+
+    assert manager.publish(newer) is True
+    assert manager.get_theme() == "ocean"
+
+    assert manager.publish(older) is False
+    assert manager.get_theme() == "ocean"
+
+
+def test_set_value_does_not_import_unrelated_external_edits(
+    tmp_path: Path,
+) -> None:
+    """External edits surface on reload, not as a side effect of a write."""
+
+    (tmp_path / "global.json").write_text('{"theme": "pi"}', encoding="utf-8")
+    manager = _state_manager(tmp_path)
+
+    # Another process edits an unrelated key after our last load.
+    (tmp_path / "global.json").write_text(
+        '{"theme": "ocean", "quietStartup": true}', encoding="utf-8"
+    )
+
+    manager.set_value("defaultModel", "gpt-5.6-sol")
+
+    # The write landed, and the external edits stayed out of the live value.
+    assert manager.get_default_model() == "gpt-5.6-sol"
+    assert manager.get_theme() == "pi"
+    assert manager.get_quiet_startup() is False
+
+    # They arrive on an explicit reload, and the written field survives it.
+    manager.reload()
+    assert manager.get_theme() == "ocean"
+    assert manager.get_quiet_startup() is True
+    assert manager.get_default_model() == "gpt-5.6-sol"
