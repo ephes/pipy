@@ -1195,278 +1195,301 @@ class _BuiltinCommandInterpreter:
                     message = apply_auth_change(auth_action, argument)
                     session._emit_diagnostic(terminal_ui, error_stream, message)
             elif command_outcome.action is CodingCommandAction.RELOAD:
-                # Local-only: re-read settings (both scopes), keybindings, and
-                # workspace resources, then re-apply derived UI settings. Runs
-                # between turns at the prompt, so no provider turn or compaction
-                # is in flight. A settings/theme load error keeps the prior good
-                # state for that scope; a malformed keybindings.json falls back
-                # to the built-in defaults. No provider turn, no tool call.
-                settings.reload()
-                keybindings.reload()
-                # Re-resolve package roots + re-install the theme
-                # registry so a package added/removed since startup is
-                # reflected after /reload.
-                ctl.package_roots = compose_package_runtime(
-                    settings,
-                    cwd,
-                    include_package_themes=not resource_options.no_themes,
-                    explicit_theme_paths=resource_options.theme_paths,
-                )
-                ctl.workspace_resources = WorkspaceResources.discover(
-                    cwd,
-                    package_roots=ctl.package_roots,
-                    explicit_skill_paths=resource_options.skill_paths,
-                    explicit_prompt_template_paths=resource_options.prompt_template_paths,
-                    include_skills_defaults=not resource_options.no_skills,
-                    include_prompt_template_defaults=not resource_options.no_prompt_templates,
-                    include_workspace_defaults=settings.project_trusted,
-                ).with_enablement(
-                    skills_patterns=settings.get_skills_patterns(),
-                    prompts_patterns=settings.get_prompts_patterns(),
-                    enable_skill_commands=settings.get_enable_skill_commands(),
-                )
-                # Re-discover + re-activate extensions on reload (Pi
-                # /reload also reloads extensions). A failing extension is
-                # disabled without affecting the session. Clear any chrome
-                # set by the prior generation first so a removed/disabled
-                # extension cannot leave stale widgets/header/footer/title.
-                if terminal_ui is not None:
-                    terminal_ui.clear_extension_chrome()
-                reloaded_extension_runtime = _activate_workspace_extensions(
-                    cwd,
-                    ctl.workspace_resources,
-                    tuple(session.tool_registry.keys()),
-                    package_roots=()
-                    if resource_options.no_extensions
-                    else ctl.package_roots.extensions,
-                    extension_patterns=settings.get_extensions_patterns(),
-                    explicit_extension_paths=resource_options.extension_paths,
-                    include_default_extensions=not resource_options.no_extensions,
-                    include_workspace_defaults=settings.project_trusted,
-                )
-                # Preserve the established reload ordering: the newly activated
-                # contributions become live before extension custom messages and
-                # flag parsing. A malformed flag therefore still leaves the new
-                # runtime paired with the prior parsed values; Slice 3 owns making
-                # this replacement transactional.
-                ctl.extension_generation = SessionExtensionGeneration(
-                    runtime=reloaded_extension_runtime,
-                    flag_values=ctl.extension_generation.flag_values,
-                )
-                for custom_message in reloaded_extension_runtime.custom_messages:
-                    extension_send_message(
-                        custom_message.custom_type,
-                        custom_message.content,
-                        custom_message.display,
-                        custom_message.options,
-                        custom_message.details,
+                # One publication: the gate is open from the moment this
+                # reload starts reading live provider selection, thinking
+                # level, and tool visibility until every derived projection is
+                # published. Extension mutation ports fail closed for that
+                # window, so a change accepted mid-reload cannot be silently
+                # overwritten by values derived from what was read earlier.
+                # The context manager closes the gate even if preparation
+                # raises, so a failed reload never leaves mutations refused.
+                with ctl.generation_ref.publishing():
+                    # Local-only: re-read settings (both scopes), keybindings, and
+                    # workspace resources, then re-apply derived UI settings. Runs
+                    # between turns at the prompt, so no provider turn or compaction
+                    # is in flight. A settings/theme load error keeps the prior good
+                    # state for that scope; a malformed keybindings.json falls back
+                    # to the built-in defaults. No provider turn, no tool call.
+                    settings.reload()
+                    keybindings.reload()
+                    # Re-resolve package roots + re-install the theme
+                    # registry so a package added/removed since startup is
+                    # reflected after /reload.
+                    ctl.package_roots = compose_package_runtime(
+                        settings,
+                        cwd,
+                        include_package_themes=not resource_options.no_themes,
+                        explicit_theme_paths=resource_options.theme_paths,
                     )
-                reloaded_flag_values, reloaded_flag_error = parse_extension_flag_tokens(
-                    reloaded_extension_runtime.flags,
-                    tuple(resource_options.extension_flag_tokens),
-                )
-                if reloaded_flag_error is not None:
-                    session._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        f"pipy: {reloaded_flag_error}",
+                    ctl.workspace_resources = WorkspaceResources.discover(
+                        cwd,
+                        package_roots=ctl.package_roots,
+                        explicit_skill_paths=resource_options.skill_paths,
+                        explicit_prompt_template_paths=resource_options.prompt_template_paths,
+                        include_skills_defaults=not resource_options.no_skills,
+                        include_prompt_template_defaults=not resource_options.no_prompt_templates,
+                        include_workspace_defaults=settings.project_trusted,
+                    ).with_enablement(
+                        skills_patterns=settings.get_skills_patterns(),
+                        prompts_patterns=settings.get_prompts_patterns(),
+                        enable_skill_commands=settings.get_enable_skill_commands(),
                     )
-                else:
+                    # Re-discover + re-activate extensions on reload (Pi
+                    # /reload also reloads extensions). A failing extension is
+                    # disabled without affecting the session. Clear any chrome
+                    # set by the prior generation first so a removed/disabled
+                    # extension cannot leave stale widgets/header/footer/title.
+                    if terminal_ui is not None:
+                        terminal_ui.clear_extension_chrome()
+                    reloaded_extension_runtime = _activate_workspace_extensions(
+                        cwd,
+                        ctl.workspace_resources,
+                        tuple(session.tool_registry.keys()),
+                        package_roots=()
+                        if resource_options.no_extensions
+                        else ctl.package_roots.extensions,
+                        extension_patterns=settings.get_extensions_patterns(),
+                        explicit_extension_paths=resource_options.extension_paths,
+                        include_default_extensions=not resource_options.no_extensions,
+                        include_workspace_defaults=settings.project_trusted,
+                    )
+                    # Preserve the established reload ordering: the newly activated
+                    # contributions become live before extension custom messages and
+                    # flag parsing. A malformed flag therefore still leaves the new
+                    # runtime paired with the prior parsed values; Slice 3 owns making
+                    # this replacement transactional.
                     ctl.extension_generation = SessionExtensionGeneration(
                         runtime=reloaded_extension_runtime,
-                        flag_values=reloaded_flag_values,
+                        flag_values=ctl.extension_generation.flag_values,
                     )
-                    emitter.set_flags(ctl.extension_generation.flag_values)
-                state = session.provider_state
-                if isinstance(state, NativeReplProviderState):
-                    runtime = state.model_runtime
-                    if runtime is not None:
-                        catalog_state = runtime.catalog
-                        was_extension_selection = (
-                            state.current_selection_uses_extension_provider()
+                    for custom_message in reloaded_extension_runtime.custom_messages:
+                        extension_send_message(
+                            custom_message.custom_type,
+                            custom_message.content,
+                            custom_message.display,
+                            custom_message.options,
+                            custom_message.details,
                         )
-                        catalog_state.refresh()
-                        catalog_state.set_extension_provider_contributions(
-                            ctl.extension_generation.runtime.providers,
-                            ctl.extension_generation.runtime.unregistered_providers,
+                    reloaded_flag_values, reloaded_flag_error = (
+                        parse_extension_flag_tokens(
+                            reloaded_extension_runtime.flags,
+                            tuple(resource_options.extension_flag_tokens),
                         )
-                        selection_disappeared = (
-                            not state.current_selection_supported()
-                            or (
-                                was_extension_selection
-                                and not state.current_selection_uses_extension_provider()
-                            )
-                        )
-                        if not selection_disappeared:
-                            if state.current_selection_uses_extension_provider():
-                                refreshed_provider = state.current_provider()
-                                if getattr(
-                                    refreshed_provider,
-                                    "supports_tool_calls",
-                                    False,
-                                ):
-                                    coding_state.refresh_provider(refreshed_provider)
-                                else:
-                                    fallback = state.reset_to_first_available_model(
-                                        require_tool_calls=True
-                                    )
-                                    if fallback is not None:
-                                        fallback_provider = state.current_provider()
-                                        coding_state.rebind_provider(
-                                            fallback_provider,
-                                            provider_name=fallback.provider_name,
-                                            model_id=fallback.model_id,
-                                            usage_accumulator=(
-                                                AgentUsageAccumulator(
-                                                    _pricing_for(
-                                                        fallback.provider_name,
-                                                        fallback.model_id,
-                                                    )
-                                                )
-                                            ),
-                                        )
-                                        session._emit_diagnostic(
-                                            terminal_ui,
-                                            error_stream,
-                                            "pipy: active model no longer "
-                                            "supports tool calls after reload; "
-                                            f"selected {fallback.reference}.",
-                                        )
-                                    else:
-                                        message = (
-                                            "active model no longer supports "
-                                            "tool calls after reload and no "
-                                            "available tool-capable fallback "
-                                            "was found"
-                                        )
-                                        _bind_unavailable_after_reload(message)
-                                        session._emit_diagnostic(
-                                            terminal_ui,
-                                            error_stream,
-                                            f"pipy: {message}.",
-                                        )
-                        else:
-                            fallback = state.reset_to_first_available_model(
-                                require_tool_calls=True
-                            )
-                            if fallback is not None:
-                                fallback_provider = state.current_provider()
-                                coding_state.rebind_provider(
-                                    fallback_provider,
-                                    provider_name=fallback.provider_name,
-                                    model_id=fallback.model_id,
-                                    usage_accumulator=AgentUsageAccumulator(
-                                        _pricing_for(
-                                            fallback.provider_name,
-                                            fallback.model_id,
-                                        )
-                                    ),
-                                )
-                                session._emit_diagnostic(
-                                    terminal_ui,
-                                    error_stream,
-                                    "pipy: active model disappeared on "
-                                    "reload; selected "
-                                    f"{fallback.reference}.",
-                                )
-                            else:
-                                message = (
-                                    "active model disappeared on reload and "
-                                    "no available tool-capable fallback was "
-                                    "found"
-                                )
-                                _bind_unavailable_after_reload(message)
-                                session._emit_diagnostic(
-                                    terminal_ui,
-                                    error_stream,
-                                    f"pipy: {message}.",
-                                )
-                # Replace the run's extension capability registry and
-                # custom renderer map with the reloaded generation.
-                reloaded_tool_renderers = _extension_tool_renderer_map(
-                    ctl.extension_generation.runtime.tools
-                )
-                renderer.refresh_tool_renderers(reloaded_tool_renderers)
-                reloaded_tool_registry: dict[str, ToolPort] = {}
-                for _registered_tool in ctl.extension_generation.runtime.tools:
-                    _port = _ExtensionToolPort(
-                        _registered_tool,
-                        has_ui=terminal_ui is not None,
-                        notify_sink=_extension_notify,
-                        set_active_tools_fn=lambda names: extension_set_active_tools(
-                            names
-                        ),
-                        flags=ctl.extension_generation.flag_values,
-                        render_details_sink=extension_render_details,
-                        project_trusted=settings.project_trusted,
                     )
-                    reloaded_tool_registry[_port.definition.name] = _port
-                # Candidate-only build, then one non-fallible publication. The
-                # split is what Slice 3.9 needs to move the publication into
-                # the atomic commit; today the two steps still run back to back
-                # so reload behavior is unchanged.
-                tool_capabilities.publish(
-                    tool_capabilities.prepare_extensions(reloaded_tool_registry)
-                )
-                unknown_filter_names = tool_capabilities.unknown_filter_names
-                if unknown_filter_names:
-                    known = (
-                        ", ".join(sorted(tool_capabilities.registered_names))
-                        or "<none>"
-                    )
-                    unknown = ", ".join(unknown_filter_names)
-                    session._emit_diagnostic(
-                        terminal_ui,
-                        error_stream,
-                        f"pipy: unknown tool name(s): {unknown}. Known tools: {known}",
-                    )
-                # Refresh the emitter's lifecycle hooks so reloaded
-                # extensions observe subsequent agent/turn events.
-                emitter.set_lifecycle_hooks(
-                    ctl.extension_generation.runtime.lifecycle_hooks
-                )
-                emitter.set_flags(ctl.extension_generation.flag_values)
-                # Re-apply the edited theme (settings is source of truth over the
-                # persisted store) and the derived UI settings.
-                reloaded_theme = settings.get_theme()
-                if reloaded_theme:
-                    os.environ["PIPY_THEME"] = reloaded_theme
-                if terminal_ui is not None:
-                    terminal_ui.autocomplete_max_visible = (
-                        settings.get_autocomplete_max_visible()
-                    )
-                    terminal_ui.command_names = _tool_loop_command_names(
-                        ctl.workspace_resources,
-                        ctl.extension_generation.runtime.menu_names,
-                    )
-                    terminal_ui.command_descriptions = _tool_loop_command_descriptions(
-                        ctl.workspace_resources,
-                        ctl.extension_generation.runtime.descriptions,
-                    )
-                    terminal_ui.extension_shortcut_keys = frozenset(
-                        ctl.extension_generation.runtime.shortcuts
-                    )
-                    redraw_custom_entries_for_active_branch()
-                load_errors = settings.load_errors()
-                if load_errors:
-                    for scope, detail in load_errors.items():
+                    if reloaded_flag_error is not None:
                         session._emit_diagnostic(
                             terminal_ui,
                             error_stream,
-                            f"pipy: kept prior {scope} settings ({detail}).",
+                            f"pipy: {reloaded_flag_error}",
                         )
-                if session.verbose_startup or not settings.get_quiet_startup():
-                    print_startup_chrome(
-                        error_stream,
-                        cwd=cwd,
-                        include_workspace_defaults=settings.project_trusted,
+                    else:
+                        ctl.extension_generation = SessionExtensionGeneration(
+                            runtime=reloaded_extension_runtime,
+                            flag_values=reloaded_flag_values,
+                        )
+                        emitter.set_flags(ctl.extension_generation.flag_values)
+                    state = session.provider_state
+                    if isinstance(state, NativeReplProviderState):
+                        runtime = state.model_runtime
+                        if runtime is not None:
+                            catalog_state = runtime.catalog
+                            was_extension_selection = (
+                                state.current_selection_uses_extension_provider()
+                            )
+                            catalog_state.refresh()
+                            catalog_state.set_extension_provider_contributions(
+                                ctl.extension_generation.runtime.providers,
+                                ctl.extension_generation.runtime.unregistered_providers,
+                            )
+                            selection_disappeared = (
+                                not state.current_selection_supported()
+                                or (
+                                    was_extension_selection
+                                    and not state.current_selection_uses_extension_provider()
+                                )
+                            )
+                            if not selection_disappeared:
+                                if state.current_selection_uses_extension_provider():
+                                    refreshed_provider = state.current_provider()
+                                    if getattr(
+                                        refreshed_provider,
+                                        "supports_tool_calls",
+                                        False,
+                                    ):
+                                        coding_state.refresh_provider(
+                                            refreshed_provider
+                                        )
+                                    else:
+                                        fallback = state.reset_to_first_available_model(
+                                            require_tool_calls=True
+                                        )
+                                        if fallback is not None:
+                                            fallback_provider = state.current_provider()
+                                            coding_state.rebind_provider(
+                                                fallback_provider,
+                                                provider_name=fallback.provider_name,
+                                                model_id=fallback.model_id,
+                                                usage_accumulator=(
+                                                    AgentUsageAccumulator(
+                                                        _pricing_for(
+                                                            fallback.provider_name,
+                                                            fallback.model_id,
+                                                        )
+                                                    )
+                                                ),
+                                            )
+                                            session._emit_diagnostic(
+                                                terminal_ui,
+                                                error_stream,
+                                                "pipy: active model no longer "
+                                                "supports tool calls after reload; "
+                                                f"selected {fallback.reference}.",
+                                            )
+                                        else:
+                                            message = (
+                                                "active model no longer supports "
+                                                "tool calls after reload and no "
+                                                "available tool-capable fallback "
+                                                "was found"
+                                            )
+                                            _bind_unavailable_after_reload(message)
+                                            session._emit_diagnostic(
+                                                terminal_ui,
+                                                error_stream,
+                                                f"pipy: {message}.",
+                                            )
+                            else:
+                                fallback = state.reset_to_first_available_model(
+                                    require_tool_calls=True
+                                )
+                                if fallback is not None:
+                                    fallback_provider = state.current_provider()
+                                    coding_state.rebind_provider(
+                                        fallback_provider,
+                                        provider_name=fallback.provider_name,
+                                        model_id=fallback.model_id,
+                                        usage_accumulator=AgentUsageAccumulator(
+                                            _pricing_for(
+                                                fallback.provider_name,
+                                                fallback.model_id,
+                                            )
+                                        ),
+                                    )
+                                    session._emit_diagnostic(
+                                        terminal_ui,
+                                        error_stream,
+                                        "pipy: active model disappeared on "
+                                        "reload; selected "
+                                        f"{fallback.reference}.",
+                                    )
+                                else:
+                                    message = (
+                                        "active model disappeared on reload and "
+                                        "no available tool-capable fallback was "
+                                        "found"
+                                    )
+                                    _bind_unavailable_after_reload(message)
+                                    session._emit_diagnostic(
+                                        terminal_ui,
+                                        error_stream,
+                                        f"pipy: {message}.",
+                                    )
+                    # Replace the run's extension capability registry and
+                    # custom renderer map with the reloaded generation.
+                    reloaded_tool_renderers = _extension_tool_renderer_map(
+                        ctl.extension_generation.runtime.tools
                     )
-                saved_implicit_trust = session._maybe_save_implicit_trust_after_reload(
-                    cwd=cwd,
-                    settings=settings,
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
-                )
+                    renderer.refresh_tool_renderers(reloaded_tool_renderers)
+                    reloaded_tool_registry: dict[str, ToolPort] = {}
+                    for _registered_tool in ctl.extension_generation.runtime.tools:
+                        _port = _ExtensionToolPort(
+                            _registered_tool,
+                            has_ui=terminal_ui is not None,
+                            notify_sink=_extension_notify,
+                            set_active_tools_fn=lambda names: (
+                                extension_set_active_tools(names)
+                            ),
+                            flags=ctl.extension_generation.flag_values,
+                            render_details_sink=extension_render_details,
+                            project_trusted=settings.project_trusted,
+                        )
+                        reloaded_tool_registry[_port.definition.name] = _port
+                    # Candidate-only build, then one non-fallible publication. The
+                    # split is what Slice 3.9 needs to move the publication into
+                    # the atomic commit; today the two steps still run back to back
+                    # so reload behavior is unchanged.
+                    tool_capabilities.publish(
+                        tool_capabilities.prepare_extensions(reloaded_tool_registry)
+                    )
+                    unknown_filter_names = tool_capabilities.unknown_filter_names
+                    if unknown_filter_names:
+                        known = (
+                            ", ".join(sorted(tool_capabilities.registered_names))
+                            or "<none>"
+                        )
+                        unknown = ", ".join(unknown_filter_names)
+                        session._emit_diagnostic(
+                            terminal_ui,
+                            error_stream,
+                            f"pipy: unknown tool name(s): {unknown}. Known tools: {known}",
+                        )
+                    # Refresh the emitter's lifecycle hooks so reloaded
+                    # extensions observe subsequent agent/turn events.
+                    emitter.set_lifecycle_hooks(
+                        ctl.extension_generation.runtime.lifecycle_hooks
+                    )
+                    emitter.set_flags(ctl.extension_generation.flag_values)
+                    # Re-apply the edited theme (settings is source of truth over the
+                    # persisted store) and the derived UI settings.
+                    reloaded_theme = settings.get_theme()
+                    if reloaded_theme:
+                        os.environ["PIPY_THEME"] = reloaded_theme
+                    if terminal_ui is not None:
+                        terminal_ui.autocomplete_max_visible = (
+                            settings.get_autocomplete_max_visible()
+                        )
+                        terminal_ui.command_names = _tool_loop_command_names(
+                            ctl.workspace_resources,
+                            ctl.extension_generation.runtime.menu_names,
+                        )
+                        terminal_ui.command_descriptions = (
+                            _tool_loop_command_descriptions(
+                                ctl.workspace_resources,
+                                ctl.extension_generation.runtime.descriptions,
+                            )
+                        )
+                        terminal_ui.extension_shortcut_keys = frozenset(
+                            ctl.extension_generation.runtime.shortcuts
+                        )
+                        redraw_custom_entries_for_active_branch()
+                    load_errors = settings.load_errors()
+                    if load_errors:
+                        for scope, detail in load_errors.items():
+                            session._emit_diagnostic(
+                                terminal_ui,
+                                error_stream,
+                                f"pipy: kept prior {scope} settings ({detail}).",
+                            )
+                    if session.verbose_startup or not settings.get_quiet_startup():
+                        print_startup_chrome(
+                            error_stream,
+                            cwd=cwd,
+                            include_workspace_defaults=settings.project_trusted,
+                        )
+                    saved_implicit_trust = (
+                        session._maybe_save_implicit_trust_after_reload(
+                            cwd=cwd,
+                            settings=settings,
+                            terminal_ui=terminal_ui,
+                            error_stream=error_stream,
+                        )
+                    )
+                # Everything the reload publishes is now live, so close the
+                # gate before running post-reload extension hooks. A
+                # `session_start` hook from the freshly activated generation
+                # may legitimately call setModel / setThinkingLevel /
+                # setActiveTools, and refusing those would be a behavior
+                # change rather than a protection.
                 emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
                 session._emit_diagnostic(
                     terminal_ui,
@@ -1539,18 +1562,56 @@ class _ProviderMutationEffects:
     extension_notify: Callable[[str, str], None]
     extension_ui_driver: _LiveExtensionUiDriver | None
 
-    def extension_set_active_tools(self, tool_names: Sequence[str]) -> bool:
-        """Restrict model-visible tools for future provider requests."""
+    def _mutation_refused_during_publication(self) -> bool:
+        """Whether a reload is mid-publication, so mutations must fail closed.
 
-        return self.tool_capabilities.set_active_tools(tool_names)
+        These three ports are reachable from an extension handler on a detached
+        worker thread. A reload reads the live provider selection, thinking
+        level, and tool visibility, then republishes values derived from them;
+        a mutation accepted in that window would be silently overwritten at the
+        swap. Refusing is the fail-closed direction and matches the ports'
+        existing contract of returning ``False`` when a change is not applied.
+
+        **Admission is atomic only where the effect is.** Reading this flag and
+        then applying a mutation are two critical sections, so a worker can
+        pass the check and land its effect after a reload opens the gate.
+        ``extension_set_active_tools`` closes that window by holding the
+        session mutex across both. ``extension_set_model`` and
+        ``extension_set_thinking_level`` cannot yet: their effects persist a
+        default and append to the session tree, and holding the session mutex
+        across file I/O is exactly what the concurrency contract forbids.
+        Closing their window needs provider construction and persistence split
+        out of the mutation, which is Slice 3.7c and 3.8 work; until then the
+        gate narrows the window rather than eliminating it, and this is
+        recorded as a residual in the rebuild plan.
+        """
+
+        return self.ctl.generation_ref.publication_pending
+
+    def extension_set_active_tools(self, tool_names: Sequence[str]) -> bool:
+        """Restrict model-visible tools for future provider requests.
+
+        The check and the mutation share one critical section — the tool
+        capability owner takes the same session mutex — so a publication
+        cannot open between admitting this call and applying it.
+        """
+
+        with self.ctl.generation_ref.lock:
+            if self._mutation_refused_during_publication():
+                return False
+            return self.tool_capabilities.set_active_tools(tool_names)
 
     def extension_set_model(self, reference: str) -> bool:
+        if self._mutation_refused_during_publication():
+            return False
         ok, _message = self.apply_model_selection(reference)
         return ok
 
     def extension_set_thinking_level(self, level: str) -> bool:
         """Set the active reasoning level through the provider state."""
 
+        if self._mutation_refused_during_publication():
+            return False
         state = self.session.provider_state
         if not isinstance(state, NativeReplProviderState):
             return False

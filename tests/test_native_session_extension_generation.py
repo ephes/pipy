@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import fields
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.native.extension_hooks import _activate_workspace_extensions
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
@@ -217,3 +219,49 @@ def test_capabilities_and_the_generation_share_one_session_mutex(
     )
 
     assert capabilities._state_lock is ref.lock
+
+
+def test_publication_gate_opens_and_closes_around_a_publication(
+    tmp_path: Path,
+) -> None:
+    ref = SessionGenerationRef(_generation(tmp_path, "first"))
+
+    assert ref.publication_pending is False
+    with ref.publishing():
+        assert ref.publication_pending is True
+    assert ref.publication_pending is False
+
+
+def test_the_gate_closes_even_when_candidate_preparation_raises(
+    tmp_path: Path,
+) -> None:
+    """A failed reload must not refuse every later mutation for the session."""
+
+    ref = SessionGenerationRef(_generation(tmp_path, "first"))
+
+    with pytest.raises(RuntimeError):
+        with ref.publishing():
+            raise RuntimeError("candidate build failed")
+
+    assert ref.publication_pending is False
+
+
+def test_the_gate_stays_open_across_the_pointer_swap(tmp_path: Path) -> None:
+    """A reload publishes the pointer partway; the gate must outlast it.
+
+    Provider selection, tool visibility, and renderer projections are
+    republished *after* the generation pointer swaps. Reopening mutations at
+    the swap would let a change be accepted and then overwritten by those
+    later projections.
+    """
+
+    ref = SessionGenerationRef(_generation(tmp_path, "first"))
+    second = _generation(tmp_path, "second")
+
+    with ref.publishing():
+        ref.publish(second)
+        assert ref.publication_pending is True
+        assert ref.snapshot().generation is second
+
+    assert ref.publication_pending is False
+    assert ref.snapshot().generation is second

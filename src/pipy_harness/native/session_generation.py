@@ -14,6 +14,8 @@ concurrency contract this implements.
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from pipy_harness.native.extension_runtime import _ExtensionRuntime
@@ -66,7 +68,7 @@ class SessionGenerationRef:
     callback on a retired generation cannot run inside the critical section.
     """
 
-    __slots__ = ("_lock", "_generation", "_generation_id")
+    __slots__ = ("_lock", "_generation", "_generation_id", "_publication_pending")
 
     def __init__(
         self,
@@ -80,6 +82,7 @@ class SessionGenerationRef:
         self._lock = lock if lock is not None else threading.RLock()
         self._generation = generation
         self._generation_id = 0
+        self._publication_pending = False
 
     @property
     def lock(self) -> "threading.RLock":
@@ -117,6 +120,14 @@ class SessionGenerationRef:
         Non-fallible by construction: a pointer assignment and an integer
         increment. The retired generation is returned rather than dropped so
         the caller holds it until after the lock is released.
+
+        Publishing deliberately does **not** close the publication gate. A
+        reload swaps this pointer partway through — before the provider
+        selection, tool visibility, and renderer projections derived from it
+        are republished — so clearing the gate here would reopen mutations for
+        the rest of the reload and let an accepted change be overwritten by the
+        projections still to come. :meth:`publishing` owns the gate for the
+        whole publication.
         """
 
         with self._lock:
@@ -124,3 +135,37 @@ class SessionGenerationRef:
             self._generation = generation
             self._generation_id += 1
         return retired
+
+    @property
+    def publication_pending(self) -> bool:
+        """Whether a reload is between reading live state and publishing it."""
+
+        with self._lock:
+            return self._publication_pending
+
+    @contextmanager
+    def publishing(self) -> "Iterator[None]":
+        """Open the publication gate for the duration of a reload.
+
+        Generation-bound mutation ports fail closed while this is open. The
+        window exists because a reload reads live provider selection, thinking
+        level, and tool visibility, then republishes values derived from them
+        some time later; a mutation accepted in between would be silently
+        overwritten at the swap. Refusing it instead is the fail-closed
+        direction, and the only callers that can hit the refusal are stragglers
+        from an already-cancelled operation.
+
+        The gate is opened and closed under the lock but is **not** held across
+        the body, so no fallible or slow work runs inside a critical section.
+        Closing is guaranteed even if the body raises: a reload whose candidate
+        preparation fails must not leave every extension mutation refused for
+        the rest of the session.
+        """
+
+        with self._lock:
+            self._publication_pending = True
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._publication_pending = False

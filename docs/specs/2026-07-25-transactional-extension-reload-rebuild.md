@@ -464,7 +464,14 @@ assignments does not close that window.
   (`False`) even though its generation id still matches. Refusal is already the
   defined contract for these ports, and a mutation arriving in this window comes
   from a straggler whose originating operation was cancelled.
-- Commit closes the gate in the same critical section as the pointer swap.
+- The gate closes when the *whole* publication is done, not at the pointer
+  swap. A reload swaps the generation pointer partway through and republishes
+  provider selection, tool visibility, and renderer projections afterwards;
+  reopening mutations at the swap would let a change be accepted and then
+  overwritten by those later projections.
+- The gate also closes *before* post-reload extension lifecycle hooks run. A
+  `session_start` hook from the freshly activated generation may legitimately
+  call `setModel`; refusing it would be a behavior change, not a protection.
 - A rejected candidate closes the gate under the lock with no swap, and
   mutations are accepted again. **Closing the gate is guaranteed, not
   best-effort:** it happens in a `finally`, and before the candidate's fallible
@@ -473,6 +480,18 @@ assignments does not close that window.
   generation permanently gated, which would silently disable every extension
   mutation for the rest of the session. The candidate is not live, so
   re-admitting mutations before its cleanup finishes is safe.
+
+**Admission must be atomic with the effect.** Reading the gate and then
+applying a mutation are two critical sections; a port that does so can pass the
+check and land its effect after a reload has already read the state it will
+republish. A gate-checking port must therefore hold the session mutex across
+both the check and the effect. That is only possible where the effect is purely
+in memory: `set_active_tools` qualifies, while `set_model` and
+`set_thinking_level` currently persist a default and append to the session tree
+inside the mutation, and holding the mutex across file I/O is forbidden above.
+Until provider construction and persistence are lifted out of those two ports
+(S3.7c and S3.8), the gate narrows their window rather than closing it. This is
+a recorded residual, not a met guarantee.
 
 No accepted mutation can occur between the candidate's read of live state and
 the commit, so the candidate cannot overwrite one. Because the gate is opened
