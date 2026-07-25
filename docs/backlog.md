@@ -72,6 +72,35 @@ Progress:
   transactional replacement stays deferred to Slice 3. The final Pi review is
   CLEAN with zero findings and no scoped omissions; one preceding transport
   attempt was INVALID before emitting a review and was retried fail-closed.
+- **Slice 3 — transactional extension reload: rebuild plan SHIPPED in this
+  commit** (`docs: plan transactional extension reload rebuild`). A first
+  implementation attempt built a distributed prepare/apply/rollback transaction
+  across the provider state, coding state, settings, keybindings, package
+  resources, global theme state, and persisted defaults; repeated review kept
+  finding fresh interleavings because compensating rollback and unsynchronized
+  revision checks are not a concurrency model. That attempt was discarded
+  without landing. The reviewed replacement is
+  [Transactional extension reload — rebuild plan and concurrency contract](specs/2026-07-25-transactional-extension-reload-rebuild.md):
+  one documented session synchronization boundary, candidate-only fallible
+  preparation, a commit consisting solely of non-fallible pointer assignments
+  over immutable generation state, and idempotent post-commit persistence and
+  presentation. It also fixes the bounded sub-slices S3.0–S3.9, the stop
+  conditions, and the behavioral scenario checklist. No production code changed
+  in this commit; the sub-slices below it are still unimplemented. `git diff
+  --check` and `just docs-build` are clean. Reaching an explicit Pi CLEAN with
+  `openai-codex/gpt-5.6-sol` took 33 review rounds and 48 closed findings, with
+  no skipped files and no truncations, before the confirming round over this
+  ledger entry. Those findings tightened the guarded-state set until both sides
+  of every lock were covered, added the publication gate and its atomic message
+  cutoff so a candidate cannot overwrite a concurrently accepted mutation,
+  replaced check-then-dispatch chrome and notification ports with
+  generation-owned sinks that are read only while live, replaced copy-and-clear
+  message delivery with an in-order gap-free cursor over an idempotent sink,
+  bounded queue growth, and made "nothing is released under the lock" a general
+  rule so finalizers cannot run inside a critical section. The round count is
+  itself the slice's main finding: the abandoned attempt's mechanism was
+  unsound, and the contract stabilized only once every cross-thread field named
+  one guard taken by all of its readers and writers.
 
 ## Current State
 
