@@ -28,7 +28,7 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 5 — provider and configuration command effect family**. Product-parity deltas in
+is **Slice 6 — transfer, package, and reload command families**. Product-parity deltas in
 the Pi audit remain selection candidates after the architecture program and do
 not expand an architecture slice.
 
@@ -165,6 +165,40 @@ Progress:
   physical lines as the former nested chain becomes explicit typed ownership,
   and the `src` type-ignore count remains **1**. Pi review with
   `openai-codex/gpt-5.6-sol` is CLEAN in two rounds with zero findings, no
+  skipped files, and no truncations; the second round confirms this final
+  ledger and active-pointer diff.
+
+- **Slice 5 — provider and configuration command effect family: SHIPPED in
+  this commit** (`refactor: extract provider configuration command effects`).
+  Hotkeys, changelog, copy-last-answer, settings, project trust, model
+  selection, scoped-model viewing/mutation/cycling, login, and logout now
+  execute through one frozen, slotted, keyword-only
+  `_ProviderConfigurationCommandEffects` bundle. It composes directly with
+  `_ProviderMutationEffects`, which remains the single owner for live
+  model/auth mutation, context clearing, provider and usage rebinding, footer
+  refresh, and persistence ordering. Live-terminal and captured-stream
+  presentation remain separate. The still-inline Slice 6 `/reload` branch
+  receives its shared settings and keybindings through a separate frozen
+  `_ReloadConfigurationDependencies` bundle; no reload sequencing or behavior
+  moved.
+
+  A focused AST characterization freezes both dataclass shapes, the provider/
+  configuration executor's exact ten collaborators, the reload bundle's exact
+  two fields, the complete nine-action family absence from the root
+  interpreter, its single closed delegation, and removal of the five loose
+  provider/settings/keybinding parameters. The requested 12-module non-PTY
+  gate passes **746 tests**; the PTY smoke gate passes **8 tests**, and the
+  complete presentation-preservation PTY modules pass **55 tests**. The full
+  gate passes **4,641 tests with two skips**; Mypy, Ruff, `git diff --check`,
+  and `just docs-build` are clean.
+
+  `_BuiltinCommandInterpreter.interpret` falls from **63 -> 38** complexity,
+  **32 -> 29** direct parameters, and **671 -> 488** lines. The `run()`
+  composition shell remains below its guard at **789 -> 795** AST lines.
+  `tool_loop_session.py` grows **5,391 -> 5,486** physical lines as the
+  extracted branches become explicit typed methods; repository/src C901 totals
+  remain **39 / 23**, and the `src` type-ignore count remains **1**. Pi review
+  with `openai-codex/gpt-5.6-sol` is CLEAN in two rounds with zero findings, no
   skipped files, and no truncations; the second round confirms this final
   ledger and active-pointer diff.
 

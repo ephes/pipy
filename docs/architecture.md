@@ -93,8 +93,14 @@ input, and the headless coding/agent collaborators. Dynamic command effects and
 cross-boundary orchestration remain here. The session-owned built-in effects
 (status, compact, name, new, tree, resume, fork, and clone) execute through one
 frozen `_SessionCommandEffects` bundle composed from narrow run-scope ports;
-provider/configuration and transfer/package/reload command families remain in
-the root interpreter for their later extraction slices.
+provider/configuration built-ins (hotkeys, changelog, copy, settings, trust,
+model and scoped-model selection, login, and logout) execute through a separate
+frozen `_ProviderConfigurationCommandEffects` bundle. That executor composes
+with `_ProviderMutationEffects`, which remains the single owner for live model
+and authentication mutation ordering, while preserving live-terminal versus
+captured-stream presentation. Only transfer/package/reload command families
+remain in the root interpreter for Slice 6; reload temporarily receives its
+shared settings and keybindings through a narrow typed dependency bundle.
 
 `native/session.py` still owns the one-shot `NativeAgentSession` used by the
 harness/SDK compatibility path. It projects canonical event/result types but is

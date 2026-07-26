@@ -539,6 +539,127 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
     assert len(delegation_calls) == 1
 
 
+def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
+    import pipy_harness.native.tool_loop_session as tool_loop_session
+
+    module_path = tool_loop_session.__file__
+    assert module_path is not None
+    syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+    effects_class = next(
+        node
+        for node in syntax.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "_ProviderConfigurationCommandEffects"
+    )
+    dataclass_decorator = next(
+        decorator
+        for decorator in effects_class.decorator_list
+        if isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Name)
+        and decorator.func.id == "dataclass"
+    )
+    assert {
+        keyword.arg: ast.literal_eval(keyword.value)
+        for keyword in dataclass_decorator.keywords
+    } == {"frozen": True, "slots": True, "kw_only": True}
+    assert {
+        node.target.id
+        for node in effects_class.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    } == {
+        "session",
+        "ctl",
+        "coding_state",
+        "terminal_ui",
+        "error_stream",
+        "keybindings",
+        "settings",
+        "cwd",
+        "prompt_history_store",
+        "provider_mutation",
+    }
+
+    reload_dependencies_class = next(
+        node
+        for node in syntax.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "_ReloadConfigurationDependencies"
+    )
+    reload_dataclass_decorator = next(
+        decorator
+        for decorator in reload_dependencies_class.decorator_list
+        if isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Name)
+        and decorator.func.id == "dataclass"
+    )
+    assert {
+        keyword.arg: ast.literal_eval(keyword.value)
+        for keyword in reload_dataclass_decorator.keywords
+    } == {"frozen": True, "slots": True, "kw_only": True}
+    assert {
+        node.target.id
+        for node in reload_dependencies_class.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    } == {"settings", "keybindings"}
+
+    interpreter_class = next(
+        node
+        for node in syntax.body
+        if isinstance(node, ast.ClassDef) and node.name == "_BuiltinCommandInterpreter"
+    )
+    interpret_method = next(
+        node
+        for node in interpreter_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "interpret"
+    )
+    provider_configuration_actions = {
+        "SHOW_HOTKEYS",
+        "SHOW_CHANGELOG",
+        "COPY_LAST_ANSWER",
+        "SETTINGS",
+        "TRUST_PROJECT",
+        "MODEL",
+        "SCOPED_MODELS",
+        "LOGIN",
+        "LOGOUT",
+    }
+    assert (
+        not {
+            node.attr
+            for node in ast.walk(interpret_method)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "CodingCommandAction"
+        }
+        & provider_configuration_actions
+    )
+    delegation_calls = [
+        node
+        for node in ast.walk(interpret_method)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "provider_configuration_effects"
+        and node.func.attr == "execute"
+    ]
+    assert len(delegation_calls) == 1
+    root_parameters = {
+        argument.arg
+        for argument in (
+            *interpret_method.args.posonlyargs,
+            *interpret_method.args.args,
+            *interpret_method.args.kwonlyargs,
+        )
+    }
+    assert {
+        "keybindings",
+        "settings",
+        "prompt_history_store",
+        "apply_model_selection",
+        "apply_auth_change",
+    }.isdisjoint(root_parameters)
+
+
 def test_changed_agent_history_compaction_has_nonempty_product_summary() -> None:
     result = AgentHistoryCompaction(
         messages=(),

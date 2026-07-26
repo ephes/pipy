@@ -633,6 +633,20 @@ _SESSION_COMMAND_ACTIONS = frozenset(
     }
 )
 
+_PROVIDER_CONFIGURATION_COMMAND_ACTIONS = frozenset(
+    {
+        CodingCommandAction.SHOW_HOTKEYS,
+        CodingCommandAction.SHOW_CHANGELOG,
+        CodingCommandAction.COPY_LAST_ANSWER,
+        CodingCommandAction.SETTINGS,
+        CodingCommandAction.TRUST_PROJECT,
+        CodingCommandAction.MODEL,
+        CodingCommandAction.SCOPED_MODELS,
+        CodingCommandAction.LOGIN,
+        CodingCommandAction.LOGOUT,
+    }
+)
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _SessionCommandEffects:
@@ -953,6 +967,243 @@ class _SessionCommandEffects:
             )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ProviderConfigurationCommandEffects:
+    """Execute provider/configuration built-ins without a provider or tool turn.
+
+    Presentation stays split between the live terminal and captured diagnostic
+    stream. Model and authentication mutations compose with the single
+    :class:`_ProviderMutationEffects` owner so context clearing, provider/usage
+    rebinding, footer refresh, and persistence ordering are not duplicated here.
+    """
+
+    session: "NativeToolReplSession"
+    ctl: _RunControlState
+    coding_state: CodingSessionState
+    terminal_ui: ToolLoopTerminalUi | None
+    error_stream: TextIO
+    keybindings: KeybindingsManager
+    settings: SettingsManager
+    cwd: Path
+    prompt_history_store: PromptHistoryStore
+    provider_mutation: "_ProviderMutationEffects"
+
+    def execute(self, command_outcome: CodingCommandOutcome) -> None:
+        handlers: dict[CodingCommandAction, Callable[[CodingCommandOutcome], None]] = {
+            CodingCommandAction.SHOW_HOTKEYS: self._show_hotkeys,
+            CodingCommandAction.SHOW_CHANGELOG: self._show_changelog,
+            CodingCommandAction.COPY_LAST_ANSWER: self._copy_last_answer,
+            CodingCommandAction.SETTINGS: self._settings,
+            CodingCommandAction.TRUST_PROJECT: self._trust_project,
+            CodingCommandAction.MODEL: self._model,
+            CodingCommandAction.SCOPED_MODELS: self._scoped_models,
+            CodingCommandAction.LOGIN: self._auth,
+            CodingCommandAction.LOGOUT: self._auth,
+        }
+        action = command_outcome.action
+        if action not in handlers:
+            raise AssertionError(
+                "provider/configuration executor received wrong action"
+            )
+        handlers[action](command_outcome)
+
+    def _show_hotkeys(self, _command_outcome: CodingCommandOutcome) -> None:
+        # Render from the resolved keybinding manager so user
+        # keybindings.json overrides remain reflected.
+        hotkeys_text = render_hotkeys(self.keybindings)
+        if self.terminal_ui is not None:
+            self.terminal_ui.add_notice(hotkeys_text)
+        else:
+            print(hotkeys_text, file=self.error_stream)
+
+    def _show_changelog(self, _command_outcome: CodingCommandOutcome) -> None:
+        changelog_text = render_changelog(read_changelog_entries())
+        if self.terminal_ui is not None:
+            self.terminal_ui.add_notice(changelog_text)
+        else:
+            print(changelog_text, file=self.error_stream)
+
+    def _copy_last_answer(self, _command_outcome: CodingCommandOutcome) -> None:
+        self.session._emit_diagnostic(
+            self.terminal_ui,
+            self.error_stream,
+            self.session._copy_last_answer(
+                self.coding_state.messages,
+                error_stream=self.error_stream,
+            ),
+        )
+
+    def _settings(self, _command_outcome: CodingCommandOutcome) -> None:
+        if self.terminal_ui is not None:
+            self.session._drive_settings_dialog(
+                self.terminal_ui,
+                self.prompt_history_store,
+                provider=self.coding_state.provider,
+                apply_model_selection=self.provider_mutation.apply_model_selection,
+                apply_auth_change=self.provider_mutation.apply_auth_change,
+                settings=self.settings,
+                session_tree=self.ctl.session_tree,
+                error_stream=self.error_stream,
+            )
+        else:
+            for overlay_line in self.session._settings_overlay_lines(
+                self.settings,
+                provider=self.coding_state.provider,
+            ):
+                print(overlay_line, file=self.error_stream)
+
+    def _trust_project(self, _command_outcome: CodingCommandOutcome) -> None:
+        self.session._handle_trust_command(
+            terminal_ui=self.terminal_ui,
+            error_stream=self.error_stream,
+            cwd=self.cwd,
+            settings=self.settings,
+        )
+
+    @staticmethod
+    def _argument(command_outcome: CodingCommandOutcome) -> str:
+        command_argument = command_outcome.argument
+        if type(command_argument) is not ProductContent:
+            action = command_outcome.action
+            if action is None:
+                raise AssertionError(
+                    "provider/configuration command requires a concrete action"
+                )
+            raise TypeError(f"{action.name} requires an exact ProductContent argument")
+        return command_argument.value
+
+    def _model(self, command_outcome: CodingCommandOutcome) -> None:
+        argument = self._argument(command_outcome)
+        state = self.session.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            self.session._emit_diagnostic(
+                self.terminal_ui,
+                self.error_stream,
+                "pipy: /model is unavailable for this REPL provider state.",
+            )
+        elif argument:
+            _ok, message = self.provider_mutation.apply_model_selection(argument)
+            self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
+        elif self.terminal_ui is not None:
+            ui_options, selections = self.session._model_selector_rows(state)
+            current = state.current_selection()
+            current_index = next(
+                (
+                    index
+                    for index, selection in enumerate(selections)
+                    if selection.provider_name == current.provider_name
+                    and selection.model_id == current.model_id
+                ),
+                0,
+            )
+            chosen = self.terminal_ui.run_model_selector(
+                ui_options, current_index=current_index
+            )
+            if chosen is not None:
+                _ok, message = self.provider_mutation.apply_model_selection(
+                    selections[chosen].reference
+                )
+                self.terminal_ui.add_notice(message)
+        else:
+            for overlay_line in self.session._settings_overlay_lines(
+                self.settings,
+                provider=self.coding_state.provider,
+            ):
+                print(overlay_line, file=self.error_stream)
+
+    def _scoped_models(self, command_outcome: CodingCommandOutcome) -> None:
+        # Local-only: view/set/clear the enabledModels patterns constraining
+        # model cycling, or cycle over the scoped set without a provider/tool turn.
+        argument = self._argument(command_outcome)
+        state = self.session.provider_state
+        available_refs = (
+            [
+                option.selection.reference
+                for option in state.model_options()
+                if option.available
+            ]
+            if isinstance(state, NativeReplProviderState)
+            else []
+        )
+        patterns = self.settings.get_enabled_models()
+        scoped = filter_scoped_references(available_refs, patterns)
+        if (
+            not argument
+            and self.terminal_ui is not None
+            and isinstance(state, NativeReplProviderState)
+            and available_refs
+        ):
+            self.session._open_scoped_models_overlay(
+                self.terminal_ui, state=state, settings=self.settings
+            )
+        elif not argument:
+            pattern_text = ", ".join(patterns) if patterns else "(none — full catalog)"
+            cycle_text = ", ".join(scoped) if scoped else "(none available)"
+            for self.ctl.line in (
+                "pipy: scoped models:",
+                f"  patterns: {pattern_text}",
+                f"  cycle set: {cycle_text}",
+            ):
+                self.session._emit_diagnostic(
+                    self.terminal_ui, self.error_stream, self.ctl.line
+                )
+        elif argument == "clear":
+            try:
+                self.settings.set_enabled_models([])
+                message = "pipy: scoped models cleared (cycle uses the full catalog)."
+            except RuntimeError as exc:
+                message = f"pipy: could not update scoped models: {exc}"
+            self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
+        elif argument in {"next", "prev"}:
+            current_ref = (
+                state.current_selection().reference
+                if isinstance(state, NativeReplProviderState)
+                else ""
+            )
+            cycle_target = next_reference(
+                scoped,
+                current_ref,
+                forward=argument == "next",
+            )
+            if cycle_target is None:
+                self.session._emit_diagnostic(
+                    self.terminal_ui,
+                    self.error_stream,
+                    "pipy: no models available to cycle.",
+                )
+            else:
+                _ok, message = self.provider_mutation.apply_model_selection(
+                    cycle_target
+                )
+                self.session._emit_diagnostic(
+                    self.terminal_ui, self.error_stream, message
+                )
+        else:
+            new_patterns = argument.split()
+            try:
+                self.settings.set_enabled_models(new_patterns)
+                message = "pipy: scoped models set: " + ", ".join(new_patterns)
+            except RuntimeError as exc:
+                message = f"pipy: could not update scoped models: {exc}"
+            self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
+
+    def _auth(self, command_outcome: CodingCommandOutcome) -> None:
+        argument = self._argument(command_outcome)
+        auth_action = (
+            "login" if command_outcome.action is CodingCommandAction.LOGIN else "logout"
+        )
+        message = self.provider_mutation.apply_auth_change(auth_action, argument)
+        self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ReloadConfigurationDependencies:
+    """Transitional Slice 6-facing settings/keybindings bundle for ``/reload``."""
+
+    settings: SettingsManager
+    keybindings: KeybindingsManager
+
+
 class _BuiltinCommandInterpreter:
     """Composition-root handler that owns the built-in command effect chain.
 
@@ -983,17 +1234,14 @@ class _BuiltinCommandInterpreter:
         renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
         error_stream: TextIO,
         emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
-        keybindings: KeybindingsManager,
-        settings: SettingsManager,
+        provider_configuration_effects: _ProviderConfigurationCommandEffects,
+        reload_configuration: _ReloadConfigurationDependencies,
         cwd: Path,
         system_prompt: str,
         input_stream: TextIO,
-        prompt_history_store: PromptHistoryStore,
         resource_options: RuntimeResourceOptions,
         tool_capabilities: NativeToolCapabilities,
         diag: Callable[[str], None],
-        apply_model_selection: Callable[[str], tuple[bool, str]],
-        apply_auth_change: Callable[[str, str], str],
         rebuild_messages_from_tree: Callable[[], None],
         redraw_custom_entries_for_active_branch: Callable[[], None],
         refresh_legacy_footer: Callable[[], None],
@@ -1035,29 +1283,8 @@ class _BuiltinCommandInterpreter:
                 raise AssertionError("handled command requires a closed footer policy")
 
         if command_outcome.kind is CodingCommandOutcomeKind.CONTINUE:
-            if command_outcome.action is CodingCommandAction.SHOW_HOTKEYS:
-                # Render from the resolved keybinding manager so user
-                # keybindings.json overrides remain reflected.
-                hotkeys_text = render_hotkeys(keybindings)
-                if terminal_ui is not None:
-                    terminal_ui.add_notice(hotkeys_text)
-                else:
-                    print(hotkeys_text, file=error_stream)
-            elif command_outcome.action is CodingCommandAction.SHOW_CHANGELOG:
-                changelog_text = render_changelog(read_changelog_entries())
-                if terminal_ui is not None:
-                    terminal_ui.add_notice(changelog_text)
-                else:
-                    print(changelog_text, file=error_stream)
-            elif command_outcome.action is CodingCommandAction.COPY_LAST_ANSWER:
-                session._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    session._copy_last_answer(
-                        coding_state.messages,
-                        error_stream=error_stream,
-                    ),
-                )
+            if command_outcome.action in _PROVIDER_CONFIGURATION_COMMAND_ACTIONS:
+                provider_configuration_effects.execute(command_outcome)
             elif command_outcome.action in _SESSION_COMMAND_ACTIONS:
                 session_command_effects.execute(command_outcome)
             elif command_outcome.action is CodingCommandAction.SESSION_EXPORT:
@@ -1113,168 +1340,9 @@ class _BuiltinCommandInterpreter:
                                 )
                             else:
                                 diag(f"pipy: gist URL: {result.gist_url}")
-            elif command_outcome.action is CodingCommandAction.SETTINGS:
-                if terminal_ui is not None:
-                    session._drive_settings_dialog(
-                        terminal_ui,
-                        prompt_history_store,
-                        provider=coding_state.provider,
-                        apply_model_selection=apply_model_selection,
-                        apply_auth_change=apply_auth_change,
-                        settings=settings,
-                        session_tree=ctl.session_tree,
-                        error_stream=error_stream,
-                    )
-                else:
-                    for overlay_line in session._settings_overlay_lines(
-                        settings,
-                        provider=coding_state.provider,
-                    ):
-                        print(overlay_line, file=error_stream)
-            elif command_outcome.action is CodingCommandAction.TRUST_PROJECT:
-                session._handle_trust_command(
-                    terminal_ui=terminal_ui,
-                    error_stream=error_stream,
-                    cwd=cwd,
-                    settings=settings,
-                )
-            elif command_outcome.action in {
-                CodingCommandAction.MODEL,
-                CodingCommandAction.SCOPED_MODELS,
-                CodingCommandAction.LOGIN,
-                CodingCommandAction.LOGOUT,
-            }:
-                command_argument = command_outcome.argument
-                if type(command_argument) is not ProductContent:
-                    raise TypeError(
-                        f"{command_outcome.action.name} requires an exact "
-                        "ProductContent argument"
-                    )
-                argument = command_argument.value
-                if command_outcome.action is CodingCommandAction.MODEL:
-                    state = session.provider_state
-                    if not isinstance(state, NativeReplProviderState):
-                        session._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            "pipy: /model is unavailable for this REPL provider state.",
-                        )
-                    elif argument:
-                        _ok, message = apply_model_selection(argument)
-                        session._emit_diagnostic(terminal_ui, error_stream, message)
-                    elif terminal_ui is not None:
-                        ui_options, selections = session._model_selector_rows(state)
-                        current = state.current_selection()
-                        current_index = next(
-                            (
-                                index
-                                for index, selection in enumerate(selections)
-                                if selection.provider_name == current.provider_name
-                                and selection.model_id == current.model_id
-                            ),
-                            0,
-                        )
-                        chosen = terminal_ui.run_model_selector(
-                            ui_options, current_index=current_index
-                        )
-                        if chosen is not None:
-                            _ok, message = apply_model_selection(
-                                selections[chosen].reference
-                            )
-                            terminal_ui.add_notice(message)
-                    else:
-                        for overlay_line in session._settings_overlay_lines(
-                            settings,
-                            provider=coding_state.provider,
-                        ):
-                            print(overlay_line, file=error_stream)
-                elif command_outcome.action is CodingCommandAction.SCOPED_MODELS:
-                    # Local-only: view/set/clear the enabledModels
-                    # patterns constraining model cycling, or cycle over
-                    # the scoped set without a provider/tool turn.
-                    state = session.provider_state
-                    available_refs = (
-                        [
-                            option.selection.reference
-                            for option in state.model_options()
-                            if option.available
-                        ]
-                        if isinstance(state, NativeReplProviderState)
-                        else []
-                    )
-                    patterns = settings.get_enabled_models()
-                    scoped = filter_scoped_references(available_refs, patterns)
-                    if (
-                        not argument
-                        and terminal_ui is not None
-                        and isinstance(state, NativeReplProviderState)
-                        and available_refs
-                    ):
-                        session._open_scoped_models_overlay(
-                            terminal_ui, state=state, settings=settings
-                        )
-                    elif not argument:
-                        pattern_text = (
-                            ", ".join(patterns) if patterns else "(none — full catalog)"
-                        )
-                        cycle_text = ", ".join(scoped) if scoped else "(none available)"
-                        for ctl.line in (
-                            "pipy: scoped models:",
-                            f"  patterns: {pattern_text}",
-                            f"  cycle set: {cycle_text}",
-                        ):
-                            session._emit_diagnostic(
-                                terminal_ui, error_stream, ctl.line
-                            )
-                    elif argument == "clear":
-                        try:
-                            settings.set_enabled_models([])
-                            message = (
-                                "pipy: scoped models cleared (cycle uses "
-                                "the full catalog)."
-                            )
-                        except RuntimeError as exc:
-                            message = f"pipy: could not update scoped models: {exc}"
-                        session._emit_diagnostic(terminal_ui, error_stream, message)
-                    elif argument in {"next", "prev"}:
-                        current_ref = (
-                            state.current_selection().reference
-                            if isinstance(state, NativeReplProviderState)
-                            else ""
-                        )
-                        cycle_target = next_reference(
-                            scoped,
-                            current_ref,
-                            forward=argument == "next",
-                        )
-                        if cycle_target is None:
-                            session._emit_diagnostic(
-                                terminal_ui,
-                                error_stream,
-                                "pipy: no models available to cycle.",
-                            )
-                        else:
-                            _ok, message = apply_model_selection(cycle_target)
-                            session._emit_diagnostic(terminal_ui, error_stream, message)
-                    else:
-                        new_patterns = argument.split()
-                        try:
-                            settings.set_enabled_models(new_patterns)
-                            message = "pipy: scoped models set: " + ", ".join(
-                                new_patterns
-                            )
-                        except RuntimeError as exc:
-                            message = f"pipy: could not update scoped models: {exc}"
-                        session._emit_diagnostic(terminal_ui, error_stream, message)
-                else:
-                    auth_action = (
-                        "login"
-                        if command_outcome.action is CodingCommandAction.LOGIN
-                        else "logout"
-                    )
-                    message = apply_auth_change(auth_action, argument)
-                    session._emit_diagnostic(terminal_ui, error_stream, message)
             elif command_outcome.action is CodingCommandAction.RELOAD:
+                settings = reload_configuration.settings
+                keybindings = reload_configuration.keybindings
                 # One publication: the gate is open from the moment this
                 # reload starts reading live provider selection, thinking
                 # level, and tool visibility until every derived projection is
@@ -2760,6 +2828,27 @@ class _SessionCollaborators:
             summarize_branch=self.summarize_branch,
         )
 
+    def provider_configuration_command_effects(
+        self,
+        *,
+        keybindings: KeybindingsManager,
+        prompt_history_store: PromptHistoryStore,
+    ) -> _ProviderConfigurationCommandEffects:
+        """Assemble the provider/configuration executor from narrow owners."""
+
+        return _ProviderConfigurationCommandEffects(
+            session=self.session,
+            ctl=self.ctl,
+            coding_state=self.coding_state,
+            terminal_ui=self.terminal_ui,
+            error_stream=self.error_stream,
+            keybindings=keybindings,
+            settings=self.settings,
+            cwd=self.cwd,
+            prompt_history_store=prompt_history_store,
+            provider_mutation=self.provider_mutation,
+        )
+
     def rebuild_messages_from_tree(self) -> None:
         """Rebuild the live provider-visible list from the active branch.
 
@@ -3894,9 +3983,18 @@ class NativeToolReplSession:
         # Continuing built-in interpretation runs through the command-dispatch
         # effect port (symmetric with resource/extension dispatch). The
         # controller classifies and invokes this per-action effect chain; the
-        # remaining provider/configuration and transfer/package/reload families
-        # stay here for Slices 5 and 6.
+        # transfer/package/reload families stay here for Slice 6.
         session_command_effects = collaborators.session_command_effects(repl_input)
+        provider_configuration_effects = (
+            collaborators.provider_configuration_command_effects(
+                keybindings=keybindings,
+                prompt_history_store=prompt_history_store,
+            )
+        )
+        reload_configuration = _ReloadConfigurationDependencies(
+            settings=settings,
+            keybindings=keybindings,
+        )
         builtin_interpreter = _BuiltinCommandInterpreter()
 
         command_effects: CodingCommandEffects = _CallableCodingCommandEffects(
@@ -3912,17 +4010,14 @@ class NativeToolReplSession:
                 renderer=renderer,
                 error_stream=error_stream,
                 emitter=emitter,
-                keybindings=keybindings,
-                settings=settings,
+                provider_configuration_effects=provider_configuration_effects,
+                reload_configuration=reload_configuration,
                 cwd=cwd,
                 system_prompt=system_prompt,
                 input_stream=input_stream,
-                prompt_history_store=prompt_history_store,
                 resource_options=resource_options,
                 tool_capabilities=tool_capabilities,
                 diag=collaborators.diag,
-                apply_model_selection=provider_mutation.apply_model_selection,
-                apply_auth_change=provider_mutation.apply_auth_change,
                 rebuild_messages_from_tree=collaborators.rebuild_messages_from_tree,
                 redraw_custom_entries_for_active_branch=custom_renderer.redraw_custom_entries_for_active_branch,
                 refresh_legacy_footer=footer.refresh_legacy_footer,
