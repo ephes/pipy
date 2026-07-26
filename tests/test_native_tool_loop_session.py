@@ -532,8 +532,10 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
         for node in ast.walk(interpret_method)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "session_command_effects"
+        and isinstance(node.func.value, ast.Attribute)
+        and isinstance(node.func.value.value, ast.Name)
+        and node.func.value.value.id == "self"
+        and node.func.value.attr == "session_effects"
         and node.func.attr == "execute"
     ]
     assert len(delegation_calls) == 1
@@ -579,29 +581,6 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
         "provider_mutation",
     }
 
-    reload_dependencies_class = next(
-        node
-        for node in syntax.body
-        if isinstance(node, ast.ClassDef)
-        and node.name == "_ReloadConfigurationDependencies"
-    )
-    reload_dataclass_decorator = next(
-        decorator
-        for decorator in reload_dependencies_class.decorator_list
-        if isinstance(decorator, ast.Call)
-        and isinstance(decorator.func, ast.Name)
-        and decorator.func.id == "dataclass"
-    )
-    assert {
-        keyword.arg: ast.literal_eval(keyword.value)
-        for keyword in reload_dataclass_decorator.keywords
-    } == {"frozen": True, "slots": True, "kw_only": True}
-    assert {
-        node.target.id
-        for node in reload_dependencies_class.body
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
-    } == {"settings", "keybindings"}
-
     interpreter_class = next(
         node
         for node in syntax.body
@@ -638,8 +617,10 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
         for node in ast.walk(interpret_method)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "provider_configuration_effects"
+        and isinstance(node.func.value, ast.Attribute)
+        and isinstance(node.func.value.value, ast.Name)
+        and node.func.value.value.id == "self"
+        and node.func.value.attr == "provider_configuration_effects"
         and node.func.attr == "execute"
     ]
     assert len(delegation_calls) == 1
@@ -658,6 +639,236 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
         "apply_model_selection",
         "apply_auth_change",
     }.isdisjoint(root_parameters)
+
+
+def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None:
+    import pipy_harness.native.tool_loop_session as tool_loop_session
+
+    module_path = tool_loop_session.__file__
+    assert module_path is not None
+    syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+    classes = {
+        node.name: node for node in syntax.body if isinstance(node, ast.ClassDef)
+    }
+
+    expected_fields = {
+        "_TransferCommandEffects": {
+            "session",
+            "ctl",
+            "cwd",
+            "system_prompt",
+            "input_stream",
+            "error_stream",
+            "terminal_ui",
+            "diag",
+            "current_session_dir",
+            "session_switch_allows",
+            "rebuild_messages_from_tree",
+        },
+        "_ReloadCommandEffects": {
+            "session",
+            "ctl",
+            "settings",
+            "keybindings",
+            "terminal_ui",
+            "renderer",
+            "error_stream",
+            "emitter",
+            "provider_mutation",
+            "cwd",
+            "resource_options",
+            "tool_capabilities",
+            "diag",
+            "redraw_custom_entries_for_active_branch",
+            "extension_send_message",
+            "extension_render_details",
+        },
+        "_BuiltinCommandInterpreter": {
+            "session_effects",
+            "provider_configuration_effects",
+            "transfer_effects",
+            "reload_effects",
+            "refresh_legacy_footer",
+            "refresh_legacy_footer_with_usage",
+        },
+    }
+    for class_name, fields in expected_fields.items():
+        owner = classes[class_name]
+        dataclass_decorator = next(
+            decorator
+            for decorator in owner.decorator_list
+            if isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Name)
+            and decorator.func.id == "dataclass"
+        )
+        assert {
+            keyword.arg: ast.literal_eval(keyword.value)
+            for keyword in dataclass_decorator.keywords
+        } == {"frozen": True, "slots": True, "kw_only": True}
+        assert {
+            node.target.id
+            for node in owner.body
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        } == fields
+
+    assert "_ReloadConfigurationDependencies" not in classes
+    interpreter = classes["_BuiltinCommandInterpreter"]
+    interpret = next(
+        node
+        for node in interpreter.body
+        if isinstance(node, ast.FunctionDef) and node.name == "interpret"
+    )
+    parameters = (
+        *interpret.args.posonlyargs,
+        *interpret.args.args,
+        *interpret.args.kwonlyargs,
+    )
+    assert len(parameters) < 10
+    transfer_reload_actions = {
+        "SESSION_EXPORT",
+        "SESSION_IMPORT",
+        "SESSION_SHARE",
+        "RELOAD",
+    }
+    assert transfer_reload_actions.isdisjoint(
+        {
+            node.attr
+            for node in ast.walk(interpret)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "CodingCommandAction"
+        }
+    )
+    delegated_owners = [
+        node.func.value.attr
+        for node in ast.walk(interpret)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "execute"
+        and isinstance(node.func.value, ast.Attribute)
+        and isinstance(node.func.value.value, ast.Name)
+        and node.func.value.value.id == "self"
+    ]
+    assert sorted(delegated_owners) == [
+        "provider_configuration_effects",
+        "reload_effects",
+        "session_effects",
+        "transfer_effects",
+    ]
+    root_names = {node.id for node in ast.walk(interpret) if isinstance(node, ast.Name)}
+    assert {
+        "ctl",
+        "session",
+        "coding_state",
+        "terminal_ui",
+        "renderer",
+        "settings",
+        "keybindings",
+        "resource_options",
+        "tool_capabilities",
+    }.isdisjoint(root_names)
+
+    reload_owner = classes["_ReloadCommandEffects"]
+    reload_execute = next(
+        node
+        for node in reload_owner.body
+        if isinstance(node, ast.FunctionDef) and node.name == "execute"
+    )
+    publishing = next(
+        node for node in reload_execute.body if isinstance(node, ast.With)
+    )
+    assert len(publishing.items) == 1
+    publishing_context = publishing.items[0].context_expr
+    assert isinstance(publishing_context, ast.Call)
+    assert not publishing_context.args
+    assert not publishing_context.keywords
+    publishing_function = publishing_context.func
+    assert isinstance(publishing_function, ast.Attribute)
+    assert publishing_function.attr == "publishing"
+    generation_ref = publishing_function.value
+    assert isinstance(generation_ref, ast.Attribute)
+    assert generation_ref.attr == "generation_ref"
+    ctl = generation_ref.value
+    assert isinstance(ctl, ast.Attribute)
+    assert ctl.attr == "ctl"
+    assert isinstance(ctl.value, ast.Name)
+    assert ctl.value.id == "self"
+    phase_calls = [
+        node.func.attr
+        for statement in publishing.body
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ]
+    assert phase_calls == [
+        "_reload_configuration_and_resources",
+        "_reload_extension_generation",
+        "refresh_provider_after_reload",
+        "_publish_tool_and_lifecycle_projections",
+        "_refresh_presentation_and_persistence",
+    ]
+    lifecycle_call = next(
+        node
+        for node in reload_execute.body
+        if isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Attribute)
+        and node.value.func.attr == "fire_lifecycle"
+    )
+    lifecycle_expression = lifecycle_call.value
+    assert isinstance(lifecycle_expression, ast.Call)
+    assert len(lifecycle_expression.args) == 1
+    lifecycle_event = lifecycle_expression.args[0]
+    assert isinstance(lifecycle_event, ast.Name)
+    assert lifecycle_event.id == "EVENT_SESSION_START"
+    assert len(lifecycle_expression.keywords) == 1
+    lifecycle_reason = lifecycle_expression.keywords[0]
+    assert lifecycle_reason.arg == "reason"
+    assert isinstance(lifecycle_reason.value, ast.Constant)
+    assert lifecycle_reason.value.value == "reload"
+    final_diagnostic = next(
+        node
+        for node in reload_execute.body
+        if isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Attribute)
+        and node.value.func.attr == "diag"
+    )
+    publishing_end = publishing.end_lineno
+    assert publishing_end is not None
+    assert publishing_end < lifecycle_call.lineno
+    assert lifecycle_call.lineno < final_diagnostic.lineno
+    reload_methods = [
+        node for node in reload_owner.body if isinstance(node, ast.FunctionDef)
+    ]
+    reload_method_lengths: list[int] = []
+    for method in reload_methods:
+        assert method.end_lineno is not None
+        reload_method_lengths.append(method.end_lineno - method.lineno + 1)
+    assert max(reload_method_lengths) < 80
+
+    reload_delegation = next(
+        node
+        for node in ast.walk(interpret)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "execute"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "reload_effects"
+    )
+    assert reload_delegation.end_lineno is not None
+    footer_calls = [
+        node
+        for node in ast.walk(interpret)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr
+        in {"refresh_legacy_footer", "refresh_legacy_footer_with_usage"}
+    ]
+    assert len(footer_calls) == 2
+    assert all(
+        reload_delegation.end_lineno < footer_call.lineno
+        for footer_call in footer_calls
+    )
 
 
 def test_changed_agent_history_compaction_has_nonempty_product_summary() -> None:

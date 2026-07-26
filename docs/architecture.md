@@ -98,9 +98,16 @@ model and scoped-model selection, login, and logout) execute through a separate
 frozen `_ProviderConfigurationCommandEffects` bundle. That executor composes
 with `_ProviderMutationEffects`, which remains the single owner for live model
 and authentication mutation ordering, while preserving live-terminal versus
-captured-stream presentation. Only transfer/package/reload command families
-remain in the root interpreter for Slice 6; reload temporarily receives its
-shared settings and keybindings through a narrow typed dependency bundle.
+captured-stream presentation. Native session export, import, and share execute
+through `_TransferCommandEffects`; import replaces the live tree and then uses
+the session collaborator's authoritative history/input rebuild seam. `/reload`
+executes through `_ReloadCommandEffects`, whose explicit phases preserve the
+publication gate around configuration/package/resource recomposition,
+extension generation activation/publication, provider refresh, tool-capability
+publication, and terminal refresh. Provider fallback and unavailable binding
+remain methods on `_ProviderMutationEffects`, rather than a second reload-only
+mutation path. `_BuiltinCommandInterpreter` now contains only the closed
+four-family routing plus the closed footer policy.
 
 `native/session.py` still owns the one-shot `NativeAgentSession` used by the
 harness/SDK compatibility path. It projects canonical event/result types but is
@@ -168,7 +175,10 @@ across both the refusal check and their assignment; `set_model` still persists
 part-way through its mutation, so for that one port the gate narrows the window
 rather than closing it. Model defaults are queued during a selection and written
 only after the selection is live, and a persistence failure is reported without
-claiming the selection reverted.
+claiming the selection reverted. The reload effect owner closes the gate before
+firing the replacement generation's `session_start` hook, then emits the final
+reload diagnostic; the root footer policy runs only after that complete effect
+returns.
 
 ## Sessions, automation, and trust domains
 
@@ -256,8 +266,8 @@ The active program addresses ownership risks rather than cosmetic size:
   activation worker is not yet sealed out of its runtime;
 - `set_model` persists a default part-way through its mutation, so its
   publication-gate admission is not yet atomic;
-- `_BuiltinCommandInterpreter.interpret` and `_ReplLoopStep.step_once` remain
-  high-complexity cross-boundary orchestrators with wide collaborator lists;
+- `_ReplLoopStep.step_once` remains a high-complexity cross-boundary
+  orchestrator with a wide collaborator list;
 - strict typing has not yet reached every source module;
 - the one-shot runtime and canonical interactive loop have unresolved semantic
   overlap;

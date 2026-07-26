@@ -526,14 +526,14 @@ class _RunControlState:
     ~40-name ``nonlocal`` block reassigned by the built-in effect chain and read
     back by the REPL loop step and the extension/resource/persistence adapter
     closures. Routing them through one ``ctl`` instance removed those free-var
-    captures so the built-in effect chain could be relocated into
-    ``_BuiltinCommandInterpreter.interpret`` and the per-iteration loop step into
-    ``_ReplLoopStep.step_once`` — both receive ``ctl`` explicitly as a keyword-only
-    argument and mutate it in place. It is deliberately a plain mutable record with
-    no behavior: the handlers and closures reassign ``ctl.<attr>`` exactly where they
-    previously rebound the ``nonlocal`` name, and a ``/reload``, ``/new``,
-    ``/resume``, ``/fork``, or ``/clone`` rebind stays visible to every other
-    closure through the shared instance.
+    captures so the built-in effects could be relocated into typed family owners
+    routed by ``_BuiltinCommandInterpreter`` and the per-iteration loop step into
+    ``_ReplLoopStep.step_once``. The effect owners and loop step receive ``ctl``
+    explicitly and mutate it in place. It is deliberately a plain mutable record
+    with no behavior: the handlers and closures reassign ``ctl.<attr>`` exactly
+    where they previously rebound the ``nonlocal`` name, and a ``/reload``,
+    ``/new``, ``/resume``, ``/fork``, or ``/clone`` rebind stays visible to every
+    other closure through the shared instance.
     """
 
     session_tree: NativeSessionTree
@@ -646,6 +646,16 @@ _PROVIDER_CONFIGURATION_COMMAND_ACTIONS = frozenset(
         CodingCommandAction.LOGOUT,
     }
 )
+
+_TRANSFER_COMMAND_ACTIONS = frozenset(
+    {
+        CodingCommandAction.SESSION_EXPORT,
+        CodingCommandAction.SESSION_IMPORT,
+        CodingCommandAction.SESSION_SHARE,
+    }
+)
+
+_RELOAD_COMMAND_ACTIONS = frozenset({CodingCommandAction.RELOAD})
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1197,13 +1207,272 @@ class _ProviderConfigurationCommandEffects:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class _ReloadConfigurationDependencies:
-    """Transitional Slice 6-facing settings/keybindings bundle for ``/reload``."""
+class _TransferCommandEffects:
+    """Execute native session export, import, and share effects."""
 
+    session: "NativeToolReplSession"
+    ctl: _RunControlState
+    cwd: Path
+    system_prompt: str
+    input_stream: TextIO
+    error_stream: TextIO
+    terminal_ui: ToolLoopTerminalUi | None
+    diag: Callable[[str], None]
+    current_session_dir: Callable[[], Path]
+    session_switch_allows: Callable[[str], bool]
+    rebuild_messages_from_tree: Callable[[], None]
+
+    def execute(self, command_outcome: CodingCommandOutcome) -> None:
+        """Execute one outcome from the closed transfer-command family."""
+
+        action = command_outcome.action
+        if action is CodingCommandAction.SESSION_EXPORT:
+            self.session._export_session(
+                command_outcome.argument,
+                session_tree=self.ctl.session_tree,
+                cwd=self.cwd,
+                system_prompt=self.system_prompt,
+                diagnostic=self.diag,
+            )
+        elif action is CodingCommandAction.SESSION_IMPORT:
+            self._execute_import(command_outcome)
+        elif action is CodingCommandAction.SESSION_SHARE:
+            self._execute_share()
+        else:
+            raise AssertionError("transfer command executor received another action")
+
+    def _execute_import(self, command_outcome: CodingCommandOutcome) -> None:
+        imported_tree = self.session._import_session(
+            command_outcome.argument,
+            cwd=self.cwd,
+            input_stream=self.input_stream,
+            error_stream=self.error_stream,
+            current_session_dir=self.current_session_dir,
+            session_switch_allows=self.session_switch_allows,
+            diagnostic=self.diag,
+        )
+        if imported_tree is None:
+            return
+        self.ctl.session_tree = imported_tree
+        self.rebuild_messages_from_tree()
+        self.diag(
+            "pipy: imported native session "
+            f"{sanitize_label_text(self.ctl.session_tree.session_id[:8])}."
+        )
+
+    def _execute_share(self) -> None:
+        token = resolve_github_token()
+        if not token:
+            self.diag(
+                "pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`."
+            )
+            return
+        try:
+            result = self.session._share_native_session_command(
+                session_tree=self.ctl.session_tree,
+                token=token,
+                terminal_ui=self.terminal_ui,
+                error_stream=self.error_stream,
+            )
+        except NativeExportError as exc:
+            self.diag(f"pipy: {exc}")
+            return
+        if result is None:
+            return
+        if result.viewer_url:
+            self.diag(
+                f"pipy: share URL: {result.viewer_url}\n"
+                f"pipy: gist URL: {result.gist_url}"
+            )
+        else:
+            self.diag(f"pipy: gist URL: {result.gist_url}")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ReloadCommandEffects:
+    """Execute ``/reload`` through explicit behavior-preserving phases."""
+
+    session: "NativeToolReplSession"
+    ctl: _RunControlState
     settings: SettingsManager
     keybindings: KeybindingsManager
+    terminal_ui: ToolLoopTerminalUi | None
+    renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer"
+    error_stream: TextIO
+    emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
+    provider_mutation: "_ProviderMutationEffects"
+    cwd: Path
+    resource_options: RuntimeResourceOptions
+    tool_capabilities: NativeToolCapabilities
+    diag: Callable[[str], None]
+    redraw_custom_entries_for_active_branch: Callable[[], None]
+    extension_send_message: Callable[
+        [str, str, bool, "Mapping[str, object]", object | None], object
+    ]
+    extension_render_details: ToolRenderDetailsWriter
+
+    def execute(self, command_outcome: CodingCommandOutcome) -> None:
+        """Reload settings and publish every derived live projection in order."""
+
+        if command_outcome.action is not CodingCommandAction.RELOAD:
+            raise AssertionError("reload command executor received another action")
+        # Open the publication gate before the first live selection, thinking,
+        # or tool-visibility read. It closes on every exception path.
+        with self.ctl.generation_ref.publishing():
+            self._reload_configuration_and_resources()
+            self._reload_extension_generation()
+            self.provider_mutation.refresh_provider_after_reload()
+            self._publish_tool_and_lifecycle_projections()
+            saved_implicit_trust = self._refresh_presentation_and_persistence()
+        # Post-reload hooks deliberately run after the publication gate closes.
+        self.emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
+        self.diag(
+            (
+                "pipy: reloaded settings, keybindings, and resources; "
+                "saved project trust."
+                if saved_implicit_trust
+                else "pipy: reloaded settings, keybindings, and resources."
+            )
+        )
+
+    def _reload_configuration_and_resources(self) -> None:
+        self.settings.reload()
+        self.keybindings.reload()
+        self.ctl.package_roots = compose_package_runtime(
+            self.settings,
+            self.cwd,
+            include_package_themes=not self.resource_options.no_themes,
+            explicit_theme_paths=self.resource_options.theme_paths,
+        )
+        self.ctl.workspace_resources = WorkspaceResources.discover(
+            self.cwd,
+            package_roots=self.ctl.package_roots,
+            explicit_skill_paths=self.resource_options.skill_paths,
+            explicit_prompt_template_paths=(
+                self.resource_options.prompt_template_paths
+            ),
+            include_skills_defaults=not self.resource_options.no_skills,
+            include_prompt_template_defaults=(
+                not self.resource_options.no_prompt_templates
+            ),
+            include_workspace_defaults=self.settings.project_trusted,
+        ).with_enablement(
+            skills_patterns=self.settings.get_skills_patterns(),
+            prompts_patterns=self.settings.get_prompts_patterns(),
+            enable_skill_commands=self.settings.get_enable_skill_commands(),
+        )
+
+    def _reload_extension_generation(self) -> None:
+        # The current live-host limitation requires clearing chrome before
+        # activation. A rejected candidate therefore retains the documented
+        # cleared-chrome residual behavior.
+        if self.terminal_ui is not None:
+            self.terminal_ui.clear_extension_chrome()
+        reloaded_extension_runtime = _activate_workspace_extensions(
+            self.cwd,
+            self.ctl.workspace_resources,
+            tuple(self.session.tool_registry.keys()),
+            package_roots=(
+                ()
+                if self.resource_options.no_extensions
+                else self.ctl.package_roots.extensions
+            ),
+            extension_patterns=self.settings.get_extensions_patterns(),
+            explicit_extension_paths=self.resource_options.extension_paths,
+            include_default_extensions=not self.resource_options.no_extensions,
+            include_workspace_defaults=self.settings.project_trusted,
+        )
+        reloaded_flag_values, reloaded_flag_error = parse_extension_flag_tokens(
+            reloaded_extension_runtime.flags,
+            tuple(self.resource_options.extension_flag_tokens),
+        )
+        if reloaded_flag_error is not None:
+            self.diag(f"pipy: {reloaded_flag_error}")
+            self.diag("pipy: keeping the previous extensions.")
+            return
+        self.ctl.extension_generation = SessionExtensionGeneration(
+            runtime=reloaded_extension_runtime,
+            flag_values=reloaded_flag_values,
+        )
+        self.emitter.set_flags(self.ctl.extension_generation.flag_values)
+        for custom_message in reloaded_extension_runtime.custom_messages:
+            self.extension_send_message(
+                custom_message.custom_type,
+                custom_message.content,
+                custom_message.display,
+                custom_message.options,
+                custom_message.details,
+            )
+
+    def _publish_tool_and_lifecycle_projections(self) -> None:
+        runtime = self.ctl.extension_generation.runtime
+        self.renderer.refresh_tool_renderers(
+            _extension_tool_renderer_map(runtime.tools)
+        )
+        reloaded_tool_registry: dict[str, ToolPort] = {}
+        for registered_tool in runtime.tools:
+            port = _ExtensionToolPort(
+                registered_tool,
+                has_ui=self.terminal_ui is not None,
+                notify_sink=self.provider_mutation.extension_notify,
+                set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
+                flags=self.ctl.extension_generation.flag_values,
+                render_details_sink=self.extension_render_details,
+                project_trusted=self.settings.project_trusted,
+            )
+            reloaded_tool_registry[port.definition.name] = port
+        self.tool_capabilities.publish(
+            self.tool_capabilities.prepare_extensions(reloaded_tool_registry)
+        )
+        self._diagnose_unknown_tool_filters()
+        self.emitter.set_lifecycle_hooks(runtime.lifecycle_hooks)
+        self.emitter.set_flags(self.ctl.extension_generation.flag_values)
+
+    def _diagnose_unknown_tool_filters(self) -> None:
+        unknown_filter_names = self.tool_capabilities.unknown_filter_names
+        if not unknown_filter_names:
+            return
+        known = ", ".join(sorted(self.tool_capabilities.registered_names)) or "<none>"
+        unknown = ", ".join(unknown_filter_names)
+        self.diag(f"pipy: unknown tool name(s): {unknown}. Known tools: {known}")
+
+    def _refresh_presentation_and_persistence(self) -> bool:
+        reloaded_theme = self.settings.get_theme()
+        if reloaded_theme:
+            os.environ["PIPY_THEME"] = reloaded_theme
+        if self.terminal_ui is not None:
+            self.terminal_ui.autocomplete_max_visible = (
+                self.settings.get_autocomplete_max_visible()
+            )
+            self.terminal_ui.command_names = _tool_loop_command_names(
+                self.ctl.workspace_resources,
+                self.ctl.extension_generation.runtime.menu_names,
+            )
+            self.terminal_ui.command_descriptions = _tool_loop_command_descriptions(
+                self.ctl.workspace_resources,
+                self.ctl.extension_generation.runtime.descriptions,
+            )
+            self.terminal_ui.extension_shortcut_keys = frozenset(
+                self.ctl.extension_generation.runtime.shortcuts
+            )
+            self.redraw_custom_entries_for_active_branch()
+        for scope, detail in self.settings.load_errors().items():
+            self.diag(f"pipy: kept prior {scope} settings ({detail}).")
+        if self.session.verbose_startup or not self.settings.get_quiet_startup():
+            print_startup_chrome(
+                self.error_stream,
+                cwd=self.cwd,
+                include_workspace_defaults=self.settings.project_trusted,
+            )
+        return self.session._maybe_save_implicit_trust_after_reload(
+            cwd=self.cwd,
+            settings=self.settings,
+            terminal_ui=self.terminal_ui,
+            error_stream=self.error_stream,
+        )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _BuiltinCommandInterpreter:
     """Composition-root handler that owns the built-in command effect chain.
 
@@ -1211,505 +1480,44 @@ class _BuiltinCommandInterpreter:
     a continuing built-in, invokes this handler through the already-wired
     :meth:`CodingCommandEffects.interpret_builtin` port (symmetric with the
     resource and extension dispatch ports). :meth:`interpret` receives the run's
-    mutable control-state holder ``ctl`` plus the run-loop collaborators
-    (terminal UI, renderer, session-tree callbacks, extension runtime) explicitly
-    and mutates ``ctl`` in place, so ``run()`` reads the reassigned session tree,
-    tree filter mode, pending prefill, and ``/reload`` extension-runtime bundle
-    back byte-identically after dispatch. The handler holds no state of its own;
-    the per-action effect chain formerly lived as the ``_interpret_builtin_effect``
-    closure nested in ``NativeToolReplSession.run()``.
+    four closed effect-family ports. Footer policy stays here so every family
+    retains the same success/exception timing.
     """
 
-    __slots__ = ()
+    session_effects: _SessionCommandEffects
+    provider_configuration_effects: _ProviderConfigurationCommandEffects
+    transfer_effects: _TransferCommandEffects
+    reload_effects: _ReloadCommandEffects
+    refresh_legacy_footer: Callable[[], None]
+    refresh_legacy_footer_with_usage: Callable[[], None]
 
     def interpret(
         self,
         command_outcome: CodingCommandOutcome,
-        *,
-        session: "NativeToolReplSession",
-        ctl: _RunControlState,
-        session_command_effects: _SessionCommandEffects,
-        coding_state: CodingSessionState,
-        terminal_ui: ToolLoopTerminalUi | None,
-        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
-        error_stream: TextIO,
-        emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
-        provider_configuration_effects: _ProviderConfigurationCommandEffects,
-        reload_configuration: _ReloadConfigurationDependencies,
-        cwd: Path,
-        system_prompt: str,
-        input_stream: TextIO,
-        resource_options: RuntimeResourceOptions,
-        tool_capabilities: NativeToolCapabilities,
-        diag: Callable[[str], None],
-        rebuild_messages_from_tree: Callable[[], None],
-        redraw_custom_entries_for_active_branch: Callable[[], None],
-        refresh_legacy_footer: Callable[[], None],
-        refresh_legacy_footer_with_usage: Callable[[], None],
-        current_session_dir: Callable[[], Path],
-        # ``extension_session_allows`` takes keyword-only gate arguments
-        # (operation/target/trigger), so ``Callable[..., bool]`` is the accurate
-        # callback shape here rather than a positional parameter list.
-        extension_session_allows: Callable[..., bool],
-        extension_send_message: Callable[
-            [str, str, bool, "Mapping[str, object]", object | None], object
-        ],
-        extension_render_details: ToolRenderDetailsWriter,
-        extension_set_active_tools: Callable[[Sequence[str]], bool],
-        _extension_notify: Callable[[str, str], None],
-        _bind_unavailable_after_reload: Callable[[str], None],
     ) -> None:
-        # The run's shared control state is reassigned through ``ctl.<attr>``;
-        # the transient names this effect recomputes locally on every
-        # invocation before reading (``fallback``/``fallback_provider``/
-        # ``catalog_state``/``was_extension_selection`` in the reload provider
-        # refresh, ``unknown_filter_names``/``known``/``unknown`` in the
-        # reload tool-filter check, and the ``_registered_tool``/``_port``/
-        # ``custom_message`` loop variables) stay function-local.
-
-        def _apply_footer_policy() -> None:
-            """Apply the outcome's closed footer policy.
-
-            Shared by the normal tail and by the reload's early return on a
-            rejected candidate, so refusing a reload cannot skip the footer
-            refresh that every handled command performs.
-            """
-
-            if command_outcome.footer_policy is CodingCommandFooterPolicy.STANDARD:
-                refresh_legacy_footer()
-            elif command_outcome.footer_policy is CodingCommandFooterPolicy.USAGE_AWARE:
-                refresh_legacy_footer_with_usage()
-            else:
-                raise AssertionError("handled command requires a closed footer policy")
-
-        if command_outcome.kind is CodingCommandOutcomeKind.CONTINUE:
-            if command_outcome.action in _PROVIDER_CONFIGURATION_COMMAND_ACTIONS:
-                provider_configuration_effects.execute(command_outcome)
-            elif command_outcome.action in _SESSION_COMMAND_ACTIONS:
-                session_command_effects.execute(command_outcome)
-            elif command_outcome.action is CodingCommandAction.SESSION_EXPORT:
-                session._export_session(
-                    command_outcome.argument,
-                    session_tree=ctl.session_tree,
-                    cwd=cwd,
-                    system_prompt=system_prompt,
-                    diagnostic=diag,
-                )
-            elif command_outcome.action is CodingCommandAction.SESSION_IMPORT:
-                imported_tree = session._import_session(
-                    command_outcome.argument,
-                    cwd=cwd,
-                    input_stream=input_stream,
-                    error_stream=error_stream,
-                    current_session_dir=current_session_dir,
-                    session_switch_allows=lambda target: extension_session_allows(
-                        ctl.extension_generation.runtime.session_before_switch_hooks,
-                        operation="switch",
-                        target=target,
-                    ),
-                    diagnostic=diag,
-                )
-                if imported_tree is not None:
-                    ctl.session_tree = imported_tree
-                    rebuild_messages_from_tree()
-                    diag(
-                        "pipy: imported native session "
-                        f"{sanitize_label_text(ctl.session_tree.session_id[:8])}."
-                    )
-            elif command_outcome.action is CodingCommandAction.SESSION_SHARE:
-                token = resolve_github_token()
-                if not token:
-                    diag(
-                        "pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`."
-                    )
-                else:
-                    try:
-                        result = session._share_native_session_command(
-                            session_tree=ctl.session_tree,
-                            token=token,
-                            terminal_ui=terminal_ui,
-                            error_stream=error_stream,
-                        )
-                    except NativeExportError as exc:
-                        diag(f"pipy: {exc}")
-                    else:
-                        if result is not None:
-                            if result.viewer_url:
-                                diag(
-                                    f"pipy: share URL: {result.viewer_url}\npipy: gist URL: {result.gist_url}"
-                                )
-                            else:
-                                diag(f"pipy: gist URL: {result.gist_url}")
-            elif command_outcome.action is CodingCommandAction.RELOAD:
-                settings = reload_configuration.settings
-                keybindings = reload_configuration.keybindings
-                # One publication: the gate is open from the moment this
-                # reload starts reading live provider selection, thinking
-                # level, and tool visibility until every derived projection is
-                # published. Extension mutation ports fail closed for that
-                # window, so a change accepted mid-reload cannot be silently
-                # overwritten by values derived from what was read earlier.
-                # The context manager closes the gate even if preparation
-                # raises, so a failed reload never leaves mutations refused.
-                with ctl.generation_ref.publishing():
-                    # Local-only: re-read settings (both scopes), keybindings, and
-                    # workspace resources, then re-apply derived UI settings. Runs
-                    # between turns at the prompt, so no provider turn or compaction
-                    # is in flight. A settings/theme load error keeps the prior good
-                    # state for that scope; a malformed keybindings.json falls back
-                    # to the built-in defaults. No provider turn, no tool call.
-                    settings.reload()
-                    keybindings.reload()
-                    # Re-resolve package roots + re-install the theme
-                    # registry so a package added/removed since startup is
-                    # reflected after /reload.
-                    ctl.package_roots = compose_package_runtime(
-                        settings,
-                        cwd,
-                        include_package_themes=not resource_options.no_themes,
-                        explicit_theme_paths=resource_options.theme_paths,
-                    )
-                    ctl.workspace_resources = WorkspaceResources.discover(
-                        cwd,
-                        package_roots=ctl.package_roots,
-                        explicit_skill_paths=resource_options.skill_paths,
-                        explicit_prompt_template_paths=resource_options.prompt_template_paths,
-                        include_skills_defaults=not resource_options.no_skills,
-                        include_prompt_template_defaults=not resource_options.no_prompt_templates,
-                        include_workspace_defaults=settings.project_trusted,
-                    ).with_enablement(
-                        skills_patterns=settings.get_skills_patterns(),
-                        prompts_patterns=settings.get_prompts_patterns(),
-                        enable_skill_commands=settings.get_enable_skill_commands(),
-                    )
-                    # Re-discover + re-activate extensions on reload (Pi
-                    # /reload also reloads extensions). A failing extension is
-                    # disabled without affecting the session. Chrome set by the
-                    # prior generation is cleared first so a removed or
-                    # disabled extension cannot leave stale
-                    # widgets/header/footer/title behind.
-                    #
-                    # This has to precede activation while the candidate still
-                    # activates against the live host: clearing after the
-                    # commit would wipe the chrome the candidate installed
-                    # during its own activation. The cost is that a *rejected*
-                    # candidate leaves the retained generation's chrome
-                    # cleared. Fixing that needs the isolated staging host that
-                    # this slice does not yet build; it is recorded as deferred
-                    # in the rebuild plan rather than traded for a worse bug.
-                    if terminal_ui is not None:
-                        terminal_ui.clear_extension_chrome()
-                    reloaded_extension_runtime = _activate_workspace_extensions(
-                        cwd,
-                        ctl.workspace_resources,
-                        tuple(session.tool_registry.keys()),
-                        package_roots=()
-                        if resource_options.no_extensions
-                        else ctl.package_roots.extensions,
-                        extension_patterns=settings.get_extensions_patterns(),
-                        explicit_extension_paths=resource_options.extension_paths,
-                        include_default_extensions=not resource_options.no_extensions,
-                        include_workspace_defaults=settings.project_trusted,
-                    )
-                    # Candidate phase: parse the candidate's flags *before*
-                    # anything becomes live. Flag parsing is the last fallible
-                    # step, so completing it here is what makes the publication
-                    # below a single non-fallible assignment.
-                    reloaded_flag_values, reloaded_flag_error = (
-                        parse_extension_flag_tokens(
-                            reloaded_extension_runtime.flags,
-                            tuple(resource_options.extension_flag_tokens),
-                        )
-                    )
-                    if reloaded_flag_error is not None:
-                        # Reject the whole candidate. The prior generation stays
-                        # complete — old commands, hooks, tools, providers and
-                        # renderers paired with the old flags — and the
-                        # candidate's queued custom messages are never
-                        # delivered, because nothing ever points at it.
-                        # Previously the new runtime went live before this
-                        # check, leaving new contributions paired with stale
-                        # flag values.
-                        #
-                        # Only the extension generation is rejected. Settings,
-                        # keybindings, package roots, and workspace resources
-                        # reloaded successfully above, so the rest of the reload
-                        # still runs — against the unchanged generation, whose
-                        # tool/renderer/provider projections it simply rebuilds
-                        # identically. Returning early here instead would leave
-                        # new settings and resources live with the UI
-                        # projections that depend on them never refreshed.
-                        session._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            f"pipy: {reloaded_flag_error}",
-                        )
-                        session._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            "pipy: keeping the previous extensions.",
-                        )
-                    else:
-                        # Commit: one assignment publishes the candidate runtime
-                        # and its own parsed flags together.
-                        ctl.extension_generation = SessionExtensionGeneration(
-                            runtime=reloaded_extension_runtime,
-                            flag_values=reloaded_flag_values,
-                        )
-                        emitter.set_flags(ctl.extension_generation.flag_values)
-                        # Post-commit: deliver the committed generation's queued
-                        # custom messages.
-                        for (
-                            custom_message
-                        ) in reloaded_extension_runtime.custom_messages:
-                            extension_send_message(
-                                custom_message.custom_type,
-                                custom_message.content,
-                                custom_message.display,
-                                custom_message.options,
-                                custom_message.details,
-                            )
-                    state = session.provider_state
-                    if isinstance(state, NativeReplProviderState):
-                        runtime = state.model_runtime
-                        if runtime is not None:
-                            catalog_state = runtime.catalog
-                            was_extension_selection = (
-                                state.current_selection_uses_extension_provider()
-                            )
-                            catalog_state.refresh()
-                            catalog_state.set_extension_provider_contributions(
-                                ctl.extension_generation.runtime.providers,
-                                ctl.extension_generation.runtime.unregistered_providers,
-                            )
-                            selection_disappeared = (
-                                not state.current_selection_supported()
-                                or (
-                                    was_extension_selection
-                                    and not state.current_selection_uses_extension_provider()
-                                )
-                            )
-                            if not selection_disappeared:
-                                if state.current_selection_uses_extension_provider():
-                                    refreshed_provider = state.current_provider()
-                                    if getattr(
-                                        refreshed_provider,
-                                        "supports_tool_calls",
-                                        False,
-                                    ):
-                                        coding_state.refresh_provider(
-                                            refreshed_provider
-                                        )
-                                    else:
-                                        fallback = state.reset_to_first_available_model(
-                                            require_tool_calls=True
-                                        )
-                                        if fallback is not None:
-                                            fallback_provider = state.current_provider()
-                                            coding_state.rebind_provider(
-                                                fallback_provider,
-                                                provider_name=fallback.provider_name,
-                                                model_id=fallback.model_id,
-                                                usage_accumulator=(
-                                                    AgentUsageAccumulator(
-                                                        _pricing_for(
-                                                            fallback.provider_name,
-                                                            fallback.model_id,
-                                                        )
-                                                    )
-                                                ),
-                                            )
-                                            session._emit_diagnostic(
-                                                terminal_ui,
-                                                error_stream,
-                                                "pipy: active model no longer "
-                                                "supports tool calls after reload; "
-                                                f"selected {fallback.reference}.",
-                                            )
-                                            # Post-commit: the fallback is now
-                                            # bound, so persisting it is safe
-                                            # and its failure is reported.
-                                            persistence_error = (
-                                                _report_default_persistence(state)
-                                            )
-                                            if persistence_error is not None:
-                                                session._emit_diagnostic(
-                                                    terminal_ui,
-                                                    error_stream,
-                                                    persistence_error,
-                                                )
-                                        else:
-                                            message = (
-                                                "active model no longer supports "
-                                                "tool calls after reload and no "
-                                                "available tool-capable fallback "
-                                                "was found"
-                                            )
-                                            _bind_unavailable_after_reload(message)
-                                            session._emit_diagnostic(
-                                                terminal_ui,
-                                                error_stream,
-                                                f"pipy: {message}.",
-                                            )
-                            else:
-                                fallback = state.reset_to_first_available_model(
-                                    require_tool_calls=True
-                                )
-                                if fallback is not None:
-                                    fallback_provider = state.current_provider()
-                                    coding_state.rebind_provider(
-                                        fallback_provider,
-                                        provider_name=fallback.provider_name,
-                                        model_id=fallback.model_id,
-                                        usage_accumulator=AgentUsageAccumulator(
-                                            _pricing_for(
-                                                fallback.provider_name,
-                                                fallback.model_id,
-                                            )
-                                        ),
-                                    )
-                                    session._emit_diagnostic(
-                                        terminal_ui,
-                                        error_stream,
-                                        "pipy: active model disappeared on "
-                                        "reload; selected "
-                                        f"{fallback.reference}.",
-                                    )
-                                    # Post-commit: the fallback is bound.
-                                    persistence_error = _report_default_persistence(
-                                        state
-                                    )
-                                    if persistence_error is not None:
-                                        session._emit_diagnostic(
-                                            terminal_ui,
-                                            error_stream,
-                                            persistence_error,
-                                        )
-                                else:
-                                    message = (
-                                        "active model disappeared on reload and "
-                                        "no available tool-capable fallback was "
-                                        "found"
-                                    )
-                                    _bind_unavailable_after_reload(message)
-                                    session._emit_diagnostic(
-                                        terminal_ui,
-                                        error_stream,
-                                        f"pipy: {message}.",
-                                    )
-                    # Replace the run's extension capability registry and
-                    # custom renderer map with the reloaded generation.
-                    reloaded_tool_renderers = _extension_tool_renderer_map(
-                        ctl.extension_generation.runtime.tools
-                    )
-                    renderer.refresh_tool_renderers(reloaded_tool_renderers)
-                    reloaded_tool_registry: dict[str, ToolPort] = {}
-                    for _registered_tool in ctl.extension_generation.runtime.tools:
-                        _port = _ExtensionToolPort(
-                            _registered_tool,
-                            has_ui=terminal_ui is not None,
-                            notify_sink=_extension_notify,
-                            set_active_tools_fn=lambda names: (
-                                extension_set_active_tools(names)
-                            ),
-                            flags=ctl.extension_generation.flag_values,
-                            render_details_sink=extension_render_details,
-                            project_trusted=settings.project_trusted,
-                        )
-                        reloaded_tool_registry[_port.definition.name] = _port
-                    # Candidate-only build, then one non-fallible publication. The
-                    # split is what Slice 3.9 needs to move the publication into
-                    # the atomic commit; today the two steps still run back to back
-                    # so reload behavior is unchanged.
-                    tool_capabilities.publish(
-                        tool_capabilities.prepare_extensions(reloaded_tool_registry)
-                    )
-                    unknown_filter_names = tool_capabilities.unknown_filter_names
-                    if unknown_filter_names:
-                        known = (
-                            ", ".join(sorted(tool_capabilities.registered_names))
-                            or "<none>"
-                        )
-                        unknown = ", ".join(unknown_filter_names)
-                        session._emit_diagnostic(
-                            terminal_ui,
-                            error_stream,
-                            f"pipy: unknown tool name(s): {unknown}. Known tools: {known}",
-                        )
-                    # Refresh the emitter's lifecycle hooks so reloaded
-                    # extensions observe subsequent agent/turn events.
-                    emitter.set_lifecycle_hooks(
-                        ctl.extension_generation.runtime.lifecycle_hooks
-                    )
-                    emitter.set_flags(ctl.extension_generation.flag_values)
-                    # Re-apply the edited theme (settings is source of truth over the
-                    # persisted store) and the derived UI settings.
-                    reloaded_theme = settings.get_theme()
-                    if reloaded_theme:
-                        os.environ["PIPY_THEME"] = reloaded_theme
-                    if terminal_ui is not None:
-                        terminal_ui.autocomplete_max_visible = (
-                            settings.get_autocomplete_max_visible()
-                        )
-                        terminal_ui.command_names = _tool_loop_command_names(
-                            ctl.workspace_resources,
-                            ctl.extension_generation.runtime.menu_names,
-                        )
-                        terminal_ui.command_descriptions = (
-                            _tool_loop_command_descriptions(
-                                ctl.workspace_resources,
-                                ctl.extension_generation.runtime.descriptions,
-                            )
-                        )
-                        terminal_ui.extension_shortcut_keys = frozenset(
-                            ctl.extension_generation.runtime.shortcuts
-                        )
-                        redraw_custom_entries_for_active_branch()
-                    load_errors = settings.load_errors()
-                    if load_errors:
-                        for scope, detail in load_errors.items():
-                            session._emit_diagnostic(
-                                terminal_ui,
-                                error_stream,
-                                f"pipy: kept prior {scope} settings ({detail}).",
-                            )
-                    if session.verbose_startup or not settings.get_quiet_startup():
-                        print_startup_chrome(
-                            error_stream,
-                            cwd=cwd,
-                            include_workspace_defaults=settings.project_trusted,
-                        )
-                    saved_implicit_trust = (
-                        session._maybe_save_implicit_trust_after_reload(
-                            cwd=cwd,
-                            settings=settings,
-                            terminal_ui=terminal_ui,
-                            error_stream=error_stream,
-                        )
-                    )
-                # Everything the reload publishes is now live, so close the
-                # gate before running post-reload extension hooks. A
-                # `session_start` hook from the freshly activated generation
-                # may legitimately call setModel / setThinkingLevel /
-                # setActiveTools, and refusing those would be a behavior
-                # change rather than a protection.
-                emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
-                session._emit_diagnostic(
-                    terminal_ui,
-                    error_stream,
-                    (
-                        "pipy: reloaded settings, keybindings, and resources; "
-                        "saved project trust."
-                        if saved_implicit_trust
-                        else "pipy: reloaded settings, keybindings, and resources."
-                    ),
-                )
-            if command_outcome.footer_policy is CodingCommandFooterPolicy.STANDARD:
-                refresh_legacy_footer()
-            elif command_outcome.footer_policy is CodingCommandFooterPolicy.USAGE_AWARE:
-                refresh_legacy_footer_with_usage()
-            else:
-                raise AssertionError("handled command requires a closed footer policy")
+        if command_outcome.kind is not CodingCommandOutcomeKind.CONTINUE:
+            return
+        action = command_outcome.action
+        if action in _PROVIDER_CONFIGURATION_COMMAND_ACTIONS:
+            self.provider_configuration_effects.execute(command_outcome)
+        elif action in _SESSION_COMMAND_ACTIONS:
+            self.session_effects.execute(command_outcome)
+        elif action in _TRANSFER_COMMAND_ACTIONS:
+            self.transfer_effects.execute(command_outcome)
+        elif action in _RELOAD_COMMAND_ACTIONS:
+            self.reload_effects.execute(command_outcome)
+        elif action is None:
+            # Empty input is a classified continuing local no-op whose footer
+            # still refreshes through the same closed policy below.
+            pass
+        else:
+            raise AssertionError("continuing built-in has no effect-family owner")
+        if command_outcome.footer_policy is CodingCommandFooterPolicy.STANDARD:
+            self.refresh_legacy_footer()
+        elif command_outcome.footer_policy is CodingCommandFooterPolicy.USAGE_AWARE:
+            self.refresh_legacy_footer_with_usage()
+        else:
+            raise AssertionError("handled command requires a closed footer policy")
 
 
 def _report_default_persistence(
@@ -2021,6 +1829,100 @@ class _ProviderMutationEffects:
             message = f"{message}\n{persistence_error}"
         return message
 
+    def refresh_provider_after_reload(self) -> None:
+        """Refresh or rebind the live provider after catalog recomposition."""
+
+        state = self.session.provider_state
+        if not isinstance(state, NativeReplProviderState):
+            return
+        runtime = state.model_runtime
+        if runtime is None:
+            return
+        catalog_state = runtime.catalog
+        was_extension_selection = state.current_selection_uses_extension_provider()
+        catalog_state.refresh()
+        catalog_state.set_extension_provider_contributions(
+            self.ctl.extension_generation.runtime.providers,
+            self.ctl.extension_generation.runtime.unregistered_providers,
+        )
+        selection_disappeared = not state.current_selection_supported() or (
+            was_extension_selection
+            and not state.current_selection_uses_extension_provider()
+        )
+        if selection_disappeared:
+            self._rebind_after_reload(
+                state,
+                selected_message="pipy: active model disappeared on reload; selected",
+                unavailable_message=(
+                    "active model disappeared on reload and no available "
+                    "tool-capable fallback was found"
+                ),
+            )
+            return
+        if not state.current_selection_uses_extension_provider():
+            return
+        refreshed_provider = state.current_provider()
+        if getattr(refreshed_provider, "supports_tool_calls", False):
+            self.coding_state.refresh_provider(refreshed_provider)
+            return
+        self._rebind_after_reload(
+            state,
+            selected_message=(
+                "pipy: active model no longer supports tool calls after reload; "
+                "selected"
+            ),
+            unavailable_message=(
+                "active model no longer supports tool calls after reload and no "
+                "available tool-capable fallback was found"
+            ),
+        )
+
+    def _rebind_after_reload(
+        self,
+        state: NativeReplProviderState,
+        *,
+        selected_message: str,
+        unavailable_message: str,
+    ) -> None:
+        fallback = state.reset_to_first_available_model(require_tool_calls=True)
+        if fallback is None:
+            self._bind_unavailable_after_reload(unavailable_message)
+            self.session._emit_diagnostic(
+                self.terminal_ui,
+                self.error_stream,
+                f"pipy: {unavailable_message}.",
+            )
+            return
+        fallback_provider = state.current_provider()
+        self.coding_state.rebind_provider(
+            fallback_provider,
+            provider_name=fallback.provider_name,
+            model_id=fallback.model_id,
+            usage_accumulator=AgentUsageAccumulator(
+                _pricing_for(fallback.provider_name, fallback.model_id)
+            ),
+        )
+        self.session._emit_diagnostic(
+            self.terminal_ui,
+            self.error_stream,
+            f"{selected_message} {fallback.reference}.",
+        )
+        persistence_error = _report_default_persistence(state)
+        if persistence_error is not None:
+            self.session._emit_diagnostic(
+                self.terminal_ui,
+                self.error_stream,
+                persistence_error,
+            )
+
+    def _bind_unavailable_after_reload(self, message: str) -> None:
+        unavailable_provider = UnavailableAfterReloadProvider(
+            name=self.coding_state.provider_name,
+            model_id=self.coding_state.model_id,
+            error_message=message,
+        )
+        self.coding_state.mark_provider_unavailable(unavailable_provider)
+
     def apply_compaction(self, trigger: str) -> str:
         """Compact the in-memory provider history at a user-turn boundary.
 
@@ -2157,11 +2059,11 @@ class _ReplLoopStep:
         coding_session_control: Callable[[], ExtensionCodingSessionControl],
         model_runtime: ExtensionModelRuntimeControl,
     ) -> LoopStepSignal:
-        # The per-action built-in control-state reassignments (session tree,
-        # tree filter mode, prefill, and the whole `/reload` extension-runtime
-        # bundle) now live in `_BuiltinCommandInterpreter.interpret`, invoked through the
-        # command-dispatch port; this step only reassigns its own loop control
-        # flags plus the input/agent-turn bookkeeping, all through ``ctl``.
+        # Per-action built-in control-state reassignments (session tree, tree
+        # filter mode, prefill, and the whole `/reload` extension-runtime
+        # bundle) now live in typed effect-family owners routed through
+        # `_BuiltinCommandInterpreter`; this step only reassigns its own loop
+        # control flags plus input/agent-turn bookkeeping, all through ``ctl``.
         if terminal_ui is None:
             print_input_separator(error_stream)
         footer_text = coding_footer_text()
@@ -2343,8 +2245,8 @@ class _ReplLoopStep:
         # owned by the headless controller: it classifies built-ins first
         # (`/exit`/`/quit` -> EXIT_LOOP breaks the loop; every other
         # continuing built-in is interpreted through the injected
-        # `command_effects.interpret_builtin` port — the per-action effect
-        # chain in `_BuiltinCommandInterpreter.interpret` — and resolves to
+        # `command_effects.interpret_builtin` port — closed family routing in
+        # `_BuiltinCommandInterpreter.interpret` — and resolves to
         # CONTINUE_LOOP), then resource dispatch (list/reject consumed
         # locally; run records the invocation counter and carries the bounded
         # provider text), then extension dispatch (never shadowing a built-in
@@ -2847,6 +2749,68 @@ class _SessionCollaborators:
             cwd=self.cwd,
             prompt_history_store=prompt_history_store,
             provider_mutation=self.provider_mutation,
+        )
+
+    def transfer_command_effects(
+        self,
+        *,
+        system_prompt: str,
+        input_stream: TextIO,
+    ) -> _TransferCommandEffects:
+        """Assemble native session transfer effects from narrow live ports."""
+
+        return _TransferCommandEffects(
+            session=self.session,
+            ctl=self.ctl,
+            cwd=self.cwd,
+            system_prompt=system_prompt,
+            input_stream=input_stream,
+            error_stream=self.error_stream,
+            terminal_ui=self.terminal_ui,
+            diag=self.diag,
+            current_session_dir=self.current_session_dir,
+            session_switch_allows=self.transfer_session_switch_allows,
+            rebuild_messages_from_tree=self.rebuild_messages_from_tree,
+        )
+
+    def transfer_session_switch_allows(self, target: str) -> bool:
+        """Apply the extension session-switch gate for an import source."""
+
+        return self.extension_session_allows(
+            self.ctl.extension_generation.runtime.session_before_switch_hooks,
+            operation="switch",
+            target=target,
+        )
+
+    def reload_command_effects(
+        self,
+        *,
+        keybindings: KeybindingsManager,
+        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
+        emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
+        resource_options: RuntimeResourceOptions,
+        tool_capabilities: NativeToolCapabilities,
+        extension_render_details: ToolRenderDetailsWriter,
+    ) -> _ReloadCommandEffects:
+        """Assemble the phased reload executor from authoritative owners."""
+
+        return _ReloadCommandEffects(
+            session=self.session,
+            ctl=self.ctl,
+            settings=self.settings,
+            keybindings=keybindings,
+            terminal_ui=self.terminal_ui,
+            renderer=renderer,
+            error_stream=self.error_stream,
+            emitter=emitter,
+            provider_mutation=self.provider_mutation,
+            cwd=self.cwd,
+            resource_options=resource_options,
+            tool_capabilities=tool_capabilities,
+            diag=self.diag,
+            redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
+            extension_send_message=self.custom_renderer.extension_send_message,
+            extension_render_details=extension_render_details,
         )
 
     def rebuild_messages_from_tree(self) -> None:
@@ -3352,14 +3316,6 @@ class NativeToolReplSession:
                 _pricing_for(initial_provider_name, initial_model_id)
             ),
         )
-
-        def _bind_unavailable_after_reload(message: str) -> None:
-            unavailable_provider = UnavailableAfterReloadProvider(
-                name=coding_state.provider_name,
-                model_id=coding_state.model_id,
-                error_message=message,
-            )
-            coding_state.mark_provider_unavailable(unavailable_provider)
 
         # The session's single synchronization boundary, created before the
         # first owner of guarded state so every one of them shares this exact
@@ -3980,10 +3936,9 @@ class NativeToolReplSession:
                 usage_snapshot=coding_state.usage_snapshot(),
             )
 
-        # Continuing built-in interpretation runs through the command-dispatch
-        # effect port (symmetric with resource/extension dispatch). The
-        # controller classifies and invokes this per-action effect chain; the
-        # transfer/package/reload families stay here for Slice 6.
+        # Continuing built-in interpretation runs through four closed typed
+        # effect families. The controller retains built-in > resource >
+        # extension precedence; this composition seam only supplies effects.
         session_command_effects = collaborators.session_command_effects(repl_input)
         provider_configuration_effects = (
             collaborators.provider_configuration_command_effects(
@@ -3991,45 +3946,31 @@ class NativeToolReplSession:
                 prompt_history_store=prompt_history_store,
             )
         )
-        reload_configuration = _ReloadConfigurationDependencies(
-            settings=settings,
-            keybindings=keybindings,
+        transfer_command_effects = collaborators.transfer_command_effects(
+            system_prompt=system_prompt,
+            input_stream=input_stream,
         )
-        builtin_interpreter = _BuiltinCommandInterpreter()
+        reload_command_effects = collaborators.reload_command_effects(
+            keybindings=keybindings,
+            renderer=renderer,
+            emitter=emitter,
+            resource_options=resource_options,
+            tool_capabilities=tool_capabilities,
+            extension_render_details=render_details.writer,
+        )
+        builtin_interpreter = _BuiltinCommandInterpreter(
+            session_effects=session_command_effects,
+            provider_configuration_effects=provider_configuration_effects,
+            transfer_effects=transfer_command_effects,
+            reload_effects=reload_command_effects,
+            refresh_legacy_footer=footer.refresh_legacy_footer,
+            refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
+        )
 
         command_effects: CodingCommandEffects = _CallableCodingCommandEffects(
             emit=collaborators.diag,
             footer=footer.refresh_legacy_footer,
-            interpret=lambda outcome: builtin_interpreter.interpret(
-                outcome,
-                session=self,
-                ctl=ctl,
-                session_command_effects=session_command_effects,
-                coding_state=coding_state,
-                terminal_ui=terminal_ui,
-                renderer=renderer,
-                error_stream=error_stream,
-                emitter=emitter,
-                provider_configuration_effects=provider_configuration_effects,
-                reload_configuration=reload_configuration,
-                cwd=cwd,
-                system_prompt=system_prompt,
-                input_stream=input_stream,
-                resource_options=resource_options,
-                tool_capabilities=tool_capabilities,
-                diag=collaborators.diag,
-                rebuild_messages_from_tree=collaborators.rebuild_messages_from_tree,
-                redraw_custom_entries_for_active_branch=custom_renderer.redraw_custom_entries_for_active_branch,
-                refresh_legacy_footer=footer.refresh_legacy_footer,
-                refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
-                current_session_dir=collaborators.current_session_dir,
-                extension_session_allows=collaborators.extension_session_allows,
-                extension_send_message=custom_renderer.extension_send_message,
-                extension_render_details=render_details.writer,
-                extension_set_active_tools=provider_mutation.extension_set_active_tools,
-                _extension_notify=_extension_notify,
-                _bind_unavailable_after_reload=_bind_unavailable_after_reload,
-            ),
+            interpret=builtin_interpreter.interpret,
             record_resource=coding_state.record_resource_invocation,
             resolve_resource=collaborators.dispatch_resource_effect,
             resolve_extension=collaborators.dispatch_extension_effect,

@@ -28,9 +28,9 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 6 — transfer, package, and reload command families**. Product-parity deltas in
-the Pi audit remain selection candidates after the architecture program and do
-not expand an architecture slice.
+is **Slice 7 — strict extension and public-facade typing**. Product-parity
+deltas in the Pi audit remain selection candidates after the architecture
+program and do not expand an architecture slice.
 
 Progress:
 
@@ -201,6 +201,45 @@ Progress:
   with `openai-codex/gpt-5.6-sol` is CLEAN in two rounds with zero findings, no
   skipped files, and no truncations; the second round confirms this final
   ledger and active-pointer diff.
+
+- **Slice 6 — transfer, package, and reload command families: SHIPPED.**
+  Commit `refactor: extract transfer and reload command effects` moves native
+  session export/import/share through a frozen, slotted, keyword-only
+  `_TransferCommandEffects` owner.
+  `/reload` executes through a separate typed `_ReloadCommandEffects` owner
+  whose explicit phases preserve configuration and package/resource
+  recomposition, extension activation/publication, provider refresh,
+  tool-capability publication, terminal refresh, publication-gate closure,
+  post-gate lifecycle firing, and the final diagnostic order.
+  `_ProviderMutationEffects` remains authoritative for reload provider refresh,
+  fallback, unavailable binding, usage rebinding, and default-persistence
+  diagnostics.
+
+  `_BuiltinCommandInterpreter` now routes only the session,
+  provider/configuration, transfer, and reload families before applying its
+  closed footer policy. Its complexity falls **38 -> 9**, direct parameters
+  **29 -> 2**, and size **488 -> 27** lines. The `run()` composition shell
+  falls **795 -> 772** AST lines, and `tool_loop_session.py` falls
+  **5,486 -> 5,427** physical lines. Repository/src C901 totals fall
+  **39 / 23 -> 38 / 22**, with the `src` type-ignore count unchanged at
+  **1**.
+
+  One focused AST test freezes the three new dataclass shapes, exact
+  collaborators, complete transfer/reload action absence from the root, four
+  exact delegation paths, phased reload order, the exact publication context,
+  post-gate reload lifecycle event/reason, final diagnostic/footer ordering,
+  narrow root parameters, and removal of the transitional reload dependency
+  bundle. The
+  requested non-PTY gate passes **949 tests**; PTY smoke passes **8 tests** and
+  the complete real-TUI PTY module passes **49 tests**. `just check` passes
+  **4,642 tests with two skips**, including Ruff and Mypy. Documentation and
+  final diff gates are clean. No changelog entry applies because behavior is
+  unchanged. Pi review with `openai-codex/gpt-5.6-sol` at high thinking is
+  CLEAN in two rounds. Round 1 reported zero Critical or Warning findings and
+  one Suggestion to strengthen the exact publication-gate, lifecycle,
+  diagnostic, and footer-order characterization; it was accepted and fixed.
+  Round 2 was CLEAN with zero findings, no skipped or truncated files, and no
+  subagent contribution. The active pointer advances to Slice 7.
 
 ## Current State
 
