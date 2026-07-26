@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import cast
+from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.extension_types import (
     CustomComponentDriver,
@@ -43,6 +43,22 @@ from pipy_harness.native.themes import (
 # Bound a tool/entry render's line output. Also re-imported by
 # `extension_runtime` for its message/entry render truncation.
 _CUSTOM_RENDER_MAX_CHARS: int = 16 * 1024
+
+
+@runtime_checkable
+class _EditorComponentReader(Protocol):
+    """Optional live-driver surface for reading the custom editor factory."""
+
+    def get_editor_component(self) -> object | None: ...
+
+
+@runtime_checkable
+class _TerminalInputDriver(Protocol):
+    """Optional live-driver surface for registering decoded input listeners."""
+
+    def add_terminal_input_listener(
+        self, handler: Callable[[str], object]
+    ) -> Callable[[], None]: ...
 
 
 def coerce_tool_render_lines(value: object) -> tuple[str, ...] | None:
@@ -382,9 +398,8 @@ class _CollectingUi:
         if self._ui_driver is None or not self.has_ui:
             return None
         try:
-            get_component = getattr(self._ui_driver, "get_editor_component", None)
-            if callable(get_component):
-                return get_component()
+            if isinstance(self._ui_driver, _EditorComponentReader):
+                return self._ui_driver.get_editor_component()
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             return None
         return None
@@ -436,9 +451,8 @@ class _CollectingUi:
         if self._ui_driver is None or not self.has_ui:
             return lambda: None
         try:
-            add_listener = getattr(self._ui_driver, "add_terminal_input_listener", None)
-            if callable(add_listener):
-                return cast(Callable[[], None], add_listener(handler))
+            if isinstance(self._ui_driver, _TerminalInputDriver):
+                return self._ui_driver.add_terminal_input_listener(handler)
         except Exception:  # noqa: BLE001 - a UI driver must not break the handler
             return lambda: None
         return lambda: None

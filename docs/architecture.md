@@ -152,6 +152,15 @@ Extension ownership is split deliberately:
 - `extension_ui.py` owns the deterministic headless UI bridge, while
   `tui.py` owns the concrete live extension UI driver and chrome rendering.
 
+The stable `pipy_harness.extensions` module is a façade, not another behavior
+owner. Its exact 97-name `__all__` inventory imports each value directly from
+the module above that owns it (plus the provider construction/header seams),
+so its public contract does not depend on whatever `extension_runtime.py`
+happens to import for its own implementation. `extension_runtime.py` keeps the
+already-characterized direct-import compatibility identities explicit for
+internal consumers, including the headless UI bridge and render helpers; those
+aliases still denote the authoritative owner objects.
+
 Activation fails closed per extension. Trusted extension code may perform its
 own external effects, but pipy-owned registries do not publish a partial
 activation.
@@ -238,11 +247,14 @@ full-content product-session versus metadata-archive privacy split.
 
 The current Mypy strict-equivalent frontier is exactly the override in
 `pyproject.toml`: `pipy_harness.cli`, `native.ui.*`, `native.agent.*`,
-`native.coding.*`, `native.automation.*`, `native.providers.*`, and the named
-root modules `native.extensions`, `native.http`, `native.repl_state`,
-`native.session`, `native.tool_loop_session`, and `native.tui`. These root
-modules are strict; the repository default remains non-strict only outside the
-listed frontier.
+`native.coding.*`, `native.automation.*`, `native.providers.*`, the complete
+extension ownership surface (`pipy_harness.extensions`,
+`native.extension_types`, `native.extension_ui`, `native.extension_runtime`,
+`native.extension_hooks`, `native.extension_loader`, and
+`native.extensions`), and the named root modules `native.http`,
+`native.repl_state`, `native.session`, `native.tool_loop_session`, and
+`native.tui`. These modules are strict; the repository default remains
+non-strict only outside the listed frontier.
 
 Ruff C901 is a directional repository gate. Previously complex files are
 explicitly pinned and no new pin may be added; a finding in a previously clean

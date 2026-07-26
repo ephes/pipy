@@ -28,9 +28,9 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 7 — strict extension and public-facade typing**. Product-parity
-deltas in the Pi audit remain selection candidates after the architecture
-program and do not expand an architecture slice.
+is **Slice 8 — strict native support modules**. Product-parity deltas in the Pi
+audit remain selection candidates after the architecture program and do not
+expand an architecture slice.
 
 Progress:
 
@@ -240,6 +240,63 @@ Progress:
   diagnostic, and footer-order characterization; it was accepted and fixed.
   Round 2 was CLEAN with zero findings, no skipped or truncated files, and no
   subagent contribution. The active pointer advances to Slice 7.
+
+- **Slice 7 — strict extension and public-facade typing: SHIPPED in this
+  commit** (`refactor: enforce strict extension API typing`). The
+  existing enumerated strict-equivalent Mypy override now covers
+  the exact seven-module surface: `pipy_harness.extensions`,
+  `pipy_harness.native.extensions`, `extension_loader`, `extension_types`,
+  `extension_ui`, `extension_runtime`, and `extension_hooks`. Six exact module
+  entries were added because `native.extensions` was already selected; the
+  override inventory grows **12 -> 18** entries without a wildcard, global
+  `strict = true`, exclusion, relaxed sub-flag, suppression, or new unchecked
+  `Any`.
+
+  The stable façade still exposes the same ordered **97 -> 97** `__all__`
+  names. Each name now imports directly from its authoritative owner:
+  extension value/protocol objects from `extension_types`, render helpers from
+  `extension_ui`, dispatchers from `extension_hooks`, activation/runtime values
+  from `extension_runtime`, discovery values from `native.extensions`, and the
+  existing provider seams from their provider owners. Characterization checks
+  the exact inventory, resolution and owner identity of all 97 names, the exact
+  seven-module strict frontier and strict-equivalent flags, and the deliberate
+  `extension_runtime` compatibility identities. The headless editor-component
+  getter and terminal-input listener now narrow optional driver capabilities
+  through runtime-checkable protocols; JSON round trips validate every decoded
+  scalar, list, and string-keyed mapping recursively before returning it.
+
+  The combined selected-surface diagnostic falls **54 errors in four files ->
+  zero**. Diagnostic `mypy --strict src` falls **143 errors in 41 files -> 67
+  errors in 35 files**: the additional reduction comes from making the
+  already-used runtime compatibility aliases explicit for strict TUI,
+  tool-loop, agent-request, and tool-renderer consumers. `just typecheck` is
+  clean. The requested focused extension/API/import-boundary gate passes **418
+  tests**; extension discovery, activation, lifecycle, notification, and golden
+  conformance gates all report `"passed": true`. Repository/src C901 remains
+  **38 / 22**, and the `src` type-ignore count remains **1**. No changelog entry
+  applies because runtime behavior and the public API are unchanged.
+  `just check` passes **4,646 tests with two skips**; `just docs-build` and
+  `git diff --check` are clean.
+
+  Fresh read-only Pi review used `openai-codex/gpt-5.6-sol` at high thinking,
+  with no subagents and no skipped or truncated diff. Round 1 reported zero
+  Critical, three Warning, and zero Suggestion findings: prove source-level
+  façade owner provenance, freeze the complete strict configuration rather
+  than only the selected subset, and replace the extension spec's stale
+  tentative façade placement. All three were accepted and fixed. Round 2
+  reported one Warning that the `extension_types` module documentation still
+  named the pre-extraction UI and indirect façade owners; it was accepted and
+  fixed. One empty-log Fish transport stall before Round 2 produced no review
+  and consumed no round; the approved model was verified directly before the
+  fresh retry. Round 3 verified all four prior findings fixed and reported one
+  remaining Warning that this ledger still said review pending and had not
+  advanced the pointer. That finding was accepted. Because the task required
+  the ledger/pointer update only after CLEAN, the operator explicitly
+  authorized this factual update plus one exceptional fourth fresh
+  confirmation beyond the normal three-round cap. The active pointer now
+  advances to Slice 8. Round 4 was CLEAN with zero Critical, Warning, or
+  Suggestion findings. Cumulatively the reviews reported five Warnings; all
+  five were accepted and fixed, with zero rejected or deferred findings.
 
 ## Current State
 

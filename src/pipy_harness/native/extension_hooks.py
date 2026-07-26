@@ -87,11 +87,7 @@ from pipy_harness.native.extension_runtime import (
     LIFECYCLE_EVENTS,
     ActivatedExtension,
     ExtensionActivationBatch,
-    ExtensionUiDriver,
     HookHandler,
-    QueuedCustomMessage,
-    QueuedUserMessage,
-    _CollectingUi,
     _CommandContext,
     _ExtensionRuntime,
     activate_extensions,
@@ -133,8 +129,12 @@ from pipy_harness.native.extension_types import (
     UserBashDecision,
     UserBashDispatch,
     UserBashEvent,
+    ExtensionUiDriver,
+    QueuedCustomMessage,
+    QueuedUserMessage,
     _safe_diagnostic,
 )
+from pipy_harness.native.extension_ui import _CollectingUi
 from pipy_harness.native.extensions import discover_extensions
 
 if False:  # pragma: no cover - imported for type checkers only

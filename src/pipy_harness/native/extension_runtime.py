@@ -51,40 +51,40 @@ from pipy_harness.native.extension_loader import (
 )
 from pipy_harness.native.extension_ui import (
     _CUSTOM_RENDER_MAX_CHARS,
-    _CollectingUi,
-    coerce_tool_render_lines,
-    lines_component,  # noqa: F401 - re-exported via pipy_harness.extensions
+    _CollectingUi as _CollectingUi,
+    coerce_tool_render_lines as coerce_tool_render_lines,
+    lines_component as lines_component,
 )
 from pipy_harness.native.extensions import ExtensionDescriptor
 from pipy_harness.native.extension_types import (
-    BeforeAgentStartEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    BeforeAgentStartResult,  # noqa: F401 - re-exported via pipy_harness.extensions
-    BeforeProviderHeadersEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    BeforeProviderRequestEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ChromeComponent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    CompletionFn,  # noqa: F401 - re-exported via pipy_harness.extensions
-    CustomComponent,  # noqa: F401 - re-exported via pipy_harness.extensions
+    BeforeAgentStartEvent as BeforeAgentStartEvent,
+    BeforeAgentStartResult as BeforeAgentStartResult,
+    BeforeProviderHeadersEvent as BeforeProviderHeadersEvent,
+    BeforeProviderRequestEvent as BeforeProviderRequestEvent,
+    ChromeComponent as ChromeComponent,
+    CompletionFn as CompletionFn,
+    CustomComponent as CustomComponent,
     CustomComponentDriver,
-    CustomComponentFactory,  # noqa: F401 - re-exported via pipy_harness.extensions
-    EntryRenderContext,
-    ExtensionCodingSessionControl,
-    ExtensionFlag,
-    ExtensionModelRuntimeControl,
-    ExtensionOAuthConfig,
-    ExtensionProvider,
-    ExtensionTool,
-    ExtensionUi,
-    ExtensionUiDriver,
-    FooterData,  # noqa: F401 - re-exported via pipy_harness.extensions
-    InputEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    InputTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
-    LifecycleEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    MessageRenderComponent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    MessageRenderContext,
-    ProviderContext,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ProviderRequestTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
-    QueuedCustomMessage,
-    QueuedUserMessage,
+    CustomComponentFactory as CustomComponentFactory,
+    EntryRenderContext as EntryRenderContext,
+    ExtensionCodingSessionControl as ExtensionCodingSessionControl,
+    ExtensionFlag as ExtensionFlag,
+    ExtensionModelRuntimeControl as ExtensionModelRuntimeControl,
+    ExtensionOAuthConfig as ExtensionOAuthConfig,
+    ExtensionProvider as ExtensionProvider,
+    ExtensionTool as ExtensionTool,
+    ExtensionUi as ExtensionUi,
+    ExtensionUiDriver as ExtensionUiDriver,
+    FooterData as FooterData,
+    InputEvent as InputEvent,
+    InputTransform as InputTransform,
+    LifecycleEvent as LifecycleEvent,
+    MessageRenderComponent as MessageRenderComponent,
+    MessageRenderContext as MessageRenderContext,
+    ProviderContext as ProviderContext,
+    ProviderRequestTransform as ProviderRequestTransform,
+    QueuedCustomMessage as QueuedCustomMessage,
+    QueuedUserMessage as QueuedUserMessage,
     REASON_ACTIVATION_ERROR,
     REASON_DUPLICATE_COMMAND,
     REASON_DUPLICATE_ENTRY_RENDERER,
@@ -104,32 +104,32 @@ from pipy_harness.native.extension_types import (
     REASON_NO_ACTIVATE,
     REASON_RESERVED_COMMAND,
     REASON_RESERVED_SHORTCUT,
-    REASON_RESERVED_TOOL,
-    RESERVED_SHORTCUT_KEYS,
-    RegisteredFlag,
-    RegisteredProvider,
-    RegisteredTool,
-    RenderedCustomEntry,
-    SessionBeforeEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    SessionDecision,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ThemeColor,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ToolBlock,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ToolCallEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ToolRenderComponent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ToolRenderContext,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ToolRenderTheme,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ToolResult,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ToolResultEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    ToolResultTransform,  # noqa: F401 - re-exported via pipy_harness.extensions
-    UserBashDecision,  # noqa: F401 - re-exported via pipy_harness.extensions
-    UserBashDispatch,  # noqa: F401 - re-exported via pipy_harness.extensions
-    UserBashEvent,  # noqa: F401 - re-exported via pipy_harness.extensions
-    WidgetPlacement,  # noqa: F401 - re-exported via pipy_harness.extensions
+    REASON_RESERVED_TOOL as REASON_RESERVED_TOOL,
+    RESERVED_SHORTCUT_KEYS as RESERVED_SHORTCUT_KEYS,
+    RegisteredFlag as RegisteredFlag,
+    RegisteredProvider as RegisteredProvider,
+    RegisteredTool as RegisteredTool,
+    RenderedCustomEntry as RenderedCustomEntry,
+    SessionBeforeEvent as SessionBeforeEvent,
+    SessionDecision as SessionDecision,
+    ThemeColor as ThemeColor,
+    ToolBlock as ToolBlock,
+    ToolCallEvent as ToolCallEvent,
+    ToolRenderComponent as ToolRenderComponent,
+    ToolRenderContext as ToolRenderContext,
+    ToolRenderTheme as ToolRenderTheme,
+    ToolResult as ToolResult,
+    ToolResultEvent as ToolResultEvent,
+    ToolResultTransform as ToolResultTransform,
+    UserBashDecision as UserBashDecision,
+    UserBashDispatch as UserBashDispatch,
+    UserBashEvent as UserBashEvent,
+    WidgetPlacement as WidgetPlacement,
     _ActivationError,
     _is_valid_command_name,
     _safe_diagnostic,
-    is_valid_custom_entry_type,
-    normalize_shortcut_key,
+    is_valid_custom_entry_type as is_valid_custom_entry_type,
+    normalize_shortcut_key as normalize_shortcut_key,
 )
 from pipy_harness.native.tools.base import (
     ToolContext,
@@ -756,9 +756,37 @@ class _ConversationView:
         return None
 
 
+def _validated_json_value(value: object) -> object:
+    """Validate and detach one value produced by the stdlib JSON decoder."""
+
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, list):
+        detached_items: list[object] = []
+        for item in value:
+            detached_items.append(_validated_json_value(item))
+        return detached_items
+    if isinstance(value, dict):
+        detached_mapping: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError("JSON object key is not a string")
+            detached_mapping[key] = _validated_json_value(item)
+        return detached_mapping
+    raise ValueError("JSON decoder produced an unsupported value")
+
+
+def _json_round_trip(value: object) -> tuple[str, object]:
+    """Encode, decode, and executably narrow a JSON-compatible value."""
+
+    encoded = json.dumps(value, ensure_ascii=False, allow_nan=False)
+    return encoded, _validated_json_value(json.loads(encoded))
+
+
 def _copy_session_data(value: object) -> object:
     try:
-        return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
+        _encoded, decoded = _json_round_trip(value)
+        return decoded
     except (TypeError, ValueError):
         return str(value)
 
@@ -1927,12 +1955,7 @@ def safe_custom_entry_data(data: object | None) -> object | None:
     if data is None:
         return None
     try:
-        encoded = json.dumps(
-            data,
-            ensure_ascii=False,
-            allow_nan=False,
-        )
-        decoded = json.loads(encoded)
+        encoded, decoded = _json_round_trip(data)
     except (TypeError, ValueError):
         encoded = str(data)
         decoded = encoded
@@ -2225,7 +2248,8 @@ def _copy_custom_entry_data(data: object | None) -> object | None:
     if data is None:
         return None
     try:
-        return json.loads(json.dumps(data, ensure_ascii=False, allow_nan=False))
+        _encoded, decoded = _json_round_trip(data)
+        return decoded
     except (TypeError, ValueError):
         return safe_custom_entry_data(data)
 

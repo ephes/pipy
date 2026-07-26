@@ -14,11 +14,14 @@ renderers annotate against — `ExtensionUi`, `ExtensionUiDriver`,
 `CustomComponentFactory`/`CustomComponentOptions`/`CustomComponentDriver`
 aliases, and the `WidgetPlacement` literal — so `ProjectTrustContext.ui` and
 `ExtensionTool.render_call`/`render_result` resolve to leaf-local types. The
-concrete UI implementations and renderers stay in `extension_runtime`.
+headless UI implementation and render helpers live in `extension_ui`;
+activation and session-render orchestration stay in `extension_runtime`, and
+the concrete live driver stays in `tui`.
 
 It has no project imports, so it can never participate in an import cycle with
-the runtime or loader that import it. `normalize_shortcut_key` remains
-re-exported from `pipy_harness.extensions` (via `extension_runtime`) unchanged.
+the runtime or loader that import it. The stable `pipy_harness.extensions`
+façade imports `normalize_shortcut_key` directly from this owner, while
+`extension_runtime` preserves the characterized internal identity explicitly.
 """
 
 from __future__ import annotations

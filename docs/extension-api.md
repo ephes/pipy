@@ -270,10 +270,10 @@ event-specific contexts later.
 
 ## Core API Shape
 
-The public API should be importable from a stable module, tentatively
-`pipy_harness.extensions`. Final placement is still open: implementation should
-decide whether the stable surface belongs at top level or under the native
-runtime namespace, such as `pipy_harness.native.extensions`.
+The public API is importable from the stable top-level
+`pipy_harness.extensions` façade. That façade resolves each public name from
+its authoritative native owner; extension authors do not depend on the
+internal runtime module layout.
 
 ```python
 from __future__ import annotations
