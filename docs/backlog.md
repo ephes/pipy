@@ -298,6 +298,55 @@ Progress:
   Suggestion findings. Cumulatively the reviews reported five Warnings; all
   five were accepted and fixed, with zero rejected or deferred findings.
 
+- **Slice 8a — strict settings, package-manager, and session-tree-command
+  typing: SHIPPED IN THIS COMMIT** (`refactor: enforce strict settings and
+  session support`). The exact selected
+  inventory is `pipy_harness.native.settings`,
+  `pipy_harness.native.package_manager`, and
+  `pipy_harness.native.session_tree_commands`; no other Slice 8 module or
+  wildcard joins the ratchet. The enumerated strict-equivalent override grows
+  **18 -> 21** exact entries, keeps every explicit strict sub-flag enabled, and
+  adds no global `strict`, exclusion, relaxed flag, suppression, cast, or
+  unchecked `Any`.
+
+  Settings integer boundaries now assign dynamic values to `object` before
+  executable `bool`/`int` narrowing, retaining the existing default/error
+  split, explicit boolean rejection, and zero-timeout behavior. Package
+  settings reads validate the decoded top-level document into a string-keyed
+  object and keep nested values intact; lenient display reads, strict mutation
+  reads, corrupt-file clobber refusal, string entries, object entries, and all
+  four per-package resource-filter arrays survive the same read/modify/write
+  paths. Session-tree DFS imports and uses the authoritative
+  `SessionTreeNode`, with its Ruff-only annotation suppression removed.
+
+  The selected diagnostic falls **8 errors in three files -> zero**.
+  Diagnostic `mypy --strict src` falls **67 errors in 35 files -> 59 errors in
+  32 files**; the remaining findings belong to later Slice 8 batches and Slice
+  9. `just typecheck` is clean across **424 source files**. Characterization
+  now freezes the ordered 21-entry override, every strict-equivalent flag,
+  absence of global strict/exclusions/native wildcarding, nested integer
+  boolean rejection, and complete object-form package filter preservation.
+  The required focused gate passes **312 tests** and the broader owner-surface
+  gate passes **418 tests**. The final `just check` rerun passes **4,651 tests
+  with two skips**; an earlier run's single settings-dialog PTY readiness
+  failure passed immediately in isolation, and a separate rerun that stalled
+  in an unrelated resume/compact PTY case was stopped after that complete
+  two-case module passed directly. Repository/src C901 remains **38 / 22** and
+  the `src` type-ignore count remains **1**. `just docs-build` and final diff
+  hygiene are clean. No changelog entry applies because behavior and public
+  APIs are unchanged.
+
+  Fresh read-only Pi review used the required
+  `openai-codex/gpt-5.6-sol` model at high reasoning with no subagents. Round 1
+  returned explicit CLEAN with zero Critical, Warning, or Suggestion findings
+  and said the cycle can close. No review fix or scope change followed, so a
+  second identical pass would add no value under the bounded review policy.
+  The active pointer remains **Slice 8**. The recommended next bounded owner
+  group is
+  `pipy_harness.native.package_resources`,
+  `pipy_harness.native.package_runtime`, and
+  `pipy_harness.native.resources`.
+
 ## Current State
 
 Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only

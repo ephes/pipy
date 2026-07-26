@@ -899,7 +899,7 @@ class SettingsManager:
         return value if isinstance(value, bool) else default
 
     def _nested_int(self, top: str, key: str, *, default: int) -> int:
-        value = self._get_nested(top, key)
+        value: object = self._get_nested(top, key)
         if isinstance(value, bool) or not isinstance(value, int):
             return default
         return value
@@ -1082,7 +1082,7 @@ def _websocket_connect_timeout_display(manager: SettingsManager) -> str:
         return "(invalid)"
 
 
-def _parse_timeout_ms(value: Any, *, setting_name: str) -> int:
+def _parse_timeout_ms(value: object, *, setting_name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(
             f"{setting_name} must be a non-negative integer; got {value!r}"

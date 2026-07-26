@@ -582,6 +582,36 @@ def test_branch_summary_getters(tmp_path: Path) -> None:
     assert mgr.get_branch_summary_skip_prompt() is False
 
 
+@pytest.mark.parametrize(
+    ("body", "getter", "default"),
+    [
+        (
+            {"compaction": {"reserveTokens": True}},
+            "get_compaction_reserve_tokens",
+            16384,
+        ),
+        (
+            {"compaction": {"keepRecentTokens": False}},
+            "get_compaction_keep_recent_tokens",
+            20000,
+        ),
+        ({"retry": {"maxRetries": True}}, "get_retry_max_retries", 3),
+        ({"retry": {"baseDelayMs": False}}, "get_retry_base_delay_ms", 2000),
+        (
+            {"branchSummary": {"reserveTokens": True}},
+            "get_branch_summary_reserve_tokens",
+            16384,
+        ),
+    ],
+)
+def test_nested_integer_getters_reject_booleans(
+    tmp_path: Path, body: dict[str, object], getter: str, default: int
+) -> None:
+    _write_json(tmp_path / "config" / "settings.json", body)
+
+    assert getattr(_manager(tmp_path), getter)() == default
+
+
 def test_settings_report_lines_cover_resolved_values(tmp_path: Path) -> None:
     from pipy_harness.native.settings import settings_report_lines
 

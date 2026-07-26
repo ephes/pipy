@@ -129,18 +129,32 @@ class PackageCommandError(RuntimeError):
     """A package install/update/remove subprocess failed."""
 
 
-def _read_settings(path: Path) -> dict:
+def _settings_object(value: object) -> dict[str, object] | None:
+    """Narrow a decoded settings document to a string-keyed JSON object."""
+
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            return None
+        result[key] = item
+    return result
+
+
+def _read_settings(path: Path) -> dict[str, object]:
     """Lenient read for display paths: missing or invalid file → ``{}``."""
 
     try:
         with path.open(encoding="utf-8") as handle:
-            data = json.load(handle)
+            decoded: object = json.load(handle)
     except (OSError, ValueError):
         return {}
-    return data if isinstance(data, dict) else {}
+    data = _settings_object(decoded)
+    return data if data is not None else {}
 
 
-def _read_settings_for_write(path: Path) -> dict:
+def _read_settings_for_write(path: Path) -> dict[str, object]:
     """Strict read for mutating paths.
 
     A missing file yields an empty document. A file that exists but does not
@@ -152,17 +166,18 @@ def _read_settings_for_write(path: Path) -> dict:
         return {}
     try:
         with path.open(encoding="utf-8") as handle:
-            data = json.load(handle)
+            decoded: object = json.load(handle)
     except OSError as exc:
         raise PackageSettingsError(f"cannot read {path}: {exc}") from exc
     except ValueError as exc:
         raise PackageSettingsError(f"{path} is not valid JSON: {exc}") from exc
-    if not isinstance(data, dict):
+    data = _settings_object(decoded)
+    if data is None:
         raise PackageSettingsError(f"{path} is not a JSON object")
     return data
 
 
-def _raw_packages(data: dict) -> list:
+def _raw_packages(data: dict[str, object]) -> list[object]:
     """The raw `packages` entries (string sources and `{source, ...}` objects).
 
     Entries without a resolvable source string are dropped, but valid
@@ -176,7 +191,7 @@ def _raw_packages(data: dict) -> list:
     return [item for item in raw if _source_of(item) is not None]
 
 
-def _package_sources(data: dict) -> list[str]:
+def _package_sources(data: dict[str, object]) -> list[str]:
     sources: list[str] = []
     for item in _raw_packages(data):
         source = _source_of(item)

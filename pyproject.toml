@@ -95,7 +95,9 @@ extend-select = ["C901"]
 # core (Slice 7.6a), native extension discovery (Slice 7.6b), native REPL
 # state (Slice 7.6c), the top-level CLI (Slice 7.6d), the tool-loop composition
 # root (Slice 7.6e), native TUI (Slice 7.6f), and the complete seven-module
-# extension ownership surface (architecture-quality Slice 7) into `--strict`.
+# extension ownership surface (architecture-quality Slice 7), plus the
+# settings/package-manager/session-tree-command support batch
+# (architecture-quality Slice 8a), into `--strict`.
 # The override lists the
 # per-module `--strict` sub-flags explicitly rather than `strict = true`,
 # because mypy applies a per-module `strict = true` globally (leaking the
@@ -127,6 +129,9 @@ module = [
     "pipy_harness.native.session",
     "pipy_harness.native.tool_loop_session",
     "pipy_harness.native.tui",
+    "pipy_harness.native.settings",
+    "pipy_harness.native.package_manager",
+    "pipy_harness.native.session_tree_commands",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

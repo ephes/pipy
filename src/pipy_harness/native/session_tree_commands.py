@@ -29,6 +29,7 @@ from pipy_harness.native.session_tree import (
     NativeSessionTree,
     SessionEntry,
     SessionInfoEntry,
+    SessionTreeNode,
     ThinkingLevelChangeEntry,
     _UnresolvedToolResultMessage,
     default_native_session_dir,
@@ -399,7 +400,7 @@ def _dfs_entries(tree: NativeSessionTree) -> list[tuple[SessionEntry, int]]:
 
     result: list[tuple[SessionEntry, int]] = []
 
-    def walk(node, depth: int) -> None:  # noqa: ANN001 - SessionTreeNode
+    def walk(node: SessionTreeNode, depth: int) -> None:
         result.append((node.entry, depth))
         for child in node.children:
             walk(child, depth + 1)

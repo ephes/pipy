@@ -230,29 +230,40 @@ def test_remote_source_screen_is_case_and_scheme_robust(tmp_path: Path) -> None:
 
 
 def test_object_form_package_entries_are_preserved(tmp_path: Path) -> None:
-    # A `{source, skills: [...]}` PackageSource object stays intact when other
-    # sources are installed/removed (the spec documents object-form entries).
+    # A complete object-form PackageSource stays intact when other sources are
+    # installed/removed, including every supported per-resource filter.
     user = _settings(tmp_path, "user")
     user.parent.mkdir(parents=True)
+    object_entry = {
+        "source": "../obj-pkg",
+        "extensions": ["+extension"],
+        "skills": ["+skill"],
+        "prompts": ["-prompt"],
+        "themes": ["+theme"],
+    }
     user.write_text(
-        json.dumps({"packages": [{"source": "../obj-pkg", "skills": ["+only"]}]}),
+        json.dumps({"packages": [object_entry]}),
         encoding="utf-8",
     )
 
     install_package("../str-pkg", user)
     packages = _read(user)["packages"]
-    assert {"source": "../obj-pkg", "skills": ["+only"]} in packages
-    assert "../str-pkg" in packages
+    assert packages == [object_entry, "../str-pkg"]
 
     # list/format surface the object's source string.
     listing = list_packages(user_path=user, project_path=None)
     assert "../obj-pkg" in listing.user
     assert "../str-pkg" in listing.user
 
-    # Removing the object-form source by its source string drops only it.
+    # Removing the string-form source leaves the complete object-form entry
+    # structurally equivalent after the read/modify/write cycle.
+    assert remove_package("../str-pkg", user) == "Removed ../str-pkg"
+    assert _read(user)["packages"] == [object_entry]
+
+    # Removing the object-form source by its source string then drops only it.
     assert remove_package("../obj-pkg", user) == "Removed ../obj-pkg"
     remaining = _read(user)["packages"]
-    assert remaining == ["../str-pkg"]
+    assert remaining == []
 
 
 # -- product path: the `pipy install/remove/list` CLI ---------------------

@@ -252,9 +252,14 @@ extension ownership surface (`pipy_harness.extensions`,
 `native.extension_types`, `native.extension_ui`, `native.extension_runtime`,
 `native.extension_hooks`, `native.extension_loader`, and
 `native.extensions`), and the named root modules `native.http`,
-`native.repl_state`, `native.session`, `native.tool_loop_session`, and
-`native.tui`. These modules are strict; the repository default remains
-non-strict only outside the listed frontier.
+`native.repl_state`, `native.session`, `native.tool_loop_session`, `native.tui`,
+`native.settings`, `native.package_manager`, and
+`native.session_tree_commands`. This is 21 exact override entries. Slice 8a's
+three support owners narrow validated integer settings without accepting
+booleans, preserve string- and object-form package JSON through a string-keyed
+object boundary, and traverse the product-session tree through the
+authoritative `SessionTreeNode` type. These modules are strict; the repository
+default remains non-strict only outside the listed frontier.
 
 Ruff C901 is a directional repository gate. Previously complex files are
 explicitly pinned and no new pin may be added; a finding in a previously clean
