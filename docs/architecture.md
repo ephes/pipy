@@ -90,7 +90,11 @@ the metadata archive are injected or remain outside it.
 constructs settings and trust state, catalog-backed providers, tools,
 extensions, the private session tree, event projections, automation or terminal
 input, and the headless coding/agent collaborators. Dynamic command effects and
-cross-boundary orchestration remain here.
+cross-boundary orchestration remain here. The session-owned built-in effects
+(status, compact, name, new, tree, resume, fork, and clone) execute through one
+frozen `_SessionCommandEffects` bundle composed from narrow run-scope ports;
+provider/configuration and transfer/package/reload command families remain in
+the root interpreter for their later extraction slices.
 
 `native/session.py` still owns the one-shot `NativeAgentSession` used by the
 harness/SDK compatibility path. It projects canonical event/result types but is

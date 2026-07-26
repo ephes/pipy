@@ -28,7 +28,7 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 4 — session command effect family**. Product-parity deltas in
+is **Slice 5 — provider and configuration command effect family**. Product-parity deltas in
 the Pi audit remain selection candidates after the architecture program and do
 not expand an architecture slice.
 
@@ -142,6 +142,31 @@ Progress:
   publication-gate admission narrows but does not close its race window. Both
   are described in
   [the rebuild plan](specs/2026-07-25-transactional-extension-reload-rebuild.md).
+
+- **Slice 4 — session command effect family: SHIPPED in this commit**
+  (`refactor: extract session command effects`). The eight session-owned
+  built-ins (status, compact, name, new, tree, resume, fork, and clone), together
+  with their session-switch/tree/fork extension gates, now execute through one
+  frozen, slotted, keyword-only `_SessionCommandEffects` bundle assembled from
+  14 narrow run-scope collaborators. `_BuiltinCommandInterpreter.interpret`
+  keeps the headless controller's built-in/resource/extension precedence and
+  delegates the complete family once; provider/configuration and
+  transfer/package/reload effects remain for Slices 5 and 6. A focused AST
+  characterization freezes the executor shape, exact collaborator set, single
+  delegation, and absence of the eight actions from the root interpreter.
+
+  The six focused session/command/import-boundary modules pass 577 tests; the
+  full gate passes 4,640 tests with two skips, `just docs-build` and
+  `git diff --check` are clean, and the load-sensitive project-trust PTY module
+  passes all six cases both alone and in the final full gate. The first full
+  gate also caught and closed an overgrown `run()` composition shell before
+  review. `interpret` complexity falls **102 -> 63** while repository/src C901
+  totals remain **39 / 23**, `tool_loop_session.py` grows **5,308 -> 5,391**
+  physical lines as the former nested chain becomes explicit typed ownership,
+  and the `src` type-ignore count remains **1**. Pi review with
+  `openai-codex/gpt-5.6-sol` is CLEAN in two rounds with zero findings, no
+  skipped files, and no truncations; the second round confirms this final
+  ledger and active-pointer diff.
 
 ## Current State
 

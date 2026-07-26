@@ -454,6 +454,91 @@ def test_footer_paths_read_constant_time_state_scalars(
     assert "(fake) fake-native-bootstrap • default" in footer
 
 
+def test_session_command_family_has_one_narrow_composition_root_executor() -> None:
+    import pipy_harness.native.tool_loop_session as tool_loop_session
+
+    module_path = tool_loop_session.__file__
+    assert module_path is not None
+    syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+    effects_class = next(
+        node
+        for node in syntax.body
+        if isinstance(node, ast.ClassDef) and node.name == "_SessionCommandEffects"
+    )
+    dataclass_decorator = next(
+        decorator
+        for decorator in effects_class.decorator_list
+        if isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Name)
+        and decorator.func.id == "dataclass"
+    )
+    assert {
+        keyword.arg: ast.literal_eval(keyword.value)
+        for keyword in dataclass_decorator.keywords
+    } == {"frozen": True, "slots": True, "kw_only": True}
+    assert {
+        node.target.id
+        for node in effects_class.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    } == {
+        "session",
+        "ctl",
+        "cwd",
+        "terminal_ui",
+        "error_stream",
+        "repl_input",
+        "diag",
+        "apply_compaction",
+        "extension_session_allows",
+        "rebuild_messages_from_tree",
+        "redraw_custom_entries_for_active_branch",
+        "current_session_dir",
+        "resolve_session_file",
+        "summarize_branch",
+    }
+
+    interpreter_class = next(
+        node
+        for node in syntax.body
+        if isinstance(node, ast.ClassDef) and node.name == "_BuiltinCommandInterpreter"
+    )
+    interpret_method = next(
+        node
+        for node in interpreter_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "interpret"
+    )
+    session_actions = {
+        "SHOW_SESSION_STATUS",
+        "COMPACT",
+        "SESSION_NAME",
+        "NEW_SESSION",
+        "SESSION_TREE",
+        "SESSION_RESUME",
+        "SESSION_FORK",
+        "SESSION_CLONE",
+    }
+    assert (
+        not {
+            node.attr
+            for node in ast.walk(interpret_method)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "CodingCommandAction"
+        }
+        & session_actions
+    )
+    delegation_calls = [
+        node
+        for node in ast.walk(interpret_method)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "session_command_effects"
+        and node.func.attr == "execute"
+    ]
+    assert len(delegation_calls) == 1
+
+
 def test_changed_agent_history_compaction_has_nonempty_product_summary() -> None:
     result = AgentHistoryCompaction(
         messages=(),

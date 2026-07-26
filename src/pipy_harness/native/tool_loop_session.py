@@ -620,6 +620,339 @@ class _ExtensionCustomEntryRunState:
         return self.ctl.extension_in_agent_turn
 
 
+_SESSION_COMMAND_ACTIONS = frozenset(
+    {
+        CodingCommandAction.SHOW_SESSION_STATUS,
+        CodingCommandAction.COMPACT,
+        CodingCommandAction.SESSION_NAME,
+        CodingCommandAction.NEW_SESSION,
+        CodingCommandAction.SESSION_TREE,
+        CodingCommandAction.SESSION_RESUME,
+        CodingCommandAction.SESSION_FORK,
+        CodingCommandAction.SESSION_CLONE,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _SessionCommandEffects:
+    """Execute the built-in command family owned by the product session.
+
+    The frozen collaborator bundle is constructed once in ``run()`` and reads
+    the rebindable session tree and extension generation through ``ctl`` on
+    every command. It deliberately owns no provider, settings, package, or
+    unrelated presentation dependency.
+    """
+
+    session: "NativeToolReplSession"
+    ctl: _RunControlState
+    cwd: Path
+    terminal_ui: ToolLoopTerminalUi | None
+    error_stream: TextIO
+    repl_input: "ToolLoopTerminalUi | NativeReplInput"
+    diag: Callable[[str], None]
+    apply_compaction: Callable[[str], str]
+    extension_session_allows: Callable[..., bool]
+    rebuild_messages_from_tree: Callable[[], None]
+    redraw_custom_entries_for_active_branch: Callable[[], None]
+    current_session_dir: Callable[[], Path]
+    resolve_session_file: Callable[[str], Path | None]
+    summarize_branch: Callable[[list[AgentMessage], str | None], str | None]
+
+    def execute(self, command_outcome: CodingCommandOutcome) -> None:
+        """Execute one outcome from the closed session-command family."""
+
+        action = command_outcome.action
+        if action is CodingCommandAction.SHOW_SESSION_STATUS:
+            self.diag(format_session_status(self.ctl.session_tree))
+        elif action is CodingCommandAction.COMPACT:
+            # Local-only: reduce provider-visible history while preserving the
+            # shared manual/automatic compaction policy, extension gate, and
+            # durable write ordering.
+            self.diag(self.apply_compaction("manual"))
+        elif action is CodingCommandAction.SESSION_NAME:
+            self._execute_name(command_outcome)
+        elif action is CodingCommandAction.NEW_SESSION:
+            self._execute_new()
+        elif action is CodingCommandAction.SESSION_TREE:
+            self._execute_tree(command_outcome)
+        elif action is CodingCommandAction.SESSION_RESUME:
+            self._execute_resume(command_outcome)
+        elif action in {
+            CodingCommandAction.SESSION_FORK,
+            CodingCommandAction.SESSION_CLONE,
+        }:
+            self._execute_fork_or_clone(command_outcome)
+        else:
+            raise AssertionError("session command executor received another action")
+
+    def _execute_name(self, command_outcome: CodingCommandOutcome) -> None:
+        session_name_argument = command_outcome.argument
+        if type(session_name_argument) is not ProductContent:
+            raise TypeError("SESSION_NAME requires an exact ProductContent argument")
+        if not session_name_argument.value:
+            self.diag(
+                "pipy: current session name: "
+                + (
+                    sanitize_label_text(self.ctl.session_tree.name)
+                    if self.ctl.session_tree.name
+                    else "(unnamed)"
+                )
+            )
+        else:
+            self.ctl.session_tree.append_session_info(session_name_argument.value)
+            self.diag(f"pipy: session named {session_name_argument.value!r}.")
+
+    def _execute_new(self) -> None:
+        # Start a fresh native product session in the same store.
+        if self.extension_session_allows(
+            self.ctl.extension_generation.runtime.session_before_switch_hooks,
+            operation="switch",
+            target="new",
+        ):
+            session_dir = (
+                self.ctl.session_tree.path.parent
+                if self.ctl.session_tree.path is not None
+                else None
+            )
+            self.ctl.session_tree = NativeSessionTree.create(
+                self.cwd,
+                session_dir=session_dir,
+                persist=self.ctl.session_tree.persist,
+            )
+            self.rebuild_messages_from_tree()
+            self.diag(
+                "pipy: started a new native session "
+                f"({sanitize_label_text(self.ctl.session_tree.session_id[:8])})."
+            )
+
+    def _execute_tree(self, command_outcome: CodingCommandOutcome) -> None:
+        tree_argument = command_outcome.argument
+        if type(tree_argument) is not ProductContent:
+            raise TypeError("SESSION_TREE requires an exact ProductContent argument")
+        argument = tree_argument.value
+        tree_sub = argument.split(maxsplit=1)[0].lower() if argument else ""
+        tree_may_change = (
+            not argument and self.terminal_ui is not None
+        ) or tree_sub in {"select", "label", "filter"}
+        tree_allowed = not tree_may_change or self.extension_session_allows(
+            self.ctl.extension_generation.runtime.session_before_tree_hooks,
+            operation="tree",
+            target=argument or None,
+        )
+        if tree_allowed:
+            tree_outcome = self.session._handle_tree_command(
+                argument,
+                session_tree=self.ctl.session_tree,
+                terminal_ui=self.terminal_ui,
+                error_stream=self.error_stream,
+                repl_input=self.repl_input,
+                filter_mode=self.ctl.tree_filter_mode,
+                rebuild_messages=self.rebuild_messages_from_tree,
+                summarizer=self.summarize_branch,
+            )
+            if tree_outcome.filter_mode is not None:
+                self.ctl.tree_filter_mode = tree_outcome.filter_mode
+            if tree_outcome.prefill is not None:
+                self.ctl.pending_prefill = tree_outcome.prefill
+
+    def _execute_resume(self, command_outcome: CodingCommandOutcome) -> None:
+        resume_argument = command_outcome.argument
+        if type(resume_argument) is not ProductContent:
+            raise TypeError("SESSION_RESUME requires an exact ProductContent argument")
+        argument = resume_argument.value
+        resume_tokens = argument.split()
+        resume_sub = resume_tokens[0].lower() if resume_tokens else ""
+
+        if (
+            not argument
+            and self.terminal_ui is not None
+            and hasattr(self.terminal_ui, "run_session_picker")
+        ):
+            self._resume_from_picker()
+        elif not argument:
+            self._list_sessions()
+        elif resume_sub == "named":
+            self._list_sessions(named_only=True)
+        elif resume_sub == "rename":
+            self._rename_session(resume_tokens)
+        elif resume_sub == "delete":
+            self._delete_session(resume_tokens)
+        else:
+            self._resume_target(argument)
+
+    def _list_sessions(self, named_only: bool = False) -> None:
+        sessions = list_native_sessions(self.current_session_dir())
+        sessions = (
+            [session for session in sessions if session.name]
+            if named_only
+            else sessions
+        )
+        if not sessions:
+            self.diag("pipy: no native sessions found for this workspace.")
+            return
+        scope = "named " if named_only else ""
+        self.diag(f"pipy: {scope}native sessions (newest first):")
+        for index, entry in enumerate(sessions, start=1):
+            label = sanitize_label_text(entry.name) if entry.name else "(unnamed)"
+            self.diag(
+                f"  {index}. "
+                f"{sanitize_label_text(entry.session_id[:8])} "
+                f"{label} "
+                f"messages={entry.message_count} "
+                f"file={sanitize_label_text(entry.path.name)}"
+            )
+        self.diag("pipy: use '/resume <number|id>' to open a session.")
+
+    def _resume_from_picker(self) -> None:
+        terminal_ui = self.terminal_ui
+        if terminal_ui is None:
+            raise AssertionError("interactive session picker requires a terminal UI")
+        picked_session = self.session._run_interactive_session_picker(
+            session_tree=self.ctl.session_tree,
+            terminal_ui=terminal_ui,
+        )
+        if picked_session is None:
+            self.diag("pipy: /resume cancelled.")
+        elif (
+            self.ctl.session_tree.path is not None
+            and picked_session == self.ctl.session_tree.path
+        ):
+            self.diag("pipy: already on the selected native session.")
+        elif self.extension_session_allows(
+            self.ctl.extension_generation.runtime.session_before_switch_hooks,
+            operation="switch",
+            target=str(picked_session),
+        ):
+            self._open_session(picked_session)
+
+    def _rename_session(self, resume_tokens: list[str]) -> None:
+        if len(resume_tokens) < 3:
+            self.diag("pipy: usage: /resume rename <number|id> <name>")
+            return
+        target = self.resolve_session_file(resume_tokens[1])
+        if target is None:
+            self.diag(f"pipy: no native session matched {resume_tokens[1]!r}.")
+            return
+        renamed = NativeSessionTree.open(target)
+        new_name = " ".join(resume_tokens[2:])
+        renamed.append_session_info(new_name)
+        self.diag(
+            "pipy: renamed session "
+            f"{sanitize_label_text(renamed.session_id[:8])} "
+            f"to {new_name!r}."
+        )
+
+    def _delete_session(self, resume_tokens: list[str]) -> None:
+        confirm = "--yes" in resume_tokens[1:]
+        refs = [token for token in resume_tokens[1:] if token != "--yes"]
+        if not refs:
+            self.diag("pipy: usage: /resume delete <number|id> --yes")
+            return
+        target = self.resolve_session_file(refs[0])
+        if target is None:
+            self.diag(f"pipy: no native session matched {refs[0]!r}.")
+        elif (
+            self.ctl.session_tree.path is not None
+            and target == self.ctl.session_tree.path
+        ):
+            self.diag("pipy: cannot delete the active native session.")
+        elif not confirm:
+            self.diag(
+                "pipy: deletion needs confirmation; "
+                "re-run "
+                f"'/resume delete {refs[0]} --yes'. This "
+                "removes only the native session file, "
+                "never pipy-session archive records."
+            )
+        else:
+            _ok, detail = delete_native_session(target)
+            self.diag(f"pipy: {detail}")
+
+    def _resume_target(self, argument: str) -> None:
+        target = self.resolve_session_file(argument)
+        if target is None:
+            self.diag(f"pipy: no native session matched {argument!r}.")
+        elif self.extension_session_allows(
+            self.ctl.extension_generation.runtime.session_before_switch_hooks,
+            operation="switch",
+            target=str(target),
+        ):
+            self._open_session(target)
+
+    def _open_session(self, target: Path) -> None:
+        self.ctl.session_tree = NativeSessionTree.open(target)
+        self.rebuild_messages_from_tree()
+        self.redraw_custom_entries_for_active_branch()
+        self.diag(
+            "pipy: resumed native session "
+            f"{sanitize_label_text(self.ctl.session_tree.session_id[:8])} "
+            f"({sanitize_label_text(self.ctl.session_tree.name) if self.ctl.session_tree.name else 'unnamed'})."
+        )
+
+    def _execute_fork_or_clone(self, command_outcome: CodingCommandOutcome) -> None:
+        action = command_outcome.action
+        if action not in {
+            CodingCommandAction.SESSION_FORK,
+            CodingCommandAction.SESSION_CLONE,
+        }:
+            raise AssertionError("fork/clone handler received another action")
+        if action is CodingCommandAction.SESSION_FORK:
+            fork_argument = command_outcome.argument
+            if type(fork_argument) is not ProductContent:
+                raise TypeError(
+                    "SESSION_FORK requires an exact ProductContent argument"
+                )
+            argument = fork_argument.value
+        else:
+            argument = ""
+        if self.ctl.session_tree.path is None:
+            command_name = {
+                CodingCommandAction.SESSION_FORK: "/fork",
+                CodingCommandAction.SESSION_CLONE: "/clone",
+            }[action]
+            self.diag(f"pipy: {command_name} requires a persistent native session.")
+            return
+        fork_leaf: str | None = None
+        fork_target_resolved = True
+        if argument:
+            target_entry = resolve_entry_ref(
+                self.ctl.session_tree,
+                argument,
+                filter_mode=self.ctl.tree_filter_mode,
+            )
+            if target_entry is None:
+                self.diag(f"pipy: no tree entry matched {argument!r}.")
+                fork_target_resolved = False
+            else:
+                fork_leaf = target_entry.id
+        else:
+            fork_leaf = self.ctl.session_tree.get_leaf_id()
+        if fork_target_resolved and self.extension_session_allows(
+            self.ctl.extension_generation.runtime.session_before_fork_hooks,
+            operation="fork",
+            target=fork_leaf,
+        ):
+            forked_tree = NativeSessionTree.fork_from(
+                self.ctl.session_tree.path,
+                self.cwd,
+                leaf_id=fork_leaf,
+                session_dir=self.ctl.session_tree.path.parent,
+            )
+            self.ctl.session_tree = forked_tree
+            self.rebuild_messages_from_tree()
+            success_text = {
+                CodingCommandAction.SESSION_FORK: "forked into new native session ",
+                CodingCommandAction.SESSION_CLONE: (
+                    "cloned active branch into new native session "
+                ),
+            }[action]
+            self.diag(
+                f"pipy: {success_text}"
+                f"{sanitize_label_text(self.ctl.session_tree.session_id[:8])}."
+            )
+
+
 class _BuiltinCommandInterpreter:
     """Composition-root handler that owns the built-in command effect chain.
 
@@ -644,6 +977,7 @@ class _BuiltinCommandInterpreter:
         *,
         session: "NativeToolReplSession",
         ctl: _RunControlState,
+        session_command_effects: _SessionCommandEffects,
         coding_state: CodingSessionState,
         terminal_ui: ToolLoopTerminalUi | None,
         renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
@@ -657,9 +991,7 @@ class _BuiltinCommandInterpreter:
         prompt_history_store: PromptHistoryStore,
         resource_options: RuntimeResourceOptions,
         tool_capabilities: NativeToolCapabilities,
-        repl_input: "ToolLoopTerminalUi | NativeReplInput",
         diag: Callable[[str], None],
-        apply_compaction: Callable[[str], str],
         apply_model_selection: Callable[[str], tuple[bool, str]],
         apply_auth_change: Callable[[str, str], str],
         rebuild_messages_from_tree: Callable[[], None],
@@ -667,8 +999,6 @@ class _BuiltinCommandInterpreter:
         refresh_legacy_footer: Callable[[], None],
         refresh_legacy_footer_with_usage: Callable[[], None],
         current_session_dir: Callable[[], Path],
-        resolve_session_file: Callable[[str], Path | None],
-        summarize_branch: Callable[[list[AgentMessage], str | None], str | None],
         # ``extension_session_allows`` takes keyword-only gate arguments
         # (operation/target/trigger), so ``Callable[..., bool]`` is the accurate
         # callback shape here rather than a positional parameter list.
@@ -728,274 +1058,8 @@ class _BuiltinCommandInterpreter:
                         error_stream=error_stream,
                     ),
                 )
-            elif command_outcome.action is CodingCommandAction.SHOW_SESSION_STATUS:
-                diag(format_session_status(ctl.session_tree))
-            elif command_outcome.action is CodingCommandAction.COMPACT:
-                # Local-only: reduce provider-visible history while
-                # preserving the shared manual/automatic compaction
-                # policy, extension gate, and durable write ordering.
-                diag(apply_compaction("manual"))
-            elif command_outcome.action is CodingCommandAction.SESSION_NAME:
-                session_name_argument = command_outcome.argument
-                if type(session_name_argument) is not ProductContent:
-                    raise TypeError(
-                        "SESSION_NAME requires an exact ProductContent argument"
-                    )
-                if not session_name_argument.value:
-                    diag(
-                        "pipy: current session name: "
-                        + (
-                            sanitize_label_text(ctl.session_tree.name)
-                            if ctl.session_tree.name
-                            else "(unnamed)"
-                        )
-                    )
-                else:
-                    ctl.session_tree.append_session_info(session_name_argument.value)
-                    diag(f"pipy: session named {session_name_argument.value!r}.")
-            elif command_outcome.action is CodingCommandAction.NEW_SESSION:
-                # Start a fresh native product session in the same store.
-                if extension_session_allows(
-                    ctl.extension_generation.runtime.session_before_switch_hooks,
-                    operation="switch",
-                    target="new",
-                ):
-                    session_dir = (
-                        ctl.session_tree.path.parent
-                        if ctl.session_tree.path is not None
-                        else None
-                    )
-                    ctl.session_tree = NativeSessionTree.create(
-                        cwd,
-                        session_dir=session_dir,
-                        persist=ctl.session_tree.persist,
-                    )
-                    rebuild_messages_from_tree()
-                    diag(
-                        "pipy: started a new native session "
-                        f"({sanitize_label_text(ctl.session_tree.session_id[:8])})."
-                    )
-            elif command_outcome.action is CodingCommandAction.SESSION_TREE:
-                tree_argument = command_outcome.argument
-                if type(tree_argument) is not ProductContent:
-                    raise TypeError(
-                        "SESSION_TREE requires an exact ProductContent argument"
-                    )
-                argument = tree_argument.value
-                tree_sub = argument.split(maxsplit=1)[0].lower() if argument else ""
-                tree_may_change = (
-                    not argument and terminal_ui is not None
-                ) or tree_sub in {"select", "label", "filter"}
-                tree_allowed = not tree_may_change or extension_session_allows(
-                    ctl.extension_generation.runtime.session_before_tree_hooks,
-                    operation="tree",
-                    target=argument or None,
-                )
-                if tree_allowed:
-                    tree_outcome = session._handle_tree_command(
-                        argument,
-                        session_tree=ctl.session_tree,
-                        terminal_ui=terminal_ui,
-                        error_stream=error_stream,
-                        repl_input=repl_input,
-                        filter_mode=ctl.tree_filter_mode,
-                        rebuild_messages=rebuild_messages_from_tree,
-                        summarizer=summarize_branch,
-                    )
-                    if tree_outcome.filter_mode is not None:
-                        ctl.tree_filter_mode = tree_outcome.filter_mode
-                    if tree_outcome.prefill is not None:
-                        ctl.pending_prefill = tree_outcome.prefill
-            elif command_outcome.action is CodingCommandAction.SESSION_RESUME:
-                resume_argument = command_outcome.argument
-                if type(resume_argument) is not ProductContent:
-                    raise TypeError(
-                        "SESSION_RESUME requires an exact ProductContent argument"
-                    )
-                argument = resume_argument.value
-                resume_tokens = argument.split()
-                resume_sub = resume_tokens[0].lower() if resume_tokens else ""
-
-                def _list_sessions(named_only: bool = False) -> None:
-                    sessions = list_native_sessions(current_session_dir())
-                    sessions = (
-                        [session for session in sessions if session.name]
-                        if named_only
-                        else sessions
-                    )
-                    if not sessions:
-                        diag("pipy: no native sessions found for this workspace.")
-                        return
-                    scope = "named " if named_only else ""
-                    diag(f"pipy: {scope}native sessions (newest first):")
-                    for index, entry in enumerate(sessions, start=1):
-                        label = (
-                            sanitize_label_text(entry.name)
-                            if entry.name
-                            else "(unnamed)"
-                        )
-                        diag(
-                            f"  {index}. "
-                            f"{sanitize_label_text(entry.session_id[:8])} "
-                            f"{label} "
-                            f"messages={entry.message_count} "
-                            f"file={sanitize_label_text(entry.path.name)}"
-                        )
-                    diag("pipy: use '/resume <number|id>' to open a session.")
-
-                if (
-                    not argument
-                    and terminal_ui is not None
-                    and hasattr(terminal_ui, "run_session_picker")
-                ):
-                    picked_session = session._run_interactive_session_picker(
-                        session_tree=ctl.session_tree,
-                        terminal_ui=terminal_ui,
-                    )
-                    if picked_session is None:
-                        diag("pipy: /resume cancelled.")
-                    elif (
-                        ctl.session_tree.path is not None
-                        and picked_session == ctl.session_tree.path
-                    ):
-                        diag("pipy: already on the selected native session.")
-                    elif extension_session_allows(
-                        ctl.extension_generation.runtime.session_before_switch_hooks,
-                        operation="switch",
-                        target=str(picked_session),
-                    ):
-                        ctl.session_tree = NativeSessionTree.open(picked_session)
-                        rebuild_messages_from_tree()
-                        redraw_custom_entries_for_active_branch()
-                        diag(
-                            "pipy: resumed native session "
-                            f"{sanitize_label_text(ctl.session_tree.session_id[:8])} "
-                            f"({sanitize_label_text(ctl.session_tree.name) if ctl.session_tree.name else 'unnamed'})."
-                        )
-                elif not argument:
-                    _list_sessions()
-                elif resume_sub == "named":
-                    _list_sessions(named_only=True)
-                elif resume_sub == "rename":
-                    if len(resume_tokens) < 3:
-                        diag("pipy: usage: /resume rename <number|id> <name>")
-                    else:
-                        target = resolve_session_file(resume_tokens[1])
-                        if target is None:
-                            diag(
-                                f"pipy: no native session matched {resume_tokens[1]!r}."
-                            )
-                        else:
-                            renamed = NativeSessionTree.open(target)
-                            new_name = " ".join(resume_tokens[2:])
-                            renamed.append_session_info(new_name)
-                            diag(
-                                "pipy: renamed session "
-                                f"{sanitize_label_text(renamed.session_id[:8])} "
-                                f"to {new_name!r}."
-                            )
-                elif resume_sub == "delete":
-                    confirm = "--yes" in resume_tokens[1:]
-                    refs = [token for token in resume_tokens[1:] if token != "--yes"]
-                    if not refs:
-                        diag("pipy: usage: /resume delete <number|id> --yes")
-                    else:
-                        target = resolve_session_file(refs[0])
-                        if target is None:
-                            diag(f"pipy: no native session matched {refs[0]!r}.")
-                        elif (
-                            ctl.session_tree.path is not None
-                            and target == ctl.session_tree.path
-                        ):
-                            diag("pipy: cannot delete the active native session.")
-                        elif not confirm:
-                            diag(
-                                "pipy: deletion needs confirmation; "
-                                "re-run "
-                                f"'/resume delete {refs[0]} --yes'. This "
-                                "removes only the native session file, "
-                                "never pipy-session archive records."
-                            )
-                        else:
-                            _ok, detail = delete_native_session(target)
-                            diag(f"pipy: {detail}")
-                else:
-                    target = resolve_session_file(argument)
-                    if target is None:
-                        diag(f"pipy: no native session matched {argument!r}.")
-                    elif extension_session_allows(
-                        ctl.extension_generation.runtime.session_before_switch_hooks,
-                        operation="switch",
-                        target=str(target),
-                    ):
-                        ctl.session_tree = NativeSessionTree.open(target)
-                        rebuild_messages_from_tree()
-                        redraw_custom_entries_for_active_branch()
-                        diag(
-                            "pipy: resumed native session "
-                            f"{sanitize_label_text(ctl.session_tree.session_id[:8])} "
-                            f"({sanitize_label_text(ctl.session_tree.name) if ctl.session_tree.name else 'unnamed'})."
-                        )
-            elif command_outcome.action in {
-                CodingCommandAction.SESSION_FORK,
-                CodingCommandAction.SESSION_CLONE,
-            }:
-                if command_outcome.action is CodingCommandAction.SESSION_FORK:
-                    fork_argument = command_outcome.argument
-                    if type(fork_argument) is not ProductContent:
-                        raise TypeError(
-                            "SESSION_FORK requires an exact ProductContent argument"
-                        )
-                    argument = fork_argument.value
-                else:
-                    argument = ""
-                if ctl.session_tree.path is None:
-                    command_name = {
-                        CodingCommandAction.SESSION_FORK: "/fork",
-                        CodingCommandAction.SESSION_CLONE: "/clone",
-                    }[command_outcome.action]
-                    diag(f"pipy: {command_name} requires a persistent native session.")
-                else:
-                    fork_leaf: str | None = None
-                    fork_target_resolved = True
-                    if argument:
-                        target_entry = resolve_entry_ref(
-                            ctl.session_tree,
-                            argument,
-                            filter_mode=ctl.tree_filter_mode,
-                        )
-                        if target_entry is None:
-                            diag(f"pipy: no tree entry matched {argument!r}.")
-                            fork_target_resolved = False
-                        else:
-                            fork_leaf = target_entry.id
-                    else:
-                        fork_leaf = ctl.session_tree.get_leaf_id()
-                    if fork_target_resolved and extension_session_allows(
-                        ctl.extension_generation.runtime.session_before_fork_hooks,
-                        operation="fork",
-                        target=fork_leaf,
-                    ):
-                        forked_tree = NativeSessionTree.fork_from(
-                            ctl.session_tree.path,
-                            cwd,
-                            leaf_id=fork_leaf,
-                            session_dir=ctl.session_tree.path.parent,
-                        )
-                        ctl.session_tree = forked_tree
-                        rebuild_messages_from_tree()
-                        success_text = {
-                            CodingCommandAction.SESSION_FORK: (
-                                "forked into new native session "
-                            ),
-                            CodingCommandAction.SESSION_CLONE: (
-                                "cloned active branch into new native session "
-                            ),
-                        }[command_outcome.action]
-                        diag(
-                            f"pipy: {success_text}"
-                            f"{sanitize_label_text(ctl.session_tree.session_id[:8])}."
-                        )
+            elif command_outcome.action in _SESSION_COMMAND_ACTIONS:
+                session_command_effects.execute(command_outcome)
             elif command_outcome.action is CodingCommandAction.SESSION_EXPORT:
                 session._export_session(
                     command_outcome.argument,
@@ -2674,6 +2738,28 @@ class _SessionCollaborators:
     def resolve_session_file(self, ref: str) -> Path | None:
         return resolve_session_target(self.current_session_dir(), ref)
 
+    def session_command_effects(
+        self, repl_input: "ToolLoopTerminalUi | NativeReplInput"
+    ) -> _SessionCommandEffects:
+        """Assemble the session-command executor from this run's narrow ports."""
+
+        return _SessionCommandEffects(
+            session=self.session,
+            ctl=self.ctl,
+            cwd=self.cwd,
+            terminal_ui=self.terminal_ui,
+            error_stream=self.error_stream,
+            repl_input=repl_input,
+            diag=self.diag,
+            apply_compaction=self.provider_mutation.apply_compaction,
+            extension_session_allows=self.extension_session_allows,
+            rebuild_messages_from_tree=self.rebuild_messages_from_tree,
+            redraw_custom_entries_for_active_branch=self.custom_renderer.redraw_custom_entries_for_active_branch,
+            current_session_dir=self.current_session_dir,
+            resolve_session_file=self.resolve_session_file,
+            summarize_branch=self.summarize_branch,
+        )
+
     def rebuild_messages_from_tree(self) -> None:
         """Rebuild the live provider-visible list from the active branch.
 
@@ -3806,11 +3892,11 @@ class NativeToolReplSession:
             )
 
         # Continuing built-in interpretation runs through the command-dispatch
-        # effect port (symmetric with resource/extension dispatch): the
-        # controller classifies and invokes this per-action effect chain, which
-        # reassigns the run's control state (the live session tree, tree filter
-        # mode, pending prefill, and the whole `/reload` extension-runtime
-        # bundle) exactly as the superseded inline INTERPRET_BUILTIN branch did.
+        # effect port (symmetric with resource/extension dispatch). The
+        # controller classifies and invokes this per-action effect chain; the
+        # remaining provider/configuration and transfer/package/reload families
+        # stay here for Slices 5 and 6.
+        session_command_effects = collaborators.session_command_effects(repl_input)
         builtin_interpreter = _BuiltinCommandInterpreter()
 
         command_effects: CodingCommandEffects = _CallableCodingCommandEffects(
@@ -3820,6 +3906,7 @@ class NativeToolReplSession:
                 outcome,
                 session=self,
                 ctl=ctl,
+                session_command_effects=session_command_effects,
                 coding_state=coding_state,
                 terminal_ui=terminal_ui,
                 renderer=renderer,
@@ -3833,9 +3920,7 @@ class NativeToolReplSession:
                 prompt_history_store=prompt_history_store,
                 resource_options=resource_options,
                 tool_capabilities=tool_capabilities,
-                repl_input=repl_input,
                 diag=collaborators.diag,
-                apply_compaction=provider_mutation.apply_compaction,
                 apply_model_selection=provider_mutation.apply_model_selection,
                 apply_auth_change=provider_mutation.apply_auth_change,
                 rebuild_messages_from_tree=collaborators.rebuild_messages_from_tree,
@@ -3843,8 +3928,6 @@ class NativeToolReplSession:
                 refresh_legacy_footer=footer.refresh_legacy_footer,
                 refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
                 current_session_dir=collaborators.current_session_dir,
-                resolve_session_file=collaborators.resolve_session_file,
-                summarize_branch=collaborators.summarize_branch,
                 extension_session_allows=collaborators.extension_session_allows,
                 extension_send_message=custom_renderer.extension_send_message,
                 extension_render_details=render_details.writer,
