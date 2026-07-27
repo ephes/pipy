@@ -15,13 +15,14 @@ transition.
 from __future__ import annotations
 
 import inspect
+import shutil
+import signal
 import termios
 import tty
 from typing import Any, TextIO, cast
 
 import pytest
 
-from pipy_harness.native import terminal_driver
 from pipy_harness.native.terminal_driver import (
     _BRACKETED_PASTE_DISABLE,
     _BRACKETED_PASTE_ENABLE,
@@ -145,8 +146,8 @@ def test_enter_raw_mode_uses_tcsaflush_typeahead_flush(
         captured["fd"] = fd
         captured["when"] = when
 
-    monkeypatch.setattr(terminal_driver.termios, "tcgetattr", lambda fd: "saved")
-    monkeypatch.setattr(terminal_driver.tty, "setraw", fake_setraw)
+    monkeypatch.setattr(termios, "tcgetattr", lambda fd: "saved")
+    monkeypatch.setattr(tty, "setraw", fake_setraw)
 
     driver, terminal = _driver(fd=11)
     driver.enter_raw_mode()
@@ -160,10 +161,8 @@ def test_enter_raw_mode_uses_tcsaflush_typeahead_flush(
 
 def test_enter_raw_mode_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
-    monkeypatch.setattr(terminal_driver.termios, "tcgetattr", lambda fd: "saved")
-    monkeypatch.setattr(
-        terminal_driver.tty, "setraw", lambda fd: calls.append(fd)
-    )
+    monkeypatch.setattr(termios, "tcgetattr", lambda fd: "saved")
+    monkeypatch.setattr(tty, "setraw", lambda fd: calls.append(fd))
     driver, _terminal = _driver()
     driver.enter_raw_mode()
     driver.enter_raw_mode()
@@ -174,9 +173,9 @@ def test_restore_terminal_mode_disables_paste_and_restores_attrs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        terminal_driver.termios, "tcgetattr", lambda fd: "SAVED-ATTRS"
+        termios, "tcgetattr", lambda fd: "SAVED-ATTRS"
     )
-    monkeypatch.setattr(terminal_driver.tty, "setraw", lambda fd: None)
+    monkeypatch.setattr(tty, "setraw", lambda fd: None)
     restored: dict[str, Any] = {}
 
     def fake_tcsetattr(fd: int, when: int, attrs: object) -> None:
@@ -184,7 +183,7 @@ def test_restore_terminal_mode_disables_paste_and_restores_attrs(
         restored["when"] = when
         restored["attrs"] = attrs
 
-    monkeypatch.setattr(terminal_driver.termios, "tcsetattr", fake_tcsetattr)
+    monkeypatch.setattr(termios, "tcsetattr", fake_tcsetattr)
 
     driver, terminal = _driver(fd=9)
     driver.enter_raw_mode()
@@ -384,15 +383,15 @@ def test_install_and_remove_resize_handler_restore_previous(
         calls.append((signum, handler))
         return sentinel
 
-    monkeypatch.setattr(terminal_driver.signal, "signal", fake_signal)
+    monkeypatch.setattr(signal, "signal", fake_signal)
     driver, _ = _driver()
     driver.install_resize_handler()
-    assert calls[0][0] == terminal_driver.signal.SIGWINCH
+    assert calls[0][0] == signal.SIGWINCH
     assert calls[0][1] == driver._on_resize_signal
     assert driver._prev_winch_handler is sentinel
     driver.remove_resize_handler()
     # The previously-saved disposition is restored, then forgotten.
-    assert calls[-1] == (terminal_driver.signal.SIGWINCH, sentinel)
+    assert calls[-1] == (signal.SIGWINCH, sentinel)
     assert driver._prev_winch_handler is None
 
 
@@ -402,7 +401,7 @@ def test_install_resize_handler_off_main_thread_is_ignored(
     def raising_signal(signum: int, handler: Any) -> Any:
         raise ValueError("signal only works in main thread")
 
-    monkeypatch.setattr(terminal_driver.signal, "signal", raising_signal)
+    monkeypatch.setattr(signal, "signal", raising_signal)
     driver, _ = _driver()
     driver.install_resize_handler()  # must not raise
     assert driver._prev_winch_handler is None
@@ -431,7 +430,7 @@ def test_size_falls_back_to_shutil_when_no_env(
     monkeypatch.delenv("COLUMNS", raising=False)
     monkeypatch.delenv("LINES", raising=False)
     monkeypatch.setattr(
-        terminal_driver.shutil,
+        shutil,
         "get_terminal_size",
         lambda *a, **k: _os.terminal_size((90, 30)),
     )

@@ -28,7 +28,7 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 9 — strict source frontier completion**. Product-parity deltas in
+is **Slice 10 — one-shot runtime convergence decision**. Product-parity deltas in
 the Pi audit remain selection candidates after the architecture program and do
 not expand an architecture slice.
 
@@ -688,6 +688,55 @@ Progress:
   This closes Slice 8 completely. The active pointer advances to **Slice 9 —
   strict source frontier completion**; its `HarnessStatus` export cleanup and
   package-wide strict-frontier work remain untouched.
+
+- **Slice 9 — strict source frontier completion: COMPLETE, REVIEW READY.** The
+  enumerated strict-equivalent Mypy override is replaced rather than
+  supplemented: **35 entries -> 2** exact structured package patterns,
+  `pipy_harness.*` and `pipy_session.*`. Every per-module strict-equivalent
+  sub-flag and all three global-only flags remain enabled. There is no global
+  or per-module `strict = true`, exclusion, relaxed flag, suppression, cast,
+  assertion workaround, unchecked `Any`, dependency, or C901 pin. Top-level
+  tests retain their existing non-strict baseline, while `just typecheck`
+  continues to run `mypy src tests` and CI continues to invoke that
+  authoritative gate.
+
+  `pipy_harness.status.HarnessStatus` remains the sole authoritative enum
+  definition. `pipy_harness.models` now uses a same-name import alias to make
+  its established export explicit under `no_implicit_reexport`; the models,
+  top-level package, SDK, native result objects, and provider annotations still
+  resolve to that exact object with the same members and serialized values.
+  Combined source/test checking also exposed four test accommodations:
+  `native.models.HarnessStatus`, `verification.NativeVerificationRequest`, the
+  terminal driver's stdlib monkeypatch modules, and `chrome.Path`. Only the
+  required public `pipy_harness.models.HarnessStatus` path becomes an explicit
+  same-object export. The other consumers now import the authoritative status
+  and verification-request owners or patch `pathlib`/stdlib modules directly,
+  without adding test-only production exports, wrappers, or duplicate types.
+  The complete configuration characterization now lives in the dedicated
+  `tests/test_typing_config.py`; the former native-tools recursive inventory
+  pin is intentionally removed because the final package-wide pattern covers
+  present and future source modules without a per-package file list.
+
+  Diagnostic `mypy --strict src` falls **20 errors in 20 files -> zero** and is
+  clean across all **165 source files**. `just typecheck` is clean across
+  **425 source/test files**. The focused architecture/SDK/harness gate passes
+  **271 tests**, and `just check` passes **4,667 tests with two skips** after
+  clean Ruff and Mypy phases. `just docs-build` and `git diff --check` are
+  clean. Repository/source C901 remains **38 / 22**, and the source type-ignore
+  count remains exactly **1**, the documented runtime-selected stdlib subclass
+  line in `native/http.py`.
+
+  This is behavior-preserving typing and export ownership work, so no changelog
+  entry applies. SDK, runner, adapter, provider success/failure/cancellation,
+  CLI/JSON/RPC/tool/session/archive schemas, public imports, and one-way
+  architecture boundaries are unchanged. Credentials and tokens remain
+  excluded, the native product session remains full-content, the workflow
+  archive remains metadata-only, and both theme sources remain `pi`.
+  Implementation was direct with no coding subagent; independent review and
+  commit are separately orchestrated before landing. The active pointer
+  advances to **Slice 10 — one-shot runtime convergence decision**; no Slice 10
+  implementation is included, and its one-shot/runtime-convergence outcome
+  remains intentionally undecided.
 
 ## Current State
 

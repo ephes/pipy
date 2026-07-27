@@ -20,11 +20,11 @@ from pipy_harness.native.models import (
     NativeToolSandboxPolicy,
     NativeToolStatus,
     NativeVerificationCommand,
+    NativeVerificationRequest,
 )
 from pipy_harness.native.verification import (
     NativeVerificationApprovalDecision,
     NativeVerificationGateDecision,
-    NativeVerificationRequest,
     NativeVerificationTool,
 )
 

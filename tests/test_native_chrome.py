@@ -142,7 +142,7 @@ def test_discover_loaded_resource_names_returns_local_and_global(
     fake_home = tmp_path / "home"
     (fake_home / ".pipy").mkdir(parents=True)
     (fake_home / ".pipy" / "AGENTS.md").write_text("home", encoding="utf-8")
-    monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
 
     context_names = chrome.discover_loaded_resource_names(workspace)
     assert "AGENTS.md" in context_names
@@ -190,7 +190,7 @@ def test_discover_does_not_leak_neighbor_tool_paths(
     fake_home = tmp_path / "home"
     (fake_home / ".claude").mkdir(parents=True)
     (fake_home / ".claude" / "CLAUDE.md").write_text("claude-home", encoding="utf-8")
-    monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
 
     context_names = chrome.discover_loaded_resource_names(workspace)
 
@@ -203,7 +203,7 @@ def test_print_startup_chrome_renders_context(
 ) -> None:
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -232,7 +232,7 @@ def test_print_startup_chrome_renders_skills_when_store_populated(
 ) -> None:
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    monkeypatch.setattr(chrome.Path, "home", classmethod(lambda cls: fake_home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
 
     # Honest listing: the chrome [Skills] section lists the loadable skill
     # names (`.pipy/skills/*.md`) a user can run with `/skill <name>`, sourced

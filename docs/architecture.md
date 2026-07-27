@@ -245,88 +245,57 @@ focused fresh-process and exact-import tests strengthen important leaves.
 Golden architecture contracts separately pin cross-mode event order and the
 full-content product-session versus metadata-archive privacy split.
 
-The current Mypy strict-equivalent frontier is exactly the override in
-`pyproject.toml`: `pipy_harness.cli`, `native.ui.*`, `native.agent.*`,
-`native.coding.*`, `native.automation.*`, `native.providers.*`, the complete
-extension ownership surface (`pipy_harness.extensions`,
-`native.extension_types`, `native.extension_ui`, `native.extension_runtime`,
-`native.extension_hooks`, `native.extension_loader`, and
-`native.extensions`), and the named root modules `native.http`,
-`native.repl_state`, `native.session`, `native.tool_loop_session`, `native.tui`,
-`native.settings`, `native.package_manager`, and
-`native.session_tree_commands`, `native.package_resources`,
-`native.package_runtime`, `native.resources`, `native.repl_input`,
-`native.autocomplete_provider`, `native.tool_renderers`, `native.routing`,
-`native.oauth_providers`, `native.models_json`, `native.catalog_state`,
-`native.provider_construction`, `native.ds4`, `native.tools.*`, and
-`native.export_distribution`. This is 35 ordered override entries: 34 exact
-module/package entries plus the narrow `native.tools.*` package wildcard.
-`native.export_distribution` follows that wildcard as the final Slice 8 entry.
-Slice 8a's three support owners narrow validated integer settings without
-accepting booleans, preserve string- and object-form package JSON through a
-string-keyed object boundary, and traverse the product-session tree through the
-authoritative `SessionTreeNode` type.
-Slice 8b adds the package-resource resolver, package-runtime composition seam,
-and resource registry/dispatcher. `PackageResourceRoots` remains
-authoritatively defined in `package_resources`; `package_runtime` explicitly
-re-exports that same class object for existing composition-root imports.
-Dynamic package JSON/TOML stays behind executable `object`, `Mapping`,
-`Sequence`, and `str` narrowing. Slice 8c adds the terminal-support owners.
-Autocomplete provider invocation remains
-duck-typed and snake-case-first, but its arguments and result cross an explicit
-`object` boundary before existing coercion. The optional prompt-toolkit
-key-binding class, decorators, events, and buffers are described by local
-protocols without importing or requiring the package. Chrome and tool rendering
-reuse the authoritative runtime-checkable component/context/theme contracts
-from `extension_types`; the captured dispatcher now has the same typed
-callable, mapping, context, and result shape as the TUI dispatcher while
-retaining its original renderer pinning and opaque-details compatibility seam.
-Slice 8d adds the provider-model-policy path. Routing returns string-keyed
-request objects after executable narrowing and keeps the OpenRouter and Vercel
-URL gates and nesting unchanged. Built-in OAuth providers use a narrow
-keyword-aware transport protocol, string-keyed credential/response objects,
-the existing ordered three-provider registry, and a runtime-checkable protocol
-only for the optional model-row modifier seam. `models_json` continues to
-decode into `object`, then executably narrows string-keyed objects and arrays
-before validation and merge; its OAuth modifier collection uses one precise
-model-row callable type. Parsing leniency, validation diagnostics, merge
-precedence, catalog mutation, credentials, and provider request behavior remain
-unchanged.
-Slice 8e adds the provider-construction support path. The ds4 preset exposes
-its static JSON-compatible value as a string-keyed object mapping.
-`ProviderCatalogState` describes its optional extra-provider overlay with the
-authoritative `ProviderConfig` and returns the authoritative `AuthStatus`. The
-fail-closed catalog-auth provider implements the exact `ProviderPort` request,
-result, stream/reasoning sink, and cancellation signature. Catalog precedence,
-ds4 shim behavior, provider request construction, auth failure behavior,
-credentials, and the product-session/archive privacy split remain unchanged.
-Slice 8f adds the complete native tools package through a narrow package
-wildcard; its exact current recursive file inventory is characterized so the
-test inventory must move intentionally with future additions or removals.
-Dynamically decoded integer arguments cross an `object` boundary before exact
-`bool` rejection and `int` narrowing, retaining the existing validation order,
-bounds, errors, and field paths. Edit-diff's atomic writer accepts the
-authoritative resolved `Path`, while sibling temporary-file placement, mode
-preservation, replacement, failure cleanup, and post-replacement diff streaming
-remain unchanged. Tool schemas, request/result identities, workspace
-containment, and the provider-visible/product-session/archive boundaries are
-unchanged.
-Slice 8g adds the product export/distribution owner. Its static
-`session_export_payload` mapping and the public recursive redactor now share a
-private generic-keyed `Mapping[..., object]` path with an exact
-`dict[str, Any]` result. The helper still stringifies arbitrary mapping keys,
-recurses through mappings and lists, converts tuples to lists, redacts
-credential-shaped keys and strings, and preserves scalar values. The public
-`redact_export_value(Any) -> Any` boundary remains intentionally dynamic.
-Full-tree HTML, active-branch JSONL, import, secret-gist sharing, cancellation,
-self-update planning, credential exclusion, native product-session content,
-and the metadata-only workflow archive are unchanged.
+The complete Mypy strict-equivalent source frontier is the single override in
+`pyproject.toml`, with exactly two structured package patterns:
+`pipy_harness.*` and `pipy_session.*`. Those patterns cover both package
+`__init__` modules and every descendant source module, including future source
+modules, while top-level test modules retain the repository's existing
+non-strict baseline. The override spells out every per-module sub-flag from
+`--strict`; the three global-only flags (`warn_unused_configs`,
+`warn_redundant_casts`, and `strict_bytes`) remain enabled globally. The
+authoritative CI typecheck still runs `mypy src tests`, and the independent
+repository-strict diagnostic `mypy --strict src` is clean across all 165 source
+files.
 
-These 35 entries are strict, and Slice 8 is complete. The repository default
-remains non-strict only outside the listed frontier. The active Slice 9
-boundary is the remaining 20-file `HarnessStatus` implicit-export cascade
-rooted in `pipy_harness.models`; export/distribution has no remaining strict
-diagnostic.
+`pipy_harness.status.HarnessStatus` is the sole enum definition and the
+dependency-neutral owner. `pipy_harness.models` explicitly imports it through a
+same-name alias, so Mypy recognizes the established
+`pipy_harness.models.HarnessStatus` path as an intentional export under
+`no_implicit_reexport`. The models, top-level package, SDK, native result
+objects, and provider annotations all continue to expose that exact enum object;
+members, serialized values, `AdapterResult`, and `RunResult` are unchanged.
+Only the required `pipy_harness.models` public path gains that explicit
+same-object export. Other combined source/test-graph findings are resolved at
+their consumers: tests import the authoritative status and verification-request
+owners and patch `pathlib` or stdlib terminal modules directly, so production
+modules do not acquire test-only typed exports.
+
+The package-wide gate preserves the owner and narrowing decisions established
+while the frontier was enumerated. `PackageResourceRoots` remains defined by
+`package_resources`, with `package_runtime` exposing only an explicit
+same-object export. Package JSON/TOML and `models.json` still decode through
+`object` and narrow with `Mapping`, `Sequence`, and scalar checks before use.
+The optional prompt-toolkit key-binding class, decorators, events, and buffers
+remain described by local protocols without importing or requiring that
+package. Autocomplete provider dispatch remains intentionally duck-typed
+behind an `object` boundary, while extension chrome and tool rendering reuse
+the authoritative runtime-checkable contracts from `extension_types`.
+
+Provider catalog construction continues to use the authoritative
+`ProviderConfig`, `AuthStatus`, request, result, stream/reasoning, and
+cancellation types. Dynamically decoded tool integers still reject `bool`
+before `int` narrowing, and edit-diff's atomic writer continues to accept the
+already-resolved `Path`. Export/distribution keeps its private generic-keyed
+mapping redaction path; the public `redact_export_value(Any) -> Any` boundary is
+intentionally dynamic. These are enduring ownership and validation contracts,
+not exceptions to the complete strict source frontier.
+
+Completing source strictness changes no runtime boundary. CLI, JSON/RPC, SDK,
+provider, tool, session, extension, and archive schemas remain unchanged, as do
+the one-way import rules and fail-closed trust gates. Credentials, tokens, and
+secrets stay excluded; the private native product session remains the
+full-content source of truth, and `pipy_session` remains a separate
+metadata-only workflow archive.
 
 Ruff C901 is a directional repository gate. Previously complex files are
 explicitly pinned and no new pin may be added; a finding in a previously clean
@@ -352,11 +321,9 @@ The active program addresses ownership risks rather than cosmetic size:
   publication-gate admission is not yet atomic;
 - `_ReplLoopStep.step_once` remains a high-complexity cross-boundary
   orchestrator with a wide collaborator list;
-- strict typing has not yet reached every source module: Slice 9 owns the
-  remaining `HarnessStatus` implicit-export cascade and package-wide frontier
-  completion;
 - the one-shot runtime and canonical interactive loop have unresolved semantic
-  overlap;
+  overlap; Slice 10 is the next active architecture-quality boundary and owns
+  the convergence decision without presuming its outcome;
 - `ToolLoopTerminalUi` still combines editor, overlay, extension chrome, and
   frame state (128 measured state fields at baseline); and
 - load-sensitive PTY readiness races and the absence of a repository Ruff-format

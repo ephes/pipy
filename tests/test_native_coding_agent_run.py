@@ -68,12 +68,12 @@ from pipy_harness.native.coding.agent_run import (
 )
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import (
-    HarnessStatus,
     ProviderRequest,
     ProviderResult,
 )
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.status import HarnessStatus
 
 
 class _RecordingSink:

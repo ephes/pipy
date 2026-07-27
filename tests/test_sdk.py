@@ -7,11 +7,13 @@ from typing import get_type_hints
 
 import pytest
 
-from pipy_harness import sdk
+import pipy_harness
+from pipy_harness import models, sdk
 from pipy_harness.capture import CapturePolicy
-from pipy_harness.models import HarnessStatus, RunRequest, RunResult
-from pipy_harness.native import NativeRunOutput, ProviderResult
+from pipy_harness.models import AdapterResult, HarnessStatus, RunRequest, RunResult
+from pipy_harness.native import NativeRunOutput, NativeToolReplResult, ProviderResult
 from pipy_harness.native.fake import FakeNativeProvider
+from pipy_harness.status import HarnessStatus as CanonicalHarnessStatus
 from pipy_session.recorder import SessionRecord
 
 
@@ -34,11 +36,23 @@ def test_sdk_exports_expected_surface() -> None:
         assert hasattr(sdk, name)
 
 
+def test_harness_status_public_exports_keep_canonical_identity() -> None:
+    assert HarnessStatus is CanonicalHarnessStatus
+    assert models.HarnessStatus is CanonicalHarnessStatus
+    assert pipy_harness.HarnessStatus is CanonicalHarnessStatus
+    assert sdk.HarnessStatus is CanonicalHarnessStatus
+
+
 def test_public_run_model_type_hints_resolve_at_runtime() -> None:
+    assert get_type_hints(AdapterResult)["status"] is CanonicalHarnessStatus
+    assert get_type_hints(RunResult)["status"] is CanonicalHarnessStatus
     assert get_type_hints(RunRequest)["capture_policy"] is CapturePolicy
     assert get_type_hints(RunResult)["record"] is SessionRecord
-    assert get_type_hints(ProviderResult)["status"] is HarnessStatus
-    assert get_type_hints(NativeRunOutput)["status"] is HarnessStatus
+    assert get_type_hints(ProviderResult)["status"] is CanonicalHarnessStatus
+    assert get_type_hints(NativeRunOutput)["status"] is CanonicalHarnessStatus
+    assert (
+        get_type_hints(NativeToolReplResult)["status"] is CanonicalHarnessStatus
+    )
 
 
 def test_make_native_run_request_fills_pipy_native_defaults(tmp_path: Path) -> None:

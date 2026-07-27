@@ -88,72 +88,24 @@ extend-select = ["C901"]
 "tests/test_parity_probe_trust.py" = ["C901"]
 
 [tool.mypy]
-# Repository default stays non-strict while the migration ratchets strictness
-# on one subpackage at a time (docs/architecture-migration.md, Phase 7). The
-# per-module override below opts the four fully-typed leaves (Slice 7.2), the
-# native.providers package and native/http.py (Slice 7.3), the native session
-# core (Slice 7.6a), native extension discovery (Slice 7.6b), native REPL
-# state (Slice 7.6c), the top-level CLI (Slice 7.6d), the tool-loop composition
-# root (Slice 7.6e), native TUI (Slice 7.6f), and the complete seven-module
-# extension ownership surface (architecture-quality Slice 7), plus the
-# settings/package-manager/session-tree-command support batch
-# (architecture-quality Slice 8a) and package-resource/package-runtime/
-# resource-dispatch support batch (architecture-quality Slice 8b), plus the
-# REPL-input/autocomplete-provider/tool-renderer terminal-support batch
-# (architecture-quality Slice 8c), and the routing/OAuth/models.json
-# provider-model-policy batch (architecture-quality Slice 8d), plus the
-# catalog-state/provider-construction/ds4 support batch (architecture-quality
-# Slice 8e), plus the native tools package (architecture-quality Slice 8f),
-# plus native export/distribution (architecture-quality Slice 8g),
-# into `--strict`. The override lists the per-module `--strict` sub-flags
-# explicitly rather than `strict = true`, because mypy applies a per-module
-# `strict = true` globally (leaking the strict checks onto every other module
-# and the test suite); the explicit
-# flags stay scoped to the matched packages. The three strict flags that mypy
-# only honours globally — `warn_unused_configs`, `warn_redundant_casts`, and
-# `strict_bytes` — are hoisted here (they are safe repo-wide and keep the gate
-# genuinely `--strict`-equivalent, since they cannot be set per-module).
+# All source modules in the two product packages are strict-clean. The package
+# patterns intentionally exclude top-level test modules, which retain the
+# repository's existing non-strict baseline. The override lists the per-module
+# `--strict` sub-flags explicitly rather than `strict = true`, because mypy
+# applies a per-module `strict = true` globally (leaking the strict checks onto
+# the test suite); the explicit flags stay scoped to the matched packages. The
+# three strict flags that mypy only honours globally — `warn_unused_configs`,
+# `warn_redundant_casts`, and `strict_bytes` — are hoisted here (they are safe
+# repo-wide and keep the gate genuinely `--strict`-equivalent, since they
+# cannot be set per-module).
 warn_unused_configs = true
 warn_redundant_casts = true
 strict_bytes = true
 
 [[tool.mypy.overrides]]
 module = [
-    "pipy_harness.cli",
-    "pipy_harness.extensions",
-    "pipy_harness.native.ui.*",
-    "pipy_harness.native.agent.*",
-    "pipy_harness.native.coding.*",
-    "pipy_harness.native.automation.*",
-    "pipy_harness.native.providers.*",
-    "pipy_harness.native.extension_hooks",
-    "pipy_harness.native.extension_loader",
-    "pipy_harness.native.extension_runtime",
-    "pipy_harness.native.extension_types",
-    "pipy_harness.native.extension_ui",
-    "pipy_harness.native.extensions",
-    "pipy_harness.native.http",
-    "pipy_harness.native.repl_state",
-    "pipy_harness.native.session",
-    "pipy_harness.native.tool_loop_session",
-    "pipy_harness.native.tui",
-    "pipy_harness.native.settings",
-    "pipy_harness.native.package_manager",
-    "pipy_harness.native.session_tree_commands",
-    "pipy_harness.native.package_resources",
-    "pipy_harness.native.package_runtime",
-    "pipy_harness.native.resources",
-    "pipy_harness.native.repl_input",
-    "pipy_harness.native.autocomplete_provider",
-    "pipy_harness.native.tool_renderers",
-    "pipy_harness.native.routing",
-    "pipy_harness.native.oauth_providers",
-    "pipy_harness.native.models_json",
-    "pipy_harness.native.catalog_state",
-    "pipy_harness.native.provider_construction",
-    "pipy_harness.native.ds4",
-    "pipy_harness.native.tools.*",
-    "pipy_harness.native.export_distribution",
+    "pipy_harness.*",
+    "pipy_session.*",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

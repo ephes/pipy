@@ -10,7 +10,8 @@ from typing import Any, Sequence
 from pipy_session.recorder import SessionRecord
 
 from pipy_harness.capture import CapturePolicy
-from pipy_harness.status import HarnessStatus
+# Same-name alias intentionally marks the established public export for Mypy.
+from pipy_harness.status import HarnessStatus as HarnessStatus
 
 
 RESUME_RELATIONSHIP_RESUME = "resume"
