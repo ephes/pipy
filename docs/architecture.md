@@ -257,7 +257,8 @@ extension ownership surface (`pipy_harness.extensions`,
 `native.session_tree_commands`, `native.package_resources`,
 `native.package_runtime`, `native.resources`, `native.repl_input`,
 `native.autocomplete_provider`, `native.tool_renderers`, `native.routing`,
-`native.oauth_providers`, and `native.models_json`. This is 30 exact
+`native.oauth_providers`, `native.models_json`, `native.catalog_state`,
+`native.provider_construction`, and `native.ds4`. This is 33 exact
 override entries. Slice 8a's three support owners narrow validated integer settings
 without accepting booleans, preserve string- and object-form package JSON
 through a string-keyed object boundary, and traverse the product-session tree
@@ -287,6 +288,14 @@ before validation and merge; its OAuth modifier collection uses one precise
 model-row callable type. Parsing leniency, validation diagnostics, merge
 precedence, catalog mutation, credentials, and provider request behavior remain
 unchanged.
+Slice 8e adds the provider-construction support path. The ds4 preset exposes
+its static JSON-compatible value as a string-keyed object mapping.
+`ProviderCatalogState` describes its optional extra-provider overlay with the
+authoritative `ProviderConfig` and returns the authoritative `AuthStatus`. The
+fail-closed catalog-auth provider implements the exact `ProviderPort` request,
+result, stream/reasoning sink, and cancellation signature. Catalog precedence,
+ds4 shim behavior, provider request construction, auth failure behavior,
+credentials, and the product-session/archive privacy split remain unchanged.
 These modules are strict; the repository default remains non-strict only
 outside the listed frontier.
 

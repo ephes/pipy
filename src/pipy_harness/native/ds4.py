@@ -31,7 +31,7 @@ DS4_PLACEHOLDER_API_KEY = "local"
 
 def ds4_preset_dict(
     *, base_url: str = DS4_DEFAULT_BASE_URL, api_key: str = DS4_PLACEHOLDER_API_KEY
-) -> dict:
+) -> dict[str, object]:
     """The canonical ds4 ``models.json`` preset, as a plain dict."""
 
     return {

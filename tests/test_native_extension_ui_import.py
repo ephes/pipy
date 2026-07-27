@@ -272,6 +272,12 @@ _STRICT_SLICE_8D_MODULES = (
     "pipy_harness.native.models_json",
 )
 
+_STRICT_SLICE_8E_MODULES = (
+    "pipy_harness.native.catalog_state",
+    "pipy_harness.native.provider_construction",
+    "pipy_harness.native.ds4",
+)
+
 _STRICT_OVERRIDE_MODULES = (
     "pipy_harness.cli",
     "pipy_harness.extensions",
@@ -295,6 +301,7 @@ _STRICT_OVERRIDE_MODULES = (
     *_STRICT_SLICE_8B_MODULES,
     *_STRICT_SLICE_8C_MODULES,
     *_STRICT_SLICE_8D_MODULES,
+    *_STRICT_SLICE_8E_MODULES,
 )
 
 _STRICT_OVERRIDE_FLAGS = {
@@ -384,7 +391,12 @@ def test_strict_frontier_has_exact_extension_and_slice_8_support_surfaces() -> N
         for module in strict_override["module"]
         if module in _STRICT_SLICE_8D_MODULES
     ) == _STRICT_SLICE_8D_MODULES
-    assert len(strict_override["module"]) == 30
+    assert tuple(
+        module
+        for module in strict_override["module"]
+        if module in _STRICT_SLICE_8E_MODULES
+    ) == _STRICT_SLICE_8E_MODULES
+    assert len(strict_override["module"]) == 33
     assert "pipy_harness.native.*" not in strict_override["module"]
     assert set(strict_override) == {"module", *_STRICT_OVERRIDE_FLAGS}
     assert all(strict_override[name] is True for name in _STRICT_OVERRIDE_FLAGS)

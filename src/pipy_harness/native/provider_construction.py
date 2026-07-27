@@ -56,6 +56,7 @@ from pipy_harness.native.auth_store import (
     ProviderAuthRequestConfig,
     resolve_request_auth,
 )
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.catalog import NativeModelSpec
 from pipy_harness.native.extension_types import (
     ProviderContext,
@@ -63,7 +64,8 @@ from pipy_harness.native.extension_types import (
     _safe_diagnostic,
 )
 from pipy_harness.native.http import JsonHTTPClient
-from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.retry import RetryPolicy
 from pipy_harness.native.routing import model_request_routing
 from pipy_harness.native.settings import (
@@ -962,8 +964,13 @@ class _FailedAuthProvider:
         return self.provider_name
 
     def complete(
-        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
-    ):
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
         from pipy_harness.native._provider_helpers import (
             failed_provider_result,
             utc_now,

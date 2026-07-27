@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pipy_harness.native.auth_store import (
+    AuthStatus,
     AuthStore,
     ProviderAuthRequestConfig,
     provider_available as _auth_provider_available,
@@ -27,6 +28,7 @@ from pipy_harness.native.catalog import NativeModelSpec
 from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.models_json import (
     ModelCatalog,
+    ProviderConfig,
     _ModelRowsModifier,
     default_models_json_path,
 )
@@ -130,7 +132,7 @@ class ProviderCatalogState:
             self.catalog.set_oauth_modifiers(modifiers)
             self.catalog.refresh()
 
-    def _extra_providers(self):
+    def _extra_providers(self) -> Mapping[str, ProviderConfig] | None:
         """Synthesized provider configs (currently the ds4 env-var shim)."""
 
         from pipy_harness.native.ds4 import synthesize_ds4_provider_config
@@ -292,7 +294,7 @@ class ProviderCatalogState:
             return "login-required"
         return "auth-missing"
 
-    def auth_status(self, provider: str):
+    def auth_status(self, provider: str) -> AuthStatus:
         assert self.auth_store is not None
         return provider_auth_status(
             provider,

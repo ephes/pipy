@@ -101,7 +101,9 @@ extend-select = ["C901"]
 # resource-dispatch support batch (architecture-quality Slice 8b), plus the
 # REPL-input/autocomplete-provider/tool-renderer terminal-support batch
 # (architecture-quality Slice 8c), and the routing/OAuth/models.json
-# provider-model-policy batch (architecture-quality Slice 8d), into
+# provider-model-policy batch (architecture-quality Slice 8d), plus the
+# catalog-state/provider-construction/ds4 support batch (architecture-quality
+# Slice 8e), into
 # `--strict`.
 # The override lists the
 # per-module `--strict` sub-flags explicitly rather than `strict = true`,
@@ -147,6 +149,9 @@ module = [
     "pipy_harness.native.routing",
     "pipy_harness.native.oauth_providers",
     "pipy_harness.native.models_json",
+    "pipy_harness.native.catalog_state",
+    "pipy_harness.native.provider_construction",
+    "pipy_harness.native.ds4",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

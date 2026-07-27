@@ -536,6 +536,57 @@ Progress:
   pointer remains **Slice 8**. Commit subject:
   `refactor: enforce strict provider model policy`.
 
+- **Slice 8e — strict provider catalog-state, construction, and ds4 support
+  typing: SHIPPED IN THIS COMMIT.** The exact selected
+  inventory is `pipy_harness.native.catalog_state`,
+  `pipy_harness.native.provider_construction`, and
+  `pipy_harness.native.ds4`; no other Slice 8 module or wildcard joins the
+  ratchet. The enumerated strict-equivalent override grows **30 -> 33** exact
+  entries after the Slice 8d group, retaining every explicit per-module strict
+  sub-flag and all three required global-only flags. There is no global
+  `strict`, exclusion, relaxed flag, suppression, cast, unchecked `Any`,
+  dependency, or C901 pin.
+
+  The selected diagnostic falls **5 errors in three files -> zero**.
+  Diagnostic `mypy --strict src` falls **28 errors in 26 files -> 23 errors in
+  23 files**; the selected owners contribute no remaining findings.
+  `ds4_preset_dict` exposes its unchanged static JSON-compatible value as
+  `dict[str, object]`. Catalog-state's optional extra-provider overlay is typed
+  as a mapping to the authoritative `ProviderConfig`, and `auth_status`
+  returns the authoritative `AuthStatus`. `_FailedAuthProvider.complete`
+  imports and uses the exact `ProviderRequest`, `ProviderResult`,
+  `StreamChunkSink`, and `CancelToken` identities from the provider boundary,
+  preserving its deliberate ignored optional values and sanitized
+  `CatalogAuthError` result.
+
+  `just typecheck` is clean across **424 source files**. The focused
+  provider-construction gate passes **308 tests**, the broader provider/catalog
+  surface passes **448 tests**, and the full repository gate passes **4,664
+  tests with two skips** after clean Ruff and Mypy phases. `just docs-build`
+  and `git diff --check` are clean. Repository/src C901 remains **38 / 22**,
+  the `src` type-ignore count remains **1**, and the active pointer remains
+  **Slice 8**.
+
+  Provider/catalog behavior, ds4 preset/shim equivalence, extra/file/dynamic
+  precedence, extension replacement/restoration/order, OAuth modifiers,
+  auth-status side-effect rules, request shapes, fail-closed auth, credentials,
+  full-content product sessions, and metadata-only archive privacy are
+  unchanged. `docs/provider-catalog.md` remains accurate because no provider
+  contract or behavior changed, and no changelog entry applies.
+
+  Fresh read-only Pi review used `openai-codex/gpt-5.6-sol` at high reasoning
+  and is **CLEAN in one round**. Round 1 reported zero Critical, Warning, or
+  Suggestion findings, inspected all seven touched files and the relevant
+  authoritative owners/tests without relevant truncation, and said another
+  pass would add no value unless the worktree changed. Cumulative
+  accepted/fixed/rejected/deferred counts are **0 / 0 / 0 / 0**. The direct
+  PTY model preflight completed normally; there were no failed preflight or
+  transport attempts and no unconsumed review attempts. The tmux session was
+  closed after the sentinel-bearing report, no reviewer process survived, and
+  the worktree contained only the expected seven files. No subagent
+  participated. Commit subject:
+  `refactor: enforce strict provider construction support`.
+
 ## Current State
 
 Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only
