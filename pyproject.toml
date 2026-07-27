@@ -103,12 +103,11 @@ extend-select = ["C901"]
 # (architecture-quality Slice 8c), and the routing/OAuth/models.json
 # provider-model-policy batch (architecture-quality Slice 8d), plus the
 # catalog-state/provider-construction/ds4 support batch (architecture-quality
-# Slice 8e), into
-# `--strict`.
-# The override lists the
-# per-module `--strict` sub-flags explicitly rather than `strict = true`,
-# because mypy applies a per-module `strict = true` globally (leaking the
-# strict checks onto every other module and the test suite); the explicit
+# Slice 8e), plus the native tools package (architecture-quality Slice 8f),
+# into `--strict`. The override lists the per-module `--strict` sub-flags
+# explicitly rather than `strict = true`, because mypy applies a per-module
+# `strict = true` globally (leaking the strict checks onto every other module
+# and the test suite); the explicit
 # flags stay scoped to the matched packages. The three strict flags that mypy
 # only honours globally — `warn_unused_configs`, `warn_redundant_casts`, and
 # `strict_bytes` — are hoisted here (they are safe repo-wide and keep the gate
@@ -152,6 +151,7 @@ module = [
     "pipy_harness.native.catalog_state",
     "pipy_harness.native.provider_construction",
     "pipy_harness.native.ds4",
+    "pipy_harness.native.tools.*",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

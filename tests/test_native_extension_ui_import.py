@@ -278,6 +278,22 @@ _STRICT_SLICE_8E_MODULES = (
     "pipy_harness.native.ds4",
 )
 
+_STRICT_SLICE_8F_MODULES = ("pipy_harness.native.tools.*",)
+
+_STRICT_SLICE_8F_PACKAGE_FILES = (
+    "__init__.py",
+    "base.py",
+    "bash.py",
+    "edit.py",
+    "edit_diff.py",
+    "find.py",
+    "grep.py",
+    "ls.py",
+    "read.py",
+    "truncate.py",
+    "write.py",
+)
+
 _STRICT_OVERRIDE_MODULES = (
     "pipy_harness.cli",
     "pipy_harness.extensions",
@@ -302,6 +318,7 @@ _STRICT_OVERRIDE_MODULES = (
     *_STRICT_SLICE_8C_MODULES,
     *_STRICT_SLICE_8D_MODULES,
     *_STRICT_SLICE_8E_MODULES,
+    *_STRICT_SLICE_8F_MODULES,
 )
 
 _STRICT_OVERRIDE_FLAGS = {
@@ -396,7 +413,12 @@ def test_strict_frontier_has_exact_extension_and_slice_8_support_surfaces() -> N
         for module in strict_override["module"]
         if module in _STRICT_SLICE_8E_MODULES
     ) == _STRICT_SLICE_8E_MODULES
-    assert len(strict_override["module"]) == 33
+    assert tuple(
+        module
+        for module in strict_override["module"]
+        if module in _STRICT_SLICE_8F_MODULES
+    ) == _STRICT_SLICE_8F_MODULES
+    assert len(strict_override["module"]) == 34
     assert "pipy_harness.native.*" not in strict_override["module"]
     assert set(strict_override) == {"module", *_STRICT_OVERRIDE_FLAGS}
     assert all(strict_override[name] is True for name in _STRICT_OVERRIDE_FLAGS)
@@ -411,6 +433,23 @@ def test_strict_frontier_has_exact_extension_and_slice_8_support_surfaces() -> N
     assert mypy_config["strict_bytes"] is True
     assert "strict" not in mypy_config
     assert "exclude" not in mypy_config
+
+
+def test_native_tools_package_inventory_is_characterized() -> None:
+    tools_dir = (
+        Path(__file__).parents[1] / "src" / "pipy_harness" / "native" / "tools"
+    )
+    actual_files = tuple(
+        sorted(
+            path.relative_to(tools_dir).as_posix()
+            for path in tools_dir.rglob("*.py")
+        )
+    )
+
+    assert actual_files == _STRICT_SLICE_8F_PACKAGE_FILES, (
+        "native tools package inventory changed; update "
+        "_STRICT_SLICE_8F_PACKAGE_FILES intentionally"
+    )
 
 
 def test_collecting_ui_owned_by_extension_ui() -> None:

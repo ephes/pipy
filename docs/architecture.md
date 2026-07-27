@@ -258,17 +258,19 @@ extension ownership surface (`pipy_harness.extensions`,
 `native.package_runtime`, `native.resources`, `native.repl_input`,
 `native.autocomplete_provider`, `native.tool_renderers`, `native.routing`,
 `native.oauth_providers`, `native.models_json`, `native.catalog_state`,
-`native.provider_construction`, and `native.ds4`. This is 33 exact
-override entries. Slice 8a's three support owners narrow validated integer settings
-without accepting booleans, preserve string- and object-form package JSON
-through a string-keyed object boundary, and traverse the product-session tree
-through the authoritative `SessionTreeNode` type. Slice 8b adds the
-package-resource resolver, package-runtime composition seam, and resource
-registry/dispatcher. `PackageResourceRoots` remains authoritatively defined in
-`package_resources`; `package_runtime` explicitly re-exports that same class
-object for existing composition-root imports. Dynamic package JSON/TOML stays
-behind executable `object`, `Mapping`, `Sequence`, and `str` narrowing. Slice
-8c adds the terminal-support owners. Autocomplete provider invocation remains
+`native.provider_construction`, `native.ds4`, and `native.tools.*`. This is 34
+ordered override entries: 33 exact module/package entries plus the narrow
+`native.tools.*` package wildcard. Slice 8a's three support owners narrow
+validated integer settings without accepting booleans, preserve string- and
+object-form package JSON through a string-keyed object boundary, and traverse
+the product-session tree through the authoritative `SessionTreeNode` type.
+Slice 8b adds the package-resource resolver, package-runtime composition seam,
+and resource registry/dispatcher. `PackageResourceRoots` remains
+authoritatively defined in `package_resources`; `package_runtime` explicitly
+re-exports that same class object for existing composition-root imports.
+Dynamic package JSON/TOML stays behind executable `object`, `Mapping`,
+`Sequence`, and `str` narrowing. Slice 8c adds the terminal-support owners.
+Autocomplete provider invocation remains
 duck-typed and snake-case-first, but its arguments and result cross an explicit
 `object` boundary before existing coercion. The optional prompt-toolkit
 key-binding class, decorators, events, and buffers are described by local
@@ -296,6 +298,17 @@ fail-closed catalog-auth provider implements the exact `ProviderPort` request,
 result, stream/reasoning sink, and cancellation signature. Catalog precedence,
 ds4 shim behavior, provider request construction, auth failure behavior,
 credentials, and the product-session/archive privacy split remain unchanged.
+Slice 8f adds the complete native tools package through a narrow package
+wildcard; its exact current recursive file inventory is characterized so the
+test inventory must move intentionally with future additions or removals.
+Dynamically decoded integer arguments cross an `object` boundary before exact
+`bool` rejection and `int` narrowing, retaining the existing validation order,
+bounds, errors, and field paths. Edit-diff's atomic writer accepts the
+authoritative resolved `Path`, while sibling temporary-file placement, mode
+preservation, replacement, failure cleanup, and post-replacement diff streaming
+remain unchanged. Tool schemas, request/result identities, workspace
+containment, and the provider-visible/product-session/archive boundaries are
+unchanged.
 These modules are strict; the repository default remains non-strict only
 outside the listed frontier.
 

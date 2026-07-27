@@ -587,6 +587,57 @@ Progress:
   participated. Commit subject:
   `refactor: enforce strict provider construction support`.
 
+- **Slice 8f — strict native tools package typing: COMPLETE.** The exact
+  selected override entry is
+  `pipy_harness.native.tools.*`; it is the one narrow package wildcard in this
+  batch, while no export-distribution owner, other Slice 8 module, Slice 9
+  owner, or broader `pipy_harness.native.*` wildcard joins the ratchet. The
+  enumerated strict-equivalent override grows **33 -> 34** ordered entries
+  after the Slice 8e group, retaining every explicit per-module strict sub-flag
+  and all three required global-only flags. There is no global `strict`,
+  exclusion, relaxed flag, suppression, cast, unchecked `Any`, dependency, or
+  C901 pin. Characterization freezes the package's current recursive file
+  inventory so future additions or removals require an intentional test
+  inventory update.
+
+  The selected diagnostic falls **2 errors in two files -> zero**, with all
+  **11** package source files strict-clean. Diagnostic `mypy --strict src`
+  falls **23 errors in 23 files -> 21 errors in 21 files**: one remaining
+  error is the separately checkpointed
+  `pipy_harness.native.export_distribution` return boundary for Slice 8g, and
+  the other 20 are the deferred `HarnessStatus` implicit-export cascade rooted
+  in `pipy_harness.models` for Slice 9.
+  `base._validate_integer` now accepts its dynamically decoded value as
+  `object` and uses the existing executable `bool` rejection and `int`
+  narrowing before returning it. `edit_diff._atomic_write` now accepts the
+  authoritative `pathlib.Path` already returned by workspace preflight.
+
+  `just typecheck` is clean across **424 source files**. The focused tool,
+  schema, capability, import-boundary, and strict-frontier gate passes **392
+  tests**. The full repository gate passes **4,665 tests with two skips** after
+  clean Ruff and Mypy phases; `just docs-build` and `git diff --check` are
+  clean. Repository/src C901 remains **38 / 22**, and the `src` type-ignore
+  count remains **1**. No changelog entry applies because behavior and public
+  contracts are unchanged.
+
+  Integer validation retains exact value identity, explicit boolean rejection,
+  minimum/maximum behavior, error text, and field-path propagation.
+  Edit-diff retains containment and ignored-path policy, complete
+  read/parse/apply validation before writing, sibling temporary files, original
+  mode preservation, atomic replacement, failure cleanup and exception
+  propagation, and diff streaming only after successful replacement. Tool
+  schema materialization, request/result identities, provider visibility,
+  full-content product sessions, metadata-only archive privacy, credentials,
+  imports, and both `pi` theme sources remain unchanged. No subagent
+  participated in implementation or review. Direct read-only Claude Code
+  review with `claude-opus-5` at `xhigh` effort found no production behavior or
+  typing defect. Its documentation and inventory suggestions produced the
+  precise narrow-package-wildcard wording and recursive file characterization
+  included here. The active pointer remains **Slice 8**. This commit closes
+  the Slice 8f checkpoint; Slice 8g may begin only from the clean committed
+  state. Commit subject:
+  `refactor: enforce strict native tool typing`.
+
 ## Current State
 
 Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only

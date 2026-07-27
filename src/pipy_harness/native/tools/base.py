@@ -662,7 +662,7 @@ def _validate_integer(
     *,
     tool_name: str,
     schema: Mapping[str, Any],
-    value: Any,
+    value: object,
     field_path: tuple[str, ...],
 ) -> int:
     if isinstance(value, bool) or not isinstance(value, int):

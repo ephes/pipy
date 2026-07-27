@@ -281,7 +281,7 @@ class EditDiffTool:
         )
 
 
-def _atomic_write(target, text: str) -> None:
+def _atomic_write(target: Path, text: str) -> None:
     """Write `text` to `target` atomically via a sibling temp file."""
 
     parent = target.parent
