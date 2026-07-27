@@ -17,14 +17,22 @@ This file is for coding agents working in this repository. It records local proj
 
 An independent review is a gate against shipping defects, not a search for a
 perfect artifact. A `CLEAN` verdict is evidence, not the objective. These caps
-are the default and hold even when a prompt says "review until clean" — read
-that as "do not ship a defect", not as "iterate without bound".
+are the default. A generic prompt such as "review until clean" does not override
+them — read that as "do not ship a defect", not as "iterate without bound".
 
 - **Docs, specs, and plans: at most 2 review rounds.** Prose has no fixed point;
   a reviewer can always ask for more precision. Land what is right and record
   what is still open as an explicit question owned by a later slice.
 - **Code: at most 3 review rounds.** If it is not clean by then, report the
   outstanding findings rather than continuing.
+
+An operator may explicitly authorize rounds beyond the default cap when the
+latest round produced new, actionable feedback that materially improves
+correctness, maintainability, tests, or durable documentation. Record why the
+feedback remains valuable before starting each extra round. An extension is not
+permission to chase declined nits or prose precision: stop at the first clean
+round, when remaining feedback is no longer material, or when either
+early-stop signal under **Two signals mean stop even before the cap** applies.
 
 Triage findings by what they change, and do not fix everything a review reports:
 
