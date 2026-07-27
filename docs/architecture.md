@@ -254,12 +254,19 @@ extension ownership surface (`pipy_harness.extensions`,
 `native.extensions`), and the named root modules `native.http`,
 `native.repl_state`, `native.session`, `native.tool_loop_session`, `native.tui`,
 `native.settings`, `native.package_manager`, and
-`native.session_tree_commands`. This is 21 exact override entries. Slice 8a's
-three support owners narrow validated integer settings without accepting
-booleans, preserve string- and object-form package JSON through a string-keyed
-object boundary, and traverse the product-session tree through the
-authoritative `SessionTreeNode` type. These modules are strict; the repository
-default remains non-strict only outside the listed frontier.
+`native.session_tree_commands`, `native.package_resources`,
+`native.package_runtime`, and `native.resources`. This is 24 exact override
+entries. Slice 8a's three support owners narrow validated integer settings
+without accepting booleans, preserve string- and object-form package JSON
+through a string-keyed object boundary, and traverse the product-session tree
+through the authoritative `SessionTreeNode` type. Slice 8b adds the
+package-resource resolver, package-runtime composition seam, and resource
+registry/dispatcher. `PackageResourceRoots` remains authoritatively defined in
+`package_resources`; `package_runtime` explicitly re-exports that same class
+object for existing composition-root imports. Dynamic package JSON/TOML stays
+behind executable `object`, `Mapping`, `Sequence`, and `str` narrowing. These
+modules are strict; the repository default remains non-strict only outside the
+listed frontier.
 
 Ruff C901 is a directional repository gate. Previously complex files are
 explicitly pinned and no new pin may be added; a finding in a previously clean

@@ -347,6 +347,65 @@ Progress:
   `pipy_harness.native.package_runtime`, and
   `pipy_harness.native.resources`.
 
+- **Slice 8b — strict package-resource, package-runtime, and resource-dispatch
+  typing: IMPLEMENTED; INDEPENDENT REVIEW CLEAN; AWAITING COMMIT.** The exact selected
+  inventory is `pipy_harness.native.package_resources`,
+  `pipy_harness.native.package_runtime`, and
+  `pipy_harness.native.resources`; no other Slice 8 module or wildcard joins
+  the ratchet. The enumerated strict-equivalent override grows **21 -> 24**
+  exact entries and retains every explicit strict sub-flag plus the three
+  required global-only flags. It adds no global `strict`, exclusion, relaxed
+  flag, suppression, cast, or unchecked `Any`.
+
+  The direct selected diagnostic remains **zero errors before -> zero after**.
+  Normal repository-graph checking reproduced the existing
+  `no_implicit_reexport` finding for the composition root's import of
+  `PackageResourceRoots` through `package_runtime`. That module now makes its
+  existing same-name export explicit; an identity characterization proves it
+  is still the exact class object authoritatively defined by
+  `package_resources`, with no duplicate type, protocol, moved ownership, or
+  compatibility shim. Diagnostic `mypy --strict src` falls **59 errors in 32
+  files -> 58 errors in 32 files**; the other `tool_loop_session` finding is
+  unrelated, so the affected-file count does not fall.
+
+  No package/resource implementation was redesigned. String and object package
+  entries, all four filter arrays, the originating-scope marker, dynamic
+  manifest TOML, convention fallback, invalid-manifest failure, local
+  canonicalization/containment, managed-cache scope selection, source
+  precedence, safe labels, resource size caps/deduplication, trust gates,
+  reserved-command handling, dispatch outcomes, theme composition, and
+  metadata privacy retain their executable `object`/`Mapping`/`Sequence`/`str`
+  narrowing and existing behavior. Runtime composition still only reads
+  directories/manifests/theme data: it does not clone, fetch, import package
+  code, or run lifecycle scripts.
+
+  Characterization freezes the new same-object export and the complete ordered
+  24-entry strict override, every strict-equivalent sub-flag, both required
+  global warning flags, the required global `strict_bytes` flag, and the
+  absence of global strict/exclusions/native wildcarding.
+  The focused owner gate passes **228 tests**, the broader owner surface passes
+  **305 tests**, and `just check` passes **4,652 tests with two skips**.
+  `just typecheck` is clean across **424 source files**. Repository/src C901
+  remains **38 / 22**, and the `src` type-ignore count remains **1**. No
+  changelog entry applies because behavior and public APIs are unchanged.
+
+  Independent Pi review with `openai-codex/gpt-5.6-sol` at high reasoning is
+  CLEAN after two rounds. Round 1 reported one Warning that Mypy 1.20's
+  `--strict` bundle includes the global-only `strict_bytes` flag; the finding
+  was accepted, fixed in the configuration/test/docs, and followed by a full
+  green gate. Round 2 reported zero Critical, Warning, or Suggestion findings
+  and explicitly said another cycle would add no value. One model-list
+  preflight stalled before Round 1, was stopped without consuming a review
+  round, and the exact approved model was then verified directly before the
+  fresh review. No subagent participated. This entry is not shipped until
+  committed, and the active pointer remains **Slice 8**. Suggested eventual commit subject:
+  `refactor: enforce strict package resource support`. From the remaining
+  diagnostics, the next bounded terminal-support/rendering group is
+  `pipy_harness.native.repl_input`,
+  `pipy_harness.native.autocomplete_provider`, and
+  `pipy_harness.native.tool_renderers`; it remains deferred until a separately
+  selected Slice 8 batch.
+
 ## Current State
 
 Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only

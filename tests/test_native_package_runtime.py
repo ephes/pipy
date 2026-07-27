@@ -18,6 +18,12 @@ import pytest
 
 from pipy_harness.native import themes
 from pipy_harness.native.package_manager import git_cache_path, install_package, parse_git_source
+from pipy_harness.native.package_resources import (
+    PackageResourceRoots as OwnedPackageResourceRoots,
+)
+from pipy_harness.native.package_runtime import (
+    PackageResourceRoots as RuntimePackageResourceRoots,
+)
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.settings import (
@@ -62,6 +68,10 @@ def _write_skill(root: Path, name: str) -> None:
 
 def _settings(cwd: Path, env: dict[str, str]) -> SettingsManager:
     return SettingsManager.for_workspace(cwd, env=env, home_dir=cwd)
+
+
+def test_package_runtime_exports_authoritative_resource_roots_type() -> None:
+    assert RuntimePackageResourceRoots is OwnedPackageResourceRoots
 
 
 def test_get_packages_returns_project_then_user(tmp_path: Path) -> None:

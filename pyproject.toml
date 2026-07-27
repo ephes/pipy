@@ -97,17 +97,20 @@ extend-select = ["C901"]
 # root (Slice 7.6e), native TUI (Slice 7.6f), and the complete seven-module
 # extension ownership surface (architecture-quality Slice 7), plus the
 # settings/package-manager/session-tree-command support batch
-# (architecture-quality Slice 8a), into `--strict`.
+# (architecture-quality Slice 8a) and package-resource/package-runtime/
+# resource-dispatch support batch (architecture-quality Slice 8b), into
+# `--strict`.
 # The override lists the
 # per-module `--strict` sub-flags explicitly rather than `strict = true`,
 # because mypy applies a per-module `strict = true` globally (leaking the
 # strict checks onto every other module and the test suite); the explicit
-# flags stay scoped to the matched packages. The two strict sub-flags that mypy
-# only honours globally — `warn_unused_configs` and `warn_redundant_casts` — are
-# hoisted here (they are safe repo-wide and keep the gate genuinely
-# `--strict`-equivalent, since they cannot be set per-module).
+# flags stay scoped to the matched packages. The three strict flags that mypy
+# only honours globally — `warn_unused_configs`, `warn_redundant_casts`, and
+# `strict_bytes` — are hoisted here (they are safe repo-wide and keep the gate
+# genuinely `--strict`-equivalent, since they cannot be set per-module).
 warn_unused_configs = true
 warn_redundant_casts = true
+strict_bytes = true
 
 [[tool.mypy.overrides]]
 module = [
@@ -132,6 +135,9 @@ module = [
     "pipy_harness.native.settings",
     "pipy_harness.native.package_manager",
     "pipy_harness.native.session_tree_commands",
+    "pipy_harness.native.package_resources",
+    "pipy_harness.native.package_runtime",
+    "pipy_harness.native.resources",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

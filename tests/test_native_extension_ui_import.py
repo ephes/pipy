@@ -254,6 +254,12 @@ _STRICT_SLICE_8A_MODULES = (
     "pipy_harness.native.session_tree_commands",
 )
 
+_STRICT_SLICE_8B_MODULES = (
+    "pipy_harness.native.package_resources",
+    "pipy_harness.native.package_runtime",
+    "pipy_harness.native.resources",
+)
+
 _STRICT_OVERRIDE_MODULES = (
     "pipy_harness.cli",
     "pipy_harness.extensions",
@@ -274,6 +280,7 @@ _STRICT_OVERRIDE_MODULES = (
     "pipy_harness.native.tool_loop_session",
     "pipy_harness.native.tui",
     *_STRICT_SLICE_8A_MODULES,
+    *_STRICT_SLICE_8B_MODULES,
 )
 
 _STRICT_OVERRIDE_FLAGS = {
@@ -326,7 +333,7 @@ def test_public_extension_api_imports_every_name_from_its_owner() -> None:
     assert dict(direct_imports) == expected_owners
 
 
-def test_strict_frontier_has_exact_extension_and_slice_8a_surfaces() -> None:
+def test_strict_frontier_has_exact_extension_and_slice_8_support_surfaces() -> None:
     config_path = Path(__file__).parents[1] / "pyproject.toml"
     config = tomllib.loads(config_path.read_text(encoding="utf-8"))
     mypy_config = config["tool"]["mypy"]
@@ -348,16 +355,23 @@ def test_strict_frontier_has_exact_extension_and_slice_8a_surfaces() -> None:
         for module in strict_override["module"]
         if module in _STRICT_SLICE_8A_MODULES
     ) == _STRICT_SLICE_8A_MODULES
+    assert tuple(
+        module
+        for module in strict_override["module"]
+        if module in _STRICT_SLICE_8B_MODULES
+    ) == _STRICT_SLICE_8B_MODULES
     assert "pipy_harness.native.*" not in strict_override["module"]
     assert set(strict_override) == {"module", *_STRICT_OVERRIDE_FLAGS}
     assert all(strict_override[name] is True for name in _STRICT_OVERRIDE_FLAGS)
     assert set(mypy_config) == {
         "warn_unused_configs",
         "warn_redundant_casts",
+        "strict_bytes",
         "overrides",
     }
     assert mypy_config["warn_unused_configs"] is True
     assert mypy_config["warn_redundant_casts"] is True
+    assert mypy_config["strict_bytes"] is True
     assert "strict" not in mypy_config
     assert "exclude" not in mypy_config
 
