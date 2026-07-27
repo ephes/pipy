@@ -256,7 +256,8 @@ extension ownership surface (`pipy_harness.extensions`,
 `native.settings`, `native.package_manager`, and
 `native.session_tree_commands`, `native.package_resources`,
 `native.package_runtime`, `native.resources`, `native.repl_input`,
-`native.autocomplete_provider`, and `native.tool_renderers`. This is 27 exact
+`native.autocomplete_provider`, `native.tool_renderers`, `native.routing`,
+`native.oauth_providers`, and `native.models_json`. This is 30 exact
 override entries. Slice 8a's three support owners narrow validated integer settings
 without accepting booleans, preserve string- and object-form package JSON
 through a string-keyed object boundary, and traverse the product-session tree
@@ -275,6 +276,17 @@ reuse the authoritative runtime-checkable component/context/theme contracts
 from `extension_types`; the captured dispatcher now has the same typed
 callable, mapping, context, and result shape as the TUI dispatcher while
 retaining its original renderer pinning and opaque-details compatibility seam.
+Slice 8d adds the provider-model-policy path. Routing returns string-keyed
+request objects after executable narrowing and keeps the OpenRouter and Vercel
+URL gates and nesting unchanged. Built-in OAuth providers use a narrow
+keyword-aware transport protocol, string-keyed credential/response objects,
+the existing ordered three-provider registry, and a runtime-checkable protocol
+only for the optional model-row modifier seam. `models_json` continues to
+decode into `object`, then executably narrows string-keyed objects and arrays
+before validation and merge; its OAuth modifier collection uses one precise
+model-row callable type. Parsing leniency, validation diagnostics, merge
+precedence, catalog mutation, credentials, and provider request behavior remain
+unchanged.
 These modules are strict; the repository default remains non-strict only
 outside the listed frontier.
 

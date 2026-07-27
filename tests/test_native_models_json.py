@@ -415,6 +415,50 @@ def test_float_context_window_accepted(tmp_path):
     assert row is not None and row.context_window == 200000
 
 
+def test_boolean_context_window_is_rejected_as_non_number(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {"providers": {"anthropic": {"models": [{"id": "m", "contextWindow": True}]}}},
+    )
+
+    catalog = ModelCatalog(models_json_path=path)
+
+    assert catalog.error is not None
+    assert (
+        "providers.anthropic.models.0.contextWindow: expected number" in catalog.error
+    )
+
+
+def test_headers_require_string_values(tmp_path):
+    path = tmp_path / "models.json"
+    _write(path, {"providers": {"anthropic": {"headers": {"x-test": 1}}}})
+
+    catalog = ModelCatalog(models_json_path=path)
+
+    assert catalog.error is not None
+    assert (
+        "providers.anthropic.headers: expected object of string values" in catalog.error
+    )
+
+
+def test_present_empty_headers_and_compat_are_usable_provider_fields(tmp_path):
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {"headers": {}},
+                "openai": {"compat": {}},
+            }
+        },
+    )
+
+    catalog = ModelCatalog(models_json_path=path)
+
+    assert catalog.error is None
+
+
 def test_schema_error_uses_dot_paths(tmp_path):
     path = tmp_path / "models.json"
     _write(path, {"providers": {"anthropic": {"baseUrl": 123}}})

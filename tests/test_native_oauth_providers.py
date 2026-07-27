@@ -35,9 +35,13 @@ FIXED_NOW_MS = 1_000_000_000_000
 
 
 def test_registry_lists_three_builtins():
-    ids = set(get_oauth_provider_ids())
-    assert {"anthropic", "github-copilot", "openai-codex"} <= ids
+    assert get_oauth_provider_ids() == [
+        "anthropic",
+        "github-copilot",
+        "openai-codex",
+    ]
     assert isinstance(get_oauth_provider("anthropic"), AnthropicOAuthProvider)
+    assert get_oauth_provider("unknown") is None
 
 
 def test_anthropic_refresh_applies_five_minute_margin():

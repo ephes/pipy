@@ -471,6 +471,71 @@ Progress:
   8**. Commit subject:
   `refactor: enforce strict terminal rendering support`.
 
+- **Slice 8d — strict routing, built-in OAuth-provider, and models.json
+  policy typing: SHIPPED IN THIS COMMIT.** The exact selected
+  inventory is `pipy_harness.native.routing`,
+  `pipy_harness.native.oauth_providers`, and
+  `pipy_harness.native.models_json`; no other Slice 8 module or wildcard joins
+  the ratchet. The enumerated strict-equivalent override grows **27 -> 30**
+  exact entries after the Slice 8c group, retaining every explicit per-module
+  strict sub-flag and all three required global-only flags. There is no global
+  `strict`, exclusion, relaxed flag, suppression, cast, unchecked `Any`, or
+  broad ellipsis callable.
+
+  The selected diagnostic falls **19 errors in three files -> zero**.
+  Diagnostic `mypy --strict src` falls **47 errors in 29 files -> 28 errors in
+  26 files**; the selected owners contribute no remaining findings.
+  `models_json` continues to accept decoded JSON as `object`, then executably
+  narrows string-keyed objects and arrays at validation and merge boundaries.
+  The unused private `_opt_str_map` helper was removed after complete call-site
+  inspection found no consumer. Parsing leniency, path-qualified errors,
+  boolean rejection for numbers, number-to-int conversion, explicit-zero cost
+  overrides, absent/present-empty field semantics, deep compatibility merging,
+  dynamic registration, refresh, and precedence remain unchanged.
+
+  Built-in OAuth transports now satisfy a keyword-aware protocol with the
+  exact `headers` and `data` call shape. Credential and decoded response
+  objects are string-keyed object mappings, the registry factory has one
+  precise callable type, and the existing three IDs remain in order with
+  unknown lookup returning `None`. A runtime-checkable modifier-provider
+  protocol and a single `ModelRowsModifier` callable type connect the optional
+  Copilot row mutation to catalog-state closures without broadening the
+  extension OAuth contract. Routing narrows compatibility data into copied
+  `dict[str, object]` request additions while preserving the OpenRouter and
+  Vercel URL gates, nesting, truthy forwarding, and empty-block omission.
+
+  `just typecheck` is clean across **424 source files**. The focused
+  model-policy gate passes **221 tests**, the broader owner surface passes
+  **453 tests**, and the full repository gate passes **4,664 tests with two
+  skips** after clean Ruff and Mypy phases. `just docs-build` is clean.
+  Repository/src C901 remains **38 / 22**, and the `src` type-ignore count
+  remains **1**. Provider request behavior, OAuth transport/status/expiry and
+  credential behavior, model mutation and modifier ordering, provider
+  construction, authoritative identities and one-way imports, full-content
+  product sessions, metadata-only archive privacy, and both `pi` theme sources
+  remain unchanged. `docs/provider-catalog.md` remains accurate because no
+  provider contract changed, and no changelog entry applies.
+
+  Fresh read-only Pi review used `openai-codex/gpt-5.6-sol` at high reasoning
+  and is **CLEAN in one round**. Round 1 reported zero Critical, Warning, or
+  Suggestion findings and explicitly said the cycle can close with no follow-up
+  warranted absent further changes. Cumulative accepted/fixed/rejected/deferred
+  counts are **0 / 0 / 0 / 0**. The reviewer inspected every touched file and
+  the relevant owners/tests without truncation; its read-only tools did not
+  expose command execution or a direct VCS-diff operation, so the implementer
+  independently supplied and reran all verification evidence.
+
+  The Fish-captured model-list preflight stayed alive past its 60-second bound
+  with an empty log; the tmux session and process group were terminated, no
+  orphan survived, and no review had begun, so it consumed no round. A direct
+  PTY check with the isolated Pi agent directory confirmed the exact approved
+  model. One subsequent fresh review-command launch exited with an empty log,
+  no sentinel, no surviving process, and no worktree change; it was an invalid
+  transport attempt and also consumed no round. The fresh diagnostic retry
+  produced the complete CLEAN report. No subagent participated. The active
+  pointer remains **Slice 8**. Commit subject:
+  `refactor: enforce strict provider model policy`.
+
 ## Current State
 
 Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only

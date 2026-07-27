@@ -19,22 +19,28 @@ from __future__ import annotations
 from pipy_harness.native.catalog import NativeModelSpec
 
 
-def model_request_routing(model: NativeModelSpec) -> dict:
+def _string_object_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        return None
+    return {key: item for key, item in value.items() if isinstance(key, str)}
+
+
+def model_request_routing(model: NativeModelSpec) -> dict[str, object]:
     """Return the request-config routing for a resolved model (or ``{}``)."""
 
-    compat = model.compat
-    if not isinstance(compat, dict):
+    compat = _string_object_dict(model.compat)
+    if compat is None:
         return {}
     base_url = (model.base_url or "").lower()
-    request: dict = {}
+    request: dict[str, object] = {}
 
-    open_router = compat.get("openRouterRouting")
-    if isinstance(open_router, dict) and "openrouter.ai" in base_url:
-        request["provider"] = dict(open_router)
+    open_router = _string_object_dict(compat.get("openRouterRouting"))
+    if open_router is not None and "openrouter.ai" in base_url:
+        request["provider"] = open_router
 
-    vercel = compat.get("vercelGatewayRouting")
-    if isinstance(vercel, dict) and "ai-gateway.vercel.sh" in base_url:
-        gateway: dict = {}
+    vercel = _string_object_dict(compat.get("vercelGatewayRouting"))
+    if vercel is not None and "ai-gateway.vercel.sh" in base_url:
+        gateway: dict[str, object] = {}
         if vercel.get("only"):
             gateway["only"] = vercel["only"]
         if vercel.get("order"):

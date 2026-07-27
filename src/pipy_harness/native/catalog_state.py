@@ -15,6 +15,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pipy_harness.native.auth_store import (
     AuthStore,
@@ -26,8 +27,12 @@ from pipy_harness.native.catalog import NativeModelSpec
 from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.models_json import (
     ModelCatalog,
+    _ModelRowsModifier,
     default_models_json_path,
 )
+
+if TYPE_CHECKING:
+    from pipy_harness.native.oauth_providers import _OAuthModelModifierProvider
 
 
 def format_token_count(count: int) -> str:
@@ -107,20 +112,20 @@ class ProviderCatalogState:
         if self.auth_store is None:
             return
         from pipy_harness.native.oauth_providers import (
+            _OAuthModelModifierProvider,
             get_oauth_provider,
             get_oauth_provider_ids,
         )
 
-        modifiers = []
+        modifiers: list[_ModelRowsModifier] = []
         for provider_id in get_oauth_provider_ids():
             cred = self.auth_store.get(provider_id)
             if not cred or cred.get("type") != "oauth":
                 continue
             provider = get_oauth_provider(provider_id)
-            modify = getattr(provider, "modify_models", None)
-            if modify is None:
+            if not isinstance(provider, _OAuthModelModifierProvider):
                 continue
-            modifiers.append(lambda rows, _m=modify, _c=cred: _m(rows, _c))
+            modifiers.append(_bind_oauth_modifier(provider, cred))
         if modifiers:
             self.catalog.set_oauth_modifiers(modifiers)
             self.catalog.refresh()
@@ -308,6 +313,16 @@ class ProviderCatalogState:
 
             self.openai_codex_auth_path = default_openai_codex_auth_path()
         return self.openai_codex_auth_path.exists()
+
+
+def _bind_oauth_modifier(
+    provider: "_OAuthModelModifierProvider",
+    credentials: Mapping[str, object],
+) -> _ModelRowsModifier:
+    def apply(rows: list[NativeModelSpec]) -> list[NativeModelSpec]:
+        return provider.modify_models(rows, credentials)
+
+    return apply
 
 
 # --------------------------------------------------------------------------- #

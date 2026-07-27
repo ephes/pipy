@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -140,6 +140,18 @@ class ModelsJsonError(Exception):
 # --------------------------------------------------------------------------- #
 
 
+def _string_object_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        return None
+    return {key: item for key, item in value.items() if isinstance(key, str)}
+
+
+def _object_list(value: object) -> list[object] | None:
+    if not isinstance(value, list):
+        return None
+    return [item for item in value]
+
+
 def _type_error(path: str, expected: str) -> str:
     # Dot-path format (Pi's formatValidationPath), e.g.
     # "providers.anthropic.baseUrl" rather than a JSON pointer.
@@ -150,7 +162,8 @@ def _type_error(path: str, expected: str) -> str:
 def _coerce_cost_fields(value: object, path: str, errors: list[str]) -> dict[str, float]:
     """Return only the cost sub-fields present in the JSON (attr-named)."""
 
-    if not isinstance(value, dict):
+    values = _string_object_dict(value)
+    if values is None:
         errors.append(_type_error(path, "object"))
         return {}
     nums: dict[str, float] = {}
@@ -160,8 +173,8 @@ def _coerce_cost_fields(value: object, path: str, errors: list[str]) -> dict[str
         ("cacheRead", "cache_read"),
         ("cacheWrite", "cache_write"),
     ):
-        if key in value:
-            raw = value[key]
+        if key in values:
+            raw = values[key]
             if not isinstance(raw, (int, float)) or isinstance(raw, bool):
                 errors.append(_type_error(f"{path}/{key}", "number"))
             else:
@@ -177,98 +190,114 @@ def _coerce_cost(value: object, path: str, errors: list[str]) -> NativeModelCost
 
 
 def _coerce_input(value: object, path: str, errors: list[str]) -> tuple[str, ...] | None:
-    if not isinstance(value, list) or not all(
-        isinstance(v, str) and v in ("text", "image") for v in value
-    ):
+    values = _object_list(value)
+    if values is None:
         errors.append(_type_error(path, 'array of "text"/"image"'))
         return None
-    return tuple(value)
+    inputs: list[str] = []
+    for item in values:
+        if not isinstance(item, str) or item not in ("text", "image"):
+            errors.append(_type_error(path, 'array of "text"/"image"'))
+            return None
+        inputs.append(item)
+    return tuple(inputs)
 
 
 def _coerce_full_cost(value: object, path: str, errors: list[str]) -> NativeModelCost | None:
     """A custom model's full cost: all four sub-fields required (Pi schema)."""
 
-    if not isinstance(value, dict):
+    values = _string_object_dict(value)
+    if values is None:
         errors.append(_type_error(path, "object"))
         return None
     required = ("input", "output", "cacheRead", "cacheWrite")
-    missing = [key for key in required if key not in value]
+    missing = [key for key in required if key not in values]
     if missing:
         errors.append(
             _type_error(path, f"object with {', '.join(required)} (missing {', '.join(missing)})")
         )
         return None
-    return _coerce_cost(value, path, errors)
+    return _coerce_cost(values, path, errors)
 
 
 def _coerce_model_def(
     raw: object, path: str, errors: list[str]
 ) -> ModelDefinition | None:
-    if not isinstance(raw, dict):
+    values = _string_object_dict(raw)
+    if values is None:
         errors.append(_type_error(path, "object"))
         return None
-    model_id = raw.get("id")
+    model_id = values.get("id")
     if not isinstance(model_id, str) or not model_id:
         errors.append(_type_error(f"{path}/id", "non-empty string"))
         model_id = model_id if isinstance(model_id, str) else ""
     cost = (
-        _coerce_full_cost(raw["cost"], f"{path}/cost", errors)
-        if "cost" in raw
+        _coerce_full_cost(values["cost"], f"{path}/cost", errors)
+        if "cost" in values
         else None
     )
     input_ = (
-        _coerce_input(raw["input"], f"{path}/input", errors) if "input" in raw else None
+        _coerce_input(values["input"], f"{path}/input", errors)
+        if "input" in values
+        else None
     )
     return ModelDefinition(
         id=model_id,
-        name=_opt_str(raw, "name", f"{path}/name", errors),
-        api=_opt_str(raw, "api", f"{path}/api", errors),
-        base_url=_opt_str(raw, "baseUrl", f"{path}/baseUrl", errors),
-        reasoning=_opt_bool(raw, "reasoning", f"{path}/reasoning", errors),
+        name=_opt_str(values, "name", f"{path}/name", errors),
+        api=_opt_str(values, "api", f"{path}/api", errors),
+        base_url=_opt_str(values, "baseUrl", f"{path}/baseUrl", errors),
+        reasoning=_opt_bool(values, "reasoning", f"{path}/reasoning", errors),
         thinking_level_map=_opt_thinking_map(
-            raw, "thinkingLevelMap", f"{path}/thinkingLevelMap", errors
+            values, "thinkingLevelMap", f"{path}/thinkingLevelMap", errors
         ),
         input=input_,
         cost=cost,
         context_window=_opt_number_as_int(
-            raw, "contextWindow", f"{path}/contextWindow", errors
+            values, "contextWindow", f"{path}/contextWindow", errors
         ),
-        max_tokens=_opt_number_as_int(raw, "maxTokens", f"{path}/maxTokens", errors),
-        headers=_opt_header_map(raw, "headers", f"{path}/headers", errors),
-        compat=_opt_obj(raw, "compat", f"{path}/compat", errors),
+        max_tokens=_opt_number_as_int(values, "maxTokens", f"{path}/maxTokens", errors),
+        headers=_opt_header_map(values, "headers", f"{path}/headers", errors),
+        compat=_opt_obj(values, "compat", f"{path}/compat", errors),
     )
 
 
 def _coerce_model_override(
     raw: object, path: str, errors: list[str]
 ) -> ModelOverride | None:
-    if not isinstance(raw, dict):
+    values = _string_object_dict(raw)
+    if values is None:
         errors.append(_type_error(path, "object"))
         return None
     cost = (
-        _coerce_cost_fields(raw["cost"], f"{path}/cost", errors)
-        if "cost" in raw
+        _coerce_cost_fields(values["cost"], f"{path}/cost", errors)
+        if "cost" in values
         else None
     )
     input_ = (
-        _coerce_input(raw["input"], f"{path}/input", errors) if "input" in raw else None
+        _coerce_input(values["input"], f"{path}/input", errors)
+        if "input" in values
+        else None
     )
     return ModelOverride(
-        name=_opt_str(raw, "name", f"{path}/name", errors),
-        reasoning=_opt_bool(raw, "reasoning", f"{path}/reasoning", errors),
+        name=_opt_str(values, "name", f"{path}/name", errors),
+        reasoning=_opt_bool(values, "reasoning", f"{path}/reasoning", errors),
         thinking_level_map=_opt_thinking_map(
-            raw, "thinkingLevelMap", f"{path}/thinkingLevelMap", errors
+            values, "thinkingLevelMap", f"{path}/thinkingLevelMap", errors
         ),
         input=input_,
         cost=cost,
-        context_window=_opt_int(raw, "contextWindow", f"{path}/contextWindow", errors),
-        max_tokens=_opt_int(raw, "maxTokens", f"{path}/maxTokens", errors),
-        headers=_opt_header_map(raw, "headers", f"{path}/headers", errors),
-        compat=_opt_obj(raw, "compat", f"{path}/compat", errors),
+        context_window=_opt_int(
+            values, "contextWindow", f"{path}/contextWindow", errors
+        ),
+        max_tokens=_opt_int(values, "maxTokens", f"{path}/maxTokens", errors),
+        headers=_opt_header_map(values, "headers", f"{path}/headers", errors),
+        compat=_opt_obj(values, "compat", f"{path}/compat", errors),
     )
 
 
-def _opt_str(raw: dict, key: str, path: str, errors: list[str]) -> str | None:
+def _opt_str(
+    raw: Mapping[str, object], key: str, path: str, errors: list[str]
+) -> str | None:
     if key not in raw:
         return None
     value = raw[key]
@@ -278,7 +307,9 @@ def _opt_str(raw: dict, key: str, path: str, errors: list[str]) -> str | None:
     return value
 
 
-def _opt_bool(raw: dict, key: str, path: str, errors: list[str]) -> bool | None:
+def _opt_bool(
+    raw: Mapping[str, object], key: str, path: str, errors: list[str]
+) -> bool | None:
     if key not in raw:
         return None
     value = raw[key]
@@ -288,7 +319,9 @@ def _opt_bool(raw: dict, key: str, path: str, errors: list[str]) -> bool | None:
     return value
 
 
-def _opt_int(raw: dict, key: str, path: str, errors: list[str]) -> int | None:
+def _opt_int(
+    raw: Mapping[str, object], key: str, path: str, errors: list[str]
+) -> int | None:
     if key not in raw:
         return None
     value = raw[key]
@@ -298,7 +331,9 @@ def _opt_int(raw: dict, key: str, path: str, errors: list[str]) -> int | None:
     return value
 
 
-def _opt_number_as_int(raw: dict, key: str, path: str, errors: list[str]) -> int | None:
+def _opt_number_as_int(
+    raw: Mapping[str, object], key: str, path: str, errors: list[str]
+) -> int | None:
     """Accept any JSON number (Pi schema uses ``Type.Number``), store as int."""
 
     if key not in raw:
@@ -310,20 +345,8 @@ def _opt_number_as_int(raw: dict, key: str, path: str, errors: list[str]) -> int
     return int(value)
 
 
-def _opt_str_map(
-    raw: dict, key: str, path: str, errors: list[str]
-) -> dict[str, str | None] | None:
-    if key not in raw:
-        return None
-    value = raw[key]
-    if not isinstance(value, dict):
-        errors.append(_type_error(path, "object"))
-        return None
-    return dict(value)
-
-
 def _opt_thinking_map(
-    raw: dict, key: str, path: str, errors: list[str]
+    raw: Mapping[str, object], key: str, path: str, errors: list[str]
 ) -> dict[str, str | None] | None:
     """A thinkingLevelMap: known level keys mapping to ``string | null``.
 
@@ -334,8 +357,8 @@ def _opt_thinking_map(
 
     if key not in raw:
         return None
-    value = raw[key]
-    if not isinstance(value, dict):
+    value = _string_object_dict(raw[key])
+    if value is None:
         errors.append(_type_error(path, "object"))
         return None
     out: dict[str, str | None] = {}
@@ -353,65 +376,66 @@ def _opt_thinking_map(
 
 
 def _opt_header_map(
-    raw: dict, key: str, path: str, errors: list[str]
+    raw: Mapping[str, object], key: str, path: str, errors: list[str]
 ) -> dict[str, str] | None:
     if key not in raw:
         return None
-    value = raw[key]
-    if not isinstance(value, dict) or not all(
-        isinstance(v, str) for v in value.values()
-    ):
+    value = _string_object_dict(raw[key])
+    if value is None or not all(isinstance(item, str) for item in value.values()):
         errors.append(_type_error(path, "object of string values"))
         return None
-    return dict(value)
+    return {name: item for name, item in value.items() if isinstance(item, str)}
 
 
 def _opt_obj(
-    raw: dict, key: str, path: str, errors: list[str]
+    raw: Mapping[str, object], key: str, path: str, errors: list[str]
 ) -> dict[str, object] | None:
     if key not in raw:
         return None
-    value = raw[key]
-    if not isinstance(value, dict):
+    value = _string_object_dict(raw[key])
+    if value is None:
         errors.append(_type_error(path, "object"))
         return None
-    return dict(value)
+    return value
 
 
 def _coerce_provider_config(
     raw: object, path: str, errors: list[str]
 ) -> ProviderConfig | None:
-    if not isinstance(raw, dict):
+    values = _string_object_dict(raw)
+    if values is None:
         errors.append(_type_error(path, "object"))
         return None
     models: list[ModelDefinition] = []
-    if "models" in raw:
-        if not isinstance(raw["models"], list):
+    if "models" in values:
+        model_values = _object_list(values["models"])
+        if model_values is None:
             errors.append(_type_error(f"{path}/models", "array"))
         else:
-            for index, entry in enumerate(raw["models"]):
+            for index, entry in enumerate(model_values):
                 model = _coerce_model_def(entry, f"{path}/models/{index}", errors)
                 if model is not None:
                     models.append(model)
     overrides: dict[str, ModelOverride] = {}
-    if "modelOverrides" in raw:
-        if not isinstance(raw["modelOverrides"], dict):
+    if "modelOverrides" in values:
+        override_values = _string_object_dict(values["modelOverrides"])
+        if override_values is None:
             errors.append(_type_error(f"{path}/modelOverrides", "object"))
         else:
-            for model_id, entry in raw["modelOverrides"].items():
+            for model_id, entry in override_values.items():
                 override = _coerce_model_override(
                     entry, f"{path}/modelOverrides/{model_id}", errors
                 )
                 if override is not None:
                     overrides[model_id] = override
     return ProviderConfig(
-        name=_opt_str(raw, "name", f"{path}/name", errors),
-        base_url=_opt_str(raw, "baseUrl", f"{path}/baseUrl", errors),
-        api_key=_opt_str(raw, "apiKey", f"{path}/apiKey", errors),
-        api=_opt_str(raw, "api", f"{path}/api", errors),
-        headers=_opt_header_map(raw, "headers", f"{path}/headers", errors),
-        auth_header=bool(_opt_bool(raw, "authHeader", f"{path}/authHeader", errors)),
-        compat=_opt_obj(raw, "compat", f"{path}/compat", errors),
+        name=_opt_str(values, "name", f"{path}/name", errors),
+        base_url=_opt_str(values, "baseUrl", f"{path}/baseUrl", errors),
+        api_key=_opt_str(values, "apiKey", f"{path}/apiKey", errors),
+        api=_opt_str(values, "api", f"{path}/api", errors),
+        headers=_opt_header_map(values, "headers", f"{path}/headers", errors),
+        auth_header=bool(_opt_bool(values, "authHeader", f"{path}/authHeader", errors)),
+        compat=_opt_obj(values, "compat", f"{path}/compat", errors),
         models=tuple(models),
         model_overrides=overrides,
     )
@@ -424,13 +448,12 @@ class ModelsConfig:
 
 def _validate_schema(parsed: object, path: Path) -> tuple[ModelsConfig | None, str | None]:
     errors: list[str] = []
-    if not isinstance(parsed, dict):
+    root = _string_object_dict(parsed)
+    if root is None:
         return None, _format_schema_error(["  - (root): expected object"], path)
-    providers_raw = parsed.get("providers")
-    if not isinstance(providers_raw, dict):
-        return None, _format_schema_error(
-            ["  - providers: expected object"], path
-        )
+    providers_raw = _string_object_dict(root.get("providers"))
+    if providers_raw is None:
+        return None, _format_schema_error(["  - providers: expected object"], path)
     providers: dict[str, ProviderConfig] = {}
     for provider_name, provider_raw in providers_raw.items():
         config = _coerce_provider_config(
@@ -541,10 +564,12 @@ def _merge_compat(
     for key in ("openRouterRouting", "vercelGatewayRouting"):
         base_val = (base or {}).get(key) if base else None
         over_val = override.get(key)
-        if isinstance(base_val, dict) or isinstance(over_val, dict):
+        base_object = _string_object_dict(base_val)
+        override_object = _string_object_dict(over_val)
+        if base_object is not None or override_object is not None:
             merged[key] = {
-                **(base_val if isinstance(base_val, dict) else {}),
-                **(over_val if isinstance(over_val, dict) else {}),
+                **(base_object or {}),
+                **(override_object or {}),
             }
     return merged
 
@@ -673,6 +698,9 @@ def _replace_or_append_model(
 # --------------------------------------------------------------------------- #
 
 
+_ModelRowsModifier = Callable[[list[NativeModelSpec]], list[NativeModelSpec]]
+
+
 @dataclass
 class ModelCatalog:
     """Built-in catalog deep-merged with ``models.json`` custom/override layer.
@@ -700,7 +728,7 @@ class ModelCatalog:
     _registered: dict[str, "ProviderConfig"] = field(init=False, default_factory=dict)
     # OAuth modify-models hooks applied to the merged rows (Pi's modifyModels,
     # e.g. Copilot rewriting baseUrl from the token's proxy-ep claim).
-    _oauth_modifiers: list = field(init=False, default_factory=list)
+    _oauth_modifiers: list[_ModelRowsModifier] = field(init=False, default_factory=list)
 
     def __post_init__(self) -> None:
         self.refresh()
@@ -721,7 +749,7 @@ class ModelCatalog:
         self._registered.pop(name, None)
         self.refresh()
 
-    def set_oauth_modifiers(self, modifiers: list) -> None:
+    def set_oauth_modifiers(self, modifiers: list[_ModelRowsModifier]) -> None:
         """Set the OAuth modify-models hooks applied after each merge."""
 
         self._oauth_modifiers = list(modifiers)

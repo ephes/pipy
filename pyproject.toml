@@ -100,7 +100,8 @@ extend-select = ["C901"]
 # (architecture-quality Slice 8a) and package-resource/package-runtime/
 # resource-dispatch support batch (architecture-quality Slice 8b), plus the
 # REPL-input/autocomplete-provider/tool-renderer terminal-support batch
-# (architecture-quality Slice 8c), into
+# (architecture-quality Slice 8c), and the routing/OAuth/models.json
+# provider-model-policy batch (architecture-quality Slice 8d), into
 # `--strict`.
 # The override lists the
 # per-module `--strict` sub-flags explicitly rather than `strict = true`,
@@ -143,6 +144,9 @@ module = [
     "pipy_harness.native.repl_input",
     "pipy_harness.native.autocomplete_provider",
     "pipy_harness.native.tool_renderers",
+    "pipy_harness.native.routing",
+    "pipy_harness.native.oauth_providers",
+    "pipy_harness.native.models_json",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

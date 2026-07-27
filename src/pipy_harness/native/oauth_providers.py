@@ -24,14 +24,25 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import replace
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.catalog import NativeModelSpec
 
 
-# (method, url, headers, data) -> (status_code, body_text)
-Transport = Callable[..., tuple[int, str]]
 Clock = Callable[[], int]
+
+
+class Transport(Protocol):
+    """Keyword-aware HTTP transport used by the built-in OAuth providers."""
+
+    def __call__(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        data: str | None = None,
+    ) -> tuple[int, str]: ...
 
 
 def _now_ms() -> int:
@@ -64,11 +75,33 @@ def _decode_b64(value: str) -> str:
     return base64.b64decode(value).decode("ascii")
 
 
+def _json_object(body: str) -> dict[str, object]:
+    parsed: object = json.loads(body)
+    if not isinstance(parsed, dict) or not all(isinstance(key, str) for key in parsed):
+        raise TypeError("OAuth response must be a JSON object")
+    return {key: value for key, value in parsed.items() if isinstance(key, str)}
+
+
+def _json_int(value: object) -> int:
+    if not isinstance(value, (str, int, float)):
+        raise TypeError("OAuth response value must be numeric")
+    return int(value)
+
+
 class OAuthProvider(Protocol):
     id: str
 
-    def refresh_token(self, credentials: Mapping[str, object]) -> dict: ...
+    def refresh_token(self, credentials: Mapping[str, object]) -> dict[str, object]: ...
     def get_api_key(self, credentials: Mapping[str, object]) -> str: ...
+
+
+@runtime_checkable
+class _OAuthModelModifierProvider(Protocol):
+    def modify_models(
+        self,
+        rows: list[NativeModelSpec],
+        credentials: Mapping[str, object],
+    ) -> list[NativeModelSpec]: ...
 
 
 # --------------------------------------------------------------------------- #
@@ -95,7 +128,7 @@ class AnthropicOAuthProvider:
         self._transport = transport or _default_transport
         self._now_ms = now_ms or _now_ms
 
-    def _token_request(self, payload: dict) -> dict:
+    def _token_request(self, payload: Mapping[str, object]) -> dict[str, object]:
         status, body = self._transport(
             "POST",
             self.token_url,
@@ -104,16 +137,22 @@ class AnthropicOAuthProvider:
         )
         if status != 200:
             raise OAuthError(f"anthropic token request failed ({status})")
-        data = json.loads(body)
+        response = _json_object(body)
         return {
             "type": "oauth",
-            "access": data["access_token"],
-            "refresh": data["refresh_token"],
+            "access": response["access_token"],
+            "refresh": response["refresh_token"],
             # 5-minute safety margin (anthropic.ts).
-            "expires": self._now_ms() + int(data["expires_in"]) * 1000 - _FIVE_MINUTES_MS,
+            "expires": (
+                self._now_ms()
+                + _json_int(response["expires_in"]) * 1000
+                - _FIVE_MINUTES_MS
+            ),
         }
 
-    def exchange_code(self, code: str, verifier: str, redirect_uri: str) -> dict:
+    def exchange_code(
+        self, code: str, verifier: str, redirect_uri: str
+    ) -> dict[str, object]:
         return self._token_request(
             {
                 "grant_type": "authorization_code",
@@ -124,7 +163,7 @@ class AnthropicOAuthProvider:
             }
         )
 
-    def refresh_token(self, credentials: Mapping[str, object]) -> dict:
+    def refresh_token(self, credentials: Mapping[str, object]) -> dict[str, object]:
         return self._token_request(
             {
                 "grant_type": "refresh_token",
@@ -190,7 +229,7 @@ class GitHubCopilotOAuthProvider:
     def get_api_key(self, credentials: Mapping[str, object]) -> str:
         return str(credentials["access"])
 
-    def refresh_token(self, credentials: Mapping[str, object]) -> dict:
+    def refresh_token(self, credentials: Mapping[str, object]) -> dict[str, object]:
         # Copilot exchanges the stored GitHub token for a short-lived Copilot
         # token. The GitHub token is the durable refresh material. Pi sends
         # ``Authorization: Bearer <github token>`` + Copilot headers and reads
@@ -207,12 +246,12 @@ class GitHubCopilotOAuthProvider:
         )
         if status != 200:
             raise OAuthError(f"copilot token request failed ({status})")
-        data = json.loads(body)
+        response = _json_object(body)
         return {
             "type": "oauth",
-            "access": data["token"],
+            "access": response["token"],
             "refresh": github_token,
-            "expires": int(data["expires_at"]) * 1000 - _FIVE_MINUTES_MS,
+            "expires": (_json_int(response["expires_at"]) * 1000 - _FIVE_MINUTES_MS),
         }
 
     def enable_model(self, copilot_token: str, model_id: str) -> bool:
@@ -264,7 +303,7 @@ class OpenAICodexOAuthProvider:
         self._transport = transport or _default_transport
         self._now_ms = now_ms or _now_ms
 
-    def refresh_token(self, credentials: Mapping[str, object]) -> dict:
+    def refresh_token(self, credentials: Mapping[str, object]) -> dict[str, object]:
         status, body = self._transport(
             "POST",
             self.token_url,
@@ -279,13 +318,13 @@ class OpenAICodexOAuthProvider:
         )
         if status != 200:
             raise OAuthError(f"openai-codex token request failed ({status})")
-        data = json.loads(body)
+        response = _json_object(body)
         return {
             "type": "oauth",
-            "access": data["access_token"],
-            "refresh": data["refresh_token"],
+            "access": response["access_token"],
+            "refresh": response["refresh_token"],
             # No safety margin for Codex (openai-codex.ts).
-            "expires": self._now_ms() + int(data["expires_in"]) * 1000,
+            "expires": self._now_ms() + _json_int(response["expires_in"]) * 1000,
         }
 
     def get_api_key(self, credentials: Mapping[str, object]) -> str:
@@ -300,7 +339,10 @@ class OAuthError(Exception):
 # Registry
 # --------------------------------------------------------------------------- #
 
-_BUILTIN_OAUTH_PROVIDERS: dict[str, type] = {
+_OAuthProviderFactory = Callable[[], OAuthProvider]
+
+
+_BUILTIN_OAUTH_PROVIDERS: dict[str, _OAuthProviderFactory] = {
     "anthropic": AnthropicOAuthProvider,
     "github-copilot": GitHubCopilotOAuthProvider,
     "openai-codex": OpenAICodexOAuthProvider,
