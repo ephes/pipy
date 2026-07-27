@@ -17,13 +17,17 @@ and indexed in the [Backlog](backlog.md).
 
 ```mermaid
 flowchart TB
-  Entrypoints[CLI / inline TUI / JSON / RPC / SDK] --> Composition[Native product composition root]
+  Entrypoints[Product CLI / inline TUI / JSON / RPC] --> Composition[Native product composition root]
+  CompatEntrypoints[pipy run / narrow Python SDK] --> Compat[Harness compatibility runtime]
   Composition --> Coding[Headless coding-session layer]
   Coding --> Agent[Canonical UI-free agent loop]
   Agent --> Tools[Tool capability and executor ports]
-  Agent --> ProviderPort[Provider turn port]
+  Agent --> ProviderExecutor[Canonical provider-turn executor]
+  Compat --> ProviderExecutor
+  ProviderExecutor --> ProviderPort[Injected provider port]
   Composition --> Runtime[Catalog-backed model runtime]
   Runtime --> Providers[Provider-family adapters]
+  Providers -. implement .-> ProviderPort
   Providers --> HTTP[Shared HTTP / cancellation boundary]
   Composition --> Extensions[Extension generation, hooks, and host ports]
   Composition --> ProductTree[Private native product session tree]
@@ -32,14 +36,15 @@ flowchart TB
   Events --> Automation[JSON / RPC / SDK projections]
   Events --> ProductTree
   Events --> Workflow[Metadata-only workflow projection]
+  Compat --> Workflow
   UI --> TUI[Inline terminal UI]
   TUI --> Driver[Terminal driver]
 
   classDef core fill:#eef2ff,stroke:#1d4ed8,color:#111111;
   classDef adapter fill:#fff7ed,stroke:#c2410c,color:#111111;
   classDef store fill:#ecfdf5,stroke:#047857,color:#111111;
-  class Agent,Coding,Composition,Runtime,Events core;
-  class Entrypoints,Providers,HTTP,Extensions,UI,TUI,Driver,Automation adapter;
+  class Agent,Coding,Composition,Runtime,Events,ProviderExecutor core;
+  class Entrypoints,CompatEntrypoints,Compat,Providers,HTTP,Extensions,UI,TUI,Driver,Automation adapter;
   class ProductTree,Workflow store;
 ```
 
@@ -109,12 +114,57 @@ remain methods on `_ProviderMutationEffects`, rather than a second reload-only
 mutation path. `_BuiltinCommandInterpreter` now contains only the closed
 four-family routing plus the closed footer policy.
 
-`native/session.py` still owns the one-shot `NativeAgentSession` used by the
-harness/SDK compatibility path. It projects canonical event/result types but is
-not yet routed through the complete interactive `AgentLoop`. Whether that
-pipeline should converge on the canonical loop or remain a named compatibility
-runtime is an explicit architecture-program decision, not an assumed
-equivalence.
+`native/session.py` owns the explicitly named
+`NativeHarnessCompatibilityRuntime` used only by `pipy run` and the narrow
+Python harness SDK. Slice 10 renamed the former `NativeAgentSession` rather than
+leaving two runtimes that appeared semantically equivalent. For every turn, the
+compatibility runtime invokes the canonical
+`native.agent.provider_turn.ProviderTurnExecutor`, whose delta-admission gate
+and typed outcome contract surround the injected provider call. A thin private
+adapter makes the final `ProviderPort.complete(...)` call while preserving the
+compatibility surface's text-only initial stream and buffered follow-up shape.
+The runtime derives one required `stream_text_deltas` capability beside the SDK
+event projection and explicitly disables it for both follow-up paths; provider
+deltas flow only through the canonical agent-event sink. The adapter is not a
+second provider-execution pipeline.
+
+The Slice 10 convergence decision is **intentional separation**, based on the
+executable contracts in `tests/test_native_one_shot_runtime_contract.py` and the
+terminal-lifecycle characterization in `tests/test_native_session.py`:
+
+- independently observable providers run through real executor calls on both
+  sides for an ordinary successful completion, with equivalent emitted text
+  deltas, final text, and all six normalized usage counters;
+- provider-metadata fixture intents are not canonical `ProviderToolCall`
+  values: the compatibility runtime may run one bounded no-op or approved file
+  excerpt, synthesize a metadata-only observation, make at most one special
+  follow-up provider request, and optionally consume separately injected,
+  human-reviewed patch/verification requests;
+- the canonical `AgentLoop` instead authorizes advertised provider tool calls,
+  maintains full canonical history, and continues provider/tool iterations
+  under its tool policy; it correctly ignores compatibility metadata fixtures;
+  and
+- the compatibility runtime projects `ProviderRequest` construction/validation
+  failures and exceptions raised by the injected provider into its established
+  failed result, including genuine provider `ValueError` and `TypeError`
+  exceptions. `ProviderTurnDeltaPolicy` construction, executor collaborator
+  validation, and compatibility-adapter channel violations are programming
+  invariants that instead escape loudly. It maps the
+  executor's typed provider-cancellation outcome to the same failure/archive
+  shape without exposing provider detail, emits
+  `native.session/provider/tool/...` metadata lifecycle events, and excludes
+  prompt/model/tool content from the workflow archive. The canonical product
+  loop propagates through its product status policy and full-content
+  event/session projections.
+
+Routing the compatibility contract through `AgentLoop` would therefore change
+provider request history, tool authorization, event order, failure handling,
+and archive behavior rather than merely remove duplication. Its fixture-shaped
+`native.tool.ToolPort`, patch apply, and verification boundaries do not match
+canonical model-driven tool execution and are deliberately not adapted into
+it. Product one-shot `--mode json` and `--print` already use
+`PipyNativeToolReplAdapter` and the canonical coding/agent loop; they are not
+served by this compatibility runtime.
 
 `pipy_harness.runner.HarnessRunner` and the adapter ports continue to support
 conservative subprocess lifecycle capture. Subprocess wrapping is a reference
@@ -321,9 +371,10 @@ The active program addresses ownership risks rather than cosmetic size:
   publication-gate admission is not yet atomic;
 - `_ReplLoopStep.step_once` remains a high-complexity cross-boundary
   orchestrator with a wide collaborator list;
-- the one-shot runtime and canonical interactive loop have unresolved semantic
-  overlap; Slice 10 is the next active architecture-quality boundary and owns
-  the convergence decision without presuming its outcome;
+- the harness/SDK one-shot compatibility runtime remains a deliberately
+  separate metadata-fixture contract, but its provider execution is canonical;
+  executable Slice 10 boundary tests prevent it from drifting into a second
+  silently equivalent agent loop;
 - `ToolLoopTerminalUi` still combines editor, overlay, extension chrome, and
   frame state (128 measured state fields at baseline); and
 - load-sensitive PTY readiness races and the absence of a repository Ruff-format

@@ -304,12 +304,15 @@ Concrete adapter examples:
 
 The native bootstrap slice adds `PipyNativeAdapter` behind the same
 `AgentPort`. It does not shell out to Codex, Claude, Pi, or another coding-agent
-CLI. The adapter prepares one native turn, constructs a `NativeAgentSession`,
-calls a provider through a minimal `ProviderPort`, invokes deterministic no-op
-or bounded read-only tools only through supported pipy-owned intent data, and
-can run injected supervised patch apply plus allowlisted verification boundaries
-only when explicit pipy-owned request and gate objects are supplied by control
-flow.
+CLI. The adapter prepares one native turn and constructs the
+`NativeHarnessCompatibilityRuntime` (the Slice 10 name for the former
+`NativeAgentSession`). This path is explicitly the metadata-first `pipy run` /
+narrow Python SDK compatibility contract, not another canonical coding-agent
+loop. It delegates provider completion to the canonical
+`ProviderTurnExecutor`, invokes deterministic no-op or bounded read-only tools
+only through supported pipy-owned intent data, and can run injected supervised
+patch apply plus allowlisted verification boundaries only when explicit
+pipy-owned request and gate objects are supplied by control flow.
 
 The deterministic `fake` provider remains the default for tests and smoke runs.
 It is not a production AI provider and it does not require credentials. A smoke
@@ -1294,7 +1297,7 @@ data.
 
 `NativeExplicitFileExcerptTool` uses `NativeReadOnlyGateDecision` and
 `NativeExplicitFileExcerptTarget` with `workspace_read_allowed`. It was wired
-into `NativeAgentSession` only through the bounded fixture-gated provider turn
+into `NativeHarnessCompatibilityRuntime` only through the bounded fixture-gated provider turn
 path. Oversized files fail closed, fuller ignore semantics remain deferred,
 and the metadata helper excludes raw excerpt text.
 
@@ -1491,7 +1494,14 @@ The product composition root translates the TUI and RPC/external-abort wait
 outcomes into the closed provider-turn interruption vocabulary. It continues to
 own queued-message storage and promotion, provider-request construction,
 extension policy and hooks, tool cycles and budgets, and the current zero-retry
-and usage-accumulation policy. The serialized RPC boundary uses a callback-capable
+and usage-accumulation policy. `ProviderTurnDeltaPolicy` keeps this executor
+shared without changing caller contracts: the canonical loop uses text and
+reasoning sinks, while the harness compatibility runtime requests its
+established initial-turn-only text sink and passes `None` for reasoning or for
+fully buffered follow-up turns. The compatibility composition derives one
+required `stream_text_deltas` boolean beside `SdkAgentEventAdapter`; deltas then
+travel only through the canonical event sink, and each follow-up explicitly
+passes `False`. The serialized RPC boundary uses a callback-capable
 accepted-abort latch; its executor callback is registered before the RPC provider
 starts, preserving actual acceptance-before-completion order even if waiter
 observation is delayed. Phase 2.2a therefore does not yet extract the full
@@ -1499,6 +1509,29 @@ provider/tool cycle or make `NativeToolReplSession.run()` composition-only;
 Phase 2.2b owns that remaining move. The old `_ProviderTurnCompletion`, delta
 sink helpers, headless/TUI completion helpers, and active-turn cancellation
 helper are removed rather than retained as a second implementation.
+
+Slice 10 executes each harness/SDK compatibility turn under this executor's
+delta-admission gate and typed outcome contract. A thin private compatibility
+adapter makes the final injected `ProviderPort.complete(...)` call with the
+established text-only or buffered sink shape. It rejects a non-`None` reasoning
+sink or cancellation token because this synchronous, no-waiter compatibility
+path supports neither channel. `ProviderTurnDeltaPolicy` construction, executor
+collaborator validation, and these adapter channel violations escape through the
+internal invariant contract rather than being mislabeled as provider failures.
+`ProviderRequest` construction/validation failures and exceptions actually
+raised by the injected provider — including `ValueError` and `TypeError` —
+retain the compatibility failed-result and metadata-lifecycle projection. No
+parallel provider-execution pipeline remains. Executable contracts drive
+independently observable providers through real executor calls on both sides
+and compare emitted text
+deltas, final text, and all six normalized usage counters. They also prove the
+intentional non-equivalence of metadata fixture intents versus canonical
+provider tool calls and pin typed provider cancellation to the established
+compatibility failure/archive projection without retaining private provider
+detail. The old fixture `native.tool.ToolPort`, supervised patch apply, and
+verification seams do not satisfy canonical model-driven tool contracts and
+therefore remain owned only by `NativeHarnessCompatibilityRuntime` rather than
+being wrapped as false equivalents.
 
 The module imports provider/cancellation ports, native value objects, and
 canonical agent contracts only. Its fresh-process import gate excludes UI/TUI,
@@ -2298,7 +2331,7 @@ queue-facing ports remain 2.2b.4c; persistence relocation landed in Phase 3.3.
 The bounded read-only path needs stable native data contracts before it can
 read files or run searches. The native model surface includes read-only
 workspace inspection value objects. These value objects are consumed by the
-direct explicit file excerpt tool described below. `NativeAgentSession` creates
+direct explicit file excerpt tool described below. `NativeHarnessCompatibilityRuntime` creates
 and executes one of these requests only through the supported fixture-gated
 explicit-file-excerpt path; no-fixture runs do not create, archive, execute, or
 provider-forward read-only requests.
@@ -2347,7 +2380,7 @@ not a provider/model-selected path, and not authority to read anything.
 
 The first real bounded native read-only workspace tool is the direct
 `NativeExplicitFileExcerptTool`. It can be exercised directly in tests and is
-also wired into `NativeAgentSession` only through the bounded fixture-gated
+also wired into `NativeHarnessCompatibilityRuntime` only through the bounded fixture-gated
 read-only provider-context path. Both entry points require explicit pipy-owned
 data:
 
@@ -2410,7 +2443,7 @@ file excerpt fixture.
 
 Provider-visible repo context is provider input, not archive content. The
 boundary is narrow: after one safe supported read-only intent and one supported
-pipy-owned explicit-file-excerpt fixture, `NativeAgentSession` may read one
+pipy-owned explicit-file-excerpt fixture, `NativeHarnessCompatibilityRuntime` may read one
 bounded UTF-8 text file, emit metadata-only tool and observation events,
 forward the successful excerpt only in memory to exactly one follow-up provider
 turn, and hard-stop. No-fixture fake/OpenAI/OpenRouter runs perform no repo
@@ -2503,7 +2536,7 @@ workflow archive.
 The native patch proposal boundary produces a metadata-only workflow-archive
 projection before supervised write capability. After one successful bounded
 read-only tool observation and one successful follow-up provider turn,
-`NativeAgentSession` may parse a single pipy-owned structured proposal from
+`NativeHarnessCompatibilityRuntime` may parse a single pipy-owned structured proposal from
 provider result metadata and emit `native.patch.proposal.recorded`. Without an
 injected human-reviewed patch apply request, the runtime hard-stops after this
 event. It does not apply edits, run shell commands, run verification commands,
@@ -2570,7 +2603,7 @@ detail.
 ### Patch Apply Boundary
 
 The native patch apply boundary is the first supervised workspace mutation path.
-It is not provider tool calling. Non-interactive `NativeAgentSession` consumes
+It is not provider tool calling. Non-interactive `NativeHarnessCompatibilityRuntime` consumes
 only an injected in-memory `NativePatchApplyRequest` supplied by pipy-owned
 control flow after human review, and only after a supported
 `native.patch.proposal.recorded` event with `status=proposed`. The interactive
@@ -2641,7 +2674,7 @@ applied, the terminal result records `reason_label=write_partially_applied` and
 The native verification boundary is the first supervised command-execution path.
 It is not arbitrary shell access and it is not provider-selected command
 execution. It consumes only an in-memory `NativeVerificationRequest` supplied to
-`NativeAgentSession` by pipy-owned control flow after a successful supervised
+`NativeHarnessCompatibilityRuntime` by pipy-owned control flow after a successful supervised
 patch apply. Normal CLI provider runs do not supply this request and remain
 unchanged.
 

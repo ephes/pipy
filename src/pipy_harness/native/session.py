@@ -12,6 +12,8 @@ from pipy_harness.capture import sanitize_metadata, sanitize_text
 from pipy_harness.native._provider_helpers import utc_now
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
+    AgentCancellationReason,
+    AgentEvent,
     AgentEventSink,
     AgentFailure,
     AgentRunCompleted,
@@ -21,7 +23,6 @@ from pipy_harness.native.agent import (
     AgentTurnOutcome,
     AgentUsage,
     AgentUserMessage,
-    AssistantTextDelta,
     MessageCompleted,
     MessageStarted,
     ProductContent,
@@ -30,12 +31,17 @@ from pipy_harness.native.agent import (
     TurnStarted,
     UsageUpdated,
 )
+from pipy_harness.native.agent.provider_turn import (
+    ProviderTurnDeltaPolicy,
+    ProviderTurnExecutor,
+)
 from pipy_harness.native.agent_adapters import (
     SdkAgentEventAdapter,
     SynchronousAgentEventComposite,
     WorkflowArchiveAgentEventAdapter,
 )
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.conversation import (
     NativeConversationState,
     NativeTurnMetadata,
@@ -338,8 +344,16 @@ class _ToolPhaseResult:
 
 
 @dataclass(slots=True)
-class NativeAgentSession:
-    """Owns one minimal native pipy turn."""
+class NativeHarnessCompatibilityRuntime:
+    """Own the metadata-first one-shot harness and SDK compatibility contract.
+
+    This is intentionally not a second implementation of the canonical coding
+    agent. It preserves the bounded provider-metadata intent, supervised
+    proposal/apply, and workflow-archive lifecycle used by ``pipy run`` and the
+    narrow Python SDK. Provider completion is delegated to the canonical
+    ``ProviderTurnExecutor``; its fixture-shaped tool contract does not match
+    canonical provider tool calls and remains isolated here.
+    """
 
     provider: ProviderPort
     tool: ToolPort = field(default_factory=FakeNoOpNativeTool)
@@ -355,6 +369,7 @@ class NativeAgentSession:
 
     def run(self, run_input: NativeRunInput, event_sink: EventSink) -> NativeRunOutput:
         started_at = utc_now()
+        stream_text_deltas = self.stream_sink is not None
         sdk_projection = SdkAgentEventAdapter(self.stream_sink)
         agent_sinks: list[AgentEventSink] = [
             WorkflowArchiveAgentEventAdapter(),
@@ -398,7 +413,7 @@ class NativeAgentSession:
             provider_turn=provider_turn,
             tool_observation=None,
             system_prompt=composed_system_prompt,
-            stream_sink=self.stream_sink,
+            stream_text_deltas=stream_text_deltas,
             agent_event_sink=canonical_events,
         )
         tool_phase = self._run_tool_phase(
@@ -412,9 +427,7 @@ class NativeAgentSession:
             canonical_events,
         )
 
-        final_provider_result = (
-            tool_phase.follow_up_provider_result or provider_result
-        )
+        final_provider_result = tool_phase.follow_up_provider_result or provider_result
         final_usage = _merge_provider_usage(
             provider_usage, tool_phase.follow_up_provider_usage
         )
@@ -602,6 +615,7 @@ class NativeAgentSession:
                 provider_turn=follow_up_provider_turn,
                 tool_observation=observation,
                 system_prompt=composed_system_prompt,
+                stream_text_deltas=False,
                 agent_event_sink=canonical_events,
                 prior_usage=provider_usage,
             )
@@ -650,6 +664,7 @@ class NativeAgentSession:
             provider_turn=follow_up_provider_turn,
             tool_observation=observation,
             system_prompt=composed_system_prompt,
+            stream_text_deltas=False,
             agent_event_sink=canonical_events,
             prior_usage=provider_usage,
         )
@@ -910,25 +925,93 @@ def _start_canonical_provider_turn(
 
 
 class _CanonicalSinkCallbackError(Exception):
-    """Keep consumer failures distinct from provider failures."""
+    """Keep compatibility consumer failures distinct from provider failures."""
 
     def __init__(self, cause: Exception) -> None:
         super().__init__(str(cause))
         self.cause = cause
 
 
-def _canonical_stream_sink(
-    sink: AgentEventSink,
-    *,
-    turn_index: int,
-) -> StreamChunkSink:
-    def _emit_text_delta(chunk: str) -> None:
+class _CompatibilityProviderError(Exception):
+    """Mark an exception raised by the injected provider implementation."""
+
+    def __init__(self, cause: Exception) -> None:
+        super().__init__(type(cause).__name__)
+        self.cause = cause
+
+
+class _CompatibilityRuntimeInvariantError(RuntimeError):
+    """Identify compatibility coordinator/adapter programming defects."""
+
+
+class _CompatibilityDeltaSink:
+    """Preserve one-shot callback identity around canonical delta execution."""
+
+    def __init__(self, sink: AgentEventSink) -> None:
+        self._sink = sink
+
+    def emit(self, event: AgentEvent) -> None:
         try:
-            sink.emit(AssistantTextDelta(turn_index, ProductContent(chunk)))
+            self._sink.emit(event)
         except Exception as exc:
             raise _CanonicalSinkCallbackError(exc) from exc
 
-    return _emit_text_delta
+
+def _compatibility_delta_policy(
+    *,
+    stream_text_deltas: bool,
+) -> ProviderTurnDeltaPolicy:
+    try:
+        return ProviderTurnDeltaPolicy(
+            text=stream_text_deltas,
+            reasoning=False,
+        )
+    except Exception as exc:
+        raise _CompatibilityRuntimeInvariantError(
+            "compatibility provider-turn delta policy construction failed"
+        ) from exc
+
+
+class _HarnessCompatibilityProvider:
+    """Present the historical one-shot call shape to the canonical executor."""
+
+    def __init__(self, provider: ProviderPort) -> None:
+        self._provider = provider
+
+    @property
+    def name(self) -> str:
+        return self._provider.name
+
+    @property
+    def model_id(self) -> str:
+        return self._provider.model_id
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return False
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        if reasoning_sink is not None:
+            raise _CompatibilityRuntimeInvariantError(
+                "harness compatibility provider requires reasoning_sink=None"
+            )
+        if cancel_token is not None:
+            raise _CompatibilityRuntimeInvariantError(
+                "harness compatibility provider requires cancel_token=None"
+            )
+        try:
+            return self._provider.complete(request, stream_sink=stream_sink)
+        except (ProviderCancelledError, _CanonicalSinkCallbackError):
+            raise
+        except Exception as exc:
+            raise _CompatibilityProviderError(exc) from exc
 
 
 def _finish_canonical_provider_turn(
@@ -1042,11 +1125,15 @@ def _call_provider_turn(
     tool_observation: NativeToolObservation | None,
     archive_provider_metadata: bool = True,
     system_prompt: str | None = None,
-    stream_sink: StreamChunkSink | None = None,
-    agent_event_sink: AgentEventSink | None = None,
+    stream_text_deltas: bool,
+    agent_event_sink: AgentEventSink,
     prior_usage: Mapping[str, int | float] | None = None,
     attachments: tuple[ProviderImageAttachment, ...] = (),
 ) -> tuple[ProviderResult, dict[str, int | float]]:
+    if type(stream_text_deltas) is not bool:
+        raise _CompatibilityRuntimeInvariantError(
+            "stream_text_deltas must be an exact bool"
+        )
     effective_system_prompt = (
         system_prompt if system_prompt is not None else _build_system_prompt()
     )
@@ -1062,56 +1149,79 @@ def _call_provider_turn(
         turn_context=provider_turn_context,
         turn_label=provider_turn_label,
     )
-    empty_assistant: AgentAssistantMessage | None = None
-    if agent_event_sink is not None:
-        empty_assistant = _start_canonical_provider_turn(
-            agent_event_sink,
-            turn_index=provider_turn.turn_index,
-            user_prompt=user_prompt,
-        )
-
-    effective_stream_sink = stream_sink
-    if agent_event_sink is not None and stream_sink is not None:
-        effective_stream_sink = _canonical_stream_sink(
-            agent_event_sink,
-            turn_index=provider_turn.turn_index,
-        )
-
+    empty_assistant = _start_canonical_provider_turn(
+        agent_event_sink,
+        turn_index=provider_turn.turn_index,
+        user_prompt=user_prompt,
+    )
     provider_started_at = utc_now()
     try:
-        provider_result = provider.complete(
-            ProviderRequest(
-                system_prompt=effective_system_prompt,
-                user_prompt=user_prompt,
-                provider_name=run_input.provider_name,
-                model_id=run_input.model_id,
-                cwd=run_input.cwd,
-                provider_turn_index=provider_turn.turn_index,
-                provider_turn_label=provider_turn_label,
-                tool_observation=tool_observation,
-                attachments=attachments,
-            ),
-            stream_sink=effective_stream_sink,
+        request = ProviderRequest(
+            system_prompt=effective_system_prompt,
+            user_prompt=user_prompt,
+            provider_name=run_input.provider_name,
+            model_id=run_input.model_id,
+            cwd=run_input.cwd,
+            provider_turn_index=provider_turn.turn_index,
+            provider_turn_label=provider_turn_label,
+            tool_observation=tool_observation,
+            attachments=attachments,
         )
-    except _CanonicalSinkCallbackError as exc:
-        raise exc.cause from exc
     except Exception as exc:
         provider_result = _failed_provider_result(
             run_input, exc, started_at=provider_started_at
         )
+    else:
+        delta_policy = _compatibility_delta_policy(
+            stream_text_deltas=stream_text_deltas
+        )
+        execution_sink: AgentEventSink = (
+            _CompatibilityDeltaSink(agent_event_sink)
+            if delta_policy.text
+            else agent_event_sink
+        )
+        try:
+            provider_outcome = ProviderTurnExecutor().complete(
+                _HarnessCompatibilityProvider(provider),
+                request,
+                execution_sink,
+                turn_index=provider_turn.turn_index,
+                delta_policy=delta_policy,
+            )
+        except _CanonicalSinkCallbackError as exc:
+            raise exc.cause from exc
+        except _CompatibilityProviderError as exc:
+            provider_result = _failed_provider_result(
+                run_input, exc.cause, started_at=provider_started_at
+            )
+        except _CompatibilityRuntimeInvariantError:
+            raise
+        except Exception as exc:
+            raise _CompatibilityRuntimeInvariantError(
+                "compatibility provider-turn executor invariant failed"
+            ) from exc
+        else:
+            if provider_outcome.result is not None:
+                provider_result = provider_outcome.result
+            else:
+                cancellation_reason = provider_outcome.cancellation_reason
+                assert cancellation_reason is not None
+                provider_result = _failed_provider_cancellation_result(
+                    run_input,
+                    cancellation_reason,
+                    started_at=provider_started_at,
+                )
 
     provider_usage = normalize_provider_usage(provider_result.usage or {})
     cumulative_usage = _merge_provider_usage(prior_usage or {}, provider_usage)
-    if agent_event_sink is not None:
-        assert empty_assistant is not None
-        _finish_canonical_provider_turn(
-            agent_event_sink,
-            turn_index=provider_turn.turn_index,
-            result=provider_result,
-            cumulative_usage=cumulative_usage,
-            turn_usage=provider_usage,
-            empty_assistant=empty_assistant,
-        )
+    _finish_canonical_provider_turn(
+        agent_event_sink,
+        turn_index=provider_turn.turn_index,
+        result=provider_result,
+        cumulative_usage=cumulative_usage,
+        turn_usage=provider_usage,
+        empty_assistant=empty_assistant,
+    )
     _emit_provider_finished(
         event_sink,
         result=provider_result,
@@ -2323,14 +2433,49 @@ def _failed_provider_result(
     *,
     started_at: datetime,
 ) -> ProviderResult:
+    return _provider_failure_result(
+        run_input,
+        error_type=type(exc).__name__,
+        started_at=started_at,
+    )
+
+
+def _failed_provider_cancellation_result(
+    run_input: NativeRunInput,
+    reason: AgentCancellationReason,
+    *,
+    started_at: datetime,
+) -> ProviderResult:
+    # The compatibility runtime executes synchronously without a waiter, so the
+    # executor can only return its typed provider-originated cancellation. Keep
+    # the historical failed-result/archive shape without inventing exception
+    # text after the executor has intentionally normalized the provider signal.
+    if reason is not AgentCancellationReason.PROVIDER_CANCELLED:
+        raise RuntimeError(
+            "synchronous compatibility provider turn returned an impossible "
+            f"cancellation reason: {reason.value}"
+        )
+    return _provider_failure_result(
+        run_input,
+        error_type=ProviderCancelledError.__name__,
+        started_at=started_at,
+    )
+
+
+def _provider_failure_result(
+    run_input: NativeRunInput,
+    *,
+    error_type: str,
+    started_at: datetime,
+) -> ProviderResult:
     return ProviderResult(
         status=HarnessStatus.FAILED,
         provider_name=run_input.provider_name,
         model_id=run_input.model_id,
         started_at=started_at,
         ended_at=utc_now(),
-        error_type=type(exc).__name__,
-        error_message=type(exc).__name__,
+        error_type=error_type,
+        error_message=error_type,
     )
 
 

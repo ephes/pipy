@@ -28,7 +28,7 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 10 — one-shot runtime convergence decision**. Product-parity deltas in
+is **Slice 11 — editor state extraction**. Product-parity deltas in
 the Pi audit remain selection candidates after the architecture program and do
 not expand an architecture slice.
 
@@ -737,6 +737,82 @@ Progress:
   advances to **Slice 10 — one-shot runtime convergence decision**; no Slice 10
   implementation is included, and its one-shot/runtime-convergence outcome
   remains intentionally undecided.
+
+- **Slice 10 — one-shot runtime convergence decision: COMPLETE.** Executable
+  overlap/difference contracts select intentional
+  compatibility ownership rather than a false `AgentLoop` convergence. An
+  ordinary successful provider completion has equivalent final text, token
+  counters, and text-delta delivery at the shared provider-turn boundary. In
+  contrast, the one-shot path consumes pipy-owned metadata fixture intents,
+  may synthesize one special observation/follow-up request, optionally consumes
+  separately injected human-reviewed patch/verification requests, catches
+  provider exceptions into its historical failed-result shape, and emits the
+  metadata-only `native.session/provider/tool/...` archive lifecycle. The
+  canonical loop consumes advertised `ProviderToolCall` values, owns full
+  history and provider/tool iteration, and correctly ignores those metadata
+  fixtures.
+
+  The former `NativeAgentSession` is therefore renamed, without an alias or
+  deprecation shim, to `NativeHarnessCompatibilityRuntime`. Both buffered and
+  streamed turns now run under the canonical `ProviderTurnExecutor` delta gate
+  and typed outcome contract. A thin private compatibility adapter performs the
+  final injected `ProviderPort.complete(...)` call with an exact
+  `ProviderTurnDeltaPolicy` that preserves initial-turn-only text streaming,
+  no compatibility reasoning sink, and buffered follow-up turns. The initial
+  text-delta capability is one required boolean derived beside the SDK event
+  projection; both follow-up call sites explicitly disable it, so no callback
+  is retained as a second or presence-only delta path. No parallel
+  provider-execution pipeline remains. The old
+  `native.tool.ToolPort`, supervised patch apply, and verification contracts do
+  not match canonical model-driven tool calls and remain isolated rather than
+  being wrapped as equivalent. Product `--mode json`, `--print`, interactive,
+  and RPC execution already use the canonical coding session and `AgentLoop`;
+  only `pipy run` and the narrow Python SDK retain this compatibility runtime.
+
+  Boundary characterization adds executable contracts that drive independent,
+  observable providers through real executor calls on both sides and compare
+  emitted text deltas, final text, and all six normalized usage counters; prove
+  metadata-fixture divergence while both providers execute; pin the exact
+  text-only/no-cancellation wire shape and fail-loud rejection of unsupported
+  channels; prove policy/executor/adapter wiring defects escape rather than
+  being projected as provider failures, while `ProviderRequest` construction or
+  validation failures, genuine provider `ValueError` and `TypeError`
+  exceptions, and typed provider cancellation retain the historical failed
+  result/archive lifecycle without private detail; enforce removal of the retired
+  runtime name from both module and package exports; and statically prove that
+  the executor plus its thin adapter are the only provider-completion ownership
+  path. Focused gates pass **336** agent/session/architecture tests, **145**
+  SDK/CLI/archive/workspace tests, and **291** coding-loop/import/RPC tests;
+  focused Ruff and Mypy are clean. `just check` is clean across **426
+  source/test files** and **4,679 passed / 2 skipped**. The first full run had
+  two unrelated known PTY-readiness failures
+  (project-trust selection and bracketed-paste exit); both passed immediately
+  in isolation, and the complete rerun passed. `just docs-build` and final diff
+  hygiene are clean. The after snapshot is **79,498** source / **116,248** test
+  Python physical lines and remains **38 / 22** repository/source C901
+  findings, **1** documented source type-ignore, **165** strict source files,
+  and **128** `ToolLoopTerminalUi` fields; no dependency, `Any`, suppression, Mypy
+  exclusion, C901 pin, schema, trust, session-format, or privacy change is
+  introduced. The active pointer advances to **Slice 11 — editor state
+  extraction**.
+
+  Independent review used the exact `claude-opus-5` model at xhigh effort in a
+  read-only harness. One initial harness invocation was **INVALID** because of
+  an absolute Glob target; it had zero findings and did not count as a review.
+  Four valid complete-bundle rounds followed, with **12 valid findings: 4
+  Warnings + 8 Suggestions**. All four Warnings and five material Suggestions
+  were accepted and fixed (**9 total**). The final round had **3 Suggestions**
+  and zero Critical or Warning findings. Those final suggestions were
+  proportionally declined because they concern unreachable or unused
+  consistency cleanup introduced by prior fixes: a duplicate gated sink-policy
+  expression, invariant subtype consistency on an impossible cancellation
+  branch, and defensive wrapping of a buffered sink the executor does not call.
+  This was the second consecutive self-inflicted-churn signal; another
+  fix/re-review round would not materially improve correctness, privacy, API,
+  architecture, tests, or confidence. No substantive finding remains. Every
+  valid round had zero skipped files, truncations, redactions, and forbidden
+  tool uses. Pi implementer self-verdicts were discarded. Commit remains
+  pending at the point this ledger is written.
 
 ## Current State
 

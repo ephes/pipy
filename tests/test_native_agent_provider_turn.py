@@ -18,6 +18,7 @@ from pipy_harness.native.agent.events import (
     AssistantTextDelta,
 )
 from pipy_harness.native.agent.provider_turn import (
+    ProviderTurnDeltaPolicy,
     ProviderTurnExecutor,
     ProviderTurnInterruption,
     ProviderTurnOutcome,
@@ -198,6 +199,14 @@ def test_complete_validates_inputs_before_invoking_provider(tmp_path: Path) -> N
             turn_index=0,
             waiter=cast(ProviderTurnWaiter, object()),
         )
+    with pytest.raises(TypeError, match="delta_policy must be an exact"):
+        executor.complete(
+            provider,
+            request,
+            sink,
+            turn_index=0,
+            delta_policy=cast(ProviderTurnDeltaPolicy, object()),
+        )
 
     assert provider.order == []
     assert sink.events == []
@@ -227,6 +236,59 @@ def test_synchronous_turn_emits_exact_canonical_deltas_with_backpressure(
         AssistantReasoningDelta(7, ProductContent("reasoning-1")),
         AssistantTextDelta(7, ProductContent("text-2")),
     ]
+
+
+@dataclass(slots=True)
+class _SelectiveDeltaProvider:
+    supports_tool_calls: bool = False
+    name: str = "fixture"
+    model_id: str = "fixture-model"
+    sink_presence: tuple[bool, bool] | None = None
+
+    def complete(
+        self,
+        request: ProviderRequest,
+        *,
+        stream_sink: StreamChunkSink | None = None,
+        reasoning_sink: StreamChunkSink | None = None,
+        cancel_token: CancelToken | None = None,
+    ) -> ProviderResult:
+        del request, cancel_token
+        self.sink_presence = (stream_sink is not None, reasoning_sink is not None)
+        if stream_sink is not None:
+            stream_sink("text")
+        if reasoning_sink is not None:
+            reasoning_sink("reasoning")
+        return _result()
+
+
+def test_delta_policy_preserves_text_only_and_fully_buffered_provider_contracts(
+    tmp_path: Path,
+) -> None:
+    text_provider = _SelectiveDeltaProvider()
+    text_sink = _CollectingSink()
+    ProviderTurnExecutor().complete(
+        text_provider,
+        _request(tmp_path),
+        text_sink,
+        turn_index=2,
+        delta_policy=ProviderTurnDeltaPolicy(text=True, reasoning=False),
+    )
+
+    buffered_provider = _SelectiveDeltaProvider()
+    buffered_sink = _CollectingSink()
+    ProviderTurnExecutor().complete(
+        buffered_provider,
+        _request(tmp_path),
+        buffered_sink,
+        turn_index=3,
+        delta_policy=ProviderTurnDeltaPolicy(text=False, reasoning=False),
+    )
+
+    assert text_provider.sink_presence == (True, False)
+    assert text_sink.events == [AssistantTextDelta(2, ProductContent("text"))]
+    assert buffered_provider.sink_presence == (False, False)
+    assert buffered_sink.events == []
 
 
 def test_synchronous_sink_failure_propagates_before_provider_continues(

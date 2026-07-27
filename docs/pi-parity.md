@@ -262,10 +262,12 @@ surfaces sit above that shared session abstraction.
 Pipy's durable center is currently split:
 
 - `HarnessRunner` owns run lifecycle, event recording, and finalization.
-- `NativeAgentSession` owns one-shot native provider/tool control flow, and the
-  tool-loop product REPL session owns the interactive path. (The former
-  `NativeNoToolReplSession` was removed in the 2026-06-20 cleanup; there is one
-  product REPL.)
+- `NativeHarnessCompatibilityRuntime` owns only the metadata-fixture
+  `pipy run` / narrow SDK compatibility path and reuses the canonical
+  provider-turn executor. The tool-loop product session and canonical
+  `AgentLoop` own interactive, JSON, print, and RPC product execution. (The
+  former `NativeNoToolReplSession` was removed in the 2026-06-20 cleanup; there
+  is one product REPL.)
 - `pipy_session.recorder` owns file lifecycle.
 - `pipy_session.catalog` owns read-only archive inspection.
 

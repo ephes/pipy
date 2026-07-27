@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import importlib
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +15,7 @@ LOOP_MODULE = "pipy_harness.native.agent.loop"
 LOOP_PATH = SOURCE_ROOT / "pipy_harness/native/agent/loop.py"
 TOOL_LOOP_SESSION_PATH = SOURCE_ROOT / "pipy_harness/native/tool_loop_session.py"
 AGENT_RUN_PATH = SOURCE_ROOT / "pipy_harness/native/coding/agent_run.py"
+ONE_SHOT_RUNTIME_PATH = SOURCE_ROOT / "pipy_harness/native/session.py"
 RPC_PATH = SOURCE_ROOT / "pipy_harness/native/automation/rpc.py"
 
 _FORBIDDEN_PREFIXES = (
@@ -344,11 +346,126 @@ def test_run_coordinator_assembles_agent_loop_without_inline_policy_cycle() -> N
     )
 
 
+def test_one_shot_compatibility_runtime_reuses_canonical_provider_execution() -> None:
+    references = set(_import_references(ONE_SHOT_RUNTIME_PATH))
+    tree = ast.parse(
+        ONE_SHOT_RUNTIME_PATH.read_text(encoding="utf-8"),
+        filename=str(ONE_SHOT_RUNTIME_PATH),
+    )
+
+    assert "pipy_harness.native.agent.provider_turn.ProviderTurnExecutor" in references
+    runtime_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "NativeHarnessCompatibilityRuntime"
+    )
+    adapter_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "_HarnessCompatibilityProvider"
+    )
+    call_provider_turn = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_call_provider_turn"
+    )
+    adapter_complete = next(
+        node
+        for node in adapter_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "complete"
+    )
+
+    executor_calls = [
+        node
+        for node in ast.walk(call_provider_turn)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "complete"
+        and isinstance(node.func.value, ast.Call)
+        and isinstance(node.func.value.func, ast.Name)
+        and node.func.value.func.id == "ProviderTurnExecutor"
+    ]
+    adapter_provider_calls = [
+        node
+        for node in ast.walk(adapter_complete)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "complete"
+        and isinstance(node.func.value, ast.Attribute)
+        and isinstance(node.func.value.value, ast.Name)
+        and node.func.value.value.id == "self"
+        and node.func.value.attr == "_provider"
+    ]
+    all_completion_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "complete"
+    ]
+    runtime_turn_calls = [
+        node
+        for node in ast.walk(runtime_class)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_call_provider_turn"
+    ]
+    stream_parameters = {
+        argument.arg: default
+        for argument, default in zip(
+            call_provider_turn.args.kwonlyargs,
+            call_provider_turn.args.kw_defaults,
+            strict=True,
+        )
+        if argument.arg in {"stream_sink", "stream_text_deltas"}
+    }
+    stream_capabilities = [
+        keyword.value
+        for call in runtime_turn_calls
+        for keyword in call.keywords
+        if keyword.arg == "stream_text_deltas"
+    ]
+
+    assert stream_parameters == {"stream_text_deltas": None}
+    assert len(runtime_turn_calls) == 3
+    assert len(stream_capabilities) == 3
+    assert (
+        sum(
+            isinstance(value, ast.Name) and value.id == "stream_text_deltas"
+            for value in stream_capabilities
+        )
+        == 1
+    )
+    assert (
+        sum(
+            isinstance(value, ast.Constant) and value.value is False
+            for value in stream_capabilities
+        )
+        == 2
+    )
+    assert len(executor_calls) == 1
+    assert len(adapter_provider_calls) == 1
+    assert {id(node) for node in all_completion_calls} == {
+        id(executor_calls[0]),
+        id(adapter_provider_calls[0]),
+    }
+
+
+def test_retired_one_shot_runtime_name_has_no_alias_or_export() -> None:
+    runtime_module = importlib.import_module("pipy_harness.native.session")
+    native_package = importlib.import_module("pipy_harness.native")
+
+    assert not hasattr(runtime_module, "NativeAgentSession")
+    assert not hasattr(native_package, "NativeAgentSession")
+    assert "NativeAgentSession" not in native_package.__all__
+
+
 def test_product_session_composes_run_coordinator() -> None:
     references = set(_import_references(TOOL_LOOP_SESSION_PATH))
     assert (
-        "pipy_harness.native.coding.agent_run.CodingAgentRunCoordinator"
-        in references
+        "pipy_harness.native.coding.agent_run.CodingAgentRunCoordinator" in references
     )
 
     tree = ast.parse(

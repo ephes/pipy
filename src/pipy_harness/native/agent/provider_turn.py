@@ -29,6 +29,26 @@ class ProviderTurnInterruption(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderTurnDeltaPolicy:
+    """Select which provider delta channels receive canonical sinks.
+
+    The canonical agent loop uses both channels. Compatibility runtimes may
+    disable a channel only when their established provider contract was
+    buffered or text-only; disabled channels are passed to the provider as
+    ``None`` rather than as no-op callables.
+    """
+
+    text: bool = True
+    reasoning: bool = True
+
+    def __post_init__(self) -> None:
+        if type(self.text) is not bool:
+            raise TypeError("ProviderTurnDeltaPolicy.text must be an exact bool")
+        if type(self.reasoning) is not bool:
+            raise TypeError("ProviderTurnDeltaPolicy.reasoning must be an exact bool")
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderTurnOutcome:
     """Exactly one completed provider result or typed cancellation reason."""
 
@@ -255,6 +275,7 @@ class ProviderTurnExecutor:
         *,
         turn_index: int,
         waiter: ProviderTurnWaiter | None = None,
+        delta_policy: ProviderTurnDeltaPolicy = ProviderTurnDeltaPolicy(),
     ) -> ProviderTurnOutcome:
         """Complete one turn synchronously or through the supplied wait policy."""
 
@@ -267,31 +288,38 @@ class ProviderTurnExecutor:
         require_non_negative_int(turn_index, "turn_index")
         if waiter is not None and not callable(waiter):
             raise TypeError("waiter must be callable or None")
+        if type(delta_policy) is not ProviderTurnDeltaPolicy:
+            raise TypeError("delta_policy must be an exact ProviderTurnDeltaPolicy")
         if waiter is None:
             return self._complete_synchronously(
-                provider, request, event_sink, turn_index
+                provider, request, event_sink, turn_index, delta_policy
             )
         return self._complete_interruptibly(
-            provider, request, event_sink, turn_index, waiter
+            provider, request, event_sink, turn_index, waiter, delta_policy
         )
 
     @staticmethod
     def _delta_sinks(
         event_sink: AgentEventSink,
         turn_index: int,
+        policy: ProviderTurnDeltaPolicy,
         gate: _DeltaAdmissionGate | None = None,
-    ) -> tuple[StreamChunkSink, StreamChunkSink]:
+    ) -> tuple[StreamChunkSink | None, StreamChunkSink | None]:
         def _text(chunk: str) -> None:
             event_sink.emit(AssistantTextDelta(turn_index, ProductContent(chunk)))
 
         def _reasoning(chunk: str) -> None:
             event_sink.emit(AssistantReasoningDelta(turn_index, ProductContent(chunk)))
 
+        text_sink: StreamChunkSink | None = _text if policy.text else None
+        reasoning_sink: StreamChunkSink | None = (
+            _reasoning if policy.reasoning else None
+        )
         if gate is None:
-            return _text, _reasoning
+            return text_sink, reasoning_sink
         return (
-            lambda chunk: gate.emit(_text, chunk),
-            lambda chunk: gate.emit(_reasoning, chunk),
+            (lambda chunk: gate.emit(_text, chunk)) if policy.text else None,
+            (lambda chunk: gate.emit(_reasoning, chunk)) if policy.reasoning else None,
         )
 
     def _complete_synchronously(
@@ -300,9 +328,12 @@ class ProviderTurnExecutor:
         request: ProviderRequest,
         event_sink: AgentEventSink,
         turn_index: int,
+        delta_policy: ProviderTurnDeltaPolicy,
     ) -> ProviderTurnOutcome:
         gate = _DeltaAdmissionGate(_ExecutionOrder())
-        text_sink, reasoning_sink = self._delta_sinks(event_sink, turn_index, gate)
+        text_sink, reasoning_sink = self._delta_sinks(
+            event_sink, turn_index, delta_policy, gate
+        )
         try:
             result = provider.complete(
                 request,
@@ -324,6 +355,7 @@ class ProviderTurnExecutor:
         event_sink: AgentEventSink,
         turn_index: int,
         waiter: ProviderTurnWaiter,
+        delta_policy: ProviderTurnDeltaPolicy,
     ) -> ProviderTurnOutcome:
         order = _ExecutionOrder()
         cancel_token = CancelToken()
@@ -333,7 +365,9 @@ class ProviderTurnExecutor:
         results: list[ProviderResult] = []
         errors: list[BaseException] = []
         provider_cancelled = threading.Event()
-        text_sink, reasoning_sink = self._delta_sinks(event_sink, turn_index, gate)
+        text_sink, reasoning_sink = self._delta_sinks(
+            event_sink, turn_index, delta_policy, gate
+        )
 
         def _worker() -> None:
             try:

@@ -22,11 +22,13 @@ The SDK is intentionally narrow today:
   (`RunRequest`, `RunResult`, `HarnessStatus`, `CapturePolicy`,
   `HarnessRunner`, `ProviderPort`, `StreamChunkSink`).
 
-The SDK is the in-process headless Python surface. It does not
-introduce a new runtime dependency, does not spawn HTTP servers, and
-does not perform any I/O at import time. Out-of-process JSON/RPC
-automation is specified separately in `docs/automation-rpc.md`; see
-`docs/sdk.md` for the embedding overview and current limits.
+The SDK is the in-process, metadata-first harness compatibility surface. It
+reuses the canonical provider-turn executor but is intentionally not a public
+multi-turn façade over the product ``AgentLoop``. It does not introduce a new
+runtime dependency, does not spawn HTTP servers, and does not perform any I/O
+at import time. Out-of-process JSON/RPC automation is specified separately in
+`docs/automation-rpc.md`; see `docs/sdk.md` for the embedding overview and
+current limits.
 """
 
 from __future__ import annotations

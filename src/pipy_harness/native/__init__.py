@@ -124,7 +124,7 @@ from pipy_harness.native.repl_input import (
     ReplInputUnavailableError,
     validate_native_repl_input_runtime,
 )
-from pipy_harness.native.session import NativeAgentSession
+from pipy_harness.native.session import NativeHarnessCompatibilityRuntime
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.coding.result import NativeToolReplResult
 from pipy_harness.native.tool_loop_session import (
@@ -181,7 +181,7 @@ __all__ = [
     "NATIVE_TOOL_OBSERVATION_STORAGE_KEYS",
     "NATIVE_VERIFICATION_RECORDED_EVENT",
     "NATIVE_VERIFICATION_STORAGE_KEYS",
-    "NativeAgentSession",
+    "NativeHarnessCompatibilityRuntime",
     "NATIVE_PROVIDER_REGISTRY",
     "NativeConversationIdentity",
     "NativeConversationState",

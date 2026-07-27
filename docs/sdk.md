@@ -7,7 +7,10 @@ link pipy in-process through `pipy_harness.sdk` rather than shelling out to the
 
 ## Current SDK Surface
 
-The current public SDK is intentionally small and one-shot:
+The current public SDK is intentionally small and one-shot. It preserves the
+metadata-first harness compatibility contract through
+`NativeHarnessCompatibilityRuntime`; it is not yet a public embedding façade
+over the canonical multi-turn product `AgentLoop`:
 
 - `make_native_run_request(...)` builds a `RunRequest` with `pipy-native`
   defaults.
@@ -77,8 +80,13 @@ and [RPC Mode](rpc.md) pages; the full protocol contract is specified in
 callers or callers that want process isolation, JSONL framing, asynchronous
 events, and mid-turn control.
 
-The SDK and JSON/RPC modes should reuse the same native runtime. JSON/RPC must
-not fork a separate product path.
+JSON/RPC and product `--print` reuse the canonical coding session and
+`AgentLoop`; they must not fork a separate product path. The narrower Python SDK
+is an intentional compatibility runtime: it reuses the canonical provider-turn
+executor, but retains its bounded provider-metadata fixture and workflow-archive
+contract. A future canonical product SDK would replace that compatibility
+surface as an explicit product/API slice rather than silently changing
+`run_native(...)` semantics.
 
 ## Privacy and Storage
 

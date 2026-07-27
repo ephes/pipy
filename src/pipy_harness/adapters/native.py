@@ -26,7 +26,7 @@ from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
 from pipy_harness.native.session import (
     NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
-    NativeAgentSession,
+    NativeHarnessCompatibilityRuntime,
     SYSTEM_PROMPT_ID,
     SYSTEM_PROMPT_VERSION,
 )
@@ -51,7 +51,7 @@ from pipy_harness.native.workspace_context import (
 
 
 class PipyNativeAdapter:
-    """Run one minimal native pipy turn through an injected provider."""
+    """Run the metadata-first one-shot compatibility contract."""
 
     name = "pipy-native"
 
@@ -96,7 +96,7 @@ class PipyNativeAdapter:
         event_sink: EventSink,
         capture_policy: CapturePolicy,
     ) -> AdapterResult:
-        run_output = NativeAgentSession(
+        run_output = NativeHarnessCompatibilityRuntime(
             provider=self.provider,
             tool=self.tool,
             instruction_loader=self.instruction_loader,

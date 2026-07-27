@@ -456,7 +456,10 @@ def test_explicit_file_excerpt_tool_boundary_is_documented():
     assert "`NativeReadOnlyGateDecision`" in spec
     assert "`NativeExplicitFileExcerptTarget`" in spec
     assert "`workspace_read_allowed`" in spec
-    assert "wired into `NativeAgentSession` only through the bounded fixture-gated" in compact_spec
+    assert (
+        "wired into `NativeHarnessCompatibilityRuntime` only through the bounded fixture-gated"
+        in compact_spec
+    )
     assert "Oversized files fail closed" in compact_spec
     assert "fuller ignore semantics remain deferred" in spec
     assert "metadata helper" in spec

@@ -47,9 +47,19 @@ from pipy_harness.native import (
     ProviderRequest,
     ProviderResult,
 )
-from pipy_harness.native.agent import AgentEvent, AgentUsage, UsageUpdated
+from pipy_harness.native.agent import (
+    AgentEvent,
+    AgentRunCompleted,
+    AgentRunOutcome,
+    AgentTurnOutcome,
+    AgentUsage,
+    AssistantTextDelta,
+    ProviderFailed,
+    TurnCompleted,
+    UsageUpdated,
+)
 from pipy_harness.native.session import (
-    NativeAgentSession,
+    NativeHarnessCompatibilityRuntime,
     SYSTEM_PROMPT_ID,
     SYSTEM_PROMPT_VERSION,
 )
@@ -141,6 +151,7 @@ class SequentialCapturingProvider:
 class ExplodingProvider:
     name = "exploding-fake"
     model_id = "exploding-model"
+    supports_tool_calls = False
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         time.sleep(0.001)
@@ -159,6 +170,10 @@ class FollowUpExplodingProvider:
     @property
     def model_id(self) -> str:
         return "exploding-follow-up-model"
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return False
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         if self.captured_requests is None:
@@ -336,7 +351,7 @@ def test_native_session_no_intent_builds_prompt_calls_provider_and_emits_safe_ev
 ):
     provider = CapturingProvider()
     sink = RecordingSink()
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -373,6 +388,104 @@ def test_native_session_no_intent_builds_prompt_calls_provider_and_emits_safe_ev
     assert not [event for event in sink.events if event[0].startswith("native.tool.")]
 
 
+def test_native_session_request_construction_failure_keeps_terminal_failed_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RecordingAgentSink:
+        def __init__(self) -> None:
+            self.events: list[AgentEvent] = []
+
+        def emit(self, event: AgentEvent) -> None:
+            self.events.append(event)
+
+    times = iter(
+        (
+            datetime(2026, 5, 3, 12, 0, 0, tzinfo=UTC),
+            datetime(2026, 5, 3, 12, 0, 1, tzinfo=UTC),
+            datetime(2026, 5, 3, 12, 0, 4, tzinfo=UTC),
+            datetime(2026, 5, 3, 12, 0, 5, tzinfo=UTC),
+            datetime(2026, 5, 3, 12, 0, 6, tzinfo=UTC),
+        )
+    )
+
+    def reject_invalid_request(**_kwargs: object) -> ProviderRequest:
+        raise ValueError("request validation rejected PRIVATE_REQUEST_DETAIL")
+
+    monkeypatch.setattr("pipy_harness.native.session.utc_now", lambda: next(times))
+    monkeypatch.setattr(
+        "pipy_harness.native.session.ProviderRequest", reject_invalid_request
+    )
+    provider = CapturingProvider()
+    sink = RecordingSink()
+    agent_sink = RecordingAgentSink()
+
+    output = NativeHarnessCompatibilityRuntime(
+        provider=provider,
+        agent_event_sink=agent_sink,
+    ).run(
+        NativeRunInput(
+            goal="SAFE_GOAL_METADATA",
+            cwd=tmp_path,
+            provider_name=provider.name,
+            model_id=provider.model_id,
+            system_prompt_id=SYSTEM_PROMPT_ID,
+            system_prompt_version=SYSTEM_PROMPT_VERSION,
+        ),
+        sink,
+    )
+
+    assert provider.complete_calls == 0
+    assert output.status is HarnessStatus.FAILED
+    assert output.exit_code == 1
+    assert output.final_text is None
+    assert output.error_type == "ValueError"
+    assert output.error_message == "ValueError"
+    assert [event_type for event_type, _summary, _payload in sink.events] == [
+        "native.session.started",
+        "native.provider.started",
+        "native.provider.failed",
+        "native.tool.skipped",
+        "native.session.completed",
+    ]
+    provider_failed = sink.events[2][2]
+    assert provider_failed is not None
+    assert provider_failed["status"] == HarnessStatus.FAILED.value
+    assert provider_failed["error_type"] == "ValueError"
+    assert provider_failed["error_message"] == "ValueError"
+    tool_skipped = sink.events[3][2]
+    assert tool_skipped is not None
+    assert tool_skipped["status"] == NativeToolStatus.SKIPPED.value
+    assert tool_skipped["reason"] == "provider_not_succeeded"
+    session_completed = sink.events[4][2]
+    assert session_completed is not None
+    assert session_completed["status"] == HarnessStatus.FAILED.value
+    assert session_completed["exit_code"] == 1
+
+    canonical_provider_failure = next(
+        event for event in agent_sink.events if isinstance(event, ProviderFailed)
+    )
+    assert canonical_provider_failure.failure.error_type == "ValueError"
+    assert canonical_provider_failure.failure.message.value == "ValueError"
+    assert canonical_provider_failure.will_retry is False
+    canonical_turn = next(
+        event for event in agent_sink.events if isinstance(event, TurnCompleted)
+    )
+    assert canonical_turn.outcome is AgentTurnOutcome.FAILED
+    canonical_run = next(
+        event for event in agent_sink.events if isinstance(event, AgentRunCompleted)
+    )
+    assert canonical_run.result.outcome is AgentRunOutcome.FAILED
+    assert canonical_run.result.failure is not None
+    assert canonical_run.result.failure.error_type == "ValueError"
+    assert canonical_run.result.failure.message.value == "ValueError"
+
+    summary_safe_events = json.dumps(sink.events, sort_keys=True)
+    assert "PRIVATE_REQUEST_DETAIL" not in summary_safe_events
+    assert "request validation rejected" not in summary_safe_events
+    assert "PRIVATE_REQUEST_DETAIL" not in repr(agent_sink.events)
+
+
 def test_native_session_normalizes_provider_usage_before_archiving(tmp_path):
     provider = CapturingProvider(
         usage={
@@ -387,7 +500,7 @@ def test_native_session_normalizes_provider_usage_before_archiving(tmp_path):
     )
     sink = RecordingSink()
 
-    NativeAgentSession(provider=provider).run(
+    NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -428,7 +541,7 @@ def test_native_session_drops_raw_content_provider_metadata_before_archiving(tmp
     )
     sink = RecordingSink()
 
-    NativeAgentSession(provider=provider).run(
+    NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -455,7 +568,7 @@ def test_native_session_safe_fake_noop_intent_invokes_tool_after_detected_event(
 ):
     provider = FakeNativeProvider(tool_intent=safe_noop_intent())
     sink = RecordingSink()
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -526,7 +639,7 @@ def test_native_session_safe_noop_intent_does_not_call_provider_after_tool_resul
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -614,7 +727,7 @@ def test_native_session_supported_synthetic_observation_fixture_makes_one_follow
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -772,7 +885,7 @@ def test_native_session_stream_callback_remains_initial_turn_only(tmp_path) -> N
     chunks: list[str] = []
     agent_sink = RecordingAgentSink()
 
-    NativeAgentSession(
+    NativeHarnessCompatibilityRuntime(
         provider=provider,
         stream_sink=chunks.append,
         agent_event_sink=agent_sink,
@@ -789,7 +902,12 @@ def test_native_session_stream_callback_remains_initial_turn_only(tmp_path) -> N
     )
 
     assert provider.stream_sink_presence == [True, False]
-    assert chunks == ["stream-1"]
+    canonical_text_deltas = [
+        event.delta.value
+        for event in agent_sink.events
+        if isinstance(event, AssistantTextDelta)
+    ]
+    assert chunks == canonical_text_deltas == ["stream-1"]
     usage_events = [
         event for event in agent_sink.events if isinstance(event, UsageUpdated)
     ]
@@ -817,7 +935,7 @@ def test_native_session_stream_callback_failure_is_not_a_provider_failure(
         raise failure
 
     event_sink = RecordingSink()
-    session = NativeAgentSession(
+    session = NativeHarnessCompatibilityRuntime(
         provider=FakeNativeProvider(programmable_text_chunks=("chunk",)),
         stream_sink=fail_stream_callback,
     )
@@ -891,7 +1009,7 @@ def test_native_session_allocates_bounded_provider_turns_from_conversation_state
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -954,7 +1072,7 @@ def test_native_session_read_only_tool_context_reaches_follow_up_provider_only_i
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -1065,7 +1183,7 @@ def test_native_session_records_patch_proposal_metadata_after_read_only_follow_u
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -1163,7 +1281,7 @@ def test_native_session_records_supported_patch_proposal_metadata_only(tmp_path)
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -1225,7 +1343,7 @@ def test_native_session_applies_human_reviewed_patch_after_supported_proposal(tm
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(
+    output = NativeHarnessCompatibilityRuntime(
         provider=provider,
         patch_apply_request=safe_patch_apply_request(
             "src/example.py", old_text, new_text
@@ -1330,7 +1448,7 @@ def test_native_session_runs_verification_after_successful_patch_apply_metadata_
         verification_succeeds,
     )
 
-    output = NativeAgentSession(
+    output = NativeHarnessCompatibilityRuntime(
         provider=provider,
         patch_apply_request=safe_patch_apply_request(
             "src/example.py", old_text, new_text
@@ -1455,7 +1573,7 @@ def test_native_session_supervised_self_bootstrap_trial_is_metadata_only(
         verification_succeeds,
     )
 
-    output = NativeAgentSession(
+    output = NativeHarnessCompatibilityRuntime(
         provider=provider,
         patch_apply_request=safe_patch_apply_request(
             "docs/bootstrap-trial.md", old_text, new_text
@@ -1579,7 +1697,7 @@ def test_native_session_verification_failure_fails_run_after_patch_apply(
         verification_fails,
     )
 
-    output = NativeAgentSession(
+    output = NativeHarnessCompatibilityRuntime(
         provider=provider,
         patch_apply_request=safe_patch_apply_request(
             "src/example.py", old_text, new_text
@@ -1679,7 +1797,7 @@ def test_native_session_missing_verification_gate_skips_and_fails_without_execut
         verification_skips,
     )
 
-    output = NativeAgentSession(
+    output = NativeHarnessCompatibilityRuntime(
         provider=provider,
         patch_apply_request=safe_patch_apply_request(
             "src/example.py", old_text, new_text
@@ -1739,7 +1857,7 @@ def test_native_session_patch_apply_failure_fails_closed_before_mutation(tmp_pat
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(
+    output = NativeHarnessCompatibilityRuntime(
         provider=provider,
         patch_apply_request=safe_patch_apply_request(
             "src/example.py", "stale\n", new_text
@@ -1812,7 +1930,7 @@ def test_native_session_patch_apply_unexpected_exception_keeps_request_metadata(
         "pipy_harness.native.session.NativePatchApplyTool.invoke", explode_invoke
     )
 
-    output = NativeAgentSession(
+    output = NativeHarnessCompatibilityRuntime(
         provider=provider,
         patch_apply_request=safe_patch_apply_request(
             "src/example.py", old_text, new_text
@@ -1863,7 +1981,7 @@ def test_native_session_drops_initial_patch_proposal_metadata_without_presence_f
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -1911,7 +2029,7 @@ def test_native_session_drops_synthetic_follow_up_patch_proposal_metadata_withou
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -1990,7 +2108,7 @@ def test_native_session_unsafe_or_unsupported_patch_proposal_records_skipped_met
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -2046,7 +2164,7 @@ def test_native_session_read_only_follow_up_provider_exception_does_not_archive_
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -2097,7 +2215,7 @@ def test_native_session_read_only_tool_skips_generated_target_before_provider_vi
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -2148,7 +2266,7 @@ def test_native_session_unsafe_read_only_fixture_skips_before_read_or_follow_up(
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -2193,7 +2311,7 @@ def test_native_session_read_only_intent_without_fixture_skips_before_read_or_fo
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -2283,7 +2401,7 @@ def test_native_session_unsafe_or_unsupported_observation_fixture_skips_before_f
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -2342,7 +2460,7 @@ def test_native_session_unsafe_intent_skips_without_detected_or_started_events(
         },
     )
     sink = RecordingSink()
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -2436,7 +2554,7 @@ def test_native_session_unsafe_intent_reasons_are_sanitized_and_skipped(
         metadata={PROVIDER_TOOL_INTENT_METADATA_KEY: tool_intent},
     )
     sink = RecordingSink()
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -2486,7 +2604,7 @@ def test_native_session_provider_request_like_id_is_not_archived_as_tool_request
     )
     sink = RecordingSink()
 
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
@@ -2527,7 +2645,7 @@ def test_native_session_unsupported_intent_skips_without_invoking_tool(tmp_path)
         },
     )
     sink = RecordingSink()
-    output = NativeAgentSession(provider=provider).run(
+    output = NativeHarnessCompatibilityRuntime(provider=provider).run(
         NativeRunInput(
             goal="SAFE_GOAL_METADATA",
             cwd=tmp_path,
