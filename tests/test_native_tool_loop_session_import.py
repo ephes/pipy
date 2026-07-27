@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -769,8 +770,6 @@ def test_uncontrolled_copy_and_open_failures_propagate_with_partial_effects(
     monkeypatch: pytest.MonkeyPatch,
     failure: str,
 ) -> None:
-    import pipy_harness.native.export_distribution as distribution_module
-
     cwd = _workspace(tmp_path)
     active = _active_tree(tmp_path, cwd)
     source, _ = _import_source(tmp_path, cwd)
@@ -782,7 +781,7 @@ def test_uncontrolled_copy_and_open_failures_propagate_with_partial_effects(
     )
     if failure == "copy":
         monkeypatch.setattr(
-            distribution_module.shutil,
+            shutil,
             "copyfile",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("copy failed")),
         )

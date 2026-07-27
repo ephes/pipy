@@ -28,9 +28,9 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 8 — strict native support modules**. Product-parity deltas in the Pi
-audit remain selection candidates after the architecture program and do not
-expand an architecture slice.
+is **Slice 9 — strict source frontier completion**. Product-parity deltas in
+the Pi audit remain selection candidates after the architecture program and do
+not expand an architecture slice.
 
 Progress:
 
@@ -637,6 +637,57 @@ Progress:
   the Slice 8f checkpoint; Slice 8g may begin only from the clean committed
   state. Commit subject:
   `refactor: enforce strict native tool typing`.
+
+- **Slice 8g — strict native export/distribution typing: COMPLETE.** The sole
+  selected owner is `pipy_harness.native.export_distribution`; no other root
+  module, Slice 9 owner, or broader native wildcard joins the ratchet. The
+  enumerated strict-equivalent override grows **34 -> 35** ordered entries,
+  with the exact module immediately after `pipy_harness.native.tools.*`, while
+  every explicit per-module strict sub-flag and all three global-only flags
+  remain enabled. There is no global `strict`, exclusion, relaxed flag,
+  suppression, cast, assertion workaround, unchecked `Any`, dependency, C901
+  pin, schema duplication, or public TypedDict hierarchy.
+
+  The selected diagnostic falls **1 error in one file -> zero**. Diagnostic
+  `mypy --strict src` falls **21 errors in 21 files -> 20 errors in 20 files**;
+  every remaining finding is the deferred Slice 9 `HarnessStatus`
+  implicit-export cascade rooted in `pipy_harness.models`.
+  `session_export_payload` keeps its naturally inferred heterogeneous static
+  mapping and returns through a private generic-keyed
+  `Mapping[..., object] -> dict[str, Any]` redaction helper. The public
+  `redact_export_value(Any) -> Any` boundary delegates its mapping branch to
+  the same helper and remains intentionally dynamic. Executable
+  characterization freezes arbitrary mapping-key `str()` conversion,
+  recursive mapping/list processing, tuple-to-list conversion, scalar
+  preservation, sensitive-key and string redaction, and the exact ordered
+  top-level payload keys `header`, `entries`, `leafId`, `systemPrompt`, and
+  `tools`.
+
+  `just typecheck` is clean across **424 source files**. The focused
+  export/import/architecture/strict-frontier gate passes **244 tests**, all
+  **11** export/distribution conformance checks pass, and the full repository
+  gate passes **4,667 tests with two skips** after clean Ruff and Mypy phases.
+  `just docs-build` and `git diff --check` are clean. Repository/src C901
+  remains **38 / 22**, and the source type-ignore count remains **1**.
+
+  Full-tree HTML and active-branch JSONL bytes and identities, import
+  collision handling/source immutability/missing-CWD replacement, secret-gist
+  payloads and cancellation, update/version/install planning, recursive
+  redaction, authorization-token exclusion, one-way imports, full-content
+  native product sessions, and metadata-only workflow-archive privacy remain
+  unchanged. `docs/export-distribution.md` remains accurate without an edit,
+  and no changelog entry applies because observable behavior is unchanged.
+  Implementation was direct with no coding subagent. The independent gate is a
+  fresh read-only Claude Code review using exactly `claude-opus-5` at `xhigh`
+  effort over the complete final code, tests, configuration, and closeout
+  documentation; detailed round outcomes belong in the summary-safe workflow
+  record and implementer report rather than durable review narration here.
+  Commit subject:
+  `refactor: enforce strict export distribution typing`.
+
+  This closes Slice 8 completely. The active pointer advances to **Slice 9 —
+  strict source frontier completion**; its `HarnessStatus` export cleanup and
+  package-wide strict-frontier work remain untouched.
 
 ## Current State
 

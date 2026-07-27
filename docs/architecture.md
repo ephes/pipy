@@ -258,12 +258,14 @@ extension ownership surface (`pipy_harness.extensions`,
 `native.package_runtime`, `native.resources`, `native.repl_input`,
 `native.autocomplete_provider`, `native.tool_renderers`, `native.routing`,
 `native.oauth_providers`, `native.models_json`, `native.catalog_state`,
-`native.provider_construction`, `native.ds4`, and `native.tools.*`. This is 34
-ordered override entries: 33 exact module/package entries plus the narrow
-`native.tools.*` package wildcard. Slice 8a's three support owners narrow
-validated integer settings without accepting booleans, preserve string- and
-object-form package JSON through a string-keyed object boundary, and traverse
-the product-session tree through the authoritative `SessionTreeNode` type.
+`native.provider_construction`, `native.ds4`, `native.tools.*`, and
+`native.export_distribution`. This is 35 ordered override entries: 34 exact
+module/package entries plus the narrow `native.tools.*` package wildcard.
+`native.export_distribution` follows that wildcard as the final Slice 8 entry.
+Slice 8a's three support owners narrow validated integer settings without
+accepting booleans, preserve string- and object-form package JSON through a
+string-keyed object boundary, and traverse the product-session tree through the
+authoritative `SessionTreeNode` type.
 Slice 8b adds the package-resource resolver, package-runtime composition seam,
 and resource registry/dispatcher. `PackageResourceRoots` remains
 authoritatively defined in `package_resources`; `package_runtime` explicitly
@@ -309,8 +311,22 @@ preservation, replacement, failure cleanup, and post-replacement diff streaming
 remain unchanged. Tool schemas, request/result identities, workspace
 containment, and the provider-visible/product-session/archive boundaries are
 unchanged.
-These modules are strict; the repository default remains non-strict only
-outside the listed frontier.
+Slice 8g adds the product export/distribution owner. Its static
+`session_export_payload` mapping and the public recursive redactor now share a
+private generic-keyed `Mapping[..., object]` path with an exact
+`dict[str, Any]` result. The helper still stringifies arbitrary mapping keys,
+recurses through mappings and lists, converts tuples to lists, redacts
+credential-shaped keys and strings, and preserves scalar values. The public
+`redact_export_value(Any) -> Any` boundary remains intentionally dynamic.
+Full-tree HTML, active-branch JSONL, import, secret-gist sharing, cancellation,
+self-update planning, credential exclusion, native product-session content,
+and the metadata-only workflow archive are unchanged.
+
+These 35 entries are strict, and Slice 8 is complete. The repository default
+remains non-strict only outside the listed frontier. The active Slice 9
+boundary is the remaining 20-file `HarnessStatus` implicit-export cascade
+rooted in `pipy_harness.models`; export/distribution has no remaining strict
+diagnostic.
 
 Ruff C901 is a directional repository gate. Previously complex files are
 explicitly pinned and no new pin may be added; a finding in a previously clean
@@ -336,7 +352,9 @@ The active program addresses ownership risks rather than cosmetic size:
   publication-gate admission is not yet atomic;
 - `_ReplLoopStep.step_once` remains a high-complexity cross-boundary
   orchestrator with a wide collaborator list;
-- strict typing has not yet reached every source module;
+- strict typing has not yet reached every source module: Slice 9 owns the
+  remaining `HarnessStatus` implicit-export cascade and package-wide frontier
+  completion;
 - the one-shot runtime and canonical interactive loop have unresolved semantic
   overlap;
 - `ToolLoopTerminalUi` still combines editor, overlay, extension chrome, and

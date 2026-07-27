@@ -25,7 +25,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from pipy_harness.native.session_tree import (
     NativeSessionTree,
@@ -51,6 +51,7 @@ _COMMON_TOKEN_RE = re.compile(
     r"xox[bp]-[A-Za-z0-9._-]{8,})\b"
 )
 SELF_UPDATE_PACKAGE_ENV = "PIPY_SELF_UPDATE_PACKAGE"
+_MappingKeyT = TypeVar("_MappingKeyT")
 
 
 class NativeExportError(RuntimeError):
@@ -81,14 +82,7 @@ def redact_export_value(value: Any) -> Any:
     """Return ``value`` with auth-token/credential-shaped strings redacted."""
 
     if isinstance(value, Mapping):
-        redacted: dict[str, Any] = {}
-        for key, item in value.items():
-            key_text = str(key)
-            if _key_is_sensitive(key_text):
-                redacted[key_text] = "[REDACTED]"
-            else:
-                redacted[key_text] = redact_export_value(item)
-        return redacted
+        return _redact_export_mapping(value)
     if isinstance(value, list):
         return [redact_export_value(item) for item in value]
     if isinstance(value, tuple):
@@ -96,6 +90,19 @@ def redact_export_value(value: Any) -> Any:
     if isinstance(value, str):
         return _redact_text(value)
     return value
+
+
+def _redact_export_mapping(
+    value: Mapping[_MappingKeyT, object],
+) -> dict[str, Any]:
+    redacted: dict[str, Any] = {}
+    for key, item in value.items():
+        key_text = str(key)
+        if _key_is_sensitive(key_text):
+            redacted[key_text] = "[REDACTED]"
+        else:
+            redacted[key_text] = redact_export_value(item)
+    return redacted
 
 
 def _key_is_sensitive(key: str) -> bool:
@@ -165,7 +172,7 @@ def session_export_payload(
         "systemPrompt": system_prompt,
         "tools": tools or [],
     }
-    return redact_export_value(payload)
+    return _redact_export_mapping(payload)
 
 
 def encoded_session_payload(payload: Mapping[str, Any]) -> str:

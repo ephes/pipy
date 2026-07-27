@@ -24,6 +24,7 @@ from pipy_harness.native.export_distribution import (
     import_native_session_jsonl,
     parse_command_path_argument,
     redact_export_value,
+    session_export_payload,
     self_update_plan,
 )
 from pipy_harness.native.cancellation import CancelToken
@@ -139,6 +140,61 @@ def test_redaction_covers_json_quoted_secret_assignments() -> None:
     assert '"password": "[REDACTED]"' in redacted
     assert '"token":"[REDACTED]"' in redacted
     assert '"safe":"ok"' in redacted
+
+
+def test_redaction_preserves_recursive_container_and_mapping_key_behavior() -> None:
+    redacted = redact_export_value(
+        {
+            7: {
+                "safe": ("value", {"api_key": "secret"}),
+                "items": ["Bearer abcdefgh", 3, None],
+            }
+        }
+    )
+
+    assert redacted == {
+        "7": {
+            "safe": ["value", {"api_key": "[REDACTED]"}],
+            "items": ["Bearer [REDACTED]", 3, None],
+        }
+    }
+
+
+def test_session_export_payload_keeps_exact_top_level_shape(tmp_path: Path) -> None:
+    tree = _tree(tmp_path)
+    tools = [
+        {
+            "name": "read",
+            "description": "Read a file",
+            "api_key": "tool-secret",
+        }
+    ]
+
+    payload = session_export_payload(
+        tree,
+        system_prompt="system instructions Bearer abcdefgh",
+        tools=tools,
+    )
+
+    assert tuple(payload) == (
+        "header",
+        "entries",
+        "leafId",
+        "systemPrompt",
+        "tools",
+    )
+    assert payload["header"] == tree.get_header().to_json_dict()
+    assert payload["leafId"] == tree.get_leaf_id()
+    assert payload["systemPrompt"] == "system instructions Bearer [REDACTED]"
+    assert payload["tools"] == [
+        {
+            "name": "read",
+            "description": "Read a file",
+            "api_key": "[REDACTED]",
+        }
+    ]
+    assert tools[0]["api_key"] == "tool-secret"
+    assert len(payload["entries"]) == len(tree.get_entries())
 
 
 def test_tool_loop_export_command_writes_jsonl_and_html_with_quoted_path(tmp_path: Path) -> None:
