@@ -9,6 +9,9 @@ from typing import Any, cast
 from pipy_harness.native.editor_completion import CompletionItem
 
 
+_MISSING_PROVIDER_METHOD = object()
+
+
 @dataclass(frozen=True, slots=True)
 class AutocompleteSuggestion:
     items: tuple[CompletionItem, ...]
@@ -29,8 +32,15 @@ class AutocompleteContext:
     signal: object | None = None
 
 
-def call_provider_method(provider: object, snake: str, camel: str, *args):
-    method = getattr(provider, snake, None) or getattr(provider, camel, None)
+def call_provider_method(
+    provider: object,
+    snake: str,
+    camel: str,
+    *args: object,
+) -> object:
+    method = getattr(provider, snake, _MISSING_PROVIDER_METHOD)
+    if method is _MISSING_PROVIDER_METHOD:
+        method = getattr(provider, camel, _MISSING_PROVIDER_METHOD)
     if not callable(method):
         raise AttributeError(snake)
     return method(*args)

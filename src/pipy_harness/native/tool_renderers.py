@@ -7,7 +7,7 @@ import os
 import threading
 from collections.abc import Callable, Iterable, Mapping, MutableMapping
 from dataclasses import dataclass
-from typing import Any, ClassVar, TextIO
+from typing import Any, ClassVar, TextIO, TypedDict
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
@@ -20,14 +20,18 @@ from pipy_harness.native.chrome import (
     terminal_supports_truecolor,
 )
 from pipy_harness.native.extension_runtime import (
+    ToolRenderDetailsWriter,
+)
+from pipy_harness.native.extension_types import (
+    ChromeComponent,
     ExtensionTool,
     RegisteredTool,
     ThemeColor,
+    ToolRenderComponent,
     ToolRenderContext,
-    ToolRenderDetailsWriter,
     ToolRenderTheme,
-    coerce_tool_render_lines,
 )
+from pipy_harness.native.extension_ui import coerce_tool_render_lines
 from pipy_harness.native.provider import StreamChunkSink
 
 
@@ -100,11 +104,10 @@ def render_tool_phase(
         raise
     except BaseException:  # noqa: BLE001 - a bad renderer falls back
         return None
-    render = getattr(component, "render", None)
-    if not callable(render):
+    if not isinstance(component, ToolRenderComponent):
         return None
     try:
-        produced = render(ctx.width)
+        produced = component.render(ctx.width)
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001 - a bad render() falls back
@@ -121,26 +124,25 @@ _CHROME_TRUNCATION_MARKER = "  … (chrome truncated)"
 def _produce_chrome_lines(source: object, *, width: int) -> object | None:
     """Resolve a chrome source and invoke components fail-soft."""
 
-    component: object | None = None
+    component: ChromeComponent | None = None
     if callable(source):
         try:
-            component = source()
+            candidate = source()
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException:  # noqa: BLE001 - a bad factory falls back
             return None
-    elif not isinstance(source, (str, bytes, bytearray)) and callable(
-        getattr(source, "render", None)
-    ):
+        if not isinstance(candidate, ChromeComponent):
+            return None
+        component = candidate
+    elif isinstance(source, ChromeComponent):
         component = source
     if component is None:
         return source
 
-    render = getattr(component, "render", None)
-    if not callable(render):
-        return None
     try:
-        return render(width)
+        produced: object = component.render(width)
+        return produced
     except (KeyboardInterrupt, SystemExit):
         raise
     except BaseException:  # noqa: BLE001 - a bad render() falls back
@@ -192,6 +194,12 @@ def _extension_render_details_sinks(
         return _ExtensionRenderDetailsSinks(writer=tui, tui=tui)
     captured: dict[str, object | None] = {}
     return _ExtensionRenderDetailsSinks(writer=captured, captured=captured)
+
+
+class _PendingCapturedToolRender(TypedDict):
+    corr: str
+    args: dict[str, object]
+    state: dict[str, object]
 
 
 class _ToolLoopRenderer:
@@ -284,7 +292,7 @@ class _ToolLoopRenderer:
         self._reasoning_emitted_any = False
         self._tool_renderers = dict(tool_renderers or {})
         self._render_details_sink = render_details_sink
-        self._pending_render: dict[str, object] | None = None
+        self._pending_render: _PendingCapturedToolRender | None = None
         self._pending_tool: "ExtensionTool | None" = None
         self._last_tool_name = ""
 
@@ -755,8 +763,8 @@ class _ToolLoopRenderer:
 
     def _extension_result_lines(
         self,
-        pending: dict[str, object] | None,
-        tool: "ExtensionTool | None",
+        pending: _PendingCapturedToolRender | None,
+        tool: ExtensionTool | None,
         output_text: str,
         is_error: bool,
     ) -> list[str] | None:
@@ -827,21 +835,32 @@ class _ToolLoopRenderer:
         )
 
     def _dispatch_render(
-        self, renderer, args, state, *, is_result, content, details, is_error
-    ):
+        self,
+        renderer: Callable[[ToolRenderContext], object],
+        args: Mapping[str, object],
+        state: MutableMapping[str, object],
+        *,
+        is_result: bool,
+        content: str | None,
+        details: object | None,
+        is_error: bool,
+    ) -> list[str] | None:
         style = chrome_style_for(self._error_stream)
+        typed_details = details if isinstance(details, Mapping) else None
         ctx = ToolRenderContext(
             tool_name=self._last_tool_name,
             args=args,
             is_result=is_result,
             is_error=is_error,
             content=content,
-            details=details,
+            details=typed_details,
             expanded=False,
             width=80,
             theme=build_tool_render_theme(style),
             state=state,
         )
+        if details is not None and typed_details is None:
+            object.__setattr__(ctx, "details", details)
         return render_tool_phase(renderer, ctx)
 
     def _tool_panel_line(

@@ -348,7 +348,8 @@ Progress:
   `pipy_harness.native.resources`.
 
 - **Slice 8b — strict package-resource, package-runtime, and resource-dispatch
-  typing: IMPLEMENTED; INDEPENDENT REVIEW CLEAN; AWAITING COMMIT.** The exact selected
+  typing: SHIPPED.** Commit `515b463`
+  (`refactor: enforce strict package resource support`) records the exact selected
   inventory is `pipy_harness.native.package_resources`,
   `pipy_harness.native.package_runtime`, and
   `pipy_harness.native.resources`; no other Slice 8 module or wildcard joins
@@ -397,14 +398,78 @@ Progress:
   and explicitly said another cycle would add no value. One model-list
   preflight stalled before Round 1, was stopped without consuming a review
   round, and the exact approved model was then verified directly before the
-  fresh review. No subagent participated. This entry is not shipped until
-  committed, and the active pointer remains **Slice 8**. Suggested eventual commit subject:
-  `refactor: enforce strict package resource support`. From the remaining
+  fresh review. No subagent participated. The active pointer remains **Slice
+  8**. From the remaining
   diagnostics, the next bounded terminal-support/rendering group is
   `pipy_harness.native.repl_input`,
   `pipy_harness.native.autocomplete_provider`, and
   `pipy_harness.native.tool_renderers`; it remains deferred until a separately
   selected Slice 8 batch.
+
+- **Slice 8c — strict REPL-input, autocomplete-provider, and tool-renderer
+  typing: SHIPPED IN THIS COMMIT.** The exact selected
+  inventory is `pipy_harness.native.repl_input`,
+  `pipy_harness.native.autocomplete_provider`, and
+  `pipy_harness.native.tool_renderers`; no other Slice 8 module or wildcard
+  joins the ratchet. The enumerated strict-equivalent override grows **24 ->
+  27** exact entries after the Slice 8b group, preserving every explicit
+  per-module strict sub-flag and all three required global-only flags. There is
+  no global `strict`, exclusion, relaxed flag, suppression, new cast, or
+  unchecked `Any`.
+
+  The selected diagnostic falls **11 errors in three files -> zero**.
+  Diagnostic `mypy --strict src` falls **58 errors in 32 files -> 47 errors in
+  29 files**; the selected owners contribute no remaining findings.
+  `call_provider_method` keeps its deliberately duck-typed extension surface,
+  including snake-before-camel lookup, non-callable handling, unchanged
+  positional forwarding, and provider exception propagation, while arguments
+  and results cross an explicit `object` boundary before the existing lenient
+  coercion paths. Focused characterization pins those dispatch rules,
+  including present falsey non-callables and falsey callable objects.
+
+  Prompt-toolkit remains optional and dynamically loaded. Narrow local
+  protocols describe only its key-binding factory, decorator, event, and
+  buffer operations, with a generic return preserving concrete fake and real
+  key-binding class shape. Enter/Ctrl-J still submit and Escape+Enter/
+  Escape+Ctrl-J still insert a newline. Automatic backend selection remains
+  slash-menu -> prompt-toolkit -> readline -> plain, with explicit failures and
+  automatic fail-soft behavior unchanged.
+
+  Chrome and tool rendering now narrow factory/component values through the
+  authoritative runtime-checkable `ChromeComponent` and
+  `ToolRenderComponent` contracts from `extension_types`. The captured
+  `_ToolLoopRenderer._dispatch_render` uses the TUI dispatcher's authoritative
+  renderer callable, `ToolRenderContext`, mapping, content/details, and return
+  types. A typed pending-render record preserves argument/state correlation;
+  the original renderer remains pinned across reload/removal, and manually
+  injected opaque details still cross only the existing internal compatibility
+  seam. Bare strings/lists, zero-argument factories, width forwarding,
+  truncation, ordinary fail-soft failures, interrupt propagation, fallback,
+  output bytes/order, duration/error presentation, and one-way imports are
+  unchanged.
+
+  `just typecheck` is clean across **424 source files**. The focused
+  terminal-support gate passes **343 tests**, the broader owner surface passes
+  **524 tests**, PTY smoke passes **8 tests**, and the focused renderer/TUI PTY
+  gate passes **50 tests**. The full repository gate passes **4,659 tests with
+  two skips** after clean Ruff and Mypy phases, and `just docs-build` is clean.
+  Repository/src C901 remains **38 / 22**, and the `src` type-ignore count
+  remains **1**. Fresh read-only Pi review used
+  `openai-codex/gpt-5.6-sol` at high reasoning and is **CLEAN in two rounds**.
+  Round 1 reported one Warning and no Critical or Suggestion findings:
+  truthiness-based snake/camel selection did not honor the documented
+  precedence for present falsey attributes. The Warning was accepted and
+  fixed with sentinel-based presence detection plus focused falsey
+  callable/non-callable characterization. Round 2 closed that finding and
+  reported no new findings, skipped content, or truncation; the reviewer said
+  another cycle would add no value. Cumulative accepted/fixed/rejected/
+  deferred counts are **1 / 1 / 0 / 0**. The direct exact-model PTY preflight
+  completed normally, so no failed preflight consumed a round. No subagent
+  participated. Public extension contracts, optional dependencies, terminal
+  restoration, product session content, and metadata-archive privacy are
+  unchanged. No changelog entry applies. The active pointer remains **Slice
+  8**. Commit subject:
+  `refactor: enforce strict terminal rendering support`.
 
 ## Current State
 

@@ -4,6 +4,7 @@ import asyncio
 import os
 import sys
 import types
+from collections.abc import Callable
 from io import StringIO
 from pathlib import Path
 
@@ -51,10 +52,12 @@ class FakeDocument:
 
 class FakeKeyBindings:
     def __init__(self) -> None:
-        self.bindings: list[tuple[tuple[str, ...], object]] = []
+        self.bindings: list[tuple[tuple[str, ...], Callable[..., None]]] = []
 
-    def add(self, *keys: str):
-        def decorator(func):
+    def add(
+        self, *keys: str
+    ) -> Callable[[Callable[..., None]], Callable[..., None]]:
+        def decorator(func: Callable[..., None]) -> Callable[..., None]:
             self.bindings.append((keys, func))
             return func
 

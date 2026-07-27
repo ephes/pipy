@@ -4,7 +4,12 @@ import io
 from pathlib import Path
 from typing import cast
 
-from pipy_harness.native.autocomplete_provider import AutocompleteSuggestion
+import pytest
+
+from pipy_harness.native.autocomplete_provider import (
+    AutocompleteSuggestion,
+    call_provider_method,
+)
 from pipy_harness.native.editor_completion import CompletionItem
 from pipy_harness.native.extension_runtime import (
     ExtensionUiDriver,
@@ -40,6 +45,98 @@ def _workspace(tmp_path: Path) -> Path:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "config.py").write_text("x\n")
     return tmp_path
+
+
+def test_provider_method_prefers_snake_case_and_forwards_arguments_unchanged() -> None:
+    marker = object()
+
+    class Provider:
+        def get_suggestions(self, *args: object) -> tuple[str, tuple[object, ...]]:
+            return "snake", args
+
+        def getSuggestions(self, *args: object) -> tuple[str, tuple[object, ...]]:
+            return "camel", args
+
+    assert call_provider_method(
+        Provider(),
+        "get_suggestions",
+        "getSuggestions",
+        marker,
+        3,
+    ) == ("snake", (marker, 3))
+
+
+def test_provider_method_falls_back_to_camel_case_only_when_snake_is_missing() -> None:
+    class Provider:
+        def getSuggestions(self, value: object) -> tuple[str, object]:
+            return "camel", value
+
+    marker = object()
+
+    assert call_provider_method(
+        Provider(),
+        "get_suggestions",
+        "getSuggestions",
+        marker,
+    ) == ("camel", marker)
+
+
+@pytest.mark.parametrize("snake_value", [None, 0, "not callable"])
+def test_provider_method_non_callable_snake_case_does_not_fall_through(
+    snake_value: object,
+) -> None:
+    class Provider:
+        def __init__(self, value: object) -> None:
+            self.get_suggestions = value
+
+        def getSuggestions(self) -> str:
+            return "camel"
+
+    with pytest.raises(AttributeError) as exc_info:
+        call_provider_method(
+            Provider(snake_value),
+            "get_suggestions",
+            "getSuggestions",
+        )
+
+    assert exc_info.value.args == ("get_suggestions",)
+
+
+def test_provider_method_falsey_callable_snake_case_does_not_fall_through() -> None:
+    class FalseyCallable:
+        def __bool__(self) -> bool:
+            return False
+
+        def __call__(self, value: object) -> tuple[str, object]:
+            return "snake", value
+
+    class Provider:
+        get_suggestions = FalseyCallable()
+
+        def getSuggestions(self, value: object) -> tuple[str, object]:
+            return "camel", value
+
+    marker = object()
+
+    assert call_provider_method(
+        Provider(),
+        "get_suggestions",
+        "getSuggestions",
+        marker,
+    ) == ("snake", marker)
+
+
+def test_provider_method_preserves_provider_exception() -> None:
+    failure = RuntimeError("provider failure")
+
+    class Provider:
+        def get_suggestions(self) -> object:
+            raise failure
+
+    with pytest.raises(RuntimeError) as exc_info:
+        call_provider_method(Provider(), "get_suggestions", "getSuggestions")
+
+    assert exc_info.value is failure
 
 
 def test_collecting_ui_autocomplete_aliases_delegate_in_order() -> None:

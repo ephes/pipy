@@ -98,7 +98,9 @@ extend-select = ["C901"]
 # extension ownership surface (architecture-quality Slice 7), plus the
 # settings/package-manager/session-tree-command support batch
 # (architecture-quality Slice 8a) and package-resource/package-runtime/
-# resource-dispatch support batch (architecture-quality Slice 8b), into
+# resource-dispatch support batch (architecture-quality Slice 8b), plus the
+# REPL-input/autocomplete-provider/tool-renderer terminal-support batch
+# (architecture-quality Slice 8c), into
 # `--strict`.
 # The override lists the
 # per-module `--strict` sub-flags explicitly rather than `strict = true`,
@@ -138,6 +140,9 @@ module = [
     "pipy_harness.native.package_resources",
     "pipy_harness.native.package_runtime",
     "pipy_harness.native.resources",
+    "pipy_harness.native.repl_input",
+    "pipy_harness.native.autocomplete_provider",
+    "pipy_harness.native.tool_renderers",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

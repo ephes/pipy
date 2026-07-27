@@ -5,11 +5,11 @@ from __future__ import annotations
 import importlib
 import select
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, AsyncIterator, Iterable, Protocol, TextIO
+from typing import Any, AsyncIterator, Iterable, Protocol, TextIO, TypeVar
 
 from pipy_harness.capture import looks_sensitive
 from pipy_harness.native.coding.command_registry import (
@@ -1096,23 +1096,55 @@ def _prompt_toolkit_output(output_defaults: Any, error_stream: TextIO) -> Any:
     return output
 
 
-def _prompt_toolkit_multiline_key_bindings(key_bindings_cls: Any) -> Any:
+class _PromptToolkitBuffer(Protocol):
+    def validate_and_handle(self) -> None: ...
+
+    def insert_text(self, text: str) -> None: ...
+
+
+class _PromptToolkitKeyEvent(Protocol):
+    current_buffer: _PromptToolkitBuffer
+
+
+_PromptToolkitKeyHandler = Callable[[_PromptToolkitKeyEvent], None]
+
+
+class _PromptToolkitKeyBindings(Protocol):
+    def add(
+        self, *keys: str
+    ) -> Callable[[_PromptToolkitKeyHandler], _PromptToolkitKeyHandler]: ...
+
+
+_PromptToolkitKeyBindingsT = TypeVar(
+    "_PromptToolkitKeyBindingsT",
+    bound=_PromptToolkitKeyBindings,
+    covariant=True,
+)
+
+
+class _PromptToolkitKeyBindingsFactory(Protocol[_PromptToolkitKeyBindingsT]):
+    def __call__(self) -> _PromptToolkitKeyBindingsT: ...
+
+
+def _prompt_toolkit_multiline_key_bindings(
+    key_bindings_cls: _PromptToolkitKeyBindingsFactory[_PromptToolkitKeyBindingsT],
+) -> _PromptToolkitKeyBindingsT:
     key_bindings = key_bindings_cls()
 
     @key_bindings.add("enter")
-    def _submit_input(event: Any) -> None:
+    def _submit_input(event: _PromptToolkitKeyEvent) -> None:
         event.current_buffer.validate_and_handle()
 
     @key_bindings.add("c-j")
-    def _submit_lf_encoded_input(event: Any) -> None:
+    def _submit_lf_encoded_input(event: _PromptToolkitKeyEvent) -> None:
         event.current_buffer.validate_and_handle()
 
     @key_bindings.add("escape", "enter")
-    def _insert_newline(event: Any) -> None:
+    def _insert_newline(event: _PromptToolkitKeyEvent) -> None:
         event.current_buffer.insert_text("\n")
 
     @key_bindings.add("escape", "c-j")
-    def _insert_lf_encoded_newline(event: Any) -> None:
+    def _insert_lf_encoded_newline(event: _PromptToolkitKeyEvent) -> None:
         event.current_buffer.insert_text("\n")
 
     return key_bindings
