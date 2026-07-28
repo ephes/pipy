@@ -28,9 +28,11 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 12 — overlay and extension-chrome state extraction**. Product-parity deltas in
-the Pi audit remain selection candidates after the architecture program and do
-not expand an architecture slice.
+is **Slice 13 — pure frame composition**. Slice 12 implementation,
+verification, independent review, documentation, and commit integration are
+complete in the change that advances this pointer. Product-parity deltas in the
+Pi audit remain selection candidates after the architecture program and do not
+expand an architecture slice.
 
 Progress:
 
@@ -905,6 +907,166 @@ Progress:
   confidence. No correctness, privacy, trust, concurrency, data-loss, or
   public-contract finding remains. Commit remains pending at the point this
   ledger is written.
+
+- **Slice 12 — overlay and extension-chrome state extraction: IMPLEMENTATION,
+  VERIFICATION, INDEPENDENT REVIEW, AND DOCUMENTATION COMPLETE; COMMIT
+  INTEGRATION IMMEDIATELY PENDING.** New terminal-independent
+  `native.overlay_state.OverlayState` is the single owner for model, settings,
+  project-trust, tree, scoped-model, session-picker, and custom-extension
+  overlays. Its closed `active` discriminator and typed owner frames make the
+  renderable stack explicit: a distinct nested overlay restores its outer kind
+  on close, same-kind re-entry adds no bogus frame, and direct façade projection
+  writes intentionally supersede stale nesting. Settings and project-trust keep
+  explicit discriminators but share one payload family; a suspended settings-
+  family frame owns and restores the exact rows, title, and selection before the
+  outer dialog continues. Pure transitions own
+  wrapping, selectable/actionable constraints, scoped membership,
+  session-picker query/scope/sort/submodes and rows, and custom completion state
+  without streams, termios, PTYs, terminal writes, or extension execution.
+
+  New `native.extension_chrome_state.ExtensionChromeState` owns header/footer,
+  insertion-ordered widget placements, title, status, working/indicator state,
+  terminal-input listeners, and footer branch-listener rebuild bookkeeping.
+  Clear disposes snapshotted regions through the effectful façade before it
+  advances the local generation and drops generation-owned regions, footer
+  factory/branch/callback/rebuild state, title/indicator state, and terminal-
+  input registrations. Chrome and listeners synchronously registered by
+  `dispose()` are therefore retired too; retained old-generation listener/footer
+  disposers are generation-checked and inert even if a numeric id is reused.
+  Product-visible status rows and sticky working message/visibility retain their
+  pre-extraction cross-generation behavior and survive clear/reload.
+  `ToolLoopTerminalUi` remains the product façade and existing live extension
+  UI bridge. It still owns the
+  paint lock, raw mode and decoded bytes, extension factory/callback/component
+  execution, invalidate/render/dispose calls, git/filesystem inspection,
+  sanitization and caps, title push/write/restore, frame calculation, and
+  painting. Slotted compatibility projections read/write these owners directly
+  and cannot create mirrored stored state.
+
+  `TerminalDriver` now distinguishes three lifecycle operations. Its scoped
+  balanced raw ownership acquires before installing a matching release, so a
+  suspended nested attempt cannot consume another scope's owner and a failed
+  physical entry cannot fabricate one. Inner overlays share the outer
+  transition without a second `TCSAFLUSH`, and
+  only the outermost release disables bracketed paste and restores the original
+  termios. The custom-component lifecycle uses an equivalent successful-entry
+  guard so its established disposal/repaint-before-release ordering remains
+  exact. Configured external editors and blocking login/OAuth prompts instead
+  use one scoped, nest-guarded external-I/O façade: entry immediately disables
+  bracketed paste and restores cooked termios even above raw depth one without
+  consuming logical owners, while its unavoidable paired exit re-enters
+  physical raw mode with the documented `TCSAFLUSH` policy. A scope is also
+  published when no raw owner exists, raw acquisition while suspended fails
+  loudly, and unmatched resume fails rather than claiming a physically false
+  owner. Failed cooked entry launches no foreign consumer; failed raw resumption
+  keeps recovery suspended for the forced-close boundary, while a completed
+  external-editor file is inspected before exit so the edit is retained.
+  Local shell/model-tool subprocesses keep detached stdin and therefore remain
+  under the raw active-turn watcher rather than suspending the TTY. The actual
+  `ToolLoopTerminalUi.close` recovery boundary remains a separate forced restore
+  that zeroes abandoned raw and suspension ownership and safely restores the
+  saved terminal whether physically raw or suspended; repeated close is
+  idempotent.
+
+  Terminal-independent transition/ownership tests and import gates cover the
+  active-overlay invariant and nested restoration, exact settings -> project-
+  trust -> settings payload continuation (including an empty nested candidate
+  leaving the exact outer payload untouched), navigation and unavailable rows
+  (including single-row repaint parity), project-trust identity, a foreign
+  editor observing canonical mode at nested raw depth, physical raw resumption
+  with all logical owners intact, final balanced release, and forced close
+  recovery after either an unmatched acquisition or a suspended handoff,
+  transition failures, missing/misordered pairing, scoped nesting, exceptional
+  exit, and failed nested raw acquisition without outer-owner loss; real
+  `termios.error` editor suspend/resume regressions preserve both no-launch and
+  completed-edit behavior. The trust-session terminal double is again a real
+  context manager, while existing login/auth tests exercise the live scoped
+  path; the
+  captured `render_lines()` session-picker exclusion versus live paint,
+  session row mutation, sticky versus generation-owned chrome clear semantics,
+  stale façade/owner disposer refusal under forced id reuse, footer callback-slot
+  rebuilds, direct assignment write-through identity, and absence of the retired
+  fields from the façade dataclass. The four characterization-only one-line
+  transition delegates were deleted, and tests now name the owner methods
+  directly. The earlier broad Pi focused gate passed **633 tests**. The
+  coordinator's distinct final changed-boundary focused gate passed **466
+  tests**; it was not the same selector as the 633-test gate. The round-7
+  terminal-driver/all-raw-user/auth/owner focused gate passed **243 tests**, and
+  the architecture gate passed **174**. The complete relevant real-PTY
+  selector, session-picker, custom UI/foreign-editor, project-trust, chrome, and
+  live reload gate passed **70 tests**, including the nested-depth foreign-
+  consumer proof; the round-7 directly affected PTY subset passed **66 tests**,
+  and the PTY smoke gate passed **8 tests**. Strict
+  `uv run mypy --strict src` is clean across **168 source files**, and the
+  combined typecheck is clean across **432 source/test files**.
+
+  Architecture metrics report `ToolLoopTerminalUi` state fields **104 -> 43**
+  (well below the cumulative **89-field** ceiling), source/test Python physical
+  lines **79,846 / 116,948 -> 80,914 / 118,414**,
+  `tool_loop_session.py` **5,433** lines, and `tui.py` **6,894 -> 7,066** lines.
+  Repository/source C901 remains **38 / 22**, preserving the Slice 12 starting
+  baseline rather than improving it, and the source type-ignore count remains
+  exactly **1**.
+
+  One complete `just check` attempt failed
+  `test_pty_extension_editor_external_editor_invalid_utf8_keeps_text`: the
+  rendered external-editor hint was observed and Ctrl+G was written before the
+  existing outer `TCSAFLUSH` raw transition, so the editor never launched. The
+  exact case passed once and then reproduced on repetition run 2; its containing
+  PTY module immediately passed **8/8**. The relevant **70-case** real-PTY group
+  and **8-case** smoke gate passed, and the complete repository retry passed
+  **4,766 tests / 2 skipped**. This is explicit queued **Slice 14 — deterministic
+  PTY synchronization** observable-readiness evidence. The round-7 complete
+  full final repository gate passed **4,772 tests / 2 skipped**. No sleep or timeout
+  increase, timing workaround, or coverage weakening entered Slice 12.
+  Ruff, both typechecks, all **12** deterministic TUI workflow conformance
+  checks, `git diff --check`, and the docs build are clean. Both theme stores are
+  `pi`.
+
+  Independent review used the exact `claude-opus-5` model at `xhigh` effort in
+  a read-only harness. Eight valid complete rounds covered Slice 12; every round
+  had zero skipped files, truncations, redactions, forbidden tool uses, scoped
+  omissions, or provider errors. Rounds 1–7 reported the findings and received
+  the fixes recorded in the implementation and focused-test account above.
+  Round 7 specifically reported **1 Warning + 2 Suggestions**; all three fixes
+  are represented in the final code and gates. Round 8 reported **4
+  Suggestions** and no Critical or Warning findings. No self-produced review
+  verdict is used as review evidence.
+
+  The four Round 8 Suggestions received these individual proportionality
+  dispositions:
+
+  1. `/login` scope-exit outcome asymmetry is currently unreachable because
+     login runs only after `read_line` releases raw ownership. Existing
+     exception handling preserves the current contract. A hypothetical future
+     authentication flow introduced inside raw ownership must define that
+     outcome then; this is not a current defect.
+  2. Balanced or forced restoration while an external-I/O scope remains open is
+     not a reachable synchronous product ordering. Forced close remains the
+     authoritative shutdown boundary; this slice does not add speculative
+     lifecycle semantics.
+  3. Mixed owner/projection reads are private, characterized compatibility
+     access—not parallel stored state or a behavior defect. Changing them would
+     continue projection churn without architectural value.
+  4. Successful configured-editor entry intentionally clears/resets the live
+     region before the launch notice through the documented scoped external-I/O
+     contract; failed entry preserves the frame. This corrects stale tracking
+     and is already documented, while another characterization-only test would
+     not improve confidence.
+
+  Rounds 6 and 7 were consecutive findings caused by the preceding review
+  fixes. Round 8 contains only the non-material Suggestions dispositioned above,
+  so the project's two-consecutive self-inflicted-churn stop signal applies and
+  another round would not add material value. No substantive finding remains;
+  this is a value-based stopping disposition, not a claim of Claude CLEAN.
+
+  No dependency, unchecked `Any`, suppression, Mypy exclusion, C901 pin,
+  compatibility shim, alternate-screen behavior, schema, trust/session/privacy
+  contract, or changelog entry is introduced. The ownership refactor is
+  behavior-preserving, so the no-changelog disposition remains. Slice 12
+  implementation, verification, independent review, and documentation are
+  complete. **Slice 13 — pure frame composition** is now active; the Slice 12
+  commit integrates this ledger and advances the pointer atomically.
 
 ## Current State
 
@@ -3330,7 +3492,7 @@ terminal-title OSC push/write/restore (`push_title`/`write_title`/`restore_title
 + the relocated `_TITLE_MAX_CHARS` cap and control-character sanitization). The
 UI builds the driver once in `__post_init__` and routes every terminal
 write/flush through it (paint, forced full redraw, resize screen-clear, `close`
-teardown, `suspend_for_external_io`, external-editor notice), with
+teardown, `external_io_suspension`, external-editor notice), with
 `_force_full_redraw` and the resize handler branching on the returned `bool` to
 keep the exact skip-bookkeeping-on-failed-frame behavior. The two `\x1b[2J\x1b[H`
 screen-clear sites route through a write-without-flush `write_deferred(text) ->

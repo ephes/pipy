@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import io
 import json
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO, cast
@@ -124,6 +125,7 @@ class _ScriptedSettingsUi(ToolLoopTerminalUi):
         self.scope_calls = 0
         self.scope_selection: frozenset[str] | None = None
         self.suspend_calls = 0
+        self.resume_calls = 0
         self.footer_updates = 0
         self.trace: list[str] = []
         self._lines = ["/settings\n", ""]
@@ -146,9 +148,15 @@ class _ScriptedSettingsUi(ToolLoopTerminalUi):
         self.footer_updates += 1
         self.trace.append("footer")
 
-    def suspend_for_external_io(self) -> None:
+    @contextmanager
+    def external_io_suspension(self) -> Iterator[None]:
         self.suspend_calls += 1
         self.trace.append("suspend")
+        try:
+            yield
+        finally:
+            self.resume_calls += 1
+            self.trace.append("resume")
 
     def add_notice(self, text: str) -> None:
         self.trace.append(f"notice:{text}")
@@ -162,8 +170,9 @@ class _ScriptedSettingsUi(ToolLoopTerminalUi):
         exit_actions: frozenset[str] = frozenset(),
         current_index: int | None = None,
         title: str = "Settings",
+        overlay_kind: str = "settings",
     ) -> str | None:
-        del current_index, title
+        del current_index, title, overlay_kind
         self.dialog_calls += 1
         self.trace.append("dialog")
         self.dialog_rows.append(tuple(rows))
@@ -720,10 +729,12 @@ def test_settings_auth_failure_orders_suspend_rebind_notice_and_reopen(
 
     expected_middle = ["auth", "rebind", "footer"]
     if action == "login":
-        expected_middle.insert(0, "suspend")
+        expected_middle = ["suspend", "auth", "resume", "rebind", "footer"]
         assert ui.suspend_calls == 1
+        assert ui.resume_calls == 1
     else:
         assert ui.suspend_calls == 0
+        assert ui.resume_calls == 0
     start = ui.trace.index(expected_middle[0])
     assert ui.trace[start : start + len(expected_middle)] == expected_middle
     assert ui.trace[-1] == "dialog"
@@ -790,9 +801,13 @@ def test_settings_auth_fatal_cuts_off_rebind_notice_reopen_and_outer_footer(
     assert not any(item.startswith("notice:") for item in ui.trace)
     assert ui.footer_updates == initial_footer_updates + 1
     if action == "login":
-        assert ui.trace[-2:] == ["suspend", "auth"]
+        assert ui.trace[-3:] == ["suspend", "auth", "resume"]
+        assert ui.suspend_calls == 1
+        assert ui.resume_calls == 1
     else:
         assert ui.trace[-1] == "auth"
+        assert ui.suspend_calls == 0
+        assert ui.resume_calls == 0
     assert provider.completions == 0
 
 

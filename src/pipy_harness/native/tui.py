@@ -17,12 +17,13 @@ import select
 import shlex
 import subprocess
 import sys
-import termios
 import tempfile
+import termios
 import textwrap
 import threading
 import time
-from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, Self, TYPE_CHECKING, TextIO, TypedDict, cast
@@ -63,6 +64,10 @@ from pipy_harness.native.editor_state import (
     EditorState,
     QueuedInputKind,
 )
+from pipy_harness.native.extension_chrome_state import (
+    ChromeRegion,
+    ExtensionChromeState,
+)
 from pipy_harness.native.extension_runtime import (
     ExtensionTool,
     FooterData,
@@ -86,6 +91,14 @@ from pipy_harness.native.extension_runtime import (
 from pipy_harness.native.keybindings import (
     DEFAULT_KEYBINDINGS,
     KeybindingsManager,
+)
+from pipy_harness.native.overlay_state import (
+    ModelSelectorOption as ModelSelectorOption,
+    OverlayState,
+    ScopedModelRow as ScopedModelRow,
+    SettingsOverlayKind,
+    SettingsRow as SettingsRow,
+    TreeSelectorRow as TreeSelectorRow,
 )
 from pipy_harness.native.project_trust import (
     ProjectTrustEntry,
@@ -112,7 +125,6 @@ from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.session_tree_commands import (
     SessionListEntry,
     SessionPickerRow,
-    build_session_picker_rows,
     format_session_picker_label,
     sanitize_label_text,
 )
@@ -361,67 +373,6 @@ class _BuiltinAutocompleteProvider:
 
 
 @dataclass(frozen=True, slots=True)
-class ModelSelectorOption:
-    """One row offered by the interactive provider/model selector.
-
-    ``label`` is the fully composed display string (provider/model plus an
-    availability annotation); ``selectable`` is ``False`` for rows that are
-    visible-but-not-choosable (unavailable provider, or a provider that does
-    not advertise tool-call support in tool-loop mode). The selector keeps
-    such rows navigable so their reason stays readable, but ``Enter`` cannot
-    choose them.
-    """
-
-    label: str
-    selectable: bool
-
-
-@dataclass(frozen=True, slots=True)
-class SettingsRow:
-    """One row in the interactive ``/settings`` dialog.
-
-    ``kind`` is ``"header"`` (a non-selectable section label), ``"status"`` (a
-    non-selectable read-only line), or ``"action"`` (an actionable row).
-    ``action`` is the identifier handed back to the caller when an action row
-    is activated with Enter/Space; it is ``None`` for headers/status rows.
-    Only rows with a non-``None`` ``action`` are navigable and choosable, so the
-    highlight always rests on something the user can act on while read-only
-    status rows stay visible for context.
-    """
-
-    label: str
-    kind: str = "status"
-    action: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ScopedModelRow:
-    """One row in the interactive ``/scoped-models`` multi-select overlay.
-
-    ``reference`` is the ``provider/model`` reference; ``available`` marks
-    auth-available rows (unavailable rows stay visible but are not togglable).
-    """
-
-    reference: str
-    available: bool = True
-
-
-@dataclass(frozen=True, slots=True)
-class TreeSelectorRow:
-    """One visible row in the interactive ``/tree`` selector.
-
-    ``entry_id`` identifies the session-tree entry; ``label`` is the rendered
-    display text (already indented/prefixed); ``active`` marks entries on the
-    current leaf path; ``labeled`` marks entries that carry a user label.
-    """
-
-    entry_id: str
-    label: str
-    active: bool = False
-    labeled: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class _FrameLine:
     text: str
     kind: str = "normal"
@@ -438,22 +389,6 @@ _FOOTER_MAX_LINES = 4
 # state and the latter as its resize-polling select timeout.
 _INDICATOR_MAX_FRAMES = 32
 _MIN_INPUT_ROWS = 1  # the input region is never starved below this
-
-
-@dataclass(slots=True)
-class _ChromeRegion:
-    """A stored chrome source + its last rendered snapshot.
-
-    ``source`` is a zero-arg factory (already bound to the theme / footer_data)
-    or a pre-coerced lines source. ``component`` is the built component for a
-    factory source (created once), used to call ``dispose()``. ``snapshot`` is
-    the rendered lines; ``width`` is the width they were rendered at."""
-
-    source: object
-    component: object | None
-    snapshot: tuple[str, ...]
-    width: int
-    is_factory: bool
 
 
 class _ExtensionChromeTuiHandle:
@@ -1336,31 +1271,11 @@ class ToolLoopTerminalUi:
     # silently become dead instance attributes beside the narrow projections.
     _editor: EditorState = field(init=False)
     working_text: str = ""
-    extension_working_message: str | None = None
-    extension_working_visible: bool = True
-    extension_status: dict[str, str] = field(default_factory=dict)
+    # Single owner for extension chrome values and listener/branch ledgers.
+    # The facade retains all locking, factory/component execution, rendering,
+    # terminal-title effects, filesystem branch reads, and disposal calls.
+    _chrome: ExtensionChromeState = field(init=False)
     available_provider_count: int = 0
-    extension_widgets_above: dict[str, "_ChromeRegion"] = field(default_factory=dict)
-    extension_widgets_below: dict[str, "_ChromeRegion"] = field(default_factory=dict)
-    extension_header: "_ChromeRegion | None" = None
-    extension_footer: "_ChromeRegion | None" = None
-    _extension_footer_factory: object | None = None
-    _extension_footer_branch: str | None = None
-    _footer_branch_callbacks: dict[int, Callable[[], object]] = field(
-        default_factory=dict
-    )
-    _footer_branch_callback_next_id: int = 0
-    _footer_branch_slots: tuple[int, ...] = ()
-    _footer_branch_rebuild_slots: tuple[int, ...] | None = None
-    _footer_branch_rebuild_index: int = 0
-    _footer_branch_rebuild_active_ids: frozenset[int] = frozenset()
-    _footer_branch_rebuild_new_slots: list[int] = field(default_factory=list)
-    _footer_branch_rebuild_fire_ids: list[int] = field(default_factory=list)
-    _footer_branch_last_check: float = 0.0
-    _footer_branch_check_interval: float = 0.25
-    extension_title: str | None = None
-    extension_indicator_frames: tuple[str, ...] | None = None
-    extension_indicator_interval_ms: float | None = None
     assistant_text: str = ""
     reasoning_text: str = ""
     tool_output_text: str = ""
@@ -1378,67 +1293,10 @@ class ToolLoopTerminalUi:
     # the bound handler. Keys the decoder cannot produce (e.g. ``ctrl-.`` on a
     # non-kitty terminal) simply never fire — the registration is still valid.
     extension_shortcut_keys: frozenset[str] = frozenset()
-    # Pi-shaped ExtensionUIContext.onTerminalInput listeners. These are
-    # live-only raw-input hooks: they see decoded key strings before built-in
-    # editor handling, can consume them, or can replace them with another
-    # decoded key string. They are cleared with extension chrome on reload.
-    _extension_terminal_input_listeners: dict[int, Callable[[str], object]] = field(
-        default_factory=dict
-    )
-    _extension_terminal_input_next_id: int = 0
-    _extension_terminal_input_last_replaced: bool = False
-    # Extension completion factories are retained by ``_editor`` but execute
-    # only in this effectful adapter.
-    model_selector_open: bool = False
-    model_selector_options: tuple[ModelSelectorOption, ...] = ()
-    model_selector_selection: int = 0
-    # Optional overlay heading; ``None`` keeps the default provider/model
-    # wording. A non-model picker (e.g. the /settings theme row) sets this so
-    # the same generic selector reads honestly for what it is choosing.
-    model_selector_title: str | None = None
-    settings_dialog_open: bool = False
-    settings_dialog_rows: tuple[SettingsRow, ...] = ()
-    settings_dialog_selection: int = 0
-    settings_dialog_title: str = "Settings"
-    tree_selector_open: bool = False
-    tree_selector_rows: tuple["TreeSelectorRow", ...] = ()
-    tree_selector_selection: int = 0
-    tree_selector_filter: str = "default"
-    # /scoped-models multi-select overlay state.
-    scoped_models_open: bool = False
-    scoped_models_rows: tuple["ScopedModelRow", ...] = ()
-    scoped_models_selection: int = 0
-    scoped_models_checked: set[int] = field(default_factory=set)
-    # Interactive session picker overlay state (the /resume + -r picker, Pi's
-    # session-selector). The picker runs no provider turn. ``_mode`` is
-    # ``list`` | ``rename`` | ``confirm-delete``; the underlying lists are the
-    # current-project and all-projects session entries the rows are built from.
-    # Custom interactive overlay state for an extension command handler
-    # (`ctx.ui.custom`). The component is trusted local extension code that
-    # renders its own full-screen lines and consumes keys; the driver only
-    # paints its lines and routes keystrokes, running no provider turn.
-    custom_overlay_open: bool = False
-    _custom_component: CustomComponent | None = None
-    _custom_component_render_width: int | None = None
-    _custom_overlay_hidden: bool = False
-    _custom_overlay_focused: bool = False
-    _custom_done: bool = False
-    _custom_result: object = None
-    session_picker_open: bool = False
-    session_picker_rows: tuple["SessionPickerRow", ...] = ()
-    session_picker_selection: int = 0
-    session_picker_query: str = ""
-    session_picker_scope: str = "current"
-    session_picker_sort: str = "recent"
-    session_picker_named_only: bool = False
-    session_picker_show_path: bool = False
-    session_picker_mode: str = "list"
-    session_picker_input: str = ""
-    session_picker_status: str = ""
-    session_picker_current: Path | None = None
-    _session_picker_project: list["SessionListEntry"] = field(default_factory=list)
-    _session_picker_all: list["SessionListEntry"] = field(default_factory=list)
-    _session_picker_now: float = 0.0
+    # Exactly one selector/dialog/custom overlay is active. Terminal I/O,
+    # callbacks, extension execution, rendering, and lifecycle effects stay in
+    # this facade; the owner holds only synchronous transition state.
+    _overlays: OverlayState = field(init=False)
     # Folding/expansion view flags (Pi: Ctrl+O tool-output expansion, Ctrl+T
     # thinking-block fold). These govern how the live region and newly committed
     # blocks render; blocks already scrolled into native scrollback keep the
@@ -1494,6 +1352,8 @@ class ToolLoopTerminalUi:
 
     def __post_init__(self) -> None:
         self._editor = EditorState()
+        self._overlays = OverlayState()
+        self._chrome = ExtensionChromeState()
         self._driver = TerminalDriver(self.input_stream, self.terminal_stream)
 
     # Narrow compatibility projections keep the product facade and existing
@@ -1634,6 +1494,537 @@ class ToolLoopTerminalUi:
     def _autocomplete_provider_factories(self) -> list[object]:
         return self._editor.autocomplete_provider_factories
 
+    # Overlay/chrome projections are direct views into slotted owners. They
+    # preserve characterized facade access without a second stored copy; an
+    # ``*_open`` write changes the one active-overlay discriminator, so two
+    # overlays cannot become renderable simultaneously.
+    @property
+    def model_selector_open(self) -> bool:
+        return self._overlays.is_open("model")
+
+    @model_selector_open.setter
+    def model_selector_open(self, value: bool) -> None:
+        if value:
+            self._overlays.supersede("model")
+        else:
+            self._overlays.close("model")
+
+    @property
+    def model_selector_options(self) -> tuple[ModelSelectorOption, ...]:
+        return self._overlays.model_options
+
+    @model_selector_options.setter
+    def model_selector_options(self, value: tuple[ModelSelectorOption, ...]) -> None:
+        self._overlays.model_options = value
+
+    @property
+    def model_selector_selection(self) -> int:
+        return self._overlays.model_selection
+
+    @model_selector_selection.setter
+    def model_selector_selection(self, value: int) -> None:
+        self._overlays.model_selection = value
+
+    @property
+    def model_selector_title(self) -> str | None:
+        return self._overlays.model_title
+
+    @model_selector_title.setter
+    def model_selector_title(self, value: str | None) -> None:
+        self._overlays.model_title = value
+
+    @property
+    def settings_dialog_open(self) -> bool:
+        return self._overlays.active in {"settings", "project_trust"}
+
+    @settings_dialog_open.setter
+    def settings_dialog_open(self, value: bool) -> None:
+        if value:
+            self._overlays.supersede("settings")
+        else:
+            self._overlays.close("settings")
+            self._overlays.close("project_trust")
+
+    @property
+    def settings_dialog_rows(self) -> tuple[SettingsRow, ...]:
+        return self._overlays.settings_rows
+
+    @settings_dialog_rows.setter
+    def settings_dialog_rows(self, value: tuple[SettingsRow, ...]) -> None:
+        self._overlays.settings_rows = value
+
+    @property
+    def settings_dialog_selection(self) -> int:
+        return self._overlays.settings_selection
+
+    @settings_dialog_selection.setter
+    def settings_dialog_selection(self, value: int) -> None:
+        self._overlays.settings_selection = value
+
+    @property
+    def settings_dialog_title(self) -> str:
+        return self._overlays.settings_title
+
+    @settings_dialog_title.setter
+    def settings_dialog_title(self, value: str) -> None:
+        self._overlays.settings_title = value
+
+    @property
+    def tree_selector_open(self) -> bool:
+        return self._overlays.is_open("tree")
+
+    @tree_selector_open.setter
+    def tree_selector_open(self, value: bool) -> None:
+        if value:
+            self._overlays.supersede("tree")
+        else:
+            self._overlays.close("tree")
+
+    @property
+    def tree_selector_rows(self) -> tuple[TreeSelectorRow, ...]:
+        return self._overlays.tree_rows
+
+    @tree_selector_rows.setter
+    def tree_selector_rows(self, value: tuple[TreeSelectorRow, ...]) -> None:
+        self._overlays.tree_rows = value
+
+    @property
+    def tree_selector_selection(self) -> int:
+        return self._overlays.tree_selection
+
+    @tree_selector_selection.setter
+    def tree_selector_selection(self, value: int) -> None:
+        self._overlays.tree_selection = value
+
+    @property
+    def tree_selector_filter(self) -> str:
+        return self._overlays.tree_filter
+
+    @tree_selector_filter.setter
+    def tree_selector_filter(self, value: str) -> None:
+        self._overlays.tree_filter = value
+
+    @property
+    def scoped_models_open(self) -> bool:
+        return self._overlays.is_open("scoped_models")
+
+    @scoped_models_open.setter
+    def scoped_models_open(self, value: bool) -> None:
+        if value:
+            self._overlays.supersede("scoped_models")
+        else:
+            self._overlays.close("scoped_models")
+
+    @property
+    def scoped_models_rows(self) -> tuple[ScopedModelRow, ...]:
+        return self._overlays.scoped_rows
+
+    @scoped_models_rows.setter
+    def scoped_models_rows(self, value: tuple[ScopedModelRow, ...]) -> None:
+        self._overlays.scoped_rows = value
+
+    @property
+    def scoped_models_selection(self) -> int:
+        return self._overlays.scoped_selection
+
+    @scoped_models_selection.setter
+    def scoped_models_selection(self, value: int) -> None:
+        self._overlays.scoped_selection = value
+
+    @property
+    def scoped_models_checked(self) -> set[int]:
+        return self._overlays.scoped_checked
+
+    @scoped_models_checked.setter
+    def scoped_models_checked(self, value: set[int]) -> None:
+        self._overlays.scoped_checked = value
+
+    @property
+    def custom_overlay_open(self) -> bool:
+        return self._overlays.is_open("custom")
+
+    @custom_overlay_open.setter
+    def custom_overlay_open(self, value: bool) -> None:
+        if value:
+            self._overlays.supersede("custom")
+        else:
+            self._overlays.close("custom")
+
+    @property
+    def _custom_component(self) -> CustomComponent | None:
+        return cast("CustomComponent | None", self._overlays.custom_component)
+
+    @_custom_component.setter
+    def _custom_component(self, value: CustomComponent | None) -> None:
+        self._overlays.custom_component = value
+
+    @property
+    def _custom_component_render_width(self) -> int | None:
+        return self._overlays.custom_render_width
+
+    @_custom_component_render_width.setter
+    def _custom_component_render_width(self, value: int | None) -> None:
+        self._overlays.custom_render_width = value
+
+    @property
+    def _custom_overlay_hidden(self) -> bool:
+        return self._overlays.custom_hidden
+
+    @_custom_overlay_hidden.setter
+    def _custom_overlay_hidden(self, value: bool) -> None:
+        self._overlays.custom_hidden = value
+
+    @property
+    def _custom_overlay_focused(self) -> bool:
+        return self._overlays.custom_focused
+
+    @_custom_overlay_focused.setter
+    def _custom_overlay_focused(self, value: bool) -> None:
+        self._overlays.custom_focused = value
+
+    @property
+    def _custom_done(self) -> bool:
+        return self._overlays.custom_done
+
+    @_custom_done.setter
+    def _custom_done(self, value: bool) -> None:
+        self._overlays.custom_done = value
+
+    @property
+    def _custom_result(self) -> object:
+        return self._overlays.custom_result
+
+    @_custom_result.setter
+    def _custom_result(self, value: object) -> None:
+        self._overlays.custom_result = value
+
+    @property
+    def session_picker_open(self) -> bool:
+        return self._overlays.is_open("session_picker")
+
+    @session_picker_open.setter
+    def session_picker_open(self, value: bool) -> None:
+        if value:
+            self._overlays.supersede("session_picker")
+        else:
+            self._overlays.close("session_picker")
+
+    @property
+    def session_picker_rows(self) -> tuple[SessionPickerRow, ...]:
+        return self._overlays.session_rows
+
+    @session_picker_rows.setter
+    def session_picker_rows(self, value: tuple[SessionPickerRow, ...]) -> None:
+        self._overlays.session_rows = value
+
+    @property
+    def session_picker_selection(self) -> int:
+        return self._overlays.session_selection
+
+    @session_picker_selection.setter
+    def session_picker_selection(self, value: int) -> None:
+        self._overlays.session_selection = value
+
+    @property
+    def session_picker_query(self) -> str:
+        return self._overlays.session_query
+
+    @session_picker_query.setter
+    def session_picker_query(self, value: str) -> None:
+        self._overlays.session_query = value
+
+    @property
+    def session_picker_scope(self) -> str:
+        return self._overlays.session_scope
+
+    @session_picker_scope.setter
+    def session_picker_scope(self, value: str) -> None:
+        self._overlays.session_scope = value
+
+    @property
+    def session_picker_sort(self) -> str:
+        return self._overlays.session_sort
+
+    @session_picker_sort.setter
+    def session_picker_sort(self, value: str) -> None:
+        self._overlays.session_sort = value
+
+    @property
+    def session_picker_named_only(self) -> bool:
+        return self._overlays.session_named_only
+
+    @session_picker_named_only.setter
+    def session_picker_named_only(self, value: bool) -> None:
+        self._overlays.session_named_only = value
+
+    @property
+    def session_picker_show_path(self) -> bool:
+        return self._overlays.session_show_path
+
+    @session_picker_show_path.setter
+    def session_picker_show_path(self, value: bool) -> None:
+        self._overlays.session_show_path = value
+
+    @property
+    def session_picker_mode(self) -> str:
+        return self._overlays.session_mode
+
+    @session_picker_mode.setter
+    def session_picker_mode(self, value: str) -> None:
+        self._overlays.session_mode = value
+
+    @property
+    def session_picker_input(self) -> str:
+        return self._overlays.session_input
+
+    @session_picker_input.setter
+    def session_picker_input(self, value: str) -> None:
+        self._overlays.session_input = value
+
+    @property
+    def session_picker_status(self) -> str:
+        return self._overlays.session_status
+
+    @session_picker_status.setter
+    def session_picker_status(self, value: str) -> None:
+        self._overlays.session_status = value
+
+    @property
+    def session_picker_current(self) -> Path | None:
+        return self._overlays.session_current
+
+    @session_picker_current.setter
+    def session_picker_current(self, value: Path | None) -> None:
+        self._overlays.session_current = value
+
+    @property
+    def _session_picker_project(self) -> list[SessionListEntry]:
+        return self._overlays.session_project
+
+    @_session_picker_project.setter
+    def _session_picker_project(self, value: list[SessionListEntry]) -> None:
+        self._overlays.session_project = value
+
+    @property
+    def _session_picker_all(self) -> list[SessionListEntry]:
+        return self._overlays.session_all
+
+    @_session_picker_all.setter
+    def _session_picker_all(self, value: list[SessionListEntry]) -> None:
+        self._overlays.session_all = value
+
+    @property
+    def _session_picker_now(self) -> float:
+        return self._overlays.session_now
+
+    @_session_picker_now.setter
+    def _session_picker_now(self, value: float) -> None:
+        self._overlays.session_now = value
+
+    @property
+    def extension_working_message(self) -> str | None:
+        return self._chrome.working_message
+
+    @extension_working_message.setter
+    def extension_working_message(self, value: str | None) -> None:
+        self._chrome.working_message = value
+
+    @property
+    def extension_working_visible(self) -> bool:
+        return self._chrome.working_visible
+
+    @extension_working_visible.setter
+    def extension_working_visible(self, value: bool) -> None:
+        self._chrome.working_visible = value
+
+    @property
+    def extension_status(self) -> dict[str, str]:
+        return self._chrome.statuses
+
+    @extension_status.setter
+    def extension_status(self, value: dict[str, str]) -> None:
+        self._chrome.statuses = value
+
+    @property
+    def extension_widgets_above(self) -> dict[str, ChromeRegion]:
+        return self._chrome.widgets_above
+
+    @extension_widgets_above.setter
+    def extension_widgets_above(self, value: dict[str, ChromeRegion]) -> None:
+        self._chrome.widgets_above = value
+
+    @property
+    def extension_widgets_below(self) -> dict[str, ChromeRegion]:
+        return self._chrome.widgets_below
+
+    @extension_widgets_below.setter
+    def extension_widgets_below(self, value: dict[str, ChromeRegion]) -> None:
+        self._chrome.widgets_below = value
+
+    @property
+    def extension_header(self) -> ChromeRegion | None:
+        return self._chrome.header
+
+    @extension_header.setter
+    def extension_header(self, value: ChromeRegion | None) -> None:
+        self._chrome.header = value
+
+    @property
+    def extension_footer(self) -> ChromeRegion | None:
+        return self._chrome.footer
+
+    @extension_footer.setter
+    def extension_footer(self, value: ChromeRegion | None) -> None:
+        self._chrome.footer = value
+
+    @property
+    def extension_title(self) -> str | None:
+        return self._chrome.title
+
+    @extension_title.setter
+    def extension_title(self, value: str | None) -> None:
+        self._chrome.title = value
+
+    @property
+    def extension_indicator_frames(self) -> tuple[str, ...] | None:
+        return self._chrome.indicator_frames
+
+    @extension_indicator_frames.setter
+    def extension_indicator_frames(self, value: tuple[str, ...] | None) -> None:
+        self._chrome.indicator_frames = value
+
+    @property
+    def extension_indicator_interval_ms(self) -> float | None:
+        return self._chrome.indicator_interval_ms
+
+    @extension_indicator_interval_ms.setter
+    def extension_indicator_interval_ms(self, value: float | None) -> None:
+        self._chrome.indicator_interval_ms = value
+
+    @property
+    def _extension_footer_factory(self) -> object | None:
+        return self._chrome.footer_factory
+
+    @_extension_footer_factory.setter
+    def _extension_footer_factory(self, value: object | None) -> None:
+        self._chrome.footer_factory = value
+
+    @property
+    def _extension_footer_branch(self) -> str | None:
+        return self._chrome.footer_branch
+
+    @_extension_footer_branch.setter
+    def _extension_footer_branch(self, value: str | None) -> None:
+        self._chrome.footer_branch = value
+
+    @property
+    def _footer_branch_callbacks(self) -> dict[int, Callable[[], object]]:
+        return self._chrome.footer_branch_callbacks
+
+    @_footer_branch_callbacks.setter
+    def _footer_branch_callbacks(
+        self, value: dict[int, Callable[[], object]]
+    ) -> None:
+        self._chrome.footer_branch_callbacks = value
+
+    @property
+    def _footer_branch_callback_next_id(self) -> int:
+        return self._chrome.footer_branch_callback_next_id
+
+    @_footer_branch_callback_next_id.setter
+    def _footer_branch_callback_next_id(self, value: int) -> None:
+        self._chrome.footer_branch_callback_next_id = value
+
+    @property
+    def _footer_branch_slots(self) -> tuple[int, ...]:
+        return self._chrome.footer_branch_slots
+
+    @_footer_branch_slots.setter
+    def _footer_branch_slots(self, value: tuple[int, ...]) -> None:
+        self._chrome.footer_branch_slots = value
+
+    @property
+    def _footer_branch_rebuild_slots(self) -> tuple[int, ...] | None:
+        return self._chrome.footer_branch_rebuild_slots
+
+    @_footer_branch_rebuild_slots.setter
+    def _footer_branch_rebuild_slots(self, value: tuple[int, ...] | None) -> None:
+        self._chrome.footer_branch_rebuild_slots = value
+
+    @property
+    def _footer_branch_rebuild_index(self) -> int:
+        return self._chrome.footer_branch_rebuild_index
+
+    @_footer_branch_rebuild_index.setter
+    def _footer_branch_rebuild_index(self, value: int) -> None:
+        self._chrome.footer_branch_rebuild_index = value
+
+    @property
+    def _footer_branch_rebuild_active_ids(self) -> frozenset[int]:
+        return self._chrome.footer_branch_rebuild_active_ids
+
+    @_footer_branch_rebuild_active_ids.setter
+    def _footer_branch_rebuild_active_ids(self, value: frozenset[int]) -> None:
+        self._chrome.footer_branch_rebuild_active_ids = value
+
+    @property
+    def _footer_branch_rebuild_new_slots(self) -> list[int]:
+        return self._chrome.footer_branch_rebuild_new_slots
+
+    @_footer_branch_rebuild_new_slots.setter
+    def _footer_branch_rebuild_new_slots(self, value: list[int]) -> None:
+        self._chrome.footer_branch_rebuild_new_slots = value
+
+    @property
+    def _footer_branch_rebuild_fire_ids(self) -> list[int]:
+        return self._chrome.footer_branch_rebuild_fire_ids
+
+    @_footer_branch_rebuild_fire_ids.setter
+    def _footer_branch_rebuild_fire_ids(self, value: list[int]) -> None:
+        self._chrome.footer_branch_rebuild_fire_ids = value
+
+    @property
+    def _footer_branch_last_check(self) -> float:
+        return self._chrome.footer_branch_last_check
+
+    @_footer_branch_last_check.setter
+    def _footer_branch_last_check(self, value: float) -> None:
+        self._chrome.footer_branch_last_check = value
+
+    @property
+    def _footer_branch_check_interval(self) -> float:
+        return self._chrome.footer_branch_check_interval
+
+    @_footer_branch_check_interval.setter
+    def _footer_branch_check_interval(self, value: float) -> None:
+        self._chrome.footer_branch_check_interval = value
+
+    @property
+    def _extension_terminal_input_listeners(self) -> dict[int, Callable[[str], object]]:
+        return self._chrome.terminal_input_listeners
+
+    @_extension_terminal_input_listeners.setter
+    def _extension_terminal_input_listeners(
+        self, value: dict[int, Callable[[str], object]]
+    ) -> None:
+        self._chrome.terminal_input_listeners = value
+
+    @property
+    def _extension_terminal_input_next_id(self) -> int:
+        return self._chrome.terminal_input_next_id
+
+    @_extension_terminal_input_next_id.setter
+    def _extension_terminal_input_next_id(self, value: int) -> None:
+        self._chrome.terminal_input_next_id = value
+
+    @property
+    def _extension_terminal_input_last_replaced(self) -> bool:
+        return self._chrome.terminal_input_last_replaced
+
+    @_extension_terminal_input_last_replaced.setter
+    def _extension_terminal_input_last_replaced(self, value: bool) -> None:
+        self._chrome.terminal_input_last_replaced = value
+
     @classmethod
     def is_supported(cls, input_stream: TextIO, terminal_stream: TextIO) -> bool:
         if input_stream is not sys.stdin or terminal_stream is not sys.stderr:
@@ -1672,8 +2063,7 @@ class ToolLoopTerminalUi:
             self._set_custom_editor_text(self.input_text)
         self.paint()
         fd = self.input_stream.fileno()
-        try:
-            self._driver.enter_raw_mode()
+        with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key is None:
@@ -1826,8 +2216,6 @@ class ToolLoopTerminalUi:
                 ):
                     self._insert_input_text(key)
                     self.paint()
-        finally:
-            self._driver.restore_terminal_mode()
 
     def wait_for_active_turn_interrupt(
         self,
@@ -1856,8 +2244,7 @@ class ToolLoopTerminalUi:
         """
 
         fd = self.input_stream.fileno()
-        try:
-            self._driver.enter_raw_mode()
+        with self._driver.raw_mode():
             while not done_event.is_set():
                 # Keep the streaming frame coherent if the terminal is resized
                 # mid-turn: streamed chunks repaint at the live size, but a
@@ -1978,8 +2365,6 @@ class ToolLoopTerminalUi:
                     self._insert_input_text(key)
                     self.paint()
             return TURN_SETTLED
-        finally:
-            self._driver.restore_terminal_mode()
 
     def _reset_mid_turn_input(self) -> None:
         self._editor.reset_mid_turn_input()
@@ -2005,18 +2390,13 @@ class ToolLoopTerminalUi:
         ``/settings`` theme row); ``None`` keeps the provider/model wording.
         """
 
-        self.model_selector_title = title
-        self.model_selector_options = tuple(options)
-        if not self.model_selector_options:
+        if not self._overlays.begin_model(
+            options, current_index=current_index, title=title
+        ):
             return None
-        self.model_selector_open = True
-        self.model_selector_selection = max(
-            0, min(current_index, len(self.model_selector_options) - 1)
-        )
         self.paint()
         fd = self.input_stream.fileno()
-        try:
-            self._driver.enter_raw_mode()
+        with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
@@ -2029,28 +2409,20 @@ class ToolLoopTerminalUi:
                     self._navigate_model_selector(key)
                     continue
                 if key == "enter":
-                    index = self.model_selector_selection
-                    option = self.model_selector_options[index]
+                    index = self._overlays.model_selection
+                    option = self._overlays.model_options[index]
                     if option.selectable:
                         self._close_model_selector()
                         return index
                     continue
-        finally:
-            self._driver.restore_terminal_mode()
 
     def _navigate_model_selector(self, key: str) -> None:
-        total = len(self.model_selector_options)
-        if total == 0:
-            return
         delta = -1 if key == "up" else 1
-        self.model_selector_selection = (self.model_selector_selection + delta) % total
-        self.paint()
+        if self._overlays.navigate_model(delta):
+            self.paint()
 
     def _close_model_selector(self) -> None:
-        self.model_selector_open = False
-        self.model_selector_options = ()
-        self.model_selector_selection = 0
-        self.model_selector_title = None
+        self._overlays.end_model()
         self.paint()
 
     def run_scoped_models_selector(
@@ -2067,23 +2439,11 @@ class ToolLoopTerminalUi:
         Esc/Ctrl-C/Ctrl-D cancel (returning ``None``). Runs no provider turn.
         """
 
-        self.scoped_models_rows = tuple(rows)
-        if not self.scoped_models_rows:
+        if not self._overlays.begin_scoped(rows, checked):
             return None
-        self.scoped_models_checked = {
-            index
-            for index in checked
-            if 0 <= index < len(self.scoped_models_rows)
-            and self.scoped_models_rows[index].available
-        }
-        self.scoped_models_selection = next(
-            (i for i, row in enumerate(self.scoped_models_rows) if row.available), 0
-        )
-        self.scoped_models_open = True
         self.paint()
         fd = self.input_stream.fileno()
-        try:
-            self._driver.enter_raw_mode()
+        with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
@@ -2099,57 +2459,29 @@ class ToolLoopTerminalUi:
                     self._toggle_scoped_models_row()
                     continue
                 if key == "a":
-                    self.scoped_models_checked = {
-                        i
-                        for i, row in enumerate(self.scoped_models_rows)
-                        if row.available
-                    }
+                    self._overlays.select_all_scoped()
                     self.paint()
                     continue
                 if key == "c":
-                    self.scoped_models_checked = set()
+                    self._overlays.clear_scoped()
                     self.paint()
                     continue
                 if key == "enter":
-                    chosen = frozenset(
-                        self.scoped_models_rows[i].reference
-                        for i in sorted(self.scoped_models_checked)
-                    )
+                    chosen = self._overlays.selected_scoped_references()
                     self._close_scoped_models_selector()
                     return chosen
-        finally:
-            self._driver.restore_terminal_mode()
 
     def _navigate_scoped_models(self, key: str) -> None:
-        total = len(self.scoped_models_rows)
-        if total == 0:
-            return
         delta = -1 if key == "up" else 1
-        index = self.scoped_models_selection
-        for _ in range(total):
-            index = (index + delta) % total
-            if self.scoped_models_rows[index].available:
-                break
-        self.scoped_models_selection = index
-        self.paint()
+        if self._overlays.navigate_scoped(delta):
+            self.paint()
 
     def _toggle_scoped_models_row(self) -> None:
-        index = self.scoped_models_selection
-        if not (0 <= index < len(self.scoped_models_rows)):
-            return
-        if not self.scoped_models_rows[index].available:
-            return
-        if index in self.scoped_models_checked:
-            self.scoped_models_checked.discard(index)
-        else:
-            self.scoped_models_checked.add(index)
-        self.paint()
+        if self._overlays.toggle_scoped():
+            self.paint()
 
     def _close_scoped_models_selector(self) -> None:
-        self.scoped_models_open = False
-        self.scoped_models_rows = ()
-        self.scoped_models_selection = 0
-        self.scoped_models_checked = set()
+        self._overlays.end_scoped()
         self.paint()
 
     def _scoped_models_region_lines(
@@ -2217,6 +2549,7 @@ class ToolLoopTerminalUi:
         exit_actions: frozenset[str] = frozenset(),
         current_index: int | None = None,
         title: str = "Settings",
+        overlay_kind: SettingsOverlayKind = "settings",
     ) -> str | None:
         """Drive the interactive ``/settings`` dialog as a live overlay.
 
@@ -2224,7 +2557,10 @@ class ToolLoopTerminalUi:
         move the highlight between actionable rows (wrapping, skipping headers
         and read-only status rows), and ``Enter``/``Space`` activate the
         highlighted action row. ``Esc`` / ``Ctrl-C`` / ``Ctrl-D`` / EOF close the
-        dialog and return ``None``.
+        dialog and return ``None``. ``overlay_kind`` selects only the internal
+        stack identity for this settings-family payload: ``project_trust`` uses
+        the same rows, selection, and title state but remains distinct so a
+        settings -> project_trust -> settings nesting restores exactly.
 
         Activating an action whose identifier is in ``exit_actions`` closes the
         dialog and returns that identifier so the caller can run a flow that
@@ -2236,16 +2572,16 @@ class ToolLoopTerminalUi:
         the caller acts on afterwards.
         """
 
-        self.settings_dialog_title = title
-        self.settings_dialog_rows = tuple(rows)
-        if not self.settings_dialog_rows:
+        if not self._overlays.begin_settings(
+            rows,
+            current_index=current_index,
+            title=title,
+            kind=overlay_kind,
+        ):
             return None
-        self.settings_dialog_open = True
-        self.settings_dialog_selection = self._initial_settings_selection(current_index)
         self.paint()
         fd = self.input_stream.fileno()
-        try:
-            self._driver.enter_raw_mode()
+        with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
@@ -2271,64 +2607,22 @@ class ToolLoopTerminalUi:
                         self._close_settings_dialog()
                         return row.action
                     rebuilt = on_local_action(row.action)
-                    self.settings_dialog_rows = tuple(rebuilt)
-                    if not self.settings_dialog_rows:
+                    if not self._overlays.replace_settings_rows(rebuilt):
                         self._close_settings_dialog()
                         return None
-                    self.settings_dialog_selection = self._clamp_settings_selection(
-                        self.settings_dialog_selection
-                    )
                     self.paint()
                     continue
-        finally:
-            self._driver.restore_terminal_mode()
 
     def _actionable_settings_indices(self) -> list[int]:
-        return [
-            index
-            for index, row in enumerate(self.settings_dialog_rows)
-            if row.action is not None
-        ]
-
-    def _initial_settings_selection(self, current_index: int | None) -> int:
-        actionable = self._actionable_settings_indices()
-        if not actionable:
-            return 0
-        if current_index is not None and current_index in actionable:
-            return current_index
-        return actionable[0]
-
-    def _clamp_settings_selection(self, selection: int) -> int:
-        actionable = self._actionable_settings_indices()
-        if not actionable:
-            return min(max(0, selection), max(0, len(self.settings_dialog_rows) - 1))
-        if selection in actionable:
-            return selection
-        # The previously highlighted action may have shifted; land on the
-        # nearest actionable row at or after the old position.
-        for index in actionable:
-            if index >= selection:
-                return index
-        return actionable[-1]
+        return self._overlays.actionable_settings_indices()
 
     def _navigate_settings_dialog(self, key: str) -> None:
-        actionable = self._actionable_settings_indices()
-        if not actionable:
-            return
         delta = -1 if key == "up" else 1
-        if self.settings_dialog_selection in actionable:
-            position = actionable.index(self.settings_dialog_selection)
-            position = (position + delta) % len(actionable)
-        else:
-            position = 0 if delta > 0 else len(actionable) - 1
-        self.settings_dialog_selection = actionable[position]
-        self.paint()
+        if self._overlays.navigate_settings(delta):
+            self.paint()
 
     def _close_settings_dialog(self) -> None:
-        self.settings_dialog_open = False
-        self.settings_dialog_rows = ()
-        self.settings_dialog_selection = 0
-        self.settings_dialog_title = "Settings"
+        self._overlays.end_settings()
         self.paint()
 
     def set_input_text(self, text: str) -> None:
@@ -2667,16 +2961,13 @@ class ToolLoopTerminalUi:
         selection semantics afterward.
         """
 
-        self.tree_selector_filter = (
+        filter_mode = (
             initial_filter if initial_filter in filter_modes else filter_modes[0]
         )
-        self.tree_selector_rows = tuple(build_rows(self.tree_selector_filter))
-        self.tree_selector_open = True
-        self.tree_selector_selection = self._initial_tree_selection()
+        self._overlays.begin_tree(build_rows(filter_mode), filter_mode=filter_mode)
         self.paint()
         fd = self.input_stream.fileno()
-        try:
-            self._driver.enter_raw_mode()
+        with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
                 if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
@@ -2690,13 +2981,12 @@ class ToolLoopTerminalUi:
                     continue
                 if key == "ctrl-o":
                     position = list(filter_modes).index(self.tree_selector_filter)
-                    self.tree_selector_filter = filter_modes[
+                    self._overlays.tree_filter = filter_modes[
                         (position + 1) % len(filter_modes)
                     ]
-                    self.tree_selector_rows = tuple(
-                        build_rows(self.tree_selector_filter)
+                    self._overlays.replace_tree_rows(
+                        build_rows(self.tree_selector_filter), reset_to_active=True
                     )
-                    self.tree_selector_selection = self._initial_tree_selection()
                     self.paint()
                     continue
                 if key == "L":
@@ -2705,12 +2995,8 @@ class ToolLoopTerminalUi:
                             self.tree_selector_selection
                         ].entry_id
                         on_label_toggle(entry_id)
-                        self.tree_selector_rows = tuple(
+                        self._overlays.replace_tree_rows(
                             build_rows(self.tree_selector_filter)
-                        )
-                        self.tree_selector_selection = min(
-                            self.tree_selector_selection,
-                            max(0, len(self.tree_selector_rows) - 1),
                         )
                         self.paint()
                     continue
@@ -2722,31 +3008,14 @@ class ToolLoopTerminalUi:
                     ].entry_id
                     self._close_tree_selector()
                     return entry_id
-        finally:
-            self._driver.restore_terminal_mode()
-
-    def _initial_tree_selection(self) -> int:
-        """Default the highlight to the last active-path row, else the last row."""
-
-        active = [
-            index for index, row in enumerate(self.tree_selector_rows) if row.active
-        ]
-        if active:
-            return active[-1]
-        return max(0, len(self.tree_selector_rows) - 1)
 
     def _navigate_tree_selector(self, key: str) -> None:
-        total = len(self.tree_selector_rows)
-        if total == 0:
-            return
         delta = -1 if key == "up" else 1
-        self.tree_selector_selection = (self.tree_selector_selection + delta) % total
-        self.paint()
+        if self._overlays.navigate_tree(delta):
+            self.paint()
 
     def _close_tree_selector(self) -> None:
-        self.tree_selector_open = False
-        self.tree_selector_rows = ()
-        self.tree_selector_selection = 0
+        self._overlays.end_tree()
         self.paint()
 
     def _tree_selector_region_lines(
@@ -2828,27 +3097,33 @@ class ToolLoopTerminalUi:
         callbacks for API parity.
         """
 
-        self._custom_done = False
-        self._custom_result = None
-        self._custom_overlay_hidden = False
-        self._custom_overlay_focused = True
-        previous_width = self._custom_component_render_width
-        self._custom_component_render_width = self._custom_component_width(options)
+        previous_width = self._overlays.custom_render_width
+        render_width = self._custom_component_width(options)
+        custom_started = False
+        pending_done = False
+        pending_result: object = None
 
         def done(result: object = None) -> None:
-            if not self._custom_done:
-                self._custom_done = True
-                self._custom_result = result
+            nonlocal pending_done, pending_result
+            if custom_started:
+                self._overlays.finish_custom(result)
+            elif not pending_done:
+                pending_done = True
+                pending_result = result
 
         component = factory(done)
+        raw_mode_acquired = False
         try:
-            self._custom_component = component
-            self.custom_overlay_open = True
+            self._overlays.begin_custom(component, render_width=render_width)
+            custom_started = True
+            if pending_done:
+                self._overlays.finish_custom(pending_result)
             self._notify_custom_handle(options, _CustomOverlayHandle(self))
             self.paint()
             fd = self.input_stream.fileno()
             self._driver.enter_raw_mode()
-            while not self._custom_done:
+            raw_mode_acquired = True
+            while not self._overlays.custom_done:
                 key = self._read_key_polling_resize(fd)
                 if key is None:
                     # Stream EOF / read error: cancel deterministically.
@@ -2860,7 +3135,10 @@ class ToolLoopTerminalUi:
                     # component.
                     continue
                 try:
-                    if self._custom_overlay_hidden or not self._custom_overlay_focused:
+                    if (
+                        self._overlays.custom_hidden
+                        or not self._overlays.custom_focused
+                    ):
                         self.paint()
                         continue
                     component.handle_input(key)
@@ -2869,14 +3147,10 @@ class ToolLoopTerminalUi:
                 except BaseException:  # noqa: BLE001 - a bad component cancels
                     done(None)
                     break
-                if not self._custom_done:
+                if not self._overlays.custom_done:
                     self.paint()
         finally:
-            self.custom_overlay_open = False
-            self._custom_component = None
-            self._custom_component_render_width = previous_width
-            self._custom_overlay_hidden = False
-            self._custom_overlay_focused = False
+            result = self._overlays.end_custom(previous_width=previous_width)
             dispose = getattr(component, "dispose", None)
             if callable(dispose):
                 try:
@@ -2892,8 +3166,9 @@ class ToolLoopTerminalUi:
                 self.paint()
             except (OSError, ValueError):
                 pass
-            self._driver.restore_terminal_mode()
-        return self._custom_result
+            if raw_mode_acquired:
+                self._driver.restore_terminal_mode()
+        return result
 
     def _custom_component_width(self, options: object) -> int | None:
         overlay_options = self._custom_option(
@@ -3032,35 +3307,37 @@ class ToolLoopTerminalUi:
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
                 handle.write(current_text)
 
+            updated: str | None = None
+            launched = False
             try:
-                self._driver.restore_terminal_mode()
+                with self.external_io_suspension():
+                    self._driver.write(
+                        f"Launching external editor: {editor_cmd}\n"
+                        "Pipy will resume when the editor exits.\n"
+                    )
+                    launched = True
+                    completed = subprocess.run(
+                        [*argv, path],
+                        stdin=self.input_stream,
+                        stdout=self.terminal_stream,
+                        stderr=self.terminal_stream,
+                        check=False,
+                    )
+                    if completed.returncode == 0:
+                        try:
+                            updated = Path(path).read_text(encoding="utf-8")
+                        except (OSError, UnicodeError):
+                            updated = None
             except (OSError, termios.error, ValueError):
-                pass
-            self._driver.write(
-                f"Launching external editor: {editor_cmd}\n"
-                "Pipy will resume when the editor exits.\n"
-            )
-            try:
-                completed = subprocess.run(
-                    [*argv, path],
-                    stdin=self.input_stream,
-                    stdout=self.terminal_stream,
-                    stderr=self.terminal_stream,
-                    check=False,
-                )
-            finally:
-                try:
-                    self._driver.enter_raw_mode()
-                except (OSError, termios.error, ValueError):
-                    pass
-                self.paint()
-            if completed.returncode != 0:
-                return None
-            try:
-                updated = Path(path).read_text(encoding="utf-8")
-            except (OSError, UnicodeError):
-                return None
-            return updated.removesuffix("\n")
+                # A failed cooked-mode handoff occurs before ``launched`` and
+                # must not start a foreign terminal consumer. If the editor did
+                # run, its successful file is read *inside* the scope so a raw-
+                # mode resume failure cannot discard the completed edit. The
+                # driver keeps that failure suspended for authoritative close
+                # recovery rather than claiming a physically false raw owner.
+                if not launched:
+                    return None
+            return None if updated is None else updated.removesuffix("\n")
         except OSError:
             return None
         finally:
@@ -3085,10 +3362,9 @@ class ToolLoopTerminalUi:
         if safe_key is None:
             return
         with self._paint_lock:
-            if text is None:
-                self.extension_status.pop(safe_key, None)
-            else:
-                self.extension_status[safe_key] = sanitize_label_text(str(text))
+            self._chrome.set_status(
+                safe_key, None if text is None else sanitize_label_text(str(text))
+            )
         self.paint()
 
     def _chrome_theme(self) -> object:
@@ -3113,7 +3389,7 @@ class ToolLoopTerminalUi:
 
     def _build_region(
         self, source: object, *, footer_data: object | None, max_lines: int
-    ) -> "_ChromeRegion | None":
+    ) -> ChromeRegion | None:
         """Build a region by rendering ``source`` at the current width.
 
         A callable ``source`` is a factory (built once); a bare component object
@@ -3153,7 +3429,7 @@ class ToolLoopTerminalUi:
         lines = render_chrome_component(render_source, width=width, max_lines=max_lines)
         if lines is None:
             return None
-        return _ChromeRegion(
+        return ChromeRegion(
             source=source,
             component=component,
             snapshot=tuple(lines),
@@ -3162,7 +3438,7 @@ class ToolLoopTerminalUi:
         )
 
     @staticmethod
-    def _dispose_region(region: "_ChromeRegion | None") -> None:
+    def _dispose_region(region: ChromeRegion | None) -> None:
         if region is None or region.component is None:
             return
         dispose = getattr(region.component, "dispose", None)
@@ -3180,16 +3456,7 @@ class ToolLoopTerminalUi:
         safe_key = _safe_extension_status_key(key)
         if safe_key is None:
             return
-        target = (
-            self.extension_widgets_below
-            if placement == "below_editor"
-            else self.extension_widgets_above
-        )
-        other = (
-            self.extension_widgets_above
-            if placement == "below_editor"
-            else self.extension_widgets_below
-        )
+        target, other = self._chrome.widget_maps(placement)
         with self._paint_lock:
             if (
                 content is not None
@@ -3239,26 +3506,9 @@ class ToolLoopTerminalUi:
         # onBranchChange while _build_region is already running under the same
         # paint lock during set/rebuild.
         with self._paint_lock:
-            if self._footer_branch_rebuild_slots is not None:
-                if self._footer_branch_rebuild_index < len(
-                    self._footer_branch_rebuild_slots
-                ):
-                    callback_id = self._footer_branch_rebuild_slots[
-                        self._footer_branch_rebuild_index
-                    ]
-                else:
-                    callback_id = self._footer_branch_callback_next_id
-                    self._footer_branch_callback_next_id += 1
-                self._footer_branch_rebuild_index += 1
-                self._footer_branch_rebuild_new_slots.append(callback_id)
-                if callback_id in self._footer_branch_rebuild_active_ids:
-                    self._footer_branch_rebuild_fire_ids.append(callback_id)
-            else:
-                callback_id = self._footer_branch_callback_next_id
-                self._footer_branch_callback_next_id += 1
-                self._footer_branch_slots = (*self._footer_branch_slots, callback_id)
-            self._footer_branch_callbacks[callback_id] = callback
-            self._footer_branch_last_check = 0.0
+            generation, callback_id = self._chrome.register_footer_branch_callback(
+                callback
+            )
 
         disposed = False
 
@@ -3268,13 +3518,13 @@ class ToolLoopTerminalUi:
                 return
             disposed = True
             with self._paint_lock:
-                self._footer_branch_callbacks.pop(callback_id, None)
+                self._chrome.remove_footer_branch_callback(generation, callback_id)
 
         return dispose
 
     def _footer_data_snapshot(self) -> FooterData:
         branch = self._detect_extension_footer_branch()
-        self._extension_footer_branch = branch
+        self._chrome.footer_branch = branch
         return FooterData(
             git_branch=branch,
             extension_statuses=dict(self.extension_status),
@@ -3283,38 +3533,28 @@ class ToolLoopTerminalUi:
         )
 
     def _clear_footer_branch_callbacks(self) -> None:
-        self._footer_branch_callbacks.clear()
-        self._footer_branch_slots = ()
-        self._footer_branch_last_check = 0.0
+        self._chrome.clear_footer_branch_callbacks()
 
     def _refresh_extension_footer_branch(self, *, force: bool = False) -> None:
-        factory = self._extension_footer_factory
+        factory = self._chrome.footer_factory
         if factory is None:
             return
         now = time.monotonic()
         if (
             not force
-            and now - self._footer_branch_last_check
-            < self._footer_branch_check_interval
+            and now - self._chrome.footer_branch_last_check
+            < self._chrome.footer_branch_check_interval
         ):
             return
-        self._footer_branch_last_check = now
+        self._chrome.footer_branch_last_check = now
         branch = self._detect_extension_footer_branch()
-        if not force and branch == self._extension_footer_branch:
+        if not force and branch == self._chrome.footer_branch:
             return
         with self._paint_lock:
-            slots_before = self._footer_branch_slots
-            active_before = frozenset(self._footer_branch_callbacks)
-            self._extension_footer_branch = branch
-            self._footer_branch_callbacks.clear()
-            self._footer_branch_rebuild_slots = slots_before
-            self._footer_branch_rebuild_index = 0
-            self._footer_branch_rebuild_active_ids = active_before
-            self._footer_branch_rebuild_new_slots = []
-            self._footer_branch_rebuild_fire_ids = []
-            self._dispose_region(self.extension_footer)
+            self._chrome.begin_footer_rebuild(branch)
+            self._dispose_region(self._chrome.footer)
             try:
-                self.extension_footer = self._build_region(
+                self._chrome.footer = self._build_region(
                     factory,
                     footer_data=FooterData(
                         git_branch=branch,
@@ -3326,18 +3566,9 @@ class ToolLoopTerminalUi:
                     ),
                     max_lines=_FOOTER_MAX_LINES,
                 )
-                self._footer_branch_slots = tuple(self._footer_branch_rebuild_new_slots)
-                callbacks = tuple(
-                    self._footer_branch_callbacks[callback_id]
-                    for callback_id in self._footer_branch_rebuild_fire_ids
-                    if callback_id in self._footer_branch_callbacks
-                )
+                callbacks = self._chrome.finish_footer_rebuild()
             finally:
-                self._footer_branch_rebuild_slots = None
-                self._footer_branch_rebuild_index = 0
-                self._footer_branch_rebuild_active_ids = frozenset()
-                self._footer_branch_rebuild_new_slots = []
-                self._footer_branch_rebuild_fire_ids = []
+                self._chrome.abort_footer_rebuild()
         for callback in callbacks:
             try:
                 callback()
@@ -3352,11 +3583,11 @@ class ToolLoopTerminalUi:
 
     def set_extension_header(self, factory: object | None) -> None:
         with self._paint_lock:
-            self._dispose_region(self.extension_header)
+            self._dispose_region(self._chrome.header)
             if factory is None:
-                self.extension_header = None
+                self._chrome.header = None
             else:
-                self.extension_header = self._build_region(
+                self._chrome.header = self._build_region(
                     factory, footer_data=None, max_lines=_HEADER_MAX_LINES
                 )
         self.paint()
@@ -3365,12 +3596,12 @@ class ToolLoopTerminalUi:
         self, factory: object | None, footer_data: object | None = None
     ) -> None:
         with self._paint_lock:
-            self._dispose_region(self.extension_footer)
+            self._dispose_region(self._chrome.footer)
             self._clear_footer_branch_callbacks()
-            self._extension_footer_factory = factory
+            self._chrome.footer_factory = factory
             if factory is None:
-                self.extension_footer = None
-                self._extension_footer_branch = None
+                self._chrome.footer = None
+                self._chrome.footer_branch = None
             else:
                 fd = (
                     footer_data
@@ -3381,10 +3612,10 @@ class ToolLoopTerminalUi:
                     # Seed from the same detector used by the poller so the
                     # first poll does not rebuild solely because an external
                     # driver formatted its snapshot differently.
-                    self._extension_footer_branch = (
+                    self._chrome.footer_branch = (
                         self._detect_extension_footer_branch()
                     )
-                self.extension_footer = self._build_region(
+                self._chrome.footer = self._build_region(
                     factory, footer_data=fd, max_lines=_FOOTER_MAX_LINES
                 )
         self.paint()
@@ -3392,23 +3623,23 @@ class ToolLoopTerminalUi:
     def set_extension_title(self, title: str | None) -> None:
         with self._paint_lock:
             if title is None:
-                self.extension_title = None
+                self._chrome.title = None
                 self._driver.restore_title()
             else:
                 self._driver.push_title()
-                self.extension_title = sanitize_label_text(str(title))[
+                self._chrome.title = sanitize_label_text(str(title))[
                     :_TITLE_MAX_CHARS
                 ]
-                self._driver.write_title(self.extension_title)
+                self._driver.write_title(self._chrome.title)
         # title is OS-level; no frame repaint needed.
 
     def set_extension_working_indicator(
         self, frames: object, interval_ms: object
     ) -> None:
         with self._paint_lock:
-            if frames is None:
-                self.extension_indicator_frames = None
-            else:
+            cleaned: tuple[str, ...] | None = None
+            replace_frames = frames is None
+            if frames is not None:
                 try:
                     cleaned = tuple(
                         sanitize_label_text(str(f))
@@ -3416,19 +3647,24 @@ class ToolLoopTerminalUi:
                             :_INDICATOR_MAX_FRAMES
                         ]
                     )
-                    self.extension_indicator_frames = cleaned
+                    replace_frames = True
                 except (TypeError, ValueError):
                     # A non-iterable / bad frames leaves the current indicator
                     # unchanged rather than raising into the extension handler.
                     pass
             try:
-                self.extension_indicator_interval_ms = (
+                interval = (
                     None
                     if interval_ms is None
                     else max(10.0, float(cast(Any, interval_ms)))
                 )
             except (TypeError, ValueError):
-                self.extension_indicator_interval_ms = None
+                interval = None
+            self._chrome.set_indicator(
+                frames=cleaned,
+                interval_ms=interval,
+                replace_frames=replace_frames,
+            )
         self.paint()
 
     def add_extension_terminal_input_listener(
@@ -3443,21 +3679,19 @@ class ToolLoopTerminalUi:
 
         if not callable(handler):
             return lambda: None
-        listener_id = self._extension_terminal_input_next_id
-        self._extension_terminal_input_next_id += 1
-        self._extension_terminal_input_listeners[listener_id] = handler
+        generation, listener_id = self._chrome.register_terminal_input_listener(handler)
 
         def dispose() -> None:
-            self._extension_terminal_input_listeners.pop(listener_id, None)
+            self._chrome.remove_terminal_input_listener(generation, listener_id)
 
         return dispose
 
     def _apply_extension_terminal_input_listeners(self, key: str) -> str | None:
-        self._extension_terminal_input_last_replaced = False
-        if not self._extension_terminal_input_listeners:
+        self._chrome.terminal_input_last_replaced = False
+        if not self._chrome.terminal_input_listeners:
             return key
         current = key
-        for handler in tuple(self._extension_terminal_input_listeners.values()):
+        for handler in tuple(self._chrome.terminal_input_listeners.values()):
             try:
                 result = handler(current)
             except Exception:  # noqa: BLE001 - extension hooks fail soft
@@ -3479,7 +3713,7 @@ class ToolLoopTerminalUi:
                 return None
             if has_replacement:
                 current = "" if replacement is None else str(replacement)
-                self._extension_terminal_input_last_replaced = True
+                self._chrome.terminal_input_last_replaced = True
         if current == "":
             return None
         return current
@@ -3487,29 +3721,24 @@ class ToolLoopTerminalUi:
     def clear_extension_chrome(self) -> None:
         """Dispose + drop all extension-owned chrome (used on /reload + shutdown)."""
         with self._paint_lock:
-            for region in (
-                *self.extension_widgets_above.values(),
-                *self.extension_widgets_below.values(),
-                self.extension_header,
-                self.extension_footer,
-            ):
-                self._dispose_region(region)
-            self.extension_widgets_above.clear()
-            self.extension_widgets_below.clear()
-            self.extension_header = None
-            self.extension_footer = None
-            self.extension_title = None
-            self.extension_indicator_frames = None
-            self._extension_terminal_input_listeners.clear()
-            self.extension_indicator_interval_ms = None
-            self._driver.restore_title()
+            regions = self._chrome.regions_for_clear()
+            try:
+                for region in regions:
+                    self._dispose_region(region)
+            finally:
+                # Disposal is trusted extension code and can synchronously
+                # register more chrome or listeners. Retire only afterward so
+                # those registrations remain in the old generation and are
+                # cleared just as they were before state extraction.
+                self._chrome.retire_generation()
+                self._driver.restore_title()
         self.paint()
 
     def set_extension_working_message(self, message: str | None = None) -> None:
         """Set the sticky working label used by future provider turns."""
 
         with self._paint_lock:
-            self.extension_working_message = (
+            self._chrome.set_working_message(
                 None if message is None else sanitize_label_text(str(message))
             )
         self.paint()
@@ -3518,8 +3747,8 @@ class ToolLoopTerminalUi:
         """Show or hide the sticky working row for future provider turns."""
 
         with self._paint_lock:
-            self.extension_working_visible = bool(visible)
-            if not self.extension_working_visible:
+            self._chrome.set_working_visible(bool(visible))
+            if not self._chrome.working_visible:
                 self.working_text = ""
         self.paint()
 
@@ -3574,26 +3803,15 @@ class ToolLoopTerminalUi:
 
         import time as _time
 
-        self._session_picker_project = list(project_sessions)
-        self._session_picker_all = list(all_sessions)
-        self.session_picker_current = current_path
-        self.session_picker_query = ""
-        self.session_picker_scope = "current"
-        self.session_picker_sort = "recent"
-        self.session_picker_named_only = False
-        self.session_picker_show_path = False
-        self.session_picker_mode = "list"
-        self.session_picker_input = ""
-        self.session_picker_status = ""
-        self.session_picker_selection = 0
-        self._session_picker_now = now if now is not None else _time.time()
-        self.session_picker_open = True
-        self._rebuild_session_picker_rows()
-        self._session_picker_select_current()
+        self._overlays.begin_session(
+            project_sessions=project_sessions,
+            all_sessions=all_sessions,
+            current_path=current_path,
+            now=now if now is not None else _time.time(),
+        )
         self.paint()
         fd = self.input_stream.fileno()
-        try:
-            self._driver.enter_raw_mode()
+        with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
                 outcome = self._handle_session_picker_key(
@@ -3604,33 +3822,12 @@ class ToolLoopTerminalUi:
                 self._close_session_picker()
                 # Past the sentinel, the outcome is the chosen path or a cancel.
                 return cast("Path | None", outcome)
-        finally:
-            self._driver.restore_terminal_mode()
 
     def _rebuild_session_picker_rows(self) -> None:
-        rows = build_session_picker_rows(
-            self._session_picker_project,
-            self._session_picker_all,
-            scope=self.session_picker_scope,
-            query=self.session_picker_query,
-            sort=self.session_picker_sort,
-            named_only=self.session_picker_named_only,
-            current_path=self.session_picker_current,
-        )
-        self.session_picker_rows = tuple(rows)
-        if self.session_picker_selection >= len(rows):
-            self.session_picker_selection = max(0, len(rows) - 1)
-
-    def _session_picker_select_current(self) -> None:
-        for index, row in enumerate(self.session_picker_rows):
-            if row.is_current:
-                self.session_picker_selection = index
-                return
+        self._overlays.rebuild_session_rows()
 
     def _selected_session_row(self) -> "SessionPickerRow | None":
-        if 0 <= self.session_picker_selection < len(self.session_picker_rows):
-            return self.session_picker_rows[self.session_picker_selection]
-        return None
+        return self._overlays.selected_session_row()
 
     def _handle_session_picker_key(
         self,
@@ -3658,58 +3855,58 @@ class ToolLoopTerminalUi:
                 return row.path
             return _PICKER_CONTINUE
         if key == "tab":
-            self.session_picker_scope = (
-                "all" if self.session_picker_scope == "current" else "current"
+            self._overlays.session_scope = (
+                "all" if self._overlays.session_scope == "current" else "current"
             )
-            self.session_picker_selection = 0
-            self.session_picker_status = ""
+            self._overlays.session_selection = 0
+            self._overlays.session_status = ""
             self._rebuild_session_picker_rows()
             self.paint()
             return _PICKER_CONTINUE
         if key == "ctrl-p":
-            self.session_picker_show_path = not self.session_picker_show_path
+            self._overlays.session_show_path = not self._overlays.session_show_path
             self.paint()
             return _PICKER_CONTINUE
         if key == "\x13":  # Ctrl+S — cycle sort
-            self.session_picker_sort = (
-                "name" if self.session_picker_sort == "recent" else "recent"
+            self._overlays.session_sort = (
+                "name" if self._overlays.session_sort == "recent" else "recent"
             )
             self._rebuild_session_picker_rows()
             self.paint()
             return _PICKER_CONTINUE
         if key == "\x0e":  # Ctrl+N — named-only filter
-            self.session_picker_named_only = not self.session_picker_named_only
-            self.session_picker_selection = 0
+            self._overlays.session_named_only = not self._overlays.session_named_only
+            self._overlays.session_selection = 0
             self._rebuild_session_picker_rows()
             self.paint()
             return _PICKER_CONTINUE
         if key == "\x12":  # Ctrl+R — rename
             row = self._selected_session_row()
             if on_rename is not None and row is not None:
-                self.session_picker_mode = "rename"
-                self.session_picker_input = row.name or ""
-                self.session_picker_status = ""
+                self._overlays.session_mode = "rename"
+                self._overlays.session_input = row.name or ""
+                self._overlays.session_status = ""
                 self.paint()
             return _PICKER_CONTINUE
         if key == "\x18":  # Ctrl+X — delete (confirm)
             row = self._selected_session_row()
             if on_delete is not None and row is not None:
                 if row.is_current:
-                    self.session_picker_status = "cannot delete the active session"
+                    self._overlays.session_status = "cannot delete the active session"
                 else:
-                    self.session_picker_mode = "confirm-delete"
+                    self._overlays.session_mode = "confirm-delete"
                 self.paint()
             return _PICKER_CONTINUE
         if key == "backspace":
             if self.session_picker_query:
-                self.session_picker_query = self.session_picker_query[:-1]
-                self.session_picker_selection = 0
+                self._overlays.session_query = self._overlays.session_query[:-1]
+                self._overlays.session_selection = 0
                 self._rebuild_session_picker_rows()
                 self.paint()
             return _PICKER_CONTINUE
         if len(key) == 1 and key.isprintable():
-            self.session_picker_query += key
-            self.session_picker_selection = 0
+            self._overlays.session_query += key
+            self._overlays.session_selection = 0
             self._rebuild_session_picker_rows()
             self.paint()
         return _PICKER_CONTINUE
@@ -3722,8 +3919,8 @@ class ToolLoopTerminalUi:
         if key is None or key in {"ctrl-c", "ctrl-d"}:
             return None
         if key == "esc":
-            self.session_picker_mode = "list"
-            self.session_picker_input = ""
+            self._overlays.session_mode = "list"
+            self._overlays.session_input = ""
             self.paint()
             return _PICKER_CONTINUE
         if key == "enter":
@@ -3732,18 +3929,18 @@ class ToolLoopTerminalUi:
             if row is not None and name and on_rename is not None:
                 on_rename(row.path, name)
                 self._apply_session_rename(row.path, name)
-                self.session_picker_status = f"renamed to {name}"
-            self.session_picker_mode = "list"
-            self.session_picker_input = ""
+                self._overlays.session_status = f"renamed to {name}"
+            self._overlays.session_mode = "list"
+            self._overlays.session_input = ""
             self._rebuild_session_picker_rows()
             self.paint()
             return _PICKER_CONTINUE
         if key == "backspace":
-            self.session_picker_input = self.session_picker_input[:-1]
+            self._overlays.session_input = self._overlays.session_input[:-1]
             self.paint()
             return _PICKER_CONTINUE
         if len(key) == 1 and key.isprintable():
-            self.session_picker_input += key
+            self._overlays.session_input += key
             self.paint()
         return _PICKER_CONTINUE
 
@@ -3762,64 +3959,30 @@ class ToolLoopTerminalUi:
                 ok, detail = on_delete(row.path)
                 if ok:
                     self._remove_session_entry(row.path)
-                self.session_picker_status = detail
-            self.session_picker_mode = "list"
-            self.session_picker_selection = 0
+                self._overlays.session_status = detail
+            self._overlays.session_mode = "list"
+            self._overlays.session_selection = 0
             self._rebuild_session_picker_rows()
             self.paint()
             return _PICKER_CONTINUE
         if key in {"esc", "enter", "n", "N"}:
-            self.session_picker_mode = "list"
+            self._overlays.session_mode = "list"
             self.paint()
         return _PICKER_CONTINUE
 
     def _navigate_session_picker(self, key: str) -> None:
-        total = len(self.session_picker_rows)
-        if total == 0:
-            return
         delta = -1 if key == "up" else 1
-        self.session_picker_selection = (self.session_picker_selection + delta) % total
-        self.paint()
+        if self._overlays.navigate_session(delta):
+            self.paint()
 
     def _apply_session_rename(self, path: Path, name: str) -> None:
-        def relabel(entries: list[SessionListEntry]) -> list[SessionListEntry]:
-            updated: list[SessionListEntry] = []
-            for entry in entries:
-                if entry.path == path:
-                    updated.append(
-                        SessionListEntry(
-                            path=entry.path,
-                            session_id=entry.session_id,
-                            name=name,
-                            message_count=entry.message_count,
-                            cwd=entry.cwd,
-                            mtime=entry.mtime,
-                        )
-                    )
-                else:
-                    updated.append(entry)
-            return updated
-
-        self._session_picker_project = relabel(self._session_picker_project)
-        self._session_picker_all = relabel(self._session_picker_all)
+        self._overlays.apply_session_rename(path, name)
 
     def _remove_session_entry(self, path: Path) -> None:
-        self._session_picker_project = [
-            e for e in self._session_picker_project if e.path != path
-        ]
-        self._session_picker_all = [
-            e for e in self._session_picker_all if e.path != path
-        ]
+        self._overlays.remove_session_entry(path)
 
     def _close_session_picker(self) -> None:
-        self.session_picker_open = False
-        self.session_picker_rows = ()
-        self.session_picker_selection = 0
-        self.session_picker_mode = "list"
-        self.session_picker_input = ""
-        self.session_picker_query = ""
-        self._session_picker_project = []
-        self._session_picker_all = []
+        self._overlays.end_session()
         self.paint()
 
     def _session_picker_region_lines(
@@ -3923,7 +4086,10 @@ class ToolLoopTerminalUi:
         return lines
 
     def close(self) -> None:
-        self._driver.restore_terminal_mode()
+        # Actual terminal shutdown is the fail-safe boundary: abandon any raw
+        # owner a broken earlier path failed to release. Overlay/read scopes
+        # continue to use balanced restoration after successful acquisition.
+        self._driver.force_restore_terminal_mode()
         self._driver.remove_resize_handler()
         if self._closed:
             return
@@ -4456,28 +4622,15 @@ class ToolLoopTerminalUi:
             history_lines.extend(
                 self._block_frame_lines("working", (self.working_text,), width=width)
             )
-        if (
-            self.settings_dialog_open
-            or self.model_selector_open
-            or self.tree_selector_open
-            or self.scoped_models_open
-            or self.custom_overlay_open
-        ):
+        # HEAD's captured ``render_lines`` model intentionally excludes the
+        # session picker; only the live paint path projects that overlay.
+        selector = self._active_overlay_region_lines(
+            width=width, height=height, include_session_picker=False
+        )
+        if selector is not None:
             # The overlay replaces the input/menu region; keep as much trailing
             # history as fits above it so render_lines() agrees with the paint()
             # live region.
-            if self.custom_overlay_open:
-                selector = self._custom_overlay_region_lines(width=width, height=height)
-            elif self.settings_dialog_open:
-                selector = self._settings_dialog_region_lines(
-                    width=width, height=height
-                )
-            elif self.tree_selector_open:
-                selector = self._tree_selector_region_lines(width=width, height=height)
-            elif self.scoped_models_open:
-                selector = self._scoped_models_region_lines(width=width, height=height)
-            else:
-                selector = self._model_selector_region_lines(width=width, height=height)
             max_history_lines = max(0, height - len(selector))
             if len(history_lines) > max_history_lines:
                 history_lines = history_lines[len(history_lines) - max_history_lines :]
@@ -4713,14 +4866,7 @@ class ToolLoopTerminalUi:
         # The selector/settings overlays have no editable input cell, so keep
         # the terminal cursor hidden (it was hidden at the top of the paint)
         # instead of parking and revealing it on a non-input row.
-        if not (
-            self.model_selector_open
-            or self.settings_dialog_open
-            or self.tree_selector_open
-            or self.scoped_models_open
-            or self.session_picker_open
-            or self.custom_overlay_open
-        ):
+        if self._overlays.active is None:
             # Park on the cursor's wrapped input row/column, so the hardware
             # cursor and the drawn cursor cell agree for over-wide input.
             input_meta = live[input_index].meta or {}
@@ -4749,18 +4895,9 @@ class ToolLoopTerminalUi:
         footer rows pinned at the bottom).
         """
 
-        if self.custom_overlay_open:
-            return self._custom_overlay_region_lines(width=width, height=height)
-        if self.settings_dialog_open:
-            return self._settings_dialog_region_lines(width=width, height=height)
-        if self.session_picker_open:
-            return self._session_picker_region_lines(width=width, height=height)
-        if self.tree_selector_open:
-            return self._tree_selector_region_lines(width=width, height=height)
-        if self.scoped_models_open:
-            return self._scoped_models_region_lines(width=width, height=height)
-        if self.model_selector_open:
-            return self._model_selector_region_lines(width=width, height=height)
+        overlay = self._active_overlay_region_lines(width=width, height=height)
+        if overlay is not None:
+            return overlay
         menu_lines = self._popup_menu_frame_lines(
             width=width,
             max_rows=max(1, height - 7),
@@ -4820,6 +4957,30 @@ class ToolLoopTerminalUi:
             *footer_rows,
         ]
         return lines
+
+    def _active_overlay_region_lines(
+        self,
+        *,
+        width: int,
+        height: int,
+        include_session_picker: bool = True,
+    ) -> list[_FrameLine] | None:
+        """Render the active overlay for the requested façade projection."""
+
+        active = self._overlays.active
+        if active == "custom":
+            return self._custom_overlay_region_lines(width=width, height=height)
+        if active in {"settings", "project_trust"}:
+            return self._settings_dialog_region_lines(width=width, height=height)
+        if active == "session_picker" and include_session_picker:
+            return self._session_picker_region_lines(width=width, height=height)
+        if active == "tree":
+            return self._tree_selector_region_lines(width=width, height=height)
+        if active == "scoped_models":
+            return self._scoped_models_region_lines(width=width, height=height)
+        if active == "model":
+            return self._model_selector_region_lines(width=width, height=height)
+        return None
 
     def _model_selector_region_lines(
         self, *, width: int, height: int
@@ -4994,7 +5155,7 @@ class ToolLoopTerminalUi:
         return lines
 
     def _render_region_lines(
-        self, region: "_ChromeRegion", *, width: int, max_lines: int
+        self, region: ChromeRegion, *, width: int, max_lines: int
     ) -> tuple[str, ...] | None:
         """Return the region's snapshot lines (UNCLIPPED; the caller width-clips
         each line at frame-build time), or ``None`` when a factory re-render
@@ -5031,15 +5192,15 @@ class ToolLoopTerminalUi:
         return _clip_custom_overlay_text(cleaned, width)
 
     def _extension_header_lines(self, width: int) -> list[_FrameLine]:
-        if self.extension_header is None:
+        if self._chrome.header is None:
             return []
         with self._paint_lock:
             lines = self._render_region_lines(
-                self.extension_header, width=width, max_lines=_HEADER_MAX_LINES
+                self._chrome.header, width=width, max_lines=_HEADER_MAX_LINES
             )
             if lines is None:
-                self._dispose_region(self.extension_header)
-                self.extension_header = None
+                self._dispose_region(self._chrome.header)
+                self._chrome.header = None
                 return []
         return [
             _FrameLine(self._clip_custom(line, width), "chrome_custom")
@@ -5074,15 +5235,15 @@ class ToolLoopTerminalUi:
 
     def _extension_footer_lines(self, width: int) -> list[_FrameLine] | None:
         """Return custom footer rows, or None to fall back to the built-in footer."""
-        if self.extension_footer is None:
+        if self._chrome.footer is None:
             return None
         with self._paint_lock:
             lines = self._render_region_lines(
-                self.extension_footer, width=width, max_lines=_FOOTER_MAX_LINES
+                self._chrome.footer, width=width, max_lines=_FOOTER_MAX_LINES
             )
             if lines is None:
-                self._dispose_region(self.extension_footer)
-                self.extension_footer = None
+                self._dispose_region(self._chrome.footer)
+                self._chrome.footer = None
                 return None
         return [
             _FrameLine(self._clip_custom(line, width), "chrome_custom")
@@ -5951,20 +6112,23 @@ class ToolLoopTerminalUi:
         self._editor.load_history_entry(text)
         self.paint()
 
-    def suspend_for_external_io(self) -> None:
-        """Tear down the live region for a blocking interactive flow.
+    @contextmanager
+    def external_io_suspension(self) -> Iterator[None]:
+        """Scope one blocking foreign terminal consumer in cooked mode.
 
-        Used by ``/login`` so the OAuth manager can print its URL/prompt and
-        read a line directly from the terminal in cooked mode. The committed
-        history above is left in native scrollback; the old input/footer rows
-        are erased and the live-region tracking is reset so the next
-        :meth:`paint` redraws a fresh frame below whatever the external flow
-        printed. No prompts, URLs, or credentials touch the session archive —
-        they only render on the live terminal.
+        Used by configured editors and ``/login`` so inherited terminal I/O is
+        cooked and the inline frame is removed while the foreign flow owns it.
+        Entry publishes suspension before mutating the live-region projection,
+        so a failed cooked-mode handoff launches no consumer and leaves the
+        frame intact. The paired ``finally`` resume is unavoidable for normal,
+        exceptional, and nested exits; only the outermost scope repaints below
+        the foreign output. A failed raw resume remains published in the driver
+        for authoritative :meth:`close` recovery and is surfaced to the caller.
+        No prompts, URLs, credentials, or edited text touch the session archive.
         """
 
         with self._paint_lock:
-            self._driver.restore_terminal_mode()
+            self._driver.suspend_terminal_mode()
             output: list[str] = []
             if self._live_height > 0:
                 if self._live_input_row > 0:
@@ -5974,6 +6138,13 @@ class ToolLoopTerminalUi:
             self._driver.write("".join(output))
             self._live_height = 0
             self._live_input_row = 0
+        try:
+            yield
+        finally:
+            with self._paint_lock:
+                repaint = self._driver.resume_terminal_mode()
+            if repaint:
+                self.paint()
 
     def _move_input_cursor(self, key: str) -> None:
         self._editor.move_cursor(key)
@@ -6818,6 +6989,7 @@ def run_project_trust_selector(
         exit_actions=frozenset(action_to_option),
         current_index=saved_row_index,
         title="Trust project folder?" if startup else "Project trust",
+        overlay_kind="project_trust",
     )
     return action_to_option.get(chosen) if chosen is not None else None
 

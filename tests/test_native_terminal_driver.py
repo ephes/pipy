@@ -159,14 +159,280 @@ def test_enter_raw_mode_uses_tcsaflush_typeahead_flush(
     assert terminal.value == _BRACKETED_PASTE_ENABLE
 
 
-def test_enter_raw_mode_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[int] = []
+def test_nested_raw_mode_ownership_restores_only_after_outer_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_calls: list[int] = []
+    restore_calls: list[tuple[int, int, object]] = []
     monkeypatch.setattr(termios, "tcgetattr", lambda fd: "saved")
-    monkeypatch.setattr(tty, "setraw", lambda fd: calls.append(fd))
+    monkeypatch.setattr(tty, "setraw", lambda fd: raw_calls.append(fd))
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
+    )
+    driver, terminal = _driver()
+
+    driver.enter_raw_mode()
+    driver.enter_raw_mode()
+    assert raw_calls == [7]
+    assert terminal.value == _BRACKETED_PASTE_ENABLE
+
+    driver.restore_terminal_mode()
+    assert restore_calls == []
+    assert terminal.value == _BRACKETED_PASTE_ENABLE
+
+    driver.restore_terminal_mode()
+    assert restore_calls == [(7, termios.TCSADRAIN, "saved")]
+    assert terminal.value == _BRACKETED_PASTE_ENABLE + _BRACKETED_PASTE_DISABLE
+
+
+def test_temporary_suspension_preserves_nested_owners_and_tcsaflush_resume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_calls: list[tuple[int, int]] = []
+    restore_calls: list[tuple[int, int, object]] = []
+    monkeypatch.setattr(termios, "tcgetattr", lambda _fd: "saved")
+
+    def fake_setraw(fd: int, when: int = termios.TCSAFLUSH) -> None:
+        raw_calls.append((fd, when))
+
+    monkeypatch.setattr(tty, "setraw", fake_setraw)
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
+    )
+    driver, terminal = _driver(fd=17)
+
+    driver.enter_raw_mode()
+    driver.enter_raw_mode()
+    driver.suspend_terminal_mode()
+
+    assert driver._raw_mode_depth == 2
+    assert driver._terminal_mode_suspend_depth == 1
+    assert raw_calls == [(17, termios.TCSAFLUSH)]
+    assert restore_calls == [(17, termios.TCSADRAIN, "saved")]
+    assert terminal.value == _BRACKETED_PASTE_ENABLE + _BRACKETED_PASTE_DISABLE
+
+    # A nested foreign consumer cannot resume raw mode under its outer owner.
+    driver.suspend_terminal_mode()
+    driver.resume_terminal_mode()
+    assert driver._terminal_mode_suspend_depth == 1
+    assert raw_calls == [(17, termios.TCSAFLUSH)]
+
+    assert driver.resume_terminal_mode() is True
+    with pytest.raises(RuntimeError, match="suspension is not active"):
+        driver.resume_terminal_mode()
+    assert driver._raw_mode_depth == 2
+    assert driver._terminal_mode_suspend_depth == 0
+    assert raw_calls == [
+        (17, termios.TCSAFLUSH),
+        (17, termios.TCSAFLUSH),
+    ]
+    assert terminal.value == (
+        _BRACKETED_PASTE_ENABLE
+        + _BRACKETED_PASTE_DISABLE
+        + _BRACKETED_PASTE_ENABLE
+    )
+
+    driver.restore_terminal_mode()
+    assert restore_calls == [(17, termios.TCSADRAIN, "saved")]
+    driver.restore_terminal_mode()
+    assert restore_calls == [
+        (17, termios.TCSADRAIN, "saved"),
+        (17, termios.TCSADRAIN, "saved"),
+    ]
+    assert driver._old_termios is None
+    assert terminal.value.endswith(_BRACKETED_PASTE_DISABLE)
+
+
+def test_raw_mode_scope_failed_nested_entry_does_not_release_outer_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    restore_calls: list[tuple[int, int, object]] = []
+    monkeypatch.setattr(termios, "tcgetattr", lambda _fd: "saved")
+    monkeypatch.setattr(tty, "setraw", lambda _fd: None)
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
+    )
     driver, _terminal = _driver()
+
+    driver.enter_raw_mode()
+    driver.suspend_terminal_mode()
+    with pytest.raises(RuntimeError, match="while terminal I/O is suspended"):
+        with driver.raw_mode():
+            raise AssertionError("failed entry must not yield")
+
+    assert driver._raw_mode_depth == 1
+    assert driver._terminal_mode_suspend_depth == 1
+    assert restore_calls == [(7, termios.TCSADRAIN, "saved")]
+
+    assert driver.resume_terminal_mode() is True
+    driver.restore_terminal_mode()
+    assert restore_calls == [
+        (7, termios.TCSADRAIN, "saved"),
+        (7, termios.TCSADRAIN, "saved"),
+    ]
+
+
+def test_suspension_without_raw_owner_blocks_entry_and_pairs_nested_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_calls: list[int] = []
+    monkeypatch.setattr(termios, "tcgetattr", lambda _fd: "saved")
+    monkeypatch.setattr(tty, "setraw", lambda fd: raw_calls.append(fd))
+    driver, _terminal = _driver()
+
+    driver.suspend_terminal_mode()
+    driver.suspend_terminal_mode()
+    assert driver._raw_mode_depth == 0
+    assert driver._terminal_mode_suspend_depth == 2
+    with pytest.raises(RuntimeError, match="while terminal I/O is suspended"):
+        driver.enter_raw_mode()
+    assert raw_calls == []
+
+    assert driver.resume_terminal_mode() is False
+    assert driver._terminal_mode_suspend_depth == 1
+    assert driver.resume_terminal_mode() is True
+    assert driver._terminal_mode_suspend_depth == 0
+
+    driver.enter_raw_mode()
+    assert raw_calls == [7]
+
+
+def test_failed_suspend_does_not_publish_cooked_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    restore_calls = 0
+    monkeypatch.setattr(termios, "tcgetattr", lambda _fd: "saved")
+    monkeypatch.setattr(tty, "setraw", lambda _fd: None)
+
+    def fail_restore(_fd: int, _when: int, _attrs: object) -> None:
+        nonlocal restore_calls
+        restore_calls += 1
+        if restore_calls == 1:
+            raise OSError("cooked transition failed")
+
+    monkeypatch.setattr(termios, "tcsetattr", fail_restore)
+    driver, terminal = _driver()
+    driver.enter_raw_mode()
+
+    with pytest.raises(OSError, match="cooked transition failed"):
+        driver.suspend_terminal_mode()
+
+    assert driver._raw_mode_depth == 1
+    assert driver._terminal_mode_suspend_depth == 0
+    assert driver._bracketed_paste_active is True
+    assert terminal.value == (
+        _BRACKETED_PASTE_ENABLE
+        + _BRACKETED_PASTE_DISABLE
+        + _BRACKETED_PASTE_ENABLE
+    )
+
+
+def test_raw_mode_scope_failed_physical_entry_does_not_release_an_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    restore_calls: list[tuple[int, int, object]] = []
+    monkeypatch.setattr(termios, "tcgetattr", lambda _fd: "saved")
+
+    def fail_raw(_fd: int) -> None:
+        raise termios.error("raw transition failed")
+
+    monkeypatch.setattr(tty, "setraw", fail_raw)
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
+    )
+    driver, terminal = _driver(fd=29)
+
+    with pytest.raises(termios.error, match="raw transition failed"):
+        with driver.raw_mode():
+            raise AssertionError("failed entry must not yield")
+
+    assert driver._raw_mode_depth == 0
+    assert driver._terminal_mode_suspend_depth == 0
+    assert driver._old_termios is None
+    assert restore_calls == [(29, termios.TCSADRAIN, "saved")]
+    assert terminal.value == ""
+
+
+def test_failed_initial_raw_entry_restores_cooked_state_without_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    restore_calls: list[tuple[int, int, object]] = []
+    monkeypatch.setattr(termios, "tcgetattr", lambda _fd: "saved")
+
+    def fail_raw(_fd: int) -> None:
+        raise OSError("raw transition failed")
+
+    monkeypatch.setattr(tty, "setraw", fail_raw)
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
+    )
+    driver, terminal = _driver(fd=23)
+
+    with pytest.raises(OSError, match="raw transition failed"):
+        driver.enter_raw_mode()
+
+    assert driver._raw_mode_depth == 0
+    assert driver._terminal_mode_suspend_depth == 0
+    assert driver._old_termios is None
+    assert restore_calls == [(23, termios.TCSADRAIN, "saved")]
+    assert terminal.value == ""
+
+
+def test_failed_resume_stays_suspended_until_forced_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    restore_calls: list[tuple[int, int, object]] = []
+    raw_calls = 0
+    monkeypatch.setattr(termios, "tcgetattr", lambda _fd: "saved")
+
+    def fail_second_setraw(_fd: int, when: int = termios.TCSAFLUSH) -> None:
+        nonlocal raw_calls
+        del when
+        raw_calls += 1
+        if raw_calls == 2:
+            raise OSError("raw transition failed")
+
+    monkeypatch.setattr(tty, "setraw", fail_second_setraw)
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
+    )
+    driver, terminal = _driver(fd=19)
+
     driver.enter_raw_mode()
     driver.enter_raw_mode()
-    assert calls == [7]
+    driver.suspend_terminal_mode()
+    with pytest.raises(OSError, match="raw transition failed"):
+        driver.resume_terminal_mode()
+
+    assert driver._raw_mode_depth == 2
+    assert driver._terminal_mode_suspend_depth == 1
+    assert driver._bracketed_paste_active is False
+    driver.force_restore_terminal_mode()
+    driver.force_restore_terminal_mode()
+
+    assert driver._raw_mode_depth == 0
+    assert driver._terminal_mode_suspend_depth == 0
+    assert driver._old_termios is None
+    # Suspension, failed-resume rollback, and one forced close recovery each
+    # restore the saved attrs; repeated recovery is a no-op.
+    assert restore_calls == [
+        (19, termios.TCSADRAIN, "saved"),
+        (19, termios.TCSADRAIN, "saved"),
+        (19, termios.TCSADRAIN, "saved"),
+    ]
+    assert terminal.value == _BRACKETED_PASTE_ENABLE + _BRACKETED_PASTE_DISABLE
 
 
 def test_restore_terminal_mode_disables_paste_and_restores_attrs(
@@ -197,6 +463,36 @@ def test_restore_terminal_mode_disables_paste_and_restores_attrs(
     }
     # Restoring disables bracketed paste.
     assert terminal.value == _BRACKETED_PASTE_DISABLE
+
+
+def test_force_restore_terminal_mode_recovers_unbalanced_owners_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    restore_calls: list[tuple[int, int, object]] = []
+    monkeypatch.setattr(termios, "tcgetattr", lambda _fd: "saved")
+    monkeypatch.setattr(tty, "setraw", lambda _fd: None)
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
+    )
+    driver, terminal = _driver(fd=13)
+
+    driver.enter_raw_mode()
+    driver.enter_raw_mode()
+    driver.force_restore_terminal_mode()
+
+    assert driver._raw_mode_depth == 0
+    assert driver._terminal_mode_suspend_depth == 0
+    assert driver._old_termios is None
+    assert driver._bracketed_paste_active is False
+    assert restore_calls == [(13, termios.TCSADRAIN, "saved")]
+    assert terminal.value == _BRACKETED_PASTE_ENABLE + _BRACKETED_PASTE_DISABLE
+
+    driver.force_restore_terminal_mode()
+    driver.restore_terminal_mode()
+    assert restore_calls == [(13, termios.TCSADRAIN, "saved")]
+    assert terminal.value == _BRACKETED_PASTE_ENABLE + _BRACKETED_PASTE_DISABLE
 
 
 def test_restore_terminal_mode_noop_when_not_raw() -> None:

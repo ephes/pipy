@@ -257,6 +257,10 @@ def test_pty_extension_editor_external_editor_success(
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
     ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
     result: list[object] = []
+    # Hold an outer raw owner so the extension editor acquires nested depth 2.
+    # The foreign child must still see cooked mode, and the editor must resume
+    # physically raw without consuming this owner.
+    ui._driver.enter_raw_mode()
 
     def _run() -> None:
         result.append(ui.run_extension_editor("Draft", "seed"))
@@ -270,12 +274,67 @@ def test_pty_extension_editor_external_editor_success(
         os.write(in_master, b"\r")  # Enter -> submit edited text.
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "editor worker did not exit"
+        assert ui._driver._raw_mode_depth == 1
+        assert ui._driver._terminal_mode_suspend_depth == 0
+        assert not (termios.tcgetattr(stdin.fileno())[3] & termios.ICANON)
+        ui._driver.restore_terminal_mode()
+        assert termios.tcgetattr(stdin.fileno())[3] & termios.ICANON
     finally:
+        ui._driver.force_restore_terminal_mode()
         _teardown(stdin, terminal, in_master, err_master, err_thread)
 
     assert result == ["edited from external"]
     assert state_path.exists(), "external editor did not run"
     assert int(state_path.read_text(encoding="utf-8")) & termios.ICANON
+    captured = b"".join(err_chunks).decode("utf-8", "replace")
+    assert captured.count("\x1b[?2004h") == 2
+    assert captured.count("\x1b[?2004l") == 2
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_external_editor_suspends_nested_raw_owners_and_resumes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TERM", "xterm-256color")
+    state_path = tmp_path / "nested-termios-state.txt"
+    editor_script = tmp_path / "nested-editor.py"
+    editor_script.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "import termios\n"
+        f"Path({str(state_path)!r}).write_text(str(termios.tcgetattr(0)[3]), encoding='utf-8')\n"
+        "Path(sys.argv[1]).write_text('nested edit\\n', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    try:
+        ui._driver.enter_raw_mode()
+        ui._driver.enter_raw_mode()
+
+        assert (
+            ui._run_extension_external_editor(
+                f"{sys.executable} {editor_script}", "seed"
+            )
+            == "nested edit"
+        )
+        assert int(state_path.read_text(encoding="utf-8")) & termios.ICANON
+        assert ui._driver._raw_mode_depth == 2
+        assert ui._driver._terminal_mode_suspend_depth == 0
+        assert not (termios.tcgetattr(stdin.fileno())[3] & termios.ICANON)
+
+        ui._driver.restore_terminal_mode()
+        assert ui._driver._raw_mode_depth == 1
+        assert not (termios.tcgetattr(stdin.fileno())[3] & termios.ICANON)
+        ui._driver.restore_terminal_mode()
+        assert ui._driver._raw_mode_depth == 0
+        assert termios.tcgetattr(stdin.fileno())[3] & termios.ICANON
+    finally:
+        ui._driver.force_restore_terminal_mode()
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
+
+    captured = b"".join(err_chunks).decode("utf-8", "replace")
+    assert captured.count("\x1b[?2004h") == 2
+    assert captured.count("\x1b[?2004l") == 2
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")

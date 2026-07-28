@@ -969,6 +969,31 @@ ARCHITECTURE_RULES = (
         ),
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.overlay_state",
+        forbidden_imports=(
+            "pipy_harness.native.tui",
+            "pipy_harness.native.terminal_driver",
+            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.extension_runtime",
+            "pipy_harness.native.extension_types",
+            "pipy_session",
+        ),
+        reason=(
+            "overlay state may reuse session-picker value/row builders but must "
+            "not perform terminal I/O, extension execution, product-session "
+            "composition, or workflow-archive effects"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.extension_chrome_state",
+        forbidden_imports=("pipy_harness", "pipy_session"),
+        reason=(
+            "extension chrome ownership is dependency-neutral state and listener "
+            "bookkeeping; terminal, component, extension, and archive effects "
+            "remain in adapters"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.tui",
         forbidden_imports=("pipy_harness.native.tool_loop_session",),
         reason=(

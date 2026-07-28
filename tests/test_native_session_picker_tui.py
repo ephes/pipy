@@ -71,7 +71,7 @@ def _open(
     ui.session_picker_selection = 0
     ui._session_picker_now = 1000.0
     ui._rebuild_session_picker_rows()
-    ui._session_picker_select_current()
+    ui._overlays.select_current_session()
 
 
 def _feed(ui, key, *, on_rename=None, on_delete=None):

@@ -5,6 +5,8 @@ from __future__ import annotations
 import io
 import os
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO, cast
@@ -1064,6 +1066,23 @@ def test_tui_model_selector_renders_rows_with_highlight_and_reasons(
     assert "fake/fake  [unavailable: no tool-call support]" in rendered
 
 
+def test_render_lines_excludes_session_picker_but_live_paint_projection_keeps_it(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+    ui.set_input_text("captured contract")
+    ui.session_picker_open = True
+
+    captured = "\n".join(ui.render_lines(width=88, height=24, pad=False))
+    live = "\n".join(
+        line.text for line in ui._live_region_lines(width=88, height=24)
+    )
+
+    assert "Resume session" not in captured
+    assert "Resume session" in live
+    assert "captured contract" in captured
+
+
 def test_tui_model_selector_navigation_wraps(tmp_path: Path):
     from pipy_harness.native.tui import ModelSelectorOption
 
@@ -1788,6 +1807,7 @@ def test_project_trust_selector_shows_exact_or_inherited_saved_and_current_state
         exit_actions=frozenset(),
         current_index=None,
         title="Settings",
+        overlay_kind="settings",
     ):
         del self, on_local_action
         captured.update(
@@ -1795,6 +1815,7 @@ def test_project_trust_selector_shows_exact_or_inherited_saved_and_current_state
             exit_actions=exit_actions,
             current_index=current_index,
             title=title,
+            overlay_kind=overlay_kind,
         )
         return None
 
@@ -1823,6 +1844,7 @@ def test_project_trust_selector_shows_exact_or_inherited_saved_and_current_state
     assert expected_saved_label in labels
     assert "Current session: untrusted" in labels
     assert captured["title"] == "Project trust"
+    assert captured["overlay_kind"] == "project_trust"
     current_index = captured["current_index"]
     assert isinstance(current_index, int)
     assert rows[current_index].action == expected_action
@@ -1844,8 +1866,9 @@ def test_project_trust_selector_sanitizes_untrusted_path_labels(
         exit_actions=frozenset(),
         current_index=None,
         title="Settings",
+        overlay_kind="settings",
     ):
-        del self, on_local_action, exit_actions, current_index, title
+        del self, on_local_action, exit_actions, current_index, title, overlay_kind
         captured_rows.extend(rows)
         return None
 
@@ -1887,8 +1910,10 @@ def test_trust_command_persists_next_start_decision_without_hot_activation(
         exit_actions=frozenset(),
         current_index=None,
         title="Settings",
+        overlay_kind="settings",
     ):
         del self, rows, on_local_action, current_index, title
+        assert overlay_kind == "project_trust"
         assert "trust-option-0" in exit_actions
         return "trust-option-0"
 
@@ -1994,7 +2019,7 @@ def test_tui_settings_dialog_navigation_skips_non_actionable_rows(tmp_path: Path
     ui = _ui(tmp_path)
     ui.settings_dialog_open = True
     ui.settings_dialog_rows = _settings_dialog_rows()
-    ui.settings_dialog_selection = ui._initial_settings_selection(None)
+    ui.settings_dialog_selection = ui._overlays.initial_settings_selection(None)
 
     # Initial selection lands on the first actionable row (the model action).
     assert ui.settings_dialog_selection == 2
@@ -3283,9 +3308,14 @@ def _install_auth_trace(
         assert "$" in text
         trace.append("usage-footer")
 
-    def record_suspend(self: ToolLoopTerminalUi) -> None:
+    @contextmanager
+    def record_external_io(self: ToolLoopTerminalUi) -> Iterator[None]:
         del self
         trace.append("external-io-suspend")
+        try:
+            yield
+        finally:
+            trace.append("external-io-resume")
 
     def record_notice(self: ToolLoopTerminalUi, text: str) -> None:
         del self
@@ -3313,7 +3343,7 @@ def _install_auth_trace(
 
     monkeypatch.setattr(ToolLoopTerminalUi, "set_footer_text", record_footer)
     monkeypatch.setattr(
-        ToolLoopTerminalUi, "suspend_for_external_io", record_suspend
+        ToolLoopTerminalUi, "external_io_suspension", record_external_io
     )
     monkeypatch.setattr(ToolLoopTerminalUi, "add_notice", record_notice)
     monkeypatch.setattr(CodingSessionState, "rebind_provider", record_rebind)
@@ -3466,9 +3496,11 @@ def test_tui_auth_failure_rebinds_before_safe_diagnostic_and_usage_footer(
     expected = ["usage-footer"]
     if action == "login":
         expected.append("external-io-suspend")
+    expected.append("auth-callback")
+    if action == "login":
+        expected.append("external-io-resume")
     expected.extend(
         [
-            "auth-callback",
             "provider-usage-rebind",
             "usage-footer",
             "diagnostic",
@@ -3525,6 +3557,8 @@ def test_tui_auth_process_interrupt_propagates_before_rebind_diagnostic_or_foote
     if action == "login":
         expected.append("external-io-suspend")
     expected.append("auth-callback")
+    if action == "login":
+        expected.append("external-io-resume")
     assert trace == expected
     assert diagnostics == []
     assert rebinds == []

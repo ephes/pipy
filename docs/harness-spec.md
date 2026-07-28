@@ -707,8 +707,9 @@ command text, or secrets to the metadata archive.
 product TUI through the `NativeReplProviderState` auth boundary. Both run no
 provider turn and no tool call. `/login` calls
 `OpenAICodexAuthManager.login_interactive()` (the inline frame is suspended via
-`ToolLoopTerminalUi.suspend_for_external_io()` so the OAuth URL/prompt prints to
-and reads from the terminal in cooked mode, then the frame repaints below it);
+`ToolLoopTerminalUi.external_io_suspension()` so the OAuth URL/prompt prints to
+and reads from the terminal in cooked mode, then the scope resumes and repaints
+below it);
 `/logout` removes the stored OpenAI Codex credentials and resets the selection to
 the local default. After either, the session clears the in-memory conversation,
 rebinds the live provider and usage meter, refreshes the footer/status label, and
@@ -2211,7 +2212,7 @@ flag plus saved SIGWINCH disposition) and exposes:
   fd), and returns `True` only when both succeeded so paint/resize callers can
   skip follow-up bookkeeping on a failed frame exactly as before. Every current
   `terminal_stream.write`/`flush` — paint, close teardown,
-  `suspend_for_external_io`, and the external-editor notice — routes through
+  `external_io_suspension`, and the external-editor notice — routes through
   it; there is no second write path.
 - `write_deferred(text) -> bool`: the write-without-flush variant used only by
   the two `\x1b[2J\x1b[H` screen-clear sites (the forced full redraw and the
@@ -2223,11 +2224,37 @@ flag plus saved SIGWINCH disposition) and exposes:
   the flush to the following frame, swallowing the same errors and returning
   `True` only when the write succeeded, keeping the "no change to when bytes
   are written" invariant exact.
-- `enter_raw_mode`/`restore_terminal_mode`: the termios raw-mode lifecycle.
-  `enter_raw_mode` saves the current attributes, calls `tty.setraw(fd)`, and
-  enables bracketed paste; `restore_terminal_mode` disables bracketed paste and
-  restores the saved attributes with `TCSADRAIN`. Both are idempotent no-ops
-  when already in the target mode.
+- `raw_mode()` over `enter_raw_mode`/`restore_terminal_mode`: scoped balanced
+  termios raw ownership. The first acquisition saves the current attributes,
+  calls `tty.setraw(fd)`, and enables bracketed paste; nested acquisitions share
+  that transition. The scope installs its matching release only after entry
+  succeeds, so a suspended nested attempt cannot consume an existing outer
+  owner and a failed physical acquisition cannot fabricate one.
+  `restore_terminal_mode` releases exactly one owner,
+  disabling bracketed paste and restoring the saved attributes with `TCSADRAIN`
+  only at depth zero. The custom-component lifecycle keeps equivalent explicit
+  successful-acquisition tracking because its component disposal and repaint
+  must remain ordered before raw release.
+- `suspend_terminal_mode`/`resume_terminal_mode`: temporary physical handoff to
+  a foreign TTY consumer without releasing logical raw owners, used through
+  `ToolLoopTerminalUi.external_io_suspension()`. The first suspension
+  immediately disables bracketed paste and restores the saved cooked attributes
+  with `TCSADRAIN`, including at ownership depth greater than one; nested scopes
+  are independently guarded. A scope is published even when no raw owner exists
+  so raw acquisition cannot race the foreign consumer. The final matching
+  resume calls `tty.setraw(fd)` with its default `TCSAFLUSH` policy and
+  re-enables bracketed paste if any raw owners remain. Raw entry while suspended
+  and unmatched resume fail loudly; failed cooked entry publishes no handoff,
+  while failed raw resumption remains suspended for forced-close recovery. The
+  configured external editor and blocking login/OAuth prompt flows use this
+  scoped contract. Local
+  shell/model-tool subprocesses keep detached stdin while pipy's interrupt
+  watcher owns the TTY, so they are not foreign TTY consumers and do not use it.
+- `force_restore_terminal_mode`: shutdown recovery, not release or temporary
+  suspension. It is reserved for the actual `ToolLoopTerminalUi.close` boundary,
+  clears abandoned raw and suspension depths, and restores the saved cooked
+  attributes/bracketed-paste state whether the terminal was physically raw or
+  already suspended. Repeated close is idempotent.
 - `write_title`/`push_title`/`restore_title`: the xterm terminal-title OSC
   push/write/restore, with control-character sanitization and the
   `_TITLE_MAX_CHARS` cap applied before the OSC 0 write to block

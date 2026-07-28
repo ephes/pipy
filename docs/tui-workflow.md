@@ -28,7 +28,43 @@ the boundaries this track extends. Slice 11 subsequently moved their editable
 buffer/cursor, recall, undo/redo, paste, completion/menu, rehydration, and queued
 input into the terminal-independent `native.editor_state.EditorState`; `tui.py`
 remains the product façade and effect/render adapter, so every workflow contract
-below is unchanged. This document specifies the **remaining** gaps only.
+below is unchanged. Slice 12 further moved the mutually exclusive model,
+settings/project-trust, tree, scoped-model, session-picker, and custom-overlay
+state behind `native.overlay_state.OverlayState`, whose typed owner frames
+restore an outer overlay after a distinct nested overlay closes. Settings and
+project-trust remain distinct discriminators but share one payload family, so a
+suspended frame restores the outer rows, title, and selection exactly before it
+resumes. Extension header/footer,
+widget, title, status, working/indicator, terminal-input-listener, and footer-
+branch bookkeeping moved behind
+`native.extension_chrome_state.ExtensionChromeState`. Chrome clear/reload
+runs component disposal before retiring generation-owned regions, footer rebuild
+hooks, and terminal-input registrations, so chrome/listeners registered during
+disposal are retired too; cross-generation status rows and sticky working
+message/visibility remain preserved. The same `ToolLoopTerminalUi` methods and
+live extension UI bridge remain the effect adapters: raw mode, decoded input,
+callbacks/components, disposal, filesystem/git reads, terminal titles, painting,
+and locks did not move. `TerminalDriver.raw_mode()` balances nested ownership
+and installs its release only after acquisition succeeds, so failed inner entry
+cannot consume the outer dialog's owner. An inner selector returns control to
+its still-raw outer dialog and only the outermost balanced release restores the
+original termios; the custom-component path uses an equivalent successful-entry
+guard to keep disposal and repaint before release. A balanced release is never
+used to hand the TTY to a foreign consumer: configured editors and
+blocking login/OAuth prompts use one scoped external-I/O façade that suspends
+physical raw mode, immediately disabling bracketed paste and restoring cooked
+termios while preserving all logical owners, then unavoidably resumes through
+the same guarded nesting depth and `TCSAFLUSH` raw-entry policy. The scope also
+blocks raw acquisition when entered without an existing owner; failed entry
+launches no consumer, and failed resumption remains suspended for forced-close
+recovery. `!` commands and model tools retain detached
+child stdin while pipy's interrupt watcher owns raw input, so they do not
+suspend. The actual TUI close boundary is a third operation that separately
+forces restoration, clearing abandoned raw and suspension ownership whether
+physically raw or suspended; repeated close is idempotent. The captured
+`render_lines()` path still excludes the session-picker overlay even though
+live paint renders it. This document specifies the
+**remaining** gaps only.
 
 ## Sources
 
@@ -73,9 +109,11 @@ Pipy current state (the boundaries this track extends):
 - `docs/harness-spec.md` (ToolLoopTerminalUi / product-TUI section, ~513-729).
 - `docs/backlog.md` (Pi Gap Queue item 3; Current Largest Gaps item 3).
 - `src/pipy_harness/native/tui.py` — `ToolLoopTerminalUi`: `read_line`,
-  `wait_for_active_turn_interrupt`, `run_model_selector`, `run_settings_dialog`,
-  `run_tree_selector`, the live-region/frame renderer, and the startup footer
-  (which already advertises `! bash` and `ctrl+o more`).
+  `wait_for_active_turn_interrupt`, effectful overlay drivers, the live-region/
+  frame renderer, and the startup footer (which already advertises `! bash` and
+  `ctrl+o more`); `native.overlay_state` and
+  `native.extension_chrome_state` own the corresponding terminal-independent
+  mutable state.
 - `src/pipy_harness/native/repl_input.py` — the stdlib raw-mode key reader and
   key tokens (`esc`, `tab`, `shift-enter`, `ctrl-c`, `ctrl-d`, `ctrl-u`,
   `ctrl-z`, `ctrl-y`, `paste`).

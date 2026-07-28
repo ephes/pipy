@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -125,13 +126,18 @@ def _install_terminal(
         trace.append("footer")
         return next(scripted)
 
-    def suspend(self: ToolLoopTerminalUi) -> None:
+    @contextmanager
+    def suspend(self: ToolLoopTerminalUi) -> Iterator[None]:
         del self
-        raise AssertionError("/trust must not suspend for external I/O")
+        trace.append("external-io-suspend")
+        try:
+            yield
+        finally:
+            trace.append("external-io-resume")
 
     monkeypatch.setattr(NativeToolReplSession, "_build_terminal_ui", build)
     monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
-    monkeypatch.setattr(ToolLoopTerminalUi, "suspend_for_external_io", suspend)
+    monkeypatch.setattr(ToolLoopTerminalUi, "external_io_suspension", suspend)
     return terminal
 
 

@@ -1784,14 +1784,20 @@ class _ProviderMutationEffects:
             return f"pipy: /{action} is unavailable for this REPL provider state."
         provider_name = argument or "openai-codex"
         if action == "login":
-            if self.terminal_ui is not None:
-                self.terminal_ui.suspend_for_external_io()
             try:
-                _ok, message = state.login(
-                    provider_name,
-                    input_stream=self.input_stream,
-                    output_stream=self.error_stream,
-                )
+                if self.terminal_ui is None:
+                    _ok, message = state.login(
+                        provider_name,
+                        input_stream=self.input_stream,
+                        output_stream=self.error_stream,
+                    )
+                else:
+                    with self.terminal_ui.external_io_suspension():
+                        _ok, message = state.login(
+                            provider_name,
+                            input_stream=self.input_stream,
+                            output_stream=self.error_stream,
+                        )
             except Exception as exc:  # noqa: BLE001 - report, never crash REPL
                 message = (
                     "pipy: openai-codex login failed with "

@@ -23,14 +23,27 @@ storing it: :meth:`read_key`/:meth:`read_key_if_available` return the string
 buffer that survives across the read loop; the driver only performs the
 transient decode handoff.
 
-Raw-mode transition typeahead policy: :meth:`TerminalDriver.enter_raw_mode`
-calls ``tty.setraw`` with the standard-library default ``when`` of
-``termios.TCSAFLUSH``, which *discards* any input queued before the switch.
-The extraction deliberately preserves that flush rather than silently
-changing terminal semantics, so consumers synchronize on a fresh prompt
-(prompt readiness) instead of relying on bytes typed ahead of the raw-mode
-transition. See ``tests/test_native_terminal_driver.py`` for the explicit
-characterization.
+Raw-mode transition typeahead policy: the outermost
+:meth:`TerminalDriver.enter_raw_mode` call uses ``tty.setraw`` with the
+standard-library default ``when`` of ``termios.TCSAFLUSH``, which *discards*
+any input queued before the switch. Nested owners share that raw transition;
+the original mode is restored only when the outermost owner releases it. This
+preserves the flush policy without letting an inner overlay return its outer
+input loop to cooked mode. Ordinary readers acquire through
+:meth:`TerminalDriver.raw_mode`, whose scoped release is installed only after
+entry succeeds, so a failed nested acquisition cannot consume an outer owner.
+Foreign TTY consumers instead use
+:meth:`TerminalDriver.suspend_terminal_mode` and
+:meth:`TerminalDriver.resume_terminal_mode` through the UI's scoped external-I/O
+contract: suspension restores the saved cooked mode without consuming logical
+owners, and the final paired resume re-enters physical raw mode with the same
+``TCSAFLUSH`` policy. Separate suspension depth makes nested foreign-consumer
+scopes safe. Raw ownership cannot be acquired while such a scope is active,
+and an unmatched resume fails loudly rather than fabricating a physical mode.
+:meth:`TerminalDriver.force_restore_terminal_mode` is reserved for the actual
+UI close boundary, where it clears abandoned ownership and suspension state
+and restores the saved terminal state exactly once per close recovery. See
+``tests/test_native_terminal_driver.py`` for the explicit characterization.
 """
 
 from __future__ import annotations
@@ -41,6 +54,8 @@ import shutil
 import signal
 import termios
 import tty
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, TextIO
 
 from pipy_harness.native.session_tree_commands import sanitize_label_text
@@ -88,15 +103,19 @@ class TerminalDriver:
 
     Holds the input/terminal streams and the terminal-side lifecycle state
     (saved termios attributes, bracketed-paste enabled flag, and whether a
-    terminal title has been pushed onto the xterm title stack). All methods
-    are best-effort and swallow the usual closed-stream/invalid-fd errors so a
-    disconnected terminal never turns a paint or teardown into a crash.
+    terminal title has been pushed onto the xterm title stack). Paint and
+    teardown operations are best-effort and swallow the usual closed-stream/
+    invalid-fd errors. Raw entry and temporary suspend/resume surface transition
+    failures so a caller never starts a foreign TTY consumer after a failed
+    cooked-mode handoff; their state remains recoverable by forced close.
     """
 
     __slots__ = (
         "input_stream",
         "terminal_stream",
         "_old_termios",
+        "_raw_mode_depth",
+        "_terminal_mode_suspend_depth",
         "_bracketed_paste_active",
         "_title_pushed",
         "_pending_input_bytes",
@@ -108,9 +127,16 @@ class TerminalDriver:
     def __init__(self, input_stream: TextIO, terminal_stream: TextIO) -> None:
         self.input_stream = input_stream
         self.terminal_stream = terminal_stream
-        # ``termios.tcgetattr`` result captured on entering raw mode; ``None``
-        # means the terminal is in its original (cooked) mode.
+        # ``termios.tcgetattr`` result captured on the outermost raw-mode
+        # entry; ``_raw_mode_depth`` counts balanced owners so a nested overlay
+        # cannot restore cooked mode out from under its outer input loop.
         self._old_termios: Any = None
+        self._raw_mode_depth = 0
+        # Foreign TTY consumers temporarily restore the saved cooked mode
+        # without consuming balanced raw owners. A depth (rather than a bool)
+        # prevents an inner foreign-consumer scope from resuming raw mode while
+        # an outer foreign consumer still owns the terminal.
+        self._terminal_mode_suspend_depth = 0
         self._bracketed_paste_active = False
         self._title_pushed = False
         # Bytes read from the fd but not yet decoded (a UTF-8 continuation
@@ -169,39 +195,163 @@ class TerminalDriver:
             return False
         return True
 
+    @contextmanager
+    def raw_mode(self) -> Iterator[None]:
+        """Scope one balanced raw-mode owner after successful acquisition.
+
+        Entry happens before the generator yields, so context-manager cleanup is
+        registered only after :meth:`enter_raw_mode` succeeds. A suspended or
+        failed physical transition therefore cannot release another scope's
+        existing owner.
+        """
+
+        self.enter_raw_mode()
+        try:
+            yield
+        finally:
+            self.restore_terminal_mode()
+
     def enter_raw_mode(self) -> None:
-        """Switch the input terminal into raw mode and enable bracketed paste.
+        """Acquire raw mode and enable bracketed paste for the outermost owner.
 
         ``tty.setraw`` uses the stdlib default ``termios.TCSAFLUSH`` ``when``,
-        which flushes input queued before the transition (the preserved
-        typeahead policy documented at module level). No-op when already in
-        raw mode.
+        which flushes input queued before the outermost transition (the
+        preserved typeahead policy documented at module level). Nested owners
+        increment a depth counter without repeating that destructive flush.
         """
 
-        if self._old_termios is not None:
+        if self._terminal_mode_suspend_depth > 0:
+            raise RuntimeError("cannot enter raw mode while terminal I/O is suspended")
+        if self._raw_mode_depth > 0:
+            self._raw_mode_depth += 1
             return
         fd = self.input_stream.fileno()
-        self._old_termios = termios.tcgetattr(fd)
-        tty.setraw(fd)
+        old_termios = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+        except (OSError, termios.error, ValueError):
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_termios)
+            except (OSError, termios.error, ValueError):
+                pass
+            raise
+        self._old_termios = old_termios
+        self._raw_mode_depth = 1
         self._set_bracketed_paste(True)
 
-    def restore_terminal_mode(self) -> None:
-        """Restore the saved cooked-mode termios attributes.
+    def suspend_terminal_mode(self) -> None:
+        """Temporarily give a foreign TTY consumer the saved cooked terminal.
 
-        Disables bracketed paste first, then drains and restores the original
-        attributes with ``TCSADRAIN``. No-op when not in raw mode.
+        Suspension is distinct from balanced ownership release: every logical
+        raw owner remains counted. The first suspension immediately disables
+        bracketed paste and restores the original attributes with ``TCSADRAIN``
+        even when ownership depth exceeds one. Nested suspension calls only
+        increment their own guard depth. If the physical restore fails, paste
+        is re-enabled and suspension is not published, so a caller cannot
+        unknowingly launch a foreign consumer against a half-transitioned
+        logical state. A scope is still published when there is no raw owner;
+        this prevents a concurrent or nested UI path from silently acquiring
+        physically raw mode while the foreign consumer owns the terminal.
         """
 
-        if self._old_termios is None:
+        if self._terminal_mode_suspend_depth > 0:
+            self._terminal_mode_suspend_depth += 1
             return
+        if self._raw_mode_depth == 0:
+            self._terminal_mode_suspend_depth = 1
+            return
+        old_termios = self._old_termios
+        if old_termios is None:
+            raise RuntimeError("raw terminal owner has no saved terminal mode")
         self._set_bracketed_paste(False)
         try:
             termios.tcsetattr(
-                self.input_stream.fileno(), termios.TCSADRAIN, self._old_termios
+                self.input_stream.fileno(), termios.TCSADRAIN, old_termios
+            )
+        except (OSError, termios.error, ValueError):
+            self._set_bracketed_paste(True)
+            raise
+        self._terminal_mode_suspend_depth = 1
+
+    def resume_terminal_mode(self) -> bool:
+        """Release one temporary suspension and resume raw mode when unguarded.
+
+        An unmatched resume raises ``RuntimeError`` so missing or misordered
+        pairing cannot silently pass. The final matching resume uses
+        ``tty.setraw`` without an explicit ``when``, preserving the documented
+        ``TCSAFLUSH`` typeahead policy. Logical ownership depth is unchanged.
+        A failed raw transition keeps suspension published and best-effort
+        restores the saved cooked attributes, so forced-close recovery remains
+        authoritative and a later explicit retry is safe. Returns ``True``
+        only when the outermost scope was released, allowing the façade to
+        repaint once after nested external-I/O scopes.
+        """
+
+        if self._terminal_mode_suspend_depth == 0:
+            raise RuntimeError("terminal I/O suspension is not active")
+        if self._terminal_mode_suspend_depth > 1:
+            self._terminal_mode_suspend_depth -= 1
+            return False
+        if self._raw_mode_depth == 0:
+            self._terminal_mode_suspend_depth = 0
+            return True
+        try:
+            tty.setraw(self.input_stream.fileno())
+        except (OSError, termios.error, ValueError):
+            old_termios = self._old_termios
+            if old_termios is not None:
+                try:
+                    termios.tcsetattr(
+                        self.input_stream.fileno(), termios.TCSADRAIN, old_termios
+                    )
+                except (OSError, termios.error, ValueError):
+                    pass
+            raise
+        self._terminal_mode_suspend_depth = 0
+        self._set_bracketed_paste(True)
+        return True
+
+    def restore_terminal_mode(self) -> None:
+        """Release raw mode and restore cooked mode after the outermost owner.
+
+        Nested releases only decrement ownership. The final release disables
+        bracketed paste, then drains and restores the original attributes with
+        ``TCSADRAIN``. No-op when no raw-mode owner remains.
+        """
+
+        if self._raw_mode_depth == 0:
+            return
+        self._raw_mode_depth -= 1
+        if self._raw_mode_depth > 0:
+            return
+        self._terminal_mode_suspend_depth = 0
+        self._restore_saved_terminal_mode()
+
+    def force_restore_terminal_mode(self) -> None:
+        """Abandon all raw owners and restore terminal state exactly once.
+
+        This is a shutdown recovery operation, not a balanced release. It is
+        intentionally reserved for the actual terminal UI close boundary so an
+        earlier unmatched acquisition cannot leave the host terminal raw.
+        Repeated calls are idempotent.
+        """
+
+        self._raw_mode_depth = 0
+        self._terminal_mode_suspend_depth = 0
+        self._restore_saved_terminal_mode()
+
+    def _restore_saved_terminal_mode(self) -> None:
+        self._set_bracketed_paste(False)
+        old_termios = self._old_termios
+        self._old_termios = None
+        if old_termios is None:
+            return
+        try:
+            termios.tcsetattr(
+                self.input_stream.fileno(), termios.TCSADRAIN, old_termios
             )
         except (OSError, termios.error, ValueError):
             pass
-        self._old_termios = None
 
     def _set_bracketed_paste(self, enabled: bool) -> None:
         if enabled == self._bracketed_paste_active:

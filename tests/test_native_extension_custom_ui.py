@@ -13,9 +13,13 @@ from __future__ import annotations
 
 import io
 import subprocess
+import termios
+import tty
 from pathlib import Path
 from collections.abc import Callable
 from typing import TextIO, cast
+
+import pytest
 
 from pipy_harness.native.extension_runtime import (
     CustomComponent,
@@ -86,19 +90,18 @@ def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
     )
 
 
-def test_extension_external_editor_guards_exact_mode_transition_calls(
+def test_extension_external_editor_uses_temporary_suspend_resume_contract(
     monkeypatch, tmp_path: Path
 ) -> None:
     ui = _ui(tmp_path)
     mode_calls: list[str] = []
 
-    def raise_restore(_self: TerminalDriver) -> None:
-        mode_calls.append("restore")
-        raise OSError("restore unavailable")
+    def suspend(_self: TerminalDriver) -> None:
+        mode_calls.append("suspend")
 
-    def raise_enter(_self: TerminalDriver) -> None:
-        mode_calls.append("enter")
-        raise OSError("raw mode unavailable")
+    def resume(_self: TerminalDriver) -> bool:
+        mode_calls.append("resume")
+        return True
 
     def fake_run(argv, **_kwargs):
         path = Path(argv[-1])
@@ -106,12 +109,137 @@ def test_extension_external_editor_guards_exact_mode_transition_calls(
         path.write_text("edited\n", encoding="utf-8")
         return subprocess.CompletedProcess(argv, 0)
 
-    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", raise_restore)
-    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", raise_enter)
+    monkeypatch.setattr(TerminalDriver, "suspend_terminal_mode", suspend)
+    monkeypatch.setattr(TerminalDriver, "resume_terminal_mode", resume)
     monkeypatch.setattr("pipy_harness.native.tui.subprocess.run", fake_run)
 
     assert ui._run_extension_external_editor("fake-editor", "seed") == "edited"
-    assert mode_calls == ["restore", "enter"]
+    assert mode_calls == ["suspend", "resume"]
+
+
+@pytest.mark.parametrize(
+    "error_type", (OSError, termios.error), ids=("os-error", "termios-error")
+)
+def test_extension_external_editor_does_not_launch_after_failed_suspend(
+    monkeypatch, tmp_path: Path, error_type: type[Exception]
+) -> None:
+    ui = _ui(tmp_path)
+    ui._live_height = 4
+    ui._live_input_row = 2
+    launched = False
+
+    def fail_suspend(_self: TerminalDriver) -> None:
+        raise error_type("cooked handoff failed")
+
+    def fake_run(_argv, **_kwargs):
+        nonlocal launched
+        launched = True
+        raise AssertionError("editor must not launch without cooked mode")
+
+    monkeypatch.setattr(TerminalDriver, "suspend_terminal_mode", fail_suspend)
+    monkeypatch.setattr("pipy_harness.native.tui.subprocess.run", fake_run)
+
+    assert ui._run_extension_external_editor("fake-editor", "seed") is None
+    assert launched is False
+    assert ui._live_height == 4
+    assert ui._live_input_row == 2
+
+
+@pytest.mark.parametrize(
+    "error_type", (OSError, termios.error), ids=("os-error", "termios-error")
+)
+def test_extension_external_editor_keeps_completed_edit_after_failed_resume(
+    monkeypatch, tmp_path: Path, error_type: type[Exception]
+) -> None:
+    ui = _ui(tmp_path)
+    mode_calls: list[str] = []
+
+    def suspend(_self: TerminalDriver) -> None:
+        mode_calls.append("suspend")
+
+    def fail_resume(_self: TerminalDriver) -> bool:
+        mode_calls.append("resume")
+        raise error_type("raw resumption failed")
+
+    def fake_run(argv, **_kwargs):
+        path = Path(argv[-1])
+        path.write_text("completed edit\n", encoding="utf-8")
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(TerminalDriver, "suspend_terminal_mode", suspend)
+    monkeypatch.setattr(TerminalDriver, "resume_terminal_mode", fail_resume)
+    monkeypatch.setattr("pipy_harness.native.tui.subprocess.run", fake_run)
+
+    assert (
+        ui._run_extension_external_editor("fake-editor", "seed")
+        == "completed edit"
+    )
+    assert mode_calls == ["suspend", "resume"]
+
+
+def test_custom_component_failed_nested_acquisition_preserves_outer_raw_owner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    restore_calls: list[tuple[int, int, object]] = []
+    monkeypatch.setattr(termios, "tcgetattr", lambda _fd: "saved")
+    monkeypatch.setattr(tty, "setraw", lambda _fd: None)
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
+    )
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, _InputBuffer()),
+        terminal_stream=cast(TextIO, _TtyBuffer()),
+        cwd=tmp_path,
+    )
+    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda _self: None)
+    ui._driver.enter_raw_mode()
+    ui._driver.suspend_terminal_mode()
+
+    with pytest.raises(RuntimeError, match="while terminal I/O is suspended"):
+        ui.run_custom_component(lambda done: _ScriptedComponent(done))
+
+    assert ui._driver._raw_mode_depth == 1
+    assert ui._driver._terminal_mode_suspend_depth == 1
+    assert restore_calls == [(0, termios.TCSADRAIN, "saved")]
+
+    assert ui._driver.resume_terminal_mode() is True
+    ui._driver.restore_terminal_mode()
+    assert restore_calls == [
+        (0, termios.TCSADRAIN, "saved"),
+        (0, termios.TCSADRAIN, "saved"),
+    ]
+
+
+def test_custom_component_failed_physical_acquisition_has_no_release(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    restore_calls: list[tuple[int, int, object]] = []
+    monkeypatch.setattr(termios, "tcgetattr", lambda _fd: "saved")
+
+    def fail_raw(_fd: int) -> None:
+        raise termios.error("raw transition failed")
+
+    monkeypatch.setattr(tty, "setraw", fail_raw)
+    monkeypatch.setattr(
+        termios,
+        "tcsetattr",
+        lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
+    )
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, _InputBuffer()),
+        terminal_stream=cast(TextIO, _TtyBuffer()),
+        cwd=tmp_path,
+    )
+    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda _self: None)
+
+    with pytest.raises(termios.error, match="raw transition failed"):
+        ui.run_custom_component(lambda done: _ScriptedComponent(done))
+
+    assert ui._driver._raw_mode_depth == 0
+    assert ui._driver._old_termios is None
+    assert restore_calls == [(0, termios.TCSADRAIN, "saved")]
 
 
 def test_open_custom_overlay_renders_component_lines(tmp_path: Path) -> None:
@@ -418,6 +546,35 @@ def test_tui_custom_component_callable_snake_case_options(
 
     assert result == "done"
     assert widths == [31]
+
+
+def test_tui_custom_component_factory_can_finish_repeated_runs_before_return(
+    monkeypatch, tmp_path: Path
+) -> None:
+    ui = _ui(tmp_path)
+    ui.input_stream = cast(TextIO, _InputBuffer())
+    monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
+    monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda _self: None)
+
+    def fail_read(_self, _fd):
+        raise AssertionError("factory completion should finish before reading input")
+
+    monkeypatch.setattr(ToolLoopTerminalUi, "_read_key_polling_resize", fail_read)
+
+    class Component:
+        def render(self, _width: int) -> list[str]:
+            return ["done"]
+
+        def handle_input(self, _key: str) -> None:
+            raise AssertionError("completed component must not receive input")
+
+    for expected in ("first", "second"):
+        def factory(done, result=expected):
+            done(result)
+            done("ignored")
+            return Component()
+
+        assert ui.run_custom_component(factory) == expected
 
 
 def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -> None:

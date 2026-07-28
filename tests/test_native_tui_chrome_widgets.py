@@ -2,11 +2,8 @@ import io
 
 import pytest
 
-from pipy_harness.native.tui import (
-    ToolLoopTerminalUi,
-    _ChromeRegion,
-    _TuiToolLoopRenderer,
-)
+from pipy_harness.native.extension_chrome_state import ChromeRegion
+from pipy_harness.native.tui import ToolLoopTerminalUi, _TuiToolLoopRenderer
 from pathlib import Path
 
 
@@ -22,7 +19,7 @@ def test_set_widget_stores_snapshot_and_clears():
     ui = _ui()
     ui.set_extension_widget("k", ["a", "b"], placement="above_editor")
     region = ui.extension_widgets_above["k"]
-    assert isinstance(region, _ChromeRegion)
+    assert isinstance(region, ChromeRegion)
     assert region.snapshot == ("a", "b")
     ui.set_extension_widget("k", None)
     assert "k" not in ui.extension_widgets_above
@@ -98,17 +95,111 @@ def test_widget_move_to_full_placement_keeps_original():
     assert "m" not in ui.extension_widgets_above
 
 
-def test_clear_extension_chrome_resets_all():
+def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values():
     ui = _ui()
     ui.set_extension_widget("k", ["a"])
     ui.set_extension_header(lambda theme: type("C", (), {"render": lambda self, w: ["h"]})())
+    ui.set_extension_footer(lambda theme, data: ["f"])
     ui.set_extension_title("t")
+    ui.set_extension_status("status", "value")
+    ui.set_extension_working_message("sticky")
+    ui.set_extension_working_visible(False)
     ui.add_extension_terminal_input_listener(lambda key: None)
     ui.clear_extension_chrome()
     assert ui.extension_widgets_above == {}
     assert ui.extension_header is None
+    assert ui.extension_footer is None
+    assert ui._extension_footer_factory is None
+    assert ui._extension_footer_branch is None
     assert ui.extension_title is None
     assert ui._extension_terminal_input_listeners == {}
+    assert ui.extension_status == {"status": "value"}
+    assert ui.extension_working_message == "sticky"
+    assert ui.extension_working_visible is False
+
+
+def test_clear_discards_chrome_and_listeners_registered_during_dispose():
+    ui = _ui()
+    dispose_registered: list[object] = []
+    old_listener_ids: list[int] = []
+
+    class _Comp:
+        def render(self, width):
+            return ["original"]
+
+        def dispose(self):
+            ui.set_extension_widget("registered-during-dispose", ["late"])
+            dispose_registered.append(
+                ui.add_extension_terminal_input_listener(lambda key: f"late:{key}")
+            )
+            old_listener_ids.extend(ui._extension_terminal_input_listeners)
+
+    ui.set_extension_widget("original", lambda theme: _Comp())
+    ui.clear_extension_chrome()
+
+    assert ui._chrome.generation == 1
+    assert ui.extension_widgets_above == {}
+    assert ui._extension_terminal_input_listeners == {}
+
+    # A disposer created during the old generation stays stale even if its
+    # numeric id is reused by a fresh registration.
+    ui._extension_terminal_input_next_id = old_listener_ids[0]
+    ui.add_extension_terminal_input_listener(lambda key: {"data": f"fresh:{key}"})
+    stale_dispose = dispose_registered[0]
+    assert callable(stale_dispose)
+    stale_dispose()
+    assert ui._apply_extension_terminal_input_listeners("x") == "fresh:x"
+
+
+def test_clear_retires_state_even_when_dispose_propagates_interrupt():
+    ui = _ui()
+
+    class _Comp:
+        def render(self, width):
+            return ["original"]
+
+        def dispose(self):
+            raise KeyboardInterrupt
+
+    ui.set_extension_widget("original", lambda theme: _Comp())
+
+    with pytest.raises(KeyboardInterrupt):
+        ui.clear_extension_chrome()
+
+    assert ui._chrome.generation == 1
+    assert ui.extension_widgets_above == {}
+
+
+def test_stale_facade_disposers_cannot_remove_reused_fresh_registrations():
+    ui = _ui()
+    old_listener_dispose = ui.add_extension_terminal_input_listener(lambda key: key)
+    old_callback_dispose = ui.register_footer_branch_change_callback(lambda: "old")
+    old_listener_id = next(iter(ui._extension_terminal_input_listeners))
+    old_callback_id = next(iter(ui._footer_branch_callbacks))
+
+    ui.clear_extension_chrome()
+    ui._extension_terminal_input_next_id = old_listener_id
+    ui._footer_branch_callback_next_id = old_callback_id
+    fresh_listener_dispose = ui.add_extension_terminal_input_listener(
+        lambda key: {"data": f"fresh:{key}"}
+    )
+    fresh_callback_dispose = ui.register_footer_branch_change_callback(
+        lambda: "fresh"
+    )
+    assert set(ui._extension_terminal_input_listeners) == {old_listener_id}
+    assert set(ui._footer_branch_callbacks) == {old_callback_id}
+
+    old_listener_dispose()
+    old_callback_dispose()
+    assert set(ui._extension_terminal_input_listeners) == {old_listener_id}
+    assert set(ui._footer_branch_callbacks) == {old_callback_id}
+    assert ui._apply_extension_terminal_input_listeners("x") == "fresh:x"
+    assert ui._footer_branch_callbacks[old_callback_id]() == "fresh"
+
+    fresh_listener_dispose()
+    fresh_callback_dispose()
+    assert ui._extension_terminal_input_listeners == {}
+    assert ui._footer_branch_callbacks == {}
 
 
 def test_terminal_input_listeners_transform_consume_and_dispose():
