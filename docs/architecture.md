@@ -277,10 +277,38 @@ provider or tool authority.
 
 `native/ui/state.py` is a pure reducer from canonical agent events to render
 decisions, and `native/ui/rendering.py` drives a renderer port.
-`native/tui.py` owns the product's stateful inline-scrollback façade: live frame
-composition, TUI-facing event rendering, and translation of terminal,
-filesystem, clipboard, and extension effects. Finalized blocks are committed to
-the normal terminal buffer; pipy does not use the alternate screen.
+`native/tui.py` owns the product's stateful inline-scrollback façade,
+TUI-facing event rendering, and translation of terminal, filesystem, clipboard,
+and extension effects. `native/frame_renderer.py` owns frame composition behind
+an immutable snapshot boundary. Its frozen snapshots contain copied history
+`(kind, lines)` values (never callback-bearing live rerender state), transient
+text, editor values, resolved overlay/chrome rows, and geometry; a separate
+frozen `PaintState` carries prior physical paint metadata. Effectful custom
+editors cross as detached `ResolvedCustomEditorLine` tuples, an immutable
+`FrameLine` subtype retaining resolved kind and cursor metadata. The façade
+applies the established plain control/SGR clipping policy once; the subtype
+marks that hand-off so full-frame finishing preserves the exact bytes (adding
+only requested right padding), while input layout only applies the row window. Pure functions perform block wrapping,
+clipping, row budgeting/selection, input/footer pinning, style mapping, cursor
+placement, and deterministic terminal paint-plan calculation. The renderer does
+not call components or callbacks, inspect streams or terminal geometry, acquire
+locks, write bytes, or mutate snapshots/owners.
+
+The façade prepares live-paint snapshots while holding its existing paint lock
+(and captured snapshots through the same effect adapters). Preparation may still
+render/invalidate/dispose trusted extension components,
+inspect git/filesystem-backed chrome, and resolve custom editor or overlay rows;
+only copied immutable values cross into the renderer. Empty overlays are valid
+resolved values and keep the hardware cursor hidden even when the same paint
+commits history. Non-positive input row budgets still produce one cursor row.
+The façade's clip/pad methods delegate to renderer helpers, whose plain clipping
+reuses the shared label sanitizer. `TerminalDriver` remains
+the sole byte sink. `ToolLoopTerminalUi` publishes the returned live-height,
+input-row, committed-block count, and painted geometry before attempting the
+write, preserving failed-write bookkeeping, and retains paint re-entry
+coalescing, resize clear/home, deferred flush, and restoration. Finalized blocks
+are committed exactly once to the normal terminal buffer and ordinary paints
+redraw only the live region; pipy does not use the alternate screen.
 
 `native/overlay_state.py` is the single typed owner for model, settings,
 project-trust, tree, scoped-model, session-picker, and custom-overlay state. One
@@ -430,8 +458,12 @@ metadata-only workflow archive.
 Ruff C901 is a directional repository gate. Previously complex files are
 explicitly pinned and no new pin may be added; a finding in a previously clean
 file fails `just lint`. At the Slice 1 baseline, unignored Ruff reports 39
-repository findings, 23 under `src`, while `src` contains one justified
-`type: ignore`. Run the reproducible source-only inventory with:
+repository findings, 23 under `src`. Slice 13 pure frame composition removes
+four TUI findings (`_frame_lines`, `_paint_locked`, `_styled_line`, and
+`_block_frame_lines`) without creating a renderer finding, leaving **34 / 18**
+repository/source findings (**9** remain in TUI and zero in the renderer).
+`src` still contains one justified `type: ignore`.
+Run the reproducible source-only inventory with:
 
 ```sh
 uv run python scripts/architecture_metrics.py --json
@@ -455,11 +487,12 @@ The active program addresses ownership risks rather than cosmetic size:
   separate metadata-fixture contract, but its provider execution is canonical;
   executable Slice 10 boundary tests prevent it from drifting into a second
   silently equivalent agent loop;
-- `ToolLoopTerminalUi` still owns effectful frame composition and custom editor
-  adaptation, but editor, overlay, and extension-chrome state now live behind
-  `EditorState`, `OverlayState`, and `ExtensionChromeState`; Slices 11–12 reduce
-  the measured façade inventory from **128 to 43 fields**, below the cumulative
-  **89-field** ceiling; pure frame composition remains Slice 13; and
+- `ToolLoopTerminalUi` still owns effectful snapshot preparation and custom
+  editor adaptation, but pure frame layout/style/paint planning now lives in
+  `frame_renderer`; editor, overlay, and extension-chrome state live behind
+  `EditorState`, `OverlayState`, and `ExtensionChromeState`; Slices 11–13 keep
+  the measured façade inventory at **43 fields** after reducing it from 128,
+  below the cumulative **89-field** ceiling; and
 - load-sensitive PTY readiness races and the absence of a repository Ruff-format
   gate remain explicit quality work.
 

@@ -961,6 +961,26 @@ ARCHITECTURE_RULES = (
         reason="UI adapters must consume ports/events instead of session internals",
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.frame_renderer",
+        forbidden_imports=(
+            "pipy_harness.native.tui",
+            "pipy_harness.native.terminal_driver",
+            "pipy_harness.native.editor_state",
+            "pipy_harness.native.overlay_state",
+            "pipy_harness.native.extension_chrome_state",
+            "pipy_harness.native.extension_runtime",
+            "pipy_harness.native.extension_types",
+            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.session",
+            "pipy_session",
+        ),
+        reason=(
+            "pure frame composition consumes immutable resolved values and must "
+            "not inspect terminal/UI owners, execute extensions, or depend on "
+            "product-session or workflow-archive implementations"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.editor_state",
         forbidden_imports=("pipy_harness", "pipy_session"),
         reason=(
@@ -3502,6 +3522,26 @@ def test_rule_is_inactive_until_its_source_package_exists(tmp_path: Path) -> Non
     violations = _evaluate_rule(source_root, ui_rule)
     assert len(violations) == 1
     assert violations[0].imported_module == "pipy_harness.native.tool_loop_session"
+
+
+def test_frame_renderer_rule_blocks_terminal_driver(tmp_path: Path) -> None:
+    source_root = tmp_path / "src"
+    source_path = _write_module(
+        source_root,
+        "pipy_harness.native.frame_renderer",
+        "from pipy_harness.native.terminal_driver import TerminalDriver\n",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.frame_renderer"
+    )
+
+    violations = _evaluate_rule(source_root, rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == source_path
+    assert violations[0].imported_module == "pipy_harness.native.terminal_driver"
 
 
 def test_tui_rule_blocks_the_product_session_root(tmp_path: Path) -> None:

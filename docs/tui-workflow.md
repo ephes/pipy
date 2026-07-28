@@ -61,10 +61,23 @@ recovery. `!` commands and model tools retain detached
 child stdin while pipy's interrupt watcher owns raw input, so they do not
 suspend. The actual TUI close boundary is a third operation that separately
 forces restoration, clearing abandoned raw and suspension ownership whether
-physically raw or suspended; repeated close is idempotent. The captured
-`render_lines()` path still excludes the session-picker overlay even though
-live paint renders it. This document specifies the
-**remaining** gaps only.
+physically raw or suspended; repeated close is idempotent. Slice 13 additionally
+puts content/layout/style calculation behind frozen `native.frame_renderer`
+snapshots. The façade still resolves effectful custom
+editor/overlay/extension chrome. Custom-editor rows cross as immutable
+`ResolvedCustomEditorLine` values with their resolved kind/cursor metadata and
+established plain control/SGR bytes; the renderer windows them without clipping
+or sanitizing them again and only adds requested full-frame right padding. Callback-bearing custom
+history rerender state never crosses with its current lines. The renderer wraps,
+clips, budgets and selects ordinary rows, pins input/footer rows, maps styles,
+calculates cursor placement, and builds deterministic terminal paint plans;
+empty overlays stay cursor-hidden, and non-positive editor budgets restore one
+cursor row. Terminal writes,
+physical relative-cursor ownership, paint locks/re-entry coalescing, committed-
+scrollback publication, deferred resize/full-redraw clears, and restoration stay
+in `ToolLoopTerminalUi`/`TerminalDriver`. The captured `render_lines()`
+projection still excludes the session-picker overlay even though live paint
+renders it. This document specifies the **remaining** gaps only.
 
 ## Sources
 
@@ -109,9 +122,10 @@ Pipy current state (the boundaries this track extends):
 - `docs/harness-spec.md` (ToolLoopTerminalUi / product-TUI section, ~513-729).
 - `docs/backlog.md` (Pi Gap Queue item 3; Current Largest Gaps item 3).
 - `src/pipy_harness/native/tui.py` — `ToolLoopTerminalUi`: `read_line`,
-  `wait_for_active_turn_interrupt`, effectful overlay drivers, the live-region/
-  frame renderer, and the startup footer (which already advertises `! bash` and
-  `ctrl+o more`); `native.overlay_state` and
+  `wait_for_active_turn_interrupt`, effectful overlay/snapshot drivers, and the
+  startup footer (which already advertises `! bash` and `ctrl+o more`);
+  `native.frame_renderer` is the terminal-independent immutable frame/layout/
+  style/paint-plan boundary, while `native.overlay_state` and
   `native.extension_chrome_state` own the corresponding terminal-independent
   mutable state.
 - `src/pipy_harness/native/repl_input.py` — the stdlib raw-mode key reader and
@@ -636,7 +650,10 @@ rather than only hiding chunks that keep arriving.
 - Inline rendering preserved. No alternate screen, no scrollback suppression.
   New overlays and popups draw only in the pinned live region; folding/expansion
   changes how the UI-owned live history and future blocks render and never
-  rewrites bytes already committed to native scrollback.
+  rewrites bytes already committed to native scrollback. Pure paint planning
+  receives the prior committed-block count and never includes those rows in an
+  ordinary subsequent paint; only the effectful resize/full-redraw path resets
+  that count after an unflushed clear.
 - Mouse-tracking modes stay off. The renderer must not enable xterm mouse
   reporting, so terminal-native selection keeps working over scrollback and the
   live region.

@@ -9,8 +9,9 @@ push/write/restore, and the fd-level input read primitives plus the key
 decoder that turns raw bytes on the owned input fd into named keys
 (``enter``/``up``/``ctrl-c``/``paste``/…), and the SIGWINCH resize lifecycle
 plus live terminal-size resolution (:meth:`TerminalDriver.size`) against the
-fd it paints to. The UI shell composes frames and decides *what* to draw; every
-byte that reaches the terminal stream, every raw-mode or title transition,
+fd it paints to. The pure frame renderer decides *what* to draw; this driver
+serializes its logical paint plan into physical ANSI cursor/erase sequences.
+Every byte that reaches the terminal stream, every raw-mode or title transition,
 every decoded key read from the input fd, and the terminal geometry each frame
 lays out against flow through this driver. The UI keeps the layout-coupled
 resize *repaint* (clear-and-redraw) but drains the pending-resize flag and
@@ -173,6 +174,50 @@ class TerminalDriver:
         except (OSError, ValueError):
             return False
         return True
+
+    def write_frame(
+        self,
+        *,
+        prior_live_height: int,
+        prior_live_input_row: int,
+        committed_rows: tuple[tuple[str, bool], ...],
+        live_rows: tuple[tuple[str, bool], ...],
+        cursor_lines_up: int,
+        cursor_col: int,
+        cursor_visible: bool,
+    ) -> bool:
+        """Serialize one pure paint plan and write it as a single frame.
+
+        This driver retains ownership of ANSI physical cursor control and tail
+        erasure. ``bool`` row values mean that a shorter row needs ``EL``;
+        full-width styled rows must not erase their final cell.
+        """
+
+        output = ["\x1b[?25l"]
+        if prior_live_height > 0:
+            if prior_live_input_row > 0:
+                output.append(f"\x1b[{prior_live_input_row}A")
+            output.append("\r\x1b[J")
+        else:
+            output.append("\r")
+        for text, erase_tail in committed_rows:
+            output.append(text)
+            output.append("\x1b[K\r\n" if erase_tail else "\r\n")
+        last_index = len(live_rows) - 1
+        for index, (text, erase_tail) in enumerate(live_rows):
+            output.append(text)
+            if erase_tail:
+                output.append("\x1b[K")
+            if index != last_index:
+                output.append("\r\n")
+        if cursor_lines_up > 0:
+            output.append(f"\x1b[{cursor_lines_up}A")
+        output.append("\r")
+        if cursor_visible:
+            if cursor_col > 0:
+                output.append(f"\x1b[{cursor_col}C")
+            output.append("\x1b[?25h")
+        return self.write("".join(output))
 
     def write_deferred(self, text: str) -> bool:
         """Write ``text`` without flushing, deferring transmission.

@@ -92,6 +92,43 @@ def test_write_swallows_errors_and_reports_failure() -> None:
     assert driver.write("hello") is False
 
 
+def test_write_frame_owns_relative_cursor_serialization() -> None:
+    driver, terminal = _driver()
+
+    assert driver.write_frame(
+        prior_live_height=4,
+        prior_live_input_row=2,
+        committed_rows=(("history", True),),
+        live_rows=(("input", True), ("footer", True)),
+        cursor_lines_up=1,
+        cursor_col=5,
+        cursor_visible=True,
+    ) is True
+
+    assert terminal.value == (
+        "\x1b[?25l\x1b[2A\r\x1b[J"
+        "history\x1b[K\r\n"
+        "input\x1b[K\r\nfooter\x1b[K"
+        "\x1b[1A\r\x1b[5C\x1b[?25h"
+    )
+    assert terminal.flushes == 1
+
+
+def test_write_frame_keeps_overlay_cursor_hidden_and_reports_failure() -> None:
+    driver, terminal = _driver(fail=True)
+
+    assert driver.write_frame(
+        prior_live_height=0,
+        prior_live_input_row=0,
+        committed_rows=(),
+        live_rows=(("overlay", True),),
+        cursor_lines_up=0,
+        cursor_col=0,
+        cursor_visible=False,
+    ) is False
+    assert terminal.value == ""
+
+
 def test_write_deferred_writes_without_flushing() -> None:
     """The screen-clear write must NOT flush on its own.
 

@@ -1,11 +1,10 @@
 """Pipy-owned terminal UI shell for native tool-loop REPL sessions.
 
-The line-oriented renderer prints prompt, loader, assistant text, tool
-blocks, and footer as a stream of independent lines.  This module owns a
-small stateful terminal frame instead: chat history, submitted user
-messages, streaming assistant output, transient working state, input, and
-footer are separate regions that are composed into one screen on each
-paint.
+The line-oriented renderer prints prompt, loader, assistant text, tool blocks,
+and footer as independent lines. This module is the stateful/effectful façade
+for a small inline terminal frame; ``native.frame_renderer`` composes immutable
+snapshots of its history, transient output, input, overlays, and chrome into
+full/live rows and deterministic terminal paint plans.
 """
 
 from __future__ import annotations
@@ -22,7 +21,14 @@ import termios
 import textwrap
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping, Sequence
+from collections.abc import (
+    Callable,
+    Iterable,
+    Iterator,
+    Mapping,
+    MutableMapping,
+    Sequence,
+)
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -67,6 +73,28 @@ from pipy_harness.native.editor_state import (
 from pipy_harness.native.extension_chrome_state import (
     ChromeRegion,
     ExtensionChromeState,
+)
+from pipy_harness.native.frame_renderer import (
+    ChromeSnapshot,
+    FrameBlock,
+    FrameLine as _FrameLine,
+    FrameSnapshot,
+    InputSnapshot,
+    PaintState,
+    ResolvedCustomEditorLine as _ResolvedCustomEditorLine,
+    block_lines as render_block_lines,
+    build_paint_plan,
+    clip_custom_text as _clip_custom_overlay_text,
+    clip_text as render_clip_text,
+    display_input_text as render_display_input_text,
+    input_index as render_input_index,
+    input_lines as render_input_lines,
+    pad_text as render_pad_text,
+    render_full_frame,
+    render_live_region,
+    sanitize_custom_text as _sanitize_custom_overlay_text,
+    style_line as render_styled_line,
+    visible_len as render_visible_len,
 )
 from pipy_harness.native.extension_runtime import (
     ExtensionTool,
@@ -149,15 +177,9 @@ if TYPE_CHECKING:
 _PICKER_CONTINUE = object()
 
 TOOL_LOOP_TUI_RUNTIME_LABEL = "tool-loop-tui"
-_DEFAULT_HISTORY_VIEW_LINES = 21
-_TOOL_PANEL_HISTORY_VIEW_LINES = 23
-# Live streaming tool output (e.g. pytest dots): show a bounded tail while the
-# command runs; the full bounded result is committed when it settles.
-_TOOL_STREAM_LIVE_LINES = 12
+# Live streaming tool output stays character-bounded before the pure frame
+# renderer applies its row-tail policy.
 _TOOL_STREAM_LIVE_MAX_CHARS = 8 * 1024
-_OVERFLOW_BOTTOM_GUTTER_LINES = 2
-_OVERFLOW_CONTEXT_TARGET_LINES = 13
-_OVERFLOW_CONTEXT_MIN_LINES = 4
 # Curated ordered projection: an explicit advertised-name list validated against
 # the declarative command registry. Every name here is a registry built-in (the
 # tool-loop menu advertises no resource adjunct); order and membership are
@@ -182,13 +204,6 @@ TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = project_command_completions(
         "/quit",
     )
 )
-# Single-width glyph shown in the input cell for a newline carried by a
-# multi-line paste. The buffer keeps the literal "\n" (so the exact multi-line
-# prompt is submitted on Enter); only the rendered cell substitutes the glyph,
-# which keeps raw newlines from spilling into the terminal frame. U+23CE has
-# East-Asian-width "Narrow", so it occupies one terminal cell.
-_INPUT_NEWLINE_GLYPH = "⏎"
-
 # Internal sentinel "commands" returned by ``read_line`` for in-editor hotkeys
 # that the session dispatches without rendering a user-message bubble. The
 # leading control byte cannot be produced by ordinary typing or paste, so these
@@ -372,13 +387,6 @@ class _BuiltinAutocompleteProvider:
     shouldTriggerFileCompletion = should_trigger_file_completion
 
 
-@dataclass(frozen=True, slots=True)
-class _FrameLine:
-    text: str
-    kind: str = "normal"
-    meta: dict[str, Any] | None = None
-
-
 _WIDGET_MAX_LINES = 10
 _WIDGET_MAX_COUNT = 16
 _HEADER_MAX_LINES = 8
@@ -388,7 +396,6 @@ _FOOTER_MAX_LINES = 4
 # resize/size lifecycle); the UI reuses the former to cap its cached title
 # state and the latter as its resize-polling select timeout.
 _INDICATOR_MAX_FRAMES = 32
-_MIN_INPUT_ROWS = 1  # the input region is never starved below this
 
 
 class _ExtensionChromeTuiHandle:
@@ -690,19 +697,10 @@ def _clip_plain(text: str, width: int) -> str:
     return sanitize_label_text(text)[: max(0, width)]
 
 
-def _split_working_spinner(text: str) -> tuple[str, str, str]:
-    """Return leading padding, spinner glyph, and working-message label."""
+def _visible_len_allow_sgr(text: str) -> int:
+    """Compatibility export for terminal-screen and TUI characterization tests."""
 
-    if not text:
-        return "", "", ""
-    leading_length = len(text) - len(text.lstrip())
-    leading = text[:leading_length]
-    remainder = text[leading_length:]
-    if not remainder:
-        return leading, "", ""
-    if len(remainder) >= 2 and remainder[1].isspace():
-        return leading, remainder[0], remainder[1:]
-    return leading, remainder[:1], remainder[1:]
+    return render_visible_len(text)
 
 
 def _safe_extension_status_key(key: str) -> str | None:
@@ -712,63 +710,6 @@ def _safe_extension_status_key(key: str) -> str | None:
     cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "-" for ch in text)
     cleaned = cleaned.strip("-_.")
     return cleaned[:64] or None
-
-
-_SAFE_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
-
-
-def _sanitize_custom_overlay_text(text: str) -> str:
-    """Sanitize custom overlay text while preserving simple SGR styling."""
-
-    raw = str(text)
-    cleaned: list[str] = []
-    index = 0
-    while index < len(raw):
-        match = _SAFE_SGR_RE.match(raw, index)
-        if match is not None:
-            cleaned.append(match.group(0))
-            index = match.end()
-            continue
-        ch = raw[index]
-        code = ord(ch)
-        if code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F:
-            cleaned.append(" ")
-        else:
-            cleaned.append(ch)
-        index += 1
-    return "".join(cleaned)
-
-
-def _visible_len_allow_sgr(text: str) -> int:
-    return len(_SAFE_SGR_RE.sub("", text))
-
-
-def _clip_custom_overlay_text(text: str, width: int) -> str:
-    """Clip text by visible width, retaining only safe SGR sequences."""
-
-    safe = _sanitize_custom_overlay_text(text)
-    if width <= 0:
-        return ""
-    if _visible_len_allow_sgr(safe) <= width:
-        return safe
-    if width <= 1:
-        return "…"
-
-    target = width - 1
-    visible = 0
-    clipped: list[str] = []
-    index = 0
-    while index < len(safe) and visible < target:
-        match = _SAFE_SGR_RE.match(safe, index)
-        if match is not None:
-            clipped.append(match.group(0))
-            index = match.end()
-            continue
-        clipped.append(safe[index])
-        visible += 1
-        index += 1
-    clipped.append("…")
-    return "".join(clipped)
 
 
 class _HistoryBlockTuple(tuple[str, tuple[str, ...]]):
@@ -1922,9 +1863,7 @@ class ToolLoopTerminalUi:
         return self._chrome.footer_branch_callbacks
 
     @_footer_branch_callbacks.setter
-    def _footer_branch_callbacks(
-        self, value: dict[int, Callable[[], object]]
-    ) -> None:
+    def _footer_branch_callbacks(self, value: dict[int, Callable[[], object]]) -> None:
         self._chrome.footer_branch_callbacks = value
 
     @property
@@ -3612,9 +3551,7 @@ class ToolLoopTerminalUi:
                     # Seed from the same detector used by the poller so the
                     # first poll does not rebuild solely because an external
                     # driver formatted its snapshot differently.
-                    self._chrome.footer_branch = (
-                        self._detect_extension_footer_branch()
-                    )
+                    self._chrome.footer_branch = self._detect_extension_footer_branch()
                 self._chrome.footer = self._build_region(
                     factory, footer_data=fd, max_lines=_FOOTER_MAX_LINES
                 )
@@ -3627,9 +3564,7 @@ class ToolLoopTerminalUi:
                 self._driver.restore_title()
             else:
                 self._driver.push_title()
-                self._chrome.title = sanitize_label_text(str(title))[
-                    :_TITLE_MAX_CHARS
-                ]
+                self._chrome.title = sanitize_label_text(str(title))[:_TITLE_MAX_CHARS]
                 self._driver.write_title(self._chrome.title)
         # title is OS-level; no frame repaint needed.
 
@@ -4588,190 +4523,13 @@ class ToolLoopTerminalUi:
         height: int | None = None,
         pad: bool = True,
     ) -> list[_FrameLine]:
-        width, height = self._driver.size(width=width, height=height)
-        history_lines = self._history_region_lines(width)
-        if self.assistant_text:
-            history_lines.extend(
-                self._block_frame_lines(
-                    "assistant",
-                    self.assistant_text.splitlines() or [""],
-                    width=width,
-                )
-            )
-        if self.reasoning_text:
-            history_lines.extend(
-                self._block_frame_lines(
-                    "reasoning",
-                    [self.hidden_thinking_label]
-                    if self.thinking_hidden
-                    else (self.reasoning_text.splitlines() or [""]),
-                    width=width,
-                )
-            )
-        if self.tool_output_text:
-            live_cap = (
-                len(self.tool_output_text.splitlines()) + 1
-                if self.tools_expanded
-                else _TOOL_STREAM_LIVE_LINES
-            )
-            stream_lines = (self.tool_output_text.splitlines() or [""])[-live_cap:]
-            history_lines.extend(
-                self._block_frame_lines("tool_result", stream_lines, width=width)
-            )
-        if self.working_text:
-            history_lines.extend(
-                self._block_frame_lines("working", (self.working_text,), width=width)
-            )
-        # HEAD's captured ``render_lines`` model intentionally excludes the
-        # session picker; only the live paint path projects that overlay.
-        selector = self._active_overlay_region_lines(
-            width=width, height=height, include_session_picker=False
+        resolved_width, resolved_height = self._driver.size(width=width, height=height)
+        snapshot = self._frame_snapshot(
+            width=resolved_width,
+            height=resolved_height,
+            include_session_picker=False,
         )
-        if selector is not None:
-            # The overlay replaces the input/menu region; keep as much trailing
-            # history as fits above it so render_lines() agrees with the paint()
-            # live region.
-            max_history_lines = max(0, height - len(selector))
-            if len(history_lines) > max_history_lines:
-                history_lines = history_lines[len(history_lines) - max_history_lines :]
-            frame = [*history_lines, *selector]
-            if pad:
-                padded = [
-                    _FrameLine(self._pad(line.text, width), line.kind, line.meta)
-                    for line in frame[:height]
-                ]
-                if len(padded) < height:
-                    padded.extend(
-                        _FrameLine(" " * width, "normal")
-                        for _ in range(height - len(padded))
-                    )
-                return padded
-            return [
-                _FrameLine(
-                    _clip_custom_overlay_text(line.text, width), line.kind, line.meta
-                )
-                for line in frame[:height]
-            ]
-        menu_lines = self._popup_menu_frame_lines(
-            width=width,
-            max_rows=max(1, height - 7),
-        )
-        # The pending steering/follow-up region sits between history and the
-        # input frame, so it must be reserved in the history budget — otherwise
-        # pending lines push the input/footer out of the returned frame when
-        # history fills the viewport.
-        pending_lines = self._pending_region_lines(width)
-        status_lines = self._extension_status_lines(width)
-        has_tool_panel = any(
-            kind in {"tool", "tool_read", "tool_result"}
-            for kind, _block_lines in self._history_blocks
-        )
-        # Clamp the extension chrome BEFORE the budget math: the frame is finally
-        # truncated with ``frame[:height]``, which would otherwise drop the
-        # trailing footer/input rather than the (lower-priority) chrome.
-        header_lines, above_widgets, below_widgets, footer_rows = (
-            self._clamped_chrome_for_frame(
-                width=width,
-                height=height,
-                menu_lines=menu_lines,
-                pending_lines=pending_lines,
-                status_lines=status_lines,
-            )
-        )
-        chrome_extra = (
-            len(header_lines)
-            + len(above_widgets)
-            + len(below_widgets)
-            + max(0, len(footer_rows) - 2)
-        )
-        input_lines = self._input_frame_lines(
-            width,
-            max_rows=max(
-                1,
-                height
-                - len(menu_lines)
-                - len(pending_lines)
-                - len(status_lines)
-                - chrome_extra
-                - 4,
-            ),
-        )
-        max_history_lines = max(
-            0,
-            height
-            - len(input_lines)
-            - 4
-            - len(menu_lines)
-            - len(pending_lines)
-            - len(status_lines)
-            - chrome_extra,
-        )
-        if has_tool_panel:
-            max_history_lines = min(max_history_lines, _TOOL_PANEL_HISTORY_VIEW_LINES)
-        min_history_lines = min(_DEFAULT_HISTORY_VIEW_LINES, max_history_lines)
-        history_overflowed = len(history_lines) > max_history_lines
-        if len(history_lines) > max_history_lines:
-            history_lines = self._tail_history_lines(
-                history_lines,
-                self._overflow_history_capacity(
-                    height,
-                    max_history_lines,
-                    has_tool_panel=has_tool_panel,
-                ),
-            )
-        if not history_overflowed and len(history_lines) < min_history_lines:
-            history_lines.extend(
-                _FrameLine("", "normal")
-                for _ in range(min_history_lines - len(history_lines))
-            )
-
-        top_separator = self._input_frame_separator(width, label=False)
-        bottom_separator = self._input_frame_separator(width, label=True)
-        # ``pending_lines`` was computed above (reserved in the history budget).
-        if menu_lines:
-            frame = [
-                *history_lines,
-                *header_lines,
-                *pending_lines,
-                *above_widgets,
-                top_separator,
-                *input_lines,
-                bottom_separator,
-                *menu_lines,
-                *below_widgets,
-                *status_lines,
-                *footer_rows,
-            ]
-        else:
-            frame = [
-                *history_lines,
-                *header_lines,
-                *pending_lines,
-                *above_widgets,
-                top_separator,
-                *input_lines,
-                bottom_separator,
-                *below_widgets,
-                *status_lines,
-                *footer_rows,
-            ]
-        if pad:
-            padded = [
-                _FrameLine(self._pad(line.text, width), line.kind, line.meta)
-                for line in frame[:height]
-            ]
-            if len(padded) < height:
-                padded.extend(
-                    _FrameLine(" " * width, "normal")
-                    for _ in range(height - len(padded))
-                )
-            return padded
-        return [
-            _FrameLine(
-                _clip_custom_overlay_text(line.text, width), line.kind, line.meta
-            )
-            for line in frame[:height]
-        ]
+        return list(render_full_frame(snapshot, pad=pad))
 
     def request_extension_chrome_render(self) -> None:
         """Request a chrome repaint, coalescing calls made during render()."""
@@ -4803,160 +4561,127 @@ class ToolLoopTerminalUi:
 
     def _paint_locked(self) -> None:
         width, height = self._driver.size()
-        # Render edge-to-edge at the true terminal width, matching Pi. The input
-        # line keeps its one-column cursor-safety margin internally (its wrap
-        # capacity is width - 1), so the hardware cursor never lands in the last
-        # column even though separators, bands, and the footer now fill it.
-        style = chrome_style_for(self.terminal_stream)
-        output: list[str] = ["\x1b[?25l"]
-        # 1. Return to the top of the previously drawn live region and erase it
-        #    (and anything below). Committed history above is left untouched so
-        #    it stays in the terminal's native scrollback.
-        if self._live_height > 0:
-            if self._live_input_row > 0:
-                output.append(f"\x1b[{self._live_input_row}A")
-            output.append("\r\x1b[J")
-        else:
-            output.append("\r")
-        # 2. Commit any newly finalized history blocks into the normal buffer.
-        #    Raw-mode input disables LF-to-CRLF translation, so use explicit
-        #    carriage returns to keep each row starting in column 1.
-        committed_rows = 0
-        for kind, block_lines in self._history_blocks[self._painted_block_count :]:
-            for frame_line in self._block_frame_lines(kind, block_lines, width=width):
-                styled = self._styled_line(frame_line, style=style, width=width)
-                output.append(styled)
-                # A line that already fills the row overwrites every column, so a
-                # trailing erase would only blank its last cell; shorter lines
-                # still erase their stale tail.
-                if _visible_len_allow_sgr(styled) >= width:
-                    output.append("\r\n")
-                else:
-                    output.append("\x1b[K\r\n")
-                committed_rows += 1
-        self._painted_block_count = len(self._history_blocks)
-        # 3. Draw the live region (bounded transient stream + input/footer).
-        live = self._live_region_lines(width=width, height=height)
-        input_index = self._input_index(live)
-        padding_before_live = max(
-            0, self._live_input_row - committed_rows - input_index
+        snapshot = self._frame_snapshot(
+            width=width, height=height, include_session_picker=True
         )
-        if padding_before_live:
-            live = [
-                *(_FrameLine("", "normal") for _ in range(padding_before_live)),
-                *live,
-            ]
-            input_index += padding_before_live
-        last_index = len(live) - 1
-        for index, frame_line in enumerate(live):
-            styled = self._styled_line(frame_line, style=style, width=width)
-            output.append(styled)
-            # Rows that already fill the width self-clear; erasing would blank
-            # the last column. Shorter rows still erase their stale tail.
-            if _visible_len_allow_sgr(styled) < width:
-                output.append("\x1b[K")
-            if index != last_index:
-                output.append("\r\n")
-        # 4. Park the visible cursor on the input cell with relative moves; an
-        #    absolute row would be wrong once the buffer has scrolled.
-        lines_up = last_index - input_index
-        if lines_up > 0:
-            output.append(f"\x1b[{lines_up}A")
-        output.append("\r")
-        # The selector/settings overlays have no editable input cell, so keep
-        # the terminal cursor hidden (it was hidden at the top of the paint)
-        # instead of parking and revealing it on a non-input row.
-        if self._overlays.active is None:
-            # Park on the cursor's wrapped input row/column, so the hardware
-            # cursor and the drawn cursor cell agree for over-wide input.
-            input_meta = live[input_index].meta or {}
-            raw_cursor_col = input_meta.get("cursor_col")
-            cursor_col = raw_cursor_col if isinstance(raw_cursor_col, int) else 0
-            cursor_col = min(max(0, width - 1), cursor_col)
-            if cursor_col > 0:
-                output.append(f"\x1b[{cursor_col}C")
-            output.append("\x1b[?25h")
-        self._live_height = len(live)
-        self._live_input_row = input_index
-        self._last_painted_size = (width, height)
-        self._driver.write("".join(output))
+        plan = build_paint_plan(
+            snapshot,
+            PaintState(
+                painted_block_count=self._painted_block_count,
+                live_height=self._live_height,
+                live_input_row=self._live_input_row,
+            ),
+            chrome_style_for(self.terminal_stream),
+        )
+        # Preserve the established failed-write contract: bookkeeping describes
+        # the attempted frame even when TerminalDriver.write returns False.
+        self._painted_block_count = plan.painted_block_count
+        self._live_height = plan.live_height
+        self._live_input_row = plan.live_input_row
+        self._last_painted_size = plan.painted_size
+        self._driver.write_frame(
+            prior_live_height=plan.prior_live_height,
+            prior_live_input_row=plan.prior_live_input_row,
+            committed_rows=tuple(
+                (row.text, row.erase_tail) for row in plan.committed_rows
+            ),
+            live_rows=tuple((row.text, row.erase_tail) for row in plan.live_rows),
+            cursor_lines_up=plan.cursor_lines_up,
+            cursor_col=plan.cursor_col,
+            cursor_visible=plan.cursor_visible,
+        )
 
     def _live_region_lines(self, *, width: int, height: int) -> list[_FrameLine]:
-        """Compose the pinned bottom region drawn below committed history.
+        snapshot = self._frame_snapshot(
+            width=width, height=height, include_session_picker=True
+        )
+        return list(render_live_region(snapshot))
 
-        Layout (top to bottom): the in-progress streaming tail (assistant,
-        reasoning, working spinner), a separator, the input line, a separator,
-        an optional slash-command menu, and the two footer rows. The transient
-        tail is bounded so the live region never exceeds the screen height; the
-        full streamed answer commits to scrollback once it settles.
+    def _frame_snapshot(
+        self, *, width: int, height: int, include_session_picker: bool
+    ) -> FrameSnapshot:
+        """Resolve effectful sources, then publish one immutable render input.
 
-        While the interactive provider/model selector is open it replaces the
-        transient/input/menu rows with the selector overlay (and keeps the two
-        footer rows pinned at the bottom).
+        Extension/custom-component callbacks and mutable owner reads remain in
+        this facade under its paint lock. The returned renderer snapshot holds
+        only copied tuples, strings, integers, and frozen frame values.
         """
 
-        overlay = self._active_overlay_region_lines(width=width, height=height)
-        if overlay is not None:
-            return overlay
-        menu_lines = self._popup_menu_frame_lines(
+        overlay = self._active_overlay_region_lines(
             width=width,
-            max_rows=max(1, height - 7),
+            height=height,
+            include_session_picker=include_session_picker,
         )
-        pending_lines = self._pending_region_lines(width)
-        status_lines = self._extension_status_lines(width)
-        header_lines, above_widgets, below_widgets, footer_rows = (
-            self._clamped_chrome_for_frame(
-                width=width,
-                height=height,
-                menu_lines=menu_lines,
-                pending_lines=pending_lines,
-                status_lines=status_lines,
+        if overlay is None:
+            popup, pending, chrome, custom_rows = self._standard_frame_inputs(
+                width=width, height=height
+            )
+        else:
+            # Overlay paint returned before consulting ordinary chrome/input in
+            # the pre-slice path. Do not execute hidden extension components.
+            popup, pending, chrome, custom_rows = (), (), ChromeSnapshot(), None
+        history = tuple(
+            FrameBlock(kind, tuple(lines)) for kind, lines in self._history_blocks
+        )
+        return FrameSnapshot(
+            width=width,
+            height=height,
+            history=history,
+            assistant_text=self.assistant_text,
+            reasoning_text=self.reasoning_text,
+            tool_output_text=self.tool_output_text,
+            working_text=self.working_text,
+            thinking_hidden=self.thinking_hidden,
+            hidden_thinking_label=self.hidden_thinking_label,
+            tools_expanded=self.tools_expanded,
+            input=InputSnapshot(
+                text=self.input_text,
+                cursor=self._effective_input_cursor(),
+                custom_rows=custom_rows,
+            ),
+            popup=tuple(popup),
+            pending=tuple(pending),
+            chrome=chrome,
+            overlay=None if overlay is None else tuple(overlay),
+            cursor_visible=self._overlays.active is None,
+        )
+
+    def _standard_frame_inputs(
+        self, *, width: int, height: int
+    ) -> tuple[
+        tuple[_FrameLine, ...],
+        tuple[_FrameLine, ...],
+        ChromeSnapshot,
+        tuple[_ResolvedCustomEditorLine, ...] | None,
+    ]:
+        """Resolve effectful ordinary-frame regions before freezing them."""
+
+        popup = tuple(
+            self._popup_menu_frame_lines(width=width, max_rows=max(1, height - 7))
+        )
+        pending = tuple(self._pending_region_lines(width))
+        status = tuple(self._extension_status_lines(width))
+        header = tuple(self._extension_header_lines(width))
+        above = tuple(self._extension_widgets_lines("above_editor", width))
+        below = tuple(self._extension_widgets_lines("below_editor", width))
+        custom_footer = self._extension_footer_lines(width)
+        footer = (
+            tuple(custom_footer)
+            if custom_footer is not None
+            else (
+                _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
+                _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
             )
         )
-        input_lines = self._input_frame_lines(
-            width,
-            max_rows=max(
-                1,
-                height
-                - len(menu_lines)
-                - len(pending_lines)
-                - len(status_lines)
-                - len(header_lines)
-                - len(above_widgets)
-                - len(below_widgets)
-                - max(0, len(footer_rows) - 2)
-                - 4,
-            ),
+        custom_rows = None
+        if self._custom_editor_active:
+            custom_rows = tuple(self._custom_editor_frame_lines(width))
+        return (
+            popup,
+            pending,
+            ChromeSnapshot(header, above, below, footer, status),
+            custom_rows,
         )
-        chrome_height = (
-            len(input_lines)
-            + 2
-            + len(menu_lines)
-            + len(pending_lines)
-            + len(status_lines)
-            + len(header_lines)
-            + len(above_widgets)
-            + len(below_widgets)
-            + len(footer_rows)
-        )
-        transient_budget = max(0, height - chrome_height - 1)
-        transient = self._transient_tail_lines(width)
-        if len(transient) > transient_budget:
-            transient = transient[len(transient) - transient_budget :]
-        lines: list[_FrameLine] = [
-            *transient,
-            *header_lines,
-            *pending_lines,
-            *above_widgets,
-            self._input_frame_separator(width, label=False),
-            *input_lines,
-            self._input_frame_separator(width, label=True),
-            *menu_lines,
-            *below_widgets,
-            *status_lines,
-            *footer_rows,
-        ]
-        return lines
 
     def _active_overlay_region_lines(
         self,
@@ -5250,105 +4975,6 @@ class ToolLoopTerminalUi:
             for line in lines
         ]
 
-    def _clamp_chrome_lines(
-        self,
-        header: list[_FrameLine],
-        above: list[_FrameLine],
-        below: list[_FrameLine],
-        *,
-        budget: int,
-        width: int,
-    ) -> tuple[list[_FrameLine], list[_FrameLine], list[_FrameLine]]:
-        """Clip the combined extension-chrome rows (header + above + below) so the
-        whole frame fits the viewport. Priority: header > above_editor >
-        below_editor; the input region and footer are reserved by the caller and
-        never clipped here. A truncation marker replaces the last kept row when
-        anything is dropped."""
-        budget = max(0, budget)
-        if budget == 0:
-            return [], [], []
-        if len(header) + len(above) + len(below) <= budget:
-            return header, above, below
-        marker = _FrameLine(
-            self._clip("  … (chrome clipped)", width), "slash_menu_scroll"
-        )
-        keep = max(0, budget - 1)  # reserve one row for the marker
-        out_header = header[:keep]
-        keep -= len(out_header)
-        out_above = above[:keep]
-        keep -= len(out_above)
-        out_below = below[:keep]
-        if out_below:
-            out_below = out_below + [marker]
-        elif out_above:
-            out_above = out_above + [marker]
-        elif out_header:
-            out_header = out_header + [marker]
-        else:
-            out_header = [marker]
-        return out_header, out_above, out_below
-
-    def _clamped_chrome_for_frame(
-        self,
-        *,
-        width: int,
-        height: int,
-        menu_lines: list[_FrameLine],
-        pending_lines: list[_FrameLine],
-        status_lines: list[_FrameLine],
-    ) -> tuple[list[_FrameLine], list[_FrameLine], list[_FrameLine], list[_FrameLine]]:
-        """Fetch + viewport-clamp the extension chrome for one frame.
-
-        Returns ``(header_lines, above_widgets, below_widgets, footer_rows)``
-        with header/above/below already clamped to fit the viewport (input +
-        footer reserved). The caller does its own list assembly and budget
-        subtraction; this centralizes only the shared, drift-prone fetch +
-        clamp."""
-        header_lines = self._extension_header_lines(width)
-        above_widgets = self._extension_widgets_lines("above_editor", width)
-        below_widgets = self._extension_widgets_lines("below_editor", width)
-        custom_footer = self._extension_footer_lines(width)
-        footer_rows = (
-            custom_footer
-            if custom_footer is not None
-            else [
-                _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-                _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
-            ]
-        )
-        # The custom footer can be up to _FOOTER_MAX_LINES rows; at tiny
-        # viewports the non-widget chrome (separators + menu + pending + status +
-        # input floor + footer) can itself exceed `height`. Clip the footer so
-        # the assembled frame never overflows and the final frame[:height] cut
-        # never drops the input or a footer row.
-        non_footer_reserved = (
-            2  # input separators
-            + len(menu_lines)
-            + len(pending_lines)
-            + len(status_lines)
-            + _MIN_INPUT_ROWS
-        )
-        footer_budget = max(0, height - non_footer_reserved)
-        if len(footer_rows) > footer_budget:
-            footer_rows = footer_rows[:footer_budget]
-        chrome_reserved = (
-            2  # input separators
-            + len(menu_lines)
-            + len(pending_lines)
-            + len(status_lines)
-            + len(footer_rows)
-            + _MIN_INPUT_ROWS
-            + 1  # one transient row
-        )
-        header_lines, above_widgets, below_widgets = self._clamp_chrome_lines(
-            header_lines,
-            above_widgets,
-            below_widgets,
-            budget=max(0, height - chrome_reserved),
-            width=width,
-        )
-        return header_lines, above_widgets, below_widgets, footer_rows
-
     def _extension_status_lines(self, width: int) -> list[_FrameLine]:
         """Render bounded extension status rows above the footer."""
 
@@ -5370,127 +4996,8 @@ class ToolLoopTerminalUi:
             )
         return rows
 
-    def _transient_tail_lines(self, width: int) -> list[_FrameLine]:
-        lines: list[_FrameLine] = []
-        if self.assistant_text:
-            lines.extend(
-                self._block_frame_lines(
-                    "assistant",
-                    self.assistant_text.splitlines() or [""],
-                    width=width,
-                )
-            )
-        if self.reasoning_text:
-            lines.extend(
-                self._block_frame_lines(
-                    "reasoning",
-                    [self.hidden_thinking_label]
-                    if self.thinking_hidden
-                    else (self.reasoning_text.splitlines() or [""]),
-                    width=width,
-                )
-            )
-        if self.tool_output_text:
-            # Ctrl+O expands the live tool-output tail from the bounded preview
-            # to the full retained stream (still capped by the live char bound).
-            live_cap = (
-                len(self.tool_output_text.splitlines()) + 1
-                if self.tools_expanded
-                else _TOOL_STREAM_LIVE_LINES
-            )
-            stream_lines = (self.tool_output_text.splitlines() or [""])[-live_cap:]
-            lines.extend(
-                self._block_frame_lines("tool_result", stream_lines, width=width)
-            )
-        if self.working_text:
-            lines.extend(
-                self._block_frame_lines("working", (self.working_text,), width=width)
-            )
-        return lines
-
     def _styled_line(self, line: _FrameLine, *, style: ChromeStyle, width: int) -> str:
-        raw_text = line.text
-        text = raw_text.rstrip()
-        if line.kind == "title":
-            if not style.enabled:
-                return text
-            if text.startswith(" pipy v"):
-                return f" {style.title('pipy')}{style.dim(text[len(' pipy') :])}"
-            return style.title(text)
-        if line.kind in {"dim", "resource", "footer"}:
-            return style.dim(text)
-        if line.kind == "controls":
-            return style.dim(text)
-        if line.kind == "section":
-            return style.section_label(text)
-        if line.kind == "separator":
-            return style.separator(text)
-        if line.kind == "bash_separator":
-            return style.error(text)
-        if line.kind == "working":
-            leading, spinner, rest = _split_working_spinner(text)
-            return (
-                f"{style.secondary_dim(leading)}"
-                f"{style.menu_selection(spinner)}"
-                f"{style.secondary_dim(rest)}"
-            )
-        if line.kind == "reasoning":
-            return style.dim_italic(text)
-        if line.kind == "error":
-            return style.error(text)
-        if line.kind == "tool":
-            return style.tool_command(text, width=width)
-        if line.kind == "tool_read":
-            return style.tool_read(text, width=width)
-        if line.kind == "tool_result":
-            return style.tool_result(text, width=width)
-        if line.kind == "selector_title":
-            return style.section_label(text)
-        if line.kind == "selector_option_selected":
-            return style.menu_selection(text)
-        if line.kind == "selector_option":
-            return text
-        if line.kind == "selector_option_disabled":
-            return style.secondary_dim(text)
-        if line.kind == "slash_menu_selected":
-            return style.menu_selection(text)
-        if line.kind == "slash_menu":
-            description_start = (
-                line.meta.get("description_start") if line.meta is not None else None
-            )
-            if not isinstance(description_start, int) or description_start >= len(text):
-                return style.menu_row(text)
-            if style.enabled:
-                return (
-                    "\x1b[39m"
-                    + text[:description_start]
-                    + style.secondary_dim(text[description_start:])
-                )
-            return text[:description_start] + style.secondary_dim(
-                text[description_start:]
-            )
-        if line.kind == "slash_menu_scroll":
-            return style.secondary_dim(text)
-        if line.kind == "input":
-            cursor_col = (line.meta or {}).get("cursor_col")
-            if not isinstance(cursor_col, int):
-                return raw_text
-            col = min(max(0, cursor_col), max(0, width - 1))
-            before = raw_text[:col]
-            cursor_char = raw_text[col] if col < len(raw_text) else " "
-            after = raw_text[col + 1 :] if col < len(raw_text) else ""
-            return style.cursor_cell(before, cursor_char, after)
-        if line.kind == "user":
-            return style.user_message(text, width=width)
-        if line.kind in {
-            "tool_call_custom",
-            "tool_result_custom",
-            "custom_message_custom",
-        }:
-            return style.tool_custom(line.text, width=width)
-        if line.kind == "chrome_custom":
-            return style.tool_custom(line.text, width=width)
-        return text
+        return render_styled_line(line, style, width)
 
     def _startup_blocks(self) -> list[_HistoryBlock]:
         raw_blocks: list[tuple[str, tuple[str, ...]]] = [
@@ -5571,12 +5078,6 @@ class ToolLoopTerminalUi:
             )
         return blocks
 
-    def _history_region_lines(self, width: int) -> list[_FrameLine]:
-        lines: list[_FrameLine] = []
-        for kind, block_lines in self._history_blocks:
-            lines.extend(self._block_frame_lines(kind, block_lines, width=width))
-        return lines
-
     def _block_frame_lines(
         self,
         kind: str,
@@ -5584,229 +5085,39 @@ class ToolLoopTerminalUi:
         *,
         width: int | None = None,
     ) -> list[_FrameLine]:
-        width = width or self._driver.size()[0]
-        if kind in {"tool_call_custom", "tool_result_custom", "custom_message_custom"}:
-            custom_rendered: list[_FrameLine] = [_FrameLine("", "tool_result")]
-            for line in block_lines:
-                custom_rendered.append(
-                    _FrameLine(_clip_custom_overlay_text(f" {line}", width), kind)
-                )
-            custom_rendered.append(_FrameLine("", "tool_result"))
-            if kind in {"tool_result_custom", "custom_message_custom"}:
-                custom_rendered.append(_FrameLine(""))
-            return custom_rendered
-        prefix = {
-            "user": " ",
-            "assistant": " ",
-            "reasoning": " ",
-            "working": " ",
-            "error": " ",
-            "tool": " $ ",
-            "tool_read": " ",
-            "tool_result": " ",
-            "settings": " ",
-            "custom": " ",
-            "notice": "pipy  ",
-            "section": "",
-            "title": "",
-            "controls": "",
-            "dim": "",
-            "resource": "",
-            "normal": "",
-        }.get(kind, "")
-        rendered: list[_FrameLine] = []
-        if kind == "user":
-            rendered.append(_FrameLine("", "user"))
-        elif kind in {"tool", "tool_read"}:
-            rendered.append(_FrameLine("", "tool_result"))
-        elif kind in {"reasoning", "notice", "settings", "custom"}:
-            rendered.append(_FrameLine(""))
-        for line in block_lines:
-            available = max(10, width - len(prefix))
-            wrapped = textwrap.wrap(line, width=available) or [""]
-            for wrapped_line in wrapped:
-                rendered.append(
-                    _FrameLine(
-                        self._clip(f"{prefix}{wrapped_line}", width),
-                        self._line_kind_for_block(kind),
-                    )
-                )
-        if kind == "user":
-            rendered.extend((_FrameLine("", "user"), _FrameLine("")))
-        elif kind == "tool":
-            rendered.append(_FrameLine("", "tool_result"))
-        elif kind == "tool_read":
-            rendered.extend((_FrameLine("", "tool_result"), _FrameLine("")))
-        elif kind in {
-            "assistant",
-            "tool_result",
-            "notice",
-            "working",
-            "settings",
-            "custom",
-        }:
-            rendered.append(_FrameLine(""))
-            if kind == "tool_result":
-                rendered.append(_FrameLine(""))
-        elif kind == "error":
-            rendered.append(_FrameLine(""))
-        return rendered
-
-    @staticmethod
-    def _line_kind_for_block(kind: str) -> str:
-        return {
-            "user": "user",
-            "section": "section",
-            "title": "title",
-            "controls": "controls",
-            "dim": "dim",
-            "resource": "resource",
-            "normal": "normal",
-            "working": "working",
-            "error": "error",
-            "reasoning": "reasoning",
-            "tool": "tool",
-            "tool_read": "tool_read",
-            "tool_result": "tool_result",
-            "tool_call_custom": "tool_call_custom",
-            "tool_result_custom": "tool_result_custom",
-            "custom_message_custom": "custom_message_custom",
-            "settings": "settings",
-            "custom": "settings",
-        }.get(kind, "normal")
-
-    @staticmethod
-    def _tail_history_lines(
-        lines: list[_FrameLine], max_history_lines: int
-    ) -> list[_FrameLine]:
-        if max_history_lines <= 0:
-            return []
-        last_user_index = next(
-            (
-                index
-                for index in range(len(lines) - 1, -1, -1)
-                if lines[index].kind == "user"
-            ),
-            None,
-        )
-        if last_user_index is None:
-            return lines[-max_history_lines:]
-        user_start = last_user_index
-        while user_start > 0 and lines[user_start - 1].kind == "user":
-            user_start -= 1
-        user_end = last_user_index + 1
-        while user_end < len(lines) and lines[user_end].kind == "user":
-            user_end += 1
-        user_block = lines[user_start:user_end]
-        if len(user_block) >= max_history_lines:
-            return user_block[-max_history_lines:]
-        before_user = lines[:user_start]
-        after_user = lines[user_end:]
-        available = max_history_lines - len(user_block)
-        min_context = min(
-            len(before_user), _OVERFLOW_CONTEXT_MIN_LINES, max(0, available)
-        )
-        after_capacity = max(0, available - min_context)
-        after_tail = ToolLoopTerminalUi._history_tail(after_user, after_capacity)
-        context_capacity = max_history_lines - len(user_block) - len(after_tail)
-        context_target = min(
-            len(before_user),
-            _OVERFLOW_CONTEXT_TARGET_LINES,
-            max(0, context_capacity),
-        )
-        context_before_user = before_user[-context_target:] if context_target else []
-        remaining = max_history_lines - len(context_before_user) - len(user_block)
-        if len(after_tail) > remaining:
-            after_tail = after_tail[-remaining:] if remaining > 0 else []
-        return [*context_before_user, *user_block, *after_tail]
-
-    @staticmethod
-    def _history_tail(lines: list[_FrameLine], capacity: int) -> list[_FrameLine]:
-        if capacity <= 0:
-            return []
-        if len(lines) <= capacity:
-            return lines
-        compacted = [
-            line
-            for line in lines
-            if line.text.strip() or line.kind in {"tool_result", "user"}
-        ]
-        if len(compacted) >= capacity:
-            return compacted[-capacity:]
-        return lines[-capacity:]
-
-    @staticmethod
-    def _overflow_history_capacity(
-        height: int, max_history_lines: int, *, has_tool_panel: bool
-    ) -> int:
-        default_view_lines = (
-            max_history_lines if has_tool_panel else _DEFAULT_HISTORY_VIEW_LINES
-        )
-        if has_tool_panel:
-            return min(max_history_lines, default_view_lines)
-        return min(
-            max_history_lines,
-            default_view_lines,
-            max(0, height - 5 - _OVERFLOW_BOTTOM_GUTTER_LINES),
+        resolved_width = width or self._driver.size()[0]
+        return list(
+            render_block_lines(
+                FrameBlock(kind=kind, lines=tuple(block_lines)), resolved_width
+            )
         )
 
     @staticmethod
     def _display_input_text(text: str) -> str:
-        """Project the literal input buffer onto a single display row.
-
-        Each character maps to exactly one display character so the logical
-        cursor index lines up with the displayed column: a newline becomes the
-        single-width ``⏎`` glyph and any other control character becomes a
-        space. The underlying ``input_text`` is left untouched, so Enter still
-        submits the exact (possibly multi-line) prompt.
-        """
-
-        if not any(ch == "\n" or ord(ch) < 0x20 or ch == "\x7f" for ch in text):
-            return text
-        rendered: list[str] = []
-        for ch in text:
-            if ch == "\n":
-                rendered.append(_INPUT_NEWLINE_GLYPH)
-            elif ord(ch) < 0x20 or ch == "\x7f":
-                rendered.append(" ")
-            else:
-                rendered.append(ch)
-        return "".join(rendered)
+        return render_display_input_text(text)
 
     def _input_frame_lines(
         self, width: int, *, max_rows: int | None = None
     ) -> list[_FrameLine]:
-        """Return soft-wrapped input rows with cursor metadata on one row.
-
-        The literal buffer is first projected to display-safe single-cell
-        characters, so pasted newlines remain visible as ``⏎`` while the
-        submitted prompt keeps its exact text. Rows are hard-wrapped at
-        ``width - 1`` cells to leave the same trailing safety column the old
-        single-row renderer used. When the input is taller than the available
-        live region, the visible window follows the cursor so the footer remains
-        pinned.
-        """
-
+        custom_rows = None
         if self._custom_editor_active:
-            return self._custom_editor_frame_lines(width, max_rows=max_rows)
-
-        rows, cursor_row, cursor_col = self._wrapped_input_rows(width)
-        if max_rows is not None and max_rows > 0 and len(rows) > max_rows:
-            start = min(
-                max(0, cursor_row - max_rows + 1),
-                max(0, len(rows) - max_rows),
+            custom_rows = tuple(self._custom_editor_frame_lines(width))
+        row_limit = 10**9 if max_rows is None else max_rows
+        return list(
+            render_input_lines(
+                InputSnapshot(
+                    text=self.input_text,
+                    cursor=self._effective_input_cursor(),
+                    custom_rows=custom_rows,
+                ),
+                width,
+                max_rows=row_limit,
             )
-            rows = rows[start : start + max_rows]
-            cursor_row -= start
-        rendered: list[_FrameLine] = []
-        for index, row in enumerate(rows):
-            meta = {"cursor_col": cursor_col} if index == cursor_row else None
-            rendered.append(_FrameLine(self._clip(row or " ", width), "input", meta))
-        return rendered or [_FrameLine("", "input", {"cursor_col": 0})]
+        )
 
     def _custom_editor_frame_lines(
         self, width: int, *, max_rows: int | None = None
-    ) -> list[_FrameLine]:
+    ) -> list[_ResolvedCustomEditorLine]:
         component = self._custom_editor_component
         raw: object = None
         if component is not None:
@@ -5836,59 +5147,23 @@ class ToolLoopTerminalUi:
             lines = [" "]
         meta = {"cursor_col": min(len(lines[-1]), max(0, width - 1))}
         return [
-            _FrameLine(line, "input", meta if index == len(lines) - 1 else None)
+            _ResolvedCustomEditorLine(
+                line, "input", meta if index == len(lines) - 1 else None
+            )
             for index, line in enumerate(lines)
         ]
 
-    def _wrapped_input_rows(self, width: int) -> tuple[list[str], int, int]:
-        display = self._display_input_text(self.input_text)
-        cursor = self._effective_input_cursor()
-        capacity = max(1, width - 1)
-        rows = [
-            display[start : start + capacity]
-            for start in range(0, len(display), capacity)
-        ] or [""]
-        cursor_row = cursor // capacity
-        cursor_col = cursor % capacity
-        if cursor_row >= len(rows):
-            rows.append("")
-        return rows, cursor_row, cursor_col
-
     @staticmethod
     def _input_index(lines: list[_FrameLine]) -> int:
-        last_index = len(lines) - 1
-        return next(
-            (
-                index
-                for index, frame_line in enumerate(lines)
-                if frame_line.kind == "input"
-                and isinstance((frame_line.meta or {}).get("cursor_col"), int)
-            ),
-            next(
-                (
-                    index
-                    for index, frame_line in enumerate(lines)
-                    if frame_line.kind == "input"
-                ),
-                last_index,
-            ),
-        )
+        return render_input_index(tuple(lines))
 
     @staticmethod
     def _clip(text: str, width: int) -> str:
-        text = sanitize_label_text(str(text))
-        if len(text) <= width:
-            return text
-        if width <= 1:
-            return text[:width]
-        return text[: width - 1] + "…"
+        return render_clip_text(text, width)
 
     @staticmethod
     def _pad(text: str, width: int) -> str:
-        visible_len = _visible_len_allow_sgr(text)
-        if visible_len >= width:
-            return _clip_custom_overlay_text(text, width)
-        return text + (" " * (width - visible_len))
+        return render_pad_text(text, width)
 
     def _read_driver_key(self, key: str | None) -> str | None:
         """Copy a decoded paste's body from the driver into the UI buffer.
@@ -6333,18 +5608,6 @@ class ToolLoopTerminalUi:
         """
 
         return self.input_text.lstrip().startswith("!")
-
-    def _input_frame_separator(self, width: int, *, label: bool) -> _FrameLine:
-        """Return an input-frame separator, bash-styled while in bash mode."""
-
-        if not self._is_bash_mode():
-            return _FrameLine("─" * width, "separator")
-        text = "─" * width
-        if label:
-            tag = " ! bash "
-            if width > len(tag) + 2:
-                text = "─" + tag + "─" * (width - len(tag) - 1)
-        return _FrameLine(text, "bash_separator")
 
     def _navigate_autocomplete(self, key: str) -> None:
         if self._editor.navigate_autocomplete(key):

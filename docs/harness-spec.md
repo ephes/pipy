@@ -607,8 +607,35 @@ invariant before an extension callback, and completion mode is the closed
 precedence owner: the TUI injects a lazy custom-editor text callback, which is
 not called for an empty queue or when staged initial text wins. Retired lane
 names, including `_pending_steering`, are unprojected and fail loudly under
-slots. `ToolLoopTerminalUi` renders inline (no alternate screen): each finalized
-block —
+slots. Frame content/layout/style crosses a separate immutable boundary:
+`pipy_harness.native.frame_renderer.FrameSnapshot` receives copied raw history
+`(kind, lines)` values (not callback-bearing live rerender state), transient
+strings, editor text/cursor, resolved overlay and extension-chrome rows, and
+terminal geometry; frozen `PaintState` separately carries
+prior physical paint metadata. Its pure renderer owns wrapping, clipping, row
+selection and budgets, dynamic input
+height, footer/input pinning, style mapping, cursor metadata/relative placement,
+and deterministic logical paint plans. Repeated rendering of the same snapshot is
+identical and does not mutate it. It performs no callback/component execution,
+filesystem/git reads, stream/terminal inspection, locking, or writes.
+
+`ToolLoopTerminalUi` remains the effectful snapshot adapter: live paint holds
+its existing paint lock while it may call/invalidate/dispose trusted extension
+components and resolve custom editor/overlay/chrome values before freezing them.
+Custom-editor output crosses as detached `ResolvedCustomEditorLine` rows, an
+immutable `FrameLine` subtype that retains resolved kind/cursor metadata and
+explicitly marks the completed façade hand-off. The façade applies the pre-
+extraction plain control/SGR sanitization and clipping once; the renderer
+preserves those exact bytes, applies only the bounded tail window, and adds the
+same full-frame right padding as before when requested. Empty overlays are valid, never expose the
+hardware cursor, and remain safe in a paint that also commits history. Every
+non-positive input-row budget is normalized to one row with cursor metadata.
+It also owns
+paint coalescing/re-entry, error handling, publication of attempted-frame
+bookkeeping, resize clear/home, and restoration. `TerminalDriver` remains the
+sole sink and serializes plans into physical ANSI erase/newline/relative-cursor
+sequences. `ToolLoopTerminalUi` renders inline (no alternate screen): each
+finalized block —
 startup chrome, submitted prompts, settled assistant turns, settled reasoning,
 tool call/result rows, and notices — is committed once into
 the terminal's normal buffer, so the host terminal/multiplexer keeps it in
@@ -781,10 +808,13 @@ viewport while still passing the observation back to the model. Because finalize
 output lives in scrollback rather than a fixed-height frame, long tool output
 and answers scroll up out of the live viewport and stay reviewable; the live
 input/footer frame keeps its shape regardless of how much history precedes it.
-The logical full-screen composition is still available through
-`ToolLoopTerminalUi.render_lines()` for unit tests, but the real paint path and
-its scroll/full-height behavior are verified through PTY captures and the ANSI
-screen-cell model rather than `render_lines()` alone. Captured streams and explicit non-TTY input runtimes
+The same pure snapshot renderer exposes logical full-screen composition through
+`ToolLoopTerminalUi.render_lines()` for unit tests. Its plain clipping uses the
+shared label sanitizer, while the façade's clip/pad adapters delegate to the
+renderer so there is one clipping and padding policy; this captured projection
+intentionally excludes the session picker while live paint includes it. The real
+paint path and its scroll/full-height behavior are verified through PTY captures
+and the ANSI screen-cell model rather than `render_lines()` alone. Captured streams and explicit non-TTY input runtimes
 continue to use the deterministic line-oriented fallback so stdout/stderr
 automation contracts and tests remain stable. The TUI shell is a presentation
 boundary only; provider calls, bounded tool-loop behavior, the immutable
@@ -2198,8 +2228,9 @@ extension-UI relocation is Slice 6.4.
 ### Terminal Output and Restoration Driver
 
 Slice 4.2 introduces `native.terminal_driver`, the terminal-I/O ownership
-boundary for `ToolLoopTerminalUi`. The shell composes frames and decides *what*
-to draw; the `TerminalDriver` collaborator (built once in `__post_init__` from
+boundary for `ToolLoopTerminalUi`. After Slice 13 the shell resolves effectful
+snapshot inputs, the pure `native.frame_renderer` decides *what* to draw, and
+the `TerminalDriver` collaborator (built once in `__post_init__` from
 the input/terminal streams) owns *how* bytes and mode/title transitions reach
 the terminal. It holds the input/terminal streams plus the terminal-side
 lifecycle state (saved termios attributes, bracketed-paste enabled flag, whether
@@ -2207,10 +2238,20 @@ a title was pushed onto the xterm title stack, the `_pending_input_bytes` UTF-8
 over-read buffer, the transient decoded-paste hand-off, and the pending-resize
 flag plus saved SIGWINCH disposition) and exposes:
 
+- `write_frame(...) -> bool`: accepts logical committed/live rows as
+  `(text, erase_tail)` tuples plus prior-live-region, relative-cursor, and cursor-
+  visibility values from the pure paint plan. It serializes those values into
+  the established ANSI hide/show-cursor, erase, newline, and relative-movement
+  sequences, then sends the complete frame through one flushing `write` call.
+  The hardware cursor remains hidden unless `cursor_visible` requests the final
+  show sequence. It returns `False` when that single write/flush fails and
+  `True` otherwise. Ordinary paint preserves its established attempted-frame
+  contract by publishing the pure plan's committed-block count, live height/
+  input row, and geometry before invoking `write_frame`, even when it returns
+  `False`.
 - `write(text) -> bool`: the error-swallowing write/flush sink. It
   writes then flushes, swallows `OSError`/`ValueError` (closed stream, invalid
-  fd), and returns `True` only when both succeeded so paint/resize callers can
-  skip follow-up bookkeeping on a failed frame exactly as before. Every current
+  fd), and returns `True` only when both succeeded. Every current
   `terminal_stream.write`/`flush` — paint, close teardown,
   `external_io_suspension`, and the external-editor notice — routes through
   it; there is no second write path.

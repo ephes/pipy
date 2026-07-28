@@ -1068,6 +1068,101 @@ Progress:
   complete. **Slice 13 — pure frame composition** is now active; the Slice 12
   commit integrates this ledger and advances the pointer atomically.
 
+- **Slice 13 — pure frame composition: COMPLETE.** New
+  `native.frame_renderer` is the cohesive terminal-independent owner for full
+  and live frame composition. Frozen `FrameSnapshot` values contain copied raw
+  history blocks, transient assistant/reasoning/tool/working strings, editor
+  text/cursor or already-resolved custom-editor `FrameLine` rows (including
+  their kind and cursor metadata), resolved overlay and extension-chrome rows,
+  geometry, and cursor-visibility intent. Callback-bearing live custom-history
+  rerender state is deliberately excluded: only its current `(kind, lines)`
+  projection crosses the boundary. The renderer
+  owns block wrapping, safe clipping, row selection and budgeting, dynamic input
+  wrapping/windowing, extension-chrome clamping, footer/input pinning, style
+  mapping, cursor metadata/relative placement, and deterministic logical paint
+  plans. Frozen frame-line metadata is exposed through read-only mappings;
+  rendering a snapshot repeatedly is deterministic and does not mutate it.
+  Resolved custom-editor rows retain the pre-extraction tail-window policy and
+  HEAD's plain control/SGR treatment: the façade sanitizes and clips them once
+  into immutable `ResolvedCustomEditorLine` values. That explicit `FrameLine`
+  subtype survives full-frame assembly, so finishing preserves the exact bytes
+  and only adds the requested pre-extraction right padding; input layout windows
+  the rows without re-sanitizing, re-clipping, or relocating cursor metadata.
+
+  `ToolLoopTerminalUi` remains the product façade and effect adapter. Live paint
+  holds its existing paint lock while resolving trusted extension factories/
+  components, invalidation/disposal, custom editor and overlay rows, git/filesystem-backed
+  chrome, and live geometry before publishing copied immutable values. It
+  retains re-entry/coalescing flags, error handling, native-scrollback
+  publication, resize clear/home, forced redraw, and restoration.
+  `TerminalDriver` remains the sole write/flush owner and serializes logical
+  plans into ANSI erase/newline/relative-cursor sequences. Its documented
+  `write_frame(...)` contract accepts logical rows, performs one flushing frame
+  write, owns final cursor visibility, and reports write/flush failure as
+  `False`. The pure paint plan is published to `_painted_block_count`, `_live_height`,
+  `_live_input_row`, and `_last_painted_size` before the write attempt, exactly
+  preserving failed-write bookkeeping; a failed deferred clear still returns
+  before resetting those fields. Deferred clears remain unflushed and coalesce
+  with the immediately following paint flush. Ordinary paints commit each new
+  history block once and never redraw its rows, while resize/full redraw resets
+  the committed count only after a successful deferred clear. Captured
+  `render_lines()` still excludes the session picker and live paint still
+  includes it. Empty overlays are safe with or without newly committed history:
+  they preserve the old live-row bookkeeping shape, keep the hardware cursor
+  hidden, and never index an absent row. Non-positive editor row budgets now
+  explicitly restore one input row and cursor. The façade's plain clip/pad
+  wrappers delegate to the renderer, and the renderer reuses the existing
+  shared label sanitizer rather than maintaining a second implementation.
+
+  Direct immutable-renderer tests construct snapshots without a terminal and
+  cover deterministic/no-mutation behavior, wrapping/clipping, footer pinning,
+  styles, empty and populated overlays, cursor metadata/placement, commit-once
+  paint plans, custom-editor multi-row/window/control/SGR and no-double-finish
+  parity through both direct snapshots and full-frame façade rendering, state-bearing
+  custom-history detachment, last-user overflow retention, history-tail
+  compaction, footer truncation, clipped-marker priority, widths 0/1, and tiny
+  heights. Façade characterizations cover the same custom-editor window and
+  byte policy, zero-row-budget restoration, detached snapshot publication,
+  failed paint publication, failed deferred-clear preservation, and the rule
+  that an active overlay does not execute hidden extension chrome; existing
+  chrome, terminal-driver, terminal-screen, captured, TUI, custom editor,
+  re-entry/coalescing, resize, and native-scrollback gates remain in place. The
+  focused renderer/custom-editor/TUI/chrome/history/driver/screen group passes
+  **652 tests**, and the complete `_pty.py` real-PTY group passes **74**. The
+  PTY smoke gate passes **8 tests**
+  and the complete repository gate passes **4,808 tests / 2 skipped**. Strict
+  source Mypy is clean across **169 source files** and combined typecheck is
+  clean across **434 source/test files**. No transient PTY readiness race
+  reproduced during Slice 13 verification or review-round 3 fixes.
+
+  Architecture metrics move repository/source C901 **38 / 22 -> 34 / 18**.
+  All four removed findings are real ownership moves from TUI
+  (`_frame_lines`, `_paint_locked`, `_styled_line`, `_block_frame_lines`); the
+  new renderer has no finding, and TUI findings fall **13 -> 9**. State fields
+  remain **43**. Source/test Python physical lines move **80,914 / 118,414 ->
+  81,112 / 119,046**; `tool_loop_session.py` remains **5,433** lines and
+  `tui.py` falls **7,066 -> 6,329** while the new renderer is **890** lines.
+  The source type-ignore count remains exactly **1**. No dependency,
+  suppression, Mypy exclusion, C901 pin, compatibility shim, alternate-screen
+  behavior, schema, event-order, trust/path, session/archive privacy, or
+  changelog change is introduced. Both themes remain `pi`.
+
+  Independent review used Claude Opus 5 for the first round before the operator
+  explicitly redirected remaining reviews to fresh read-only Pi
+  `openai-codex/gpt-5.6-sol` processes because of the weekly Opus limit. The
+  first Pi CLEAN was discarded because its own scope report could not establish
+  baseline-diff coverage. An exhaustive Pi comparison against the detached
+  Slice 12 checkpoint then found one Warning (full-frame finishing
+  reprocessed resolved custom-editor rows) and one Suggestion (document
+  `TerminalDriver.write_frame`); a fresh Pi implementer fixed both. The final
+  exhaustive Pi re-review inspected every changed ownership region and both new
+  files against that checkpoint and returned valid, unscoped **CLEAN** with
+  zero Critical, Warning, or Suggestion findings, no skips/redactions/forbidden
+  tools, and no worktree mutation. Slice 13 implementation, verification,
+  documentation, and review are complete. **Slice 14 — deterministic PTY
+  synchronization** is now active; the Slice 13 commit integrates this ledger
+  and advances the pointer atomically.
+
 ## Current State
 
 Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only
