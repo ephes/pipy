@@ -496,6 +496,76 @@ def test_custom_editor_component_dequeue_preserves_current_draft(
     assert ui._pending_initial_text is None
 
 
+def test_restore_without_queue_does_not_read_hostile_custom_editor(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+
+    class HostileEditor(_CustomEditor):
+        calls = 0
+
+        def get_text(self) -> str:
+            self.calls += 1
+            raise AssertionError("empty restoration must stay lazy")
+
+    component = HostileEditor()
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui.enqueue_steering("already drained")
+    ui.promote_pending_to_drain()
+    assert ui.take_next_drain() == "already drained"
+
+    ui.restore_pending_to_editor()
+
+    assert component.calls == 0
+    assert ui.take_last_drain_kind() is None
+
+
+def test_restore_prefill_precedence_does_not_read_hostile_custom_editor(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+
+    class HostileEditor(_CustomEditor):
+        calls = 0
+
+        def get_text(self) -> str:
+            self.calls += 1
+            raise AssertionError("pending prefill must take precedence")
+
+    component = HostileEditor()
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    ui.set_input_text("prefill")
+    ui.enqueue_steering("queued")
+
+    ui.restore_pending_to_editor()
+
+    assert component.calls == 0
+    assert ui.get_input_text() == "queued\n\nprefill"
+
+
+def test_restore_reads_custom_editor_once_when_its_draft_is_required(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(tmp_path)
+
+    class CountingEditor(_CustomEditor):
+        calls = 0
+
+        def get_text(self) -> str:
+            self.calls += 1
+            return super().get_text()
+
+    component = CountingEditor()
+    ui.set_editor_component(lambda tui, theme, keybindings: component)
+    component.set_text("custom draft")
+    ui.enqueue_steering("queued")
+
+    ui.restore_pending_to_editor()
+
+    assert component.calls == 1
+    assert ui.get_input_text() == "queued\n\ncustom draft"
+
+
 def test_custom_editor_component_follow_up_clears_restored_prefill(
     tmp_path: Path,
 ) -> None:

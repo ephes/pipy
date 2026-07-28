@@ -37,13 +37,14 @@ flowchart TB
   Events --> ProductTree
   Events --> Workflow[Metadata-only workflow projection]
   Compat --> Workflow
-  UI --> TUI[Inline terminal UI]
+  UI --> TUI[Inline terminal UI facade]
+  TUI --> Editor[Terminal-independent editor state]
   TUI --> Driver[Terminal driver]
 
   classDef core fill:#eef2ff,stroke:#1d4ed8,color:#111111;
   classDef adapter fill:#fff7ed,stroke:#c2410c,color:#111111;
   classDef store fill:#ecfdf5,stroke:#047857,color:#111111;
-  class Agent,Coding,Composition,Runtime,Events,ProviderExecutor core;
+  class Agent,Coding,Composition,Runtime,Events,ProviderExecutor,Editor core;
   class Entrypoints,CompatEntrypoints,Compat,Providers,HTTP,Extensions,UI,TUI,Driver,Automation adapter;
   class ProductTree,Workflow store;
 ```
@@ -274,16 +275,41 @@ provider or tool authority.
 
 `native/ui/state.py` is a pure reducer from canonical agent events to render
 decisions, and `native/ui/rendering.py` drives a renderer port.
-`native/tui.py` owns the product's large stateful inline-scrollback façade:
-editor state, selectors and overlays, extension chrome, live frame composition,
-and TUI-facing event rendering. Finalized blocks are committed to the normal
-terminal buffer; pipy does not use the alternate screen.
+`native/tui.py` owns the product's stateful inline-scrollback façade: selectors
+and overlays, extension chrome, live frame composition, TUI-facing event
+rendering, and translation of terminal/filesystem/clipboard/extension effects.
+Finalized blocks are committed to the normal terminal buffer; pipy does not use
+the alternate screen.
+
+`native/editor_state.py` is the single typed owner for the editable buffer and
+cursor, slash/completion selection and anchor state, prompt recall navigation,
+undo/redo snapshots, bracketed-paste hand-off, initial-text rehydration, and the
+terminal steering/follow-up/local-command queue. Its transitions are synchronous
+and terminal-independent. It imports only the standard library and is unit-tested
+without streams, file descriptors, termios, PTYs, or a `ToolLoopTerminalUi`.
+`ToolLoopTerminalUi` retains narrow properties and methods for callers and
+characterized test access, but they project directly to that owner rather than
+storing a mirrored copy; its existing slots reject retired names instead of
+silently accepting dead writes. Queue entries carry typed content/kind pairs,
+while the frame adapter alone maps those kinds to rendering labels. Completion
+lookup, extension-provider execution, clipboard/filesystem I/O, custom editor
+execution, painting, and terminal locks remain in the façade/adapters and
+translate their results into editor-state transitions. No-op editing and popup-
+navigation transitions skip effectful refreshes/painting; path completion yields
+to an open slash menu before lookup. Completion acceptance uses one immutable
+owner snapshot and one span invariant across trusted extension callbacks, with
+only the typed `at`/`path` mode domain. `EditorState` alone owns queue-
+restoration draft precedence; the façade injects a lazy custom-editor text
+callback that is skipped for an empty queue or staged initial text. Retired
+copy-returning lane projections are rejected by slots rather than retained as
+misleading compatibility surfaces.
 
 `native/terminal_driver.py` owns terminal writes/flushes, raw-mode and bracketed
 paste lifecycle, title restoration, decoded input bytes, SIGWINCH handling, and
-live terminal geometry. The TUI decides what to draw; the driver decides how
-bytes and terminal lifecycle transitions occur. Real-PTY tests protect prompt
-readiness and restoration.
+live terminal geometry. Decoded paste bodies transfer once into `EditorState`;
+the TUI decides what to draw and which pure transition to apply, while the driver
+decides how bytes and terminal lifecycle transitions occur. Real-PTY tests
+protect prompt readiness and restoration.
 
 ## Executable architecture gates
 
@@ -304,7 +330,7 @@ non-strict baseline. The override spells out every per-module sub-flag from
 `--strict`; the three global-only flags (`warn_unused_configs`,
 `warn_redundant_casts`, and `strict_bytes`) remain enabled globally. The
 authoritative CI typecheck still runs `mypy src tests`, and the independent
-repository-strict diagnostic `mypy --strict src` is clean across all 165 source
+repository-strict diagnostic `mypy --strict src` is clean across all 166 source
 files.
 
 `pipy_harness.status.HarnessStatus` is the sole enum definition and the
@@ -375,8 +401,10 @@ The active program addresses ownership risks rather than cosmetic size:
   separate metadata-fixture contract, but its provider execution is canonical;
   executable Slice 10 boundary tests prevent it from drifting into a second
   silently equivalent agent loop;
-- `ToolLoopTerminalUi` still combines editor, overlay, extension chrome, and
-  frame state (128 measured state fields at baseline); and
+- `ToolLoopTerminalUi` still combines overlay, extension chrome, and frame
+  state, but editor ownership has moved behind `EditorState`; Slice 11 reduced
+  the measured façade inventory from **128 to 104 fields**, exactly the slice
+  ceiling; and
 - load-sensitive PTY readiness races and the absence of a repository Ruff-format
   gate remain explicit quality work.
 

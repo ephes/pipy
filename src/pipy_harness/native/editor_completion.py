@@ -34,6 +34,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from pipy_harness.native.editor_state import CompletionItem as CompletionItem
 from pipy_harness.native.read_only_tool import (
     _is_ignored_or_generated,
     _is_relative_to,
@@ -49,20 +50,6 @@ _AT_RESULT_LIMIT = 20
 _PATH_RESULT_LIMIT = 50
 # Directory names never walked/listed regardless of ignore policy.
 _HARD_DENY_DIR_NAMES = frozenset({".git"})
-
-
-@dataclass(frozen=True, slots=True)
-class CompletionItem:
-    """One completion row.
-
-    ``value`` is the literal text inserted into the editor when the row is
-    accepted (already ``@``-prefixed and/or double-quoted as needed, with a
-    trailing ``/`` for directories). ``label`` is the short display name for
-    the popup row (basename, with a trailing ``/`` for directories).
-    """
-
-    value: str
-    label: str
 
 
 def score_entry(file_path: str, query: str, *, is_directory: bool) -> int:
@@ -294,9 +281,7 @@ def _project_path_entry(
 def _workspace_entry_is_allowed(name: str, search: _PathSearch) -> bool:
     """Apply ignore and symlink containment to a workspace listing entry."""
 
-    rel = (search.search_resolved / name).relative_to(
-        search.workspace_root
-    ).as_posix()
+    rel = (search.search_resolved / name).relative_to(search.workspace_root).as_posix()
     if _is_ignored_or_generated(rel, search.workspace_root):
         return False
     return _contained_in_workspace(search.search_dir / name, search.workspace_root)
@@ -325,9 +310,7 @@ def _split_scoped_query(query: str) -> tuple[str, str]:
     return base, leaf
 
 
-def _walk_workspace(
-    base_dir: Path, workspace_root: Path
-) -> Iterator[tuple[str, bool]]:
+def _walk_workspace(base_dir: Path, workspace_root: Path) -> Iterator[tuple[str, bool]]:
     """Yield ``(workspace_relative_label, is_dir)`` for a bounded walk.
 
     Bounded by depth and total entry count; applies the ``.git``/ignored

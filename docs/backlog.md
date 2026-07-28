@@ -28,7 +28,7 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 11 — editor state extraction**. Product-parity deltas in
+is **Slice 12 — overlay and extension-chrome state extraction**. Product-parity deltas in
 the Pi audit remain selection candidates after the architecture program and do
 not expand an architecture slice.
 
@@ -813,6 +813,98 @@ Progress:
   valid round had zero skipped files, truncations, redactions, and forbidden
   tool uses. Pi implementer self-verdicts were discarded. Commit remains
   pending at the point this ledger is written.
+
+- **Slice 11 — editor state extraction: COMPLETE, REVIEW CLOSED; COMMIT
+  PENDING.** A new
+  stdlib-only `native.editor_state.EditorState` is the single typed owner for
+  editable buffer/cursor state, slash and completion selection/anchors,
+  session-local prompt recall and draft navigation, bounded undo/redo, decoded
+  paste hand-off, initial-text rehydration, extension completion-factory
+  retention, and the terminal steering/follow-up/local-command queue. Its pure
+  transitions enforce cursor bounds, popup priority, history and snapshot caps,
+  completion-anchor closure, steering-before-follow-up promotion, and typed
+  queue entries whose content/kind pairing cannot desynchronize, without
+  streams, file descriptors, termios, PTYs, or a `ToolLoopTerminalUi`.
+  `CompletionItem` moves to this dependency-neutral owner
+  and remains explicitly available from `native.editor_completion` as the same
+  object.
+
+  `ToolLoopTerminalUi` remains the product façade and the sole adapter for
+  decoded terminal bytes, filesystem completion lookup, clipboard/image and
+  drag-path I/O, custom extension editor/provider execution, rendering, locks,
+  and terminal lifecycle. Narrow properties and methods preserve characterized
+  caller/test access while projecting directly to `_editor`; the façade's
+  existing slots reject retired names rather than accepting dead writes, and no
+  mirrored UI dataclass fields or convention-based synchronization remains.
+  `read_line`, the active-turn editor, custom-editor adaptation, completion
+  acceptance, prompt history, undo/redo, paste, queue promotion/restoration/
+  drain, and local-command hand-off delegate state transitions to that owner.
+  No-op Backspace/Ctrl-U/Ctrl-Z/Ctrl-Y transitions now skip effectful completion
+  refreshes exactly as before extraction, while empty character insertion keeps
+  its historical edit boundary and refresh. Slash/completion navigation paints
+  only when selection really moves, and Tab completion refuses an open slash
+  menu before provider/filesystem lookup. Completion acceptance captures one
+  immutable selection before extension code runs; its only span invariant lives
+  on that snapshot, completion modes are the closed `at`/`path` domain, and
+  empty provider candidates preserve the pre-existing closed-popup/unbound-
+  provider outcome. `EditorState` alone owns queue-restoration draft precedence;
+  the façade injects a lazy custom-editor text callback that is skipped for an
+  empty queue or staged initial text. The misleading copy-returning
+  `_pending_steering` façade projection is retired;
+  rendering labels remain solely in the frame adapter. Existing callers in
+  `tool_loop_session` require no schema or queue-port adaptation.
+
+  Terminal-independent owner, complete table-driven façade adaptation, and
+  regression coverage produce a net increase of exactly **52 collected tests**
+  relative to the Slice 10 checkpoint. Focused owner/façade/completion/custom-editor/queue/TUI tests pass
+  **293 cases**, and the architecture metric/import gate passes **174**; the
+  complete real product TUI PTY module passes **49 tests**, PTY smoke passes **8
+  tests**, and all **12** deterministic TUI-workflow conformance checks pass,
+  including prompt/image/provider archive non-leakage. Diagnostic strict Mypy is
+  clean across **166 source files**, and combined typecheck is clean across
+  **429 source/test files**. `just docs-build` is clean. The first `just check`
+  run reached one load-sensitive custom-overlay PTY typing/render timeout; that
+  exact case then passed five consecutive isolated runs. During the post-review
+  fix verification, one unrelated active-turn Escape PTY follow-up readiness
+  deadline missed under full-suite load; both parametrizations and the exact
+  Escape case passed immediately in isolation, and the full pytest retry is
+  clean at **4,731 passed / 2 skipped**.
+
+  Architecture metrics report `ToolLoopTerminalUi` state fields **128 -> 104**,
+  exactly the `B - 24` ceiling; `tui.py` physical lines **7,018 -> 6,894**;
+  source/test Python lines **79,498 / 116,248 -> 79,846 / 116,948**;
+  repository/source C901 remains **38 / 22**; and the source type-ignore count
+  remains exactly **1**. No dependency, unchecked `Any`, suppression, Mypy
+  exclusion, C901 pin, compatibility shim, schema, command-precedence,
+  extension-contract, session-format, privacy, or theme change is introduced.
+  This behavior-preserving ownership refactor has no changelog entry. The active
+  pointer advances to **Slice 12 — overlay and extension-chrome state
+  extraction**.
+
+  Independent review used the exact `claude-opus-5` model at `xhigh` effort in
+  a read-only harness. One initial invalid attempt used an absolute-path tool
+  target; it was discarded and did not count as review evidence. Four valid
+  complete rounds followed, all with zero skipped files, truncations, redactions,
+  forbidden tool uses, or scoped omissions. Round 1 reported **4 Warnings + 5
+  Suggestions**; all nine were fixed by a fresh Pi
+  `openai-codex/gpt-5.6-sol` implementer. Round 2 reported **2 Warnings + 3
+  Suggestions**; all five were fixed by a fresh exact-model Pi implementer.
+  Round 3 reported **4 Suggestions**; all four were fixed by a fresh exact-model
+  Pi implementer. Pi implementer self-verdicts were discarded.
+
+  Round 4 reported **3 Suggestions** and no Critical or Warning findings. They
+  were proportionally declined: mixed façade access idioms are characterized
+  private/test compatibility, and consolidating them now adds churn without a
+  demonstrated defect; source-introspection equality for editor-backed
+  properties would be brittle and would continue the consecutive
+  self-inflicted projection-test review churn; and accurate micro-behavior prose
+  may be revisited during the final Slice 16 documentation disposition but is
+  not a correctness defect. The project's “two consecutive self-inflicted
+  churn” stop signal applies to the projection-test chain, every remaining
+  finding is a non-material Suggestion, and another round would not improve
+  confidence. No correctness, privacy, trust, concurrency, data-loss, or
+  public-contract finding remains. Commit remains pending at the point this
+  ledger is written.
 
 ## Current State
 

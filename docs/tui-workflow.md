@@ -24,8 +24,11 @@ in-memory and optional persistent prompt history, ANSI bracketed paste,
 Ctrl-Z/Ctrl-Y undo/redo, poll-based resize handling, `/copy`, typed `@path` and
 `@image:<path>` references in a submitted prompt, and streaming reasoning shown
 as italic "thinking" text. Those landed surfaces are out of scope here except as
-the boundaries this track extends. This document specifies the **remaining**
-gaps only.
+the boundaries this track extends. Slice 11 subsequently moved their editable
+buffer/cursor, recall, undo/redo, paste, completion/menu, rehydration, and queued
+input into the terminal-independent `native.editor_state.EditorState`; `tui.py`
+remains the product façade and effect/render adapter, so every workflow contract
+below is unchanged. This document specifies the **remaining** gaps only.
 
 ## Sources
 

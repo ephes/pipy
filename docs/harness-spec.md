@@ -585,10 +585,30 @@ startup-chrome section lists the loadable skill names from the same loader the
 dispatcher uses.
 The bounded tool-loop REPL uses a separate terminal UI boundary when stdin and
 stderr are real TTY streams and the input runtime is `auto`. That boundary is
-`pipy_harness.native.tui.ToolLoopTerminalUi`: it stores chat history,
-submitted user-message blocks, the active assistant-output buffer, transient
-working text, slash-command menu state, the input/editor line, and the two-row
-footer/status. It renders inline (no alternate screen): each finalized block —
+`pipy_harness.native.tui.ToolLoopTerminalUi`: it remains the product façade for
+chat history, submitted user-message blocks, the active assistant-output buffer,
+transient working text, overlays, and the two-row footer/status. The façade owns
+no parallel editor fields: `pipy_harness.native.editor_state.EditorState` is its
+single typed owner for the editable buffer/cursor, slash and completion
+selection/anchors, prompt recall, undo/redo, paste hand-off, initial-text
+rehydration, and steering/follow-up/local-command queue. Queue entries pair
+content with a closed typed kind; only the TUI frame adapter adds the visible
+`Steering`/`Follow-up` labels. The slotted façade rejects retired field names,
+and its compatibility properties project directly to the owner. The state owner
+is stdlib-only and terminal-independent; filesystem completion, clipboard/image
+I/O, decoded-byte reads, extension/custom-editor calls, terminal writes, locks,
+and painting stay in the TUI and its adapters, which translate effect results
+into state transitions. No-op Backspace/Ctrl-U/undo/redo transitions do not run
+extension completion lookup; slash/completion navigation paints only on a real
+selection move, and path completion yields to an open slash menu before lookup.
+Acceptance captures one immutable selection with the sole completion-span
+invariant before an extension callback, and completion mode is the closed
+`at`/`path` domain. `EditorState` is the sole pending-input restoration source-
+precedence owner: the TUI injects a lazy custom-editor text callback, which is
+not called for an empty queue or when staged initial text wins. Retired lane
+names, including `_pending_steering`, are unprojected and fail loudly under
+slots. `ToolLoopTerminalUi` renders inline (no alternate screen): each finalized
+block —
 startup chrome, submitted prompts, settled assistant turns, settled reasoning,
 tool call/result rows, and notices — is committed once into
 the terminal's normal buffer, so the host terminal/multiplexer keeps it in
@@ -2222,13 +2242,13 @@ flag plus saved SIGWINCH disposition) and exposes:
   over-read buffer, and the `_BRACKETED_PASTE_START`/`_END` decode markers all
   live here. `read_key_if_available` polls `fd` for `timeout` seconds and
   decodes if input arrives (a buffered continuation byte decodes immediately,
-  reported by `has_pending_input()`). Because the durable `_pending_paste`
-  buffer stays owned by the UI, a decoded bracketed paste is handed back rather
-  than stored: the read returns `"paste"` and stashes the body, retrieved once
-  via `consume_paste()`. The UI's `_read_key_polling_resize` keeps its
-  footer-branch and resize-polling loop but delegates the read+decode to the
-  driver, funnelling the result through the `_read_driver_key` seam that copies
-  a paste body into `_pending_paste`.
+  reported by `has_pending_input()`). A decoded bracketed paste is handed back
+  rather than stored on the driver: the read returns `"paste"` and stashes the
+  body, retrieved once via `consume_paste()`. The UI's
+  `_read_key_polling_resize` keeps its footer-branch and resize-polling loop but
+  delegates the read+decode to the driver, funnelling the result through the
+  `_read_driver_key` seam that transfers the body once into `EditorState`'s
+  paste hand-off.
 - `size(*, width=None, height=None)`, `install_resize_handler()`,
   `remove_resize_handler()`, `take_resize_pending()`: the SIGWINCH resize
   lifecycle and live terminal-size resolution (Slice 4.2c), owned here because

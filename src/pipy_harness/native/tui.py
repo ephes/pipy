@@ -52,11 +52,16 @@ from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.command_registry import project_command_completions
 from pipy_harness.native.clipboard import ImageClipboardResult
 from pipy_harness.native.editor_completion import (
-    CompletionItem,
     at_candidates,
     extract_at_token,
     extract_path_prefix,
     path_candidates,
+)
+from pipy_harness.native.editor_state import (
+    CompletionItem,
+    CompletionMode,
+    EditorState,
+    QueuedInputKind,
 )
 from pipy_harness.native.extension_runtime import (
     ExtensionTool,
@@ -165,13 +170,6 @@ TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS = project_command_completions(
         "/quit",
     )
 )
-# Cap the per-line undo/redo history so a long editing session cannot grow the
-# stacks without bound. Undo granularity is one edit operation (a single typed
-# character, a delete, a kill-to-start, or a whole bracketed paste).
-_MAX_UNDO_DEPTH = 200
-# Cap the in-memory prompt-recall history so a long session cannot grow it
-# without bound. History is session-scoped and never persisted.
-_MAX_HISTORY_DEPTH = 500
 # Single-width glyph shown in the input cell for a newline carried by a
 # multi-line paste. The buffer keeps the literal "\n" (so the exact multi-line
 # prompt is submitted on Enter); only the rendered cell substitutes the glyph,
@@ -1332,8 +1330,11 @@ class ToolLoopTerminalUi:
     include_workspace_defaults: bool = False
     runtime_label: str = TOOL_LOOP_TUI_RUNTIME_LABEL
     footer_lines: tuple[str, str] = ("", "")
-    input_text: str = ""
-    input_cursor: int | None = None
+    # Single source of truth for editable input, history, undo/redo, paste,
+    # completion/menu navigation, rehydration, and queued terminal input. This
+    # large dataclass already uses slots: retired field names therefore cannot
+    # silently become dead instance attributes beside the narrow projections.
+    _editor: EditorState = field(init=False)
     working_text: str = ""
     extension_working_message: str | None = None
     extension_working_visible: bool = True
@@ -1386,21 +1387,8 @@ class ToolLoopTerminalUi:
     )
     _extension_terminal_input_next_id: int = 0
     _extension_terminal_input_last_replaced: bool = False
-    slash_menu_open: bool = False
-    slash_menu_selection: int = 0
-    # Editor autocomplete popup state (the ``@`` file picker and Tab path
-    # completion). Mutually exclusive with the slash menu (which keeps priority
-    # for a leading ``/``). ``autocomplete_mode`` is ``"at"`` or ``"path"``;
-    # ``autocomplete_token_start`` is the index in ``input_text`` of the span
-    # that an accepted candidate replaces.
-    autocomplete_open: bool = False
-    autocomplete_items: tuple[CompletionItem, ...] = ()
-    autocomplete_selection: int = 0
-    autocomplete_mode: str = "at"
-    autocomplete_token_start: int = 0
-    autocomplete_prefix: str = ""
-    _autocomplete_provider_factories: list[object] = field(default_factory=list)
-    _autocomplete_active_provider: object | None = None
+    # Extension completion factories are retained by ``_editor`` but execute
+    # only in this effectful adapter.
     model_selector_open: bool = False
     model_selector_options: tuple[ModelSelectorOption, ...] = ()
     model_selector_selection: int = 0
@@ -1463,22 +1451,6 @@ class ToolLoopTerminalUi:
     # retained rather than dropped so toggling visibility back reveals them
     # (committed fresh at toggle time, not retro-written into scrollback).
     _deferred_reasoning: list[str] = field(default_factory=list)
-    # Queued steering / follow-up messages (Pi parity). While a provider turn
-    # streams, a normal Enter enqueues a steering message (interrupts the turn at
-    # the next safe point) and Alt+Enter enqueues a follow-up (runs after the
-    # turn settles). They render in a pending region; Alt+Up restores them to the
-    # editor. ``_pending_drain`` holds messages promoted for sequential delivery
-    # (steering first, then follow-up) once the turn stops.
-    _pending_steering: list[str] = field(default_factory=list)
-    _pending_follow_up: list[str] = field(default_factory=list)
-    _pending_drain: list[str] = field(default_factory=list)
-    _pending_drain_kinds: list[str] = field(default_factory=list)
-    _last_drain_kind: str | None = None
-    # A recognized local command (``/...`` or ``!...``) submitted with Enter
-    # mid-turn is NOT queued for the provider: like Pi's editor, it interrupts
-    # the turn and runs locally. It is held here for the session loop to pick up
-    # and dispatch through the normal local-command path on the next iteration.
-    _pending_command: str | None = None
     # Clipboard / drag image paste (Pi Ctrl+V). ``clipboard_image_read`` reads an
     # image from the OS clipboard; ``clipboard_temp_dir`` is an owner-only dir
     # (also registered as an image reference root by the session) where pasted
@@ -1502,23 +1474,6 @@ class ToolLoopTerminalUi:
     _paint_lock: Any = field(default_factory=threading.RLock)
     _painting: bool = False
     _paint_requested_during_paint: bool = False
-    # Editor ergonomics state.
-    #
-    # ``input_history`` is an in-memory, session-scoped ring of submitted
-    # prompts for Up/Down recall. It is never written to disk: keeping it in
-    # process memory only honors the metadata-first archive contract (no
-    # prompts, pasted text, or command bodies persisted by default).
-    input_history: list[str] = field(default_factory=list)
-    _history_nav_index: int | None = None
-    _history_draft: str = ""
-    # Per-line undo/redo stacks of ``(text, cursor)`` snapshots, reset when a
-    # new line begins. Redo is cleared whenever a fresh edit is recorded.
-    _undo_stack: list[tuple[str, int]] = field(default_factory=list)
-    _redo_stack: list[tuple[str, int]] = field(default_factory=list)
-    _pending_paste: str = ""
-    # Editor rehydration: a ``/tree`` user-message selection pre-fills the next
-    # prompt with the selected text so the user can edit it into a new branch.
-    _pending_initial_text: str | None = None
     # Live extension custom editor component (Pi ``ctx.ui.setEditorComponent``).
     # The component is trusted extension code and is duck-typed: factories may
     # return objects with render/handle_input/get_text/set_text plus callback
@@ -1538,7 +1493,146 @@ class ToolLoopTerminalUi:
     keybindings_manager: KeybindingsManager | None = None
 
     def __post_init__(self) -> None:
+        self._editor = EditorState()
         self._driver = TerminalDriver(self.input_stream, self.terminal_stream)
+
+    # Narrow compatibility projections keep the product facade and existing
+    # characterized callers stable without duplicating stored editor state.
+    @property
+    def input_text(self) -> str:
+        return self._editor.text
+
+    @input_text.setter
+    def input_text(self, value: str) -> None:
+        self._editor.text = value
+
+    @property
+    def input_cursor(self) -> int | None:
+        return self._editor.cursor
+
+    @input_cursor.setter
+    def input_cursor(self, value: int | None) -> None:
+        self._editor.cursor = value
+
+    @property
+    def input_history(self) -> list[str]:
+        return self._editor.input_history
+
+    @input_history.setter
+    def input_history(self, value: list[str]) -> None:
+        self._editor.input_history = value
+
+    @property
+    def _history_nav_index(self) -> int | None:
+        return self._editor.history_nav_index
+
+    @_history_nav_index.setter
+    def _history_nav_index(self, value: int | None) -> None:
+        self._editor.history_nav_index = value
+
+    @property
+    def _history_draft(self) -> str:
+        return self._editor.history_draft
+
+    @_history_draft.setter
+    def _history_draft(self, value: str) -> None:
+        self._editor.history_draft = value
+
+    @property
+    def _undo_stack(self) -> list[tuple[str, int]]:
+        return self._editor.undo_stack
+
+    @property
+    def _redo_stack(self) -> list[tuple[str, int]]:
+        return self._editor.redo_stack
+
+    @property
+    def _pending_paste(self) -> str:
+        return self._editor.pending_paste
+
+    @_pending_paste.setter
+    def _pending_paste(self, value: str) -> None:
+        self._editor.pending_paste = value
+
+    @property
+    def _pending_initial_text(self) -> str | None:
+        return self._editor.pending_initial_text
+
+    @_pending_initial_text.setter
+    def _pending_initial_text(self, value: str | None) -> None:
+        self._editor.pending_initial_text = value
+
+    @property
+    def slash_menu_open(self) -> bool:
+        return self._editor.slash_menu_open
+
+    @slash_menu_open.setter
+    def slash_menu_open(self, value: bool) -> None:
+        self._editor.slash_menu_open = value
+
+    @property
+    def slash_menu_selection(self) -> int:
+        return self._editor.slash_menu_selection
+
+    @slash_menu_selection.setter
+    def slash_menu_selection(self, value: int) -> None:
+        self._editor.slash_menu_selection = value
+
+    @property
+    def autocomplete_open(self) -> bool:
+        return self._editor.autocomplete_open
+
+    @autocomplete_open.setter
+    def autocomplete_open(self, value: bool) -> None:
+        self._editor.autocomplete_open = value
+
+    @property
+    def autocomplete_items(self) -> tuple[CompletionItem, ...]:
+        return self._editor.autocomplete_items
+
+    @autocomplete_items.setter
+    def autocomplete_items(self, value: tuple[CompletionItem, ...]) -> None:
+        self._editor.autocomplete_items = value
+
+    @property
+    def autocomplete_selection(self) -> int:
+        return self._editor.autocomplete_selection
+
+    @autocomplete_selection.setter
+    def autocomplete_selection(self, value: int) -> None:
+        self._editor.autocomplete_selection = value
+
+    @property
+    def autocomplete_mode(self) -> CompletionMode:
+        return self._editor.autocomplete_mode
+
+    @autocomplete_mode.setter
+    def autocomplete_mode(self, value: CompletionMode) -> None:
+        self._editor.autocomplete_mode = value
+
+    @property
+    def autocomplete_token_start(self) -> int:
+        return self._editor.autocomplete_token_start
+
+    @autocomplete_token_start.setter
+    def autocomplete_token_start(self, value: int) -> None:
+        self._editor.autocomplete_token_start = value
+
+    @property
+    def autocomplete_prefix(self) -> str:
+        return self._editor.autocomplete_prefix
+
+    @autocomplete_prefix.setter
+    def autocomplete_prefix(self, value: str) -> None:
+        self._editor.autocomplete_prefix = value
+
+    @property
+    def _autocomplete_active_provider(self) -> object | None:
+        return self._editor.autocomplete_active_provider
+
+    @property
+    def _autocomplete_provider_factories(self) -> list[object]:
+        return self._editor.autocomplete_provider_factories
 
     @classmethod
     def is_supported(cls, input_stream: TextIO, terminal_stream: TextIO) -> bool:
@@ -1573,19 +1667,9 @@ class ToolLoopTerminalUi:
         del prompt_label
         if footer is not None:
             self.set_footer_text(footer)
-        if self._pending_initial_text is not None:
-            self.input_text = self._pending_initial_text
-            self.input_cursor = len(self.input_text)
-            self._pending_initial_text = None
-        else:
-            self.input_text = ""
-            self.input_cursor = 0
+        self._editor.begin_line()
         if self._custom_editor_active:
             self._set_custom_editor_text(self.input_text)
-        self.slash_menu_open = False
-        self.slash_menu_selection = 0
-        self._close_autocomplete()
-        self._reset_line_editor_state()
         self.paint()
         fd = self.input_stream.fileno()
         try:
@@ -1603,8 +1687,8 @@ class ToolLoopTerminalUi:
                             self._reset_line_editor_state()
                             self.paint()
                             return ""
-                        self._record_history(submitted)
-                        self._reset_line_editor_state()
+                        self._editor.record_history(submitted)
+                        self._editor.reset_line_editor_state()
                         self.paint()
                         return f"{submitted}\n"
                     continue
@@ -1621,13 +1705,7 @@ class ToolLoopTerminalUi:
                         matches = self._filtered_commands()
                         if self.input_text not in matches:
                             self._accept_slash_menu_selection()
-                    submitted = self.input_text
-                    self._record_history(submitted)
-                    self.input_text = ""
-                    self.input_cursor = 0
-                    self.slash_menu_open = False
-                    self._close_autocomplete()
-                    self._reset_line_editor_state()
+                    submitted = self._editor.submit_line()
                     self.paint()
                     return f"{submitted}\n"
                 if key == "ctrl-c":
@@ -1639,12 +1717,11 @@ class ToolLoopTerminalUi:
                 if self._matches_keybinding(key, "app.editor.external"):
                     edited = self._run_configured_external_editor(self.input_text)
                     if edited is not None:
-                        self._snapshot_for_undo()
-                        self._reset_history_nav()
-                        self.input_text = edited
-                        self.input_cursor = len(edited)
-                        self.slash_menu_open = False
-                        self._close_autocomplete()
+                        self._editor.snapshot_for_undo()
+                        self._editor.reset_history_nav()
+                        self._editor.set_buffer(edited)
+                        self._editor.close_slash_menu()
+                        self._editor.close_autocomplete()
                     self.paint()
                     continue
                 if key in {"ctrl-p", "shift-ctrl-p"}:
@@ -1658,13 +1735,7 @@ class ToolLoopTerminalUi:
                     # decodable on terminals speaking the kitty keyboard
                     # protocol; legacy terminals send plain ctrl+p and cycle
                     # forward — a documented input-decoding limit.)
-                    if self.input_text:
-                        self._pending_initial_text = self.input_text
-                    self.input_text = ""
-                    self.input_cursor = 0
-                    self.slash_menu_open = False
-                    self._close_autocomplete()
-                    self._reset_line_editor_state()
+                    self._editor.preserve_for_next_line()
                     return (
                         f"{HOTKEY_MODEL_CYCLE_PREV}\n"
                         if key == "shift-ctrl-p"
@@ -1674,34 +1745,21 @@ class ToolLoopTerminalUi:
                     # app.thinking.cycle: cycle the reasoning level. Dispatched
                     # by the session without a provider turn; the partially-typed
                     # buffer is preserved into the next prompt.
-                    if self.input_text:
-                        self._pending_initial_text = self.input_text
-                    self.input_text = ""
-                    self.input_cursor = 0
-                    self.slash_menu_open = False
-                    self._close_autocomplete()
-                    self._reset_line_editor_state()
+                    self._editor.preserve_for_next_line()
                     return f"{HOTKEY_THINKING_CYCLE}\n"
                 if key in {"ctrl-o", "ctrl-t"}:
                     # app.tools.expand (ctrl+o) / app.thinking.toggle (ctrl+t):
                     # renderer view-flag toggles dispatched by the session (so the
                     # thinking-visibility setting can be persisted and a status
                     # shown). The partially-typed buffer is preserved.
-                    if self.input_text:
-                        self._pending_initial_text = self.input_text
-                    self.input_text = ""
-                    self.input_cursor = 0
-                    self.slash_menu_open = False
-                    self._close_autocomplete()
-                    self._reset_line_editor_state()
+                    self._editor.preserve_for_next_line()
                     return (
                         f"{HOTKEY_TOGGLE_TOOLS}\n"
                         if key == "ctrl-o"
                         else f"{HOTKEY_TOGGLE_THINKING}\n"
                     )
                 if key == "paste":
-                    self._insert_paste(self._pending_paste)
-                    self._pending_paste = ""
+                    self._insert_paste(self._editor.consume_paste())
                     self.paint()
                     continue
                 if key == "ctrl-v":
@@ -1716,13 +1774,7 @@ class ToolLoopTerminalUi:
                     # api.register_shortcut. Preserve any partially-typed input
                     # into the next prompt (like the app hotkeys) and hand the
                     # session the sentinel so it dispatches the bound handler.
-                    if self.input_text:
-                        self._pending_initial_text = self.input_text
-                    self.input_text = ""
-                    self.input_cursor = 0
-                    self.slash_menu_open = False
-                    self._close_autocomplete()
-                    self._reset_line_editor_state()
+                    self._editor.preserve_for_next_line()
                     return f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}{key}\n"
                 if key == "backspace":
                     self._delete_before_cursor()
@@ -1730,7 +1782,7 @@ class ToolLoopTerminalUi:
                     continue
                 if key == "esc":
                     if self.slash_menu_open:
-                        self.slash_menu_open = False
+                        self._editor.slash_menu_open = False
                         self.paint()
                     elif self.autocomplete_open:
                         self._close_autocomplete()
@@ -1826,14 +1878,14 @@ class ToolLoopTerminalUi:
                     if key == "paste":
                         # A paste mid-turn is not editor input; drop it so its
                         # body never lingers into the next prompt.
-                        self._pending_paste = ""
+                        self._editor.consume_paste()
                     continue
                 command_only = accept_commands and not accept_queue
                 # In command-only mode, preserve the old "ignore random typing"
                 # behavior until the user explicitly starts a local command.
                 if command_only and not self.input_text and key not in {"/", "!"}:
                     if key == "paste":
-                        self._pending_paste = ""
+                        self._editor.consume_paste()
                     continue
                 # accept_queue / accept_commands: a mid-turn editor for
                 # steering/follow-up and/or local commands.
@@ -1855,7 +1907,7 @@ class ToolLoopTerminalUi:
                     # immediately rather than steering. It interrupts the turn
                     # and is handed to the session loop to dispatch locally.
                     if self._submitted_text_is_local_command(text):
-                        self._pending_command = text
+                        self._editor.set_pending_command(text)
                         abort_event.set()
                         self.paint()
                         return TURN_LOCAL_COMMAND
@@ -1882,10 +1934,9 @@ class ToolLoopTerminalUi:
                     continue
                 if key == "paste":
                     if command_only:
-                        self._pending_paste = ""
+                        self._editor.consume_paste()
                         continue
-                    self._insert_paste(self._pending_paste)
-                    self._pending_paste = ""
+                    self._insert_paste(self._editor.consume_paste())
                     self.paint()
                     continue
                 if key == "backspace":
@@ -1897,7 +1948,6 @@ class ToolLoopTerminalUi:
                         self._navigate_slash_menu(key)
                     elif self.autocomplete_open:
                         self._navigate_autocomplete(key)
-                    self.paint()
                     continue
                 if key == "tab":
                     if self.slash_menu_open and self._filtered_commands():
@@ -1932,11 +1982,7 @@ class ToolLoopTerminalUi:
             self._driver.restore_terminal_mode()
 
     def _reset_mid_turn_input(self) -> None:
-        self.input_text = ""
-        self.input_cursor = 0
-        self.slash_menu_open = False
-        self.slash_menu_selection = 0
-        self._close_autocomplete()
+        self._editor.reset_mid_turn_input()
 
     def run_model_selector(
         self,
@@ -1977,7 +2023,7 @@ class ToolLoopTerminalUi:
                     self._close_model_selector()
                     return None
                 if key == "paste":
-                    self._pending_paste = ""
+                    self._editor.consume_paste()
                     continue
                 if key in {"up", "down"}:
                     self._navigate_model_selector(key)
@@ -2044,7 +2090,7 @@ class ToolLoopTerminalUi:
                     self._close_scoped_models_selector()
                     return None
                 if key == "paste":
-                    self._pending_paste = ""
+                    self._editor.consume_paste()
                     continue
                 if key in {"up", "down"}:
                     self._navigate_scoped_models(key)
@@ -2206,7 +2252,7 @@ class ToolLoopTerminalUi:
                     self._close_settings_dialog()
                     return None
                 if key == "paste":
-                    self._pending_paste = ""
+                    self._editor.consume_paste()
                     continue
                 if key in {"up", "down"}:
                     self._navigate_settings_dialog(key)
@@ -2295,10 +2341,7 @@ class ToolLoopTerminalUi:
         value = str(text)
         if self._custom_editor_active:
             self._set_custom_editor_text(value)
-        self._pending_initial_text = value
-        self.input_text = value
-        self.input_cursor = len(value)
-        self._close_autocomplete()
+        self._editor.stage_initial_text(value)
 
     def get_input_text(self) -> str:
         """Return the current core editor text, including pending prefill."""
@@ -2363,14 +2406,12 @@ class ToolLoopTerminalUi:
         def submit(value: object | None = None) -> None:
             text = self._custom_editor_text() if value is None else str(value)
             self._custom_editor_submitted = text
-            self.input_text = text
-            self.input_cursor = len(text)
+            self._editor.set_buffer(text)
 
         def change(value: object | None = None) -> None:
             text = self._custom_editor_text() if value is None else str(value)
             self._custom_editor_changed_text = text
-            self.input_text = text
-            self.input_cursor = len(text)
+            self._editor.set_buffer(text)
 
         for name in ("on_submit", "onSubmit"):
             self._set_component_attr(component, name, submit)
@@ -2487,8 +2528,7 @@ class ToolLoopTerminalUi:
 
     def _set_custom_editor_text(self, text: str) -> None:
         component = self._custom_editor_component
-        self.input_text = str(text)
-        self.input_cursor = len(self.input_text)
+        self._editor.set_buffer(str(text))
         if component is None:
             return
         for name in ("set_text", "setText"):
@@ -2528,8 +2568,7 @@ class ToolLoopTerminalUi:
         if self._custom_editor_action is not None:
             action = self._custom_editor_action
             self._custom_editor_action = None
-            self.input_text = self._custom_editor_text()
-            self.input_cursor = len(self.input_text)
+            self._editor.set_buffer(self._custom_editor_text())
             if action in {
                 "app.model.cycleForward",
                 "app.model.cycleBackward",
@@ -2539,7 +2578,7 @@ class ToolLoopTerminalUi:
                 "app.thinking.toggle",
             }:
                 if self.input_text:
-                    self._pending_initial_text = self.input_text
+                    self._editor.pending_initial_text = self.input_text
                 self._set_custom_editor_text("")
             if action == "app.model.cycleForward":
                 return HOTKEY_MODEL_CYCLE_NEXT
@@ -2565,7 +2604,7 @@ class ToolLoopTerminalUi:
                 text = self._custom_editor_text()
                 if text.strip():
                     self.enqueue_follow_up(text)
-                self._pending_initial_text = None
+                self._editor.clear_initial_text()
                 self._set_custom_editor_text("")
                 return None
             if action == "app.message.dequeue":
@@ -2575,7 +2614,7 @@ class ToolLoopTerminalUi:
                 self._paste_clipboard_image()
                 return None
             if action == "app.interrupt":
-                self._pending_initial_text = None
+                self._editor.clear_initial_text()
                 self._set_custom_editor_text("")
                 return None
             if action == "app.exit":
@@ -2590,11 +2629,10 @@ class ToolLoopTerminalUi:
         if self._custom_editor_submitted is not None:
             submitted = self._custom_editor_submitted
             self._custom_editor_submitted = None
-            self._pending_initial_text = None
+            self._editor.clear_initial_text()
             self._set_custom_editor_text("")
             return submitted
-        self.input_text = self._custom_editor_text()
-        self.input_cursor = len(self.input_text)
+        self._editor.set_buffer(self._custom_editor_text())
         self.paint()
         return None
 
@@ -2607,7 +2645,7 @@ class ToolLoopTerminalUi:
         preserving surrounding draft text and pasted newlines.
         """
 
-        self._pending_initial_text = None
+        self._editor.clear_initial_text()
         self._insert_paste(str(text))
 
     def run_tree_selector(
@@ -2645,7 +2683,7 @@ class ToolLoopTerminalUi:
                     self._close_tree_selector()
                     return None
                 if key == "paste":
-                    self._pending_paste = ""
+                    self._editor.consume_paste()
                     continue
                 if key in {"up", "down"}:
                     self._navigate_tree_selector(key)
@@ -3609,7 +3647,7 @@ class ToolLoopTerminalUi:
         if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
             return None
         if key == "paste":
-            self._pending_paste = ""
+            self._editor.consume_paste()
             return _PICKER_CONTINUE
         if key in {"up", "down"}:
             self._navigate_session_picker(key)
@@ -4928,15 +4966,16 @@ class ToolLoopTerminalUi:
 
         if not self.has_pending_messages():
             return []
-        labeled = [("Steering", t) for t in self._pending_steering]
-        labeled += [("Follow-up", t) for t in self._pending_follow_up]
+        queued = list(self._editor.pending_messages())
         cap = self._PENDING_REGION_MAX_ROWS
-        visible = labeled[:cap]
+        visible = queued[:cap]
         lines: list[_FrameLine] = []
-        for kind, text in visible:
-            label = text.replace("\n", " ")
+        for entry in visible:
+            # Rendering vocabulary belongs to the frame adapter, not EditorState.
+            kind = "Steering" if entry.kind == "steering" else "Follow-up"
+            label = entry.content.replace("\n", " ")
             lines.append(_FrameLine(self._clip(f"  {kind}: {label}", width), "notice"))
-        hidden = len(labeled) - len(visible)
+        hidden = len(queued) - len(visible)
         if hidden > 0:
             lines.append(
                 _FrameLine(
@@ -5700,7 +5739,7 @@ class ToolLoopTerminalUi:
         """
 
         if key == "paste":
-            self._pending_paste = self._driver.consume_paste()
+            self._editor.stage_paste(self._driver.consume_paste())
         return key
 
     def _read_key_polling_resize(self, fd: int) -> str | None:
@@ -5764,12 +5803,8 @@ class ToolLoopTerminalUi:
             self._paint_locked()
 
     def _insert_input_text(self, text: str) -> None:
-        self._snapshot_for_undo()
-        self._reset_history_nav()
-        cursor = self._effective_input_cursor()
-        self.input_text = self.input_text[:cursor] + text + self.input_text[cursor:]
-        self.input_cursor = cursor + len(text)
-        self._refresh_slash_menu_state()
+        self._editor.insert(text, self.command_names)
+        self._refresh_autocomplete_state()
 
     def _insert_paste(self, text: str) -> None:
         """Insert pasted text literally as a single undo-able edit.
@@ -5790,12 +5825,8 @@ class ToolLoopTerminalUi:
         reference = self._as_drag_reference(text)
         if reference is not None:
             text = reference
-        self._snapshot_for_undo()
-        self._reset_history_nav()
-        cursor = self._effective_input_cursor()
-        self.input_text = self.input_text[:cursor] + text + self.input_text[cursor:]
-        self.input_cursor = cursor + len(text)
-        self._refresh_slash_menu_state()
+        self._editor.insert(text, self.command_names)
+        self._refresh_autocomplete_state()
 
     def _as_drag_reference(self, text: str) -> str | None:
         """Return an ``@image:``/``@path`` reference for a dropped file path.
@@ -5885,102 +5916,39 @@ class ToolLoopTerminalUi:
         self._insert_input_text(insertion)
 
     def _delete_before_cursor(self) -> None:
-        cursor = self._effective_input_cursor()
-        if cursor <= 0:
-            return
-        self._snapshot_for_undo()
-        self._reset_history_nav()
-        self.input_text = self.input_text[: cursor - 1] + self.input_text[cursor:]
-        self.input_cursor = cursor - 1
-        self._refresh_slash_menu_state()
+        if self._editor.delete_before_cursor(self.command_names):
+            self._refresh_autocomplete_state()
 
     def _kill_to_line_start(self) -> None:
-        cursor = self._effective_input_cursor()
-        if cursor <= 0:
-            return
-        self._snapshot_for_undo()
-        self._reset_history_nav()
-        self.input_text = self.input_text[cursor:]
-        self.input_cursor = 0
-        self._refresh_slash_menu_state()
+        if self._editor.kill_to_line_start(self.command_names):
+            self._refresh_autocomplete_state()
 
     def _reset_line_editor_state(self) -> None:
-        """Clear per-line undo/redo and history-recall state for a fresh line."""
-
-        self._undo_stack.clear()
-        self._redo_stack.clear()
-        self._history_nav_index = None
-        self._history_draft = ""
+        self._editor.reset_line_editor_state()
 
     def _reset_history_nav(self) -> None:
-        self._history_nav_index = None
-        self._history_draft = ""
+        self._editor.reset_history_nav()
 
     def _snapshot_for_undo(self) -> None:
-        self._undo_stack.append((self.input_text, self._effective_input_cursor()))
-        if len(self._undo_stack) > _MAX_UNDO_DEPTH:
-            del self._undo_stack[0]
-        self._redo_stack.clear()
+        self._editor.snapshot_for_undo()
 
     def _undo_edit(self) -> None:
-        if not self._undo_stack:
-            return
-        self._redo_stack.append((self.input_text, self._effective_input_cursor()))
-        text, cursor = self._undo_stack.pop()
-        self.input_text = text
-        self.input_cursor = cursor
-        self._reset_history_nav()
-        self._refresh_slash_menu_state()
+        if self._editor.undo(self.command_names):
+            self._refresh_autocomplete_state()
 
     def _redo_edit(self) -> None:
-        if not self._redo_stack:
-            return
-        self._undo_stack.append((self.input_text, self._effective_input_cursor()))
-        text, cursor = self._redo_stack.pop()
-        self.input_text = text
-        self.input_cursor = cursor
-        self._reset_history_nav()
-        self._refresh_slash_menu_state()
+        if self._editor.redo(self.command_names):
+            self._refresh_autocomplete_state()
 
     def _record_history(self, submitted: str) -> None:
-        entry = submitted.strip()
-        if not entry:
-            return
-        if self.input_history and self.input_history[-1] == submitted:
-            return
-        self.input_history.append(submitted)
-        if len(self.input_history) > _MAX_HISTORY_DEPTH:
-            del self.input_history[0]
+        self._editor.record_history(submitted)
 
     def _navigate_history(self, key: str) -> None:
-        if not self.input_history:
-            return
-        if key == "up":
-            if self._history_nav_index is None:
-                self._history_draft = self.input_text
-                self._history_nav_index = len(self.input_history) - 1
-            else:
-                self._history_nav_index = max(0, self._history_nav_index - 1)
-            self._load_history_entry(self.input_history[self._history_nav_index])
-        else:  # down
-            if self._history_nav_index is None:
-                return
-            self._history_nav_index += 1
-            if self._history_nav_index >= len(self.input_history):
-                self._history_nav_index = None
-                self._load_history_entry(self._history_draft)
-                self._history_draft = ""
-            else:
-                self._load_history_entry(self.input_history[self._history_nav_index])
+        if self._editor.navigate_history(key):
+            self.paint()
 
     def _load_history_entry(self, text: str) -> None:
-        # Recall replaces the buffer wholesale and parks the cursor at the end.
-        # The slash menu stays closed during recall so an arrow press reviews
-        # history instead of jumping into command completion.
-        self.input_text = text
-        self.input_cursor = len(text)
-        self.slash_menu_open = False
-        self.slash_menu_selection = 0
+        self._editor.load_history_entry(text)
         self.paint()
 
     def suspend_for_external_io(self) -> None:
@@ -6008,43 +5976,13 @@ class ToolLoopTerminalUi:
             self._live_input_row = 0
 
     def _move_input_cursor(self, key: str) -> None:
-        cursor = self._effective_input_cursor()
-        if key == "left":
-            self.input_cursor = max(0, cursor - 1)
-        elif key == "right":
-            self.input_cursor = min(len(self.input_text), cursor + 1)
-        elif key == "home":
-            self.input_cursor = 0
-        elif key == "end":
-            self.input_cursor = len(self.input_text)
-        # The @/path completion popup is anchored to the caret offset where it
-        # opened (``autocomplete_token_start``). A caret move would leave that
-        # anchor stale, so a subsequent Enter/Tab accept could splice the
-        # candidate at the old offset against the new caret and duplicate or
-        # corrupt the active token. Dismiss it on any move; it reopens on the
-        # next edit (which re-derives the anchor from the current caret).
-        self._close_autocomplete()
+        self._editor.move_cursor(key)
 
     def _effective_input_cursor(self) -> int:
-        if self.input_cursor is None:
-            return len(self.input_text)
-        return min(len(self.input_text), max(0, self.input_cursor))
+        return self._editor.effective_cursor()
 
     def _refresh_slash_menu_state(self) -> None:
-        before_cursor = self.input_text[: self._effective_input_cursor()]
-        if before_cursor.startswith("/") and not any(
-            char.isspace() for char in before_cursor
-        ):
-            self.slash_menu_open = True
-            matches = self._filtered_commands()
-            if not matches:
-                self.slash_menu_open = False
-                self.slash_menu_selection = 0
-            elif self.slash_menu_selection >= len(matches):
-                self.slash_menu_selection = 0
-        else:
-            self.slash_menu_open = False
-            self.slash_menu_selection = 0
+        self._editor.refresh_slash_menu(self.command_names)
         self._refresh_autocomplete_state()
 
     def _refresh_autocomplete_state(self) -> None:
@@ -6064,14 +6002,13 @@ class ToolLoopTerminalUi:
         if suggestion is None:
             self._close_autocomplete()
             return
-        items = suggestion.items
-        self.autocomplete_open = True
-        self.autocomplete_mode = suggestion.mode
-        self.autocomplete_items = tuple(items)
-        self.autocomplete_token_start = suggestion.token_start
-        self.autocomplete_prefix = suggestion.prefix
-        if self.autocomplete_selection >= len(items):
-            self.autocomplete_selection = 0
+        self._editor.open_autocomplete(
+            items=tuple(suggestion.items),
+            mode=suggestion.mode,
+            token_start=suggestion.token_start,
+            prefix=suggestion.prefix,
+            active_provider=self._autocomplete_active_provider,
+        )
 
     def add_extension_autocomplete_provider(self, factory: object) -> None:
         if callable(factory):
@@ -6133,42 +6070,27 @@ class ToolLoopTerminalUi:
                 AutocompleteContext(force=force, signal=None),
             )
         suggestion = coerce_suggestion(raw)
-        self._autocomplete_active_provider = (
+        self._editor.autocomplete_active_provider = (
             provider if suggestion is not None else None
         )
         return suggestion
 
     def _close_autocomplete(self) -> None:
-        self.autocomplete_open = False
-        self.autocomplete_items = ()
-        self.autocomplete_selection = 0
-        self.autocomplete_prefix = ""
-        self._autocomplete_active_provider = None
+        self._editor.close_autocomplete()
 
     def enqueue_steering(self, text: str) -> None:
-        if text.strip():
-            self._pending_steering.append(text)
+        self._editor.enqueue_steering(text)
 
     def enqueue_follow_up(self, text: str) -> None:
-        if text.strip():
-            self._pending_follow_up.append(text)
+        self._editor.enqueue_follow_up(text)
 
     def has_pending_messages(self) -> bool:
-        return bool(self._pending_steering or self._pending_follow_up)
+        return self._editor.has_pending_messages()
 
     def promote_pending_to_drain(self) -> None:
-        """Move queued messages into the sequential drain (steering first).
+        """Move queued messages into the sequential drain (steering first)."""
 
-        Called once a turn stops with queued messages so the session delivers
-        them in order — all steering, then all follow-up — as the next prompts.
-        """
-
-        self._pending_drain.extend(self._pending_steering)
-        self._pending_drain_kinds.extend("steering" for _ in self._pending_steering)
-        self._pending_drain.extend(self._pending_follow_up)
-        self._pending_drain_kinds.extend("follow_up" for _ in self._pending_follow_up)
-        self._pending_steering.clear()
-        self._pending_follow_up.clear()
+        self._editor.promote_pending_to_drain()
 
     def restore_pending_to_editor(self) -> None:
         """Restore queued messages into the editor joined by blank lines (Alt+Up
@@ -6188,51 +6110,23 @@ class ToolLoopTerminalUi:
         enqueued after promotion.
         """
 
-        queued = [
-            *self._pending_drain,
-            *self._pending_steering,
-            *self._pending_follow_up,
-        ]
-        self._pending_drain.clear()
-        self._pending_drain_kinds.clear()
-        self._last_drain_kind = None
-        self._pending_steering.clear()
-        self._pending_follow_up.clear()
-        if not queued:
+        supplier = self._custom_editor_text if self._custom_editor_active else None
+        if not self._editor.restore_pending_to_editor(custom_text_supplier=supplier):
             return
-        joined = "\n\n".join(queued)
-        if self._pending_initial_text is not None:
-            existing = self._pending_initial_text
-        elif self._custom_editor_active:
-            existing = self._custom_editor_text()
-        else:
-            existing = self.input_text
-        combined = f"{joined}\n\n{existing}" if existing else joined
-        # Reflect immediately and survive the next read_line reset.
-        self._pending_initial_text = combined
         if self._custom_editor_active:
-            self._set_custom_editor_text(combined)
+            self._set_custom_editor_text(self.input_text)
             return
-        else:
-            self.input_text = combined
-            self.input_cursor = len(combined)
         self._refresh_slash_menu_state()
 
     def take_next_drain(self) -> str | None:
         """Pop the next queued message to deliver as a prompt, or None."""
 
-        if not self._pending_drain:
-            self._last_drain_kind = None
-            return None
-        self._last_drain_kind = self._pending_drain_kinds.pop(0)
-        return self._pending_drain.pop(0)
+        return self._editor.take_next_drain()
 
-    def take_last_drain_kind(self) -> str | None:
+    def take_last_drain_kind(self) -> QueuedInputKind | None:
         """Return and clear the classification of the last drained prompt."""
 
-        kind = self._last_drain_kind
-        self._last_drain_kind = None
-        return kind
+        return self._editor.take_last_drain_kind()
 
     @staticmethod
     def _submitted_text_is_local_command(text: str) -> bool:
@@ -6257,9 +6151,7 @@ class ToolLoopTerminalUi:
         provider (unlike a drained steering/follow-up message).
         """
 
-        command = self._pending_command
-        self._pending_command = None
-        return command
+        return self._editor.take_pending_command()
 
     def _is_bash_mode(self) -> bool:
         """True when the editor buffer is a ``!``/``!!`` local-shell shortcut.
@@ -6284,13 +6176,8 @@ class ToolLoopTerminalUi:
         return _FrameLine(text, "bash_separator")
 
     def _navigate_autocomplete(self, key: str) -> None:
-        if not self.autocomplete_open or not self.autocomplete_items:
-            return
-        delta = -1 if key == "up" else 1
-        self.autocomplete_selection = (self.autocomplete_selection + delta) % len(
-            self.autocomplete_items
-        )
-        self.paint()
+        if self._editor.navigate_autocomplete(key):
+            self.paint()
 
     def _accept_autocomplete_selection(self) -> None:
         """Replace the active ``@``/path token with the highlighted candidate.
@@ -6301,27 +6188,23 @@ class ToolLoopTerminalUi:
         next segment, mirroring Pi's progressive Tab completion.
         """
 
-        if not self.autocomplete_open or not self.autocomplete_items:
+        selection = self._editor.completion_selection()
+        if selection is None:
             return
-        item = self.autocomplete_items[self.autocomplete_selection]
-        cursor = self._effective_input_cursor()
-        start = self.autocomplete_token_start
-        # Defensive: the replacement span is ``[start, cursor)``. If the anchor
-        # is stale relative to the caret (start past the caret, or negative),
-        # splicing would duplicate/corrupt the buffer — close instead. Caret
-        # moves already dismiss the popup, so this only fires on an unexpected
-        # stale state.
-        if not 0 <= start <= cursor <= len(self.input_text):
-            self._close_autocomplete()
+        # Capture and validate one immutable owner snapshot before trusted
+        # extension code runs. The callback may synchronously mutate the editor
+        # or popup through its UI context; provider arguments, fallback splice,
+        # accepted mode, and directory behavior must all use this same snapshot.
+        if not selection.span_is_valid():
+            self._editor.close_autocomplete()
             self.paint()
             return
-        self._snapshot_for_undo()
-        self._reset_history_nav()
-        mode = self.autocomplete_mode
-        provider = self._autocomplete_active_provider or _BuiltinAutocompleteProvider(
-            self
+        self._editor.snapshot_for_undo()
+        self._editor.reset_history_nav()
+        provider = selection.active_provider or _BuiltinAutocompleteProvider(self)
+        lines, cursor_line, cursor_col = cursor_to_line_col(
+            selection.text, selection.cursor
         )
-        lines, cursor_line, cursor_col = cursor_to_line_col(self.input_text, cursor)
         try:
             raw_result = call_provider_method(
                 provider,
@@ -6330,21 +6213,22 @@ class ToolLoopTerminalUi:
                 lines,
                 cursor_line,
                 cursor_col,
-                item,
-                self.autocomplete_prefix or self.input_text[start:cursor],
+                selection.item,
+                selection.prefix
+                or selection.text[selection.token_start : selection.cursor],
             )
             result = coerce_apply_result(raw_result)
         except Exception:  # noqa: BLE001 - extension provider must fail soft
             result = None
         if result is None:
             result = AutocompleteApplyResult(
-                self.input_text[:start] + item.value + self.input_text[cursor:],
-                start + len(item.value),
+                selection.text[: selection.token_start]
+                + selection.item.value
+                + selection.text[selection.cursor :],
+                selection.token_start + len(selection.item.value),
             )
-        self.input_text = result.text
-        self.input_cursor = max(0, min(len(self.input_text), result.cursor))
-        self._close_autocomplete()
-        if mode == "path" and item.value.rstrip('"').endswith("/"):
+        self._editor.apply_completion_result(result.text, result.cursor)
+        if selection.mode == "path" and selection.item.value.rstrip('"').endswith("/"):
             # Directory accepted: re-open the popup for the next segment.
             self._attempt_path_completion()
         self.paint()
@@ -6361,6 +6245,12 @@ class ToolLoopTerminalUi:
         unambiguous prefix and opens the popup when more than one remains.
         """
 
+        # Key dispatch gives an open slash menu first refusal (Tab accepts its
+        # selected command). Keep the completion adapter honest when called
+        # directly too: do not execute provider/filesystem lookup only to have
+        # the owner reject the mutually exclusive autocomplete popup.
+        if self.slash_menu_open:
+            return False
         suggestion = self._autocomplete_suggestions(force=True)
         if suggestion is None:
             return False
@@ -6370,30 +6260,32 @@ class ToolLoopTerminalUi:
         cursor = self._effective_input_cursor()
         common = self._longest_common_value(items)
         if common and len(common) > len(prefix):
-            self._snapshot_for_undo()
-            self._reset_history_nav()
-            self.input_text = (
-                self.input_text[:start] + common + self.input_text[cursor:]
+            self._editor.snapshot_for_undo()
+            self._editor.reset_history_nav()
+            self._editor.set_buffer(
+                self.input_text[:start] + common + self.input_text[cursor:],
+                cursor=start + len(common),
             )
-            self.input_cursor = start + len(common)
-            cursor = self.input_cursor
+            cursor = self._effective_input_cursor()
             prefix = common
         if len(items) == 1:
             single = items[0].value
-            self._snapshot_for_undo()
-            self._reset_history_nav()
-            self.input_text = (
-                self.input_text[:start] + single + self.input_text[cursor:]
+            self._editor.snapshot_for_undo()
+            self._editor.reset_history_nav()
+            self._editor.set_buffer(
+                self.input_text[:start] + single + self.input_text[cursor:],
+                cursor=start + len(single),
             )
-            self.input_cursor = start + len(single)
-            self._close_autocomplete()
+            self._editor.close_autocomplete()
             return True
-        self.autocomplete_open = True
-        self.autocomplete_mode = "path"
-        self.autocomplete_items = tuple(items)
-        self.autocomplete_token_start = start
-        self.autocomplete_prefix = prefix
-        self.autocomplete_selection = 0
+        self._editor.open_autocomplete(
+            items=tuple(items),
+            mode="path",
+            token_start=start,
+            prefix=prefix,
+            active_provider=self._autocomplete_active_provider,
+            reset_selection=True,
+        )
         return True
 
     @staticmethod
@@ -6408,31 +6300,15 @@ class ToolLoopTerminalUi:
         return shortest
 
     def _filtered_commands(self) -> tuple[str, ...]:
-        if not self.slash_menu_open:
-            return ()
-        prefix = self.input_text[: self._effective_input_cursor()]
-        return tuple(
-            command for command in self.command_names if command.startswith(prefix)
-        )
+        return self._editor.filtered_commands(self.command_names)
 
     def _accept_slash_menu_selection(self) -> None:
-        matches = self._filtered_commands()
-        if not matches:
-            return
-        selected = matches[self.slash_menu_selection]
-        self.input_text = selected
-        self.input_cursor = len(selected)
-        self.slash_menu_open = False
-        self.slash_menu_selection = 0
-        self.paint()
+        if self._editor.accept_slash_menu(self.command_names):
+            self.paint()
 
     def _navigate_slash_menu(self, key: str) -> None:
-        matches = self._filtered_commands()
-        if not self.slash_menu_open or not matches:
-            return
-        delta = -1 if key == "up" else 1
-        self.slash_menu_selection = (self.slash_menu_selection + delta) % len(matches)
-        self.paint()
+        if self._editor.navigate_slash_menu(key, self.command_names):
+            self.paint()
 
     def _popup_menu_frame_lines(self, *, width: int, max_rows: int) -> list[_FrameLine]:
         """Return the active in-frame completion popup (slash menu or editor).

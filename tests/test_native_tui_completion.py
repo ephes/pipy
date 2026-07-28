@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+from pipy_harness.native.editor_state import CompletionItem
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
@@ -24,6 +25,11 @@ def _ui(workspace: Path) -> ToolLoopTerminalUi:
 
 def _frame_text(ui: ToolLoopTerminalUi) -> str:
     return "\n".join(ui.render_lines(width=88, height=24))
+
+
+def _terminal_text(ui: ToolLoopTerminalUi) -> str:
+    assert isinstance(ui.terminal_stream, io.StringIO)
+    return ui.terminal_stream.getvalue()
 
 
 def _type(ui: ToolLoopTerminalUi, text: str) -> None:
@@ -76,6 +82,75 @@ class TestAtPicker:
         assert count >= 2
         ui._navigate_autocomplete("up")
         assert ui.autocomplete_selection == count - 1
+
+    def test_closed_or_empty_navigation_does_not_paint_or_write(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        original_paint = ToolLoopTerminalUi.paint
+        painted: list[ToolLoopTerminalUi] = []
+
+        def counting_paint(target: ToolLoopTerminalUi) -> None:
+            painted.append(target)
+            original_paint(target)
+
+        monkeypatch.setattr(ToolLoopTerminalUi, "paint", counting_paint)
+        cases: list[tuple[ToolLoopTerminalUi, str]] = []
+
+        slash_closed = _ui(tmp_path)
+        slash_closed._editor.set_buffer("/")
+        cases.append((slash_closed, "slash"))
+
+        slash_empty = _ui(tmp_path)
+        slash_empty._editor.set_buffer("not-a-command")
+        slash_empty.slash_menu_open = True
+        cases.append((slash_empty, "slash"))
+
+        autocomplete_closed = _ui(tmp_path)
+        autocomplete_closed.autocomplete_items = (CompletionItem("one", "One"),)
+        cases.append((autocomplete_closed, "autocomplete"))
+
+        autocomplete_empty = _ui(tmp_path)
+        autocomplete_empty.autocomplete_open = True
+        cases.append((autocomplete_empty, "autocomplete"))
+
+        for ui, menu in cases:
+            before = _terminal_text(ui)
+            if menu == "slash":
+                ui._navigate_slash_menu("down")
+            else:
+                ui._navigate_autocomplete("down")
+            assert _terminal_text(ui) == before
+        assert painted == []
+
+    def test_real_navigation_paints_once_and_writes(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        original_paint = ToolLoopTerminalUi.paint
+        painted: list[ToolLoopTerminalUi] = []
+
+        def counting_paint(target: ToolLoopTerminalUi) -> None:
+            painted.append(target)
+            original_paint(target)
+
+        monkeypatch.setattr(ToolLoopTerminalUi, "paint", counting_paint)
+
+        slash = _ui(tmp_path)
+        slash._editor.set_buffer("/")
+        slash._editor.refresh_slash_menu(slash.command_names)
+        slash._navigate_slash_menu("down")
+
+        autocomplete = _ui(tmp_path)
+        autocomplete._editor.open_autocomplete(
+            items=(CompletionItem("one", "One"), CompletionItem("two", "Two")),
+            mode="at",
+            token_start=0,
+            prefix="",
+        )
+        autocomplete._navigate_autocomplete("down")
+
+        assert painted == [slash, autocomplete]
+        assert _terminal_text(slash)
+        assert _terminal_text(autocomplete)
 
     def test_backspace_closes_when_token_gone(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
@@ -154,6 +229,29 @@ class TestPathCompletion:
         labels = {item.label for item in ui.autocomplete_items}
         assert "config.py" in labels
         assert "tui/" in labels
+
+    def test_open_slash_menu_refuses_path_completion_without_lookup(
+        self, tmp_path: Path
+    ) -> None:
+        ui = _ui(_workspace(tmp_path))
+
+        class Factory:
+            calls = 0
+
+            def __call__(self, current: object) -> object:
+                self.calls += 1
+                return current
+
+        factory = Factory()
+        ui.add_extension_autocomplete_provider(factory)
+        _type(ui, "/ho")
+        factory.calls = 0
+
+        assert ui._attempt_path_completion() is False
+        assert factory.calls == 0
+        assert ui.input_text == "/ho"
+        assert ui.slash_menu_open
+        assert not ui.autocomplete_open
 
     def test_tab_in_prose_is_a_no_op(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))

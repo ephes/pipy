@@ -398,7 +398,7 @@ def test_indicator_bad_frames_is_failsoft():
 def test_tiny_viewport_with_pending_status_and_tall_footer_no_overflow(h):
     ui = _ui()
     ui.footer_lines = ("a", "b")
-    ui._pending_steering = ["pending one"]
+    ui.enqueue_steering("pending one")
     for i in range(5):
         ui.set_extension_status(f"k{i}", f"v{i}")
     ui.set_extension_footer(

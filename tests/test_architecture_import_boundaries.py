@@ -961,6 +961,14 @@ ARCHITECTURE_RULES = (
         reason="UI adapters must consume ports/events instead of session internals",
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.editor_state",
+        forbidden_imports=("pipy_harness", "pipy_session"),
+        reason=(
+            "editor state and transitions must stay dependency-neutral and "
+            "must not depend on terminal, TUI, product-session, or archive layers"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.tui",
         forbidden_imports=("pipy_harness.native.tool_loop_session",),
         reason=(

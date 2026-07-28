@@ -17,8 +17,6 @@ _spec.loader.exec_module(architecture_metrics)
 
 
 EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
-    "_autocomplete_active_provider",
-    "_autocomplete_provider_factories",
     "_clipboard_image_count",
     "_closed",
     "_custom_component",
@@ -36,6 +34,7 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "_custom_result",
     "_deferred_reasoning",
     "_driver",
+    "_editor",
     "_extension_footer_branch",
     "_extension_footer_factory",
     "_extension_terminal_input_last_replaced",
@@ -52,9 +51,6 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "_footer_branch_rebuild_slots",
     "_footer_branch_slots",
     "_history_blocks",
-    "_history_draft",
-    "_history_nav_index",
-    "_last_drain_kind",
     "_last_painted_size",
     "_live_height",
     "_live_input_row",
@@ -62,26 +58,11 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "_paint_requested_during_paint",
     "_painted_block_count",
     "_painting",
-    "_pending_command",
-    "_pending_drain",
-    "_pending_drain_kinds",
-    "_pending_follow_up",
-    "_pending_initial_text",
-    "_pending_paste",
-    "_pending_steering",
-    "_redo_stack",
     "_session_picker_all",
     "_session_picker_now",
     "_session_picker_project",
-    "_undo_stack",
     "assistant_text",
-    "autocomplete_items",
     "autocomplete_max_visible",
-    "autocomplete_mode",
-    "autocomplete_open",
-    "autocomplete_prefix",
-    "autocomplete_selection",
-    "autocomplete_token_start",
     "available_provider_count",
     "clipboard_image_read",
     "clipboard_temp_dir",
@@ -103,10 +84,7 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "footer_lines",
     "hidden_thinking_label",
     "include_workspace_defaults",
-    "input_cursor",
-    "input_history",
     "input_stream",
-    "input_text",
     "keybindings_manager",
     "model_selector_open",
     "model_selector_options",
@@ -134,8 +112,6 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "settings_dialog_rows",
     "settings_dialog_selection",
     "settings_dialog_title",
-    "slash_menu_open",
-    "slash_menu_selection",
     "terminal_stream",
     "thinking_hidden",
     "tool_output_text",
@@ -196,7 +172,7 @@ def test_product_tool_loop_terminal_ui_field_baseline_is_stable() -> None:
     fields = architecture_metrics.class_state_fields(source, "ToolLoopTerminalUi")
 
     assert fields == EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS
-    assert len(fields) == 128
+    assert len(fields) == 104
 
 
 def test_physical_lines_match_newline_delimited_baseline(tmp_path: Path) -> None:

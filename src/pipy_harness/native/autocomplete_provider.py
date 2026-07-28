@@ -6,7 +6,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from pipy_harness.native.editor_completion import CompletionItem
+from pipy_harness.native.editor_state import CompletionItem, CompletionMode
 
 
 _MISSING_PROVIDER_METHOD = object()
@@ -17,7 +17,7 @@ class AutocompleteSuggestion:
     items: tuple[CompletionItem, ...]
     prefix: str
     token_start: int
-    mode: str
+    mode: CompletionMode
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,21 +81,32 @@ def coerce_completion_items(values: object) -> tuple[CompletionItem, ...]:
     return tuple(items)
 
 
+def _coerce_completion_mode(value: object) -> CompletionMode:
+    """Normalize the extension boundary to the two modes the TUI supports."""
+
+    return "path" if str(value) == "path" else "at"
+
+
 def coerce_suggestion(value: object) -> AutocompleteSuggestion | None:
     if isinstance(value, AutocompleteSuggestion):
-        return value if value.items else None
+        if not value.items:
+            return None
+        mode = _coerce_completion_mode(value.mode)
+        if mode == value.mode:
+            return value
+        return AutocompleteSuggestion(value.items, value.prefix, value.token_start, mode)
     if value is None:
         return None
     if isinstance(value, dict):
         items = coerce_completion_items(value.get("items"))
         prefix = str(value.get("prefix", ""))
         token_start = int(cast(Any, value.get("token_start", value.get("tokenStart", -1))))
-        mode = str(value.get("mode", "at"))
+        mode = _coerce_completion_mode(value.get("mode", "at"))
     else:
         items = coerce_completion_items(getattr(value, "items", None))
         prefix = str(getattr(value, "prefix", ""))
         token_start = int(getattr(value, "token_start", getattr(value, "tokenStart", -1)))
-        mode = str(getattr(value, "mode", "at"))
+        mode = _coerce_completion_mode(getattr(value, "mode", "at"))
     if not items or token_start < 0:
         return None
     return AutocompleteSuggestion(items, prefix, token_start, mode)

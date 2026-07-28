@@ -9,6 +9,7 @@ import pytest
 from pipy_harness.native.autocomplete_provider import (
     AutocompleteSuggestion,
     call_provider_method,
+    coerce_suggestion,
 )
 from pipy_harness.native.editor_completion import CompletionItem
 from pipy_harness.native.extension_runtime import (
@@ -45,6 +46,26 @@ def _workspace(tmp_path: Path) -> Path:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "config.py").write_text("x\n")
     return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("raw_mode", "expected"),
+    (("path", "path"), ("extension-defined", "at")),
+)
+def test_suggestion_mode_coercion_uses_the_supported_domain(
+    raw_mode: str, expected: str
+) -> None:
+    suggestion = coerce_suggestion(
+        {
+            "items": [{"value": "value", "label": "label"}],
+            "prefix": "",
+            "tokenStart": 0,
+            "mode": raw_mode,
+        }
+    )
+
+    assert suggestion is not None
+    assert suggestion.mode == expected
 
 
 def test_provider_method_prefers_snake_case_and_forwards_arguments_unchanged() -> None:
@@ -142,6 +163,7 @@ def test_provider_method_preserves_provider_exception() -> None:
 def test_collecting_ui_autocomplete_aliases_delegate_in_order() -> None:
     driver = _Driver()
     ui = _CollectingUi(has_ui=True, ui_driver=cast(ExtensionUiDriver, driver))
+
     def first(current):
         return current
 
@@ -157,6 +179,7 @@ def test_collecting_ui_autocomplete_aliases_delegate_in_order() -> None:
 
 def test_extension_command_can_register_autocomplete_provider(tmp_path: Path) -> None:
     driver = _Driver()
+
     def factory(current):
         return current
 
@@ -187,7 +210,9 @@ def test_builtin_at_acceptance_replaces_the_whole_at_token(tmp_path: Path) -> No
     assert "@@" not in ui.input_text
 
 
-def test_extension_autocomplete_provider_can_append_at_suggestion(tmp_path: Path) -> None:
+def test_extension_autocomplete_provider_can_append_at_suggestion(
+    tmp_path: Path,
+) -> None:
     ui = _ui(_workspace(tmp_path))
 
     class Wrapper:
@@ -227,7 +252,9 @@ def test_path_accept_after_common_prefix_expansion_replaces_full_inserted_prefix
     assert ui.input_text == "./scr"
     assert ui.autocomplete_open
     ui.autocomplete_selection = next(
-        index for index, item in enumerate(ui.autocomplete_items) if item.label == "scripts/"
+        index
+        for index, item in enumerate(ui.autocomplete_items)
+        if item.label == "scripts/"
     )
     ui._accept_autocomplete_selection()
 
@@ -294,3 +321,185 @@ def test_broken_extension_autocomplete_provider_falls_back(tmp_path: Path) -> No
 
     assert ui.autocomplete_open
     assert any(item.label == "config.py" for item in ui.autocomplete_items)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ("_delete_before_cursor", "_kill_to_line_start", "_undo_edit", "_redo_edit"),
+)
+def test_no_op_edit_keys_do_not_execute_extension_completion_lookup(
+    tmp_path: Path, operation: str
+) -> None:
+    ui = _ui(_workspace(tmp_path))
+
+    class Factory:
+        calls = 0
+
+        def __call__(self, current: object) -> object:
+            self.calls += 1
+            return current
+
+    factory = Factory()
+    ui.add_extension_autocomplete_provider(factory)
+    provider = object()
+    ui._editor.open_autocomplete(
+        items=(CompletionItem("kept", "Kept"),),
+        mode="at",
+        token_start=0,
+        prefix="",
+        active_provider=provider,
+    )
+
+    getattr(ui, operation)()
+
+    assert factory.calls == 0
+    assert ui.autocomplete_open
+    assert ui._autocomplete_active_provider is provider
+
+
+def test_empty_character_insert_keeps_edit_boundary_and_completion_refresh(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(_workspace(tmp_path))
+
+    class Provider:
+        calls = 0
+
+        def get_suggestions(self, *args: object) -> None:
+            self.calls += 1
+            return None
+
+    provider = Provider()
+    ui.add_extension_autocomplete_provider(lambda _current: provider)
+    ui._editor.set_buffer("draft", cursor=2)
+    ui._editor.history_nav_index = 1
+    ui._editor.history_draft = "old"
+    ui._editor.redo_stack.append(("redo", 4))
+
+    ui._insert_input_text("")
+
+    assert (ui.input_text, ui.input_cursor) == ("draft", 2)
+    assert ui._undo_stack == [("draft", 2)]
+    assert ui._redo_stack == []
+    assert ui._history_nav_index is None
+    assert provider.calls == 1
+
+
+def test_empty_paste_keeps_pre_extraction_no_op_semantics(tmp_path: Path) -> None:
+    ui = _ui(_workspace(tmp_path))
+    ui._editor.set_buffer("draft", cursor=2)
+    ui._editor.redo_stack.append(("redo", 4))
+
+    ui._insert_paste("")
+
+    assert (ui.input_text, ui.input_cursor) == ("draft", 2)
+    assert ui._undo_stack == []
+    assert ui._redo_stack == [("redo", 4)]
+
+
+def test_empty_extension_suggestion_closes_popup_and_provider_binding(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(_workspace(tmp_path))
+
+    class Provider:
+        def get_suggestions(self, *args: object) -> AutocompleteSuggestion:
+            return AutocompleteSuggestion((), "x", 0, "at")
+
+    provider = Provider()
+    ui.add_extension_autocomplete_provider(lambda _current: provider)
+    _type(ui, "@x")
+
+    assert not ui.autocomplete_open
+    assert ui.autocomplete_items == ()
+    assert ui._autocomplete_active_provider is None
+    before = (ui.input_text, ui.input_cursor)
+
+    ui._accept_autocomplete_selection()
+
+    assert (ui.input_text, ui.input_cursor) == before
+    assert not ui.autocomplete_open
+    assert ui._autocomplete_active_provider is None
+
+
+def test_acceptance_uses_one_snapshot_when_provider_mutates_editor(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(_workspace(tmp_path))
+
+    class Provider:
+        received_prefix = ""
+
+        def apply_completion(
+            self,
+            lines: tuple[str, ...],
+            cursor_line: int,
+            cursor_col: int,
+            item: CompletionItem,
+            prefix: str,
+        ) -> None:
+            assert lines == ("ask @x",)
+            assert (cursor_line, cursor_col) == (0, 6)
+            assert item == CompletionItem("@selected", "Selected")
+            self.received_prefix = prefix
+            ui._editor.set_buffer("mutated by extension")
+            ui.autocomplete_mode = "path"
+            ui.autocomplete_token_start = 10
+            ui.autocomplete_items = (CompletionItem("wrong", "Wrong"),)
+            return None
+
+    provider = Provider()
+    ui._editor.set_buffer("ask @x")
+    ui._editor.open_autocomplete(
+        items=(CompletionItem("@selected", "Selected"),),
+        mode="at",
+        token_start=4,
+        prefix="x",
+        active_provider=provider,
+    )
+
+    ui._accept_autocomplete_selection()
+
+    assert provider.received_prefix == "x"
+    assert ui.input_text == "ask @selected"
+    assert ui.input_cursor == len("ask @selected")
+    assert not ui.autocomplete_open
+
+
+def test_directory_reopen_uses_accepted_snapshot_after_provider_mutation(
+    tmp_path: Path,
+) -> None:
+    ui = _ui(_workspace(tmp_path))
+
+    class Provider:
+        suggestion_calls = 0
+
+        def should_trigger_file_completion(self, *args: object) -> bool:
+            return True
+
+        def get_suggestions(self, *args: object) -> None:
+            self.suggestion_calls += 1
+            return None
+
+        def apply_completion(self, *args: object) -> None:
+            ui._editor.set_buffer("mutated by extension")
+            ui.autocomplete_mode = "at"
+            ui.autocomplete_token_start = 9
+            ui.autocomplete_items = (CompletionItem("wrong", "Wrong"),)
+            return None
+
+    provider = Provider()
+    ui.add_extension_autocomplete_provider(lambda _current: provider)
+    ui._editor.set_buffer("./scr")
+    ui._editor.open_autocomplete(
+        items=(CompletionItem("./scripts/", "scripts/"),),
+        mode="path",
+        token_start=0,
+        prefix="./scr",
+        active_provider=provider,
+    )
+
+    ui._accept_autocomplete_selection()
+
+    assert ui.input_text == "./scripts/"
+    assert provider.suggestion_calls == 1
