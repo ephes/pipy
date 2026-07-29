@@ -141,7 +141,9 @@ def _ruff_c901_counts(repo_root: Path) -> dict[str, JsonValue]:
     src_root = (repo_root / "src").resolve()
     src_count = 0
     for finding in findings:
-        if not isinstance(finding, dict) or not isinstance(finding.get("filename"), str):
+        if not isinstance(finding, dict) or not isinstance(
+            finding.get("filename"), str
+        ):
             raise RuntimeError("Ruff C901 output contained an invalid finding")
         finding_path = Path(finding["filename"])
         if not finding_path.is_absolute():

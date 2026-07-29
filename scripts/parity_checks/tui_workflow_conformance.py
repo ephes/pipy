@@ -175,6 +175,7 @@ def _reasoning_state(tmp_path: Path, provider: ProviderPort) -> NativeReplProvid
         env={"OPENAI_API_KEY": "sk"},
         openai_codex_auth_path=tmp_path / "no-codex.json",
     )
+
     class _FixedProviderReplState(NativeReplProviderState):
         """State whose provider build is a fixed double (runtime-owned otherwise)."""
 
@@ -213,7 +214,11 @@ class _PtyRun:
         # not see a fluctuating terminal size (which would trigger spurious
         # full-frame repaints that race with the key-read loop).
         winsize = struct.pack(
-            "HHHH", int(os.environ.get("LINES", "40")), int(os.environ.get("COLUMNS", "100")), 0, 0
+            "HHHH",
+            int(os.environ.get("LINES", "40")),
+            int(os.environ.get("COLUMNS", "100")),
+            0,
+            0,
         )
         for fd in (in_slave, err_slave):
             try:
@@ -245,7 +250,9 @@ class _PtyRun:
         self._workspace = workspace
         self._orig_build = NativeToolReplSession._build_terminal_ui
         NativeToolReplSession._build_terminal_ui = (  # type: ignore[assignment]
-            lambda _self, input_stream, error_stream, workspace, resources=None, **_k: self.ui
+            lambda _self, input_stream, error_stream, workspace, resources=None, **_k: (
+                self.ui
+            )
         )
         self._worker = threading.Thread(target=self._run, daemon=True)
 
@@ -341,9 +348,12 @@ class _PtyRun:
 
 
 def _no_mouse_tracking(text: str) -> bool:
-    return not any(
-        mode in text for mode in ("?1000h", "?1002h", "?1003h", "?1006h", "?1015h")
-    ) and "\x1b[?1049h" not in text
+    return (
+        not any(
+            mode in text for mode in ("?1000h", "?1002h", "?1003h", "?1006h", "?1015h")
+        )
+        and "\x1b[?1049h" not in text
+    )
 
 
 def run_checks(base: Path) -> list[Check]:
@@ -378,12 +388,18 @@ def run_checks(base: Path) -> list[Check]:
     captures.append(run.text())
     resolved_ok = any("@src/config.py" in p for p in provider.user_prompts)
     checks.append(
-        Check("at_picker_ranks_and_resolves", picker_ok and resolved_ok and no_turn_in_picker,
-              f"picker={picker_ok} resolved={resolved_ok} no_turn={no_turn_in_picker}")
+        Check(
+            "at_picker_ranks_and_resolves",
+            picker_ok and resolved_ok and no_turn_in_picker,
+            f"picker={picker_ok} resolved={resolved_ok} no_turn={no_turn_in_picker}",
+        )
     )
     checks.append(
-        Check("tab_path_completion_and_prose_noop", path_ok and prose_noop,
-              f"path={path_ok} prose_noop={prose_noop}")
+        Check(
+            "tab_path_completion_and_prose_noop",
+            path_ok and prose_noop,
+            f"path={path_ok} prose_noop={prose_noop}",
+        )
     )
 
     # ----- 3. !/!! shell shortcuts -----------------------------------------
@@ -403,12 +419,16 @@ def run_checks(base: Path) -> list[Check]:
         time.sleep(0.4)
         run.write(b"again\n")
         run.wait_pred(lambda: provider3.calls == 2)
-        no_context_excluded = not any("secret-bang" in p for p in provider3.user_prompts)
+        no_context_excluded = not any(
+            "secret-bang" in p for p in provider3.user_prompts
+        )
     captures.append(run.text())
     checks.append(
-        Check("bash_shortcuts_context_and_exclude",
-              no_turn_for_bash and ctx_recorded and no_context_excluded,
-              f"no_turn={no_turn_for_bash} ctx={ctx_recorded} excluded={no_context_excluded}")
+        Check(
+            "bash_shortcuts_context_and_exclude",
+            no_turn_for_bash and ctx_recorded and no_context_excluded,
+            f"no_turn={no_turn_for_bash} ctx={ctx_recorded} excluded={no_context_excluded}",
+        )
     )
 
     # ----- 4. ctrl+p model cycle + 5. shift+tab thinking -------------------
@@ -436,12 +456,18 @@ def run_checks(base: Path) -> list[Check]:
         if getattr(e, "type", "") == "thinking_level_change"
     ]
     checks.append(
-        Check("model_cycle_no_turn", model_ok and cycle_no_turn,
-              f"model={model_ok} no_turn={cycle_no_turn}")
+        Check(
+            "model_cycle_no_turn",
+            model_ok and cycle_no_turn,
+            f"model={model_ok} no_turn={cycle_no_turn}",
+        )
     )
     checks.append(
-        Check("thinking_cycle_and_tree_entry", think_ok and "minimal" in tree_levels,
-              f"cycle={think_ok} tree_levels={tree_levels}")
+        Check(
+            "thinking_cycle_and_tree_entry",
+            think_ok and "minimal" in tree_levels,
+            f"cycle={think_ok} tree_levels={tree_levels}",
+        )
     )
 
     # ----- 6. ctrl+o / ctrl+t folding + persistence ------------------------
@@ -466,10 +492,12 @@ def run_checks(base: Path) -> list[Check]:
     captures.append(run.text())
     persisted = SettingsManager.for_workspace(ws6).get_hide_thinking_block()
     checks.append(
-        Check("folding_toggles_and_persist",
-              thinking_ok and tools_ok and persisted and fold_no_turn,
-              f"thinking={thinking_ok} tools={tools_ok} persisted={persisted} "
-              f"no_turn={fold_no_turn}")
+        Check(
+            "folding_toggles_and_persist",
+            thinking_ok and tools_ok and persisted and fold_no_turn,
+            f"thinking={thinking_ok} tools={tools_ok} persisted={persisted} "
+            f"no_turn={fold_no_turn}",
+        )
     )
 
     # ----- 7. queued steering / follow-up ----------------------------------
@@ -486,15 +514,20 @@ def run_checks(base: Path) -> list[Check]:
         drained = run.wait_pred(lambda: provider7.calls >= 3, timeout=10.0)
     captures.append(run.text())
     order_ok = False
-    if "steer msg" in provider7.user_prompts and "followup msg" in provider7.user_prompts:
-        order_ok = provider7.user_prompts.index("steer msg") < provider7.user_prompts.index(
-            "followup msg"
-        )
+    if (
+        "steer msg" in provider7.user_prompts
+        and "followup msg" in provider7.user_prompts
+    ):
+        order_ok = provider7.user_prompts.index(
+            "steer msg"
+        ) < provider7.user_prompts.index("followup msg")
     checks.append(
-        Check("steering_follow_up_queue_and_order",
-              pending_ok and queued_no_turn and drained and order_ok,
-              f"pending={pending_ok} queued_no_turn={queued_no_turn} "
-              f"drained={drained} order={order_ok} prompts={provider7.user_prompts}")
+        Check(
+            "steering_follow_up_queue_and_order",
+            pending_ok and queued_no_turn and drained and order_ok,
+            f"pending={pending_ok} queued_no_turn={queued_no_turn} "
+            f"drained={drained} order={order_ok} prompts={provider7.user_prompts}",
+        )
     )
 
     # ----- 8. clipboard image paste ----------------------------------------
@@ -519,12 +552,16 @@ def run_checks(base: Path) -> list[Check]:
                 stat.S_IMODE(p.stat().st_mode) == 0o600 for p in written
             )
     captures.append(run.text())
-    attached = bool(provider8.attachment_counts) and provider8.attachment_counts[-1] == 1
+    attached = (
+        bool(provider8.attachment_counts) and provider8.attachment_counts[-1] == 1
+    )
     checks.append(
-        Check("clipboard_image_owner_only_and_attaches",
-              img_ref_ok and img_no_turn and owner_only and attached,
-              f"ref={img_ref_ok} no_turn={img_no_turn} owner_only={owner_only} "
-              f"attached={attached}")
+        Check(
+            "clipboard_image_owner_only_and_attaches",
+            img_ref_ok and img_no_turn and owner_only and attached,
+            f"ref={img_ref_ok} no_turn={img_no_turn} owner_only={owner_only} "
+            f"attached={attached}",
+        )
     )
 
     # ----- 10. true cancellation -------------------------------------------
@@ -545,19 +582,22 @@ def run_checks(base: Path) -> list[Check]:
     # No fabricated assistant after the aborted user turn in the native tree.
     entries = list(tree10.get_entries())
     has_assistant = any(
-        isinstance(getattr(e, "message", None), AgentAssistantMessage)
-        for e in entries
+        isinstance(getattr(e, "message", None), AgentAssistantMessage) for e in entries
     )
     checks.append(
-        Check("true_cancellation_and_tree_consistent",
-              aborted_ok and observed_cancel and not has_assistant,
-              f"aborted={aborted_ok} observed={observed_cancel} "
-              f"fabricated_assistant={has_assistant}")
+        Check(
+            "true_cancellation_and_tree_consistent",
+            aborted_ok and observed_cancel and not has_assistant,
+            f"aborted={aborted_ok} observed={observed_cancel} "
+            f"fabricated_assistant={has_assistant}",
+        )
     )
 
     # ----- 9. mouse-tracking invariant (across all captures) ---------------
     mouse_ok = all(_no_mouse_tracking(text) for text in captures)
-    checks.append(Check("never_enables_mouse_tracking", mouse_ok, f"captures={len(captures)}"))
+    checks.append(
+        Check("never_enables_mouse_tracking", mouse_ok, f"captures={len(captures)}")
+    )
 
     # ----- 11. non-TTY fallback never falls through as a provider prompt ---
     checks.append(_check_non_tty_fallback(base))
@@ -576,7 +616,9 @@ def _check_non_tty_fallback(base: Path) -> Check:
     ws.mkdir(parents=True)
     provider = _FakeProvider("NONTTY_DONE")
     tree = NativeSessionTree.create(ws, session_dir=base / "native-nontty")
-    session = NativeToolReplSession(provider=cast(ProviderPort, provider), native_session=tree)
+    session = NativeToolReplSession(
+        provider=cast(ProviderPort, provider), native_session=tree
+    )
     err = io.StringIO()
     script = "\n".join(
         ["/scoped-models", "/settings", "/hotkeys", "real question", "/exit", ""]
@@ -596,7 +638,9 @@ def _check_non_tty_fallback(base: Path) -> Check:
         "/scoped-models" in p or "/settings" in p or "/hotkeys" in p
         for p in provider.user_prompts
     )
-    has_diag = "scoped models" in diagnostics.lower() or "settings" in diagnostics.lower()
+    has_diag = (
+        "scoped models" in diagnostics.lower() or "settings" in diagnostics.lower()
+    )
     ok = only_real_turn and local_not_sent and has_diag
     return Check(
         "non_tty_fallback_no_provider_fallthrough",
@@ -632,8 +676,7 @@ def _check_archive_privacy(base: Path) -> Check:
         provider=_FakeProvider(secret_provider),
         native_session=tree,
         input_stream=io.StringIO(
-            f"{secret_prompt} @image:secret-image.png\n"
-            f"!echo {secret_cmd}\n/exit\n"
+            f"{secret_prompt} @image:secret-image.png\n!echo {secret_cmd}\n/exit\n"
         ),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),
@@ -657,9 +700,7 @@ def _check_archive_privacy(base: Path) -> Check:
     # The provider final text is in the native transcript but never archived.
     provider_ok = secret_provider in native_body and secret_provider not in archive_body
     # Neither the raw image marker nor its base64 encoding reaches the archive.
-    image_ok = (
-        secret_image_marker not in archive_body and image_b64 not in archive_body
-    )
+    image_ok = secret_image_marker not in archive_body and image_b64 not in archive_body
     ok = prompt_ok and cmd_ok and provider_ok and image_ok
     return Check(
         "archive_privacy_no_leak",

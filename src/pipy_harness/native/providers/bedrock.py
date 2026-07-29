@@ -32,7 +32,11 @@ from pipy_harness.native.providers.anthropic_messages_wire import (
     messages_payload,
     parse_response,
 )
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_anthropic
+from pipy_harness.native._provider_helpers import (
+    utc_now,
+    failed_provider_result,
+    serialize_tool_for_anthropic,
+)
 from pipy_harness.native.http import (
     JsonResponse as JsonResponse,
     JsonHTTPClient,
@@ -45,7 +49,9 @@ from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 
-BEDROCK_ENDPOINT_TEMPLATE = "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/invoke"
+BEDROCK_ENDPOINT_TEMPLATE = (
+    "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/invoke"
+)
 BEDROCK_ANTHROPIC_VERSION = "bedrock-2023-05-31"
 BEDROCK_DEFAULT_MAX_TOKENS = 4096
 BEDROCK_SIGV4_SERVICE = "bedrock"
@@ -74,9 +80,7 @@ def _apply_bedrock_thinking(
     if supports_adaptive_thinking(model_id):
         body["thinking"] = {"type": "adaptive", **display}
         body["output_config"] = {
-            "effort": ANTHROPIC_ADAPTIVE_EFFORT.get(
-                reasoning_effort, reasoning_effort
-            )
+            "effort": ANTHROPIC_ADAPTIVE_EFFORT.get(reasoning_effort, reasoning_effort)
         }
     else:
         body["thinking"] = {
@@ -150,9 +154,11 @@ class AmazonBedrockProvider:
 
     model_id: str
     region: str = field(
-        default_factory=lambda: os.environ.get("AWS_REGION")
-        or os.environ.get("AWS_DEFAULT_REGION")
-        or "us-east-1"
+        default_factory=lambda: (
+            os.environ.get("AWS_REGION")
+            or os.environ.get("AWS_DEFAULT_REGION")
+            or "us-east-1"
+        )
     )
     # ``repr=False`` on credential-bearing fields so a stray repr never leaks
     # the AWS signing keys.
@@ -378,7 +384,11 @@ class BedrockHTTPStatusError(BedrockProviderError):
     def from_http_error(cls, exc: urllib.error.HTTPError) -> BedrockHTTPStatusError:
         metadata: dict[str, Any] = {"http_status": exc.code}
         try:
-            body = decode_json_object(exc.read(), error_class=BedrockResponseParseError, provider_label="Bedrock API")
+            body = decode_json_object(
+                exc.read(),
+                error_class=BedrockResponseParseError,
+                provider_label="Bedrock API",
+            )
         except BedrockResponseParseError:
             body = {}
         message = body.get("message")
@@ -570,7 +580,9 @@ def _canonical_query(query: str) -> str:
     return "&".join(f"{name}={value}" for name, value in encoded)
 
 
-def _derive_signing_key(secret_key: str, date_stamp: str, region: str, service: str) -> bytes:
+def _derive_signing_key(
+    secret_key: str, date_stamp: str, region: str, service: str
+) -> bytes:
     """Derive the SigV4 signing key per the AWS spec.
 
     ``kSecret`` is `"AWS4" + secret_key`. Each subsequent step HMACs the
@@ -585,7 +597,5 @@ def _derive_signing_key(secret_key: str, date_stamp: str, region: str, service: 
     ).digest()
     k_region = hmac.new(k_date, region.encode("utf-8"), hashlib.sha256).digest()
     k_service = hmac.new(k_region, service.encode("utf-8"), hashlib.sha256).digest()
-    k_signing = hmac.new(
-        k_service, b"aws4_request", hashlib.sha256
-    ).digest()
+    k_signing = hmac.new(k_service, b"aws4_request", hashlib.sha256).digest()
     return k_signing

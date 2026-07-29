@@ -267,21 +267,15 @@ def _default_candidate_sources(
         return []
     sources: list[_CandidateSource] = []
     if include_workspace:
-        workspace_dir = (
-            resolved_workspace / WORKSPACE_PIPY_DIR_NAME / EXTENSIONS_SUBDIR
-        )
-        sources.append(
-            _CandidateSource(workspace_dir, "workspace", resolved_workspace)
-        )
+        workspace_dir = resolved_workspace / WORKSPACE_PIPY_DIR_NAME / EXTENSIONS_SUBDIR
+        sources.append(_CandidateSource(workspace_dir, "workspace", resolved_workspace))
     if include_global:
         sources.append(
             _CandidateSource(global_root / EXTENSIONS_SUBDIR, "global", global_root)
         )
     if include_packages:
         sources.extend(
-            _CandidateSource(
-                root.path, "package", root.path, tuple(root.filters)
-            )
+            _CandidateSource(root.path, "package", root.path, tuple(root.filters))
             for root in package_roots
         )
     return sources
@@ -610,19 +604,26 @@ def _inventory_metadata(
     )
     if version is None:
         return _disabled(
-            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest.present, name=name
+            candidate,
+            REASON_INVALID_MANIFEST,
+            manifest_present=manifest.present,
+            name=name,
         )
-    api_version = _manifest_label(
-        manifest.values, "api_version", CURRENT_API_VERSION
-    )
+    api_version = _manifest_label(manifest.values, "api_version", CURRENT_API_VERSION)
     if api_version is None:
         return _disabled(
-            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest.present, name=name
+            candidate,
+            REASON_INVALID_MANIFEST,
+            manifest_present=manifest.present,
+            name=name,
         )
     description_ok, description = _manifest_description(manifest.values)
     if not description_ok:
         return _disabled(
-            candidate, REASON_INVALID_MANIFEST, manifest_present=manifest.present, name=name
+            candidate,
+            REASON_INVALID_MANIFEST,
+            manifest_present=manifest.present,
+            name=name,
         )
     return _ExtensionMetadata(name, version, api_version, description)
 
@@ -681,9 +682,7 @@ def _inventory_entry(
 ) -> _EntryMetadata | ExtensionDescriptor:
     """Validate entry module/function after reserving the manifest name."""
 
-    module = _manifest_str(
-        manifest.values, ("entry", "module"), DEFAULT_ENTRY_MODULE
-    )
+    module = _manifest_str(manifest.values, ("entry", "module"), DEFAULT_ENTRY_MODULE)
     function = _manifest_str(
         manifest.values, ("entry", "function"), DEFAULT_ENTRY_FUNCTION
     )

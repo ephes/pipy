@@ -77,7 +77,9 @@ def activate(api):
         _proof("set_widget", placement="above_editor")
         ctx.ui.set_header(lambda theme: lines_component(["conformance header"]))
         _proof("set_header")
-        ctx.ui.set_footer(lambda theme, fd: lines_component([f"branch={fd.git_branch}"]))
+        ctx.ui.set_footer(
+            lambda theme, fd: lines_component([f"branch={fd.git_branch}"])
+        )
         _proof("set_footer")
         ctx.ui.set_title("pipy conformance")
         _proof("set_title")
@@ -195,7 +197,9 @@ def activate(api):
         # live-only. Neither sentinel may leak into the proof/metadata side
         # channel.
         ctx.append_entry("conformance-card", {"sentinel": _MSG_DATA_SENTINEL})
-        ctx.send_message({"customType": "conformance-card", "content": "custom message"})
+        ctx.send_message(
+            {"customType": "conformance-card", "content": "custom message"}
+        )
         _proof("send_message", custom_type="conformance-card")
         api.send_user_message("run conformance probe")
 

@@ -178,7 +178,9 @@ class BashTool:
     def _resolve_shell(self) -> str | None:
         if self.shell_path is not None:
             return self.shell_path if os.path.exists(self.shell_path) else None
-        return shutil.which("bash") or ("/bin/sh" if os.path.exists("/bin/sh") else None)
+        return shutil.which("bash") or (
+            "/bin/sh" if os.path.exists("/bin/sh") else None
+        )
 
     def _result(
         self, request: ToolRequest, output_text: str, *, is_error: bool

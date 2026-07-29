@@ -52,8 +52,7 @@ SKILLS_GLOBAL_SUBDIR: str = "skills"
 # so the model loads a skill's body on demand with the read tool.
 SKILLS_SYSTEM_BLOCK_HEADER_LINES: tuple[str, ...] = (
     "The following skills provide specialized instructions for specific tasks.",
-    "Use the read tool to load a skill's file when the task matches its "
-    "description.",
+    "Use the read tool to load a skill's file when the task matches its description.",
     "When a skill file references a relative path, resolve it against the "
     "skill directory (parent of the skill file / dirname of the path) and use "
     "that absolute path in tool commands.",
@@ -211,7 +210,9 @@ def compose_skills_system_block(skills: Sequence[SkillFile]) -> str:
         lines.append("  <skill>")
         lines.append(f"    <name>{_escape_xml(skill.name)}</name>")
         lines.append(f"    <description>{_escape_xml(skill.description)}</description>")
-        lines.append(f"    <location>{_escape_xml(str(skill.absolute_path))}</location>")
+        lines.append(
+            f"    <location>{_escape_xml(str(skill.absolute_path))}</location>"
+        )
         lines.append("  </skill>")
     lines.append("</available_skills>")
     return "\n".join(lines)

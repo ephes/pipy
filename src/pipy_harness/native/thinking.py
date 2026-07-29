@@ -25,7 +25,13 @@ _DEFAULT_REASONING_LEVELS = ("minimal", "low", "medium", "high")
 # Pi's EXTENDED_THINKING_LEVELS order (models.ts) used for clamping. The two
 # extended levels only appear for a model that explicitly maps them.
 _EXTENDED_ORDER: tuple[str, ...] = (
-    "off", "minimal", "low", "medium", "high", "xhigh", "max",
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
 )
 _ORDINARY_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high")
 _EXTENDED_ONLY: frozenset[str] = frozenset({"xhigh", "max"})

@@ -7,7 +7,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_responses
+from pipy_harness.native._provider_helpers import (
+    utc_now,
+    failed_provider_result,
+    serialize_tool_for_responses,
+)
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
@@ -128,8 +132,7 @@ class OpenAIResponsesProvider:
         }
         if immediate_tools:
             body["tools"] = [
-                serialize_tool_for_responses(tool)
-                for tool in immediate_tools
+                serialize_tool_for_responses(tool) for tool in immediate_tools
             ]
         # Responses-native thinking: the mapped effort goes in ``reasoning.effort``.
         if self.reasoning_effort is not None:

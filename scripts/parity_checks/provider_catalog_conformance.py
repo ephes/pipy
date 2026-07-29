@@ -70,7 +70,10 @@ from pipy_harness.native.auth_store import (
     provider_auth_status,
     resolve_request_auth,
 )
-from pipy_harness.native.catalog import build_builtin_catalog, default_model_per_provider
+from pipy_harness.native.catalog import (
+    build_builtin_catalog,
+    default_model_per_provider,
+)
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.extension_runtime import (
     RegisteredProvider,
@@ -220,8 +223,12 @@ def _check_glob(checks):
 
 def _check_resolve_cli(checks):
     rows = build_builtin_catalog().get_all()
-    inferred = resolve_cli_model(cli_provider=None, cli_model="anthropic/claude-opus-4-7", rows=rows)
-    fallback = resolve_cli_model(cli_provider="anthropic", cli_model="claude-future-9", rows=rows)
+    inferred = resolve_cli_model(
+        cli_provider=None, cli_model="anthropic/claude-opus-4-7", rows=rows
+    )
+    fallback = resolve_cli_model(
+        cli_provider="anthropic", cli_model="claude-future-9", rows=rows
+    )
     unknown = resolve_cli_model(cli_provider="nope", cli_model="x", rows=rows)
     ok = (
         inferred.model is not None
@@ -272,7 +279,9 @@ def _check_models_json_merge(checks, tmp: Path):
         and rocket is not None
         and rocket.base_url == "https://acme.example/v1"
     )
-    checks.append(Check("07_models_json_merge", ok, "override deep-merge + custom append"))
+    checks.append(
+        Check("07_models_json_merge", ok, "override deep-merge + custom append")
+    )
 
 
 def _check_strip_and_degrade(checks, tmp: Path):
@@ -292,17 +301,27 @@ def _check_strip_and_degrade(checks, tmp: Path):
         and str(bad) in bad_catalog.error
         and bad_catalog.find("anthropic", "claude-opus-4-7") is not None
     )
-    checks.append(Check("08_strip_and_degrade", ok, "comments stripped; bad keeps built-ins"))
+    checks.append(
+        Check("08_strip_and_degrade", ok, "comments stripped; bad keeps built-ins")
+    )
 
 
 def _check_validation(checks, tmp: Path):
     override_only = tmp / "override.json"
-    override_only.write_text(json.dumps({"providers": {"anthropic": {"name": "x"}}}), encoding="utf-8")
+    override_only.write_text(
+        json.dumps({"providers": {"anthropic": {"name": "x"}}}), encoding="utf-8"
+    )
     c1 = ModelCatalog(models_json_path=override_only)
 
     custom = tmp / "custom.json"
     custom.write_text(
-        json.dumps({"providers": {"custom": {"api": "openai-completions", "models": [{"id": "m"}]}}}),
+        json.dumps(
+            {
+                "providers": {
+                    "custom": {"api": "openai-completions", "models": [{"id": "m"}]}
+                }
+            }
+        ),
         encoding="utf-8",
     )
     c2 = ModelCatalog(models_json_path=custom)
@@ -312,7 +331,9 @@ def _check_validation(checks, tmp: Path):
         and c2.error is not None
         and "baseUrl" in c2.error
     )
-    checks.append(Check("09_validation_rejects", ok, "override-only + non-builtin-no-auth"))
+    checks.append(
+        Check("09_validation_rejects", ok, "override-only + non-builtin-no-auth")
+    )
 
 
 def _check_routing(checks, tmp: Path):
@@ -324,7 +345,12 @@ def _check_routing(checks, tmp: Path):
                     "openrouter": {
                         "modelOverrides": {
                             "moonshotai/kimi-k2.6": {
-                                "compat": {"openRouterRouting": {"order": ["fireworks"], "data_collection": "deny"}}
+                                "compat": {
+                                    "openRouterRouting": {
+                                        "order": ["fireworks"],
+                                        "data_collection": "deny",
+                                    }
+                                }
                             }
                         }
                     }
@@ -342,7 +368,9 @@ def _check_routing(checks, tmp: Path):
         and routing.get("provider", {}).get("order") == ["fireworks"]
         and routing["provider"]["data_collection"] == "deny"
     )
-    checks.append(Check("10_routing_reaches_request", ok, "openRouterRouting -> provider param"))
+    checks.append(
+        Check("10_routing_reaches_request", ok, "openRouterRouting -> provider param")
+    )
 
 
 def _check_auth_priority(checks, tmp: Path):
@@ -351,14 +379,21 @@ def _check_auth_priority(checks, tmp: Path):
     runtime = resolve_request_auth(
         "openai", store=store, env={"OPENAI_API_KEY": "sk-env"}, runtime_api_key="sk-rt"
     )
-    stored = resolve_request_auth("openai", store=store, env={"OPENAI_API_KEY": "sk-env"})
+    stored = resolve_request_auth(
+        "openai", store=store, env={"OPENAI_API_KEY": "sk-env"}
+    )
     # env fallback: no stored credential -> provider env var.
     env_only = resolve_request_auth(
-        "openai", store=AuthStore(path=tmp / "auth_env.json"), env={"OPENAI_API_KEY": "sk-env"}
+        "openai",
+        store=AuthStore(path=tmp / "auth_env.json"),
+        env={"OPENAI_API_KEY": "sk-env"},
     )
     # stored OAuth resolved through the injected resolver, ahead of env.
     oauth_store = AuthStore(path=tmp / "auth_oauth.json")
-    oauth_store.set("anthropic", {"type": "oauth", "access": "oauth-tok", "refresh": "r", "expires": 0})
+    oauth_store.set(
+        "anthropic",
+        {"type": "oauth", "access": "oauth-tok", "refresh": "r", "expires": 0},
+    )
     oauth = resolve_request_auth(
         "anthropic",
         store=oauth_store,
@@ -369,14 +404,21 @@ def _check_auth_priority(checks, tmp: Path):
     # env-name, and !command resolution all reach the request.
     empty = AuthStore(path=tmp / "auth_mj.json")
     mj_literal = resolve_request_auth(
-        "ds4", store=empty, env={}, models_json_config=ProviderAuthRequestConfig(api_key="literal-key")
+        "ds4",
+        store=empty,
+        env={},
+        models_json_config=ProviderAuthRequestConfig(api_key="literal-key"),
     )
     mj_env = resolve_request_auth(
-        "ds4", store=empty, env={"DS4_KEY": "from-env"},
+        "ds4",
+        store=empty,
+        env={"DS4_KEY": "from-env"},
         models_json_config=ProviderAuthRequestConfig(api_key="DS4_KEY"),
     )
     mj_cmd = resolve_request_auth(
-        "ds4", store=empty, env={},
+        "ds4",
+        store=empty,
+        env={},
         models_json_config=ProviderAuthRequestConfig(api_key="!print-key"),
         run_command=lambda c: "cmd-key",
     )
@@ -433,7 +475,9 @@ def _check_auth_status(checks, tmp: Path):
         models_json_config=ProviderAuthRequestConfig(api_key="!secret"),
         run_command=lambda c: executed.append(c) or "x",
     )
-    env_status = provider_auth_status("openai", store=store, env={"OPENAI_API_KEY": "k"})
+    env_status = provider_auth_status(
+        "openai", store=store, env={"OPENAI_API_KEY": "k"}
+    )
     store.set("anthropic", {"type": "api_key", "key": "sk"})
     stored_status = provider_auth_status("anthropic", store=store, env={})
 
@@ -443,7 +487,12 @@ def _check_auth_status(checks, tmp: Path):
     oauth_store = AuthStore(path=tmp / "auth_st_oauth.json")
     oauth_store.set(
         "openai-codex",
-        {"type": "oauth", "access": "tok", "refresh": "r", "expires": 1},  # long expired
+        {
+            "type": "oauth",
+            "access": "tok",
+            "refresh": "r",
+            "expires": 1,
+        },  # long expired
     )
     oauth_status = provider_auth_status(
         "openai-codex",
@@ -484,13 +533,29 @@ def _check_auth_status(checks, tmp: Path):
 def _check_oauth(checks):
     ids = set(get_oauth_provider_ids())
     anthropic_tx = FakeTransport(
-        {"oauth/token": (200, json.dumps({"access_token": "a", "refresh_token": "r", "expires_in": 3600}))}
+        {
+            "oauth/token": (
+                200,
+                json.dumps(
+                    {"access_token": "a", "refresh_token": "r", "expires_in": 3600}
+                ),
+            )
+        }
     )
-    anthropic = AnthropicOAuthProvider(transport=anthropic_tx, now_ms=lambda: FIXED_NOW_MS)
+    anthropic = AnthropicOAuthProvider(
+        transport=anthropic_tx, now_ms=lambda: FIXED_NOW_MS
+    )
     a_cred = anthropic.refresh_token({"refresh": "r"})
 
     codex_tx = FakeTransport(
-        {"token": (200, json.dumps({"access_token": "a", "refresh_token": "r", "expires_in": 3600}))}
+        {
+            "token": (
+                200,
+                json.dumps(
+                    {"access_token": "a", "refresh_token": "r", "expires_in": 3600}
+                ),
+            )
+        }
     )
     codex = OpenAICodexOAuthProvider(transport=codex_tx, now_ms=lambda: FIXED_NOW_MS)
     c_cred = codex.refresh_token({"refresh": "r"})
@@ -508,7 +573,9 @@ def _check_oauth(checks):
         and base == "https://api.example.com"  # proxy. -> api.
         and policy_tx.calls[-1][1] == "https://api.example.com/models/gpt-5.4/policy"
     )
-    checks.append(Check("13_oauth_shape", ok, "anthropic/codex margins; copilot policy+proxy"))
+    checks.append(
+        Check("13_oauth_shape", ok, "anthropic/codex margins; copilot policy+proxy")
+    )
 
 
 def _check_thinking(checks):
@@ -552,7 +619,9 @@ def _check_availability(checks, tmp: Path):
 
 def _check_ds4(checks, tmp: Path):
     catalog = build_builtin_catalog()
-    not_builtin = catalog.models_for("ds4") == [] and "ds4" not in default_model_per_provider
+    not_builtin = (
+        catalog.models_for("ds4") == [] and "ds4" not in default_model_per_provider
+    )
 
     preset_path = tmp / "ds4_preset.json"
     preset_path.write_text(json.dumps(ds4_preset_dict()), encoding="utf-8")
@@ -580,17 +649,28 @@ def _check_ds4(checks, tmp: Path):
         and preset_row.base_url == shim_row.base_url == DS4_DEFAULT_BASE_URL
         and shim_state.provider_available("ds4")
     )
-    checks.append(Check("16_ds4_custom_provider", ok, "ds4 via models.json + env shim equivalent"))
+    checks.append(
+        Check("16_ds4_custom_provider", ok, "ds4 via models.json + env shim equivalent")
+    )
 
 
 def _check_refresh(checks, tmp: Path):
     path = tmp / "refresh.json"
-    path.write_text(json.dumps({"providers": {"anthropic": {"models": [{"id": "v1"}]}}}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"providers": {"anthropic": {"models": [{"id": "v1"}]}}}),
+        encoding="utf-8",
+    )
     catalog = ModelCatalog(models_json_path=path)
     before = catalog.find("anthropic", "v1") is not None
-    path.write_text(json.dumps({"providers": {"anthropic": {"models": [{"id": "v2"}]}}}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"providers": {"anthropic": {"models": [{"id": "v2"}]}}}),
+        encoding="utf-8",
+    )
     catalog.refresh()
-    after = catalog.find("anthropic", "v2") is not None and catalog.find("anthropic", "v1") is None
+    after = (
+        catalog.find("anthropic", "v2") is not None
+        and catalog.find("anthropic", "v1") is None
+    )
 
     # Simulated login/logout via dynamic registration + oauth modifier.
     catalog.register_provider(
@@ -605,7 +685,13 @@ def _check_refresh(checks, tmp: Path):
     login_ok = catalog.find("acme", "m") is not None
     catalog.unregister_provider("acme")
     logout_ok = catalog.find("acme", "m") is None
-    checks.append(Check("17_refresh_and_register", before and after and login_ok and logout_ok, "edit + login/logout"))
+    checks.append(
+        Check(
+            "17_refresh_and_register",
+            before and after and login_ok and logout_ok,
+            "edit + login/logout",
+        )
+    )
 
 
 class _CapturingHTTP:
@@ -619,9 +705,16 @@ class _CapturingHTTP:
             body={
                 "object": "chat.completion",
                 "choices": [
-                    {"finish_reason": "stop", "message": {"role": "assistant", "content": "OK"}}
+                    {
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "OK"},
+                    }
                 ],
-                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
             },
         )
 
@@ -630,7 +723,11 @@ def _provider_request(tmp: Path, provider: str, model: str):
     from pipy_harness.native.models import ProviderRequest
 
     return ProviderRequest(
-        system_prompt="SYS", user_prompt="hi", provider_name=provider, model_id=model, cwd=tmp
+        system_prompt="SYS",
+        user_prompt="hi",
+        provider_name=provider,
+        model_id=model,
+        cwd=tmp,
     )
 
 
@@ -654,7 +751,9 @@ def _construct_and_capture(state, spec, *, runtime_api_key, thinking_level):
     )
     http = _CapturingHTTP()
     provider = build_provider(resolved, http_client=http)
-    result = provider.complete(_provider_request(Path("."), spec.provider_name, spec.model_id))
+    result = provider.complete(
+        _provider_request(Path("."), spec.provider_name, spec.model_id)
+    )
     return http.requests[-1], result
 
 
@@ -673,8 +772,11 @@ def _check_product_construction(checks, tmp: Path):
                         "api": "openai-completions",
                         "headers": {"X-Acme": "ACME_ENV"},
                         "models": [
-                            {"id": "rocket-1", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"}}
+                            {
+                                "id": "rocket-1",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                            }
                         ],
                     }
                 }
@@ -684,7 +786,9 @@ def _check_product_construction(checks, tmp: Path):
     )
     state = _state(tmp, custom_path, {"ACME_ENV": "acme-org"})
     spec = state.find("acme", "rocket-1")
-    sent, _ = _construct_and_capture(state, spec, runtime_api_key=None, thinking_level="high")
+    sent, _ = _construct_and_capture(
+        state, spec, runtime_api_key=None, thinking_level="high"
+    )
     turn_ok = (
         sent["url"] == "https://acme.example/v1/chat/completions"
         and sent["body"]["model"] == "rocket-1"
@@ -692,12 +796,24 @@ def _check_product_construction(checks, tmp: Path):
         and sent["headers"].get("X-Acme") == "acme-org"
         and sent["body"]["reasoning_effort"] == "high"
     )
-    checks.append(Check("18_product_custom_turn", turn_ok, "custom provider turn uses catalog baseUrl/model/auth/headers/thinking"))
+    checks.append(
+        Check(
+            "18_product_custom_turn",
+            turn_ok,
+            "custom provider turn uses catalog baseUrl/model/auth/headers/thinking",
+        )
+    )
 
     # 18b: --api-key (runtime) reaches the outgoing Authorization header.
-    sent_rt, _ = _construct_and_capture(state, spec, runtime_api_key="RUNTIME-KEY", thinking_level=None)
+    sent_rt, _ = _construct_and_capture(
+        state, spec, runtime_api_key="RUNTIME-KEY", thinking_level=None
+    )
     auth_ok = sent_rt["headers"]["Authorization"] == "Bearer RUNTIME-KEY"
-    checks.append(Check("18_product_runtime_auth", auth_ok, "--api-key reaches the request header"))
+    checks.append(
+        Check(
+            "18_product_runtime_auth", auth_ok, "--api-key reaches the request header"
+        )
+    )
 
     # 18c: routing reaches the request body (OpenRouter provider param + Vercel
     # providerOptions.gateway).
@@ -709,7 +825,9 @@ def _check_product_construction(checks, tmp: Path):
                     "openrouter": {
                         "modelOverrides": {
                             "moonshotai/kimi-k2.6": {
-                                "compat": {"openRouterRouting": {"order": ["fireworks"]}}
+                                "compat": {
+                                    "openRouterRouting": {"order": ["fireworks"]}
+                                }
                             }
                         }
                     }
@@ -720,7 +838,9 @@ def _check_product_construction(checks, tmp: Path):
     )
     or_state = _state(tmp, or_path, {"OPENROUTER_API_KEY": "or-key"})
     or_spec = or_state.find("openrouter", "moonshotai/kimi-k2.6")
-    or_sent, _ = _construct_and_capture(or_state, or_spec, runtime_api_key=None, thinking_level=None)
+    or_sent, _ = _construct_and_capture(
+        or_state, or_spec, runtime_api_key=None, thinking_level=None
+    )
 
     vercel_path = tmp / "prod_vercel.json"
     vercel_path.write_text(
@@ -732,7 +852,15 @@ def _check_product_construction(checks, tmp: Path):
                         "apiKey": "v-key",
                         "api": "openai-completions",
                         "models": [
-                            {"id": "glm-5.1", "compat": {"vercelGatewayRouting": {"only": ["zai"], "order": ["zai"]}}}
+                            {
+                                "id": "glm-5.1",
+                                "compat": {
+                                    "vercelGatewayRouting": {
+                                        "only": ["zai"],
+                                        "order": ["zai"],
+                                    }
+                                },
+                            }
                         ],
                     }
                 }
@@ -742,26 +870,43 @@ def _check_product_construction(checks, tmp: Path):
     )
     v_state = _state(tmp, vercel_path, {})
     v_spec = v_state.find("vercel", "glm-5.1")
-    v_sent, _ = _construct_and_capture(v_state, v_spec, runtime_api_key=None, thinking_level=None)
-    routing_ok = (
-        or_sent["body"].get("provider") == {"order": ["fireworks"]}
-        and v_sent["body"].get("providerOptions") == {"gateway": {"only": ["zai"], "order": ["zai"]}}
+    v_sent, _ = _construct_and_capture(
+        v_state, v_spec, runtime_api_key=None, thinking_level=None
     )
-    checks.append(Check("18_product_routing", routing_ok, "OpenRouter provider param + Vercel providerOptions.gateway reach the body"))
+    routing_ok = or_sent["body"].get("provider") == {"order": ["fireworks"]} and v_sent[
+        "body"
+    ].get("providerOptions") == {"gateway": {"only": ["zai"], "order": ["zai"]}}
+    checks.append(
+        Check(
+            "18_product_routing",
+            routing_ok,
+            "OpenRouter provider param + Vercel providerOptions.gateway reach the body",
+        )
+    )
 
     # 18d: OpenRouter thinking is the nested reasoning.effort, not reasoning_effort.
-    or_think_sent, _ = _construct_and_capture(or_state, or_spec, runtime_api_key=None, thinking_level="high")
+    or_think_sent, _ = _construct_and_capture(
+        or_state, or_spec, runtime_api_key=None, thinking_level="high"
+    )
     # Off/unset on a reasoning-capable OpenRouter model disables reasoning at the
     # router with reasoning.effort = "none" (Pi openai-completions.ts:578-580),
     # rather than omitting the field.
-    or_off_sent, _ = _construct_and_capture(or_state, or_spec, runtime_api_key=None, thinking_level=None)
+    or_off_sent, _ = _construct_and_capture(
+        or_state, or_spec, runtime_api_key=None, thinking_level=None
+    )
     think_ok = (
         or_think_sent["body"].get("reasoning") == {"effort": "high"}
         and "reasoning_effort" not in or_think_sent["body"]
         and or_off_sent["body"].get("reasoning") == {"effort": "none"}
         and "reasoning_effort" not in or_off_sent["body"]
     )
-    checks.append(Check("18_product_openrouter_thinking", think_ok, "OpenRouter thinking is nested reasoning.effort (on + off-state)"))
+    checks.append(
+        Check(
+            "18_product_openrouter_thinking",
+            think_ok,
+            "OpenRouter thinking is nested reasoning.effort (on + off-state)",
+        )
+    )
 
     # 18h: DeepSeek thinking format (openai-completions.ts:565-570). A reasoning
     # DeepSeek model emits thinking:{type:"enabled"} + top-level reasoning_effort
@@ -776,8 +921,11 @@ def _check_product_construction(checks, tmp: Path):
                         "apiKey": "ds-key",
                         "api": "openai-completions",
                         "models": [
-                            {"id": "deepseek-reasoner", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"}}
+                            {
+                                "id": "deepseek-reasoner",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                            }
                         ],
                     }
                 }
@@ -787,15 +935,25 @@ def _check_product_construction(checks, tmp: Path):
     )
     ds_state = _state(tmp, ds_path, {"DEEPSEEK_API_KEY": "ds-key"})
     ds_spec = ds_state.find("deepseek", "deepseek-reasoner")
-    ds_on, _ = _construct_and_capture(ds_state, ds_spec, runtime_api_key=None, thinking_level="high")
-    ds_off, _ = _construct_and_capture(ds_state, ds_spec, runtime_api_key=None, thinking_level=None)
+    ds_on, _ = _construct_and_capture(
+        ds_state, ds_spec, runtime_api_key=None, thinking_level="high"
+    )
+    ds_off, _ = _construct_and_capture(
+        ds_state, ds_spec, runtime_api_key=None, thinking_level=None
+    )
     deepseek_ok = (
         ds_on["body"].get("thinking") == {"type": "enabled"}
         and ds_on["body"].get("reasoning_effort") == "high"
         and ds_off["body"].get("thinking") == {"type": "disabled"}
         and "reasoning_effort" not in ds_off["body"]
     )
-    checks.append(Check("18_product_deepseek_thinking", deepseek_ok, "DeepSeek thinking:{type} (+ reasoning_effort on-state)"))
+    checks.append(
+        Check(
+            "18_product_deepseek_thinking",
+            deepseek_ok,
+            "DeepSeek thinking:{type} (+ reasoning_effort on-state)",
+        )
+    )
 
     # 18i: Together thinking format (openai-completions.ts:586-594). A reasoning
     # Together model emits reasoning:{enabled:true} on-state and
@@ -812,8 +970,11 @@ def _check_product_construction(checks, tmp: Path):
                         "apiKey": "tg-key",
                         "api": "openai-completions",
                         "models": [
-                            {"id": "deepseek-ai/DeepSeek-R1", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"}}
+                            {
+                                "id": "deepseek-ai/DeepSeek-R1",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                            }
                         ],
                     }
                 }
@@ -823,15 +984,25 @@ def _check_product_construction(checks, tmp: Path):
     )
     tg_state = _state(tmp, tg_path, {"TOGETHER_API_KEY": "tg-key"})
     tg_spec = tg_state.find("together", "deepseek-ai/DeepSeek-R1")
-    tg_on, _ = _construct_and_capture(tg_state, tg_spec, runtime_api_key=None, thinking_level="high")
-    tg_off, _ = _construct_and_capture(tg_state, tg_spec, runtime_api_key=None, thinking_level=None)
+    tg_on, _ = _construct_and_capture(
+        tg_state, tg_spec, runtime_api_key=None, thinking_level="high"
+    )
+    tg_off, _ = _construct_and_capture(
+        tg_state, tg_spec, runtime_api_key=None, thinking_level=None
+    )
     together_ok = (
         tg_on["body"].get("reasoning") == {"enabled": True}
         and "reasoning_effort" not in tg_on["body"]
         and tg_off["body"].get("reasoning") == {"enabled": False}
         and "reasoning_effort" not in tg_off["body"]
     )
-    checks.append(Check("18_product_together_thinking", together_ok, "Together reasoning:{enabled} (no reasoning_effort, auto supportsReasoningEffort=False)"))
+    checks.append(
+        Check(
+            "18_product_together_thinking",
+            together_ok,
+            "Together reasoning:{enabled} (no reasoning_effort, auto supportsReasoningEffort=False)",
+        )
+    )
 
     # 18j: Z.ai thinking format (openai-completions.ts:556-557). A reasoning Z.ai
     # model emits a bare enable_thinking=true on-state and enable_thinking=false
@@ -847,8 +1018,11 @@ def _check_product_construction(checks, tmp: Path):
                         "apiKey": "zai-key",
                         "api": "openai-completions",
                         "models": [
-                            {"id": "glm-4.6", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"}}
+                            {
+                                "id": "glm-4.6",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                            }
                         ],
                     }
                 }
@@ -858,15 +1032,25 @@ def _check_product_construction(checks, tmp: Path):
     )
     zai_state = _state(tmp, zai_path, {"ZAI_API_KEY": "zai-key"})
     zai_spec = zai_state.find("zai", "glm-4.6")
-    zai_on, _ = _construct_and_capture(zai_state, zai_spec, runtime_api_key=None, thinking_level="high")
-    zai_off, _ = _construct_and_capture(zai_state, zai_spec, runtime_api_key=None, thinking_level=None)
+    zai_on, _ = _construct_and_capture(
+        zai_state, zai_spec, runtime_api_key=None, thinking_level="high"
+    )
+    zai_off, _ = _construct_and_capture(
+        zai_state, zai_spec, runtime_api_key=None, thinking_level=None
+    )
     zai_ok = (
         zai_on["body"].get("enable_thinking") is True
         and "reasoning_effort" not in zai_on["body"]
         and zai_off["body"].get("enable_thinking") is False
         and "reasoning_effort" not in zai_off["body"]
     )
-    checks.append(Check("18_product_zai_thinking", zai_ok, "Z.ai enable_thinking boolean (no reasoning_effort)"))
+    checks.append(
+        Check(
+            "18_product_zai_thinking",
+            zai_ok,
+            "Z.ai enable_thinking boolean (no reasoning_effort)",
+        )
+    )
 
     # 18k: qwen thinking format (openai-completions.ts:558-559). The enable_thinking
     # bare-boolean family like zai, but explicit-compat-only (detectCompat has no
@@ -882,9 +1066,12 @@ def _check_product_construction(checks, tmp: Path):
                         "apiKey": "qwen-key",
                         "api": "openai-completions",
                         "models": [
-                            {"id": "qwen3-thinking", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"},
-                             "compat": {"thinkingFormat": "qwen"}}
+                            {
+                                "id": "qwen3-thinking",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                                "compat": {"thinkingFormat": "qwen"},
+                            }
                         ],
                     }
                 }
@@ -894,15 +1081,25 @@ def _check_product_construction(checks, tmp: Path):
     )
     qwen_state = _state(tmp, qwen_path, {"QWEN_VENDOR_API_KEY": "qwen-key"})
     qwen_spec = qwen_state.find("qwen-vendor", "qwen3-thinking")
-    qwen_on, _ = _construct_and_capture(qwen_state, qwen_spec, runtime_api_key=None, thinking_level="high")
-    qwen_off, _ = _construct_and_capture(qwen_state, qwen_spec, runtime_api_key=None, thinking_level=None)
+    qwen_on, _ = _construct_and_capture(
+        qwen_state, qwen_spec, runtime_api_key=None, thinking_level="high"
+    )
+    qwen_off, _ = _construct_and_capture(
+        qwen_state, qwen_spec, runtime_api_key=None, thinking_level=None
+    )
     qwen_ok = (
         qwen_on["body"].get("enable_thinking") is True
         and "reasoning_effort" not in qwen_on["body"]
         and qwen_off["body"].get("enable_thinking") is False
         and "reasoning_effort" not in qwen_off["body"]
     )
-    checks.append(Check("18_product_qwen_thinking", qwen_ok, "Qwen enable_thinking boolean (no reasoning_effort)"))
+    checks.append(
+        Check(
+            "18_product_qwen_thinking",
+            qwen_ok,
+            "Qwen enable_thinking boolean (no reasoning_effort)",
+        )
+    )
 
     # 18l: qwen-chat-template thinking format (openai-completions.ts:560-564). The
     # same bare boolean nested in chat_template_kwargs with a constant
@@ -917,9 +1114,12 @@ def _check_product_construction(checks, tmp: Path):
                         "apiKey": "qwen-key",
                         "api": "openai-completions",
                         "models": [
-                            {"id": "qwen3-ct", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"},
-                             "compat": {"thinkingFormat": "qwen-chat-template"}}
+                            {
+                                "id": "qwen3-ct",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                                "compat": {"thinkingFormat": "qwen-chat-template"},
+                            }
                         ],
                     }
                 }
@@ -929,15 +1129,27 @@ def _check_product_construction(checks, tmp: Path):
     )
     qwct_state = _state(tmp, qwct_path, {"QWEN_VENDOR_API_KEY": "qwen-key"})
     qwct_spec = qwct_state.find("qwen-vendor", "qwen3-ct")
-    qwct_on, _ = _construct_and_capture(qwct_state, qwct_spec, runtime_api_key=None, thinking_level="high")
-    qwct_off, _ = _construct_and_capture(qwct_state, qwct_spec, runtime_api_key=None, thinking_level=None)
+    qwct_on, _ = _construct_and_capture(
+        qwct_state, qwct_spec, runtime_api_key=None, thinking_level="high"
+    )
+    qwct_off, _ = _construct_and_capture(
+        qwct_state, qwct_spec, runtime_api_key=None, thinking_level=None
+    )
     qwct_ok = (
-        qwct_on["body"].get("chat_template_kwargs") == {"enable_thinking": True, "preserve_thinking": True}
+        qwct_on["body"].get("chat_template_kwargs")
+        == {"enable_thinking": True, "preserve_thinking": True}
         and "reasoning_effort" not in qwct_on["body"]
-        and qwct_off["body"].get("chat_template_kwargs") == {"enable_thinking": False, "preserve_thinking": True}
+        and qwct_off["body"].get("chat_template_kwargs")
+        == {"enable_thinking": False, "preserve_thinking": True}
         and "reasoning_effort" not in qwct_off["body"]
     )
-    checks.append(Check("18_product_qwen_chat_template_thinking", qwct_ok, "Qwen chat_template_kwargs.enable_thinking (no reasoning_effort)"))
+    checks.append(
+        Check(
+            "18_product_qwen_chat_template_thinking",
+            qwct_ok,
+            "Qwen chat_template_kwargs.enable_thinking (no reasoning_effort)",
+        )
+    )
 
     # 18m: ant-ling thinking format (openai-completions.ts:581-585). An
     # auto-detected (api.ant-ling.com base URL) reasoning model emits a nested
@@ -954,8 +1166,11 @@ def _check_product_construction(checks, tmp: Path):
                         "apiKey": "ant-ling-key",
                         "api": "openai-completions",
                         "models": [
-                            {"id": "ling-1t-thinking", "reasoning": True,
-                             "thinkingLevelMap": {"high": "hi"}}
+                            {
+                                "id": "ling-1t-thinking",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "hi"},
+                            }
                         ],
                     }
                 }
@@ -965,15 +1180,25 @@ def _check_product_construction(checks, tmp: Path):
     )
     al_state = _state(tmp, al_path, {"ANT_LING_API_KEY": "ant-ling-key"})
     al_spec = al_state.find("ant-ling", "ling-1t-thinking")
-    al_on, _ = _construct_and_capture(al_state, al_spec, runtime_api_key=None, thinking_level="high")
-    al_off, _ = _construct_and_capture(al_state, al_spec, runtime_api_key=None, thinking_level=None)
+    al_on, _ = _construct_and_capture(
+        al_state, al_spec, runtime_api_key=None, thinking_level="high"
+    )
+    al_off, _ = _construct_and_capture(
+        al_state, al_spec, runtime_api_key=None, thinking_level=None
+    )
     al_ok = (
         al_on["body"].get("reasoning") == {"effort": "hi"}
         and "reasoning_effort" not in al_on["body"]
         and "reasoning" not in al_off["body"]
         and "reasoning_effort" not in al_off["body"]
     )
-    checks.append(Check("18_product_ant_ling_thinking", al_ok, "ant-ling reasoning:{effort} on-state, silent off-state (no reasoning_effort)"))
+    checks.append(
+        Check(
+            "18_product_ant_ling_thinking",
+            al_ok,
+            "ant-ling reasoning:{effort} on-state, silent off-state (no reasoning_effort)",
+        )
+    )
 
     # 18n: ant-ling detection precedence. isAntLing sits before isOpenRouter in
     # detectCompat's thinkingFormat chain, so an ant-ling provider on an
@@ -997,35 +1222,77 @@ def _check_product_construction(checks, tmp: Path):
     )
     alp_state = _state(tmp, alp_path, {"ANT_LING_API_KEY": "ant-ling-key"})
     alp_spec = alp_state.find("ant-ling", "ling-or")
-    alp_on, _ = _construct_and_capture(alp_state, alp_spec, runtime_api_key=None, thinking_level="high")
-    alp_ok = "reasoning" not in alp_on["body"] and "reasoning_effort" not in alp_on["body"]
-    checks.append(Check("18_product_ant_ling_precedes_openrouter", alp_ok, "ant-ling detection precedes openrouter (silent, no map)"))
+    alp_on, _ = _construct_and_capture(
+        alp_state, alp_spec, runtime_api_key=None, thinking_level="high"
+    )
+    alp_ok = (
+        "reasoning" not in alp_on["body"] and "reasoning_effort" not in alp_on["body"]
+    )
+    checks.append(
+        Check(
+            "18_product_ant_ling_precedes_openrouter",
+            alp_ok,
+            "ant-ling detection precedes openrouter (silent, no map)",
+        )
+    )
 
     # 18e: legacy hardcoded path is bypassed — a models.json provider-level
     # baseUrl override on a built-in provider wins over the adapter default URL.
     bypass_path = tmp / "prod_bypass.json"
     bypass_path.write_text(
-        json.dumps({"providers": {"openai-completions": {"baseUrl": "https://catalog-override.example/v1"}}}),
+        json.dumps(
+            {
+                "providers": {
+                    "openai-completions": {
+                        "baseUrl": "https://catalog-override.example/v1"
+                    }
+                }
+            }
+        ),
         encoding="utf-8",
     )
     bypass_state = _state(tmp, bypass_path, {"OPENAI_API_KEY": "k"})
     bypass_spec = bypass_state.find("openai-completions", "gpt-4o-mini")
-    bypass_sent, _ = _construct_and_capture(bypass_state, bypass_spec, runtime_api_key=None, thinking_level=None)
-    from pipy_harness.native.providers.openai_completions import OPENAI_CHAT_COMPLETIONS_URL
+    bypass_sent, _ = _construct_and_capture(
+        bypass_state, bypass_spec, runtime_api_key=None, thinking_level=None
+    )
+    from pipy_harness.native.providers.openai_completions import (
+        OPENAI_CHAT_COMPLETIONS_URL,
+    )
 
     bypass_ok = (
         bypass_sent["url"] == "https://catalog-override.example/v1/chat/completions"
         and bypass_sent["url"] != OPENAI_CHAT_COMPLETIONS_URL
     )
-    checks.append(Check("18_product_legacy_bypass", bypass_ok, "catalog baseUrl wins over the legacy hardcoded adapter URL"))
+    checks.append(
+        Check(
+            "18_product_legacy_bypass",
+            bypass_ok,
+            "catalog baseUrl wins over the legacy hardcoded adapter URL",
+        )
+    )
 
     # 18f: no secret leaks into the turn result (final_text/metadata).
-    _, leak_result = _construct_and_capture(state, spec, runtime_api_key="RUNTIME-KEY", thinking_level="high")
-    leak_dump = json.dumps(
-        {"final_text": leak_result.final_text, "metadata": leak_result.metadata, "model": leak_result.model_id}
+    _, leak_result = _construct_and_capture(
+        state, spec, runtime_api_key="RUNTIME-KEY", thinking_level="high"
     )
-    no_leak = not any(s in leak_dump for s in ("models-json-key", "RUNTIME-KEY", "Bearer", "acme-org"))
-    checks.append(Check("18_product_no_secret_in_result", no_leak, "turn result carries no secret/Authorization"))
+    leak_dump = json.dumps(
+        {
+            "final_text": leak_result.final_text,
+            "metadata": leak_result.metadata,
+            "model": leak_result.model_id,
+        }
+    )
+    no_leak = not any(
+        s in leak_dump for s in ("models-json-key", "RUNTIME-KEY", "Bearer", "acme-org")
+    )
+    checks.append(
+        Check(
+            "18_product_no_secret_in_result",
+            no_leak,
+            "turn result carries no secret/Authorization",
+        )
+    )
 
     # 18g: the actual product boundary (NativeReplProviderState.provider_for /
     # current_provider, used by the REPL tool-loop) — not just build_provider —
@@ -1054,7 +1321,13 @@ def _check_product_construction(checks, tmp: Path):
         and product_provider.reasoning_effort == "high"
         and "models-json-key" not in repr(product_provider)
     )
-    checks.append(Check("18_product_boundary_uses_catalog", product_ok, "current_provider/provider_for constructs from the catalog (not legacy); repr hides secrets"))
+    checks.append(
+        Check(
+            "18_product_boundary_uses_catalog",
+            product_ok,
+            "current_provider/provider_for constructs from the catalog (not legacy); repr hides secrets",
+        )
+    )
 
 
 def _check_tier1_construction(checks, tmp: Path):
@@ -1076,8 +1349,11 @@ def _check_tier1_construction(checks, tmp: Path):
                         "api": "anthropic-messages",
                         "headers": {"X-Acme": "1"},
                         "models": [
-                            {"id": "claude-x", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"}}
+                            {
+                                "id": "claude-x",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                            }
                         ],
                     }
                 }
@@ -1087,7 +1363,9 @@ def _check_tier1_construction(checks, tmp: Path):
     )
     a_state = _state(tmp, a_path, {})
     a_spec = a_state.find("acme-claude", "claude-x")
-    a_sent, _ = _construct_and_capture(a_state, a_spec, runtime_api_key=None, thinking_level="high")
+    a_sent, _ = _construct_and_capture(
+        a_state, a_spec, runtime_api_key=None, thinking_level="high"
+    )
     anthropic_ok = (
         a_sent["url"] == "https://acme.example/v1/messages"
         and a_sent["body"]["model"] == "claude-x"
@@ -1098,7 +1376,13 @@ def _check_tier1_construction(checks, tmp: Path):
         == {"type": "enabled", "budget_tokens": 16384, "display": "summarized"}
         and "output_config" not in a_sent["body"]
     )
-    checks.append(Check("20_anthropic_messages_construction", anthropic_ok, "anthropic-messages: catalog baseUrl/x-api-key/headers/thinking budget"))
+    checks.append(
+        Check(
+            "20_anthropic_messages_construction",
+            anthropic_ok,
+            "anthropic-messages: catalog baseUrl/x-api-key/headers/thinking budget",
+        )
+    )
 
     # 20a': anthropic adaptive model -> adaptive thinking + output_config.effort
     # (Pi's compat.forceAdaptiveThinking set), not the budget path.
@@ -1112,8 +1396,11 @@ def _check_tier1_construction(checks, tmp: Path):
                         "apiKey": "amk",
                         "api": "anthropic-messages",
                         "models": [
-                            {"id": "claude-opus-4-8", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"}}
+                            {
+                                "id": "claude-opus-4-8",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                            }
                         ],
                     }
                 }
@@ -1123,12 +1410,20 @@ def _check_tier1_construction(checks, tmp: Path):
     )
     aa_state = _state(tmp, aa_path, {})
     aa_spec = aa_state.find("acme-claude", "claude-opus-4-8")
-    aa_sent, _ = _construct_and_capture(aa_state, aa_spec, runtime_api_key=None, thinking_level="high")
-    anthropic_adaptive_ok = (
-        aa_sent["body"]["thinking"] == {"type": "adaptive", "display": "summarized"}
-        and aa_sent["body"]["output_config"] == {"effort": "high"}
+    aa_sent, _ = _construct_and_capture(
+        aa_state, aa_spec, runtime_api_key=None, thinking_level="high"
     )
-    checks.append(Check("20_anthropic_adaptive_thinking", anthropic_adaptive_ok, "anthropic-messages: adaptive models use type:adaptive + output_config.effort"))
+    anthropic_adaptive_ok = aa_sent["body"]["thinking"] == {
+        "type": "adaptive",
+        "display": "summarized",
+    } and aa_sent["body"]["output_config"] == {"effort": "high"}
+    checks.append(
+        Check(
+            "20_anthropic_adaptive_thinking",
+            anthropic_adaptive_ok,
+            "anthropic-messages: adaptive models use type:adaptive + output_config.effort",
+        )
+    )
 
     # 20b: openai-responses -> Authorization Bearer + reasoning.effort, /responses.
     r_path = tmp / "tier1_responses.json"
@@ -1142,8 +1437,11 @@ def _check_tier1_construction(checks, tmp: Path):
                         "api": "openai-responses",
                         "compat": {"supportsToolSearch": True},
                         "models": [
-                            {"id": "o-pro", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"}}
+                            {
+                                "id": "o-pro",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                            }
                         ],
                     }
                 }
@@ -1161,7 +1459,9 @@ def _check_tier1_construction(checks, tmp: Path):
         models_json_auth=r_state._models_json_auth("acme-oai"),
         thinking_level="high",
     )
-    r_sent, _ = _construct_and_capture(r_state, r_spec, runtime_api_key=None, thinking_level="high")
+    r_sent, _ = _construct_and_capture(
+        r_state, r_spec, runtime_api_key=None, thinking_level="high"
+    )
     responses_ok = (
         r_sent["url"] == "https://oai.example/v1/responses"
         and r_sent["body"]["model"] == "o-pro"
@@ -1169,7 +1469,13 @@ def _check_tier1_construction(checks, tmp: Path):
         and r_sent["body"]["reasoning"] == {"effort": "high"}
         and r_resolved.supports_tool_search is True
     )
-    checks.append(Check("20_openai_responses_construction", responses_ok, "openai-responses: catalog baseUrl/Bearer/reasoning.effort/tool-search compat"))
+    checks.append(
+        Check(
+            "20_openai_responses_construction",
+            responses_ok,
+            "openai-responses: catalog baseUrl/Bearer/reasoning.effort/tool-search compat",
+        )
+    )
 
     # 20c: mistral -> Authorization Bearer, /chat/completions.
     m_path = tmp / "tier1_mistral.json"
@@ -1190,13 +1496,21 @@ def _check_tier1_construction(checks, tmp: Path):
     )
     m_state = _state(tmp, m_path, {})
     m_spec = m_state.find("acme-mistral", "mix-1")
-    m_sent, _ = _construct_and_capture(m_state, m_spec, runtime_api_key=None, thinking_level=None)
+    m_sent, _ = _construct_and_capture(
+        m_state, m_spec, runtime_api_key=None, thinking_level=None
+    )
     mistral_ok = (
         m_sent["url"] == "https://mistral.example/v1/chat/completions"
         and m_sent["body"]["model"] == "mix-1"
         and m_sent["headers"]["Authorization"] == "Bearer mmk"
     )
-    checks.append(Check("20_mistral_construction", mistral_ok, "mistral: catalog baseUrl/Bearer/chat-completions"))
+    checks.append(
+        Check(
+            "20_mistral_construction",
+            mistral_ok,
+            "mistral: catalog baseUrl/Bearer/chat-completions",
+        )
+    )
 
     # 20d: the product boundary (current_provider) constructs a built-in
     # anthropic catalog model from the resolved auth (not a by-name default).
@@ -1206,7 +1520,9 @@ def _check_tier1_construction(checks, tmp: Path):
         NativeReplProviderState,
     )
 
-    builtin_state = _state(tmp, tmp / "tier1_builtin_missing.json", {"ANTHROPIC_API_KEY": "envk"})
+    builtin_state = _state(
+        tmp, tmp / "tier1_builtin_missing.json", {"ANTHROPIC_API_KEY": "envk"}
+    )
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("anthropic", "claude-opus-4-7"),
         model_runtime=ModelRuntime(catalog=builtin_state),
@@ -1221,7 +1537,13 @@ def _check_tier1_construction(checks, tmp: Path):
         and provider.reasoning_effort == "xhigh"
         and "envk" not in repr(provider)
     )
-    checks.append(Check("20_tier1_boundary_uses_catalog", boundary_ok, "current_provider constructs a built-in anthropic catalog model (not legacy)"))
+    checks.append(
+        Check(
+            "20_tier1_boundary_uses_catalog",
+            boundary_ok,
+            "current_provider constructs a built-in anthropic catalog model (not legacy)",
+        )
+    )
 
     # 20e: auth fail-closed for a Tier 1 family (authHeader set, no resolvable
     # key) -> build_provider returns a fail-closed provider (Pi fails closed on
@@ -1237,7 +1559,9 @@ def _check_tier1_construction(checks, tmp: Path):
     )
     fc_provider = build_provider(fc_resolved, http_client=None)
     fc_result = (
-        fc_provider.complete(_provider_request(Path("."), "anthropic", "claude-opus-4-7"))
+        fc_provider.complete(
+            _provider_request(Path("."), "anthropic", "claude-opus-4-7")
+        )
         if fc_provider
         else None
     )
@@ -1247,7 +1571,13 @@ def _check_tier1_construction(checks, tmp: Path):
         and fc_result is not None
         and fc_result.error_type == "CatalogAuthError"
     )
-    checks.append(Check("20_tier1_fail_closed", failclosed_ok, "Tier 1 authHeader with no key fails closed (not legacy fallback)"))
+    checks.append(
+        Check(
+            "20_tier1_fail_closed",
+            failclosed_ok,
+            "Tier 1 authHeader with no key fails closed (not legacy fallback)",
+        )
+    )
 
 
 def _check_tier2_construction(checks, tmp: Path):
@@ -1263,24 +1593,41 @@ def _check_tier2_construction(checks, tmp: Path):
     # *disabled* thinkingConfig (budget 0, no includeThoughts).
     g_state = _state(tmp, tmp / "tier2_google_missing.json", {"GEMINI_API_KEY": "gk"})
     g_spec = g_state.find("google", "gemini-2.5-pro")
-    g_sent, _ = _construct_and_capture(g_state, g_spec, runtime_api_key=None, thinking_level=None)
+    g_sent, _ = _construct_and_capture(
+        g_state, g_spec, runtime_api_key=None, thinking_level=None
+    )
     google_ok = (
         g_sent["url"]
         == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=gk"
         and "Authorization" not in g_sent["headers"]
         and bool(g_sent["body"].get("contents"))
-        and g_sent["body"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
+        and g_sent["body"]["generationConfig"]["thinkingConfig"]
+        == {"thinkingBudget": 0}
     )
-    checks.append(Check("21_google_construction", google_ok, "google-generative-ai: catalog model-in-path URL + ?key= + disabled thinkingConfig"))
+    checks.append(
+        Check(
+            "21_google_construction",
+            google_ok,
+            "google-generative-ai: catalog model-in-path URL + ?key= + disabled thinkingConfig",
+        )
+    )
 
     # 21a': google thinking enabled -> per-model token budget under
     # generationConfig.thinkingConfig with includeThoughts (Pi's getGoogleBudget).
-    g_think_sent, _ = _construct_and_capture(g_state, g_spec, runtime_api_key=None, thinking_level="high")
-    google_thinking_ok = (
-        g_think_sent["body"]["generationConfig"]["thinkingConfig"]
-        == {"includeThoughts": True, "thinkingBudget": 32768}
+    g_think_sent, _ = _construct_and_capture(
+        g_state, g_spec, runtime_api_key=None, thinking_level="high"
     )
-    checks.append(Check("21_google_thinking_config", google_thinking_ok, "google-generative-ai: per-model thinkingConfig token budget + includeThoughts"))
+    google_thinking_ok = g_think_sent["body"]["generationConfig"]["thinkingConfig"] == {
+        "includeThoughts": True,
+        "thinkingBudget": 32768,
+    }
+    checks.append(
+        Check(
+            "21_google_thinking_config",
+            google_thinking_ok,
+            "google-generative-ai: per-model thinkingConfig token budget + includeThoughts",
+        )
+    )
 
     # 21b: azure-openai-responses custom provider -> /openai/v1 URL with
     # api-version=v1, deployment as the body model, api-key header,
@@ -1295,8 +1642,11 @@ def _check_tier2_construction(checks, tmp: Path):
                         "apiKey": "azk",
                         "api": "azure-openai-responses",
                         "models": [
-                            {"id": "gpt-x", "reasoning": True,
-                             "thinkingLevelMap": {"high": "high"}}
+                            {
+                                "id": "gpt-x",
+                                "reasoning": True,
+                                "thinkingLevelMap": {"high": "high"},
+                            }
                         ],
                     }
                 }
@@ -1306,7 +1656,9 @@ def _check_tier2_construction(checks, tmp: Path):
     )
     az_state = _state(tmp, az_path, {})
     az_spec = az_state.find("acme-azure", "gpt-x")
-    az_sent, _ = _construct_and_capture(az_state, az_spec, runtime_api_key=None, thinking_level="high")
+    az_sent, _ = _construct_and_capture(
+        az_state, az_spec, runtime_api_key=None, thinking_level="high"
+    )
     azure_ok = (
         az_sent["url"]
         == "https://acme.openai.azure.com/openai/v1/responses?api-version=v1"
@@ -1315,7 +1667,13 @@ def _check_tier2_construction(checks, tmp: Path):
         and "Authorization" not in az_sent["headers"]
         and az_sent["body"]["reasoning"] == {"effort": "high"}
     )
-    checks.append(Check("21_azure_construction", azure_ok, "azure-openai-responses: /openai/v1 URL + api-version=v1 + deployment body model + api-key header + reasoning.effort"))
+    checks.append(
+        Check(
+            "21_azure_construction",
+            azure_ok,
+            "azure-openai-responses: /openai/v1 URL + api-version=v1 + deployment body model + api-key header + reasoning.effort",
+        )
+    )
 
     # 21c: cloudflare-workers-ai built-in row -> account id substituted into the
     # base_url, /chat/completions appended, Bearer token.
@@ -1325,14 +1683,22 @@ def _check_tier2_construction(checks, tmp: Path):
         {"CLOUDFLARE_ACCOUNT_ID": "acct-9", "CLOUDFLARE_API_KEY": "cfk"},
     )
     cf_spec = cf_state.find("cloudflare", "@cf/meta/llama-3.3-70b-instruct")
-    cf_sent, _ = _construct_and_capture(cf_state, cf_spec, runtime_api_key=None, thinking_level=None)
+    cf_sent, _ = _construct_and_capture(
+        cf_state, cf_spec, runtime_api_key=None, thinking_level=None
+    )
     cloudflare_ok = (
         cf_sent["url"]
         == "https://api.cloudflare.com/client/v4/accounts/acct-9/ai/v1/chat/completions"
         and cf_sent["headers"]["Authorization"] == "Bearer cfk"
         and cf_sent["body"]["model"] == "@cf/meta/llama-3.3-70b-instruct"
     )
-    checks.append(Check("21_cloudflare_construction", cloudflare_ok, "cloudflare-workers-ai: {ENV} account substitution + /chat/completions + Bearer"))
+    checks.append(
+        Check(
+            "21_cloudflare_construction",
+            cloudflare_ok,
+            "cloudflare-workers-ai: {ENV} account substitution + /chat/completions + Bearer",
+        )
+    )
 
     # 21d: cloudflare with a missing CLOUDFLARE_ACCOUNT_ID fails closed (the
     # base_url {ENV} placeholder cannot resolve), not a legacy fallback.
@@ -1351,13 +1717,24 @@ def _check_tier2_construction(checks, tmp: Path):
         cf_fc_resolved.ok is False
         and cf_fc_provider is not None
         and cf_fc_provider.complete(
-            _provider_request(Path("."), "cloudflare", "@cf/meta/llama-3.3-70b-instruct")
-        ).error_type == "CatalogAuthError"
+            _provider_request(
+                Path("."), "cloudflare", "@cf/meta/llama-3.3-70b-instruct"
+            )
+        ).error_type
+        == "CatalogAuthError"
     )
-    checks.append(Check("21_cloudflare_missing_account_fails_closed", cf_failclosed_ok, "cloudflare missing CLOUDFLARE_ACCOUNT_ID fails closed"))
+    checks.append(
+        Check(
+            "21_cloudflare_missing_account_fails_closed",
+            cf_failclosed_ok,
+            "cloudflare missing CLOUDFLARE_ACCOUNT_ID fails closed",
+        )
+    )
 
     # 21e: product boundary constructs a built-in azure catalog model (not legacy).
-    from pipy_harness.native.providers.azure_openai_responses import AzureOpenAIResponsesProvider
+    from pipy_harness.native.providers.azure_openai_responses import (
+        AzureOpenAIResponsesProvider,
+    )
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
         NativeReplProviderState,
@@ -1380,7 +1757,13 @@ def _check_tier2_construction(checks, tmp: Path):
         and az_provider.reasoning_effort == "high"
         and "azk2" not in repr(az_provider)
     )
-    checks.append(Check("21_tier2_boundary_uses_catalog", azure_boundary_ok, "current_provider constructs a built-in azure catalog model (not legacy)"))
+    checks.append(
+        Check(
+            "21_tier2_boundary_uses_catalog",
+            azure_boundary_ok,
+            "current_provider constructs a built-in azure catalog model (not legacy)",
+        )
+    )
 
 
 def _check_tier3_construction(checks, tmp: Path):
@@ -1402,7 +1785,11 @@ def _check_tier3_construction(checks, tmp: Path):
     )
 
     # 22a: bedrock built-in row -> AmazonBedrockProvider with thinking threaded.
-    bd_state = _state(tmp, tmp / "tier3_bd_missing.json", {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"})
+    bd_state = _state(
+        tmp,
+        tmp / "tier3_bd_missing.json",
+        {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"},
+    )
     bd_spec = bd_state.find("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1")
     bd_resolved = resolve_construction(
         bd_spec,
@@ -1418,7 +1805,13 @@ def _check_tier3_construction(checks, tmp: Path):
         and bd_provider.model_id == "us.anthropic.claude-opus-4-6-v1"
         and bd_provider.reasoning_effort == "high"
     )
-    checks.append(Check("22_bedrock_construction", bedrock_ok, "amazon-bedrock: catalog construction threads model id + thinking effort"))
+    checks.append(
+        Check(
+            "22_bedrock_construction",
+            bedrock_ok,
+            "amazon-bedrock: catalog construction threads model id + thinking effort",
+        )
+    )
 
     # 22b: bedrock thinking reaches the signed request body. opus-4-6 is an
     # adaptive Claude model, so it uses adaptive thinking + output_config.effort
@@ -1433,22 +1826,35 @@ def _check_tier3_construction(checks, tmp: Path):
         reasoning_effort="high",
         _clock=lambda: datetime(2015, 8, 30, 12, 36, 0, tzinfo=UTC),
     )
-    bd_signed.complete(_provider_request(Path("."), "amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"))
+    bd_signed.complete(
+        _provider_request(
+            Path("."), "amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"
+        )
+    )
     bd_sent = bd_http.requests[-1]
     bedrock_body_ok = (
         bd_sent["url"]
         == "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-opus-4-6-v1/invoke"
-        and bd_sent["body"]["thinking"] == {
+        and bd_sent["body"]["thinking"]
+        == {
             "type": "adaptive",
             "display": "summarized",
         }
         and bd_sent["body"]["output_config"] == {"effort": "high"}
         and bd_sent["headers"]["Authorization"].startswith("AWS4-HMAC-SHA256")
     )
-    checks.append(Check("22_bedrock_thinking_body", bedrock_body_ok, "amazon-bedrock: adaptive thinking (display + output_config.effort) reaches the SigV4-signed body"))
+    checks.append(
+        Check(
+            "22_bedrock_thinking_body",
+            bedrock_body_ok,
+            "amazon-bedrock: adaptive thinking (display + output_config.effort) reaches the SigV4-signed body",
+        )
+    )
 
     # 22c: vertex built-in row -> GoogleVertexProvider (auth/project env-resolved).
-    vx_state = _state(tmp, tmp / "tier3_vx_missing.json", {"GOOGLE_CLOUD_API_KEY": "vk"})
+    vx_state = _state(
+        tmp, tmp / "tier3_vx_missing.json", {"GOOGLE_CLOUD_API_KEY": "vk"}
+    )
     vx_spec = vx_state.find("google-vertex", "gemini-2.5-pro")
     vx_resolved = resolve_construction(
         vx_spec,
@@ -1466,7 +1872,13 @@ def _check_tier3_construction(checks, tmp: Path):
         # The resolved Vertex Express api key is forwarded to the adapter.
         and vx_provider.api_key == "vk"
     )
-    checks.append(Check("22_vertex_construction", vertex_ok, "google-vertex: catalog construction forwards the Vertex Express api key"))
+    checks.append(
+        Check(
+            "22_vertex_construction",
+            vertex_ok,
+            "google-vertex: catalog construction forwards the Vertex Express api key",
+        )
+    )
 
     # 22e: the forwarded Vertex Express api key reaches the request as Pi's
     # express shape — global host (no project/location), x-goog-api-key header.
@@ -1475,7 +1887,9 @@ def _check_tier3_construction(checks, tmp: Path):
             self.requests = []
 
         def post_json(self, url, *, headers, body, timeout_seconds, cancel_token=None):
-            self.requests.append({"url": url, "headers": dict(headers), "body": dict(body)})
+            self.requests.append(
+                {"url": url, "headers": dict(headers), "body": dict(body)}
+            )
             return JsonResponse(
                 status_code=200,
                 body={
@@ -1496,7 +1910,13 @@ def _check_tier3_construction(checks, tmp: Path):
         and vx_sent["headers"].get("x-goog-api-key") == "vk"
         and "Authorization" not in vx_sent["headers"]
     )
-    checks.append(Check("22_vertex_express_request", vertex_express_ok, "google-vertex: Vertex Express api key produces the global host + x-goog-api-key request"))
+    checks.append(
+        Check(
+            "22_vertex_express_request",
+            vertex_express_ok,
+            "google-vertex: Vertex Express api key produces the global host + x-goog-api-key request",
+        )
+    )
 
     # 22f: catalog-resolved thinking reaches the vertex request body as Pi's
     # per-model generationConfig.thinkingConfig (2.5-pro high -> budget 32768 +
@@ -1513,12 +1933,16 @@ def _check_tier3_construction(checks, tmp: Path):
     vx_think = build_provider(vx_think_resolved, http_client=vx_think_http)
     vx_think.complete(_provider_request(Path("."), "google-vertex", "gemini-2.5-pro"))
     vx_think_body = vx_think_http.requests[-1]["body"]
-    vertex_thinking_ok = (
-        vx_think.reasoning_effort == "high"
-        and vx_think_body.get("generationConfig", {}).get("thinkingConfig")
-        == {"includeThoughts": True, "thinkingBudget": 32768}
+    vertex_thinking_ok = vx_think.reasoning_effort == "high" and vx_think_body.get(
+        "generationConfig", {}
+    ).get("thinkingConfig") == {"includeThoughts": True, "thinkingBudget": 32768}
+    checks.append(
+        Check(
+            "22_vertex_thinking_config",
+            vertex_thinking_ok,
+            "google-vertex: per-model generationConfig.thinkingConfig (budget + includeThoughts) reaches the request body",
+        )
     )
-    checks.append(Check("22_vertex_thinking_config", vertex_thinking_ok, "google-vertex: per-model generationConfig.thinkingConfig (budget + includeThoughts) reaches the request body"))
 
     # 22d: codex is built by the construction boundary itself (its OAuth/SSE
     # transport + settings-derived RetryPolicy come from ConstructionOptions,
@@ -1538,19 +1962,34 @@ def _check_tier3_construction(checks, tmp: Path):
         thinking_level="high",
     )
     cx_provider = build_provider(
-        cx_resolved, spec=cx_spec, thinking_level="high", options=ConstructionOptions(),
+        cx_resolved,
+        spec=cx_spec,
+        thinking_level="high",
+        options=ConstructionOptions(),
         http_client=None,
     )
     codex_ok = (
         isinstance(cx_provider, OpenAICodexResponsesProvider)
         and cx_provider.reasoning_effort == "high"
     )
-    checks.append(Check("22_codex_built_by_boundary", codex_ok, "openai-codex-responses is built by the construction boundary (options-threaded RetryPolicy, spec-resolved effort)"))
+    checks.append(
+        Check(
+            "22_codex_built_by_boundary",
+            codex_ok,
+            "openai-codex-responses is built by the construction boundary (options-threaded RetryPolicy, spec-resolved effort)",
+        )
+    )
 
     # 22e: product boundary constructs a built-in bedrock catalog model (not legacy).
-    bnd_state = _state(tmp, tmp / "tier3_boundary.json", {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"})
+    bnd_state = _state(
+        tmp,
+        tmp / "tier3_boundary.json",
+        {"AWS_ACCESS_KEY_ID": "ak", "AWS_SECRET_ACCESS_KEY": "sk"},
+    )
     bnd_repl = NativeReplProviderState(
-        selection=NativeModelSelection("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"),
+        selection=NativeModelSelection(
+            "amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"
+        ),
         model_runtime=ModelRuntime(catalog=bnd_state),
         thinking_level="high",
         persist_defaults=False,
@@ -1560,7 +1999,13 @@ def _check_tier3_construction(checks, tmp: Path):
         isinstance(bnd_provider, AmazonBedrockProvider)
         and bnd_provider.reasoning_effort == "high"
     )
-    checks.append(Check("22_tier3_boundary_uses_catalog", boundary_ok, "current_provider constructs a built-in bedrock catalog model (not legacy)"))
+    checks.append(
+        Check(
+            "22_tier3_boundary_uses_catalog",
+            boundary_ok,
+            "current_provider constructs a built-in bedrock catalog model (not legacy)",
+        )
+    )
 
 
 def _check_run_path_construction(checks, tmp: Path):
@@ -1583,7 +2028,13 @@ def _check_run_path_construction(checks, tmp: Path):
         and provider.reasoning_effort == "xhigh"
         and "RUNTIME-RUN-KEY" not in repr(provider)
     )
-    checks.append(Check("23_run_path_uses_catalog", run_ok, "pipy run one-shot construction uses catalog construction (honors --api-key/--thinking)"))
+    checks.append(
+        Check(
+            "23_run_path_uses_catalog",
+            run_ok,
+            "pipy run one-shot construction uses catalog construction (honors --api-key/--thinking)",
+        )
+    )
 
 
 def _check_startup_cli_resolution(checks, tmp: Path):
@@ -1616,14 +2067,26 @@ def _check_startup_cli_resolution(checks, tmp: Path):
     bare_ok = err_bare is None and sel_bare == NativeModelSelection(
         "anthropic", "claude-opus-4-7"
     )
-    checks.append(Check("24_startup_bare_model", bare_ok, "bare --native-model resolves its provider (not fake/<ref>)"))
+    checks.append(
+        Check(
+            "24_startup_bare_model",
+            bare_ok,
+            "bare --native-model resolves its provider (not fake/<ref>)",
+        )
+    )
 
     # 24b: a custom models.json provider name is accepted at startup.
     sel_custom, err_custom = resolve_cli_selection("acme", "rocket-1", custom_rows)
     custom_ok = err_custom is None and sel_custom == NativeModelSelection(
         "acme", "rocket-1"
     )
-    checks.append(Check("24_startup_custom_provider", custom_ok, "custom models.json provider name accepted at startup"))
+    checks.append(
+        Check(
+            "24_startup_custom_provider",
+            custom_ok,
+            "custom models.json provider name accepted at startup",
+        )
+    )
 
     # 24c: provider-only resolves the provider's default catalog model.
     sel_prov, err_prov = resolve_cli_selection("anthropic", None, rows)
@@ -1636,7 +2099,13 @@ def _check_startup_cli_resolution(checks, tmp: Path):
             for r in rows
         )
     )
-    checks.append(Check("24_startup_provider_default", provider_only_ok, "provider-only --native-provider resolves the catalog default model"))
+    checks.append(
+        Check(
+            "24_startup_provider_default",
+            provider_only_ok,
+            "provider-only --native-provider resolves the catalog default model",
+        )
+    )
 
     # 24d: an unknown provider errors clearly (no argparse choices guard).
     sel_unknown, err_unknown = resolve_cli_selection("nope", None, rows)
@@ -1645,7 +2114,13 @@ def _check_startup_cli_resolution(checks, tmp: Path):
         and err_unknown is not None
         and 'Unknown provider "nope"' in err_unknown
     )
-    checks.append(Check("24_startup_unknown_provider", unknown_ok, "unknown --native-provider errors clearly"))
+    checks.append(
+        Check(
+            "24_startup_unknown_provider",
+            unknown_ok,
+            "unknown --native-provider errors clearly",
+        )
+    )
 
     # 24e: default_selection_for(rows=...) raises ValueError on an unknown provider.
     raised = False
@@ -1653,7 +2128,13 @@ def _check_startup_cli_resolution(checks, tmp: Path):
         default_selection_for(native_provider="nope", native_model=None, rows=rows)
     except ValueError:
         raised = True
-    checks.append(Check("24_startup_default_selection_raises", raised, "default_selection_for(rows) raises on an unknown provider"))
+    checks.append(
+        Check(
+            "24_startup_default_selection_raises",
+            raised,
+            "default_selection_for(rows) raises on an unknown provider",
+        )
+    )
 
 
 def _check_no_secret_leak(checks, tmp: Path):
@@ -1665,7 +2146,12 @@ def _check_no_secret_leak(checks, tmp: Path):
     store = AuthStore(path=tmp / "auth_leak.json")
     store.set(
         "anthropic",
-        {"type": "oauth", "access": "SECRET-TOKEN", "refresh": "SECRET-REFRESH", "expires": 9999999999000},
+        {
+            "type": "oauth",
+            "access": "SECRET-TOKEN",
+            "refresh": "SECRET-REFRESH",
+            "expires": 9999999999000,
+        },
     )
     models_path = tmp / "leak_models.json"
     models_path.write_text(
@@ -1723,9 +2209,11 @@ def _check_no_secret_leak(checks, tmp: Path):
     )
     archive_surfaces = rows_dump + "\n" + list_models_output
     leaked = any(s in archive_surfaces for s in secrets)
-    fixture_real = resolved.ok and resolved.api_key == "SECRET-KEY" and resolved.headers.get(
-        "Authorization"
-    ) == "Bearer SECRET-KEY"
+    fixture_real = (
+        resolved.ok
+        and resolved.api_key == "SECRET-KEY"
+        and resolved.headers.get("Authorization") == "Bearer SECRET-KEY"
+    )
     ok = fixture_real and not leaked
     checks.append(
         Check(
@@ -1846,7 +2334,9 @@ def run_checks() -> list[Check]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Provider/model catalog conformance gate")
+    parser = argparse.ArgumentParser(
+        description="Provider/model catalog conformance gate"
+    )
     parser.add_argument("--json", action="store_true", help="emit a JSON report")
     args = parser.parse_args(argv)
 
@@ -1855,7 +2345,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         report = {
             "passed": passed,
-            "checks": [{"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks],
+            "checks": [
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
+            ],
         }
         print(json.dumps(report, indent=2))
     else:

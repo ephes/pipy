@@ -449,9 +449,7 @@ def _entry_from_json(
         return None
     entry_id, parent_id, timestamp = identity
     try:
-        return _decode_entry_from_json(
-            body, by_id, entry_id, parent_id, timestamp
-        )
+        return _decode_entry_from_json(body, by_id, entry_id, parent_id, timestamp)
     except (KeyError, ValueError, TypeError):
         return None
 
@@ -667,9 +665,7 @@ def _project_context_messages(
             for entry in path
             if (message := _project_context_entry(entry)) is not None
         ]
-    messages: list[AgentMessage] = [
-        _compaction_summary_message(compaction.summary)
-    ]
+    messages: list[AgentMessage] = [_compaction_summary_message(compaction.summary)]
     compaction_idx = next(
         (
             index

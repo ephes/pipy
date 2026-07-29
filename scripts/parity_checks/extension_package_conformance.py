@@ -678,8 +678,7 @@ def _send_message_delivery_checks(base: Path) -> list[Check]:
             len(next_provider.requests) == 1
             and next_provider.requests[0].user_prompt == "real prompt"
             and [
-                message.content.value
-                for message in next_provider.requests[0].messages
+                message.content.value for message in next_provider.requests[0].messages
             ]
             == ["real prompt", "custom context"],
             "send_message deliverAs=nextTurn injects custom context into the next turn",

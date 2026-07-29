@@ -7,7 +7,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_chat_completions
+from pipy_harness.native._provider_helpers import (
+    utc_now,
+    failed_provider_result,
+    serialize_tool_for_chat_completions,
+)
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
@@ -19,7 +23,10 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.providers.chat_completions_wire import chat_messages, parse_response
+from pipy_harness.native.providers.chat_completions_wire import (
+    chat_messages,
+    parse_response,
+)
 
 MISTRAL_CHAT_COMPLETIONS_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -113,7 +120,8 @@ class MistralProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                serialize_tool_for_chat_completions(tool) for tool in request.available_tools
+                serialize_tool_for_chat_completions(tool)
+                for tool in request.available_tools
             ]
         if self.reasoning_effort is not None:
             body["reasoning_effort"] = self.reasoning_effort

@@ -60,7 +60,9 @@ class NativeVerificationGateDecision:
 
     def __post_init__(self) -> None:
         if self.decision_authority != _HUMAN_REVIEWED_AUTHORITY:
-            raise ValueError("verification gate decision must be pipy-owned and human-reviewed")
+            raise ValueError(
+                "verification gate decision must be pipy-owned and human-reviewed"
+            )
         if self.reason_label is not None:
             _validate_safe_label(self.reason_label, field_name="reason_label")
 
@@ -111,7 +113,9 @@ class NativeVerificationResult:
             _validate_safe_label(self.error_label, field_name="error_label")
         for field_name in NATIVE_VERIFICATION_STORAGE_KEYS:
             if getattr(self, field_name) is not False:
-                raise ValueError(f"{field_name} must remain false for verification results")
+                raise ValueError(
+                    f"{field_name} must remain false for verification results"
+                )
         if self.scope_label is not None:
             _validate_safe_label(self.scope_label, field_name="scope_label")
 
@@ -128,9 +132,12 @@ class NativeVerificationResult:
             "exit_code": self.exit_code,
             "duration_seconds": _duration_seconds(self.started_at, self.ended_at),
             "approval_policy": self.approval_policy.value,
-            "approval_required": self.approval_policy == NativeToolApprovalMode.REQUIRED,
+            "approval_required": self.approval_policy
+            == NativeToolApprovalMode.REQUIRED,
             "approval_resolved": self.approval_decision is not None,
-            "approval_decision": self.approval_decision.value if self.approval_decision else None,
+            "approval_decision": self.approval_decision.value
+            if self.approval_decision
+            else None,
             "sandbox_policy": self.sandbox_policy.value,
             "workspace_read_allowed": self.workspace_read_allowed,
             "filesystem_mutation_allowed": self.filesystem_mutation_allowed,
@@ -165,7 +172,9 @@ class NativeVerificationTool:
         gate_decision: NativeVerificationGateDecision,
     ) -> NativeVerificationResult:
         started_at = datetime.now(UTC)
-        builder = _ResultBuilder(request=request, gate_decision=gate_decision, started_at=started_at)
+        builder = _ResultBuilder(
+            request=request, gate_decision=gate_decision, started_at=started_at
+        )
 
         command_reason = _command_reason(request.command_label)
         if command_reason is not None:
@@ -272,7 +281,9 @@ class _ResultBuilder:
         )
 
 
-def _command_reason(command_label: NativeVerificationCommand | str) -> NativeVerificationReason | None:
+def _command_reason(
+    command_label: NativeVerificationCommand | str,
+) -> NativeVerificationReason | None:
     if command_label == NativeVerificationCommand.JUST_CHECK:
         return None
     if command_label == NativeVerificationCommand.JUST_CHECK.value:
@@ -286,7 +297,9 @@ def _command_reason(command_label: NativeVerificationCommand | str) -> NativeVer
     return NativeVerificationReason.UNSUPPORTED_COMMAND
 
 
-def safe_verification_command_label(command_label: NativeVerificationCommand | str) -> str:
+def safe_verification_command_label(
+    command_label: NativeVerificationCommand | str,
+) -> str:
     """Return the archive-safe command label for any supported or rejected input."""
 
     reason = _command_reason(command_label)
@@ -297,7 +310,9 @@ def safe_verification_command_label(command_label: NativeVerificationCommand | s
     return NativeVerificationCommand.JUST_CHECK.value
 
 
-def _request_gate_reason(request: NativeVerificationRequest) -> NativeVerificationReason | None:
+def _request_gate_reason(
+    request: NativeVerificationRequest,
+) -> NativeVerificationReason | None:
     if request.approval_policy.mode != NativeToolApprovalMode.REQUIRED:
         return NativeVerificationReason.APPROVAL_NOT_ALLOWED
     sandbox = request.sandbox_policy

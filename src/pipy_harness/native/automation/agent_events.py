@@ -125,9 +125,7 @@ class AutomationAgentEventAdapter:
             "willRetry": event.result.will_retry,
         }
 
-    def _project_assistant_delta(
-        self, event: AssistantTextDelta
-    ) -> PiAutomationEvent:
+    def _project_assistant_delta(self, event: AssistantTextDelta) -> PiAutomationEvent:
         self._partial_text += event.delta.value
         partial = {
             "role": "assistant",

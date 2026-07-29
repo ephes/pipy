@@ -19,7 +19,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_responses
+from pipy_harness.native._provider_helpers import (
+    utc_now,
+    failed_provider_result,
+    serialize_tool_for_responses,
+)
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
@@ -158,8 +162,10 @@ class AzureOpenAIResponsesProvider:
         default_factory=lambda: os.environ.get("AZURE_OPENAI_API_KEY"), repr=False
     )
     api_version: str = field(
-        default_factory=lambda: os.environ.get("AZURE_OPENAI_API_VERSION")
-        or DEFAULT_AZURE_OPENAI_API_VERSION
+        default_factory=lambda: (
+            os.environ.get("AZURE_OPENAI_API_VERSION")
+            or DEFAULT_AZURE_OPENAI_API_VERSION
+        )
     )
     deployment: str | None = None
     http_client: JsonHTTPClient = field(default_factory=azure_openai_http_client)
@@ -286,8 +292,7 @@ class AzureOpenAIResponsesProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                serialize_tool_for_responses(tool)
-                for tool in request.available_tools
+                serialize_tool_for_responses(tool) for tool in request.available_tools
             ]
         # Azure shares the Responses thinking shape (reasoning.effort).
         if self.reasoning_effort is not None:

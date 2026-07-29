@@ -88,6 +88,7 @@ _STARTUP_CHROME_GLOBAL_RESOURCE_SOURCES: dict[str, tuple[str, ...]] = {
     "skills": ("~/.pipy/skills",),
 }
 
+
 @dataclass(frozen=True, slots=True)
 class ChromeStyle:
     """Themed color palette for the native REPL chrome.
@@ -107,7 +108,9 @@ class ChromeStyle:
     palette: ChromePalette = DEFAULT_PALETTE
 
     def title(self, text: str) -> str:
-        return self._wrap(text, self.palette.title_truecolor, self.palette.title_fallback)
+        return self._wrap(
+            text, self.palette.title_truecolor, self.palette.title_fallback
+        )
 
     def section_label(self, text: str) -> str:
         return self._wrap(
@@ -137,7 +140,9 @@ class ChromeStyle:
         return f"\x1b[3;{code}m{text}\x1b[0m"
 
     def error(self, text: str) -> str:
-        return self._wrap(text, self.palette.error_truecolor, self.palette.error_fallback)
+        return self._wrap(
+            text, self.palette.error_truecolor, self.palette.error_fallback
+        )
 
     def separator(self, text: str) -> str:
         return self._wrap(
@@ -155,8 +160,7 @@ class ChromeStyle:
         if text == "":
             return f"\x1b[{bg}m{padded}\x1b[0m"
         return (
-            f"\x1b[{bg}m"
-            f"\x1b[{self.palette.user_message_text_truecolor}m{padded}\x1b[0m"
+            f"\x1b[{bg}m\x1b[{self.palette.user_message_text_truecolor}m{padded}\x1b[0m"
         )
 
     def tool_command(self, text: str, *, width: int) -> str:
@@ -166,9 +170,7 @@ class ChromeStyle:
             self.palette.tool_command_bg_truecolor,
             self.palette.tool_command_bg_fallback,
         )
-        text_code = (
-            self.palette.user_message_text_truecolor if self.truecolor else "37"
-        )
+        text_code = self.palette.user_message_text_truecolor if self.truecolor else "37"
         leading = text[: len(text) - len(text.lstrip(" "))]
         visible = text[len(leading) :]
         padding = " " * max(0, width - len(text))
@@ -189,11 +191,7 @@ class ChromeStyle:
         if text == "":
             return f"\x1b[{bg}m{padding}\x1b[0m"
         text_code = self.palette.secondary_dim_truecolor if self.truecolor else "2"
-        return (
-            f"\x1b[{bg}m"
-            f"\x1b[{text_code}m{text}\x1b[0m"
-            f"\x1b[{bg}m{padding}\x1b[0m"
-        )
+        return f"\x1b[{bg}m\x1b[{text_code}m{text}\x1b[0m\x1b[{bg}m{padding}\x1b[0m"
 
     def palette_code(self, truecolor_code: str, fallback_code: str) -> str:
         """Pick the truecolor vs fallback SGR parameter for this style."""
@@ -515,8 +513,7 @@ class _ChromeFooterEffects:
 
     def legacy_footer_enabled(self) -> bool:
         return (
-            self.terminal_ui is None
-            and self.repl_runtime.runtime_label != "slash-menu"
+            self.terminal_ui is None and self.repl_runtime.runtime_label != "slash-menu"
         )
 
     def refresh_legacy_footer(self) -> None:
@@ -903,9 +900,7 @@ def _directory_entry_names(path: Path) -> Iterable[str]:
     try:
         return tuple(
             sorted(
-                child.name
-                for child in path.iterdir()
-                if not child.name.startswith(".")
+                child.name for child in path.iterdir() if not child.name.startswith(".")
             )
         )
     except OSError:

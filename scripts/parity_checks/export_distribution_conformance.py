@@ -85,9 +85,7 @@ def _seed_tree(tmp_path: Path) -> NativeSessionTree:
         AgentToolResultMessage(
             tool_request_id="pipy-tool-1",
             tool_name="write",
-            content=ProductContent(
-                "write ok api_key=sk-CONFORMANCE-SHOULD-NOT-LEAK"
-            ),
+            content=ProductContent("write ok api_key=sk-CONFORMANCE-SHOULD-NOT-LEAK"),
             provider_correlation_id="call-1",
         )
     )
@@ -156,9 +154,13 @@ def run_gate() -> list[Check]:
         before_import = jsonl.read_text(encoding="utf-8")
         lines = [json.loads(line) for line in before_import.splitlines()]
         entries = lines[1:]
-        linear = bool(entries) and entries[0]["parentId"] is None and all(
-            current["parentId"] == previous["id"]
-            for previous, current in zip(entries, entries[1:])
+        linear = (
+            bool(entries)
+            and entries[0]["parentId"] is None
+            and all(
+                current["parentId"] == previous["id"]
+                for previous, current in zip(entries, entries[1:])
+            )
         )
         jsonl_blob = json.dumps(lines)
         checks.append(
@@ -172,8 +174,7 @@ def run_gate() -> list[Check]:
         )
         imported = import_native_session_jsonl(jsonl, session_dir=tmp / "import-store")
         imported_text = "\n".join(
-            message.content.value
-            for message in imported.build_context().messages
+            message.content.value for message in imported.build_context().messages
         )
         checks.append(
             _check(
@@ -205,7 +206,8 @@ def run_gate() -> list[Check]:
         checks.append(
             _check(
                 "noninteractive-export",
-                cli_html.is_file() and _decode_html(cli_html)["header"]["id"] == tree.session_id,
+                cli_html.is_file()
+                and _decode_html(cli_html)["header"]["id"] == tree.session_id,
                 "--export/export_from_file writes self-contained HTML from a native session file.",
             )
         )
@@ -295,7 +297,9 @@ def run_gate() -> list[Check]:
         exe = uv_root / "pipy" / "bin" / "pipy"
         exe.parent.mkdir(parents=True)
         exe.write_text("", encoding="utf-8")
-        method = detect_install_method(executable=str(exe), env={"UV_TOOL_DIR": str(uv_root)})
+        method = detect_install_method(
+            executable=str(exe), env={"UV_TOOL_DIR": str(uv_root)}
+        )
         plan = self_update_plan(method=method)
         configured_plan = self_update_plan(
             method=method, distribution_name="pipy-test-package"

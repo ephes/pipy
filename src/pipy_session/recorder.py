@@ -73,9 +73,13 @@ def init_session(
     started_at = _utc_now(now)
     safe_agent = _safe_component(agent, "agent")
     safe_slug = _safe_component(slug, "slug")
-    safe_machine = _safe_component(machine or socket.gethostname().split(".")[0], "machine")
+    safe_machine = _safe_component(
+        machine or socket.gethostname().split(".")[0], "machine"
+    )
 
-    basename = f"{_filename_stamp(started_at)}-{safe_machine}-{safe_agent}-{safe_slug}.jsonl"
+    basename = (
+        f"{_filename_stamp(started_at)}-{safe_machine}-{safe_agent}-{safe_slug}.jsonl"
+    )
     active_path = _unique_path(active_dir / basename)
 
     session_started: dict[str, Any] = {
@@ -184,7 +188,9 @@ def finalize_session(
             "YYYY-MM-DDTHHMMSSZ-<machine>-<agent>-<slug>.jsonl"
         )
 
-    stamp = datetime.strptime(match.group("stamp"), "%Y-%m-%dT%H%M%SZ").replace(tzinfo=UTC)
+    stamp = datetime.strptime(match.group("stamp"), "%Y-%m-%dT%H%M%SZ").replace(
+        tzinfo=UTC
+    )
     final_dir = root_path / PROJECT_NAME / f"{stamp:%Y}" / f"{stamp:%m}"
     final_dir.mkdir(parents=True, exist_ok=True)
 
@@ -198,7 +204,9 @@ def finalize_session(
     if final_jsonl.exists():
         raise FileExistsError(f"finalized JSONL already exists: {final_jsonl}")
     if final_markdown is not None and final_markdown.exists():
-        raise FileExistsError(f"finalized Markdown summary already exists: {final_markdown}")
+        raise FileExistsError(
+            f"finalized Markdown summary already exists: {final_markdown}"
+        )
 
     temp_markdown: Path | None = None
     if final_markdown is not None:
@@ -244,7 +252,9 @@ def resolve_active_path(active: str | Path, *, root: str | Path | None = None) -
     for possible in candidates:
         if possible.exists():
             if possible.is_symlink():
-                raise FinalizedRecordError(f"refusing to modify symlinked active session record: {possible}")
+                raise FinalizedRecordError(
+                    f"refusing to modify symlinked active session record: {possible}"
+                )
             existing = possible
             resolved = possible.resolve()
             break
@@ -252,7 +262,9 @@ def resolve_active_path(active: str | Path, *, root: str | Path | None = None) -
         raise FileNotFoundError(f"active session not found: {active}")
 
     if resolved.parent != resolved_active_dir:
-        raise FinalizedRecordError(f"refusing to modify non-active session record: {resolved}")
+        raise FinalizedRecordError(
+            f"refusing to modify non-active session record: {resolved}"
+        )
     if existing.suffix != ".jsonl":
         raise ValueError(f"active session must be a .jsonl file: {existing}")
 

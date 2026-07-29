@@ -26,9 +26,7 @@ from pipy_harness.native.providers.google_generate_content_wire import (
     serialize_tool_for_gemini,
 )
 
-GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE = (
-    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-)
+GOOGLE_GENERATIVE_AI_ENDPOINT_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 GOOGLE_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
     ("promptTokenCount", "input_tokens"),
     ("candidatesTokenCount", "output_tokens"),
@@ -60,7 +58,9 @@ def _is_gemma4(model_id: str) -> bool:
 def _uses_thinking_level(model_id: str) -> bool:
     """Families that take a ``thinkingLevel`` enum rather than a token budget."""
 
-    return _is_gemini3_pro(model_id) or _is_gemini3_flash(model_id) or _is_gemma4(model_id)
+    return (
+        _is_gemini3_pro(model_id) or _is_gemini3_flash(model_id) or _is_gemma4(model_id)
+    )
 
 
 def _google_thinking_level(effort: str, model_id: str) -> str:
@@ -133,7 +133,9 @@ def _build_thinking_config(
         if _uses_thinking_level(model_id):
             config["thinkingLevel"] = _google_thinking_level(reasoning_effort, model_id)
         else:
-            config["thinkingBudget"] = _google_thinking_budget(model_id, reasoning_effort)
+            config["thinkingBudget"] = _google_thinking_budget(
+                model_id, reasoning_effort
+            )
         return config
     if thinking_disabled:
         return _disabled_thinking_config(model_id)
@@ -170,8 +172,9 @@ class GoogleGenerativeAIProvider:
 
     model_id: str
     api_key: str | None = field(
-        default_factory=lambda: os.environ.get("GOOGLE_API_KEY")
-        or os.environ.get("GEMINI_API_KEY"),
+        default_factory=lambda: (
+            os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        ),
         repr=False,
     )
     http_client: JsonHTTPClient = field(default_factory=google_http_client)

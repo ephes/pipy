@@ -26,6 +26,7 @@ from pathlib import Path
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 
+
 class _ScriptedProvider:
     """A deterministic provider that echoes a fixed reply for any turn."""
 

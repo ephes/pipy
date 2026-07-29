@@ -122,8 +122,7 @@ def _attach_images(items: list[dict[str, object]], request: ProviderRequest) -> 
                 {
                     "type": "input_image",
                     "image_url": (
-                        f"data:{attachment.media_type};base64,"
-                        f"{attachment.data_base64}"
+                        f"data:{attachment.media_type};base64,{attachment.data_base64}"
                     ),
                 }
             )
@@ -173,9 +172,7 @@ def envelope_to_input_items(
                 "output": envelope.content.value,
             }
         ]
-    raise parse_error_class(
-        f"unsupported message envelope: {type(envelope).__name__}"
-    )
+    raise parse_error_class(f"unsupported message envelope: {type(envelope).__name__}")
 
 
 def parse_response(

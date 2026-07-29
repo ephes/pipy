@@ -100,9 +100,7 @@ class TruncateTool:
             },
         )
 
-    def invoke(
-        self, request: ToolRequest, context: ToolContext
-    ) -> ToolExecutionResult:
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         del context  # pure transformation; no workspace access
         arguments = request.arguments
         if "text" not in arguments:
@@ -140,9 +138,7 @@ class TruncateTool:
         )
 
     @staticmethod
-    def _coerce_bound(
-        *, value: Any, field: str, minimum: int, maximum: int
-    ) -> int:
+    def _coerce_bound(*, value: Any, field: str, minimum: int, maximum: int) -> int:
         if (
             not isinstance(value, int)
             or isinstance(value, bool)
@@ -219,7 +215,7 @@ def _compose(
     drop_from_tail_next = False
     while True:
         head_slice = lines[:head_lines] if head_lines > 0 else []
-        tail_slice = lines[total - tail_lines:] if tail_lines > 0 else []
+        tail_slice = lines[total - tail_lines :] if tail_lines > 0 else []
         omitted_lines = total - head_lines - tail_lines
         if omitted_lines < 0:
             omitted_lines = 0
@@ -252,9 +248,7 @@ def _compose(
         drop_from_tail_next = not drop_from_tail_next
 
 
-def _omitted_bytes(
-    *, lines: list[str], head_lines: int, tail_lines: int
-) -> int:
+def _omitted_bytes(*, lines: list[str], head_lines: int, tail_lines: int) -> int:
     """Return the UTF-8 byte count of the omitted middle slice."""
 
     total = len(lines)
@@ -285,10 +279,10 @@ def _clamp_to_bytes(text: str, max_bytes: int) -> str:
         return ""
     # Walk back to a UTF-8 boundary so we never split a multi-byte char.
     end = max_bytes
-    while end > 0 and (encoded[end - 1] & 0xc0) == 0x80:
+    while end > 0 and (encoded[end - 1] & 0xC0) == 0x80:
         end -= 1
     # If we are sitting on a leading byte of a multi-byte sequence, drop it.
-    if end > 0 and (encoded[end - 1] & 0xc0) == 0xc0:
+    if end > 0 and (encoded[end - 1] & 0xC0) == 0xC0:
         end -= 1
     return encoded[:end].decode("utf-8", errors="ignore")
 

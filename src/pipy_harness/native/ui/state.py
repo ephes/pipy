@@ -188,9 +188,7 @@ def _reduce_message_started(state: UiState, event: MessageStarted) -> _Reduction
     )
 
 
-def _reduce_message_completed(
-    state: UiState, event: MessageCompleted
-) -> _Reduction:
+def _reduce_message_completed(state: UiState, event: MessageCompleted) -> _Reduction:
     if not isinstance(event.message, AgentAssistantMessage):
         return (state, ())
     if not state.assistant_active:

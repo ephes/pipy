@@ -124,8 +124,7 @@ def _validate_agent_run_result_fields(result: AgentRunResult) -> None:
         result.cancellation_reason, AgentCancellationReason
     ):
         raise TypeError(
-            "AgentRunResult.cancellation_reason must be "
-            "AgentCancellationReason or None"
+            "AgentRunResult.cancellation_reason must be AgentCancellationReason or None"
         )
     if result.cancellation_detail is not None and not isinstance(
         result.cancellation_detail, ProductContent
@@ -150,7 +149,6 @@ def _validate_agent_run_result_invariants(result: AgentRunResult) -> None:
     ):
         raise ValueError("cancelled AgentRunResult requires a cancellation reason")
     if result.outcome is not AgentRunOutcome.CANCELLED and (
-        result.cancellation_reason is not None
-        or result.cancellation_detail is not None
+        result.cancellation_reason is not None or result.cancellation_detail is not None
     ):
         raise ValueError("only cancelled AgentRunResult may carry cancellation details")

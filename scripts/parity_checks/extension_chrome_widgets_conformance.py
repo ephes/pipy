@@ -9,6 +9,7 @@ gate extension_conformance_gate.py.
 
 Run: uv run python scripts/parity_checks/extension_chrome_widgets_conformance.py --json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -69,13 +70,23 @@ def run_checks() -> list[Check]:
     checks: list[Check] = []
 
     # 1. render helper coercion + bounds + fail-soft.
-    checks.append(Check(
-        "render_helper",
-        render_chrome_component("a\nb", width=20, max_lines=8) == ["a", "b"]
-        and render_chrome_component(lambda: (_ for _ in ()).throw(RuntimeError()), width=20, max_lines=8) is None
-        and len(render_chrome_component([f"l{i}" for i in range(20)], width=20, max_lines=3)) == 4,
-        "coercion/bounds/fail-soft",
-    ))
+    checks.append(
+        Check(
+            "render_helper",
+            render_chrome_component("a\nb", width=20, max_lines=8) == ["a", "b"]
+            and render_chrome_component(
+                lambda: (_ for _ in ()).throw(RuntimeError()), width=20, max_lines=8
+            )
+            is None
+            and len(
+                render_chrome_component(
+                    [f"l{i}" for i in range(20)], width=20, max_lines=3
+                )
+            )
+            == 4,
+            "coercion/bounds/fail-soft",
+        )
+    )
 
     # 2. widget set/replace/clear + insertion order + placement.
     ui = _ui()
@@ -86,8 +97,13 @@ def run_checks() -> list[Check]:
     place_ok = "b" in ui.extension_widgets_below
     ui.set_extension_widget("z", None)
     cleared = "z" not in ui.extension_widgets_above
-    checks.append(Check("widget_lifecycle", order_ok and place_ok and cleared,
-                        "insertion order + placement + clear"))
+    checks.append(
+        Check(
+            "widget_lifecycle",
+            order_ok and place_ok and cleared,
+            "insertion order + placement + clear",
+        )
+    )
 
     # 3. header/footer exclusive replace + restore.
     ui = _ui()
@@ -97,7 +113,9 @@ def run_checks() -> list[Check]:
     ui.set_extension_header(None)
     ui.set_extension_footer(None)
     restore_ok = ui.extension_header is None and ui.extension_footer is None
-    checks.append(Check("header_footer_exclusive", set_ok and restore_ok, "replace+restore"))
+    checks.append(
+        Check("header_footer_exclusive", set_ok and restore_ok, "replace+restore")
+    )
 
     # 4. title OSC on TTY, no-op off.
     ui_tty = _ui(tty=True)
@@ -111,22 +129,35 @@ def run_checks() -> list[Check]:
     # 5. indicator override / default-frames-custom-interval / hide / restore.
     ui = _ui()
     ui.set_extension_working_indicator(["x"], 120)
-    a = ui.extension_indicator_frames == ("x",) and ui.extension_indicator_interval_ms == 120.0
-    ui.set_extension_working_indicator(None, 120)   # frames=None -> default frames, interval still applies
-    b = ui.extension_indicator_frames is None and ui.extension_indicator_interval_ms == 120.0
-    ui.set_extension_working_indicator([], None)    # hide
+    a = (
+        ui.extension_indicator_frames == ("x",)
+        and ui.extension_indicator_interval_ms == 120.0
+    )
+    ui.set_extension_working_indicator(
+        None, 120
+    )  # frames=None -> default frames, interval still applies
+    b = (
+        ui.extension_indicator_frames is None
+        and ui.extension_indicator_interval_ms == 120.0
+    )
+    ui.set_extension_working_indicator([], None)  # hide
     c = ui.extension_indicator_frames == ()
-    checks.append(Check("indicator_semantics", a and b and c,
-                        "override / reset / hide"))
+    checks.append(
+        Check("indicator_semantics", a and b and c, "override / reset / hide")
+    )
 
     # 6. resize re-render of a factory widget.
     ui = _ui()
     ui.set_extension_widget("k", lambda tui, theme: _WComp())
     l40 = ui._extension_widgets_lines("above_editor", 40)
     l70 = ui._extension_widgets_lines("above_editor", 70)
-    checks.append(Check("resize_rerender",
-                        any("40" in fl.text for fl in l40) and any("70" in fl.text for fl in l70),
-                        "factory widget reflows on width change"))
+    checks.append(
+        Check(
+            "resize_rerender",
+            any("40" in fl.text for fl in l40) and any("70" in fl.text for fl in l70),
+            "factory widget reflows on width change",
+        )
+    )
 
     # 7. same-width live re-render + Pi-shaped requestRender handle.
     ui = _ui()
@@ -145,12 +176,16 @@ def run_checks() -> list[Check]:
     before = ui.terminal_stream.getvalue()
     handles[0].requestRender()
     after = ui.terminal_stream.getvalue()
-    checks.append(Check("live_rerender_request_render",
-                        any("a" in fl.text for fl in first)
-                        and any("b" in fl.text for fl in second)
-                        and request_ok
-                        and after != before,
-                        "same-width render refresh + requestRender repaint"))
+    checks.append(
+        Check(
+            "live_rerender_request_render",
+            any("a" in fl.text for fl in first)
+            and any("b" in fl.text for fl in second)
+            and request_ok
+            and after != before,
+            "same-width render refresh + requestRender repaint",
+        )
+    )
 
     # 8. dispose called on replace + clear.
     ui = _ui()
@@ -170,9 +205,18 @@ def main(argv: list[str] | None = None) -> int:
     checks = run_checks()
     passed = all(c.passed for c in checks)
     if args.json:
-        print(json.dumps({"passed": passed, "checks": [
-            {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
-        ]}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "passed": passed,
+                    "checks": [
+                        {"name": c.name, "passed": c.passed, "detail": c.detail}
+                        for c in checks
+                    ],
+                },
+                indent=2,
+            )
+        )
     else:
         for c in checks:
             print(f"[{'PASS' if c.passed else 'FAIL'}] {c.name}: {c.detail}")

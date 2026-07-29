@@ -261,9 +261,7 @@ def discover_resource_files(
 
 def _validate_resource_byte_caps(per_file_byte_cap: int, total_byte_cap: int) -> None:
     if per_file_byte_cap < 1:
-        raise ValueError(
-            f"per_file_byte_cap must be >= 1; got {per_file_byte_cap}"
-        )
+        raise ValueError(f"per_file_byte_cap must be >= 1; got {per_file_byte_cap}")
     if total_byte_cap < 1:
         raise ValueError(f"total_byte_cap must be >= 1; got {total_byte_cap}")
 
@@ -304,11 +302,7 @@ def _assemble_resource_sources(
     if include_workspace_defaults:
         sources.append(
             _ResourceSource(
-                path=(
-                    resolved_workspace
-                    / WORKSPACE_PIPY_DIR_NAME
-                    / workspace_subdir
-                ),
+                path=(resolved_workspace / WORKSPACE_PIPY_DIR_NAME / workspace_subdir),
                 kind="workspace",
                 ignore_root=resolved_workspace,
                 package_filters=(),
@@ -389,9 +383,7 @@ def _load_resource_candidate(
     content = head.decode("utf-8", errors="replace")
     if truncated:
         content += PER_FILE_TRUNCATION_MARKER_TEMPLATE.format(cap=per_file_byte_cap)
-    name, description, body = _parse_frontmatter(
-        content, fallback_name=candidate.stem
-    )
+    name, description, body = _parse_frontmatter(content, fallback_name=candidate.stem)
     return _LoadedResourceCandidate(
         candidate=candidate,
         resolved_path=resolved_candidate,
@@ -491,8 +483,7 @@ def _contains_control_character(value: str) -> bool:
     """
 
     return any(
-        ord(ch) < 0x20 or ord(ch) == 0x7F or 0x80 <= ord(ch) <= 0x9F
-        for ch in value
+        ord(ch) < 0x20 or ord(ch) == 0x7F or 0x80 <= ord(ch) <= 0x9F for ch in value
     )
 
 

@@ -172,9 +172,7 @@ def run_checks(workspace: Path, proof: Path, sessions_root: Path) -> list[Check]
     proof_text = proof.read_text(encoding="utf-8") if proof.exists() else ""
     second = provider.requests[1] if len(provider.requests) > 1 else None
     joined = (
-        " ".join(
-            message.content.value for message in second.messages
-        )
+        " ".join(message.content.value for message in second.messages)
         if second is not None
         else ""
     )
@@ -188,7 +186,10 @@ def run_checks(workspace: Path, proof: Path, sessions_root: Path) -> list[Check]
         ),
         Check(
             "before_agent_start_reached_provider",
-            any("CONFORMANCE_CONTEXT" in (r.system_prompt or "") for r in provider.requests),
+            any(
+                "CONFORMANCE_CONTEXT" in (r.system_prompt or "")
+                for r in provider.requests
+            ),
             "before_agent_start injection reached the provider request",
         ),
         Check(
@@ -294,8 +295,7 @@ def main(argv: list[str] | None = None) -> int:
         report = {
             "passed": passed,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
-                for c in checks
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
             ],
         }
         print(json.dumps(report, indent=2))

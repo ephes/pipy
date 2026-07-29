@@ -93,9 +93,7 @@ class _ProbeReplState(NativeReplProviderState):
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self._probe = probe
 
-    def provider_for(
-        self, selection: NativeModelSelection
-    ) -> _RecordingToolProvider:
+    def provider_for(self, selection: NativeModelSelection) -> _RecordingToolProvider:
         return self._probe.factory(selection)
 
 
@@ -127,12 +125,7 @@ def _tool_loop_requests() -> list[ProviderRequest]:
     session.run(
         workspace_root=cwd,
         input_stream=io.StringIO(
-            "first\n"
-            "/model fake/model-b\n"
-            "second\n"
-            "/model openai/gpt-5.5\n"
-            "third\n"
-            "/exit\n"
+            "first\n/model fake/model-b\nsecond\n/model openai/gpt-5.5\nthird\n/exit\n"
         ),
         output_stream=io.StringIO(),
         error_stream=io.StringIO(),

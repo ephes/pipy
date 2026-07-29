@@ -213,7 +213,9 @@ def parse_model_pattern(
         return ParsedModelResult(model=None)
 
     result = parse_model_pattern(
-        prefix, rows, allow_invalid_thinking_level_fallback=allow_invalid_thinking_level_fallback
+        prefix,
+        rows,
+        allow_invalid_thinking_level_fallback=allow_invalid_thinking_level_fallback,
     )
     if result.model is not None:
         return ParsedModelResult(

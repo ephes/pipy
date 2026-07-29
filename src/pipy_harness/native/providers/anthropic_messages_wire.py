@@ -90,7 +90,9 @@ def messages_payload(
                 envelope = request.messages[index]
                 if not isinstance(envelope, AgentToolResultMessage):
                     items.append(
-                        envelope_to_message(envelope, parse_error_class=parse_error_class)
+                        envelope_to_message(
+                            envelope, parse_error_class=parse_error_class
+                        )
                     )
                     index += 1
                     continue
@@ -205,9 +207,7 @@ def envelope_to_message(
             loaded_tool_names=set(),
         )
         return {"role": "user", "content": [result, *siblings]}
-    raise parse_error_class(
-        f"unsupported message envelope: {type(envelope).__name__}"
-    )
+    raise parse_error_class(f"unsupported message envelope: {type(envelope).__name__}")
 
 
 def convert_tool_result(

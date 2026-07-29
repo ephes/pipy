@@ -118,14 +118,10 @@ def apply_tree_selection(
         )
 
     tree.set_leaf(entry.id)
-    return TreeSelectionResult(
-        editor_text=None, is_user_selection=False, is_noop=False
-    )
+    return TreeSelectionResult(editor_text=None, is_user_selection=False, is_noop=False)
 
 
-def branch_summary_attach_parent(
-    tree: NativeSessionTree, target_id: str
-) -> str | None:
+def branch_summary_attach_parent(tree: NativeSessionTree, target_id: str) -> str | None:
     """Where a branch summary attaches when selecting ``target_id``.
 
     For a user/custom-message selection the summary attaches to that entry's
@@ -175,9 +171,7 @@ def abandoned_branch_messages(
         ):
             messages.append(entry.message)
         elif isinstance(entry, CustomMessageEntry) and entry.content:
-            messages.append(
-                AgentUserMessage(content=ProductContent(entry.content))
-            )
+            messages.append(AgentUserMessage(content=ProductContent(entry.content)))
     return messages
 
 
@@ -228,9 +222,7 @@ def handle_tree_command(
         )
     if sub == "filter":
         return _handle_tree_filter(rest, diagnostic)
-    diagnostic(
-        f"pipy: unknown /tree subcommand {sub!r}; use select, label, or filter."
-    )
+    diagnostic(f"pipy: unknown /tree subcommand {sub!r}; use select, label, or filter.")
     return TreeCommandOutcome()
 
 
@@ -320,9 +312,7 @@ def _select_with_branch_summary(
 
 
 def _selected_user_message_text(entry: SessionEntry) -> str | None:
-    if isinstance(entry, MessageEntry) and isinstance(
-        entry.message, AgentUserMessage
-    ):
+    if isinstance(entry, MessageEntry) and isinstance(entry.message, AgentUserMessage):
         return entry.message.content.value
     return None
 
@@ -339,13 +329,9 @@ def _apply_resolved_tree_selection(
         diagnostic("pipy: already at the selected point (no change).")
         return TreeCommandOutcome()
     if selection.is_user_selection:
-        diagnostic(
-            "pipy: selected user message; rehydrating editor for a new branch."
-        )
+        diagnostic("pipy: selected user message; rehydrating editor for a new branch.")
         return TreeCommandOutcome(prefill=selection.editor_text)
-    diagnostic(
-        f"pipy: continuing from entry {sanitize_label_text(entry.id[:8])}."
-    )
+    diagnostic(f"pipy: continuing from entry {sanitize_label_text(entry.id[:8])}.")
     return TreeCommandOutcome()
 
 
@@ -360,9 +346,7 @@ def _handle_tree_label(
     if not label_parts:
         diagnostic("pipy: usage: /tree label <n|id> [text]")
         return TreeCommandOutcome()
-    entry = resolve_entry_ref(
-        session_tree, label_parts[0], filter_mode=filter_mode
-    )
+    entry = resolve_entry_ref(session_tree, label_parts[0], filter_mode=filter_mode)
     if entry is None:
         diagnostic(f"pipy: no tree entry matched {label_parts[0]!r}.")
         return TreeCommandOutcome()
@@ -547,9 +531,7 @@ def render_tree_lines(
     """
 
     active_path = {e.id for e in tree.get_branch()}
-    visible_ids = {
-        e.id for e in visible_tree_entries(tree, filter_mode=filter_mode)
-    }
+    visible_ids = {e.id for e in visible_tree_entries(tree, filter_mode=filter_mode)}
     lines: list[str] = []
     index = 0
     for entry, depth in _dfs_entries(tree):
@@ -577,16 +559,12 @@ def render_tree_lines(
 def format_session_status(tree: NativeSessionTree) -> str:
     header = tree.get_header()
     leaf = tree.get_leaf_id() or "(root)"
-    message_count = sum(
-        1 for e in tree.get_entries() if isinstance(e, MessageEntry)
-    )
+    message_count = sum(1 for e in tree.get_entries() if isinstance(e, MessageEntry))
     branch_count = _branch_count(tree)
     # name and the workspace-derived path are user-controlled; sanitize them so
     # the status line cannot inject terminal escape sequences.
     path_label = (
-        sanitize_label_text(str(tree.path))
-        if tree.path is not None
-        else "(ephemeral)"
+        sanitize_label_text(str(tree.path)) if tree.path is not None else "(ephemeral)"
     )
     name = sanitize_label_text(tree.name) if tree.name else "(unnamed)"
     # ids/leaf come from a (possibly externally-written) session file; sanitize
@@ -602,9 +580,7 @@ def format_session_status(tree: NativeSessionTree) -> str:
 def _branch_count(tree: NativeSessionTree) -> int:
     """Number of leaf nodes (entries with no children) in the tree."""
 
-    parent_ids = {
-        e.parent_id for e in tree.get_entries() if e.parent_id is not None
-    }
+    parent_ids = {e.parent_id for e in tree.get_entries() if e.parent_id is not None}
     leaves = [e for e in tree.get_entries() if e.id not in parent_ids]
     return max(1, len(leaves))
 
@@ -646,9 +622,7 @@ def _looks_like_path(ref: str) -> bool:
     return "/" in ref or "\\" in ref or ref.endswith(".jsonl")
 
 
-def _match_by_id(
-    entries: list[SessionListEntry], ref: str
-) -> SessionListEntry | None:
+def _match_by_id(entries: list[SessionListEntry], ref: str) -> SessionListEntry | None:
     """Exact id match first, then a *unique* id-prefix match.
 
     An exact id always wins. Otherwise a prefix is accepted only when it
@@ -849,9 +823,7 @@ def _resolve_startup_tree(
 def _continue_or_create_startup_tree(
     resolved_cwd: Path, proj_dir: Path
 ) -> NativeSessionTree:
-    existing = NativeSessionTree.continue_recent(
-        resolved_cwd, session_dir=proj_dir
-    )
+    existing = NativeSessionTree.continue_recent(resolved_cwd, session_dir=proj_dir)
     if existing is not None:
         return existing
     return NativeSessionTree.create(resolved_cwd, session_dir=proj_dir)
@@ -996,9 +968,7 @@ def _read_session_list_entry(path: Path) -> SessionListEntry | None:
         tree = NativeSessionTree.open(path, persist=False)
     except ValueError:
         return None
-    message_count = sum(
-        1 for e in tree.get_entries() if isinstance(e, MessageEntry)
-    )
+    message_count = sum(1 for e in tree.get_entries() if isinstance(e, MessageEntry))
     try:
         mtime = path.stat().st_mtime
     except OSError:
@@ -1109,9 +1079,7 @@ def build_session_picker_rows(
         if named_only and not entry.name:
             continue
         if needle:
-            haystack = " ".join(
-                [entry.name or "", entry.session_id, entry.cwd]
-            ).lower()
+            haystack = " ".join([entry.name or "", entry.session_id, entry.cwd]).lower()
             if needle not in haystack:
                 continue
         is_current = (
@@ -1131,9 +1099,7 @@ def build_session_picker_rows(
         )
 
     if sort == "name":
-        rows.sort(
-            key=lambda r: (r.name is None, (r.name or "").lower(), -r.mtime)
-        )
+        rows.sort(key=lambda r: (r.name is None, (r.name or "").lower(), -r.mtime))
     else:
         rows.sort(key=lambda r: r.mtime, reverse=True)
     return rows

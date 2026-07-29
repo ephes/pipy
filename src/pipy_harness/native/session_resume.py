@@ -150,10 +150,11 @@ def resume_session_from_archive(
 
     events = _read_record_events(record_path)
     first_event = events[0]
-    if not isinstance(first_event, dict) or first_event.get("type") != "session.started":
-        raise ValueError(
-            f"first event is not session.started: {record_path}"
-        )
+    if (
+        not isinstance(first_event, dict)
+        or first_event.get("type") != "session.started"
+    ):
+        raise ValueError(f"first event is not session.started: {record_path}")
 
     match = FILENAME_RE.match(record_path.name)
     if match is None:
@@ -314,7 +315,9 @@ def _scan_lifecycle_metadata(
             last_timestamp = safe_timestamp
 
         if provider_name is None:
-            candidate = safe_payload.get("provider") or safe_payload.get("provider_name")
+            candidate = safe_payload.get("provider") or safe_payload.get(
+                "provider_name"
+            )
             provider_name = _safe_label(candidate)
 
         if model_id is None:

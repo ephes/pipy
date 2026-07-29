@@ -159,7 +159,9 @@ def _type_error(path: str, expected: str) -> str:
     return f"  - {dotted}: expected {expected}"
 
 
-def _coerce_cost_fields(value: object, path: str, errors: list[str]) -> dict[str, float]:
+def _coerce_cost_fields(
+    value: object, path: str, errors: list[str]
+) -> dict[str, float]:
     """Return only the cost sub-fields present in the JSON (attr-named)."""
 
     values = _string_object_dict(value)
@@ -189,7 +191,9 @@ def _coerce_cost(value: object, path: str, errors: list[str]) -> NativeModelCost
     return NativeModelCost(**fields)
 
 
-def _coerce_input(value: object, path: str, errors: list[str]) -> tuple[str, ...] | None:
+def _coerce_input(
+    value: object, path: str, errors: list[str]
+) -> tuple[str, ...] | None:
     values = _object_list(value)
     if values is None:
         errors.append(_type_error(path, 'array of "text"/"image"'))
@@ -203,7 +207,9 @@ def _coerce_input(value: object, path: str, errors: list[str]) -> tuple[str, ...
     return tuple(inputs)
 
 
-def _coerce_full_cost(value: object, path: str, errors: list[str]) -> NativeModelCost | None:
+def _coerce_full_cost(
+    value: object, path: str, errors: list[str]
+) -> NativeModelCost | None:
     """A custom model's full cost: all four sub-fields required (Pi schema)."""
 
     values = _string_object_dict(value)
@@ -214,7 +220,10 @@ def _coerce_full_cost(value: object, path: str, errors: list[str]) -> NativeMode
     missing = [key for key in required if key not in values]
     if missing:
         errors.append(
-            _type_error(path, f"object with {', '.join(required)} (missing {', '.join(missing)})")
+            _type_error(
+                path,
+                f"object with {', '.join(required)} (missing {', '.join(missing)})",
+            )
         )
         return None
     return _coerce_cost(values, path, errors)
@@ -446,7 +455,9 @@ class ModelsConfig:
     providers: Mapping[str, ProviderConfig]
 
 
-def _validate_schema(parsed: object, path: Path) -> tuple[ModelsConfig | None, str | None]:
+def _validate_schema(
+    parsed: object, path: Path
+) -> tuple[ModelsConfig | None, str | None]:
     errors: list[str] = []
     root = _string_object_dict(parsed)
     if root is None:
@@ -599,9 +610,7 @@ def _apply_model_override(
         row,
         display_name=override.name if override.name is not None else row.display_name,
         reasoning=(
-            override.reasoning
-            if override.reasoning is not None
-            else row.reasoning
+            override.reasoning if override.reasoning is not None else row.reasoning
         ),
         thinking_level_map=thinking_level_map,
         input=override.input if override.input is not None else row.input,
@@ -612,11 +621,11 @@ def _apply_model_override(
             else row.context_window
         ),
         max_tokens=(
-            override.max_tokens
-            if override.max_tokens is not None
-            else row.max_tokens
+            override.max_tokens if override.max_tokens is not None else row.max_tokens
         ),
-        headers=(dict(override.headers) if override.headers is not None else row.headers),
+        headers=(
+            dict(override.headers) if override.headers is not None else row.headers
+        ),
         compat=_merge_compat(row.compat, override.compat),
     )
 
@@ -643,13 +652,17 @@ def _custom_model_row(
     model_def: ModelDefinition,
     builtin_defaults: tuple[str, str | None] | None,
 ) -> NativeModelSpec | None:
-    api = model_def.api or provider_config.api or (
-        builtin_defaults[0] if builtin_defaults else None
+    api = (
+        model_def.api
+        or provider_config.api
+        or (builtin_defaults[0] if builtin_defaults else None)
     )
     if not api:
         return None
-    base_url = model_def.base_url or provider_config.base_url or (
-        builtin_defaults[1] if builtin_defaults else None
+    base_url = (
+        model_def.base_url
+        or provider_config.base_url
+        or (builtin_defaults[1] if builtin_defaults else None)
     )
     if not base_url:
         # Pi: ``if (!baseUrl) continue`` — skip a custom model whose baseUrl

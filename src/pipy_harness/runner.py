@@ -12,7 +12,12 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
-from pipy_session.recorder import SessionRecord, append_event, finalize_session, init_session
+from pipy_session.recorder import (
+    SessionRecord,
+    append_event,
+    finalize_session,
+    init_session,
+)
 
 from pipy_harness.adapters.base import AgentPort
 from pipy_harness.capture import (
@@ -58,10 +63,14 @@ class FileSessionRecorder:
             initial_fields=initial_fields,
         )
 
-    def append(self, active_path: Path, event: Mapping[str, Any], *, root: Path | None) -> None:
+    def append(
+        self, active_path: Path, event: Mapping[str, Any], *, root: Path | None
+    ) -> None:
         append_event(active_path, root=root, event=event)
 
-    def finalize(self, active_path: Path, *, root: Path | None, summary: str) -> SessionRecord:
+    def finalize(
+        self, active_path: Path, *, root: Path | None, summary: str
+    ) -> SessionRecord:
         return finalize_session(active_path, root=root, summary_text=summary)
 
 
@@ -91,10 +100,14 @@ class NullSessionRecorder:
     ) -> Path:
         return self._sentinel
 
-    def append(self, active_path: Path, event: Mapping[str, Any], *, root: Path | None) -> None:
+    def append(
+        self, active_path: Path, event: Mapping[str, Any], *, root: Path | None
+    ) -> None:
         return None
 
-    def finalize(self, active_path: Path, *, root: Path | None, summary: str) -> SessionRecord:
+    def finalize(
+        self, active_path: Path, *, root: Path | None, summary: str
+    ) -> SessionRecord:
         return SessionRecord(jsonl_path=self._sentinel, markdown_path=None)
 
 
@@ -111,10 +124,14 @@ class RecorderPort(Protocol):
     ) -> Path:
         """Create an active session record."""
 
-    def append(self, active_path: Path, event: Mapping[str, Any], *, root: Path | None) -> None:
+    def append(
+        self, active_path: Path, event: Mapping[str, Any], *, root: Path | None
+    ) -> None:
         """Append one event to the active record."""
 
-    def finalize(self, active_path: Path, *, root: Path | None, summary: str) -> SessionRecord:
+    def finalize(
+        self, active_path: Path, *, root: Path | None, summary: str
+    ) -> SessionRecord:
         """Finalize the active record."""
 
 
@@ -169,7 +186,9 @@ class HarnessRunner:
                     f"agent={sanitize_text(request.agent)}, adapter={self.adapter.name}, "
                     f"cwd={workspace.name}."
                 ),
-                payload=_base_payload(request, self.adapter.name, workspace, HarnessStatus.RUNNING),
+                payload=_base_payload(
+                    request, self.adapter.name, workspace, HarnessStatus.RUNNING
+                ),
             )
             if request.resume is not None:
                 lineage = request.resume
@@ -193,7 +212,10 @@ class HarnessRunner:
             )
             status = adapter_result.status
             exit_code = adapter_result.exit_code
-            if status != HarnessStatus.SUCCEEDED and adapter_result.metadata is not None:
+            if (
+                status != HarnessStatus.SUCCEEDED
+                and adapter_result.metadata is not None
+            ):
                 adapter_error_type = adapter_result.metadata.get("error_type")
                 adapter_error_message = adapter_result.metadata.get("error_message")
                 if isinstance(adapter_error_type, str):
@@ -203,7 +225,10 @@ class HarnessRunner:
                 archive_error_type = error_type
                 archive_error_message = error_message
 
-            if request.capture_policy.record_file_paths and adapter_result.changed_paths:
+            if (
+                request.capture_policy.record_file_paths
+                and adapter_result.changed_paths
+            ):
                 sink.emit(
                     "workspace.files.changed",
                     summary=(
@@ -275,7 +300,9 @@ class HarnessRunner:
                 exit_code=exit_code,
                 started_at=started_at,
                 ended_at=self.clock(),
-                changed_paths=adapter_result.changed_paths if adapter_result is not None else (),
+                changed_paths=adapter_result.changed_paths
+                if adapter_result is not None
+                else (),
                 error_type=archive_error_type,
                 error_message=archive_error_message,
             ),
@@ -295,7 +322,9 @@ class HarnessRunner:
                     "summary": "Session finalized for the harness run.",
                     "payload": _event_payload_metadata(
                         {
-                            **_base_payload(request, self.adapter.name, workspace, status),
+                            **_base_payload(
+                                request, self.adapter.name, workspace, status
+                            ),
                             "exit_code": exit_code,
                             "duration_seconds": duration_seconds,
                         }
@@ -377,7 +406,9 @@ def _initial_session_fields(run_id: str, timestamp: datetime) -> dict[str, Any]:
     }
 
 
-def _adapter_result_metadata(adapter_result: AdapterResult | None) -> dict[str, Any] | None:
+def _adapter_result_metadata(
+    adapter_result: AdapterResult | None,
+) -> dict[str, Any] | None:
     if adapter_result is None or adapter_result.metadata is None:
         return None
     metadata = sanitize_metadata(adapter_result.metadata)

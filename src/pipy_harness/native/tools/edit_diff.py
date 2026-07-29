@@ -120,9 +120,7 @@ class EditDiffTool:
             },
         )
 
-    def invoke(
-        self, request: ToolRequest, context: ToolContext
-    ) -> ToolExecutionResult:
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         path_arg, unified_diff = self._validated_arguments(request)
         target = self._preflight_target(request, context, path_arg)
         if isinstance(target, ToolExecutionResult):
@@ -171,9 +169,9 @@ class EditDiffTool:
         resolved_label = _resolved_relative_label(candidate, workspace)
         if resolved_label is None:
             return self._error(request, "path escapes the workspace")
-        if _is_ignored_or_generated(
-            path_arg, workspace
-        ) or _is_ignored_or_generated(resolved_label, workspace):
+        if _is_ignored_or_generated(path_arg, workspace) or _is_ignored_or_generated(
+            resolved_label, workspace
+        ):
             return self._error(
                 request,
                 "path is ignored or under .git/generated directories",
@@ -229,9 +227,7 @@ class EditDiffTool:
             return self._error(request, f"hunk failed to apply: {exc}")
         new_text = "".join(new_lines)
         if len(new_text.encode("utf-8")) > self.max_content_bytes:
-            return self._error(
-                request, "patched content exceeds max_content_bytes"
-            )
+            return self._error(request, "patched content exceeds max_content_bytes")
         return _AppliedPatch(original_text, new_text, hunks)
 
     def _stream_diff(
@@ -254,16 +250,13 @@ class EditDiffTool:
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
             output_text=(
-                f"applied {len(hunks)} hunk(s) "
-                f"({added}+ / {removed}-) to {path_arg}"
+                f"applied {len(hunks)} hunk(s) ({added}+ / {removed}-) to {path_arg}"
             ),
             provider_correlation_id=request.provider_correlation_id,
         )
 
     @staticmethod
-    def _unified_diff(
-        *, path_arg: str, original_text: str, new_text: str
-    ) -> str:
+    def _unified_diff(*, path_arg: str, original_text: str, new_text: str) -> str:
         diff_lines = difflib.unified_diff(
             original_text.splitlines(keepends=True),
             new_text.splitlines(keepends=True),
@@ -359,9 +352,7 @@ def _parse_unified_diff(text: str, *, path_arg: str) -> list[_Hunk]:
             if header_stripped.strip() == "":
                 index += 1
                 continue
-            raise _DiffParseError(
-                f"unexpected line outside hunk: {header_stripped!r}"
-            )
+            raise _DiffParseError(f"unexpected line outside hunk: {header_stripped!r}")
         hunk, consumed = _parse_hunk_header_and_body(lines, index)
         hunks.append(hunk)
         index += consumed
@@ -369,9 +360,7 @@ def _parse_unified_diff(text: str, *, path_arg: str) -> list[_Hunk]:
     return hunks
 
 
-def _parse_hunk_header_and_body(
-    lines: list[str], start: int
-) -> tuple[_Hunk, int]:
+def _parse_hunk_header_and_body(lines: list[str], start: int) -> tuple[_Hunk, int]:
     header_line = lines[start].rstrip("\n").rstrip("\r")
     old_start, old_count, new_start, new_count = _parse_hunk_header(header_line)
 
@@ -395,9 +384,7 @@ def _parse_hunk_header_and_body(
             break
         tag = line[0]
         if tag not in (" ", "-", "+"):
-            raise _DiffParseError(
-                f"unexpected line in hunk: {line.rstrip()!r}"
-            )
+            raise _DiffParseError(f"unexpected line in hunk: {line.rstrip()!r}")
         body.append((tag, line[1:]))
         if tag in (" ", "-"):
             seen_old += 1
@@ -465,17 +452,13 @@ def _parse_range(token: str) -> tuple[int, int]:
     return start, count
 
 
-def _hunk_target(
-    hunk: _Hunk, *, cursor: int, source_length: int
-) -> int:
+def _hunk_target(hunk: _Hunk, *, cursor: int, source_length: int) -> int:
     # Zero-count ranges insert after old_start; other ranges are 1-based.
     target = hunk.old_start if hunk.old_count == 0 else hunk.old_start - 1
     if target < cursor:
         raise _DiffParseError(f"hunks out of order at line {hunk.old_start}")
     if target > source_length:
-        raise _DiffParseError(
-            f"hunk references line {hunk.old_start} past end of file"
-        )
+        raise _DiffParseError(f"hunk references line {hunk.old_start} past end of file")
     return target
 
 
@@ -493,9 +476,7 @@ def _apply_hunk_line(
         raise _DiffParseError(f"unexpected tag {tag!r}")
     if cursor >= len(original_lines):
         action = "context" if tag == " " else "delete"
-        raise _DiffParseError(
-            f"{action} line past end of file at line {cursor + 1}"
-        )
+        raise _DiffParseError(f"{action} line past end of file at line {cursor + 1}")
     actual = original_lines[cursor]
     if tag == " ":
         if not _lines_equal(actual, body_line):
@@ -503,9 +484,7 @@ def _apply_hunk_line(
         result.append(actual)
         return cursor + 1
     if not _lines_equal(actual, body_line):
-        raise _DiffParseError(
-            f"delete-line mismatch at line {cursor + 1}"
-        )
+        raise _DiffParseError(f"delete-line mismatch at line {cursor + 1}")
     return cursor + 1
 
 
@@ -513,23 +492,17 @@ def _apply_hunk_body(
     original_lines: list[str], result: list[str], cursor: int, hunk: _Hunk
 ) -> int:
     for tag, body_line in hunk.body:
-        cursor = _apply_hunk_line(
-            original_lines, result, cursor, tag, body_line
-        )
+        cursor = _apply_hunk_line(original_lines, result, cursor, tag, body_line)
     return cursor
 
 
-def _apply_hunks(
-    original_lines: list[str], hunks: list[_Hunk]
-) -> list[str]:
+def _apply_hunks(original_lines: list[str], hunks: list[_Hunk]) -> list[str]:
     """Apply parsed hunks to `original_lines` in their declared order."""
 
     result: list[str] = []
     cursor = 0
     for hunk in hunks:
-        target = _hunk_target(
-            hunk, cursor=cursor, source_length=len(original_lines)
-        )
+        target = _hunk_target(hunk, cursor=cursor, source_length=len(original_lines))
         result.extend(original_lines[cursor:target])
         cursor = _apply_hunk_body(original_lines, result, target, hunk)
     result.extend(original_lines[cursor:])
@@ -544,9 +517,7 @@ def _lines_equal(actual: str, expected: str) -> bool:
     `\\n` so the parser doesn't get tripped up by the absence of `keepends`.
     """
 
-    return actual.rstrip("\n").rstrip("\r") == expected.rstrip("\n").rstrip(
-        "\r"
-    )
+    return actual.rstrip("\n").rstrip("\r") == expected.rstrip("\n").rstrip("\r")
 
 
 __all__ = ["EditDiffTool"]

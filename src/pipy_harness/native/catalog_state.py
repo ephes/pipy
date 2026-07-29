@@ -65,7 +65,9 @@ def _fuzzy_match(haystack: str, needle: str) -> bool:
     return True
 
 
-def _default_first(models: tuple[str, ...], default_model: str | None) -> tuple[str, ...]:
+def _default_first(
+    models: tuple[str, ...], default_model: str | None
+) -> tuple[str, ...]:
     if default_model is None or default_model not in models:
         return tuple(models)
     return (default_model, *(model for model in models if model != default_model))
@@ -290,7 +292,10 @@ class ProviderCatalogState:
     def availability_reason(self, provider: str) -> str | None:
         if self.provider_available(provider):
             return None
-        if provider == "openai-codex" or self.extension_oauth_provider_for(provider) is not None:
+        if (
+            provider == "openai-codex"
+            or self.extension_oauth_provider_for(provider) is not None
+        ):
             return "login-required"
         return "auth-missing"
 
@@ -353,7 +358,9 @@ def format_list_models(
 
     filtered = rows
     if search:
-        filtered = [r for r in rows if _fuzzy_match(f"{r.provider_name} {r.model_id}", search)]
+        filtered = [
+            r for r in rows if _fuzzy_match(f"{r.provider_name} {r.model_id}", search)
+        ]
     if not filtered:
         lines.append(f'No models matching "{search}"')
         return "\n".join(lines)

@@ -87,9 +87,7 @@ class _SeenProvider:
 
     def complete(self, request: ProviderRequest, **_kwargs: object) -> ProviderResult:
         users = tuple(
-            m.content.value
-            for m in request.messages
-            if isinstance(m, AgentUserMessage)
+            m.content.value for m in request.messages if isinstance(m, AgentUserMessage)
         )
         self.requests.append(users)
         now = datetime.now(UTC)
@@ -112,7 +110,10 @@ class Check:
 
 
 def _drive(
-    tree: NativeSessionTree, cwd: Path, script: str, provider: _SeenProvider | None = None
+    tree: NativeSessionTree,
+    cwd: Path,
+    script: str,
+    provider: _SeenProvider | None = None,
 ) -> _SeenProvider:
     provider = provider or _SeenProvider()
     session = NativeToolReplSession(provider=provider, native_session=tree)
@@ -198,7 +199,9 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
     body = tree.path.read_text(encoding="utf-8") if tree.path else ""
     # 2. raw conversation entries present
     raw_ok = all(s in body for s in ("ROOT", "MAIN", "ALT", "SEEN:ROOT"))
-    checks.append(Check("raw_entries_present", raw_ok, "raw user/assistant text in file"))
+    checks.append(
+        Check("raw_entries_present", raw_ok, "raw user/assistant text in file")
+    )
 
     # 3. native sibling branches exist
     reopened = NativeSessionTree.open(tree.path)
@@ -248,7 +251,11 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
 
     # 6. /name persisted
     checks.append(
-        Check("name_persisted", reopened.name == "conformance-tree", f"name={reopened.name}")
+        Check(
+            "name_persisted",
+            reopened.name == "conformance-tree",
+            f"name={reopened.name}",
+        )
     )
 
     # ----- /new starts a fresh native session --------------------------
@@ -277,7 +284,9 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
     fork_ok = bool(fork_files) and "parentSession" in fork_files[0].read_text(
         encoding="utf-8"
     )
-    checks.append(Check("fork_command", fork_ok, f"forked={[f.name for f in fork_files]}"))
+    checks.append(
+        Check("fork_command", fork_ok, f"forked={[f.name for f in fork_files]}")
+    )
 
     # 8. /clone duplicates the active branch -> new file
     clone_cwd = session_dir_root / "ws_clone"
@@ -289,7 +298,9 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
     clone_ok = bool(clone_files) and all(
         s in clone_files[0].read_text(encoding="utf-8") for s in ("aa", "bb")
     )
-    checks.append(Check("clone_command", clone_ok, f"cloned={[f.name for f in clone_files]}"))
+    checks.append(
+        Check("clone_command", clone_ok, f"cloned={[f.name for f in clone_files]}")
+    )
 
     # 9. durable compaction entry honored on rebuild
     comp_cwd = session_dir_root / "ws_comp"
@@ -302,9 +313,7 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
         "\n".join(["a", "b", "c", "d", "/compact", "e", "/exit", ""]),
     )
     comp_reopened = NativeSessionTree.open(comp_tree.path)
-    has_compaction = any(
-        e.type == "compaction" for e in comp_reopened.get_entries()
-    )
+    has_compaction = any(e.type == "compaction" for e in comp_reopened.get_entries())
     rebuilt = comp_reopened.build_context().messages
     summary_in_ctx = any(
         isinstance(m, AgentUserMessage) and "compacted" in m.content.value.lower()
@@ -339,7 +348,9 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
         ]
         # The most recent retained user turns (kept across compaction) survive
         # the clone; the oldest dropped turn does not reappear.
-        cfork_ok = "d" in cloned_users and "e" in cloned_users and "a" not in cloned_users
+        cfork_ok = (
+            "d" in cloned_users and "e" in cloned_users and "a" not in cloned_users
+        )
     checks.append(
         Check(
             "compacted_fork_preserves_kept",
@@ -359,9 +370,7 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
         "\n".join(["ROOT", "MAIN", "/tree select 1 summarize", "ALT", "/exit", ""]),
     )
     bs_reopened = NativeSessionTree.open(bs_tree.path)
-    has_summary = any(
-        e.type == "branch_summary" for e in bs_reopened.get_entries()
-    )
+    has_summary = any(e.type == "branch_summary" for e in bs_reopened.get_entries())
     summary_used = any(
         isinstance(m, AgentUserMessage) and "abandoned" in m.content.value.lower()
         for m in bs_reopened.build_context().messages
@@ -468,7 +477,9 @@ def run_checks(state_root: Path, session_dir_root: Path) -> list[Check]:
         and any(isinstance(m, AgentUserMessage) for m in rr.build_context().messages)
     )
     checks.append(
-        Check("reload_reconstruction", reload_ok, f"name={rr.name} labels={len(labels)}")
+        Check(
+            "reload_reconstruction", reload_ok, f"name={rr.name} labels={len(labels)}"
+        )
     )
 
     # 14. metadata archive privacy: secret prompt body never reaches the archive
@@ -528,18 +539,36 @@ def _startup_cli_checks(base: Path) -> list[Check]:
     store = base / "cli-store"
 
     def project_dir(cwd: Path) -> Path:
-        return default_native_session_dir(cwd.expanduser().resolve(), sessions_root=store)
+        return default_native_session_dir(
+            cwd.expanduser().resolve(), sessions_root=store
+        )
 
     # 15. --session-id open-exact-or-create + --session-dir override.
     cwd = base / "cli_ws_sid"
     cwd.mkdir(parents=True, exist_ok=True)
     rc1, _ = _run_cli(
-        _repl_argv(cwd, archive, "sid-1", "--session-dir", str(store), "--session-id", "fixed-conf-id"),
+        _repl_argv(
+            cwd,
+            archive,
+            "sid-1",
+            "--session-dir",
+            str(store),
+            "--session-id",
+            "fixed-conf-id",
+        ),
         "/exit\n",
     )
     after_first = list_native_sessions(project_dir(cwd))
     rc2, _ = _run_cli(
-        _repl_argv(cwd, archive, "sid-2", "--session-dir", str(store), "--session-id", "fixed-conf-id"),
+        _repl_argv(
+            cwd,
+            archive,
+            "sid-2",
+            "--session-dir",
+            str(store),
+            "--session-id",
+            "fixed-conf-id",
+        ),
         "/exit\n",
     )
     after_second = list_native_sessions(project_dir(cwd))
@@ -562,7 +591,15 @@ def _startup_cli_checks(base: Path) -> list[Check]:
     name_cwd = base / "cli_ws_name"
     name_cwd.mkdir(parents=True, exist_ok=True)
     rc, _ = _run_cli(
-        _repl_argv(name_cwd, archive, "name-1", "--session-dir", str(store), "-n", "named-at-startup"),
+        _repl_argv(
+            name_cwd,
+            archive,
+            "name-1",
+            "--session-dir",
+            str(store),
+            "-n",
+            "named-at-startup",
+        ),
         "/exit\n",
     )
     named = list_native_sessions(project_dir(name_cwd))
@@ -578,7 +615,16 @@ def _startup_cli_checks(base: Path) -> list[Check]:
     mx_cwd = base / "cli_ws_mx"
     mx_cwd.mkdir(parents=True, exist_ok=True)
     rc, err = _run_cli(
-        _repl_argv(mx_cwd, archive, "mx-1", "--session-dir", str(store), "--fork", "x", "--continue"),
+        _repl_argv(
+            mx_cwd,
+            archive,
+            "mx-1",
+            "--session-dir",
+            str(store),
+            "--fork",
+            "x",
+            "--continue",
+        ),
         "/exit\n",
     )
     checks.append(
@@ -593,11 +639,13 @@ def _startup_cli_checks(base: Path) -> list[Check]:
     old_cwd = base / "cli_ws_old"
     old_cwd.mkdir(parents=True, exist_ok=True)
     rc_resume, err_resume = _run_cli(
-        _repl_argv(old_cwd, archive, "old-1", "--session-dir", str(store)) + ["--resume", "rec"],
+        _repl_argv(old_cwd, archive, "old-1", "--session-dir", str(store))
+        + ["--resume", "rec"],
         "/exit\n",
     )
     rc_branch, err_branch = _run_cli(
-        _repl_argv(old_cwd, archive, "old-2", "--session-dir", str(store)) + ["--branch", "lbl"],
+        _repl_argv(old_cwd, archive, "old-2", "--session-dir", str(store))
+        + ["--branch", "lbl"],
         "/exit\n",
     )
     # Rejected with an explicit retirement message (not silently abbreviated to
@@ -622,7 +670,9 @@ def _startup_cli_checks(base: Path) -> list[Check]:
     proj_a = base / "cli_proj_a"
     proj_a.mkdir(parents=True, exist_ok=True)
     _run_cli(
-        _repl_argv(proj_a, archive, "xp-seed", "--session-dir", str(store), "-n", "from-a"),
+        _repl_argv(
+            proj_a, archive, "xp-seed", "--session-dir", str(store), "-n", "from-a"
+        ),
         "/exit\n",
     )
     seed = list_native_sessions(project_dir(proj_a))
@@ -630,12 +680,28 @@ def _startup_cli_checks(base: Path) -> list[Check]:
     proj_b = base / "cli_proj_b"
     proj_b.mkdir(parents=True, exist_ok=True)
     rc_decline, err_decline = _run_cli(
-        _repl_argv(proj_b, archive, "xp-no", "--session-dir", str(store), "--session", seed_id[:8]),
+        _repl_argv(
+            proj_b,
+            archive,
+            "xp-no",
+            "--session-dir",
+            str(store),
+            "--session",
+            seed_id[:8],
+        ),
         "n\n/exit\n",
     )
     forked_after_decline = list_native_sessions(project_dir(proj_b))
     rc_accept, _ = _run_cli(
-        _repl_argv(proj_b, archive, "xp-yes", "--session-dir", str(store), "--session", seed_id[:8]),
+        _repl_argv(
+            proj_b,
+            archive,
+            "xp-yes",
+            "--session-dir",
+            str(store),
+            "--session",
+            seed_id[:8],
+        ),
         "y\n/exit\n",
     )
     forked_after_accept = list_native_sessions(project_dir(proj_b))
@@ -660,7 +726,9 @@ def _startup_cli_checks(base: Path) -> list[Check]:
     r_cwd = base / "cli_ws_r"
     r_cwd.mkdir(parents=True, exist_ok=True)
     _run_cli(
-        _repl_argv(r_cwd, archive, "r-seed", "--session-dir", str(store), "-n", "seed-r"),
+        _repl_argv(
+            r_cwd, archive, "r-seed", "--session-dir", str(store), "-n", "seed-r"
+        ),
         "/exit\n",
     )
     before_r = [s.session_id for s in list_native_sessions(project_dir(r_cwd))]
@@ -717,18 +785,16 @@ def _resume_picker_product_checks(base: Path) -> list[Check]:
     store = base / "picker-store"
     cwd = base / "picker_ws"
     cwd.mkdir(parents=True, exist_ok=True)
-    session_dir = default_native_session_dir(cwd.expanduser().resolve(), sessions_root=store)
+    session_dir = default_native_session_dir(
+        cwd.expanduser().resolve(), sessions_root=store
+    )
 
     active = NativeSessionTree.create(cwd, session_dir=session_dir)
     active.append_message(AgentUserMessage(content=ProductContent("ACTIVE")))
     to_rename = NativeSessionTree.create(cwd, session_dir=session_dir)
-    to_rename.append_message(
-        AgentUserMessage(content=ProductContent("RENAME_ME"))
-    )
+    to_rename.append_message(AgentUserMessage(content=ProductContent("RENAME_ME")))
     to_delete = NativeSessionTree.create(cwd, session_dir=session_dir)
-    to_delete.append_message(
-        AgentUserMessage(content=ProductContent("DELETE_ME"))
-    )
+    to_delete.append_message(AgentUserMessage(content=ProductContent("DELETE_ME")))
 
     session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
     ui = _ScriptedPickerUi(
@@ -794,7 +860,10 @@ def _check_archive_privacy(base: Path) -> tuple[bool, str]:
     # The secret is present in the native product transcript but absent from the
     # metadata archive record.
     ok = secret in native_body and secret not in archive_body
-    return ok, f"secret_in_native={secret in native_body} secret_in_archive={secret in archive_body}"
+    return (
+        ok,
+        f"secret_in_native={secret in native_body} secret_in_archive={secret in archive_body}",
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -815,8 +884,7 @@ def main(argv: list[str] | None = None) -> int:
         report = {
             "passed": passed,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
-                for c in checks
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
             ],
         }
         print(json.dumps(report, indent=2))

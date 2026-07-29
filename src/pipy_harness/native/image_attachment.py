@@ -312,11 +312,15 @@ def _resolve_one(
     try:
         data = candidate.read_bytes()
     except OSError:
-        return ResolvedImageAttachment(raw=token, loaded=False, reason=_READ_FAILED_REASON)
+        return ResolvedImageAttachment(
+            raw=token, loaded=False, reason=_READ_FAILED_REASON
+        )
     # Re-check the in-memory size after reading: the on-disk file could have
     # grown between stat and read, and the aggregate budget is authoritative.
     if len(data) > max_attachment_bytes or loaded_bytes + len(data) > max_total_bytes:
-        return ResolvedImageAttachment(raw=token, loaded=False, reason=_OVERSIZED_REASON)
+        return ResolvedImageAttachment(
+            raw=token, loaded=False, reason=_OVERSIZED_REASON
+        )
     media_type = detect_image_media_type(data)
     if media_type is None or media_type not in SUPPORTED_IMAGE_MEDIA_TYPES:
         return ResolvedImageAttachment(

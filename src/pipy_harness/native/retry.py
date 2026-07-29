@@ -21,7 +21,9 @@ from typing import Any, Protocol, TypeVar, runtime_checkable
 
 T = TypeVar("T")
 
-DEFAULT_RETRIABLE_STATUSES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
+DEFAULT_RETRIABLE_STATUSES: frozenset[int] = frozenset(
+    {408, 425, 429, 500, 502, 503, 504}
+)
 
 
 @runtime_checkable
@@ -56,7 +58,9 @@ class RetryPolicy:
     retriable_statuses: frozenset[int] = field(default=DEFAULT_RETRIABLE_STATUSES)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.max_attempts, int) or isinstance(self.max_attempts, bool):
+        if not isinstance(self.max_attempts, int) or isinstance(
+            self.max_attempts, bool
+        ):
             raise ValueError("max_attempts must be an int between 1 and 10.")
         if self.max_attempts < 1 or self.max_attempts > 10:
             raise ValueError("max_attempts must be between 1 and 10.")

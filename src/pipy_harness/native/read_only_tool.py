@@ -23,7 +23,9 @@ from pipy_harness.native.models import (
 
 _PIPY_AUTHORITY = "pipy-owned"
 _TEXT_ENCODING = "utf-8"
-_SHELLISH_MARKERS = frozenset({"~", "$", "`", "*", "?", "[", "]", "{", "}", "|", ";", "&", "<", ">"})
+_SHELLISH_MARKERS = frozenset(
+    {"~", "$", "`", "*", "?", "[", "]", "{", "}", "|", ";", "&", "<", ">"}
+)
 _GENERATED_PARTS = frozenset(
     {
         ".git",
@@ -69,7 +71,9 @@ _GENERATED_SUFFIXES = frozenset(
         ".zip",
     }
 )
-_CONTROL_CHARS = frozenset(chr(value) for value in range(32)) - frozenset({"\n", "\r", "\t"})
+_CONTROL_CHARS = frozenset(chr(value) for value in range(32)) - frozenset(
+    {"\n", "\r", "\t"}
+)
 
 
 class NativeReadOnlyApprovalDecision(StrEnum):
@@ -190,9 +194,12 @@ class NativeExplicitFileExcerptResult:
             "reason_label": self.reason_label.value,
             "duration_seconds": _duration_seconds(self.started_at, self.ended_at),
             "approval_policy": self.approval_policy.value,
-            "approval_required": self.approval_policy == NativeToolApprovalMode.REQUIRED,
+            "approval_required": self.approval_policy
+            == NativeToolApprovalMode.REQUIRED,
             "approval_resolved": self.approval_decision is not None,
-            "approval_decision": self.approval_decision.value if self.approval_decision else None,
+            "approval_decision": self.approval_decision.value
+            if self.approval_decision
+            else None,
             "sandbox_policy": self.sandbox_policy.value,
             "workspace_read_allowed": self.workspace_read_allowed,
             "filesystem_mutation_allowed": self.filesystem_mutation_allowed,
@@ -203,7 +210,9 @@ class NativeExplicitFileExcerptResult:
             "byte_count": self.byte_count,
             "line_count": self.line_count,
             "excerpt_count": 1 if self.status == NativeToolStatus.SUCCEEDED else 0,
-            "distinct_source_file_count": 1 if self.status == NativeToolStatus.SUCCEEDED else 0,
+            "distinct_source_file_count": 1
+            if self.status == NativeToolStatus.SUCCEEDED
+            else 0,
             # Keep archive-facing storage flags literal false even if a result is
             # constructed incorrectly; excerpt text is in-memory only.
             "tool_payloads_stored": False,
@@ -311,7 +320,9 @@ class _ResultBuilder:
     approval_decision: NativeReadOnlyApprovalDecision
     target: NativeExplicitFileExcerptTarget
 
-    def skipped(self, reason: NativeExplicitFileExcerptReason) -> NativeExplicitFileExcerptResult:
+    def skipped(
+        self, reason: NativeExplicitFileExcerptReason
+    ) -> NativeExplicitFileExcerptResult:
         source_label = _source_label(self.target.workspace_relative_path)
         source_sha256 = _source_hash(self.target.workspace_relative_path)
         return NativeExplicitFileExcerptResult(
@@ -372,7 +383,10 @@ def _request_approval_reason(
     reason = _request_gate_reason(request)
     if reason is not None:
         return reason
-    if request.approval_policy.mode == NativeToolApprovalMode.REQUIRED and not gate_decision.allowed:
+    if (
+        request.approval_policy.mode == NativeToolApprovalMode.REQUIRED
+        and not gate_decision.allowed
+    ):
         return NativeExplicitFileExcerptReason.APPROVAL_NOT_ALLOWED
     return None
 
@@ -553,11 +567,19 @@ def _matches_root_ignore(relative_path: str, workspace: Path) -> bool:
 
 
 def _byte_limit(limits: NativeReadOnlyToolLimits) -> int:
-    return min(limits.per_excerpt_bytes, limits.per_source_file_bytes, limits.total_context_bytes)
+    return min(
+        limits.per_excerpt_bytes,
+        limits.per_source_file_bytes,
+        limits.total_context_bytes,
+    )
 
 
 def _line_limit(limits: NativeReadOnlyToolLimits) -> int:
-    return min(limits.per_excerpt_lines, limits.per_source_file_lines, limits.total_context_lines)
+    return min(
+        limits.per_excerpt_lines,
+        limits.per_source_file_lines,
+        limits.total_context_lines,
+    )
 
 
 def _line_count(text: str) -> int:
@@ -746,19 +768,13 @@ def _resolve_against_roots(
         )
     if matching_reference_roots:
         return _resolved_reference_path(candidate, matching_reference_roots[0])
-    raise ValueError(
-        "path is outside the workspace and any configured reference root"
-    )
+    raise ValueError("path is outside the workspace and any configured reference root")
 
 
 def _resolved_reference_path(candidate: Path, ref_root: Path) -> ResolvedToolPath:
     relative = candidate.relative_to(ref_root).as_posix()
     root_label = ref_root.name or "reference-root"
-    display = (
-        f"{root_label}/{relative}"
-        if relative not in {"", "."}
-        else root_label
-    )
+    display = f"{root_label}/{relative}" if relative not in {"", "."} else root_label
     return ResolvedToolPath(
         resolved=candidate,
         root=ref_root,
@@ -769,4 +785,6 @@ def _resolved_reference_path(candidate: Path, ref_root: Path) -> ResolvedToolPat
 
 
 def _duration_seconds(started_at: datetime, ended_at: datetime) -> float:
-    return max(0.0, (ended_at.astimezone(UTC) - started_at.astimezone(UTC)).total_seconds())
+    return max(
+        0.0, (ended_at.astimezone(UTC) - started_at.astimezone(UTC)).total_seconds()
+    )

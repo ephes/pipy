@@ -168,10 +168,14 @@ class NativeTurnMetadata:
                 or self.duration_seconds < 0
                 or not isfinite(self.duration_seconds)
             ):
-                raise ValueError("duration_seconds must be a finite non-negative number")
+                raise ValueError(
+                    "duration_seconds must be a finite non-negative number"
+                )
         for field_name in NATIVE_TURN_STORAGE_KEYS:
             if getattr(self, field_name) is not False:
-                raise ValueError(f"{field_name} must remain false for native turn metadata")
+                raise ValueError(
+                    f"{field_name} must remain false for native turn metadata"
+                )
 
     @classmethod
     def from_identity(
@@ -275,7 +279,9 @@ class NativeConversationTurn:
 class NativeConversationState:
     """Immutable bounded in-memory state for native provider turns."""
 
-    conversation_id: NativeConversationIdentity = field(default_factory=NativeConversationIdentity.bootstrap)
+    conversation_id: NativeConversationIdentity = field(
+        default_factory=NativeConversationIdentity.bootstrap
+    )
     turns: tuple[NativeConversationTurn, ...] = ()
     max_turns: int = 2
 
@@ -283,7 +289,9 @@ class NativeConversationState:
 
     def __post_init__(self) -> None:
         if not isinstance(self.conversation_id, NativeConversationIdentity):
-            raise ValueError("conversation state requires a native conversation identity")
+            raise ValueError(
+                "conversation state requires a native conversation identity"
+            )
         _validate_bounded_integer(
             "max_turns",
             self.max_turns,
@@ -294,9 +302,13 @@ class NativeConversationState:
             raise ValueError("conversation turn count exceeds the configured bound")
         for expected_index, turn in enumerate(self.turns):
             if not isinstance(turn, NativeConversationTurn):
-                raise ValueError("conversation state requires native conversation turns")
+                raise ValueError(
+                    "conversation state requires native conversation turns"
+                )
             if turn.identity.conversation_id != self.conversation_id:
-                raise ValueError("conversation turn identity must match conversation state")
+                raise ValueError(
+                    "conversation turn identity must match conversation state"
+                )
             if turn.identity.turn_index != expected_index:
                 raise ValueError("conversation turns must be contiguous and ordered")
 
@@ -330,7 +342,9 @@ class NativeConversationState:
             raise ValueError("conversation turn identity must match conversation state")
         expected_identity = self.next_turn_identity()
         if turn.identity != expected_identity:
-            raise ValueError("conversation turns must use the next pipy-owned turn identity")
+            raise ValueError(
+                "conversation turns must use the next pipy-owned turn identity"
+            )
         return replace(self, turns=(*self.turns, turn))
 
     def append_provider_turn(
@@ -369,7 +383,9 @@ def _validate_bounded_integer(
     if not isinstance(value, int) or isinstance(value, bool):
         raise ValueError(f"{field_name} must be an integer")
     if value < lower_bound or value > upper_bound:
-        raise ValueError(f"{field_name} must be between {lower_bound} and {upper_bound}")
+        raise ValueError(
+            f"{field_name} must be between {lower_bound} and {upper_bound}"
+        )
 
 
 def _validate_safe_label(field_name: str, value: str, *, max_length: int = 128) -> None:

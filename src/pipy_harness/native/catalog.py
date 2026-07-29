@@ -22,7 +22,13 @@ from typing import Any
 # The six-value thinking vocabulary used by the CLI surface (Pi's args.ts),
 # which includes "off" alongside packages/ai/src/types.ts ThinkingLevel.
 THINKING_LEVELS: tuple[str, ...] = (
-    "off", "minimal", "low", "medium", "high", "xhigh", "max",
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
 )
 
 

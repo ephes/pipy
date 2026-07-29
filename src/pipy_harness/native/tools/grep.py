@@ -88,9 +88,7 @@ class GrepTool:
             or self.timeout_seconds <= 0
             or self.timeout_seconds > 60.0
         ):
-            raise ValueError(
-                "GrepTool timeout_seconds must be in (0, 60]"
-            )
+            raise ValueError("GrepTool timeout_seconds must be in (0, 60]")
         if (
             not isinstance(self.max_scan_file_bytes, int)
             or isinstance(self.max_scan_file_bytes, bool)
@@ -122,9 +120,7 @@ class GrepTool:
                         "type": "string",
                         "minLength": 1,
                         "maxLength": 1024,
-                        "description": (
-                            "Literal string to search for; not a regex."
-                        ),
+                        "description": ("Literal string to search for; not a regex."),
                     },
                     "path": {
                         "type": "string",
@@ -142,9 +138,7 @@ class GrepTool:
             },
         )
 
-    def invoke(
-        self, request: ToolRequest, context: ToolContext
-    ) -> ToolExecutionResult:
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         pattern = self._validated_pattern(request)
         location = self._search_location(request, context)
         if isinstance(location, ToolExecutionResult):
@@ -177,9 +171,7 @@ class GrepTool:
                 reference_roots=context.reference_roots,
             )
         except ValueError as exc:
-            raise ToolArgumentError(
-                "grep", str(exc), field_path=("path",)
-            ) from None
+            raise ToolArgumentError("grep", str(exc), field_path=("path",)) from None
         if _is_ignored_or_generated(resolved.relative_label, resolved.root):
             return self._error(
                 request,
@@ -201,9 +193,7 @@ class GrepTool:
             return ""
         return (root.name or "reference-root") + "/"
 
-    def _search(
-        self, pattern: str, location: _SearchLocation
-    ) -> tuple[str, bool]:
+    def _search(self, pattern: str, location: _SearchLocation) -> tuple[str, bool]:
         search = (
             self._search_with_rg
             if shutil.which("rg") is not None
@@ -222,11 +212,7 @@ class GrepTool:
         request: ToolRequest, output: str, truncated: bool
     ) -> ToolExecutionResult:
         if truncated:
-            output = (
-                output + "\n" + TRUNCATION_MARKER
-                if output
-                else TRUNCATION_MARKER
-            )
+            output = output + "\n" + TRUNCATION_MARKER if output else TRUNCATION_MARKER
         if not output:
             output = "(no matches)"
         return ToolExecutionResult(
@@ -370,9 +356,7 @@ class GrepTool:
         return text
 
     @staticmethod
-    def _matching_rows(
-        text: str, pattern: str, display_label: str
-    ) -> Iterable[str]:
+    def _matching_rows(text: str, pattern: str, display_label: str) -> Iterable[str]:
         for line_number, line in enumerate(text.splitlines(), start=1):
             if pattern in line:
                 yield f"{display_label}:{line_number}:{line}"

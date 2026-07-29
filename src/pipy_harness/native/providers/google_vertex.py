@@ -184,7 +184,9 @@ def _build_thinking_config(
         if _uses_thinking_level(model_id):
             config["thinkingLevel"] = _google_thinking_level(reasoning_effort, model_id)
         else:
-            config["thinkingBudget"] = _google_thinking_budget(model_id, reasoning_effort)
+            config["thinkingBudget"] = _google_thinking_budget(
+                model_id, reasoning_effort
+            )
         return config
     if thinking_disabled:
         return _disabled_thinking_config(model_id)
@@ -251,12 +253,13 @@ class GoogleVertexProvider:
 
     model_id: str
     project_id: str | None = field(
-        default_factory=lambda: os.environ.get("GOOGLE_CLOUD_PROJECT")
-        or os.environ.get("GOOGLE_PROJECT_ID")
+        default_factory=lambda: (
+            os.environ.get("GOOGLE_CLOUD_PROJECT")
+            or os.environ.get("GOOGLE_PROJECT_ID")
+        )
     )
     location: str = field(
-        default_factory=lambda: os.environ.get("GOOGLE_CLOUD_LOCATION")
-        or "us-central1"
+        default_factory=lambda: os.environ.get("GOOGLE_CLOUD_LOCATION") or "us-central1"
     )
     access_token: str | None = field(
         default_factory=lambda: os.environ.get("GOOGLE_ACCESS_TOKEN"), repr=False

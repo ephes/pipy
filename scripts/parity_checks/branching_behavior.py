@@ -43,7 +43,11 @@ def _seed_parent(root: Path) -> Path:
         root=root,
         event_type="native.session.completed",
         summary="parent done",
-        payload={"provider": "fake", "model_id": "fake-native-bootstrap", "turn_count": 2},
+        payload={
+            "provider": "fake",
+            "model_id": "fake-native-bootstrap",
+            "turn_count": 2,
+        },
     )
     return finalize_session(active, root=root).jsonl_path
 

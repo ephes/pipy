@@ -290,9 +290,7 @@ def _record_disabled_source(
     accumulator: _PackageResolutionAccumulator,
 ) -> None:
     name = _safe_name_from_source(display_source)
-    accumulator.packages.append(
-        PackageInfo(name, _label_for(name), "disabled", reason)
-    )
+    accumulator.packages.append(PackageInfo(name, _label_for(name), "disabled", reason))
     accumulator.diagnostics.append(f"{diagnostic_prefix}: {name}")
 
 
@@ -322,9 +320,7 @@ def _materialize_package(
                     f"package {name}: skipped {kind} dir {relative!r}"
                 )
                 continue
-            accumulator.per_kind[kind].append(
-                PackageRoot(root, spec.filter_for(kind))
-            )
+            accumulator.per_kind[kind].append(PackageRoot(root, spec.filter_for(kind)))
     accumulator.packages.append(PackageInfo(name, _label_for(name), "loaded", ""))
 
 
@@ -420,7 +416,9 @@ def _safe_resource_dir(package_dir: Path, relative: str) -> Path | None:
     return resolved
 
 
-def _cached_git_path(source: str, workspace_root: Path, scope: str | None) -> Path | None:
+def _cached_git_path(
+    source: str, workspace_root: Path, scope: str | None
+) -> Path | None:
     """Return an installed git cache path for `source`.
 
     Runtime settings entries carry their originating scope so a user/global git

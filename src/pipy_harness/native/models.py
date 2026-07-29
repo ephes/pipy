@@ -192,10 +192,7 @@ class ProviderToolCall:
             raise ValueError(
                 "ProviderToolCall requires a non-empty provider_correlation_id"
             )
-        if (
-            len(self.provider_correlation_id)
-            > self.PROVIDER_CORRELATION_ID_MAX_LENGTH
-        ):
+        if len(self.provider_correlation_id) > self.PROVIDER_CORRELATION_ID_MAX_LENGTH:
             raise ValueError(
                 "ProviderToolCall provider_correlation_id exceeds "
                 f"{self.PROVIDER_CORRELATION_ID_MAX_LENGTH} characters"
@@ -446,7 +443,9 @@ class NativeReadOnlyToolRequest:
     tool_name: str = "read_only_repo_inspection"
     tool_kind: str = "read_only_workspace"
     approval_policy: NativeToolApprovalPolicy = field(
-        default_factory=lambda: NativeToolApprovalPolicy(mode=NativeToolApprovalMode.REQUIRED)
+        default_factory=lambda: NativeToolApprovalPolicy(
+            mode=NativeToolApprovalMode.REQUIRED
+        )
     )
     sandbox_policy: NativeToolSandboxPolicy = field(
         default_factory=lambda: NativeToolSandboxPolicy(
@@ -628,7 +627,9 @@ class NativePatchApplyRequest:
     operations: tuple[NativePatchApplyOperationRequest, ...]
     request_source: str = "pipy-owned-human-reviewed"
     approval_policy: NativeToolApprovalPolicy = field(
-        default_factory=lambda: NativeToolApprovalPolicy(mode=NativeToolApprovalMode.REQUIRED)
+        default_factory=lambda: NativeToolApprovalPolicy(
+            mode=NativeToolApprovalMode.REQUIRED
+        )
     )
     sandbox_policy: NativeToolSandboxPolicy = field(
         default_factory=lambda: NativeToolSandboxPolicy(
@@ -686,7 +687,9 @@ class NativeVerificationRequest:
     command_label: NativeVerificationCommand | str
     request_source: str = "pipy-owned-human-reviewed"
     approval_policy: NativeToolApprovalPolicy = field(
-        default_factory=lambda: NativeToolApprovalPolicy(mode=NativeToolApprovalMode.REQUIRED)
+        default_factory=lambda: NativeToolApprovalPolicy(
+            mode=NativeToolApprovalMode.REQUIRED
+        )
     )
     sandbox_policy: NativeToolSandboxPolicy = field(
         default_factory=lambda: NativeToolSandboxPolicy(
@@ -711,16 +714,22 @@ class NativeVerificationRequest:
         if self.turn_index != identity.turn_index:
             raise ValueError("verification requires pipy-owned turn_index")
         if self.request_source != "pipy-owned-human-reviewed":
-            raise ValueError("verification requires pipy-owned human-reviewed request source")
+            raise ValueError(
+                "verification requires pipy-owned human-reviewed request source"
+            )
         if not isinstance(self.command_label, NativeVerificationCommand | str):
             raise ValueError("verification command_label must be a safe label")
         if isinstance(self.command_label, str) and (
             not self.command_label or len(self.command_label) > 80
         ):
-            raise ValueError("verification command_label must be a short non-empty label")
+            raise ValueError(
+                "verification command_label must be a short non-empty label"
+            )
         for field_name in NATIVE_VERIFICATION_STORAGE_KEYS:
             if getattr(self, field_name) is not False:
-                raise ValueError(f"{field_name} must remain false for verification requests")
+                raise ValueError(
+                    f"{field_name} must remain false for verification requests"
+                )
         if self.scope_label is not None:
             _validate_scope_label(self.scope_label)
 
@@ -762,11 +771,17 @@ def _validate_read_only_request_policy(
         NativeToolApprovalMode.NOT_REQUIRED,
         NativeToolApprovalMode.REQUIRED,
     }:
-        raise ValueError("read-only workspace inspection has unsupported approval policy")
+        raise ValueError(
+            "read-only workspace inspection has unsupported approval policy"
+        )
     if sandbox_policy.mode != NativeToolSandboxMode.READ_ONLY_WORKSPACE:
-        raise ValueError("read-only workspace inspection requires read-only-workspace sandbox")
+        raise ValueError(
+            "read-only workspace inspection requires read-only-workspace sandbox"
+        )
     if sandbox_policy.workspace_read_allowed is not True:
-        raise ValueError("read-only workspace inspection requires workspace_read_allowed")
+        raise ValueError(
+            "read-only workspace inspection requires workspace_read_allowed"
+        )
     for field_name in (
         "filesystem_mutation_allowed",
         "shell_execution_allowed",
@@ -804,7 +819,9 @@ def _validate_patch_apply_request_policy(
     sandbox_policy: NativeToolSandboxPolicy,
 ) -> None:
     if request_source != "pipy-owned-human-reviewed":
-        raise ValueError("patch apply requires pipy-owned human-reviewed request source")
+        raise ValueError(
+            "patch apply requires pipy-owned human-reviewed request source"
+        )
     if approval_policy.mode != NativeToolApprovalMode.REQUIRED:
         raise ValueError("patch apply requires approval")
     _validate_patch_apply_sandbox_policy(sandbox_policy)
@@ -873,7 +890,9 @@ def _validate_patch_apply_operation_constraints(
         operation.operation != NativePatchApplyOperation.RENAME
         and operation.target_workspace_relative_path is not None
     ):
-        raise ValueError("patch apply target paths are supported only for rename operations")
+        raise ValueError(
+            "patch apply target paths are supported only for rename operations"
+        )
     if operation.operation == NativePatchApplyOperation.RENAME:
         if operation.target_workspace_relative_path is None:
             raise ValueError("patch apply rename requires a target path")

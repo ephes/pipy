@@ -87,7 +87,9 @@ DISPATCH_TEMPLATE_RUN = "template_run"
 DISPATCH_COMMAND_RUN = "command_run"
 DISPATCH_REJECT = "reject"
 
-_RUN_KINDS = frozenset({DISPATCH_SKILL_RUN, DISPATCH_TEMPLATE_RUN, DISPATCH_COMMAND_RUN})
+_RUN_KINDS = frozenset(
+    {DISPATCH_SKILL_RUN, DISPATCH_TEMPLATE_RUN, DISPATCH_COMMAND_RUN}
+)
 
 
 def _is_executable_command_token(name: str) -> bool:

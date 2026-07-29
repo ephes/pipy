@@ -53,6 +53,7 @@ Rules:
 
 # -- ANSI styling (the component owns its own styling; trusted local code) ----
 
+
 def _dim(s: str) -> str:
     return f"\x1b[2m{s}\x1b[0m"
 

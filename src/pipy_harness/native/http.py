@@ -28,7 +28,11 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Protocol, Self, TypeVar
 
 from pipy_harness.capture import sanitize_text
-from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
+from pipy_harness.native.cancellation import (
+    CancelToken,
+    ProviderCancelledError,
+    _safe_close,
+)
 
 # Exceptions that a concurrent :meth:`CancelToken.cancel` can surface from a
 # blocked ``http.client`` read once it shuts the socket down. The expected
@@ -105,7 +109,9 @@ class _ConnectionCloser:
         self._sock = getattr(conn, "sock", None)
 
     def close(self) -> None:
-        sock = self._sock if self._sock is not None else getattr(self._conn, "sock", None)
+        sock = (
+            self._sock if self._sock is not None else getattr(self._conn, "sock", None)
+        )
         if sock is not None:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
@@ -248,9 +254,7 @@ def urlopen_read_cancellable(
         raise
     except CANCELLED_READ_ERRORS as exc:
         if cancel_token.cancelled:
-            raise ProviderCancelledError(
-                "native provider turn cancelled"
-            ) from exc
+            raise ProviderCancelledError("native provider turn cancelled") from exc
         raise
     finally:
         _safe_close(response)
@@ -366,9 +370,13 @@ def decode_json_object(
     try:
         decoded = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise error_class(f"{provider_label} returned non-JSON response metadata.") from exc
+        raise error_class(
+            f"{provider_label} returned non-JSON response metadata."
+        ) from exc
     if not isinstance(decoded, Mapping):
-        raise error_class(f"{provider_label} returned unsupported JSON response metadata.")
+        raise error_class(
+            f"{provider_label} returned unsupported JSON response metadata."
+        )
     return decoded
 
 

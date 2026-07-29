@@ -76,7 +76,9 @@ from pipy_harness.native.openai_codex_provider import (
 from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
 from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
 from pipy_harness.native.providers.ds4 import Ds4ChatCompletionsProvider
-from pipy_harness.native.providers.google_generative_ai import GoogleGenerativeAIProvider
+from pipy_harness.native.providers.google_generative_ai import (
+    GoogleGenerativeAIProvider,
+)
 from pipy_harness.native.providers.mistral import MistralProvider
 from pipy_harness.native.providers.openai_responses import OpenAIResponsesProvider
 from pipy_harness.native.providers.openrouter import OpenRouterChatCompletionsProvider
@@ -131,7 +133,10 @@ from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     production_tool_registry,
 )
-from pipy_harness.native.usage import NORMALIZED_PROVIDER_USAGE_KEYS, normalize_provider_usage
+from pipy_harness.native.usage import (
+    NORMALIZED_PROVIDER_USAGE_KEYS,
+    normalize_provider_usage,
+)
 from pipy_harness.native.workspace_context import (
     DEFAULT_PER_FILE_BYTE_CAP,
     DEFAULT_TOTAL_BYTE_CAP,

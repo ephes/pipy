@@ -115,7 +115,9 @@ def _key_is_sensitive(key: str) -> bool:
 
 def _redact_text(value: str) -> str:
     value = _JSON_SECRET_FIELD_RE.sub(_redact_json_secret_field, value)
-    value = _SECRET_ASSIGN_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", value)
+    value = _SECRET_ASSIGN_RE.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", value
+    )
     value = _BEARER_RE.sub("Bearer [REDACTED]", value)
     return _COMMON_TOKEN_RE.sub("[REDACTED]", value)
 
@@ -163,7 +165,10 @@ def default_jsonl_export_path(*, cwd: Path) -> Path:
 
 
 def session_export_payload(
-    tree: NativeSessionTree, *, system_prompt: str = "", tools: list[dict[str, Any]] | None = None
+    tree: NativeSessionTree,
+    *,
+    system_prompt: str = "",
+    tools: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "header": tree.get_header().to_json_dict(),
@@ -231,7 +236,9 @@ def export_native_branch_to_jsonl(tree: NativeSessionTree, output_path: Path) ->
         }
     )
     lines = [json.dumps(header, sort_keys=True)]
-    lines.extend(json.dumps(entry, sort_keys=True) for entry in _linearized_entry_dicts(tree))
+    lines.extend(
+        json.dumps(entry, sort_keys=True) for entry in _linearized_entry_dicts(tree)
+    )
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return output
 
@@ -250,7 +257,9 @@ def export_from_file(session_path: Path, output_path: Path | None = None) -> Pat
     if not tree.get_entries():
         raise NativeExportError("Nothing to export yet.")
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(generate_session_html(session_export_payload(tree)), encoding="utf-8")
+    output.write_text(
+        generate_session_html(session_export_payload(tree)), encoding="utf-8"
+    )
     return output
 
 
@@ -268,7 +277,9 @@ def import_native_session_jsonl(
     if header.cwd and not cwd.exists() and replacement_cwd is None:
         raise NativeExportError(f"imported session cwd does not exist: {header.cwd}")
     if replacement_cwd is not None and not replacement_cwd.is_dir():
-        raise NativeExportError(f"replacement cwd is not a directory: {replacement_cwd}")
+        raise NativeExportError(
+            f"replacement cwd is not a directory: {replacement_cwd}"
+        )
     destination_dir = Path(session_dir).expanduser()
     destination_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -503,20 +514,33 @@ def fetch_latest_pipy_version(
 
 
 def detect_install_method(
-    *, executable: str | None = None, prefix: str | None = None, env: Mapping[str, str] | None = None
+    *,
+    executable: str | None = None,
+    prefix: str | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> str:
     source = env if env is not None else os.environ
     exe = Path(executable or source.get("_", "")).expanduser()
     prefix_text = prefix or source.get("VIRTUAL_ENV", "") or sys.prefix
-    uv_dir = Path(source.get("UV_TOOL_DIR", Path.home() / ".local" / "share" / "uv" / "tools"))
+    uv_dir = Path(
+        source.get("UV_TOOL_DIR", Path.home() / ".local" / "share" / "uv" / "tools")
+    )
     pipx_home = Path(source.get("PIPX_HOME", Path.home() / ".local" / "pipx"))
     try:
-        if exe and exe.is_absolute() and exe.resolve().is_relative_to(uv_dir.expanduser().resolve()):
+        if (
+            exe
+            and exe.is_absolute()
+            and exe.resolve().is_relative_to(uv_dir.expanduser().resolve())
+        ):
             return "uv-tool"
     except OSError:
         pass
     try:
-        if exe and exe.is_absolute() and exe.resolve().is_relative_to(pipx_home.expanduser().resolve()):
+        if (
+            exe
+            and exe.is_absolute()
+            and exe.resolve().is_relative_to(pipx_home.expanduser().resolve())
+        ):
             return "pipx"
     except OSError:
         pass

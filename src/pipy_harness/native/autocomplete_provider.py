@@ -94,18 +94,24 @@ def coerce_suggestion(value: object) -> AutocompleteSuggestion | None:
         mode = _coerce_completion_mode(value.mode)
         if mode == value.mode:
             return value
-        return AutocompleteSuggestion(value.items, value.prefix, value.token_start, mode)
+        return AutocompleteSuggestion(
+            value.items, value.prefix, value.token_start, mode
+        )
     if value is None:
         return None
     if isinstance(value, dict):
         items = coerce_completion_items(value.get("items"))
         prefix = str(value.get("prefix", ""))
-        token_start = int(cast(Any, value.get("token_start", value.get("tokenStart", -1))))
+        token_start = int(
+            cast(Any, value.get("token_start", value.get("tokenStart", -1)))
+        )
         mode = _coerce_completion_mode(value.get("mode", "at"))
     else:
         items = coerce_completion_items(getattr(value, "items", None))
         prefix = str(getattr(value, "prefix", ""))
-        token_start = int(getattr(value, "token_start", getattr(value, "tokenStart", -1)))
+        token_start = int(
+            getattr(value, "token_start", getattr(value, "tokenStart", -1))
+        )
         mode = _coerce_completion_mode(getattr(value, "mode", "at"))
     if not items or token_start < 0:
         return None
@@ -122,15 +128,21 @@ def coerce_apply_result(value: object) -> AutocompleteApplyResult | None:
         if isinstance(lines, list):
             rendered_lines = [str(line) for line in lines]
             text = "\n".join(rendered_lines)
-            offset = sum(len(line) + 1 for line in rendered_lines[: int(cast(Any, cursor_line))]) + int(cast(Any, cursor_col))
+            offset = sum(
+                len(line) + 1 for line in rendered_lines[: int(cast(Any, cursor_line))]
+            ) + int(cast(Any, cursor_col))
             return AutocompleteApplyResult(text, max(0, min(len(text), offset)))
         if "text" in value:
             text_value = str(value["text"])
-            return AutocompleteApplyResult(text_value, int(cast(Any, value.get("cursor", len(text_value)))))
+            return AutocompleteApplyResult(
+                text_value, int(cast(Any, value.get("cursor", len(text_value))))
+            )
     attr_text = getattr(value, "text", None)
     if attr_text is not None:
         rendered = str(attr_text)
-        return AutocompleteApplyResult(rendered, int(cast(Any, getattr(value, "cursor", len(rendered)))))
+        return AutocompleteApplyResult(
+            rendered, int(cast(Any, getattr(value, "cursor", len(rendered))))
+        )
     return None
 
 

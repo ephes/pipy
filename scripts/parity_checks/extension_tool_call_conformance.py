@@ -251,8 +251,7 @@ def main(argv: list[str] | None = None) -> int:
         report = {
             "passed": passed,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
-                for c in checks
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
             ],
         }
         print(json.dumps(report, indent=2))

@@ -56,9 +56,7 @@ _ALLOWED_ARRAY_KEYS = frozenset({"type", "items", "description"})
 _ALLOWED_STRING_KEYS = frozenset(
     {"type", "enum", "minLength", "maxLength", "description"}
 )
-_ALLOWED_INTEGER_KEYS = frozenset(
-    {"type", "minimum", "maximum", "description"}
-)
+_ALLOWED_INTEGER_KEYS = frozenset({"type", "minimum", "maximum", "description"})
 _ALLOWED_BOOLEAN_KEYS = frozenset({"type", "description"})
 
 
@@ -83,9 +81,7 @@ class ToolArgumentError(ValueError):
             raise ValueError("ToolArgumentError requires a non-empty message")
         self.tool_name = tool_name
         self.field_path = tuple(str(part) for part in field_path)
-        path_label = (
-            "." + ".".join(self.field_path) if self.field_path else ""
-        )
+        path_label = "." + ".".join(self.field_path) if self.field_path else ""
         super().__init__(f"{tool_name}{path_label}: {message}")
 
 
@@ -121,9 +117,7 @@ def _materialize_tool_schema_value(
             for key, child in value.items():
                 if type(key) is not str:
                     raise TypeError("tool input schema keys must be exact strings")
-                result[key] = _materialize_tool_schema_value(
-                    child, active_containers
-                )
+                result[key] = _materialize_tool_schema_value(child, active_containers)
             return result
         finally:
             active_containers.remove(identity)
@@ -172,9 +166,7 @@ class ToolDefinition:
                 f"ToolDefinition name exceeds {self.NAME_MAX_LENGTH} characters"
             )
         if not self.name.replace("_", "").isalnum():
-            raise ValueError(
-                "ToolDefinition name must be alphanumeric or underscore"
-            )
+            raise ValueError("ToolDefinition name must be alphanumeric or underscore")
         if not isinstance(self.description, str) or not self.description:
             raise ValueError("ToolDefinition requires a non-empty description")
         if len(self.description) > self.DESCRIPTION_MAX_LENGTH:
@@ -219,8 +211,7 @@ class ToolRequest:
             or not self.provider_correlation_id
         ):
             raise ValueError(
-                "ToolRequest.provider_correlation_id must be a non-empty string "
-                "or None"
+                "ToolRequest.provider_correlation_id must be a non-empty string or None"
             )
 
 
@@ -242,9 +233,7 @@ class ToolExecutionResult:
 
     def __post_init__(self) -> None:
         if not isinstance(self.tool_request_id, str) or not self.tool_request_id:
-            raise ValueError(
-                "ToolExecutionResult requires a non-empty tool_request_id"
-            )
+            raise ValueError("ToolExecutionResult requires a non-empty tool_request_id")
         if not self.tool_request_id.startswith(AGENT_TOOL_REQUEST_ID_PREFIX):
             raise ValueError(
                 "ToolExecutionResult tool_request_id must be pipy-owned "
@@ -313,21 +302,17 @@ class ToolContext:
             raise ValueError("ToolContext.stderr_sink must be callable or None")
         if self.output_sink is not None and not callable(self.output_sink):
             raise ValueError("ToolContext.output_sink must be callable or None")
-        if self.cancel_event is not None and not hasattr(
-            self.cancel_event, "is_set"
-        ):
-            raise ValueError("ToolContext.cancel_event must be an Event-like object or None")
+        if self.cancel_event is not None and not hasattr(self.cancel_event, "is_set"):
+            raise ValueError(
+                "ToolContext.cancel_event must be an Event-like object or None"
+            )
         if not isinstance(self.reference_roots, tuple):
             raise ValueError("ToolContext.reference_roots must be a tuple")
         for root in self.reference_roots:
             if not isinstance(root, Path):
-                raise ValueError(
-                    "ToolContext.reference_roots entries must be Path"
-                )
+                raise ValueError("ToolContext.reference_roots entries must be Path")
             if not root.is_absolute():
-                raise ValueError(
-                    "ToolContext.reference_roots entries must be absolute"
-                )
+                raise ValueError("ToolContext.reference_roots entries must be absolute")
 
 
 @runtime_checkable
@@ -456,14 +441,10 @@ def _validate_string_schema_shape(schema: Mapping[str, Any]) -> None:
         ):
             raise ValueError("string schema 'enum' must be a list of strings")
     min_length = schema.get("minLength")
-    if min_length is not None and (
-        not isinstance(min_length, int) or min_length < 0
-    ):
+    if min_length is not None and (not isinstance(min_length, int) or min_length < 0):
         raise ValueError("string schema 'minLength' must be a non-negative int")
     max_length = schema.get("maxLength")
-    if max_length is not None and (
-        not isinstance(max_length, int) or max_length < 0
-    ):
+    if max_length is not None and (not isinstance(max_length, int) or max_length < 0):
         raise ValueError("string schema 'maxLength' must be a non-negative int")
 
 
@@ -489,8 +470,7 @@ def _validate_schema_shape(schema: Mapping[str, Any], *, top_level: bool) -> Non
         raise ValueError("ToolDefinition top-level schema must be an object")
     if schema_type not in _ALLOWED_TYPES:
         raise ValueError(
-            f"Unsupported schema type: {schema_type!r}; "
-            f"allowed: {_ALLOWED_TYPES}"
+            f"Unsupported schema type: {schema_type!r}; allowed: {_ALLOWED_TYPES}"
         )
     if schema_type == "object":
         _validate_object_schema_shape(schema)
@@ -561,9 +541,7 @@ def _validate_object(
     field_path: tuple[str, ...],
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping):
-        raise ToolArgumentError(
-            tool_name, "expected object", field_path=field_path
-        )
+        raise ToolArgumentError(tool_name, "expected object", field_path=field_path)
     properties = schema.get("properties", {})
     required = schema.get("required", [])
     additional = schema.get("additionalProperties", False)
@@ -607,9 +585,7 @@ def _validate_array(
     field_path: tuple[str, ...],
 ) -> list[Any]:
     if not isinstance(value, list):
-        raise ToolArgumentError(
-            tool_name, "expected array", field_path=field_path
-        )
+        raise ToolArgumentError(tool_name, "expected array", field_path=field_path)
     item_schema = schema["items"]
     return [
         _validate_value(
@@ -630,9 +606,7 @@ def _validate_string(
     field_path: tuple[str, ...],
 ) -> str:
     if not isinstance(value, str) or isinstance(value, bool):
-        raise ToolArgumentError(
-            tool_name, "expected string", field_path=field_path
-        )
+        raise ToolArgumentError(tool_name, "expected string", field_path=field_path)
     enum_values = schema.get("enum")
     if enum_values is not None and value not in enum_values:
         allowed = ", ".join(repr(item) for item in enum_values)
@@ -666,9 +640,7 @@ def _validate_integer(
     field_path: tuple[str, ...],
 ) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ToolArgumentError(
-            tool_name, "expected integer", field_path=field_path
-        )
+        raise ToolArgumentError(tool_name, "expected integer", field_path=field_path)
     minimum = schema.get("minimum")
     if minimum is not None and value < minimum:
         raise ToolArgumentError(
@@ -693,7 +665,5 @@ def _validate_boolean(
     field_path: tuple[str, ...],
 ) -> bool:
     if not isinstance(value, bool):
-        raise ToolArgumentError(
-            tool_name, "expected boolean", field_path=field_path
-        )
+        raise ToolArgumentError(tool_name, "expected boolean", field_path=field_path)
     return value

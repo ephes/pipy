@@ -251,9 +251,7 @@ def _run_rpc_checks(base: Path) -> list[Check]:
     order_ok = order_ok and types.count("message_update") >= 1
     agent_end = records[-1] if records else {}
     order_ok = order_ok and agent_end.get("willRetry") is False
-    checks.append(
-        Check("rpc_prompt_event_sequence", bool(order_ok), f"types={types}")
-    )
+    checks.append(Check("rpc_prompt_event_sequence", bool(order_ok), f"types={types}"))
 
     deltas = "".join(
         r["assistantMessageEvent"]["delta"]
@@ -302,7 +300,9 @@ def _run_rpc_checks(base: Path) -> list[Check]:
     msgs = proc.wait_for(lambda r: r.get("id") == "r3") or {}
     roles = [m.get("role") for m in msgs.get("data", {}).get("messages", [])]
     msgs_ok = "user" in roles and "assistant" in roles
-    checks.append(Check("rpc_get_messages_full_content", bool(msgs_ok), f"roles={roles}"))
+    checks.append(
+        Check("rpc_get_messages_full_content", bool(msgs_ok), f"roles={roles}")
+    )
 
     # (6) bash
     proc.send({"id": "r4", "type": "bash", "command": "echo hi"})
@@ -349,26 +349,42 @@ def _run_rpc_checks(base: Path) -> list[Check]:
         and "tokens" in st
     )
     checks.append(
-        Check("rpc_session_name_and_stats", bool(name_ok and stats_ok), f"name_ok={name_ok} stats={st}")
+        Check(
+            "rpc_session_name_and_stats",
+            bool(name_ok and stats_ok),
+            f"name_ok={name_ok} stats={st}",
+        )
     )
 
     # (9) unknown command + parse error
     proc.send({"type": "frobnicate"})
-    unknown = proc.wait_for(
-        lambda r: r.get("type") == "response" and r.get("command") == "frobnicate"
-    ) or {}
+    unknown = (
+        proc.wait_for(
+            lambda r: r.get("type") == "response" and r.get("command") == "frobnicate"
+        )
+        or {}
+    )
     unknown_ok = (
         unknown.get("success") is False
         and unknown.get("error") == "Unknown command: frobnicate"
         and "id" not in unknown
     )
     proc.send_raw("{ not valid json\n")
-    parse = proc.wait_for(
-        lambda r: r.get("type") == "response" and r.get("command") == "parse"
-    ) or {}
-    parse_ok = parse.get("success") is False and "Failed to parse" in parse.get("error", "")
+    parse = (
+        proc.wait_for(
+            lambda r: r.get("type") == "response" and r.get("command") == "parse"
+        )
+        or {}
+    )
+    parse_ok = parse.get("success") is False and "Failed to parse" in parse.get(
+        "error", ""
+    )
     checks.append(
-        Check("rpc_unknown_and_parse_errors", bool(unknown_ok and parse_ok), f"unknown={unknown} parse={parse}")
+        Check(
+            "rpc_unknown_and_parse_errors",
+            bool(unknown_ok and parse_ok),
+            f"unknown={unknown} parse={parse}",
+        )
     )
 
     # (7) mid-turn steer emits queue_update; abort terminates with agent_end
@@ -378,18 +394,25 @@ def _run_rpc_checks(base: Path) -> list[Check]:
     qu = proc.wait_for(lambda r: r.get("type") == "queue_update") or {}
     steer_ok = "turn left" in qu.get("steering", [])
     proc.send({"id": "r10", "type": "abort"})
-    abort_resp = proc.wait_for(
-        lambda r: r.get("id") == "r10" and r.get("command") == "abort"
-    ) or {}
+    abort_resp = (
+        proc.wait_for(lambda r: r.get("id") == "r10" and r.get("command") == "abort")
+        or {}
+    )
     abort_end = proc.wait_for(lambda r: r.get("type") == "agent_end")
     abort_ok = abort_resp.get("success") is True and abort_end is not None
     checks.append(
-        Check("rpc_steer_queue_update_and_abort", bool(steer_ok and abort_ok), f"steer_ok={steer_ok} abort_ok={abort_ok}")
+        Check(
+            "rpc_steer_queue_update_and_abort",
+            bool(steer_ok and abort_ok),
+            f"steer_ok={steer_ok} abort_ok={abort_ok}",
+        )
     )
 
     # (11) EOF shutdown clean exit
     exit_code = proc.close()
-    checks.append(Check("rpc_eof_clean_shutdown", exit_code == 0, f"exit_code={exit_code}"))
+    checks.append(
+        Check("rpc_eof_clean_shutdown", exit_code == 0, f"exit_code={exit_code}")
+    )
 
     # (10) secret hygiene + framing on the captured stdout
     raw = bytes(proc.raw)
@@ -406,7 +429,11 @@ def _run_rpc_checks(base: Path) -> list[Check]:
             parse_all_ok = False
             break
     checks.append(
-        Check("rpc_lf_only_no_interleave", bool(lf_ok and parse_all_ok), f"lines={len(lines)} lf_ok={lf_ok}")
+        Check(
+            "rpc_lf_only_no_interleave",
+            bool(lf_ok and parse_all_ok),
+            f"lines={len(lines)} lf_ok={lf_ok}",
+        )
     )
 
     return checks
@@ -425,7 +452,9 @@ def _check_accepts_all_commands(base: Path) -> Check:
         proc.send(payload)
         # prompt is async (success then events); others resolve to one response.
         resp = proc.wait_for(
-            lambda r: r.get("type") == "response" and r.get("command") == command["type"],
+            lambda r: (
+                r.get("type") == "response" and r.get("command") == command["type"]
+            ),
             timeout=8.0,
         )
         if resp is None:

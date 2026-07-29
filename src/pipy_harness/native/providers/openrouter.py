@@ -6,7 +6,11 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_chat_completions
+from pipy_harness.native._provider_helpers import (
+    utc_now,
+    failed_provider_result,
+    serialize_tool_for_chat_completions,
+)
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
@@ -18,7 +22,10 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.providers.chat_completions_wire import chat_messages, parse_response
+from pipy_harness.native.providers.chat_completions_wire import (
+    chat_messages,
+    parse_response,
+)
 
 OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -53,7 +60,9 @@ class OpenRouterChatCompletionsProvider:
     """
 
     model_id: str
-    api_key: str | None = field(default_factory=lambda: os.environ.get("OPENROUTER_API_KEY"))
+    api_key: str | None = field(
+        default_factory=lambda: os.environ.get("OPENROUTER_API_KEY")
+    )
     http_client: JsonHTTPClient = field(default_factory=openrouter_http_client)
     endpoint: str = OPENROUTER_CHAT_COMPLETIONS_URL
     timeout_seconds: float = 60.0
@@ -102,7 +111,8 @@ class OpenRouterChatCompletionsProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                serialize_tool_for_chat_completions(tool) for tool in request.available_tools
+                serialize_tool_for_chat_completions(tool)
+                for tool in request.available_tools
             ]
         headers = {
             "Authorization": f"Bearer {api_key}",

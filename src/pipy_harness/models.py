@@ -10,13 +10,16 @@ from typing import Any, Sequence
 from pipy_session.recorder import SessionRecord
 
 from pipy_harness.capture import CapturePolicy
+
 # Same-name alias intentionally marks the established public export for Mypy.
 from pipy_harness.status import HarnessStatus as HarnessStatus
 
 
 RESUME_RELATIONSHIP_RESUME = "resume"
 RESUME_RELATIONSHIP_BRANCH = "branch"
-_RESUME_RELATIONSHIPS = frozenset({RESUME_RELATIONSHIP_RESUME, RESUME_RELATIONSHIP_BRANCH})
+_RESUME_RELATIONSHIPS = frozenset(
+    {RESUME_RELATIONSHIP_RESUME, RESUME_RELATIONSHIP_BRANCH}
+)
 
 BRANCH_LABEL_MAX_LENGTH = 48
 
@@ -78,7 +81,11 @@ class SessionLineage:
     prior_turn_count: int = 0
 
     def __post_init__(self) -> None:
-        if not self.parent_session_id or "/" in self.parent_session_id or "\\" in self.parent_session_id:
+        if (
+            not self.parent_session_id
+            or "/" in self.parent_session_id
+            or "\\" in self.parent_session_id
+        ):
             raise ValueError("parent_session_id must be a bare record stem")
         if self.relationship not in _RESUME_RELATIONSHIPS:
             raise ValueError(
@@ -94,9 +101,11 @@ class SessionLineage:
             object.__setattr__(
                 self, "branch_label", validate_branch_label(self.branch_label)
             )
-        if not isinstance(self.prior_turn_count, int) or isinstance(
-            self.prior_turn_count, bool
-        ) or self.prior_turn_count < 0:
+        if (
+            not isinstance(self.prior_turn_count, int)
+            or isinstance(self.prior_turn_count, bool)
+            or self.prior_turn_count < 0
+        ):
             raise ValueError("prior_turn_count must be a non-negative integer")
 
     def archive_payload(self) -> dict[str, Any]:

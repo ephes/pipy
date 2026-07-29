@@ -76,9 +76,7 @@ def _populate(workspace: Path, config_home: Path) -> Path:
     ext.mkdir(parents=True)
 
     # 1. single-file workspace extension
-    (ext / "greet.py").write_text(
-        "def activate(api):\n    pass\n", encoding="utf-8"
-    )
+    (ext / "greet.py").write_text("def activate(api):\n    pass\n", encoding="utf-8")
 
     # 2. directory extension with a full manifest
     protected = ext / "protected-paths"
@@ -219,9 +217,7 @@ def _populate(workspace: Path, config_home: Path) -> Path:
     (decl_b / "extension.py").write_text(
         "def activate(api):\n    pass\n", encoding="utf-8"
     )
-    (decl_b / "pipy-extension.toml").write_text(
-        'name = "declared"\n', encoding="utf-8"
-    )
+    (decl_b / "pipy-extension.toml").write_text('name = "declared"\n', encoding="utf-8")
 
     # 7c. two directories declaring the same manifest name
     for dir_name in ("alpha", "bravo"):
@@ -647,8 +643,7 @@ def main(argv: list[str] | None = None) -> int:
         report = {
             "passed": passed,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
-                for c in checks
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
             ],
         }
         print(json.dumps(report, indent=2))

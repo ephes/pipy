@@ -160,9 +160,7 @@ def _drive_pipy() -> dict:
     # Mirror the Pi driver exactly: interleave assistant replies and branch back
     # to the assistant after ROOT (the parent of the MAIN user turn).
     tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
-    a1 = tree.append_message(
-        AgentAssistantMessage(content=ProductContent("SEEN:ROOT"))
-    )
+    a1 = tree.append_message(AgentAssistantMessage(content=ProductContent("SEEN:ROOT")))
     tree.append_message(AgentUserMessage(content=ProductContent("MAIN")))
     a2 = tree.append_message(
         AgentAssistantMessage(content=ProductContent("SEEN:ROOT,MAIN"))
@@ -234,9 +232,7 @@ def run_checks() -> tuple[list[Check], bool]:
     if not available:
         # Pi-skip is not a hard failure: mark the marker check passed so the
         # overall result still reflects only the pipy product-path leg.
-        checks.append(
-            Check("pi_reference_available", True, f"skipped: {reason}")
-        )
+        checks.append(Check("pi_reference_available", True, f"skipped: {reason}"))
         return checks, True
 
     pi = _drive_pi(pi_dir)
@@ -281,8 +277,7 @@ def main(argv: list[str] | None = None) -> int:
             "passed": passed,
             "skipped": skipped,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
-                for c in checks
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
             ],
         }
         print(json.dumps(report, indent=2))

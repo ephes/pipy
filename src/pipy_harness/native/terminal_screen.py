@@ -199,10 +199,12 @@ class TerminalScreen:
             viewport_y=self.viewport_y,
             cursor_visible=self.cursor_visible,
             viewport=[
-                "".join(cell.char for cell in row).rstrip()
+                "".join(cell.char for cell in row).rstrip() for row in self._cells
+            ],
+            cells=[
+                [ScreenCell(cell.char, cell.attr) for cell in row]
                 for row in self._cells
             ],
-            cells=[[ScreenCell(cell.char, cell.attr) for cell in row] for row in self._cells],
         )
 
     def _handle_escape(self, data: str, index: int) -> int:
@@ -384,7 +386,9 @@ def _apply_truecolor_sgr(
     return attr, index + 4
 
 
-def parse_ansi_screen(data: str, *, columns: int | None = None, rows: int | None = None) -> ScreenSnapshot:
+def parse_ansi_screen(
+    data: str, *, columns: int | None = None, rows: int | None = None
+) -> ScreenSnapshot:
     plain = strip_ansi(data)
     plain_rows = plain.splitlines() or [""]
     effective_columns = columns or max(1, max(len(line) for line in plain_rows))
@@ -444,13 +448,11 @@ def analyze_frame_files(
             "prompt": [asdict(finding) for finding in prompt_findings],
             "working": [asdict(finding) for finding in snapshot.find("Working...")],
             "status": [
-                asdict(finding)
-                for finding in snapshot.find("(openai-codex) gpt-5.5")
+                asdict(finding) for finding in snapshot.find("(openai-codex) gpt-5.5")
             ],
             "cwd": [asdict(finding) for finding in snapshot.find("~/projects/pipy")],
             "footer_meter": [
-                asdict(finding)
-                for finding in snapshot.find("$0.000 (sub) 0.0%/272k")
+                asdict(finding) for finding in snapshot.find("$0.000 (sub) 0.0%/272k")
             ],
         }
         if expected_output:
@@ -522,7 +524,9 @@ def analyze_frame_files(
     return summary
 
 
-def _collect_anomalies(record: dict[str, Any], anomalies: list[tuple[str, str, str]]) -> None:
+def _collect_anomalies(
+    record: dict[str, Any], anomalies: list[tuple[str, str, str]]
+) -> None:
     frame = f"{record['frame']}:{record['phase']}"
     phase = str(record["phase"])
     findings = record["findings"]
@@ -637,9 +641,13 @@ def _collect_input_anomalies(
     anomalies: list[tuple[str, str, str]],
 ) -> None:
     if phase.startswith("active") and input_row is None:
-        anomalies.append((frame, "error", "could not infer pinned input row from separators"))
+        anomalies.append(
+            (frame, "error", "could not infer pinned input row from separators")
+        )
     if phase.startswith("active") and cursor_matches is False:
-        anomalies.append((frame, "error", "live cursor does not match drawn input cursor"))
+        anomalies.append(
+            (frame, "error", "live cursor does not match drawn input cursor")
+        )
 
 
 def _cursor_matches(
@@ -720,7 +728,9 @@ def _visual_regions(
         footer_start = separator_rows[-1] + 1
         footer_rows = {footer_start, footer_start + 1}
     for row_index, row in enumerate(snapshot.cells):
-        text = snapshot.viewport[row_index] if row_index < len(snapshot.viewport) else ""
+        text = (
+            snapshot.viewport[row_index] if row_index < len(snapshot.viewport) else ""
+        )
         summary = _row_style_summary(row_index, text, row)
         if row_index in separator_rows:
             regions["separator"].append(summary)

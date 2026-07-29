@@ -279,7 +279,9 @@ class GitHubCopilotOAuthProvider:
         if base_url is None:
             return rows
         return [
-            replace(row, base_url=base_url) if row.provider_name == "github-copilot" else row
+            replace(row, base_url=base_url)
+            if row.provider_name == "github-copilot"
+            else row
             for row in rows
         ]
 

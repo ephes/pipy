@@ -243,7 +243,10 @@ class AutomationFakeProvider:
             cancel_token.raise_if_cancelled()
         started_at = datetime.now(UTC)
         user_text = self._latest_user_text(request).strip()
-        if user_text.startswith(AUTOMATION_FAKE_BLOCK_SENTINEL) and cancel_token is not None:
+        if (
+            user_text.startswith(AUTOMATION_FAKE_BLOCK_SENTINEL)
+            and cancel_token is not None
+        ):
             if cancel_token.event.wait(timeout=self.block_timeout_seconds):
                 self._cancel_observed[0] = True
                 raise ProviderCancelledError("automation fake turn cancelled")
@@ -296,6 +299,10 @@ class FakeNoOpNativeTool:
             started_at=started_at,
             ended_at=ended_at,
             metadata=metadata,
-            error_type=self.error_type if self.status == NativeToolStatus.FAILED else None,
-            error_message=self.error_message if self.status == NativeToolStatus.FAILED else None,
+            error_type=self.error_type
+            if self.status == NativeToolStatus.FAILED
+            else None,
+            error_message=self.error_message
+            if self.status == NativeToolStatus.FAILED
+            else None,
         )

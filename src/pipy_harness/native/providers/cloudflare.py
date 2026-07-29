@@ -8,7 +8,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_chat_completions
+from pipy_harness.native._provider_helpers import (
+    utc_now,
+    failed_provider_result,
+    serialize_tool_for_chat_completions,
+)
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
@@ -20,7 +24,10 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.providers.chat_completions_wire import chat_messages, parse_response
+from pipy_harness.native.providers.chat_completions_wire import (
+    chat_messages,
+    parse_response,
+)
 
 CLOUDFLARE_CHAT_COMPLETIONS_URL_TEMPLATE = (
     "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions"
@@ -136,8 +143,7 @@ class CloudflareWorkersAIProvider:
         api_token = raw_api_token.strip() if raw_api_token is not None else ""
         extra_headers = tuple(self.extra_headers.items())
         has_explicit_authorization = any(
-            header_name.lower() == "authorization"
-            for header_name, _ in extra_headers
+            header_name.lower() == "authorization" for header_name, _ in extra_headers
         )
         if not api_token and not has_explicit_authorization:
             return failed_provider_result(
@@ -180,7 +186,8 @@ class CloudflareWorkersAIProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                serialize_tool_for_chat_completions(tool) for tool in request.available_tools
+                serialize_tool_for_chat_completions(tool)
+                for tool in request.available_tools
             ]
         if self.reasoning_effort is not None:
             body["reasoning_effort"] = self.reasoning_effort

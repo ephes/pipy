@@ -47,9 +47,7 @@ def serialize_json_line(value: Any) -> str:
     """
 
     return (
-        json.dumps(
-            value, ensure_ascii=False, separators=(",", ":"), allow_nan=False
-        )
+        json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
         + "\n"
     )
 

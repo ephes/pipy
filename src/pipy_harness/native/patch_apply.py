@@ -75,7 +75,9 @@ class NativePatchApplyGateDecision:
 
     def __post_init__(self) -> None:
         if self.decision_authority != _HUMAN_REVIEWED_AUTHORITY:
-            raise ValueError("patch apply gate decision must be pipy-owned and human-reviewed")
+            raise ValueError(
+                "patch apply gate decision must be pipy-owned and human-reviewed"
+            )
         if self.reason_label is not None:
             _validate_safe_label(self.reason_label, field_name="reason_label")
 
@@ -119,10 +121,14 @@ class NativePatchApplyResult:
             raise ValueError("patch apply result reason_label must be a native label")
         for operation_label in self.operation_labels:
             if not isinstance(operation_label, NativePatchApplyOperation):
-                raise ValueError("patch apply result operation_labels must use native labels")
+                raise ValueError(
+                    "patch apply result operation_labels must use native labels"
+                )
         for field_name in NATIVE_PATCH_APPLY_STORAGE_KEYS:
             if getattr(self, field_name) is not False:
-                raise ValueError(f"{field_name} must remain false for patch apply results")
+                raise ValueError(
+                    f"{field_name} must remain false for patch apply results"
+                )
         if self.scope_label is not None:
             _validate_safe_label(self.scope_label, field_name="scope_label")
 
@@ -139,9 +145,12 @@ class NativePatchApplyResult:
             "operation_count": self.operation_count,
             "operation_labels": [label.value for label in self.operation_labels],
             "approval_policy": self.approval_policy.value,
-            "approval_required": self.approval_policy == NativeToolApprovalMode.REQUIRED,
+            "approval_required": self.approval_policy
+            == NativeToolApprovalMode.REQUIRED,
             "approval_resolved": self.approval_decision is not None,
-            "approval_decision": self.approval_decision.value if self.approval_decision else None,
+            "approval_decision": self.approval_decision.value
+            if self.approval_decision
+            else None,
             "sandbox_policy": self.sandbox_policy.value,
             "workspace_read_allowed": self.workspace_read_allowed,
             "filesystem_mutation_allowed": self.filesystem_mutation_allowed,
@@ -178,7 +187,9 @@ class NativePatchApplyTool:
         gate_decision: NativePatchApplyGateDecision,
     ) -> NativePatchApplyResult:
         started_at = datetime.now(UTC)
-        builder = _ResultBuilder(request=request, gate_decision=gate_decision, started_at=started_at)
+        builder = _ResultBuilder(
+            request=request, gate_decision=gate_decision, started_at=started_at
+        )
 
         reason = _request_gate_reason(request)
         if reason is not None:
@@ -232,7 +243,9 @@ class _ResultBuilder:
         )
 
     def skipped(self, reason: NativePatchApplyReason) -> NativePatchApplyResult:
-        return self._result(status=NativeToolStatus.SKIPPED, reason=reason, workspace_mutated=False)
+        return self._result(
+            status=NativeToolStatus.SKIPPED, reason=reason, workspace_mutated=False
+        )
 
     def failed(
         self,
@@ -240,7 +253,11 @@ class _ResultBuilder:
         *,
         workspace_mutated: bool = False,
     ) -> NativePatchApplyResult:
-        return self._result(status=NativeToolStatus.FAILED, reason=reason, workspace_mutated=workspace_mutated)
+        return self._result(
+            status=NativeToolStatus.FAILED,
+            reason=reason,
+            workspace_mutated=workspace_mutated,
+        )
 
     def _result(
         self,
@@ -258,7 +275,9 @@ class _ResultBuilder:
             ended_at=datetime.now(UTC),
             file_count=_file_count(self.request.operations),
             operation_count=len(self.request.operations),
-            operation_labels=tuple(operation.operation for operation in self.request.operations),
+            operation_labels=tuple(
+                operation.operation for operation in self.request.operations
+            ),
             approval_policy=self.request.approval_policy.mode,
             approval_decision=self.gate_decision.approval_decision,
             sandbox_policy=self.request.sandbox_policy.mode,
@@ -271,7 +290,9 @@ class _ResultBuilder:
         )
 
 
-def _request_gate_reason(request: NativePatchApplyRequest) -> NativePatchApplyReason | None:
+def _request_gate_reason(
+    request: NativePatchApplyRequest,
+) -> NativePatchApplyReason | None:
     if request.approval_policy.mode != NativeToolApprovalMode.REQUIRED:
         return NativePatchApplyReason.APPROVAL_NOT_ALLOWED
     sandbox = request.sandbox_policy
@@ -281,7 +302,10 @@ def _request_gate_reason(request: NativePatchApplyRequest) -> NativePatchApplyRe
         return NativePatchApplyReason.UNSAFE_SANDBOX
     if sandbox.filesystem_mutation_allowed is not True:
         return NativePatchApplyReason.UNSAFE_SANDBOX
-    if sandbox.shell_execution_allowed is not False or sandbox.network_access_allowed is not False:
+    if (
+        sandbox.shell_execution_allowed is not False
+        or sandbox.network_access_allowed is not False
+    ):
         return NativePatchApplyReason.UNSAFE_SANDBOX
     return None
 
@@ -326,7 +350,9 @@ def _plan_create(
     reason = _new_text_reason(operation.new_text)
     if reason is not None:
         return reason
-    return _PlannedOperation(operation=operation.operation, path=path, new_text=operation.new_text)
+    return _PlannedOperation(
+        operation=operation.operation, path=path, new_text=operation.new_text
+    )
 
 
 def _plan_modify(
@@ -342,7 +368,9 @@ def _plan_modify(
     text_reason = _new_text_reason(operation.new_text)
     if text_reason is not None:
         return text_reason
-    return _PlannedOperation(operation=operation.operation, path=path, new_text=operation.new_text)
+    return _PlannedOperation(
+        operation=operation.operation, path=path, new_text=operation.new_text
+    )
 
 
 def _plan_delete(
@@ -385,11 +413,16 @@ def _plan_rename(
         return NativePatchApplyReason.EXISTING_FILE
     if not target_path.parent.exists() or not target_path.parent.is_dir():
         return NativePatchApplyReason.MISSING_PARENT
-    return _PlannedOperation(operation=operation.operation, path=path, target_path=target_path)
+    return _PlannedOperation(
+        operation=operation.operation, path=path, target_path=target_path
+    )
 
 
 def _apply_planned_operation(operation: _PlannedOperation) -> None:
-    if operation.operation in {NativePatchApplyOperation.CREATE, NativePatchApplyOperation.MODIFY}:
+    if operation.operation in {
+        NativePatchApplyOperation.CREATE,
+        NativePatchApplyOperation.MODIFY,
+    }:
         assert operation.new_text is not None
         operation.path.write_text(operation.new_text, encoding=_TEXT_ENCODING)
     elif operation.operation == NativePatchApplyOperation.DELETE:
@@ -409,7 +442,9 @@ def _existing_file_reason(path: Path) -> NativePatchApplyReason | None:
     return None
 
 
-def _expected_hash_reason(path: Path, expected_sha256: str | None) -> NativePatchApplyReason | None:
+def _expected_hash_reason(
+    path: Path, expected_sha256: str | None
+) -> NativePatchApplyReason | None:
     if expected_sha256 is None:
         return NativePatchApplyReason.EXPECTED_HASH_REQUIRED
     if not _is_sha256(expected_sha256):

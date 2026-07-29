@@ -115,7 +115,10 @@ class PromptHistoryStore:
             return
         if not isinstance(body, dict):
             return
-        if body.get("schema") != _SCHEMA or body.get("schema_version") != _SCHEMA_VERSION:
+        if (
+            body.get("schema") != _SCHEMA
+            or body.get("schema_version") != _SCHEMA_VERSION
+        ):
             return
         # Opt-in is strict: only a literal JSON boolean ``true`` enables the
         # feature. A truthy-but-non-boolean value (e.g. the string "false", or

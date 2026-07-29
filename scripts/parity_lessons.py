@@ -22,10 +22,23 @@ TRIGGERS = ("recurring-review-finding", "gate-failure", "wrong-turn", "better-ap
 TARGET_AREAS = ("skill-body", "wrapper", "docs", "harness", "tests")
 AGENTS = ("claude", "codex", "pi", "pipy")
 INSTRUCTION_AREAS = ("skill-body", "wrapper")
-REQUIRED_FIELDS = ("id", "date", "skill", "gap", "agent", "trigger", "lesson", "target_area", "status")
+REQUIRED_FIELDS = (
+    "id",
+    "date",
+    "skill",
+    "gap",
+    "agent",
+    "trigger",
+    "lesson",
+    "target_area",
+    "status",
+)
 ID_RE = r"^\d{4}-\d{2}-\d{2}-[0-9a-f]{6}\Z"
 SHA_RE = r"^[0-9a-f]{40}\Z"
-INSTRUCTION_BODIES = ("docs/parity-loop/skill-body.md", "docs/parity-loop/improve-body.md")
+INSTRUCTION_BODIES = (
+    "docs/parity-loop/skill-body.md",
+    "docs/parity-loop/improve-body.md",
+)
 LEDGER_PREFIXES = ("docs/parity-loop/lessons/", "docs/parity-loop/runs/")
 
 
@@ -160,9 +173,7 @@ def validate(path, repo_root):
 
 def _git(repo_root, *args):
     """Run git; return CompletedProcess (never raises on non-zero)."""
-    return subprocess.run(
-        ["git", *args], cwd=repo_root, capture_output=True, text=True
-    )
+    return subprocess.run(["git", *args], cwd=repo_root, capture_output=True, text=True)
 
 
 def _is_ledger_or_scratch(rel):
@@ -215,7 +226,9 @@ def _record_materialization_errors(rec, repo_root):
     if not isinstance(sha, str) or not sha:
         return [f"{rid}: applied requires a string resolution.sha"]
     if not re.match(SHA_RE, sha):
-        return [f"{rid}: resolution.sha must be a full 40-char hex commit id, not a ref"]
+        return [
+            f"{rid}: resolution.sha must be a full 40-char hex commit id, not a ref"
+        ]
     if _git(repo_root, "rev-parse", "--verify", f"{sha}^{{commit}}").returncode != 0:
         return [f"{rid}: resolution.sha {sha} does not resolve to a commit"]
     if _git(repo_root, "merge-base", "--is-ancestor", sha, "HEAD").returncode != 0:
@@ -233,8 +246,12 @@ def _record_materialization_errors(rec, repo_root):
             f"{rid}: commit {sha} materializes no non-ledger file for "
             f"target_area '{rec.get('target_area')}'"
         )
-    if rec.get("target_area") in INSTRUCTION_AREAS and not resolution.get("signed_off_by"):
-        errors.append(f"{rid}: instruction-area applied requires resolution.signed_off_by")
+    if rec.get("target_area") in INSTRUCTION_AREAS and not resolution.get(
+        "signed_off_by"
+    ):
+        errors.append(
+            f"{rid}: instruction-area applied requires resolution.signed_off_by"
+        )
     return errors
 
 
@@ -300,8 +317,9 @@ def main(argv=None):
     sub.add_parser("validate")
 
     p_append = sub.add_parser("append")
-    p_append.add_argument("--json", dest="record_json", required=True,
-                          help="record without id/status")
+    p_append.add_argument(
+        "--json", dest="record_json", required=True, help="record without id/status"
+    )
 
     p_list = sub.add_parser("list")
     p_list.add_argument("--status", choices=STATUSES, default=None)
@@ -337,7 +355,9 @@ def main(argv=None):
             print(json.dumps(rows))
         else:
             for r in rows:
-                print(f"{r.get('id')}  {r.get('status')}  {r.get('target_area')}  {r.get('lesson')}")
+                print(
+                    f"{r.get('id')}  {r.get('status')}  {r.get('target_area')}  {r.get('lesson')}"
+                )
         return 0
 
     if args.command == "mark":
@@ -364,15 +384,24 @@ def main(argv=None):
                 for e in errs:
                     print(e)
                 return 1
-            mark_applied(ledger, args.id, sha=args.sha, repo_root=args.repo,
-                         signed_off_by=args.signed_off_by)
+            mark_applied(
+                ledger,
+                args.id,
+                sha=args.sha,
+                repo_root=args.repo,
+                signed_off_by=args.signed_off_by,
+            )
         else:
             if not args.reason or not args.signed_off_by:
                 print("mark rejected requires --reason and --signed-off-by")
                 return 1
             try:
-                mark_rejected(ledger, args.id, reason=args.reason,
-                              signed_off_by=args.signed_off_by)
+                mark_rejected(
+                    ledger,
+                    args.id,
+                    reason=args.reason,
+                    signed_off_by=args.signed_off_by,
+                )
             except KeyError:
                 print(f"unknown lesson id: {args.id}")
                 return 1

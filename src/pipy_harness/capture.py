@@ -128,7 +128,15 @@ def collect_changed_file_paths(cwd: Path) -> tuple[str, ...]:
 
     try:
         completed = subprocess.run(
-            ["git", "-C", str(cwd), "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            [
+                "git",
+                "-C",
+                str(cwd),
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+            ],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,

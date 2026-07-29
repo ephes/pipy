@@ -10,6 +10,7 @@ privacy/no-leak guarantees are proven by ``extension_conformance_gate.py``.
 
 Run: uv run python scripts/parity_checks/extension_message_renderer_conformance.py --json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -65,63 +66,85 @@ def run_checks() -> list[Check]:
     # 1. one-arg renderer returning text/lines -> plain (styled False).
     out = render_extension_message(
         _renderers("c", lambda data: f"hello {data['name']}"),
-        "c", {"name": "world"}, width=40, theme=theme,
+        "c",
+        {"name": "world"},
+        width=40,
+        theme=theme,
     )
-    checks.append(Check(
-        "one_arg_plain",
-        out.styled is False and out.lines == ("hello world",),
-        "1-arg renderer -> styled False with expected lines",
-    ))
+    checks.append(
+        Check(
+            "one_arg_plain",
+            out.styled is False and out.lines == ("hello world",),
+            "1-arg renderer -> styled False with expected lines",
+        )
+    )
 
     # 2. two-arg component renderer (lines_component) -> styled, themed SGR present.
     def comp(data, ctx):
         return lines_component([ctx.theme.fg("success", f"k={data['k']}")])
+
     out = render_extension_message(
-        _renderers("c", comp), "c", {"k": "v"}, width=40, theme=theme,
+        _renderers("c", comp),
+        "c",
+        {"k": "v"},
+        width=40,
+        theme=theme,
     )
-    checks.append(Check(
-        "two_arg_component_styled",
-        out.styled is True
-        and any("\x1b[1m" in line for line in out.lines)
-        and out.lines == ("\x1b[1mk=v\x1b[0m",),
-        "2-arg component -> styled True with themed SGR in lines",
-    ))
+    checks.append(
+        Check(
+            "two_arg_component_styled",
+            out.styled is True
+            and any("\x1b[1m" in line for line in out.lines)
+            and out.lines == ("\x1b[1mk=v\x1b[0m",),
+            "2-arg component -> styled True with themed SGR in lines",
+        )
+    )
 
     # 3. two-arg renderer returning a plain str -> plain (back-compat).
     out = render_extension_message(
         _renderers("c", lambda data, ctx: "plain text"),
-        "c", {}, width=40, theme=theme,
+        "c",
+        {},
+        width=40,
+        theme=theme,
     )
-    checks.append(Check(
-        "two_arg_str_plain",
-        out.styled is False and out.lines == ("plain text",),
-        "2-arg renderer returning str -> styled False",
-    ))
+    checks.append(
+        Check(
+            "two_arg_str_plain",
+            out.styled is False and out.lines == ("plain text",),
+            "2-arg renderer returning str -> styled False",
+        )
+    )
 
     # 4. unknown custom_type -> generic plain fallback, non-empty.
     out = render_extension_message({}, "missing", {"a": 1}, width=40, theme=theme)
-    checks.append(Check(
-        "unknown_type_fallback",
-        out.styled is False and len(out.lines) > 0 and out.lines != ("",),
-        "unknown custom_type -> non-empty plain fallback",
-    ))
+    checks.append(
+        Check(
+            "unknown_type_fallback",
+            out.styled is False and len(out.lines) > 0 and out.lines != ("",),
+            "unknown custom_type -> non-empty plain fallback",
+        )
+    )
 
     # 5. renderer raising -> "render error:" prefix, no leak of the message text.
     secret = "TOPSECRET-do-not-leak-12345"
 
     def boom(data):
         raise RuntimeError(secret)
+
     out = render_extension_message(_renderers("c", boom), "c", {}, theme=theme)
     joined = "\n".join(out.lines)
-    checks.append(Check(
-        "renderer_raises_no_leak",
-        out.styled is False
-        and len(out.lines) >= 1
-        and out.lines[0].startswith("render error:")
-        and "RuntimeError" in joined
-        and secret not in joined,
-        "raising renderer -> 'render error:' + only type name (message not leaked)",
-    ))
+    checks.append(
+        Check(
+            "renderer_raises_no_leak",
+            out.styled is False
+            and len(out.lines) >= 1
+            and out.lines[0].startswith("render error:")
+            and "RuntimeError" in joined
+            and secret not in joined,
+            "raising renderer -> 'render error:' + only type name (message not leaked)",
+        )
+    )
 
     # 6. component render() raising -> "render error:" prefix, plain.
     class _BoomComponent:
@@ -130,39 +153,56 @@ def run_checks() -> list[Check]:
 
     def comp_boom(data, ctx):
         return _BoomComponent()
+
     out = render_extension_message(_renderers("c", comp_boom), "c", {}, theme=theme)
-    checks.append(Check(
-        "component_render_raises",
-        out.styled is False
-        and len(out.lines) >= 1
-        and out.lines[0].startswith("render error:")
-        and "boom-inside-render" not in "\n".join(out.lines),
-        "component render() raising -> 'render error:' plain, message not leaked",
-    ))
+    checks.append(
+        Check(
+            "component_render_raises",
+            out.styled is False
+            and len(out.lines) >= 1
+            and out.lines[0].startswith("render error:")
+            and "boom-inside-render" not in "\n".join(out.lines),
+            "component render() raising -> 'render error:' plain, message not leaked",
+        )
+    )
 
     # 7. width threaded: 2-arg renderer echoes ctx.width.
     def echo_width(data, ctx):
         return f"width={ctx.width}"
+
     out = render_extension_message(
-        _renderers("c", echo_width), "c", {}, width=137, theme=theme,
+        _renderers("c", echo_width),
+        "c",
+        {},
+        width=137,
+        theme=theme,
     )
-    checks.append(Check(
-        "width_threaded",
-        out.styled is False and out.lines == ("width=137",),
-        "ctx.width reflects the width argument passed",
-    ))
+    checks.append(
+        Check(
+            "width_threaded",
+            out.styled is False and out.lines == ("width=137",),
+            "ctx.width reflects the width argument passed",
+        )
+    )
 
     # 8. expanded threaded: 2-arg renderer echoes ctx.expanded.
     def echo_expanded(data, ctx):
         return f"expanded={ctx.expanded}"
+
     out = render_extension_message(
-        _renderers("c", echo_expanded), "c", {}, expanded=True, theme=theme,
+        _renderers("c", echo_expanded),
+        "c",
+        {},
+        expanded=True,
+        theme=theme,
     )
-    checks.append(Check(
-        "expanded_threaded",
-        out.styled is False and out.lines == ("expanded=True",),
-        "ctx.expanded reflects the expanded argument passed",
-    ))
+    checks.append(
+        Check(
+            "expanded_threaded",
+            out.styled is False and out.lines == ("expanded=True",),
+            "ctx.expanded reflects the expanded argument passed",
+        )
+    )
 
     # 9. length bounding: a component render() far over the cap is truncated.
     long_text = "A" * (_CUSTOM_RENDER_MAX_CHARS + 50_000)
@@ -173,33 +213,42 @@ def run_checks() -> list[Check]:
 
     def comp_long(data, ctx):
         return _LongComponent()
+
     out = render_extension_message(_renderers("c", comp_long), "c", {}, theme=theme)
     joined = "\n".join(out.lines)
-    checks.append(Check(
-        "length_bounded",
-        out.styled is True
-        and len(joined) <= _CUSTOM_RENDER_MAX_CHARS
-        and len(long_text) > _CUSTOM_RENDER_MAX_CHARS
-        and "truncated" in joined,
-        "over-cap component render() is bounded with a truncation marker",
-    ))
+    checks.append(
+        Check(
+            "length_bounded",
+            out.styled is True
+            and len(joined) <= _CUSTOM_RENDER_MAX_CHARS
+            and len(long_text) > _CUSTOM_RENDER_MAX_CHARS
+            and "truncated" in joined,
+            "over-cap component render() is bounded with a truncation marker",
+        )
+    )
 
     # 10. theme None tolerated: a 2-arg renderer guarding ctx.theme works.
     def theme_guard(data, ctx):
         if ctx.theme:
             return lines_component([ctx.theme.fg("success", "styled")])
         return "no-theme"
+
     out = render_extension_message(_renderers("c", theme_guard), "c", {}, theme=None)
-    checks.append(Check(
-        "theme_none_tolerated",
-        out.styled is False and out.lines == ("no-theme",),
-        "theme=None -> ctx.theme falsy, renderer returns plain without crashing",
-    ))
+    checks.append(
+        Check(
+            "theme_none_tolerated",
+            out.styled is False and out.lines == ("no-theme",),
+            "theme=None -> ctx.theme falsy, renderer returns plain without crashing",
+        )
+    )
 
     # 11a. capture-default idiom (1-arg) keeps its default; not clobbered by ctx.
     out = render_extension_message(
         _renderers("c", lambda data, prefix="P:": f"{prefix}{data['v']}"),
-        "c", {"v": "x"}, width=40, theme=theme,
+        "c",
+        {"v": "x"},
+        width=40,
+        theme=theme,
     )
     capture_ok = out.styled is False and out.lines == ("P:x",)
 
@@ -214,17 +263,21 @@ def run_checks() -> list[Check]:
 
     out = render_extension_message(
         _renderers("c", lambda data: _RenderObject()),
-        "c", {}, width=40, theme=theme,
+        "c",
+        {},
+        width=40,
+        theme=theme,
     )
     render_object_plain = (
-        out.styled is False
-        and "should-not-be-called" not in "\n".join(out.lines)
+        out.styled is False and "should-not-be-called" not in "\n".join(out.lines)
     )
-    checks.append(Check(
-        "one_arg_capture_default_and_render_object_plain",
-        capture_ok and render_object_plain,
-        "1-arg capture-default keeps default; 1-arg .render() object stays plain",
-    ))
+    checks.append(
+        Check(
+            "one_arg_capture_default_and_render_object_plain",
+            capture_ok and render_object_plain,
+            "1-arg capture-default keeps default; 1-arg .render() object stays plain",
+        )
+    )
 
     # 12. Resume redraw semantics: replacing active-branch custom rows removes
     # stale custom rows while preserving ordinary history and current rendered rows.
@@ -252,21 +305,25 @@ def run_checks() -> list[Check]:
         (custom_message,),
         lambda custom_type, data: RenderedCustomEntry(("unused",), False),
         lambda entry: RenderedCustomEntry(
-            (f"MSG:{_custom_message_renderer_payload(entry)['content']}:{entry.details['n']}",),
+            (
+                f"MSG:{_custom_message_renderer_payload(entry)['content']}:{entry.details['n']}",
+            ),
             True,
         ),
     )
     ui.redraw_custom_entries(rows + [("plain", "note", ("NEW-PLAIN",))])
     frame = "\n".join(ui.render_lines(width=80, height=20))
-    checks.append(Check(
-        "resume_redraw_replaces_custom_rows_and_renders_custom_messages",
-        rows == [("styled", "card", ("MSG:BODY:3",))]
-        and "MSG:BODY:3" in frame
-        and "NEW-PLAIN" in frame
-        and "ordinary history remains" in frame
-        and "OLD-BODY" not in frame,
-        "resume redraw replaces stale rows and routes CustomMessageEntry through renderer",
-    ))
+    checks.append(
+        Check(
+            "resume_redraw_replaces_custom_rows_and_renders_custom_messages",
+            rows == [("styled", "card", ("MSG:BODY:3",))]
+            and "MSG:BODY:3" in frame
+            and "NEW-PLAIN" in frame
+            and "ordinary history remains" in frame
+            and "OLD-BODY" not in frame,
+            "resume redraw replaces stale rows and routes CustomMessageEntry through renderer",
+        )
+    )
 
     return checks
 
@@ -278,9 +335,18 @@ def main(argv: list[str] | None = None) -> int:
     checks = run_checks()
     passed = all(c.passed for c in checks)
     if args.json:
-        print(json.dumps({"passed": passed, "checks": [
-            {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
-        ]}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "passed": passed,
+                    "checks": [
+                        {"name": c.name, "passed": c.passed, "detail": c.detail}
+                        for c in checks
+                    ],
+                },
+                indent=2,
+            )
+        )
     else:
         for c in checks:
             print(f"[{'PASS' if c.passed else 'FAIL'}] {c.name}: {c.detail}")

@@ -125,9 +125,7 @@ def export_session(
 
     first_event, events = _read_record_events(record_path)
     if first_event.get("type") != "session.started":
-        raise ValueError(
-            f"first event is not session.started: {record_path}"
-        )
+        raise ValueError(f"first event is not session.started: {record_path}")
 
     match = FILENAME_RE.match(record_path.name)
     if match is None:
@@ -236,9 +234,7 @@ def _metadata_block(
         "event_count": len(safe_events),
         "event_type_counts": dict(sorted(event_type_counts.items())),
         "resume": safe_resume_lineage(first_event),
-        "compaction_event_count": event_type_counts.get(
-            "native.session.compacted", 0
-        ),
+        "compaction_event_count": event_type_counts.get("native.session.compacted", 0),
     }
     return metadata
 

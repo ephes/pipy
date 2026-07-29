@@ -28,7 +28,12 @@ from pipy_session.catalog import (
     verify_session_archive,
 )
 from pipy_session.export import export_session_from_args
-from pipy_session.recorder import append_event, finalize_session, init_session, resolve_session_root
+from pipy_session.recorder import (
+    append_event,
+    finalize_session,
+    init_session,
+    resolve_session_root,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,36 +49,62 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    init_parser = subparsers.add_parser("init", help="Create an active session JSONL file.")
+    init_parser = subparsers.add_parser(
+        "init", help="Create an active session JSONL file."
+    )
     _add_root_option(init_parser)
-    init_parser.add_argument("--agent", required=True, help="Agent name, for example codex.")
-    init_parser.add_argument("--slug", required=True, help="Short topic slug for the filename.")
-    init_parser.add_argument("--goal", help="Optional session goal for the session.started event.")
+    init_parser.add_argument(
+        "--agent", required=True, help="Agent name, for example codex."
+    )
+    init_parser.add_argument(
+        "--slug", required=True, help="Short topic slug for the filename."
+    )
+    init_parser.add_argument(
+        "--goal", help="Optional session goal for the session.started event."
+    )
     init_parser.add_argument(
         "--partial",
         action="store_true",
         help="Mark this record as a partial reconstruction.",
     )
-    init_parser.add_argument("--machine", help="Machine name override, mainly for tests.")
+    init_parser.add_argument(
+        "--machine", help="Machine name override, mainly for tests."
+    )
 
-    append_parser = subparsers.add_parser("append", help="Append one JSONL event to an active session.")
+    append_parser = subparsers.add_parser(
+        "append", help="Append one JSONL event to an active session."
+    )
     _add_root_option(append_parser)
     append_parser.add_argument("active", help="Active session path, filename, or stem.")
-    append_parser.add_argument("--type", dest="event_type", help="Event type, for example decision.recorded.")
-    append_parser.add_argument("--summary", help="Concise human-readable event summary.")
+    append_parser.add_argument(
+        "--type", dest="event_type", help="Event type, for example decision.recorded."
+    )
+    append_parser.add_argument(
+        "--summary", help="Concise human-readable event summary."
+    )
     append_parser.add_argument("--agent", help="Agent name to include on the event.")
-    append_parser.add_argument("--payload-json", help="JSON object to store as the event payload.")
+    append_parser.add_argument(
+        "--payload-json", help="JSON object to store as the event payload."
+    )
     append_parser.add_argument(
         "--event-json",
         help="Complete JSON object to append. Missing timestamp is filled automatically.",
     )
 
-    finalize_parser = subparsers.add_parser("finalize", help="Move an active session to the archive.")
+    finalize_parser = subparsers.add_parser(
+        "finalize", help="Move an active session to the archive."
+    )
     _add_root_option(finalize_parser)
-    finalize_parser.add_argument("active", help="Active session path, filename, or stem.")
+    finalize_parser.add_argument(
+        "active", help="Active session path, filename, or stem."
+    )
     finalize_summary = finalize_parser.add_mutually_exclusive_group()
-    finalize_summary.add_argument("--summary-file", type=Path, help="Markdown summary file to finalize.")
-    finalize_summary.add_argument("--summary", help="Markdown summary text to finalize.")
+    finalize_summary.add_argument(
+        "--summary-file", type=Path, help="Markdown summary file to finalize."
+    )
+    finalize_summary.add_argument(
+        "--summary", help="Markdown summary text to finalize."
+    )
 
     list_parser = subparsers.add_parser("list", help="List finalized session records.")
     _add_root_option(list_parser)
@@ -83,7 +114,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit JSON instead of a tab-separated table.",
     )
 
-    search_parser = subparsers.add_parser("search", help="Search finalized session records.")
+    search_parser = subparsers.add_parser(
+        "search", help="Search finalized session records."
+    )
     _add_root_option(search_parser)
     search_parser.add_argument("query", help="Case-insensitive search query.")
     search_parser.add_argument(
@@ -92,16 +125,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit JSON instead of a tab-separated table.",
     )
 
-    inspect_parser = subparsers.add_parser("inspect", help="Inspect one finalized session record.")
+    inspect_parser = subparsers.add_parser(
+        "inspect", help="Inspect one finalized session record."
+    )
     _add_root_option(inspect_parser)
-    inspect_parser.add_argument("record", help="Finalized record path, basename, or stem.")
+    inspect_parser.add_argument(
+        "record", help="Finalized record path, basename, or stem."
+    )
     inspect_parser.add_argument(
         "--json",
         action="store_true",
         help="Emit JSON instead of labeled text.",
     )
 
-    verify_parser = subparsers.add_parser("verify", help="Verify finalized session archive health.")
+    verify_parser = subparsers.add_parser(
+        "verify", help="Verify finalized session archive health."
+    )
     _add_root_option(verify_parser)
     verify_parser.add_argument(
         "--json",
@@ -131,56 +170,102 @@ def build_parser() -> argparse.ArgumentParser:
         help="Finalized record basename or stem to resume context from.",
     )
 
-    auto_parser = subparsers.add_parser("auto", help="Scriptable automatic-capture adapter commands.")
+    auto_parser = subparsers.add_parser(
+        "auto", help="Scriptable automatic-capture adapter commands."
+    )
     _add_root_option(auto_parser)
     auto_subparsers = auto_parser.add_subparsers(dest="auto_command", required=True)
 
-    auto_start = auto_subparsers.add_parser("start", help="Start an automatic partial capture.")
-    auto_start.add_argument("--agent", required=True, help="Agent name, for example claude.")
-    auto_start.add_argument("--slug", required=True, help="Short topic slug for the filename.")
-    auto_start.add_argument("--session-id", help="Platform session id for later event/stop commands.")
+    auto_start = auto_subparsers.add_parser(
+        "start", help="Start an automatic partial capture."
+    )
+    auto_start.add_argument(
+        "--agent", required=True, help="Agent name, for example claude."
+    )
+    auto_start.add_argument(
+        "--slug", required=True, help="Short topic slug for the filename."
+    )
+    auto_start.add_argument(
+        "--session-id", help="Platform session id for later event/stop commands."
+    )
     auto_start.add_argument("--goal", help="Optional session goal.")
-    auto_start.add_argument("--metadata-json", help="Metadata JSON object to store on the start event.")
+    auto_start.add_argument(
+        "--metadata-json", help="Metadata JSON object to store on the start event."
+    )
     auto_start.add_argument(
         "--complete",
         action="store_true",
         help="Mark capture complete. Use only for adapters that truly capture full transcripts.",
     )
-    auto_start.add_argument("--machine", help="Machine name override, mainly for tests.")
+    auto_start.add_argument(
+        "--machine", help="Machine name override, mainly for tests."
+    )
 
-    auto_event = auto_subparsers.add_parser("event", help="Append a conservative automatic-capture event.")
+    auto_event = auto_subparsers.add_parser(
+        "event", help="Append a conservative automatic-capture event."
+    )
     auto_event.add_argument("--active", help="Active session path, filename, or stem.")
-    auto_event.add_argument("--agent", help="Agent name for state lookup and event metadata.")
-    auto_event.add_argument("--session-id", help="Platform session id for state lookup.")
-    auto_event.add_argument("--type", dest="event_type", required=True, help="Event type to append.")
+    auto_event.add_argument(
+        "--agent", help="Agent name for state lookup and event metadata."
+    )
+    auto_event.add_argument(
+        "--session-id", help="Platform session id for state lookup."
+    )
+    auto_event.add_argument(
+        "--type", dest="event_type", required=True, help="Event type to append."
+    )
     auto_event.add_argument("--summary", help="Concise human-readable event summary.")
-    auto_event.add_argument("--metadata-json", help="Metadata JSON object to store as payload.")
+    auto_event.add_argument(
+        "--metadata-json", help="Metadata JSON object to store as payload."
+    )
 
-    auto_stop = auto_subparsers.add_parser("stop", help="Finalize an automatic capture.")
+    auto_stop = auto_subparsers.add_parser(
+        "stop", help="Finalize an automatic capture."
+    )
     auto_stop.add_argument("--active", help="Active session path, filename, or stem.")
-    auto_stop.add_argument("--agent", help="Agent name for state lookup and event metadata.")
+    auto_stop.add_argument(
+        "--agent", help="Agent name for state lookup and event metadata."
+    )
     auto_stop.add_argument("--session-id", help="Platform session id for state lookup.")
     auto_stop.add_argument("--summary", help="Markdown summary text to finalize.")
-    auto_stop.add_argument("--metadata-json", help="Metadata JSON object to store on the end event.")
+    auto_stop.add_argument(
+        "--metadata-json", help="Metadata JSON object to store on the end event."
+    )
 
-    auto_prune = auto_subparsers.add_parser("prune", help="Remove stale automatic-capture state files.")
+    auto_prune = auto_subparsers.add_parser(
+        "prune", help="Remove stale automatic-capture state files."
+    )
     auto_prune.add_argument(
         "--dry-run",
         action="store_true",
         help="Report stale state files without removing them.",
     )
 
-    auto_hook = auto_subparsers.add_parser("hook", help="Handle a platform hook JSON payload from stdin.")
+    auto_hook = auto_subparsers.add_parser(
+        "hook", help="Handle a platform hook JSON payload from stdin."
+    )
     auto_hook_subparsers = auto_hook.add_subparsers(dest="platform", required=True)
-    claude_hook = auto_hook_subparsers.add_parser("claude", help="Handle Claude Code hook JSON from stdin.")
-    claude_hook.add_argument("--machine", help="Machine name override, mainly for tests.")
+    claude_hook = auto_hook_subparsers.add_parser(
+        "claude", help="Handle Claude Code hook JSON from stdin."
+    )
+    claude_hook.add_argument(
+        "--machine", help="Machine name override, mainly for tests."
+    )
 
-    wrap_parser = subparsers.add_parser("wrap", help="Run an agent command with partial lifecycle capture.")
+    wrap_parser = subparsers.add_parser(
+        "wrap", help="Run an agent command with partial lifecycle capture."
+    )
     _add_root_option(wrap_parser)
-    wrap_parser.add_argument("--agent", required=True, help="Agent name, for example codex or pi.")
-    wrap_parser.add_argument("--slug", required=True, help="Short topic slug for the filename.")
+    wrap_parser.add_argument(
+        "--agent", required=True, help="Agent name, for example codex or pi."
+    )
+    wrap_parser.add_argument(
+        "--slug", required=True, help="Short topic slug for the filename."
+    )
     wrap_parser.add_argument("--goal", help="Optional session goal.")
-    wrap_parser.add_argument("wrapped_command", nargs=argparse.REMAINDER, help="Command to run after --.")
+    wrap_parser.add_argument(
+        "wrapped_command", nargs=argparse.REMAINDER, help="Command to run after --."
+    )
 
     return parser
 
@@ -241,7 +326,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "list":
             records = list_finalized_sessions(root=args.root)
             if args.json:
-                print(json.dumps([record.to_dict() for record in records], sort_keys=True))
+                print(
+                    json.dumps([record.to_dict() for record in records], sort_keys=True)
+                )
             else:
                 print(format_session_table(records))
             return 0
@@ -249,7 +336,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "search":
             search_results = search_finalized_sessions(args.query, root=args.root)
             if args.json:
-                print(json.dumps([result.to_dict() for result in search_results], sort_keys=True))
+                print(
+                    json.dumps(
+                        [result.to_dict() for result in search_results], sort_keys=True
+                    )
+                )
             else:
                 print(format_session_search_results(search_results))
             return 0
@@ -296,7 +387,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "auto":
             if args.auto_command == "start":
-                metadata = _parse_optional_json_object(args.metadata_json, "--metadata-json")
+                metadata = _parse_optional_json_object(
+                    args.metadata_json, "--metadata-json"
+                )
                 state = start_auto_capture(
                     agent=args.agent,
                     slug=args.slug,
@@ -311,7 +404,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if args.auto_command == "event":
-                metadata = _parse_optional_json_object(args.metadata_json, "--metadata-json")
+                metadata = _parse_optional_json_object(
+                    args.metadata_json, "--metadata-json"
+                )
                 path = append_auto_event(
                     root=args.root,
                     active=args.active,
@@ -325,7 +420,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if args.auto_command == "stop":
-                metadata = _parse_optional_json_object(args.metadata_json, "--metadata-json")
+                metadata = _parse_optional_json_object(
+                    args.metadata_json, "--metadata-json"
+                )
                 record = stop_auto_capture(
                     root=args.root,
                     active=args.active,
@@ -340,7 +437,9 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
             if args.auto_command == "prune":
-                prune_results = prune_auto_capture_state(root=args.root, dry_run=args.dry_run)
+                prune_results = prune_auto_capture_state(
+                    root=args.root, dry_run=args.dry_run
+                )
                 action = "would-remove" if args.dry_run else "removed"
                 for prune_result in prune_results:
                     print(f"{action}\t{prune_result.path}\t{prune_result.reason}")
@@ -349,7 +448,9 @@ def main(argv: list[str] | None = None) -> int:
 
             if args.auto_command == "hook" and args.platform == "claude":
                 payload = read_hook_json(sys.stdin.read())
-                hook_result = handle_claude_hook(payload, root=args.root, machine=args.machine)
+                hook_result = handle_claude_hook(
+                    payload, root=args.root, machine=args.machine
+                )
                 if hook_result.message:
                     print(f"pipy-session: {hook_result.message}", file=sys.stderr)
                 return 0
@@ -377,7 +478,9 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
-def _parse_optional_json_object(value: str | None, option_name: str) -> dict[str, Any] | None:
+def _parse_optional_json_object(
+    value: str | None, option_name: str
+) -> dict[str, Any] | None:
     if value is None:
         return None
 
@@ -395,8 +498,6 @@ def _wrapped_command(command: list[str]) -> list[str]:
     if command and command[0] == "--":
         return command[1:]
     return command
-
-
 
 
 if __name__ == "__main__":

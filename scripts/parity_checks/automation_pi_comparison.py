@@ -91,7 +91,9 @@ def _drive_pi(pi_dir: Path) -> list[dict]:
         raise RuntimeError(
             f"pi driver exit {proc.returncode}: {proc.stderr.decode('utf-8')[:400]}"
         )
-    return [json.loads(line) for line in proc.stdout.decode("utf-8").splitlines() if line]
+    return [
+        json.loads(line) for line in proc.stdout.decode("utf-8").splitlines() if line
+    ]
 
 
 def _drive_pipy(sessions_root: Path | None) -> tuple[list[dict], Path]:
@@ -128,9 +130,7 @@ def _drive_pipy(sessions_root: Path | None) -> tuple[list[dict], Path]:
         timeout=60.0,
     )
     records = [
-        json.loads(line)
-        for line in proc.stdout.decode("utf-8").splitlines()
-        if line
+        json.loads(line) for line in proc.stdout.decode("utf-8").splitlines() if line
     ]
     # Drop the leading native session header; keep the event stream.
     events = [r for r in records if r.get("type") != "session"]
@@ -156,9 +156,10 @@ def _normalized_sequence(events: list[dict]) -> list[str]:
 
 def _assistant_final_text(events: list[dict]) -> str:
     for event in events:
-        if event.get("type") == "message_end" and event.get("message", {}).get(
-            "role"
-        ) == "assistant":
+        if (
+            event.get("type") == "message_end"
+            and event.get("message", {}).get("role") == "assistant"
+        ):
             return "".join(
                 b.get("text", "")
                 for b in event["message"].get("content", [])
@@ -233,7 +234,9 @@ def _run_comparison(pi_events: list[dict], pipy_events: list[dict]) -> list[Chec
     return checks
 
 
-def _check_durable_tree_reconstruction(events: list[dict], sessions_root: Path) -> Check:
+def _check_durable_tree_reconstruction(
+    events: list[dict], sessions_root: Path
+) -> Check:
     """pipy's native session tree rebuilds the same conversation as the events."""
 
     from pipy_harness.native.agent import AgentAssistantMessage, AgentUserMessage
@@ -241,7 +244,9 @@ def _check_durable_tree_reconstruction(events: list[dict], sessions_root: Path) 
 
     session_files = sorted(sessions_root.glob("**/*.jsonl"))
     if not session_files:
-        return Check("durable_session_tree_reconstruction", False, "no session file written")
+        return Check(
+            "durable_session_tree_reconstruction", False, "no session file written"
+        )
     tree = NativeSessionTree.open(session_files[-1])
     messages = list(tree.build_context().messages)
     roles = [type(message).__name__ for message in messages]

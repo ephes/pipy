@@ -14,9 +14,7 @@ from __future__ import annotations
 from fnmatch import fnmatch
 
 
-def filter_scoped_references(
-    references: list[str], patterns: list[str]
-) -> list[str]:
+def filter_scoped_references(references: list[str], patterns: list[str]) -> list[str]:
     """Return ``references`` constrained to those matching any pattern.
 
     Order follows ``references`` (not the pattern list). Empty ``patterns``
@@ -33,9 +31,7 @@ def filter_scoped_references(
     ]
 
 
-def next_reference(
-    references: list[str], current: str, *, forward: bool
-) -> str | None:
+def next_reference(references: list[str], current: str, *, forward: bool) -> str | None:
     """Return the next/previous reference in the cycle, wrapping.
 
     When ``current`` is not in ``references`` the cycle starts at the first

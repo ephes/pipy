@@ -341,8 +341,12 @@ def configure_resource_filter(
 
     data = _read_settings_for_write(settings_path)
     raw = data.get(kind)
-    entries = [item for item in raw if isinstance(item, str)] if isinstance(raw, list) else []
-    entries = enable_entry(entries, pattern) if enable else disable_entry(entries, pattern)
+    entries = (
+        [item for item in raw if isinstance(item, str)] if isinstance(raw, list) else []
+    )
+    entries = (
+        enable_entry(entries, pattern) if enable else disable_entry(entries, pattern)
+    )
     data[kind] = entries
     _atomic_write_json(settings_path, data)
 
@@ -448,7 +452,9 @@ def git_cache_path(
 ) -> Path:
     """Return the contained managed cache path for a git package."""
 
-    root = _git_cache_root(workspace_root=workspace_root, config_home=config_home, local=local)
+    root = _git_cache_root(
+        workspace_root=workspace_root, config_home=config_home, local=local
+    )
     return _contained_path(root, (git_source.host, *git_source.path.split("/")))
 
 
@@ -467,7 +473,9 @@ def install_git_package(
         config_home=config_home,
         local=local,
     )
-    root = _git_cache_root(workspace_root=workspace_root, config_home=config_home, local=local)
+    root = _git_cache_root(
+        workspace_root=workspace_root, config_home=config_home, local=local
+    )
     _ensure_cache_root(root)
     if target.exists():
         update_git_package(
@@ -509,7 +517,9 @@ def update_git_package(
     if not (target / ".git").exists():
         raise PackageCommandError(f"managed git cache is not a git checkout: {target}")
     if git_source.ref:
-        _run_git(["fetch", "--prune", "--no-tags", "origin", git_source.ref], cwd=target)
+        _run_git(
+            ["fetch", "--prune", "--no-tags", "origin", git_source.ref], cwd=target
+        )
         target_ref = "FETCH_HEAD"
     else:
         _run_git(["fetch", "--prune", "--no-tags", "origin"], cwd=target)
@@ -534,7 +544,9 @@ def remove_git_package(
         config_home=config_home,
         local=local,
     )
-    root = _git_cache_root(workspace_root=workspace_root, config_home=config_home, local=local)
+    root = _git_cache_root(
+        workspace_root=workspace_root, config_home=config_home, local=local
+    )
     if target.exists():
         shutil.rmtree(target)
     _prune_empty_parents(target.parent, root)
@@ -604,13 +616,17 @@ def update_configured_packages(
                 results.append(PackageUpdateResult(source, scope, "failed", str(exc)))
             else:
                 results.append(
-                    PackageUpdateResult(source, scope, "updated", _safe_display_path(path))
+                    PackageUpdateResult(
+                        source, scope, "updated", _safe_display_path(path)
+                    )
                 )
             continue
         if is_local_path_source(source):
             results.append(PackageUpdateResult(source, scope, "skipped", "local path"))
             continue
-        results.append(PackageUpdateResult(source, scope, "failed", "unsupported source"))
+        results.append(
+            PackageUpdateResult(source, scope, "failed", "unsupported source")
+        )
     return results
 
 
@@ -668,7 +684,9 @@ def _split_git_ref(value: str) -> tuple[str, str | None]:
     return value, None
 
 
-def _parse_git_repo(value: str, *, allow_shorthand: bool) -> tuple[str, str, str] | None:
+def _parse_git_repo(
+    value: str, *, allow_shorthand: bool
+) -> tuple[str, str, str] | None:
     scp_match = re.match(r"^git@([^:]+):(.+)$", value)
     if scp_match:
         return value, scp_match.group(1), scp_match.group(2).lstrip("/")
@@ -679,7 +697,9 @@ def _parse_git_repo(value: str, *, allow_shorthand: bool) -> tuple[str, str, str
             return None
         if parsed.scheme.lower() not in _SUPPORTED_GIT_URL_SCHEMES:
             return None
-        host = parsed.hostname or ("localhost" if parsed.scheme.lower() == "file" else "")
+        host = parsed.hostname or (
+            "localhost" if parsed.scheme.lower() == "file" else ""
+        )
         path = parsed.path.lstrip("/")
         if parsed.username or parsed.password:
             # Credentials in configured package URLs are a supply-chain footgun
@@ -711,7 +731,9 @@ def _safe_git_component(value: str, *, allow_slash: bool) -> bool:
     return True
 
 
-def _git_cache_root(*, workspace_root: Path | None, config_home: Path, local: bool) -> Path:
+def _git_cache_root(
+    *, workspace_root: Path | None, config_home: Path, local: bool
+) -> Path:
     if local:
         if workspace_root is None:
             raise PackageSourceError("project package cache requires a workspace root")
@@ -725,7 +747,9 @@ def _contained_path(root: Path, parts: Sequence[str]) -> Path:
     try:
         candidate.relative_to(resolved_root)
     except ValueError as exc:
-        raise PackageSourceError(f"refusing package cache path outside {resolved_root}") from exc
+        raise PackageSourceError(
+            f"refusing package cache path outside {resolved_root}"
+        ) from exc
     return candidate
 
 

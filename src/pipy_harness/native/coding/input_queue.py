@@ -112,14 +112,12 @@ class CodingInputQueue:
         self,
         *,
         external_inputs: Iterable[AgentQueuedInputPort] = (),
-        pending_local_command_source: Callable[[], ProductContent | None]
-        | None = None,
+        pending_local_command_source: Callable[[], ProductContent | None] | None = None,
         seeds: Iterable[ProductContent] = (),
     ) -> None:
         self._external_inputs = tuple(external_inputs)
         if not all(
-            isinstance(source, AgentQueuedInputPort)
-            for source in self._external_inputs
+            isinstance(source, AgentQueuedInputPort) for source in self._external_inputs
         ):
             raise TypeError("external inputs must implement AgentQueuedInputPort")
         if pending_local_command_source is not None and not callable(

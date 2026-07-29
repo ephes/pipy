@@ -99,9 +99,7 @@ WORKSPACE_INSTRUCTIONS_PROMPT_HEADER: str = (
 WORKSPACE_INSTRUCTIONS_FILE_HEADER_TEMPLATE: str = (
     "\n### {path_label} (sha256={sha256_short}, bytes={byte_length}{trunc_suffix})\n\n"
 )
-WORKSPACE_INSTRUCTIONS_PROMPT_FOOTER: str = (
-    "\n## End Workspace Instructions\n"
-)
+WORKSPACE_INSTRUCTIONS_PROMPT_FOOTER: str = "\n## End Workspace Instructions\n"
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,15 +180,9 @@ def discover_workspace_instructions(
     """
 
     if per_file_byte_cap < 1:
-        raise ValueError(
-            "per_file_byte_cap must be >= 1; "
-            f"got {per_file_byte_cap}"
-        )
+        raise ValueError(f"per_file_byte_cap must be >= 1; got {per_file_byte_cap}")
     if total_byte_cap < 1:
-        raise ValueError(
-            "total_byte_cap must be >= 1; "
-            f"got {total_byte_cap}"
-        )
+        raise ValueError(f"total_byte_cap must be >= 1; got {total_byte_cap}")
 
     resolved_workspace = workspace_root.expanduser().resolve()
     seen_paths: set[Path] = set()
@@ -448,7 +440,11 @@ def compose_system_prompt(
     if not discovery.instructions:
         return base_prompt
 
-    parts: list[str] = [base_prompt.rstrip(), "\n", WORKSPACE_INSTRUCTIONS_PROMPT_HEADER]
+    parts: list[str] = [
+        base_prompt.rstrip(),
+        "\n",
+        WORKSPACE_INSTRUCTIONS_PROMPT_HEADER,
+    ]
     for entry in discovery.instructions:
         trunc_suffix = "+truncated" if entry.truncated else ""
         header = WORKSPACE_INSTRUCTIONS_FILE_HEADER_TEMPLATE.format(

@@ -117,7 +117,9 @@ def start_auto_capture(
                 payload={
                     "capture_complete": not existing.partial,
                     "metadata": _sanitize_metadata(metadata or {}),
-                    "platform_session_id": _public_session_id(existing.platform_session_id),
+                    "platform_session_id": _public_session_id(
+                        existing.platform_session_id
+                    ),
                 },
                 now=now,
             )
@@ -197,7 +199,9 @@ def append_auto_event(
 ) -> Path:
     """Append one conservative automatic-capture event."""
 
-    active_path = _active_from_args(root=root, active=active, agent=agent, session_id=platform_session_id)
+    active_path = _active_from_args(
+        root=root, active=active, agent=agent, session_id=platform_session_id
+    )
     payload = _sanitize_metadata(metadata or {})
     return append_event(
         active_path,
@@ -269,7 +273,9 @@ def handle_claude_hook(
     event_name = str(payload.get("hook_event_name") or "")
     session_id = str(payload.get("session_id") or "")
     if not event_name or not session_id:
-        return HookResult(message="ignored Claude hook without hook_event_name or session_id")
+        return HookResult(
+            message="ignored Claude hook without hook_event_name or session_id"
+        )
 
     if event_name == "SessionStart":
         cwd = _path_name(payload.get("cwd")) or "claude"
@@ -298,7 +304,9 @@ def handle_claude_hook(
                 now=now,
             )
         except FileNotFoundError:
-            return HookResult(message=f"ignored Claude SessionEnd with no active state: {session_id}")
+            return HookResult(
+                message=f"ignored Claude SessionEnd with no active state: {session_id}"
+            )
         return HookResult(record=record)
 
     try:
@@ -312,7 +320,9 @@ def handle_claude_hook(
             now=now,
         )
     except FileNotFoundError:
-        return HookResult(message=f"ignored Claude {event_name} with no active state: {session_id}")
+        return HookResult(
+            message=f"ignored Claude {event_name} with no active state: {session_id}"
+        )
     return HookResult(active_path=active_path)
 
 
@@ -412,7 +422,10 @@ def _active_and_state_from_args(
 
 
 def _state_path(root: str | Path | None, agent: str, session_id: str) -> Path:
-    return state_dir(root) / f"{_safe_component(agent, 'agent')}-{_session_id_storage_key(session_id)}.json"
+    return (
+        state_dir(root)
+        / f"{_safe_component(agent, 'agent')}-{_session_id_storage_key(session_id)}.json"
+    )
 
 
 def _read_state(path: Path) -> dict[str, Any]:
@@ -501,21 +514,36 @@ def _metadata_for_hook(payload: Mapping[str, Any]) -> dict[str, Any]:
         "cwd_name": _path_name(payload.get("cwd")),
     }
 
-    for key in ("source", "model", "agent_type", "permission_mode", "reason", "tool_name", "tool_use_id"):
+    for key in (
+        "source",
+        "model",
+        "agent_type",
+        "permission_mode",
+        "reason",
+        "tool_name",
+        "tool_use_id",
+    ):
         if key in payload:
             metadata[key] = payload[key]
 
     if "prompt" in payload:
-        metadata["prompt"] = {"redacted": True, "characters": len(str(payload["prompt"]))}
+        metadata["prompt"] = {
+            "redacted": True,
+            "characters": len(str(payload["prompt"])),
+        }
     if "last_assistant_message" in payload:
         metadata["last_assistant_message"] = {
             "redacted": True,
             "characters": len(str(payload["last_assistant_message"])),
         }
     if isinstance(payload.get("tool_input"), Mapping):
-        metadata["tool_input_keys"] = sorted(str(key) for key in payload["tool_input"].keys())
+        metadata["tool_input_keys"] = sorted(
+            str(key) for key in payload["tool_input"].keys()
+        )
     if isinstance(payload.get("tool_response"), Mapping):
-        metadata["tool_response_keys"] = sorted(str(key) for key in payload["tool_response"].keys())
+        metadata["tool_response_keys"] = sorted(
+            str(key) for key in payload["tool_response"].keys()
+        )
 
     return metadata
 
@@ -607,7 +635,9 @@ def _arg_requests_sensitive_value(value: str) -> bool:
     return value.startswith("-") and _looks_sensitive(value)
 
 
-def _default_summary(agent: str | None, metadata: Mapping[str, Any] | None = None) -> str:
+def _default_summary(
+    agent: str | None, metadata: Mapping[str, Any] | None = None
+) -> str:
     agent_name = agent or "agent"
     reason = ""
     if metadata and metadata.get("reason"):
@@ -624,7 +654,9 @@ def _default_summary(agent: str | None, metadata: Mapping[str, Any] | None = Non
 def _sanitize_summary_lines(summary: str | None) -> str:
     if not summary or not summary.strip():
         return ""
-    return "\n".join(str(_sanitize_value(line)) for line in summary.strip().splitlines())
+    return "\n".join(
+        str(_sanitize_value(line)) for line in summary.strip().splitlines()
+    )
 
 
 def _table_safe(value: str) -> str:

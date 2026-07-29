@@ -119,7 +119,9 @@ class CodingProductSessionCoordinator:
 
         require_exact_agent_message(message, "message")
         self._state.append_message(message)
-        append_message = cast(Callable[[AgentMessage], object], self._port.append_message)
+        append_message = cast(
+            Callable[[AgentMessage], object], self._port.append_message
+        )
         result = append_message(message)
         _require_none(result, "port.append_message")
 

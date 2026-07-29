@@ -365,8 +365,7 @@ def _store_error_resolution(
 def _extension_trust_resolution(
     resolved: Path,
     trust_store: ProjectTrustStore,
-    extension_decision: Callable[[Path], ProjectTrustExtensionDecision | None]
-    | None,
+    extension_decision: Callable[[Path], ProjectTrustExtensionDecision | None] | None,
     on_diagnostic: Callable[[str], None] | None,
 ) -> ProjectTrustResolution | None:
     if extension_decision is None:
@@ -448,9 +447,7 @@ def resolve_project_trust(
     if default_project_trust == "never":
         return ProjectTrustResolution(False, "default_never", True)
     if select is not None:
-        return _selection_trust_resolution(
-            resolved, trust_store, select, on_diagnostic
-        )
+        return _selection_trust_resolution(resolved, trust_store, select, on_diagnostic)
     return ProjectTrustResolution(False, "headless", True)
 
 

@@ -250,7 +250,9 @@ class SessionArchiveVerification:
         }
 
 
-def list_finalized_sessions(root: str | Path | None = None) -> list[FinalizedSessionListing]:
+def list_finalized_sessions(
+    root: str | Path | None = None,
+) -> list[FinalizedSessionListing]:
     """Return finalized session records sorted newest first."""
 
     root_path = resolve_session_root(root)
@@ -288,8 +290,12 @@ def search_finalized_sessions(
     for listing in list_finalized_sessions(root=root):
         matches = _search_finalized_listing(listing, normalized_query)
         if matches:
-            results.append(FinalizedSessionSearchResult(listing=listing, matches=matches))
+            results.append(
+                FinalizedSessionSearchResult(listing=listing, matches=matches)
+            )
     return results
+
+
 def format_session_table(records: list[FinalizedSessionListing]) -> str:
     """Format finalized session records as a compact tab-separated table."""
 
@@ -314,6 +320,8 @@ def format_session_table(records: list[FinalizedSessionListing]) -> str:
             )
         )
     return "\n".join(lines)
+
+
 def format_session_search_results(results: list[FinalizedSessionSearchResult]) -> str:
     """Format finalized session search results as a compact tab-separated table."""
 
@@ -358,7 +366,9 @@ def inspect_finalized_session(
     )
 
 
-def verify_session_archive(root: str | Path | None = None) -> SessionArchiveVerification:
+def verify_session_archive(
+    root: str | Path | None = None,
+) -> SessionArchiveVerification:
     """Verify finalized session archive structure without exposing raw event bodies."""
 
     root_path = resolve_session_root(root)
@@ -462,7 +472,9 @@ def _classify_archive_file(
     )
 
 
-def resolve_finalized_record(record: str | Path, *, root: str | Path | None = None) -> Path:
+def resolve_finalized_record(
+    record: str | Path, *, root: str | Path | None = None
+) -> Path:
     """Resolve a path, basename, or stem to exactly one finalized JSONL record."""
 
     root_path = resolve_session_root(root)
@@ -587,7 +599,10 @@ def _read_finalized_listing(path: Path) -> FinalizedSessionListing | None:
     except json.JSONDecodeError:
         return None
 
-    if not isinstance(first_event, dict) or first_event.get("type") != "session.started":
+    if (
+        not isinstance(first_event, dict)
+        or first_event.get("type") != "session.started"
+    ):
         return None
 
     return FinalizedSessionListing(
@@ -784,7 +799,9 @@ def _table_cell(value: str) -> str:
     return " ".join(value.split())
 
 
-def _read_finalized_inspection(path: Path) -> tuple[FinalizedSessionListing, int, dict[str, int]]:
+def _read_finalized_inspection(
+    path: Path,
+) -> tuple[FinalizedSessionListing, int, dict[str, int]]:
     match = FILENAME_RE.match(path.name)
     if match is None:
         raise ValueError(f"finalized session filename is malformed: {path.name}")
@@ -799,7 +816,9 @@ def _read_finalized_inspection(path: Path) -> tuple[FinalizedSessionListing, int
             try:
                 event = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"malformed JSONL event at line {line_number}: {path}") from exc
+                raise ValueError(
+                    f"malformed JSONL event at line {line_number}: {path}"
+                ) from exc
             if not isinstance(event, dict):
                 raise ValueError(f"malformed JSONL event at line {line_number}: {path}")
             if line_number == 1:
@@ -810,7 +829,9 @@ def _read_finalized_inspection(path: Path) -> tuple[FinalizedSessionListing, int
     if first_event is None:
         raise ValueError(f"malformed finalized session record: empty file: {path}")
     if first_event.get("type") != "session.started":
-        raise ValueError(f"malformed finalized session record: first event is not session.started: {path}")
+        raise ValueError(
+            f"malformed finalized session record: first event is not session.started: {path}"
+        )
 
     listing = FinalizedSessionListing(
         started=str(first_event.get("timestamp") or match.group("stamp")),
@@ -1027,7 +1048,12 @@ def _ambiguity_detail(label: str, value: str, matches: list[Path]) -> str:
 
 def _verification_issue_sort_key(issue: VerificationIssue) -> tuple[int, str, str, str]:
     severity_rank = {"error": 0, "warning": 1}
-    return (severity_rank.get(issue.severity, 99), issue.kind, str(issue.path), issue.detail)
+    return (
+        severity_rank.get(issue.severity, 99),
+        issue.kind,
+        str(issue.path),
+        issue.detail,
+    )
 
 
 def _filename_stamp(path: Path) -> str:

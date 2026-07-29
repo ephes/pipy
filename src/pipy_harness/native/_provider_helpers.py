@@ -57,9 +57,7 @@ def extract_responses_tool_calls(
         if not isinstance(call_id, str) or not call_id:
             candidate_id = item.get("id")
             call_id = (
-                candidate_id
-                if isinstance(candidate_id, str) and candidate_id
-                else None
+                candidate_id if isinstance(candidate_id, str) and candidate_id else None
             )
         if not isinstance(name, str) or not name:
             continue

@@ -102,7 +102,11 @@ def run_checks(base: Path) -> list[Check]:
     reg.mkdir()
     _write(reg, "aaa", _FAKE_PROVIDER)
     _write(reg, "bbb", _FAKE_PROVIDER)  # duplicate provider name "myprov"
-    _write(reg, "unreg", "def activate(api):\n    api.unregister_provider('openai-codex')\n")
+    _write(
+        reg,
+        "unreg",
+        "def activate(api):\n    api.unregister_provider('openai-codex')\n",
+    )
     _write(
         reg,
         "badprov",
@@ -165,7 +169,8 @@ def run_checks(base: Path) -> list[Check]:
     checks.append(
         Check(
             "oauth_provider_projected",
-            sorted(oauth_map) == ["corp-ai"] and oauth_map["corp-ai"].provider.oauth is not None,
+            sorted(oauth_map) == ["corp-ai"]
+            and oauth_map["corp-ai"].provider.oauth is not None,
             "OAuth metadata is projected under the derived provider id without invoking callbacks",
         )
     )
@@ -189,9 +194,7 @@ def run_checks(base: Path) -> list[Check]:
             "invalid provider disables the extension",
         )
     )
-    crashy = next(
-        (p for p in providers if p.provider.name == "crashy"), None
-    )
+    crashy = next((p for p in providers if p.provider.name == "crashy"), None)
     checks.append(
         Check(
             "factory_failure_bounded",
@@ -217,8 +220,7 @@ def main(argv: list[str] | None = None) -> int:
         report = {
             "passed": passed,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
-                for c in checks
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
             ],
         }
         print(json.dumps(report, indent=2))

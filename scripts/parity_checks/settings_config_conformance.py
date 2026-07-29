@@ -102,7 +102,14 @@ def _run_tool_adapter(
         **adapter_kwargs,  # type: ignore[arg-type]
     )
     prepared = adapter.prepare(
-        RunRequest(agent="pipy-native", slug="gate", command=[], cwd=workspace, goal="g", root=root)
+        RunRequest(
+            agent="pipy-native",
+            slug="gate",
+            command=[],
+            cwd=workspace,
+            goal="g",
+            root=root,
+        )
     )
     sink = _RecordingSink()
     adapter.run(prepared, event_sink=sink, capture_policy=CapturePolicy())
@@ -132,11 +139,15 @@ def _run_session(
     provider: object | None = None,
     **session_kwargs: object,
 ) -> tuple[str, object]:
-    prov = provider if provider is not None else FakeNativeProvider(
-        supports_tool_calls=True, final_text="ok"
+    prov = (
+        provider
+        if provider is not None
+        else FakeNativeProvider(supports_tool_calls=True, final_text="ok")
     )
     session = NativeToolReplSession(
-        provider=prov, settings_manager=settings_manager, **session_kwargs  # type: ignore[arg-type]
+        provider=prov,
+        settings_manager=settings_manager,
+        **session_kwargs,  # type: ignore[arg-type]
     )
     err = io.StringIO()
     session.run(
@@ -162,11 +173,17 @@ def check_01_discovery_and_precedence(root: Path) -> tuple[bool, str]:
 def check_02_precedence_and_merge_depth(root: Path) -> tuple[bool, str]:
     _write(
         root / "config" / "settings.json",
-        {"compaction": {"enabled": True, "reserveTokens": 16384}, "retry": {"provider": {"timeoutMs": 1}}},
+        {
+            "compaction": {"enabled": True, "reserveTokens": 16384},
+            "retry": {"provider": {"timeoutMs": 1}},
+        },
     )
     _write(
         root / "proj" / ".pipy" / "settings.json",
-        {"compaction": {"reserveTokens": 8000}, "retry": {"provider": {"maxRetries": 9}}},
+        {
+            "compaction": {"reserveTokens": 8000},
+            "retry": {"provider": {"maxRetries": 9}},
+        },
     )
     mgr = _manager(root, overrides={"theme": "cli"})
     eff = mgr.effective()
@@ -174,7 +191,10 @@ def check_02_precedence_and_merge_depth(root: Path) -> tuple[bool, str]:
     wholesale = eff["retry"]["provider"] == {"maxRetries": 9}  # deeper object replaced
     cli = eff["theme"] == "cli"
     no_claude = not (root / ".claude").exists()
-    return one_level and wholesale and cli and no_claude, f"compaction={eff['compaction']} retry={eff['retry']}"
+    return (
+        one_level and wholesale and cli and no_claude,
+        f"compaction={eff['compaction']} retry={eff['retry']}",
+    )
 
 
 def check_03_field_scoped_write_preserves_unknown(root: Path) -> tuple[bool, str]:
@@ -221,7 +241,10 @@ def check_05_migrations(_root: Path) -> tuple[bool, str]:
 
 def check_06_local_state_import(root: Path) -> tuple[bool, str]:
     base = local_state_base_defaults(
-        provider="openai-codex", model="gpt-5.5", theme="pi-dark", prompt_history_enabled=True
+        provider="openai-codex",
+        model="gpt-5.5",
+        theme="pi-dark",
+        prompt_history_enabled=True,
     )
     mgr = _manager(root / "empty", base_defaults=base)
     ok = (
@@ -235,11 +258,14 @@ def check_06_local_state_import(root: Path) -> tuple[bool, str]:
 
 def check_07_keybindings_load_migrate_fallback(root: Path) -> tuple[bool, str]:
     kpath = root / "kb.json"
-    _write(kpath, {"app.model.cycleForward": "ctrl+j", "app.tree.foldOrUp": ["ctrl+h", "alt+h"]})
+    _write(
+        kpath,
+        {"app.model.cycleForward": "ctrl+j", "app.tree.foldOrUp": ["ctrl+h", "alt+h"]},
+    )
     mgr = KeybindingsManager.from_file(kpath)
-    single_array = mgr.keys_for("app.model.cycleForward") == ["ctrl+j"] and mgr.keys_for(
-        "app.tree.foldOrUp"
-    ) == ["ctrl+h", "alt+h"]
+    single_array = mgr.keys_for("app.model.cycleForward") == [
+        "ctrl+j"
+    ] and mgr.keys_for("app.tree.foldOrUp") == ["ctrl+h", "alt+h"]
     config, migrated = migrate_keybindings_config({"cycleModelForward": "ctrl+j"})
     legacy = migrated and config == {"app.model.cycleForward": "ctrl+j"}
     kpath.write_text("{broken", encoding="utf-8")
@@ -248,14 +274,18 @@ def check_07_keybindings_load_migrate_fallback(root: Path) -> tuple[bool, str]:
     # /hotkeys renders the resolved override, not the default.
     over = KeybindingsManager(user_bindings={"app.model.cycleForward": "ctrl+j"})
     hot = "Ctrl+J" in render_hotkeys(over, platform="linux")
-    return single_array and legacy and fallback and hot, f"single_array={single_array} legacy={legacy} fallback={fallback} hotkeys={hot}"
+    return (
+        single_array and legacy and fallback and hot,
+        f"single_array={single_array} legacy={legacy} fallback={fallback} hotkeys={hot}",
+    )
 
 
 def check_08_default_app_bindings(_root: Path) -> tuple[bool, str]:
     count = len(APP_KEYBINDINGS)
     spot = (
         APP_KEYBINDINGS["app.interrupt"].default_keys == ["escape"]
-        and APP_KEYBINDINGS["app.tree.foldOrUp"].default_keys == ["ctrl+left", "alt+left"]
+        and APP_KEYBINDINGS["app.tree.foldOrUp"].default_keys
+        == ["ctrl+left", "alt+left"]
         and APP_KEYBINDINGS["app.session.new"].default_keys == []
     )
     return count >= 35 and spot, f"app_bindings={count} spot={spot}"
@@ -277,35 +307,60 @@ def check_09_scoped_models(root: Path) -> tuple[bool, str]:
     out, _ = _run_session(
         ws, "/scoped-models openai/*\n/exit\n", settings_manager=mgr, provider=prov
     )
-    persisted = json.loads((root / "cfg" / "settings.json").read_text())["enabledModels"] == ["openai/*"]
+    persisted = json.loads((root / "cfg" / "settings.json").read_text())[
+        "enabledModels"
+    ] == ["openai/*"]
     no_turn = prov._call_counter[0] == 0
-    return scoped and cyc and persisted and no_turn, f"scoped={scoped} cyc={cyc} persisted={persisted} no_turn={no_turn}"
+    return (
+        scoped and cyc and persisted and no_turn,
+        f"scoped={scoped} cyc={cyc} persisted={persisted} no_turn={no_turn}",
+    )
 
 
 def check_10_delivery_reported_and_honored(root: Path) -> tuple[bool, str]:
     _write(
         root / "config" / "settings.json",
-        {"transport": "sse", "retry": {"maxRetries": 5, "baseDelayMs": 500, "provider": {"maxRetryDelayMs": 30000}}},
+        {
+            "transport": "sse",
+            "retry": {
+                "maxRetries": 5,
+                "baseDelayMs": 500,
+                "provider": {"maxRetryDelayMs": 30000},
+            },
+        },
     )
     mgr = _manager(root)
     report = "\n".join(settings_report_lines(mgr))
-    reported = "transport: sse" in report and "compaction:" in report and "retry:" in report
+    reported = (
+        "transport: sse" in report and "compaction:" in report and "retry:" in report
+    )
     policy = retry_policy_from_settings(mgr)
     honored = policy.max_attempts == 6 and policy.initial_delay_seconds == 0.5
-    return reported and honored, f"reported={reported} policy_attempts={policy.max_attempts}"
+    return (
+        reported and honored,
+        f"reported={reported} policy_attempts={policy.max_attempts}",
+    )
 
 
 def check_11_system_prompt(root: Path) -> tuple[bool, str]:
     cfg = root / "cfg11"
     cfg.mkdir(parents=True, exist_ok=True)
     res = resolve_system_prompt(
-        "DEFAULT", cwd=root, config_home=cfg, system_prompt_source="CUSTOM", append_sources=["EXTRA"]
+        "DEFAULT",
+        cwd=root,
+        config_home=cfg,
+        system_prompt_source="CUSTOM",
+        append_sources=["EXTRA"],
     )
     composed = res.base_prompt == "CUSTOM\n\nEXTRA"
     # unreadable file -> warn + literal fallback.
     warned: list[str] = []
     res2 = resolve_system_prompt(
-        "DEFAULT", cwd=root, config_home=cfg, system_prompt_source=str(root), warn=warned.append
+        "DEFAULT",
+        cwd=root,
+        config_home=cfg,
+        system_prompt_source=str(root),
+        warn=warned.append,
     )
     fallback = res2.base_prompt == str(root) and bool(warned)
     # body not in safe metadata.
@@ -317,8 +372,13 @@ def check_11_system_prompt(root: Path) -> tuple[bool, str]:
     _run_tool_adapter(
         ws, root, "hi\n/exit\n", provider=prov, system_prompt_source="REPLACED_SYS_BODY"
     )
-    reaches = bool(prov.requests) and "REPLACED_SYS_BODY" in prov.requests[0].system_prompt
-    return composed and fallback and no_body and reaches, f"composed={composed} fallback={fallback} no_body={no_body} reaches={reaches}"
+    reaches = (
+        bool(prov.requests) and "REPLACED_SYS_BODY" in prov.requests[0].system_prompt
+    )
+    return (
+        composed and fallback and no_body and reaches,
+        f"composed={composed} fallback={fallback} no_body={no_body} reaches={reaches}",
+    )
 
 
 def check_12_no_context_files(root: Path) -> tuple[bool, str]:
@@ -335,23 +395,40 @@ def check_12_no_context_files(root: Path) -> tuple[bool, str]:
     # instruction metadata records the file (proves the mechanism can fail).
     prov_on = _CapturingProvider()
     sink_on = _run_tool_adapter(
-        ws, root, "hi\n/exit\n", provider=prov_on,
+        ws,
+        root,
+        "hi\n/exit\n",
+        provider=prov_on,
         instruction_loader=default_workspace_instruction_loader,
     )
-    appears = bool(prov_on.requests) and "SECRET PROJECT INSTRUCTIONS" in prov_on.requests[0].system_prompt
+    appears = (
+        bool(prov_on.requests)
+        and "SECRET PROJECT INSTRUCTIONS" in prov_on.requests[0].system_prompt
+    )
     recorded = any(p.get("workspace_instruction_files") for p in sink_on.payloads)
 
     # --no-context-files maps to the empty loader: body absent AND no
     # workspace_instruction_files metadata recorded.
     prov_off = _CapturingProvider()
     sink_off = _run_tool_adapter(
-        ws, root, "hi\n/exit\n", provider=prov_off,
+        ws,
+        root,
+        "hi\n/exit\n",
+        provider=prov_off,
         instruction_loader=empty_workspace_instruction_loader,
     )
-    suppressed = bool(prov_off.requests) and "SECRET PROJECT INSTRUCTIONS" not in prov_off.requests[0].system_prompt
-    no_metadata = all(not p.get("workspace_instruction_files") for p in sink_off.payloads)
+    suppressed = (
+        bool(prov_off.requests)
+        and "SECRET PROJECT INSTRUCTIONS" not in prov_off.requests[0].system_prompt
+    )
+    no_metadata = all(
+        not p.get("workspace_instruction_files") for p in sink_off.payloads
+    )
     ok = appears and recorded and suppressed and no_metadata
-    return ok, f"appears={appears} recorded={recorded} suppressed={suppressed} no_metadata={no_metadata}"
+    return (
+        ok,
+        f"appears={appears} recorded={recorded} suppressed={suppressed} no_metadata={no_metadata}",
+    )
 
 
 def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
@@ -376,50 +453,70 @@ def check_13_resource_enablement(root: Path) -> tuple[bool, str]:
         # it so it cannot pollute the gate's --json output.
         with contextlib.redirect_stdout(io.StringIO()):
             cli.main(["config", "disable", "skill", "review", "--cwd", str(ws)])
-        persisted = json.loads(settings_path.read_text(encoding="utf-8")).get("skills") == ["-review"]
-        mgr = SettingsManager(global_path=settings_path, project_path=ws / ".pipy" / "settings.json")
-        registered = WorkspaceResources.discover(
-            ws, include_workspace_defaults=True
-        ).with_enablement(
-            skills_patterns=mgr.get_skills_patterns(),
-            prompts_patterns=mgr.get_prompts_patterns(),
-            enable_skill_commands=mgr.get_enable_skill_commands(),
-        ).skill_names()
+        persisted = json.loads(settings_path.read_text(encoding="utf-8")).get(
+            "skills"
+        ) == ["-review"]
+        mgr = SettingsManager(
+            global_path=settings_path, project_path=ws / ".pipy" / "settings.json"
+        )
+        registered = (
+            WorkspaceResources.discover(ws, include_workspace_defaults=True)
+            .with_enablement(
+                skills_patterns=mgr.get_skills_patterns(),
+                prompts_patterns=mgr.get_prompts_patterns(),
+                enable_skill_commands=mgr.get_enable_skill_commands(),
+            )
+            .skill_names()
+        )
         dropped = "review" not in registered and "draft" in registered
         with contextlib.redirect_stdout(io.StringIO()):
             cli.main(["config", "enable", "skill", "review", "--cwd", str(ws)])
-        mgr2 = SettingsManager(global_path=settings_path, project_path=ws / ".pipy" / "settings.json")
-        restored = "review" in WorkspaceResources.discover(
-            ws, include_workspace_defaults=True
-        ).with_enablement(
-            skills_patterns=mgr2.get_skills_patterns(),
-            prompts_patterns=mgr2.get_prompts_patterns(),
-            enable_skill_commands=mgr2.get_enable_skill_commands(),
-        ).skill_names()
-        gated = WorkspaceResources.discover(
-            ws, include_workspace_defaults=True
-        ).with_enablement(
-            enable_skill_commands=False
-        ).skill_names() == ()
+        mgr2 = SettingsManager(
+            global_path=settings_path, project_path=ws / ".pipy" / "settings.json"
+        )
+        restored = (
+            "review"
+            in WorkspaceResources.discover(ws, include_workspace_defaults=True)
+            .with_enablement(
+                skills_patterns=mgr2.get_skills_patterns(),
+                prompts_patterns=mgr2.get_prompts_patterns(),
+                enable_skill_commands=mgr2.get_enable_skill_commands(),
+            )
+            .skill_names()
+        )
+        gated = (
+            WorkspaceResources.discover(ws, include_workspace_defaults=True)
+            .with_enablement(enable_skill_commands=False)
+            .skill_names()
+            == ()
+        )
     finally:
         if prior_home is None:
             os.environ.pop("PIPY_CONFIG_HOME", None)
         else:
             os.environ["PIPY_CONFIG_HOME"] = prior_home
     ok = persisted and dropped and restored and gated
-    return ok, f"persisted={persisted} dropped={dropped} restored={restored} gated={gated}"
+    return (
+        ok,
+        f"persisted={persisted} dropped={dropped} restored={restored} gated={gated}",
+    )
 
 
 def check_14_reload(root: Path) -> tuple[bool, str]:
     cfg = root / "cfg14" / "settings.json"
     _write(cfg, {"theme": "dark"})
-    mgr = SettingsManager(global_path=cfg, project_path=root / "p14" / ".pipy" / "settings.json")
+    mgr = SettingsManager(
+        global_path=cfg, project_path=root / "p14" / ".pipy" / "settings.json"
+    )
     _write(cfg, {"theme": "ocean"})  # edit after load
     ws = root / "ws14"
     ws.mkdir(parents=True, exist_ok=True)
     prov = FakeNativeProvider(supports_tool_calls=True, final_text="ok")
     out, _ = _run_session(
-        ws, "/settings\n/reload\n/settings\n/exit\n", settings_manager=mgr, provider=prov
+        ws,
+        "/settings\n/reload\n/settings\n/exit\n",
+        settings_manager=mgr,
+        provider=prov,
     )
     reread = "theme: ocean" in out.split("reloaded settings")[1]
     no_turn = prov._call_counter[0] == 0
@@ -430,22 +527,41 @@ def check_15_changelog(root: Path) -> tuple[bool, str]:
     sample = "# CL\n\n## [0.3.0] - x\n\n- new\n\n## [0.2.0] - y\n\n- mid\n"
     entries = parse_changelog(sample)
     bump_lines, bump_store = changelog_startup(
-        entries, last_version="0.2.0", current_version="0.3.0", collapse=False, is_fresh=True
+        entries,
+        last_version="0.2.0",
+        current_version="0.3.0",
+        collapse=False,
+        is_fresh=True,
     )
     bump = any("0.3.0" in line for line in bump_lines) and bump_store == "0.3.0"
     first_lines, first_store = changelog_startup(
-        entries, last_version=None, current_version="0.3.0", collapse=False, is_fresh=True
+        entries,
+        last_version=None,
+        current_version="0.3.0",
+        collapse=False,
+        is_fresh=True,
     )
     first = first_lines == [] and first_store == "0.3.0"
     resumed_lines, resumed_store = changelog_startup(
-        entries, last_version="0.2.0", current_version="0.3.0", collapse=False, is_fresh=False
+        entries,
+        last_version="0.2.0",
+        current_version="0.3.0",
+        collapse=False,
+        is_fresh=False,
     )
     resumed = resumed_lines == [] and resumed_store is None
     collapse_lines, _ = changelog_startup(
-        entries, last_version="0.2.0", current_version="0.3.0", collapse=True, is_fresh=True
+        entries,
+        last_version="0.2.0",
+        current_version="0.3.0",
+        collapse=True,
+        is_fresh=True,
     )
     collapsed = any("/changelog" in line for line in collapse_lines)
-    return bump and first and resumed and collapsed, f"bump={bump} first={first} resumed={resumed} collapse={collapsed}"
+    return (
+        bump and first and resumed and collapsed,
+        f"bump={bump} first={first} resumed={resumed} collapse={collapsed}",
+    )
 
 
 def check_16_version_and_update_off(_root: Path) -> tuple[bool, str]:
@@ -487,34 +603,72 @@ def check_18_reserved_command_advertising(root: Path) -> tuple[bool, str]:
 
 
 def check_17_no_secrets_in_report(root: Path) -> tuple[bool, str]:
-    _write(root / "config" / "settings.json", {"theme": "dark", "defaultProvider": "openai"})
+    _write(
+        root / "config" / "settings.json",
+        {"theme": "dark", "defaultProvider": "openai"},
+    )
     mgr = _manager(root)
     report = "\n".join(settings_report_lines(mgr)).lower()
     # The report carries no auth tokens / api keys; it is plain config only.
     # (Avoid false positives on legitimate keys like "reserveTokens".)
-    leaked = any(tok in report for tok in ("api_key", "secret", "password", "bearer", "sk-", "oauth"))
+    leaked = any(
+        tok in report
+        for tok in ("api_key", "secret", "password", "bearer", "sk-", "oauth")
+    )
     return not leaked, f"leaked={leaked}"
 
 
 CHECKS: list[tuple[int, str, Callable[[Path], tuple[bool, str]]]] = [
     (1, "discovery + deep-merge precedence", check_01_discovery_and_precedence),
-    (2, "precedence + one-level merge vs wholesale (no .claude)", check_02_precedence_and_merge_depth),
-    (3, "field-scoped write preserves unknown keys", check_03_field_scoped_write_preserves_unknown),
-    (4, "parse-error isolated + never written over", check_04_parse_error_isolated_and_not_overwritten),
+    (
+        2,
+        "precedence + one-level merge vs wholesale (no .claude)",
+        check_02_precedence_and_merge_depth,
+    ),
+    (
+        3,
+        "field-scoped write preserves unknown keys",
+        check_03_field_scoped_write_preserves_unknown,
+    ),
+    (
+        4,
+        "parse-error isolated + never written over",
+        check_04_parse_error_isolated_and_not_overwritten,
+    ),
     (5, "migrations (3 behaviors) idempotent", check_05_migrations),
     (6, "local-state import surfaces through settings", check_06_local_state_import),
-    (7, "keybindings load/migrate/malformed-fallback/hotkeys", check_07_keybindings_load_migrate_fallback),
+    (
+        7,
+        "keybindings load/migrate/malformed-fallback/hotkeys",
+        check_07_keybindings_load_migrate_fallback,
+    ),
     (8, "35+ default app bindings", check_08_default_app_bindings),
-    (9, "scoped models persist + constrain cycle, no provider turn", check_09_scoped_models),
-    (10, "delivery/transport/compaction/retry reported + honored", check_10_delivery_reported_and_honored),
-    (11, "system-prompt replace/append reaches request, no body archived", check_11_system_prompt),
+    (
+        9,
+        "scoped models persist + constrain cycle, no provider turn",
+        check_09_scoped_models,
+    ),
+    (
+        10,
+        "delivery/transport/compaction/retry reported + honored",
+        check_10_delivery_reported_and_honored,
+    ),
+    (
+        11,
+        "system-prompt replace/append reaches request, no body archived",
+        check_11_system_prompt,
+    ),
     (12, "--no-context-files suppresses discovery", check_12_no_context_files),
     (13, "resource enablement -pattern/+pattern", check_13_resource_enablement),
     (14, "/reload re-reads settings, no provider turn", check_14_reload),
     (15, "/changelog startup bump/first-run/resume/collapse", check_15_changelog),
     (16, "--version + update check off by default", check_16_version_and_update_off),
     (17, "no secrets in the /settings report", check_17_no_secrets_in_report),
-    (18, "reserved-command advertising widened to full registry", check_18_reserved_command_advertising),
+    (
+        18,
+        "reserved-command advertising widened to full registry",
+        check_18_reserved_command_advertising,
+    ),
 ]
 
 
@@ -526,7 +680,9 @@ def run_all() -> list[dict[str, object]]:
                 passed, detail = fn(Path(tmp))
             except Exception as exc:  # noqa: BLE001 - surface as a failed check
                 passed, detail = False, f"raised {type(exc).__name__}: {exc}"
-        results.append({"check": number, "name": name, "passed": passed, "detail": detail})
+        results.append(
+            {"check": number, "name": name, "passed": passed, "detail": detail}
+        )
     return results
 
 

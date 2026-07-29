@@ -43,9 +43,7 @@ _MAX_REFERENCE_PATH_LENGTH: int = 1024
 # A reference is ``@path`` (unquoted, non-whitespace) or ``@"path with spaces"``
 # (quoted, so paths containing spaces — from the picker, Tab completion, or a
 # dropped file — resolve as a single token instead of breaking at the space).
-_FILE_REFERENCE_PATTERN = re.compile(
-    r"""(?:^|(?<=[\s(\[{"']))@(?:"([^"]+)"|(\S+))"""
-)
+_FILE_REFERENCE_PATTERN = re.compile(r"""(?:^|(?<=[\s(\[{"']))@(?:"([^"]+)"|(\S+))""")
 _TRAILING_PUNCTUATION = ").,;:!?]}\"'"
 
 _LOADED_REASON = "loaded"

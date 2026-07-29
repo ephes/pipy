@@ -25,9 +25,7 @@ from pipy_harness.models import AdapterResult, RunRequest
 from pipy_harness.native.automation.jsonl import JsonlWriter
 
 
-def resolve_app_mode(
-    *, mode: str | None, print_flag: bool, stdin_is_tty: bool
-) -> str:
+def resolve_app_mode(*, mode: str | None, print_flag: bool, stdin_is_tty: bool) -> str:
     """Resolve the headless app mode, matching Pi's ``resolveAppMode``."""
 
     if mode == "rpc":

@@ -123,7 +123,9 @@ def remote_tracking_snapshot(repo: Path) -> dict[str, str]:
 
 
 def is_ancestor(repo: Path, ancestor: str, descendant: str) -> bool:
-    return _git(repo, "merge-base", "--is-ancestor", ancestor, descendant).returncode == 0
+    return (
+        _git(repo, "merge-base", "--is-ancestor", ancestor, descendant).returncode == 0
+    )
 
 
 def valid_run_label(label: str) -> bool:
@@ -230,7 +232,9 @@ def install_no_push_guards(repo: Path) -> Callable[[], None]:
     remotes = [r for r in _out(repo, "remote").splitlines() if r.strip()]
     saved: dict[str, list[str]] = {}
     for remote in remotes:
-        urls = _git(repo, "config", "--get-all", f"remote.{remote}.pushurl").stdout.splitlines()
+        urls = _git(
+            repo, "config", "--get-all", f"remote.{remote}.pushurl"
+        ).stdout.splitlines()
         saved[remote] = [u for u in urls if u.strip() and u.strip() != BLOCKED_PUSHURL]
         _git(repo, "config", "--unset-all", f"remote.{remote}.pushurl")
         _git(repo, "config", "--add", f"remote.{remote}.pushurl", BLOCKED_PUSHURL)
@@ -241,7 +245,9 @@ def install_no_push_guards(repo: Path) -> Callable[[], None]:
     if hooks_path_cfg:
         top = Path(_out(repo, "rev-parse", "--show-toplevel"))
         hooks_dir = Path(hooks_path_cfg)
-        hooks_dir = (hooks_dir if hooks_dir.is_absolute() else top / hooks_dir).resolve()
+        hooks_dir = (
+            hooks_dir if hooks_dir.is_absolute() else top / hooks_dir
+        ).resolve()
     else:
         hooks_dir = common / "hooks"
 
@@ -330,12 +336,16 @@ def verify_committed(
     resolved = _resolve(repo, sha)
     if resolved is None or resolved == head_before:
         return False, "cited sha does not resolve or equals head_before"
-    if not (is_ancestor(repo, head_before, resolved) and is_ancestor(repo, resolved, cur)):
+    if not (
+        is_ancestor(repo, head_before, resolved) and is_ancestor(repo, resolved, cur)
+    ):
         return False, "cited sha is not within (head_before, HEAD]"
     return True, "ok"
 
 
-def verify_no_gaps(repo: Path, head_before: str, refs_before: dict[str, str]) -> tuple[bool, str]:
+def verify_no_gaps(
+    repo: Path, head_before: str, refs_before: dict[str, str]
+) -> tuple[bool, str]:
     if current_branch(repo) != "main":
         return False, "not on main"
     if not tree_clean(repo):
@@ -358,7 +368,9 @@ def _improve_prompt() -> str:
     )
 
 
-def improve_log_caveats(log_path: Path, *, max_lines: int = 12, max_chars: int = 500) -> list[str]:
+def improve_log_caveats(
+    log_path: Path, *, max_lines: int = 12, max_chars: int = 500
+) -> list[str]:
     try:
         text = log_path.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -433,7 +445,9 @@ def _event_type(event: dict[str, object]) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _require_event(events: list[dict[str, object]], event_type: str) -> dict[str, object]:
+def _require_event(
+    events: list[dict[str, object]], event_type: str
+) -> dict[str, object]:
     for event in events:
         if _event_type(event) == event_type:
             return event
@@ -494,7 +508,9 @@ def _git_stdout(repo: Path, *args: str) -> str:
 def _range_commits(repo: Path, start_sha: str, end_sha: str) -> list[tuple[str, str]]:
     if start_sha == end_sha:
         return []
-    out = _git_stdout(repo, "log", "--reverse", "--format=%h%x09%s", f"{start_sha}..{end_sha}")
+    out = _git_stdout(
+        repo, "log", "--reverse", "--format=%h%x09%s", f"{start_sha}..{end_sha}"
+    )
     commits: list[tuple[str, str]] = []
     for line in out.splitlines():
         if not line.strip():
@@ -504,14 +520,18 @@ def _range_commits(repo: Path, start_sha: str, end_sha: str) -> list[tuple[str, 
     return commits
 
 
-def _commit_event_rows(repo: Path, start_sha: str, end_sha: str) -> list[dict[str, str]]:
+def _commit_event_rows(
+    repo: Path, start_sha: str, end_sha: str
+) -> list[dict[str, str]]:
     return [
         {"sha": short, "subject": subject}
         for short, subject in _range_commits(repo, start_sha, end_sha)
     ]
 
 
-def _diff_numstat(repo: Path, start_sha: str, end_sha: str) -> list[tuple[str, int, int]]:
+def _diff_numstat(
+    repo: Path, start_sha: str, end_sha: str
+) -> list[tuple[str, int, int]]:
     if start_sha == end_sha:
         return []
     out = _git_stdout(repo, "diff", "--numstat", f"{start_sha}..{end_sha}")
@@ -535,7 +555,9 @@ def _area_for_path(path: str) -> str:
     return parts[0]
 
 
-def _changed_area_rows(stats: list[tuple[str, int, int]]) -> list[tuple[str, int, int, int]]:
+def _changed_area_rows(
+    stats: list[tuple[str, int, int]],
+) -> list[tuple[str, int, int, int]]:
     areas: dict[str, tuple[int, int, int]] = {}
     for path, added, deleted in stats:
         area = _area_for_path(path)
@@ -561,11 +583,13 @@ def _caveat_rows(events: list[dict[str, object]]) -> list[list[str]]:
             if isinstance(caveats, list):
                 for caveat in caveats:
                     if isinstance(caveat, str):
-                        rows.append([
-                            _event_str(event, "phase") or "-",
-                            _event_str(event, "log_path") or "-",
-                            caveat.replace("|", "\\|"),
-                        ])
+                        rows.append(
+                            [
+                                _event_str(event, "phase") or "-",
+                                _event_str(event, "log_path") or "-",
+                                caveat.replace("|", "\\|"),
+                            ]
+                        )
     return rows
 
 
@@ -633,7 +657,9 @@ def _render_generated_facts(
         ],
     ]
 
-    commit_rows = [[f"`{short}`", subject.replace("|", "\\|")] for short, subject in commits]
+    commit_rows = [
+        [f"`{short}`", subject.replace("|", "\\|")] for short, subject in commits
+    ]
     area_rows = [
         [area, str(files), str(added), str(deleted)]
         for area, files, added, deleted in _changed_area_rows(stats)
@@ -704,7 +730,9 @@ def _replace_generated_facts(existing: str, generated: str) -> str:
     if begin == -1 or end == -1 or end < begin:
         raise ReportError("report has an incomplete generated facts sentinel block")
     end += len(REPORT_END)
-    return existing[:begin].rstrip() + "\n\n" + generated + "\n" + existing[end:].lstrip()
+    return (
+        existing[:begin].rstrip() + "\n\n" + generated + "\n" + existing[end:].lstrip()
+    )
 
 
 def _generated_facts_block(text: str) -> str | None:
@@ -769,7 +797,9 @@ def _report_label_from_text(text: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _report_curation_log_path(run_dir: Path, label: str | None, report_path: Path) -> Path:
+def _report_curation_log_path(
+    run_dir: Path, label: str | None, report_path: Path
+) -> Path:
     if label:
         per_run = per_run_dir(run_dir, label)
         if per_run.exists():
@@ -839,7 +869,9 @@ def curate_slice_report(
     if after_block != before_block:
         raise ReportError("report curation changed the generated facts block")
     if REPORT_FACTS_ONLY_MARKER in after:
-        raise ReportError(f"report curation left the generated-facts-only placeholder; see {log_path}")
+        raise ReportError(
+            f"report curation left the generated-facts-only placeholder; see {log_path}"
+        )
 
 
 def generate_slice_report(
@@ -927,7 +959,12 @@ def lesson_gate(
         rc = hooks.run_improve(_improve_prompt(), timeout, improve_log)
         caveats = improve_log_caveats(improve_log)
         if caveats:
-            log("safety_net_child_caveats", phase=phase, log_path=improve_log.name, caveats=caveats)
+            log(
+                "safety_net_child_caveats",
+                phase=phase,
+                log_path=improve_log.name,
+                caveats=caveats,
+            )
         if rc != 0:
             log("safety_net_failed", phase=phase, exit_code=rc)
         if (
@@ -1023,7 +1060,10 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
         print(f"parity-runner: invalid run label: {opts.run_label!r}", file=sys.stderr)
         return 2
     if not per_run_path_safe(repo, per_run):
-        print(f"parity-runner: run directory is not git-ignored: {per_run}", file=sys.stderr)
+        print(
+            f"parity-runner: run directory is not git-ignored: {per_run}",
+            file=sys.stderr,
+        )
         return 2
     branch = current_branch(repo)
     if branch != "main":
@@ -1040,7 +1080,10 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
             print("parity-runner: another parity run holds the lock", file=sys.stderr)
             return 2
         if per_run.exists():
-            print(f"parity-runner: run directory already exists: {per_run}", file=sys.stderr)
+            print(
+                f"parity-runner: run directory already exists: {per_run}",
+                file=sys.stderr,
+            )
             return 2
         if not gap_docs_present(repo):
             print("parity-runner: required gap docs are missing", file=sys.stderr)
@@ -1053,7 +1096,10 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
         try:
             per_run.mkdir(parents=True, exist_ok=False)
         except FileExistsError:
-            print(f"parity-runner: run directory already exists: {per_run}", file=sys.stderr)
+            print(
+                f"parity-runner: run directory already exists: {per_run}",
+                file=sys.stderr,
+            )
             return 2
         log = _RunLog(per_run)
         restore_guards = install_no_push_guards(repo)
@@ -1064,7 +1110,9 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
             def remaining() -> float:
                 return opts.time_budget - (clock() - start)
 
-            def finish(gaps_done: int, stop_reason: str, exit_code: int, **fields: object) -> int:
+            def finish(
+                gaps_done: int, stop_reason: str, exit_code: int, **fields: object
+            ) -> int:
                 remote_refs_after = remote_tracking_snapshot(repo)
                 log.event(
                     "run.finished",
@@ -1144,7 +1192,9 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                         reason=attempt_reason,
                     )
                     if exit_code == 0 and kind == "COMMITTED":
-                        ok, reason = verify_committed(repo, head_before, refs_before, arg)
+                        ok, reason = verify_committed(
+                            repo, head_before, refs_before, arg
+                        )
                         if ok:
                             head_after = head(repo)
                             gaps_done += 1
@@ -1162,7 +1212,9 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                             )
                             break
                         stop = f"verify_failed:{reason}"
-                        log.event("gap.failed", index=gap_index, reason=stop, attempts=attempt)
+                        log.event(
+                            "gap.failed", index=gap_index, reason=stop, attempts=attempt
+                        )
                         break
                     if exit_code == 0 and kind == "NO_GAPS":
                         ok, reason = verify_no_gaps(repo, head_before, refs_before)
@@ -1171,7 +1223,9 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                             log.event("gap.no_gaps", attempts=attempt)
                             break
                         stop = f"verify_failed:{reason}"
-                        log.event("gap.failed", index=gap_index, reason=stop, attempts=attempt)
+                        log.event(
+                            "gap.failed", index=gap_index, reason=stop, attempts=attempt
+                        )
                         break
                     current_refs = ref_snapshot(repo)
                     has_unexpected_progress = (
@@ -1187,7 +1241,9 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                         detected_block = arg
                     else:
                         detected_block = child_block_reason(gap_log_path)
-                        stop = f"blocked:{detected_block}" if detected_block else "failure"
+                        stop = (
+                            f"blocked:{detected_block}" if detected_block else "failure"
+                        )
                     if (
                         detected_block == "provider_failure"
                         and provider_failures_retried < opts.provider_failure_retries
@@ -1209,7 +1265,9 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                                 skip_reason="time_budget",
                             )
                         else:
-                            archived = log.archive_gap_attempt(gap_index, attempt, gap_log_path)
+                            archived = log.archive_gap_attempt(
+                                gap_index, attempt, gap_log_path
+                            )
                             provider_failures_retried += 1
                             log.event(
                                 "gap.retrying",
@@ -1221,7 +1279,9 @@ def run(opts: Opts, hooks: Hooks, *, clock: Callable[[], float]) -> int:
                             )
                             attempt += 1
                             continue
-                    log.event("gap.failed", index=gap_index, reason=stop, attempts=attempt)
+                    log.event(
+                        "gap.failed", index=gap_index, reason=stop, attempts=attempt
+                    )
                     break
                 if gaps_done == gap_index:
                     continue
@@ -1268,7 +1328,9 @@ def _agent_cmd(agent: str) -> list[str]:
     return [agent, "-p"]
 
 
-def _spawn_capture(cmd: list[str], cwd: Path, timeout: float, log_path: Path) -> ChildRunResult:
+def _spawn_capture(
+    cmd: list[str], cwd: Path, timeout: float, log_path: Path
+) -> ChildRunResult:
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
@@ -1290,20 +1352,28 @@ def _spawn_capture(cmd: list[str], cwd: Path, timeout: float, log_path: Path) ->
         out, err = proc.communicate()
         rc = -1
         timed_out = True
-    log_path.write_text((out or "") + "\n--- stderr ---\n" + (err or ""), encoding="utf-8")
+    log_path.write_text(
+        (out or "") + "\n--- stderr ---\n" + (err or ""), encoding="utf-8"
+    )
     return ChildRunResult(rc, out or "", timed_out)
 
 
-def _real_run_gap(repo: Path, agent: str) -> Callable[[str, float, Path], ChildRunResult]:
+def _real_run_gap(
+    repo: Path, agent: str
+) -> Callable[[str, float, Path], ChildRunResult]:
     def run_gap(prompt: str, timeout: float, log_path: Path) -> ChildRunResult:
-        return _spawn_capture([*_agent_cmd(agent), "--", prompt], repo, timeout, log_path)
+        return _spawn_capture(
+            [*_agent_cmd(agent), "--", prompt], repo, timeout, log_path
+        )
 
     return run_gap
 
 
 def _real_run_improve(repo: Path, agent: str) -> Callable[[str, float, Path], int]:
     def run_improve(prompt: str, timeout: float, log_path: Path) -> int:
-        return _spawn_capture([*_agent_cmd(agent), "--", prompt], repo, timeout, log_path).exit_code
+        return _spawn_capture(
+            [*_agent_cmd(agent), "--", prompt], repo, timeout, log_path
+        ).exit_code
 
     return run_improve
 
@@ -1348,7 +1418,9 @@ def default_hooks(opts: Opts) -> Hooks:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="bounded unattended parity-loop runner")
+    parser = argparse.ArgumentParser(
+        description="bounded unattended parity-loop runner"
+    )
     parser.add_argument("--repo", default=".")
     parser.add_argument("--run-dir", default="docs/parity-loop/runs")
     parser.add_argument("--report-dir", default="docs/parity-loop/reports")
@@ -1356,8 +1428,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--agent", default="opus")
     parser.add_argument("--max-gaps", type=int, default=DEFAULTS["max_gaps"])
     parser.add_argument("--time-budget", type=float, default=DEFAULTS["time_budget"])
-    parser.add_argument("--per-gap-timeout", type=float, default=DEFAULTS["per_gap_timeout"])
-    parser.add_argument("--min-gap-slice", type=float, default=DEFAULTS["min_gap_slice"])
+    parser.add_argument(
+        "--per-gap-timeout", type=float, default=DEFAULTS["per_gap_timeout"]
+    )
+    parser.add_argument(
+        "--min-gap-slice", type=float, default=DEFAULTS["min_gap_slice"]
+    )
     parser.add_argument(
         "--provider-failure-retries",
         type=int,
@@ -1442,7 +1518,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     exit_code = run(opts, default_hooks(opts), clock=time.monotonic)
     if args.write_report and exit_code == 0 and not args.dry_run:
         try:
-            report_path = generate_slice_report(repo_path, run_dir, report_dir, label=label)
+            report_path = generate_slice_report(
+                repo_path, run_dir, report_dir, label=label
+            )
         except ReportError as exc:
             print(f"parity-runner: report generation failed: {exc}", file=sys.stderr)
             return exit_code

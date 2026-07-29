@@ -101,9 +101,7 @@ def _run(workspace: Path):
         error_stream=io.StringIO(),
     )
     second = provider.requests[1]
-    joined = " ".join(
-        message.content.value for message in second.messages
-    )
+    joined = " ".join(message.content.value for message in second.messages)
     return result, joined
 
 
@@ -166,8 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         report = {
             "passed": passed,
             "checks": [
-                {"name": c.name, "passed": c.passed, "detail": c.detail}
-                for c in checks
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in checks
             ],
         }
         print(json.dumps(report, indent=2))

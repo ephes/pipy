@@ -84,9 +84,7 @@ def gemini_contents(
         if attach_images:
             _attach_images(contents, request)
         return contents
-    contents.append(
-        {"role": "user", "parts": [{"text": request.user_prompt}]}
-    )
+    contents.append({"role": "user", "parts": [{"text": request.user_prompt}]})
     if attach_images:
         _attach_images(contents, request)
     return contents
@@ -167,9 +165,7 @@ def envelope_to_content(
                 }
             ],
         }
-    raise parse_error_class(
-        f"unsupported message envelope: {type(envelope).__name__}"
-    )
+    raise parse_error_class(f"unsupported message envelope: {type(envelope).__name__}")
 
 
 def serialize_tool_for_gemini(tool: Any) -> dict[str, Any]:

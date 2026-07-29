@@ -16,7 +16,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from pipy_harness.native._provider_helpers import utc_now, failed_provider_result, serialize_tool_for_chat_completions
+from pipy_harness.native._provider_helpers import (
+    utc_now,
+    failed_provider_result,
+    serialize_tool_for_chat_completions,
+)
 from pipy_harness.native.http import (
     ApiErrorField,
     JsonResponse as JsonResponse,
@@ -28,7 +32,10 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.providers.chat_completions_wire import chat_messages, parse_response
+from pipy_harness.native.providers.chat_completions_wire import (
+    chat_messages,
+    parse_response,
+)
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_COMPLETIONS_USAGE_FIELDS: tuple[tuple[str, str], ...] = (
@@ -158,7 +165,8 @@ class OpenAIChatCompletionsProvider:
         }
         if request.available_tools:
             body["tools"] = [
-                serialize_tool_for_chat_completions(tool) for tool in request.available_tools
+                serialize_tool_for_chat_completions(tool)
+                for tool in request.available_tools
             ]
         # Catalog-resolved routing/compat (e.g. OpenRouter ``provider`` block,
         # Vercel ``providerOptions``) and the mapped thinking value.

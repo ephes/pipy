@@ -295,7 +295,9 @@ def _metric_anomalies(deltas: list[DeltaRecord]) -> list[tuple[str, str, str]]:
                     f"{delta.metric} cell attributes differ",
                 )
             )
-        if delta.within_tolerance is None and _required_metric(delta.metric, delta.phase):
+        if delta.within_tolerance is None and _required_metric(
+            delta.metric, delta.phase
+        ):
             anomalies.append(
                 (
                     f"{delta.frame_index}:{delta.phase}",
@@ -410,9 +412,7 @@ def _comparison_pairs(
     ]
 
 
-def _phase_records(
-    records: list[dict[str, Any]], phase: str
-) -> list[dict[str, Any]]:
+def _phase_records(records: list[dict[str, Any]], phase: str) -> list[dict[str, Any]]:
     return [record for record in records if record.get("phase") == phase]
 
 
@@ -512,8 +512,7 @@ def _delta_record(
         within_tolerance = None
     else:
         within_tolerance = (
-            abs(row_delta) <= max_row_delta
-            and abs(column_delta) <= max_column_delta
+            abs(row_delta) <= max_row_delta and abs(column_delta) <= max_column_delta
         )
     if reference_point is None or target_point is None:
         attributes_match = None
@@ -582,9 +581,7 @@ def _viewport_delta_records(
             else ""
         )
         target_text = (
-            _normalize_viewport_line(target_rows[row])
-            if row < len(target_rows)
-            else ""
+            _normalize_viewport_line(target_rows[row]) if row < len(target_rows) else ""
         )
         if reference_text == target_text:
             continue
@@ -652,7 +649,11 @@ def _prompt_background_rows(record: dict[str, Any] | None) -> list[dict[str, Any
         row_index = row.get("row")
         columns = row.get("columns")
         bg = row.get("bg")
-        if isinstance(row_index, int) and isinstance(columns, int) and isinstance(bg, str):
+        if (
+            isinstance(row_index, int)
+            and isinstance(columns, int)
+            and isinstance(bg, str)
+        ):
             normalized.append({"row": row_index, "columns": columns, "bg": bg})
     return normalized
 
@@ -729,7 +730,9 @@ def _visual_region_row(row: Any) -> dict[str, Any] | None:
         return None
     normalized: dict[str, Any] = {"row": row_index}
     text = row.get("text")
-    normalized["text"] = _normalize_viewport_line(text) if isinstance(text, str) else None
+    normalized["text"] = (
+        _normalize_viewport_line(text) if isinstance(text, str) else None
+    )
     for key in ("bg", "fg"):
         value = row.get(key)
         normalized[key] = value if isinstance(value, str) else None

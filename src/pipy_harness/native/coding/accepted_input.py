@@ -159,9 +159,7 @@ class CodingAcceptedTurn:
                 "CodingAcceptedTurn.turn_user_message must be AgentUserMessage"
             )
         if type(self.active_input) is not AgentActiveInput:
-            raise TypeError(
-                "CodingAcceptedTurn.active_input must be AgentActiveInput"
-            )
+            raise TypeError("CodingAcceptedTurn.active_input must be AgentActiveInput")
         if type(self.initial_tool_state) is not AgentToolPolicyState:
             raise TypeError(
                 "CodingAcceptedTurn.initial_tool_state must be AgentToolPolicyState"

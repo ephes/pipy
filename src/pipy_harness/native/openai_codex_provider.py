@@ -40,7 +40,11 @@ from pipy_harness.native.http import (
     open_url_cancellable,
     transport_exception_retryable,
 )
-from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError, _safe_close
+from pipy_harness.native.cancellation import (
+    CancelToken,
+    ProviderCancelledError,
+    _safe_close,
+)
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolResultMessage,
@@ -260,7 +264,11 @@ class WebsocketsSyncClient:
         except Exception as exc:  # noqa: BLE001
             raise OpenAICodexTransportError(
                 "OpenAI Codex transport failed while waiting for response headers.",
-                metadata={"phase": "headers", "retryable": False, "transport": "websocket"},
+                metadata={
+                    "phase": "headers",
+                    "retryable": False,
+                    "transport": "websocket",
+                },
             ) from exc
         try:
             websocket = connect(
@@ -552,19 +560,39 @@ class UrllibOAuthHTTPClient:
                 metadata={"http_status": exc.code},
             ) from exc
         except urllib.error.URLError as exc:
-            reason = sanitize_text(str(exc.reason)) if getattr(exc, "reason", None) else "request failed"
-            raise OpenAICodexOAuthError(f"OpenAI Codex OAuth request failed: {reason}") from exc
+            reason = (
+                sanitize_text(str(exc.reason))
+                if getattr(exc, "reason", None)
+                else "request failed"
+            )
+            raise OpenAICodexOAuthError(
+                f"OpenAI Codex OAuth request failed: {reason}"
+            ) from exc
 
-        body = decode_json_object(payload, error_class=OpenAICodexResponseParseError, provider_label="OpenAI Codex")
+        body = decode_json_object(
+            payload,
+            error_class=OpenAICodexResponseParseError,
+            provider_label="OpenAI Codex",
+        )
         access_token = body.get("access_token")
         refresh_token = body.get("refresh_token")
         expires_in = body.get("expires_in")
         if not isinstance(access_token, str) or not access_token:
-            raise OpenAICodexOAuthError("OpenAI Codex OAuth response omitted access token.")
+            raise OpenAICodexOAuthError(
+                "OpenAI Codex OAuth response omitted access token."
+            )
         if not isinstance(refresh_token, str) or not refresh_token:
-            raise OpenAICodexOAuthError("OpenAI Codex OAuth response omitted refresh token.")
-        if not isinstance(expires_in, int) or isinstance(expires_in, bool) or expires_in <= 0:
-            raise OpenAICodexOAuthError("OpenAI Codex OAuth response omitted token expiry.")
+            raise OpenAICodexOAuthError(
+                "OpenAI Codex OAuth response omitted refresh token."
+            )
+        if (
+            not isinstance(expires_in, int)
+            or isinstance(expires_in, bool)
+            or expires_in <= 0
+        ):
+            raise OpenAICodexOAuthError(
+                "OpenAI Codex OAuth response omitted token expiry."
+            )
         return OAuthTokenResponse(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -584,11 +612,15 @@ class FileOpenAICodexCredentialStore:
         try:
             body = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise OpenAICodexAuthError("OpenAI Codex auth state could not be read.") from exc
+            raise OpenAICodexAuthError(
+                "OpenAI Codex auth state could not be read."
+            ) from exc
         if not isinstance(body, Mapping):
             raise OpenAICodexAuthError("OpenAI Codex auth state has unsupported shape.")
         if body.get("provider") != "openai-codex" or body.get("type") != "oauth":
-            raise OpenAICodexAuthError("OpenAI Codex auth state has unsupported provider data.")
+            raise OpenAICodexAuthError(
+                "OpenAI Codex auth state has unsupported provider data."
+            )
         access_token = body.get("access_token")
         refresh_token = body.get("refresh_token")
         account_id = body.get("account_id")
@@ -603,7 +635,9 @@ class FileOpenAICodexCredentialStore:
             or not isinstance(expires_at, int)
             or isinstance(expires_at, bool)
         ):
-            raise OpenAICodexAuthError("OpenAI Codex auth state is missing required fields.")
+            raise OpenAICodexAuthError(
+                "OpenAI Codex auth state is missing required fields."
+            )
         return OpenAICodexCredentials(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -645,7 +679,9 @@ class FileOpenAICodexCredentialStore:
 class OpenAICodexAuthManager:
     """OAuth auth boundary for OpenAI Codex subscription access."""
 
-    store: OpenAICodexCredentialStore = field(default_factory=FileOpenAICodexCredentialStore)
+    store: OpenAICodexCredentialStore = field(
+        default_factory=FileOpenAICodexCredentialStore
+    )
     oauth_client: OAuthHTTPClient = field(default_factory=UrllibOAuthHTTPClient)
     token_url: str = OPENAI_CODEX_TOKEN_URL
     timeout_seconds: float = 60.0
@@ -672,7 +708,9 @@ class OpenAICodexAuthManager:
         )
         return _credentials_from_token_response(token_response)
 
-    def exchange_authorization_code(self, code: str, verifier: str) -> OpenAICodexCredentials:
+    def exchange_authorization_code(
+        self, code: str, verifier: str
+    ) -> OpenAICodexCredentials:
         token_response = self.oauth_client.post_form(
             self.token_url,
             fields={
@@ -706,13 +744,19 @@ class OpenAICodexAuthManager:
         )
         manual_input = input_stream.readline().strip()
         try:
-            parsed = parse_authorization_input(manual_input) if manual_input else server.wait_for_code()
+            parsed = (
+                parse_authorization_input(manual_input)
+                if manual_input
+                else server.wait_for_code()
+            )
             # Bare-code paste is intentionally accepted for manual fallback and
             # relies on the PKCE verifier to bind the token exchange.
             if parsed.state and parsed.state != flow.state:
                 raise OpenAICodexOAuthError("OpenAI Codex OAuth state mismatch.")
             if not parsed.code:
-                raise OpenAICodexOAuthError("OpenAI Codex OAuth authorization code was missing.")
+                raise OpenAICodexOAuthError(
+                    "OpenAI Codex OAuth authorization code was missing."
+                )
             credentials = self.exchange_authorization_code(parsed.code, flow.verifier)
             self.store.save(credentials)
             return credentials
@@ -769,7 +813,9 @@ class OpenAICodexResponsesProvider:
         DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS / 1000.0
     )
     transport_state: CodexTransportState = field(default_factory=CodexTransportState)
-    request_id_factory: Callable[[], str] = field(default_factory=lambda: lambda: uuid.uuid4().hex)
+    request_id_factory: Callable[[], str] = field(
+        default_factory=lambda: lambda: uuid.uuid4().hex
+    )
     supports_tool_calls: bool = True
     supports_tool_search: bool = False
     # Mapped reasoning effort for the request's ``reasoning.effort`` field. Set by
@@ -819,6 +865,7 @@ class OpenAICodexResponsesProvider:
         except OpenAICodexProviderError as exc:
             return runner.failed_result(request, started_at, exc)
         return _successful_codex_result(self, started_at, result)
+
 
 def _responses_input_messages(
     request: ProviderRequest,
@@ -900,6 +947,7 @@ def _envelope_to_input_items(envelope: Any) -> list[dict[str, object]]:
     raise OpenAICodexResponseParseError(
         f"unsupported message envelope: {type(envelope).__name__}"
     )
+
 
 def _responses_tool_call_id(envelope: AgentToolResultMessage) -> str:
     return _split_responses_tool_correlation(envelope.provider_correlation_id)[0]
@@ -1126,9 +1174,7 @@ def _codex_request_body(
         "parallel_tool_calls": True,
     }
     if immediate_tools:
-        body["tools"] = [
-            serialize_tool_for_responses(tool) for tool in immediate_tools
-        ]
+        body["tools"] = [serialize_tool_for_responses(tool) for tool in immediate_tools]
     return body
 
 
@@ -1520,7 +1566,11 @@ def _normalize_transport_exception(
 
 def default_openai_codex_auth_path() -> Path:
     configured = os.environ.get("PIPY_AUTH_DIR")
-    auth_dir = Path(configured).expanduser() if configured else Path.home() / ".local" / "state" / "pipy" / "auth"
+    auth_dir = (
+        Path(configured).expanduser()
+        if configured
+        else Path.home() / ".local" / "state" / "pipy" / "auth"
+    )
     return auth_dir / "openai-codex.json"
 
 
@@ -1573,7 +1623,9 @@ def parse_authorization_input(value: str) -> ParsedAuthorizationInput:
     return ParsedAuthorizationInput(code=cleaned)
 
 
-def _credentials_from_token_response(response: OAuthTokenResponse) -> OpenAICodexCredentials:
+def _credentials_from_token_response(
+    response: OAuthTokenResponse,
+) -> OpenAICodexCredentials:
     account_id = _extract_account_id(response.access_token)
     if account_id is None:
         raise OpenAICodexOAuthError("OpenAI Codex OAuth token omitted account id.")
@@ -1591,7 +1643,9 @@ def _extract_account_id(access_token: str) -> str | None:
         if len(parts) != 3:
             return None
         payload = parts[1] + "=" * (-len(parts[1]) % 4)
-        decoded = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8"))
+        decoded = json.loads(
+            base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8")
+        )
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
         return None
     if not isinstance(decoded, Mapping):
@@ -1922,7 +1976,9 @@ def _terminal_response_status(
         return failure_status, terminal_response or {}
     if terminal_response is None:
         return "unknown", {}
-    return _safe_codex_response_status(terminal_response.get("status")), terminal_response
+    return _safe_codex_response_status(
+        terminal_response.get("status")
+    ), terminal_response
 
 
 def _assembled_response_text(accumulator: _ResponseEventAccumulator) -> str | None:
@@ -2044,7 +2100,9 @@ def _extract_output_text_chunks(item: Mapping[str, Any]) -> list[str]:
     for content_item in content:
         if not isinstance(content_item, Mapping):
             continue
-        if content_item.get("type") == "output_text" and isinstance(content_item.get("text"), str):
+        if content_item.get("type") == "output_text" and isinstance(
+            content_item.get("text"), str
+        ):
             chunks.append(content_item["text"])
     return chunks
 
@@ -2093,11 +2151,15 @@ class _LocalOAuthCallbackServer:
                     self.end_headers()
                     self.wfile.write(b"OpenAI Codex OAuth code missing.")
                     return
-                holder.parsed_input = ParsedAuthorizationInput(code=code, state=callback_state)
+                holder.parsed_input = ParsedAuthorizationInput(
+                    code=code, state=callback_state
+                )
                 holder.code_event.set()
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(b"OpenAI Codex authentication completed. You can close this window.")
+                self.wfile.write(
+                    b"OpenAI Codex authentication completed. You can close this window."
+                )
 
             def log_message(self, format: str, *args: object) -> None:
                 return
