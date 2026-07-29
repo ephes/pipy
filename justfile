@@ -20,12 +20,20 @@ test-pty-smoke:
 lint:
     uv run ruff check .
 
+# Check repository-wide Python formatting without changing files.
+format-check:
+    uv run ruff format --check .
+
+# Apply repository-wide Python formatting.
+format:
+    uv run ruff format .
+
 # Run static type checks.
 typecheck:
     uv run mypy src tests
 
 # Run all local verification checks.
-check: lint typecheck test
+check: lint format-check typecheck test
 
 # Score pipy against docs/parity-criterion.md (pi-mono parity, locked 2026-05-25).
 parity-score:

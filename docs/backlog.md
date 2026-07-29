@@ -28,10 +28,10 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 15 — repository formatting baseline and gate**. Slice 14
-implementation, stress verification, independent review, and documentation are
-complete in this commit; the separately shipped Slice 14 prerequisite remained
-part of its evidence rather than counting as completion by itself.
+is **Slice 16 — final documentation, disposition, and fresh comparison**. Slice
+15's two formatter-only baselines and its gate/configuration/tests/documentation
+closeout are complete; Slice 16 owns the program-wide final measurements and
+fresh comparisons.
 Product-parity deltas in the Pi audit remain selection candidates after the
 architecture program and do not expand an architecture slice.
 
@@ -1382,6 +1382,56 @@ Progress:
   CLEAN because another round would add no material evidence. Slice 14 is
   complete; this commit advances the active pointer to **Slice 15 — repository
   formatting baseline and gate**.
+
+- **Slice 15 — repository formatting baseline and gate: COMPLETE IN THIS
+  COMMIT.** Slice 15a is commit
+  `f02255a82a2eeed10185fdb7977ec440ba1eb6d1` (`style: format examples scripts
+  and source`): Ruff formatter output only across **103** Python files. Slice
+  15b is commit `d1c8cbccfe1992dc080bc79e7ba7eaba149dddcb` (`style: format
+  tests`): Ruff formatter output only across **150** Python test files. Neither
+  mechanical batch contains a semantic, gate, test-behavior, or documentation
+  prose edit.
+
+  Slice 15c gives the repository-wide check one local owner: `just
+  format-check` runs `uv run ruff format --check .`, `just check` depends on
+  that recipe, and the CI quality job invokes the same recipe rather than
+  duplicating its command. `just format` applies `uv run ruff format .`.
+  Contributor setup documentation names both direct commands. Three focused
+  architecture-quality tests pin recipe ownership, aggregate-local and CI
+  enforcement, contributor-command documentation, and the absence of custom
+  Ruff exclusions.
+
+  The formatter-only baseline was clean across **478** Ruff-discovered files;
+  the final gate is clean across **479** after adding the focused Slice 15c test.
+  No generated or fixture file needed exclusion, and there is no configured
+  formatter exclusion, dependency, suppression, Mypy exclusion, C901 pin,
+  `.pre-commit-config.yaml`, compatibility shim, changelog entry, or release
+  note. The formatting series and gate do not change CLI, JSON/RPC, provider,
+  session, extension, trust/path, privacy, event-ordering, or TUI behavior.
+
+  Focused architecture-quality and metrics verification passes **7 tests**.
+  Strict source Mypy is clean across **169 source files** and combined
+  typecheck is clean across **437 source/test files**. `just docs-build` reports
+  no issues, and the final `just check` runs lint, the repository formatter
+  check, Mypy, and Pytest successfully at **4,826 passed / 2 skipped**.
+  Architecture metrics remain **34 / 18** repository/source C901 findings,
+  **43** measured `ToolLoopTerminalUi` fields, and **1** source `type: ignore`;
+  source Python remains **81,738** physical lines, while tests are **121,025**
+  after the 50-line focused gate test.
+
+  Fresh independent read-only Pi review used exactly
+  `openai-codex/gpt-5.6-sol` at high thinking. Two valid rounds exited 0 and
+  returned structured **CLEAN** with zero Critical, Warning, or Suggestion
+  findings: round 1 read the complete **9,762-byte / 227-line** six-file patch,
+  and—after a fresh Pi implementation agent inserted this review record—round 2
+  read the complete final **10,242-byte / 236-line** six-file patch. Both read
+  through EOF plus relevant supporting files with complete, unscoped coverage
+  (`SCOPED_OMISSIONS: none`), zero forbidden tool uses, and no skipped files,
+  truncations, or redactions. Review stopped at the final complete CLEAN because
+  there was no actionable feedback and another round would add no material
+  evidence. Slice 15c and Slice 15 close in this commit, and the active pointer
+  advances to **Slice 16 — final documentation, disposition, and fresh
+  comparison**.
 
 ## Current State
 

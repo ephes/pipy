@@ -496,6 +496,15 @@ four TUI findings (`_frame_lines`, `_paint_locked`, `_styled_line`, and
 `_block_frame_lines`) without creating a renderer finding, leaving **34 / 18**
 repository/source findings (**9** remain in TUI and zero in the renderer).
 `src` still contains one justified `type: ignore`.
+
+Ruff formatting is also a repository-wide gate. The `format-check` recipe owns
+`uv run ruff format --check .`; both the aggregate `just check` gate and the CI
+quality job invoke that recipe, so local and hosted verification use the same
+command. The completed Slice 15 gate covers all **479** files currently
+discovered by Ruff with no custom formatter exclusion (the formatter-only
+15a/15b baseline covered 478; Slice 15c adds its focused gate test). Apply the
+formatter with `uv run ruff format .` or `just format`.
+
 Run the reproducible source-only inventory with:
 
 ```sh
@@ -527,8 +536,7 @@ The active program addresses ownership risks rather than cosmetic size:
   the measured façade inventory at **43 fields** after reducing it from 128,
   below the cumulative **89-field** ceiling; and
 - deterministic PTY byte handshakes now cover the previously load-sensitive
-  readiness transitions; the absence of a repository Ruff-format gate remains
-  explicit quality work.
+  readiness transitions.
 
 See the active improvement plan for ordered acceptance criteria. These are
 intentional, measured residuals—not evidence that the completed migration is

@@ -93,12 +93,17 @@ uv sync
 Run local verification through `just`:
 
 ```sh
-just test       # pytest
-just lint       # ruff check
-just typecheck  # mypy
-just check      # lint, typecheck, then test
-just loc        # slopscope line-count summary
+just test          # pytest
+just lint          # ruff check
+just format-check  # ruff format --check across the repository
+just typecheck     # mypy
+just check         # lint, format-check, typecheck, then test
+just loc           # slopscope line-count summary
 ```
+
+Check formatting directly with `uv run ruff format --check .`. Apply Ruff
+formatting across the repository with `uv run ruff format .` (or `just format`),
+then rerun `just check`.
 
 During the `slopscope` pre-release phase, `just loc` allows pre-release
 resolution in a frozen `uv run` overlay, so it does not rewrite this project's

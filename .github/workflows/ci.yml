@@ -20,7 +20,7 @@ env:
 
 jobs:
   quality:
-    name: Lint, types, and docs (Python 3.14)
+    name: Lint, format, types, and docs (Python 3.14)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -52,6 +52,8 @@ jobs:
         run: uv run python -c 'import sys; assert sys.version_info[:2] == (3, 14), sys.version'
       - name: Lint
         run: just lint
+      - name: Check formatting
+        run: just format-check
       - name: Type check
         run: just typecheck
       - name: Build documentation
