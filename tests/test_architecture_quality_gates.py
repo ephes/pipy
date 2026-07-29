@@ -9,10 +9,44 @@ import tomllib
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FORMAT_CHECK_COMMAND = "uv run ruff format --check ."
 FORMAT_WRITE_COMMAND = "uv run ruff format ."
-SLICE_16_REVISION = "7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727"
-SLICE_16_SUBJECT = "docs: close architecture quality program"
-LEDGER_FIX_REVISION = "ffeb86f"
-LEDGER_FIX_SUBJECT = "docs: reconcile architecture program ledger"
+COMMIT_FACTS = (
+    (
+        "7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727",
+        "docs: close architecture quality program",
+    ),
+    (
+        "ffeb86f0319efd28f6f360174ae640fa358761d0",
+        "docs: reconcile architecture program ledger",
+    ),
+    (
+        "aea52b438713ce04fcad93ae32927ff156574aac",
+        "docs: record integration warning closure",
+    ),
+    ("b64ceb7db9581bf3ebfab51f5803c513c1fdb549", "docs: align provider catalog status"),
+)
+PARTITION_FACTS = (
+    "A: 29/29, 220,750 bytes/5,384 lines, valid complete CLEAN",
+    "B: 22/22, 359,459 bytes/8,776 lines, valid complete CLEAN",
+    "C: 14/14, 111,705 bytes/2,418 lines, valid complete CLEAN",
+    "D: 103/103, 410,314 bytes/9,494 lines, valid complete CLEAN",
+    "E: 150/150, 406,331 bytes/9,333 lines, valid complete CLEAN",
+    "Refreshed F: 19/19, 139,365 bytes/1,892 lines, valid complete CLEAN",
+)
+CURRENT_WORKTREE_FACTS = (
+    "Current-worktree verification after this ledger/test fix",
+    "strict Mypy across 169 source files",
+    "combined Mypy across 438 source/test files",
+    "`just check` at 4,829 passed / 2 skipped",
+    "Ruff formatting covers 480 files",
+    "34 / 18 repository/source C901 findings",
+    "81,738 / 121,175 source/test physical lines",
+    "43 `ToolLoopTerminalUi` fields",
+    "one source ignore",
+    "5,433 / 6,329 lines in `tool_loop_session.py` / `tui.py`",
+    "Docs are clean",
+    "both theme sources are `pi`",
+    "pre-commit is absent",
+)
 PROGRAM_DOCUMENTS = (
     "docs/2026-07-29-architecture-quality-assessment.md",
     "docs/architecture.md",
@@ -89,39 +123,39 @@ def test_architecture_assessment_navigation_and_reference_identity() -> None:
 
 
 def test_architecture_program_closeout_ledgers_stay_synchronized() -> None:
-    stale_claims = (
-        "landed Slice 16 commit pending",
-        "Slice 16 commit hash remains pending",
-        "No Slice 16 commit hash exists yet",
-        "Status: active implementation program",
-        "is being fixed",
-        "being fixed by this ledger synchronization",
-        "now being synchronized",
-        "reason for the present documentation-only fix",
-        "fix is under review",
-    )
     required_claims = (
-        "exhaustive partitions A–E are complete CLEAN",
-        "valid, complete original Bundle F found one documentation-ledger Warning",
-        "`openai-codex/gpt-5.6-sol` implementer fixed it",
-        "valid, complete focused re-review was CLEAN",
-        "fix landed as `ffeb86f`",
-        "closing the Warning",
-        "Final cross-cutting integration review remains pending",
+        "12 program/integration commits",
+        "exhaustive partition union exactly covers all 298 changed paths",
+        "valid complete exact-schema cross-cutting review",
+        "at committed endpoint `b64ceb7` found only this incomplete-ledger Warning",
+        "zero Critical or Suggestion findings, omissions, forbidden tool uses, skips, truncations, or redactions",
+        "The incomplete-ledger documentation/test fix is implemented in the current worktree",
+        "its fresh cross-cutting re-review remains pending",
         "no overall integration CLEAN is claimed",
         "bounded transactional-reload contract completion or formal reconciliation",
     )
+    stale_claims = (
+        "exhaustive partitions A–E are complete CLEAN",
+        "fix landed as `ffeb86f`",
+        "is now being implemented",
+        "Latest verification at that committed endpoint",
+    )
 
     for path in STATUS_DOCUMENTS:
-        document = " ".join(_read(path).replace("\n> ", "\n").split())
-        assert SLICE_16_REVISION in document
-        assert f"`{SLICE_16_SUBJECT}`" in document
-        assert LEDGER_FIX_REVISION in document
-        assert f"`{LEDGER_FIX_SUBJECT}`" in document
-        for claim in required_claims:
+        raw_document = _read(path)
+        document = " ".join(raw_document.replace("\n> ", "\n").split())
+        for revision, subject in COMMIT_FACTS:
+            assert revision in document
+            assert f"`{subject}`" in document
+        for claim in PARTITION_FACTS + CURRENT_WORKTREE_FACTS + required_claims:
             assert claim in document
         for stale_claim in stale_claims:
             assert stale_claim not in document
+
+        current_verification = raw_document.split(
+            "Current-worktree verification after this ledger/test fix", maxsplit=1
+        )[1].split("Slice 14 stress evidence", maxsplit=1)[0]
+        assert "committed endpoint" not in current_verification
 
     plan = _read(PROGRAM_DOCUMENTS[-1])
     assert "Status: completed/reconciled historical plan." in plan

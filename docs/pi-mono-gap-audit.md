@@ -17,18 +17,48 @@ This page is a selection aid, not an implementation plan and not a claim of
 line-by-line TypeScript parity. Detailed pipy behavior remains owned by the
 topic specs and conformance gates. The reviewed
 [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
-is completed/reconciled historical evidence. Slice 16 landed in commit
-`7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
-(`docs: close architecture quality program`). Integration review remains open:
-exhaustive partitions A–E are complete CLEAN. The valid, complete original
-Bundle F found one documentation-ledger Warning; a fresh exact-model Pi
-`openai-codex/gpt-5.6-sol` implementer fixed it, and a valid, complete focused
-re-review was CLEAN. The fix landed as `ffeb86f`
-(`docs: reconcile architecture program ledger`), closing the Warning.
-Final cross-cutting integration review remains pending, so no overall
-integration CLEAN is claimed. The explicit
-next architecture boundary is bounded transactional-reload contract completion
-or formal reconciliation before ordinary product-parity selection; none of the
+is completed/reconciled historical evidence.
+
+The integration ledger remains open through committed endpoint
+`b64ceb7db9581bf3ebfab51f5803c513c1fdb549`: 12 program/integration commits
+since `fe474e0e55b3d1e8ae370534acb54a0a5fd9496b`, with 298 changed paths. The
+exhaustive partition union exactly covers all 298 changed paths:
+
+- A: 29/29, 220,750 bytes/5,384 lines, valid complete CLEAN.
+- B: 22/22, 359,459 bytes/8,776 lines, valid complete CLEAN.
+- C: 14/14, 111,705 bytes/2,418 lines, valid complete CLEAN.
+- D: 103/103, 410,314 bytes/9,494 lines, valid complete CLEAN.
+- E: 150/150, 406,331 bytes/9,333 lines, valid complete CLEAN.
+- Refreshed F: 19/19, 139,365 bytes/1,892 lines, valid complete CLEAN.
+
+Slice 16 landed as `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+(`docs: close architecture quality program`). The three integration-fix commits
+are the original Bundle F ledger fix
+`ffeb86f0319efd28f6f360174ae640fa358761d0`
+(`docs: reconcile architecture program ledger`), warning-state closure
+`aea52b438713ce04fcad93ae32927ff156574aac`
+(`docs: record integration warning closure`), and README/provider-catalog
+closure `b64ceb7db9581bf3ebfab51f5803c513c1fdb549`
+(`docs: align provider catalog status`). A valid complete exact-schema
+cross-cutting review by Pi `openai-codex/gpt-5.6-sol` at committed endpoint
+`b64ceb7` found only this incomplete-ledger Warning. It found zero Critical or
+Suggestion findings, omissions, forbidden tool uses, skips, truncations, or
+redactions. The incomplete-ledger documentation/test fix is implemented in the
+current worktree; its fresh cross-cutting re-review remains pending, so no
+overall integration CLEAN is claimed.
+
+Current-worktree verification after this ledger/test fix is strict Mypy across
+169 source files, combined Mypy across 438 source/test files, and `just check`
+at 4,829 passed / 2 skipped. Ruff formatting covers 480 files. Current-worktree
+metrics are 34 / 18 repository/source C901 findings, 81,738 / 121,175
+source/test physical lines, 43 `ToolLoopTerminalUi` fields, one source ignore,
+and 5,433 / 6,329 lines in `tool_loop_session.py` / `tui.py`. Docs are clean,
+both theme sources are `pi`, and pre-commit is absent. Slice 14 stress evidence remains focused 20x, groups
+10x, PTY smoke 5x, then the full check; the latest PTY smoke is 8/8.
+
+The completed/reconciled disposition is unchanged. The explicit next
+architecture boundary is bounded transactional-reload contract completion or
+formal reconciliation before ordinary product-parity selection; none of the
 product gaps below is part of Slice 16.
 
 ## Current reading
