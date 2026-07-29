@@ -335,8 +335,7 @@ def test_invalid_hook_registration_disables_extension(tmp_path: Path) -> None:
     _write(
         workspace,
         "badhook",
-        "def activate(api):\n"
-        "    api.on('tool_call', 'not-callable')\n",
+        "def activate(api):\n    api.on('tool_call', 'not-callable')\n",
     )
 
     activated = _activate(workspace)

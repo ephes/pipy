@@ -76,7 +76,11 @@ def test_planning_docs_use_neutral_repo_owned_paths() -> None:
 
     legacy_root = REPO_ROOT / "docs" / "superpowers"
     legacy_files = (
-        [path.relative_to(REPO_ROOT) for path in legacy_root.rglob("*") if path.is_file()]
+        [
+            path.relative_to(REPO_ROOT)
+            for path in legacy_root.rglob("*")
+            if path.is_file()
+        ]
         if legacy_root.exists()
         else []
     )
@@ -108,13 +112,11 @@ def test_planning_docs_use_neutral_repo_owned_paths() -> None:
         path.relative_to(REPO_ROOT)
         for path in active_files
         if any(
-            marker in path.read_text(encoding="utf-8")
-            for marker in legacy_path_markers
+            marker in path.read_text(encoding="utf-8") for marker in legacy_path_markers
         )
     ]
     assert not legacy_references, (
-        "active files still reference the legacy planning path: "
-        f"{legacy_references}"
+        f"active files still reference the legacy planning path: {legacy_references}"
     )
 
     plugin_directives = [
@@ -136,7 +138,9 @@ def test_planning_docs_use_neutral_repo_owned_paths() -> None:
         for target in local_link_pattern.findall(path.read_text(encoding="utf-8"))
         if not (path.parent / target).resolve().exists()
     ]
-    assert not broken_links, f"planning documents contain broken local links: {broken_links}"
+    assert not broken_links, (
+        f"planning documents contain broken local links: {broken_links}"
+    )
 
 
 WRAPPERS = (

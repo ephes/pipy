@@ -24,11 +24,15 @@ def test_read_terminal_utf8_char_reads_four_byte_scalar() -> None:
     assert _read_from_pipe("🙂".encode("utf-8")) == "🙂"
 
 
-def test_read_terminal_utf8_char_returns_one_replacement_for_malformed_sequence() -> None:
+def test_read_terminal_utf8_char_returns_one_replacement_for_malformed_sequence() -> (
+    None
+):
     assert _read_from_pipe(b"\xc3") == "�"
 
 
-def test_read_terminal_utf8_char_preserves_non_continuation_byte_for_next_read() -> None:
+def test_read_terminal_utf8_char_preserves_non_continuation_byte_for_next_read() -> (
+    None
+):
     read_fd, write_fd = os.pipe()
     os.write(write_fd, b"\xc3(")
     os.close(write_fd)

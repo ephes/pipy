@@ -19,7 +19,9 @@ from pipy_harness.native.providers.openai_responses import (
 
 
 class FakeJsonHTTPClient:
-    def __init__(self, response: JsonResponse | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self, response: JsonResponse | None = None, error: Exception | None = None
+    ) -> None:
         self.response = response
         self.error = error
         self.requests: list[dict[str, Any]] = []
@@ -79,13 +81,18 @@ def test_openai_provider_posts_responses_request_and_parses_output(tmp_path):
                     "prompt_tokens": 11,
                     "input_tokens_details": {"cached_tokens": 3},
                     "output_tokens": 2,
-                    "output_tokens_details": {"accepted_prediction_tokens": 4, "reasoning_tokens": 1},
+                    "output_tokens_details": {
+                        "accepted_prediction_tokens": 4,
+                        "reasoning_tokens": 1,
+                    },
                     "total_tokens": 12,
                 },
             },
         )
     )
-    provider = OpenAIResponsesProvider(model_id="gpt-test", api_key="sk-test", http_client=client)
+    provider = OpenAIResponsesProvider(
+        model_id="gpt-test", api_key="sk-test", http_client=client
+    )
 
     result = provider.complete(provider_request(tmp_path))
 
@@ -123,7 +130,9 @@ def test_openai_provider_accepts_top_level_output_text(tmp_path):
             body={"status": "completed", "output_text": "short text", "usage": {}},
         )
     )
-    provider = OpenAIResponsesProvider(model_id="gpt-test", api_key="sk-test", http_client=client)
+    provider = OpenAIResponsesProvider(
+        model_id="gpt-test", api_key="sk-test", http_client=client
+    )
 
     result = provider.complete(provider_request(tmp_path))
 
@@ -149,7 +158,9 @@ def test_openai_provider_omits_unknown_unavailable_and_non_counter_usage(tmp_pat
             },
         )
     )
-    provider = OpenAIResponsesProvider(model_id="gpt-test", api_key="sk-test", http_client=client)
+    provider = OpenAIResponsesProvider(
+        model_id="gpt-test", api_key="sk-test", http_client=client
+    )
 
     result = provider.complete(provider_request(tmp_path))
 
@@ -176,7 +187,9 @@ def test_openai_provider_preserves_top_level_usage_when_details_omit_counter(tmp
             },
         )
     )
-    provider = OpenAIResponsesProvider(model_id="gpt-test", api_key="sk-test", http_client=client)
+    provider = OpenAIResponsesProvider(
+        model_id="gpt-test", api_key="sk-test", http_client=client
+    )
 
     result = provider.complete(provider_request(tmp_path))
 
@@ -194,7 +207,9 @@ def test_openai_provider_rejects_empty_output_text(tmp_path):
             body={"status": "completed", "output_text": "", "usage": {}},
         )
     )
-    provider = OpenAIResponsesProvider(model_id="gpt-test", api_key="sk-test", http_client=client)
+    provider = OpenAIResponsesProvider(
+        model_id="gpt-test", api_key="sk-test", http_client=client
+    )
 
     result = provider.complete(provider_request(tmp_path))
 
@@ -209,7 +224,9 @@ def test_openai_provider_rejects_empty_output_text(tmp_path):
 
 def test_openai_provider_missing_api_key_fails_without_http(tmp_path):
     client = FakeJsonHTTPClient()
-    provider = OpenAIResponsesProvider(model_id="gpt-test", api_key=None, http_client=client)
+    provider = OpenAIResponsesProvider(
+        model_id="gpt-test", api_key=None, http_client=client
+    )
 
     result = provider.complete(provider_request(tmp_path))
 
@@ -239,7 +256,9 @@ def test_openai_provider_http_error_keeps_message_conservative(tmp_path):
     provider = OpenAIResponsesProvider(
         model_id="gpt-test",
         api_key="sk-test",
-        http_client=FakeJsonHTTPClient(error=OpenAIHTTPStatusError.from_http_error(http_error)),
+        http_client=FakeJsonHTTPClient(
+            error=OpenAIHTTPStatusError.from_http_error(http_error)
+        ),
     )
 
     result = provider.complete(provider_request(tmp_path))
@@ -260,10 +279,15 @@ def test_openai_provider_non_success_boundary_status_fails_safely(tmp_path):
     client = FakeJsonHTTPClient(
         JsonResponse(
             status_code=503,
-            body={"status": "completed", "output_text": "MODEL_OUTPUT_SHOULD_NOT_PRINT"},
+            body={
+                "status": "completed",
+                "output_text": "MODEL_OUTPUT_SHOULD_NOT_PRINT",
+            },
         )
     )
-    provider = OpenAIResponsesProvider(model_id="gpt-test", api_key="sk-test", http_client=client)
+    provider = OpenAIResponsesProvider(
+        model_id="gpt-test", api_key="sk-test", http_client=client
+    )
 
     result = provider.complete(provider_request(tmp_path))
 

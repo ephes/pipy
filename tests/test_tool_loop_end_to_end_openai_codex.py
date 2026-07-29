@@ -221,9 +221,7 @@ def test_openai_codex_tool_loop_dispatches_read_and_returns_final_text(
     assert first_body["input"] == [
         {
             "role": "user",
-            "content": [
-                {"type": "input_text", "text": "please read notes.txt"}
-            ],
+            "content": [{"type": "input_text", "text": "please read notes.txt"}],
         }
     ]
 

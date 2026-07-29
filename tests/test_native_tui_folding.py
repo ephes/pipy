@@ -28,7 +28,9 @@ def _frame_text(ui: ToolLoopTerminalUi) -> str:
 
 
 class TestThinkingFold:
-    def test_hidden_reasoning_renders_default_label_not_body(self, tmp_path: Path) -> None:
+    def test_hidden_reasoning_renders_default_label_not_body(
+        self, tmp_path: Path
+    ) -> None:
         ui = _ui(tmp_path)
         ui.thinking_hidden = True
         ui.reasoning_text = "SECRET-THOUGHT"
@@ -36,7 +38,9 @@ class TestThinkingFold:
         assert "SECRET-THOUGHT" not in frame
         assert "Thinking..." in frame
 
-    def test_hidden_reasoning_uses_custom_label_and_resets(self, tmp_path: Path) -> None:
+    def test_hidden_reasoning_uses_custom_label_and_resets(
+        self, tmp_path: Path
+    ) -> None:
         ui = _ui(tmp_path)
         ui.thinking_hidden = True
         ui.reasoning_text = "SECRET-THOUGHT"
@@ -58,7 +62,9 @@ class TestThinkingFold:
         ui.reasoning_text = "DEFER-ME"
         ui._settle_reasoning()
         # Not committed to scrollback while hidden, but retained (not dropped).
-        assert all("DEFER-ME" not in "".join(block) for _kind, block in ui._history_blocks)
+        assert all(
+            "DEFER-ME" not in "".join(block) for _kind, block in ui._history_blocks
+        )
         assert ui._deferred_reasoning == ["DEFER-ME"]
 
     def test_unhiding_reveals_deferred_reasoning(self, tmp_path: Path) -> None:

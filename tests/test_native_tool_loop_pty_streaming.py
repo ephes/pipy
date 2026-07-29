@@ -45,9 +45,7 @@ class _NoOpTool:
             },
         )
 
-    def invoke(
-        self, request: ToolRequest, context: ToolContext
-    ) -> ToolExecutionResult:
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         del context
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
@@ -86,9 +84,7 @@ def _spawn_pty_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:
     return thread, collected
 
 
-@pytest.mark.skipif(
-    os.name != "posix", reason="pty integration requires posix"
-)
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
 def test_pty_tool_loop_streams_and_renders_tool_block(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):

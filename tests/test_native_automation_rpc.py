@@ -622,6 +622,7 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
     shell_calls: list[str] = []
     taken: list[AgentQueuedInput] = []
     original_queued_input_port = loop_module.NativeAgentQueuedInputPort
+
     class RecordingQueuedInputPort:
         def __init__(self, take_next: Callable[[], AgentQueuedInput | None]) -> None:
             self._delegate = original_queued_input_port(take_next)

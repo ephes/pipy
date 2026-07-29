@@ -121,9 +121,7 @@ def test_urlopen_read_cancellable_interrupts_blocking_read() -> None:
             method="POST",
         )
         try:
-            urlopen_read_cancellable(
-                request, timeout_seconds=5.0, cancel_token=token
-            )
+            urlopen_read_cancellable(request, timeout_seconds=5.0, cancel_token=token)
             outcome.append("completed")
         except ProviderCancelledError:
             outcome.append("cancelled")
@@ -172,9 +170,7 @@ def test_urlopen_read_cancellable_interrupts_disabled_timeout_header_wait() -> N
             method="POST",
         )
         try:
-            urlopen_read_cancellable(
-                request, timeout_seconds=None, cancel_token=token
-            )
+            urlopen_read_cancellable(request, timeout_seconds=None, cancel_token=token)
             outcome.append("completed")
         except ProviderCancelledError:
             outcome.append("cancelled")
@@ -200,7 +196,9 @@ def test_urlopen_read_cancellable_interrupts_disabled_timeout_header_wait() -> N
     assert not worker.is_alive()
 
 
-def test_open_url_cancellable_forwards_none_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_open_url_cancellable_forwards_none_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     response = object()
     observed: list[float | None] = []
 
@@ -240,9 +238,7 @@ def test_urlopen_read_cancellable_interrupts_connection_close_body() -> None:
             method="POST",
         )
         try:
-            urlopen_read_cancellable(
-                request, timeout_seconds=5.0, cancel_token=token
-            )
+            urlopen_read_cancellable(request, timeout_seconds=5.0, cancel_token=token)
             outcome.append("completed")
         except ProviderCancelledError:
             outcome.append("cancelled")

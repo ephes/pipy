@@ -62,9 +62,7 @@ def isolate_native_defaults(tmp_path, monkeypatch) -> None:
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-    ]
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def test_tool_loop_repl_loads_at_file_context_into_provider_messages(

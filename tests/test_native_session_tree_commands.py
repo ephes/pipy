@@ -44,13 +44,9 @@ def _seed(tmp_path: Path) -> NativeSessionTree:
     cwd.mkdir()
     tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "s")
     tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
-    tree.append_message(
-        AgentAssistantMessage(content=ProductContent("SEEN:ROOT"))
-    )
+    tree.append_message(AgentAssistantMessage(content=ProductContent("SEEN:ROOT")))
     tree.append_message(AgentUserMessage(content=ProductContent("MAIN")))
-    tree.append_message(
-        AgentAssistantMessage(content=ProductContent("SEEN:ROOT,MAIN"))
-    )
+    tree.append_message(AgentAssistantMessage(content=ProductContent("SEEN:ROOT,MAIN")))
     return tree
 
 
@@ -136,12 +132,7 @@ def test_resolve_startup_session_modes(tmp_path: Path) -> None:
     state_root = tmp_path / "state"
 
     # no-session / disabled -> ephemeral (None)
-    assert (
-        resolve_startup_session(
-            cwd, mode="none", state_root=state_root
-        )
-        is None
-    )
+    assert resolve_startup_session(cwd, mode="none", state_root=state_root) is None
 
     # new -> fresh persistent session
     fresh = resolve_startup_session(cwd, mode="new", state_root=state_root)
@@ -302,9 +293,7 @@ def test_tree_command_adapter_summary_cancellation_leaves_tree_unchanged(
     assert outcome == TreeCommandOutcome()
     assert tree.get_leaf_id() == old_leaf
     assert len(tree.get_entries()) == old_count
-    assert diagnostics == [
-        "pipy: branch summary cancelled; tree and leaf unchanged."
-    ]
+    assert diagnostics == ["pipy: branch summary cancelled; tree and leaf unchanged."]
 
 
 def test_user_only_filter_hides_assistant_entries(tmp_path: Path) -> None:

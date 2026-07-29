@@ -67,9 +67,7 @@ def test_openrouter_tool_loop_dispatches_read_and_returns_final_text(tmp_path: P
                                 "type": "function",
                                 "function": {
                                     "name": "read",
-                                    "arguments": json.dumps(
-                                        {"path": "notes.txt"}
-                                    ),
+                                    "arguments": json.dumps({"path": "notes.txt"}),
                                 },
                             }
                         ],
@@ -132,8 +130,7 @@ def test_openrouter_tool_loop_dispatches_read_and_returns_final_text(tmp_path: P
 
     second_body = client.requests[1]["body"]
     tool_message = next(
-        message for message in second_body["messages"]
-        if message["role"] == "tool"
+        message for message in second_body["messages"] if message["role"] == "tool"
     )
     assert tool_message["content"] == "hello from notes\n"
     assert tool_message["tool_call_id"] == "call_one"

@@ -286,7 +286,7 @@ def _deferred_request(
                         tool_name="base_tool",
                         arguments_json=ProductContent("{}"),
                     ),
-                )
+                ),
             ),
             AgentToolResultMessage(
                 tool_request_id="pipy-tool-load",
@@ -410,7 +410,7 @@ def test_anthropic_deferred_fallback_matrix(tmp_path: Path) -> None:
                                 tool_name="late_tool",
                                 arguments_json=ProductContent("{}"),
                             ),
-                        )
+                        ),
                     ),
                     AgentToolResultMessage(
                         tool_request_id="pipy-tool-load",
@@ -460,7 +460,7 @@ def test_anthropic_groups_consecutive_results_before_displaced_output(
             tool_calls=(
                 AgentToolCall("call_1", "base_tool", ProductContent("{}")),
                 AgentToolCall("call_2", "base_tool", ProductContent("{}")),
-            )
+            ),
         ),
         AgentToolResultMessage(
             tool_request_id="pipy-tool-1",

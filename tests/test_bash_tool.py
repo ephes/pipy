@@ -89,9 +89,7 @@ def test_can_read_git_directory(tmp_path: Path) -> None:
     # The old tool default-denied .git; a real shell (like Pi) can read it.
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "config").write_text("[core]\n", encoding="utf-8")
-    result = BashTool().invoke(
-        _request({"command": "cat .git/config"}), _ctx(tmp_path)
-    )
+    result = BashTool().invoke(_request({"command": "cat .git/config"}), _ctx(tmp_path))
     assert result.is_error is False
     assert "[core]" in result.output_text
 
@@ -191,8 +189,7 @@ def test_cancellation_observed_when_stdout_closed_early(tmp_path: Path) -> None:
                 _request(
                     {
                         "command": (
-                            'printf "started\\n"; sleep 0.1; '
-                            "exec 1>&- 2>&-; sleep 30"
+                            'printf "started\\n"; sleep 0.1; exec 1>&- 2>&-; sleep 30'
                         ),
                     }
                 ),

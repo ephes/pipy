@@ -63,8 +63,7 @@ def _isolated_chrome_theme(tmp_path_factory):  # type: ignore[no-untyped-def]
     """
 
     saved = {
-        key: os.environ.get(key)
-        for key in ("PIPY_THEME", "PIPY_NATIVE_THEME_PATH")
+        key: os.environ.get(key) for key in ("PIPY_THEME", "PIPY_NATIVE_THEME_PATH")
     }
     os.environ.pop("PIPY_THEME", None)
     fresh_store = tmp_path_factory.mktemp("native-theme") / "native-theme.json"

@@ -425,7 +425,9 @@ def test_compaction_rejects_non_none_return_after_state_transition() -> None:
     state = _state()
     action = _action()
 
-    def compact_returning_value(action_to_persist: CodingProductSessionCompaction) -> None:
+    def compact_returning_value(
+        action_to_persist: CodingProductSessionCompaction,
+    ) -> None:
         assert action_to_persist is action
         return cast(None, object())
 

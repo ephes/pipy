@@ -58,9 +58,7 @@ class BoundaryViolation:
         )
 
 
-_LEGACY_CONCRETE_PROVIDER_MODULES = (
-    "pipy_harness.native.openai_codex_provider",
-)
+_LEGACY_CONCRETE_PROVIDER_MODULES = ("pipy_harness.native.openai_codex_provider",)
 
 # These modules are provider-facing architecture sources even though their
 # filenames are not concrete ``*_provider.py`` transports: ``http`` owns the
@@ -2438,11 +2436,7 @@ def test_coding_state_direct_imports_match_explicit_allowlist() -> None:
 
 def test_coding_product_session_direct_imports_match_explicit_allowlist() -> None:
     product_session_path = (
-        SOURCE_ROOT
-        / "pipy_harness"
-        / "native"
-        / "coding"
-        / "product_session.py"
+        SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "product_session.py"
     )
     references = _import_references(SOURCE_ROOT, product_session_path)
 
@@ -2457,9 +2451,7 @@ def test_coding_product_session_direct_imports_match_explicit_allowlist() -> Non
 
 
 def test_coding_commands_direct_imports_match_explicit_allowlist() -> None:
-    commands_path = (
-        SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "commands.py"
-    )
+    commands_path = SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "commands.py"
     references = _import_references(SOURCE_ROOT, commands_path)
 
     assert not _unallowlisted_direct_imports(
@@ -2489,9 +2481,7 @@ def test_coding_command_registry_direct_imports_match_explicit_allowlist() -> No
 
 
 def test_coding_agent_run_direct_imports_match_explicit_allowlist() -> None:
-    agent_run_path = (
-        SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "agent_run.py"
-    )
+    agent_run_path = SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "agent_run.py"
     references = _import_references(SOURCE_ROOT, agent_run_path)
 
     assert not _unallowlisted_direct_imports(

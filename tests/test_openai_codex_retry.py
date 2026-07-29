@@ -457,7 +457,7 @@ def test_tool_search_body_and_derived_id_are_stable_across_retry() -> None:
                     AgentToolCall(
                         "call_loader|fc_loader", "loader", ProductContent("{}")
                     ),
-                )
+                ),
             ),
             AgentToolResultMessage(
                 tool_request_id="pipy-tool-load",
@@ -646,7 +646,9 @@ def test_first_unsuccessful_terminal_cannot_be_overwritten_by_completed(
     assert client.calls == 1
 
 
-def test_completed_terminal_ignores_late_transport_failure_and_closes_iterator() -> None:
+def test_completed_terminal_ignores_late_transport_failure_and_closes_iterator() -> (
+    None
+):
     events = _CloseAwareEvents(
         [
             {"type": "response.output_text.delta", "delta": "ok"},
@@ -956,9 +958,7 @@ def test_provider_clock_reaches_real_urllib_retry_after_parser(
             b"\n",
         ]
     )
-    outcomes: Iterator[BaseException | _RawSseResponse] = iter(
-        [http_error, recovered]
-    )
+    outcomes: Iterator[BaseException | _RawSseResponse] = iter([http_error, recovered])
 
     def fake_open_url(*_args: object, **_kwargs: object) -> _RawSseResponse:
         outcome = next(outcomes)
@@ -1009,6 +1009,7 @@ def test_cancellation_during_backoff_aborts_without_second_attempt() -> None:
             _success_response("must-not-run"),
         ]
     )
+
     def cancel_sleep(_delay: float) -> None:
         token.cancel()
 

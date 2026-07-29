@@ -211,9 +211,7 @@ def test_startup_session_dir_override_is_used(tmp_path: Path) -> None:
     sessions_root = tmp_path / "explicit-root"
     proj = tmp_path / "p"
     proj.mkdir()
-    tree = resolve_startup_session(
-        proj, mode="new", sessions_root=sessions_root
-    )
+    tree = resolve_startup_session(proj, mode="new", sessions_root=sessions_root)
     assert tree is not None
     assert tree.path is not None
     assert sessions_root in tree.path.parents

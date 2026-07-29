@@ -109,7 +109,9 @@ def test_secret_shaped_global_filename_is_skipped(tmp_path: Path) -> None:
     assert names == {"explain"}
 
 
-def test_control_character_filename_without_frontmatter_is_skipped(tmp_path: Path) -> None:
+def test_control_character_filename_without_frontmatter_is_skipped(
+    tmp_path: Path,
+) -> None:
     skills_dir = _skills_dir(tmp_path)
     # No frontmatter, so the name would otherwise fall back to the raw stem.
     (skills_dir / "\x1b.md").write_text("just a body\n", encoding="utf-8")

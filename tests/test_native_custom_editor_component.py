@@ -100,7 +100,9 @@ class _CustomEditor:
 
 
 class _IdentityAutocompleteProvider:
-    def get_suggestions(self, lines: object, line: int, col: int, context: object) -> str:
+    def get_suggestions(
+        self, lines: object, line: int, col: int, context: object
+    ) -> str:
         del line, context
         assert lines == ["seed"]
         return f"provider:{col}"
@@ -158,9 +160,7 @@ def test_custom_editor_read_line_wires_camel_action_handlers_with_pi_key_specs(
 
     def handle_input(key: str) -> None:
         assert component.keybindings is not None
-        if getattr(component.keybindings, "matches")(
-            key, "app.model.cycleForward"
-        ):
+        if getattr(component.keybindings, "matches")(key, "app.model.cycleForward"):
             handler = component.actionHandlers["app.model.cycleForward"]
             assert callable(handler)
             handler()
@@ -182,7 +182,9 @@ def test_custom_editor_read_line_wires_camel_action_handlers_with_pi_key_specs(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
 
-    def factory(tui: object, theme: object, keybindings: object) -> _CamelActionCustomEditor:
+    def factory(
+        tui: object, theme: object, keybindings: object
+    ) -> _CamelActionCustomEditor:
         del tui, theme
         component.keybindings = keybindings
         return component
@@ -222,7 +224,9 @@ def test_custom_editor_read_line_forwards_resolved_autocomplete_provider(
     assert component.keys == ["tab", "enter"]
 
 
-def test_custom_editor_component_renders_routes_keys_and_submits(tmp_path: Path) -> None:
+def test_custom_editor_component_renders_routes_keys_and_submits(
+    tmp_path: Path,
+) -> None:
     ui = _ui(tmp_path)
     component = _CustomEditor()
     ui.set_input_text("seed")
@@ -363,12 +367,8 @@ def test_custom_editor_keybindings_match_real_decoded_keys(tmp_path: Path) -> No
 
     keybindings = component.keybindings
     assert keybindings is not None
-    assert getattr(keybindings, "matches")(
-        _decode_key(ui, b"\x1b"), "app.interrupt"
-    )
-    assert getattr(keybindings, "matches")(
-        _decode_key(ui, b"\x0c"), "app.model.select"
-    )
+    assert getattr(keybindings, "matches")(_decode_key(ui, b"\x1b"), "app.interrupt")
+    assert getattr(keybindings, "matches")(_decode_key(ui, b"\x0c"), "app.model.select")
     assert getattr(keybindings, "matches")(
         _decode_key(ui, b"\x1b\r"), "app.message.followUp"
     )
@@ -870,9 +870,7 @@ def test_custom_editor_keybindings_manager_preserves_other_default_actions(
     assert getattr(component.keybindings, "keys_for")("app.model.cycleForward") == [
         "ctrl+p"
     ]
-    assert getattr(component.keybindings, "matches")(
-        "ctrl-p", "app.model.cycleForward"
-    )
+    assert getattr(component.keybindings, "matches")("ctrl-p", "app.model.cycleForward")
     assert not getattr(component.keybindings, "matches")(
         "ctrl-y", "app.model.cycleForward"
     )
@@ -963,7 +961,9 @@ def test_custom_editor_external_editor_action_updates_draft_on_success(
     monkeypatch.setattr(TerminalDriver, "restore_terminal_mode", lambda self: None)
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda self: None)
     paints: list[str] = []
-    monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda self: paints.append("paint"))
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "paint", lambda self: paints.append("paint")
+    )
 
     def factory(
         tui: object, theme: object, keybindings: object
@@ -1142,7 +1142,9 @@ def test_default_editor_external_editor_action_is_undoable(
         calls.append(text)
         return "edited"
 
-    monkeypatch.setattr(ToolLoopTerminalUi, "_run_configured_external_editor", run_editor)
+    monkeypatch.setattr(
+        ToolLoopTerminalUi, "_run_configured_external_editor", run_editor
+    )
 
     ui = _ui(tmp_path)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)

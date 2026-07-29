@@ -71,7 +71,10 @@ def test_zero_budget_checks_capture_once_without_waiting(
     monkeypatch.setattr(pty_sync.time, "monotonic", clock.monotonic)
     monkeypatch.setattr(pty_sync.time, "sleep", clock.sleep)
 
-    assert wait_for_input_ready_after([b"notice painted"], b"notice painted", timeout=0) is None
+    assert (
+        wait_for_input_ready_after([b"notice painted"], b"notice painted", timeout=0)
+        is None
+    )
     assert clock.now == 0.0
 
 

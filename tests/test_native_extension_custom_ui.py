@@ -170,10 +170,7 @@ def test_extension_external_editor_keeps_completed_edit_after_failed_resume(
     monkeypatch.setattr(TerminalDriver, "resume_terminal_mode", fail_resume)
     monkeypatch.setattr("pipy_harness.native.tui.subprocess.run", fake_run)
 
-    assert (
-        ui._run_extension_external_editor("fake-editor", "seed")
-        == "completed edit"
-    )
+    assert ui._run_extension_external_editor("fake-editor", "seed") == "completed edit"
     assert mode_calls == ["suspend", "resume"]
 
 
@@ -569,6 +566,7 @@ def test_tui_custom_component_factory_can_finish_repeated_runs_before_return(
             raise AssertionError("completed component must not receive input")
 
     for expected in ("first", "second"):
+
         def factory(done, result=expected):
             done(result)
             done("ignored")
@@ -596,8 +594,9 @@ def test_tui_custom_component_handle_hide_cancels(monkeypatch, tmp_path: Path) -
     assert result is None
 
 
-
-def test_tui_custom_component_handle_visibility_and_focus(monkeypatch, tmp_path: Path) -> None:
+def test_tui_custom_component_handle_visibility_and_focus(
+    monkeypatch, tmp_path: Path
+) -> None:
     ui = _ui(tmp_path)
     ui.input_stream = cast(TextIO, _InputBuffer())
     monkeypatch.setattr(TerminalDriver, "enter_raw_mode", lambda _self: None)
@@ -642,7 +641,9 @@ def test_tui_custom_component_handle_visibility_and_focus(monkeypatch, tmp_path:
         handle.setHidden(True)
         assert handle.isHidden() is True
 
-    result = ui.run_custom_component(lambda done: Component(done), {"onHandle": on_handle})
+    result = ui.run_custom_component(
+        lambda done: Component(done), {"onHandle": on_handle}
+    )
 
     assert result == "done"
     assert ("key", "hidden-key") not in events

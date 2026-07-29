@@ -153,9 +153,7 @@ def test_text_deltas_concatenate_to_final_message(tmp_path: Path) -> None:
         for e in sink.events
         if e["type"] == "message_end" and e["message"]["role"] == "assistant"
     )
-    assert message_end["message"]["content"] == [
-        {"type": "text", "text": "SEEN:ROOT"}
-    ]
+    assert message_end["message"]["content"] == [{"type": "text", "text": "SEEN:ROOT"}]
 
 
 def test_message_start_has_empty_assistant_content(tmp_path: Path) -> None:

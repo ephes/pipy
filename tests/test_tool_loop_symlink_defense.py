@@ -30,9 +30,7 @@ def _git_workspace(tmp_path: Path) -> Path:
 
     git_dir = tmp_path / ".git"
     git_dir.mkdir()
-    (git_dir / "config").write_text(
-        "[user]\n  name = secret\n", encoding="utf-8"
-    )
+    (git_dir / "config").write_text("[user]\n  name = secret\n", encoding="utf-8")
     (tmp_path / "gitconfig_link").symlink_to(git_dir / "config")
     (tmp_path / "git_dir_link").symlink_to(git_dir, target_is_directory=True)
     return tmp_path
@@ -51,9 +49,7 @@ def test_read_tool_refuses_symlink_into_dot_git(tmp_path: Path):
     tool = ReadTool()
     context = ToolContext(workspace_root=workspace)
 
-    result = tool.invoke(
-        _request("read", {"path": "gitconfig_link"}), context
-    )
+    result = tool.invoke(_request("read", {"path": "gitconfig_link"}), context)
 
     assert result.is_error is True
     assert "ignored or under .git" in result.output_text
@@ -74,8 +70,7 @@ def test_write_tool_refuses_symlinked_parent_into_dot_git(tmp_path: Path):
 
     assert result.is_error is True
     assert (
-        "ignored or under .git" in result.output_text
-        or "parent" in result.output_text
+        "ignored or under .git" in result.output_text or "parent" in result.output_text
     )
     assert not (workspace / ".git" / "new.txt").exists()
 
@@ -99,10 +94,7 @@ def test_edit_tool_refuses_symlink_into_dot_git(tmp_path: Path):
 
     assert result.is_error is True
     assert "ignored or under .git" in result.output_text
-    assert (
-        "secret"
-        in (workspace / ".git" / "config").read_text(encoding="utf-8")
-    )
+    assert "secret" in (workspace / ".git" / "config").read_text(encoding="utf-8")
 
 
 def test_ls_tool_refuses_symlinked_dot_git_directory(tmp_path: Path):

@@ -273,9 +273,7 @@ def test_grep_removed_from_default_allowlist_blocks_every_recursion_form(
     ):
         result = run_command(command, _policy(tmp_path))
         assert result.status is CommandStatus.REJECTED, command
-        assert (
-            result.reason is CommandRejectionReason.DISALLOWED_EXECUTABLE
-        ), command
+        assert result.reason is CommandRejectionReason.DISALLOWED_EXECUTABLE, command
         assert "needle-secret" not in result.stdout, command
 
 
@@ -317,9 +315,7 @@ def test_checksum_commands_removed_block_manifest_git_read(tmp_path: Path) -> No
     ):
         result = run_command(command, _policy(tmp_path))
         assert result.status is CommandStatus.REJECTED, command
-        assert (
-            result.reason is CommandRejectionReason.DISALLOWED_EXECUTABLE
-        ), command
+        assert result.reason is CommandRejectionReason.DISALLOWED_EXECUTABLE, command
         assert "OK" not in (result.stdout or ""), command
         assert "secret-token" not in (result.stdout or ""), command
 
@@ -363,9 +359,7 @@ def test_wc_removed_blocks_files0_from_manifest_git_read(tmp_path: Path) -> None
     ):
         result = run_command(command, _policy(tmp_path))
         assert result.status is CommandStatus.REJECTED, command
-        assert (
-            result.reason is CommandRejectionReason.DISALLOWED_EXECUTABLE
-        ), command
+        assert result.reason is CommandRejectionReason.DISALLOWED_EXECUTABLE, command
         assert "secret-token" not in (result.stdout or ""), command
 
 
@@ -380,10 +374,7 @@ def test_executable_allowlist_not_bypassable_via_workspace_binary(
     planted = fake_bin / "cat"
     planted.write_text("#!/bin/sh\necho PWNED_BY_WORKSPACE_BINARY\n", encoding="utf-8")
     planted.chmod(
-        planted.stat().st_mode
-        | stat_mod.S_IEXEC
-        | stat_mod.S_IXGRP
-        | stat_mod.S_IXOTH
+        planted.stat().st_mode | stat_mod.S_IEXEC | stat_mod.S_IXGRP | stat_mod.S_IXOTH
     )
     (tmp_path / "harmless.txt").write_text("real-content\n", encoding="utf-8")
     # Poison PATH so the workspace-planted `cat` is found first.
@@ -418,8 +409,6 @@ def test_sort_removed_blocks_write_and_helper_exec(tmp_path: Path) -> None:
     ):
         result = run_command(command, _policy(tmp_path))
         assert result.status is CommandStatus.REJECTED, command
-        assert (
-            result.reason is CommandRejectionReason.DISALLOWED_EXECUTABLE
-        ), command
+        assert result.reason is CommandRejectionReason.DISALLOWED_EXECUTABLE, command
     assert payload.read_text(encoding="utf-8") == "touch PWNED\n"
     assert not (tmp_path / "PWNED").exists()

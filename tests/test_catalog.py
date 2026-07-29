@@ -79,28 +79,35 @@ def test_verify_session_archive_reports_malformed_finalized_jsonl(tmp_path):
     non_utf8.write_bytes(b"\xff\xfe\n")
     invalid.write_text("{not-json}\n", encoding="utf-8")
     not_object.write_text('["session.started"]\n', encoding="utf-8")
-    wrong_event.write_text('{"type":"decision.recorded","summary":"hidden"}\n', encoding="utf-8")
+    wrong_event.write_text(
+        '{"type":"decision.recorded","summary":"hidden"}\n', encoding="utf-8"
+    )
 
     verification = verify_session_archive(root=tmp_path)
 
     assert verification.ok is False
-    assert issue_by_path_and_kind(verification.issues, empty, "malformed-jsonl").detail == "empty first line"
-    assert issue_by_path_and_kind(verification.issues, non_utf8, "malformed-jsonl").detail == (
-        "first line is not valid UTF-8"
+    assert (
+        issue_by_path_and_kind(verification.issues, empty, "malformed-jsonl").detail
+        == "empty first line"
     )
-    assert issue_by_path_and_kind(verification.issues, invalid, "malformed-jsonl").detail == (
-        "invalid JSON first line"
-    )
-    assert issue_by_path_and_kind(verification.issues, not_object, "malformed-jsonl").detail == (
-        "first line is not a JSON object"
-    )
-    assert issue_by_path_and_kind(verification.issues, wrong_event, "malformed-jsonl").detail == (
-        "first event is not session.started"
-    )
+    assert issue_by_path_and_kind(
+        verification.issues, non_utf8, "malformed-jsonl"
+    ).detail == ("first line is not valid UTF-8")
+    assert issue_by_path_and_kind(
+        verification.issues, invalid, "malformed-jsonl"
+    ).detail == ("invalid JSON first line")
+    assert issue_by_path_and_kind(
+        verification.issues, not_object, "malformed-jsonl"
+    ).detail == ("first line is not a JSON object")
+    assert issue_by_path_and_kind(
+        verification.issues, wrong_event, "malformed-jsonl"
+    ).detail == ("first event is not session.started")
     assert "hidden" not in format_archive_verification(verification)
 
 
-def test_verify_session_archive_reports_unreadable_finalized_jsonl_without_aborting(tmp_path, monkeypatch):
+def test_verify_session_archive_reports_unreadable_finalized_jsonl_without_aborting(
+    tmp_path, monkeypatch
+):
     active = init_session(
         agent="codex",
         slug="valid-alongside-unreadable",
@@ -109,7 +116,13 @@ def test_verify_session_archive_reports_unreadable_finalized_jsonl_without_abort
         now=FIXED_NOW,
     )
     valid = finalize_session(active, root=tmp_path)
-    unreadable = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133100Z-studio-codex-unreadable.jsonl"
+    unreadable = (
+        tmp_path
+        / "pipy"
+        / "2026"
+        / "04"
+        / "2026-04-30T133100Z-studio-codex-unreadable.jsonl"
+    )
     unreadable.write_bytes(
         b'{"type":"decision.recorded","summary":"SECRET_BODY should not print"}\n\xff\xfe\n'
     )
@@ -144,7 +157,13 @@ def test_cli_verify_reports_unreadable_jsonl_without_exposing_exception_or_conte
         now=FIXED_NOW,
     )
     valid = finalize_session(active, root=tmp_path)
-    unreadable = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133100Z-studio-codex-unreadable.jsonl"
+    unreadable = (
+        tmp_path
+        / "pipy"
+        / "2026"
+        / "04"
+        / "2026-04-30T133100Z-studio-codex-unreadable.jsonl"
+    )
     unreadable.write_bytes(
         b'{"type":"decision.recorded","summary":"SECRET_BODY should not print"}\n\xff\xfe\n'
     )
@@ -212,9 +231,22 @@ def test_verify_session_archive_reports_orphan_summary_and_partial_leftovers(tmp
 
     verification = verify_session_archive(root=tmp_path)
 
-    assert issue_by_path_and_kind(verification.issues, orphan, "orphan-summary").severity == "warning"
-    assert issue_by_path_and_kind(verification.issues, archive_partial, "partial-file").severity == "warning"
-    assert issue_by_path_and_kind(verification.issues, active_partial, "partial-file").severity == "warning"
+    assert (
+        issue_by_path_and_kind(verification.issues, orphan, "orphan-summary").severity
+        == "warning"
+    )
+    assert (
+        issue_by_path_and_kind(
+            verification.issues, archive_partial, "partial-file"
+        ).severity
+        == "warning"
+    )
+    assert (
+        issue_by_path_and_kind(
+            verification.issues, active_partial, "partial-file"
+        ).severity
+        == "warning"
+    )
 
 
 def test_verify_session_archive_reports_unexpected_archive_files(tmp_path):
@@ -233,13 +265,33 @@ def test_verify_session_archive_reports_unexpected_archive_files(tmp_path):
 
     verification = verify_session_archive(root=tmp_path)
 
-    assert issue_by_path_and_kind(verification.issues, direct, "unexpected-archive-file").severity == "error"
-    assert issue_by_path_and_kind(verification.issues, year_file, "unexpected-archive-file").severity == "error"
-    assert issue_by_path_and_kind(verification.issues, deep, "unexpected-archive-file").severity == "error"
-    assert issue_by_path_and_kind(verification.issues, unsupported, "unsupported-archive-file").severity == (
-        "warning"
+    assert (
+        issue_by_path_and_kind(
+            verification.issues, direct, "unexpected-archive-file"
+        ).severity
+        == "error"
     )
-    assert issue_by_path_and_kind(verification.issues, malformed_name, "malformed-filename").severity == "error"
+    assert (
+        issue_by_path_and_kind(
+            verification.issues, year_file, "unexpected-archive-file"
+        ).severity
+        == "error"
+    )
+    assert (
+        issue_by_path_and_kind(
+            verification.issues, deep, "unexpected-archive-file"
+        ).severity
+        == "error"
+    )
+    assert issue_by_path_and_kind(
+        verification.issues, unsupported, "unsupported-archive-file"
+    ).severity == ("warning")
+    assert (
+        issue_by_path_and_kind(
+            verification.issues, malformed_name, "malformed-filename"
+        ).severity
+        == "error"
+    )
 
 
 def test_verify_session_archive_reports_duplicate_basename_and_stem_ambiguity(tmp_path):
@@ -257,7 +309,9 @@ def test_verify_session_archive_reports_duplicate_basename_and_stem_ambiguity(tm
 
     verification = verify_session_archive(root=tmp_path)
 
-    basename_issue = issue_by_path_and_kind(verification.issues, first, "ambiguous-basename")
+    basename_issue = issue_by_path_and_kind(
+        verification.issues, first, "ambiguous-basename"
+    )
     stem_issue = issue_by_path_and_kind(verification.issues, first, "ambiguous-stem")
     assert basename_issue.severity == "warning"
     assert stem_issue.severity == "warning"
@@ -289,14 +343,19 @@ def test_cli_verify_supports_human_and_json_output(tmp_path, capsys):
     archive = tmp_path / "pipy" / "2026" / "04"
     archive.mkdir(parents=True)
     malformed = archive / "2026-04-30T133000Z-studio-codex-bad.jsonl"
-    malformed.write_text('{"type":"decision.recorded","summary":"do not print"}\n', encoding="utf-8")
+    malformed.write_text(
+        '{"type":"decision.recorded","summary":"do not print"}\n', encoding="utf-8"
+    )
 
     human_code = main(["--root", str(tmp_path), "verify"])
     human_output = capsys.readouterr()
 
     assert human_code == 0
     assert "status\tissue\tpath\tdetail" in human_output.out
-    assert f"error\tmalformed-jsonl\t{malformed}\tfirst event is not session.started" in human_output.out
+    assert (
+        f"error\tmalformed-jsonl\t{malformed}\tfirst event is not session.started"
+        in human_output.out
+    )
     assert "do not print" not in human_output.out
 
     json_code = main(["--root", str(tmp_path), "verify", "--json"])
@@ -338,7 +397,10 @@ def test_cli_verify_reports_non_utf8_first_line_without_failing_scan(tmp_path, c
     human_output = capsys.readouterr()
 
     assert human_exit_code == 0
-    assert f"error\tmalformed-jsonl\t{malformed}\tfirst line is not valid UTF-8" in human_output.out
+    assert (
+        f"error\tmalformed-jsonl\t{malformed}\tfirst line is not valid UTF-8"
+        in human_output.out
+    )
     assert "\xff" not in human_output.out
     assert "\xfe" not in human_output.out
     assert human_output.err == ""
@@ -372,7 +434,9 @@ def test_list_finalized_sessions_returns_archive_records_newest_first(tmp_path):
         machine="studio",
         now=FIXED_NOW,
     )
-    older = finalize_session(older_active, root=tmp_path, summary_text="# Summary\n\nOlder.")
+    older = finalize_session(
+        older_active, root=tmp_path, summary_text="# Summary\n\nOlder."
+    )
     newer_active = init_session(
         agent="claude",
         slug="newer-work",
@@ -385,7 +449,10 @@ def test_list_finalized_sessions_returns_archive_records_newest_first(tmp_path):
 
     records = list_finalized_sessions(root=tmp_path)
 
-    assert [record.jsonl_path for record in records] == [newer.jsonl_path, older.jsonl_path]
+    assert [record.jsonl_path for record in records] == [
+        newer.jsonl_path,
+        older.jsonl_path,
+    ]
     assert records[0].machine == "atlas"
     assert records[0].agent == "claude"
     assert records[0].slug == "newer-work"
@@ -450,9 +517,23 @@ def test_list_finalized_sessions_ignores_symlinked_jsonl_records(tmp_path):
     assert issue.severity == "error"
 
 
-def test_list_finalized_sessions_sorts_by_filename_stamp_when_timestamp_is_missing(tmp_path):
-    older = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133000Z-studio-codex-older.jsonl"
-    newer = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133001Z-studio-codex-newer.jsonl"
+def test_list_finalized_sessions_sorts_by_filename_stamp_when_timestamp_is_missing(
+    tmp_path,
+):
+    older = (
+        tmp_path
+        / "pipy"
+        / "2026"
+        / "04"
+        / "2026-04-30T133000Z-studio-codex-older.jsonl"
+    )
+    newer = (
+        tmp_path
+        / "pipy"
+        / "2026"
+        / "04"
+        / "2026-04-30T133001Z-studio-codex-newer.jsonl"
+    )
     older.parent.mkdir(parents=True)
     older.write_text(
         '{"agent":"codex","machine":"studio","project":"pipy","slug":"older","type":"session.started"}\n',
@@ -516,7 +597,13 @@ def test_list_finalized_sessions_skips_non_utf8_first_line(tmp_path):
         now=FIXED_NOW,
     )
     finalized = finalize_session(active, root=tmp_path)
-    non_utf8 = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133100Z-studio-codex-non-utf8.jsonl"
+    non_utf8 = (
+        tmp_path
+        / "pipy"
+        / "2026"
+        / "04"
+        / "2026-04-30T133100Z-studio-codex-non-utf8.jsonl"
+    )
     non_utf8.write_bytes(b"\xff\xfe\n")
 
     records = list_finalized_sessions(root=tmp_path)
@@ -615,8 +702,14 @@ def test_cli_list_supports_table_and_json_output(tmp_path, capsys):
     table_output = capsys.readouterr()
 
     assert table_code == 0
-    assert "started\tmachine\tagent\tslug\tcapture\tlineage\tsummary\tpath" in table_output.out
-    assert f"\tstudio\tcodex\tcli-list\tcomplete\troot\tyes\t{record.jsonl_path}" in table_output.out
+    assert (
+        "started\tmachine\tagent\tslug\tcapture\tlineage\tsummary\tpath"
+        in table_output.out
+    )
+    assert (
+        f"\tstudio\tcodex\tcli-list\tcomplete\troot\tyes\t{record.jsonl_path}"
+        in table_output.out
+    )
 
     json_code = main(["--root", str(tmp_path), "list", "--json"])
     json_output = capsys.readouterr()
@@ -650,14 +743,23 @@ def test_cli_list_skips_non_utf8_first_line_in_human_and_json_output(tmp_path, c
         now=FIXED_NOW,
     )
     record = finalize_session(active, root=tmp_path, summary_text="# Summary")
-    non_utf8 = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133100Z-studio-codex-non-utf8.jsonl"
+    non_utf8 = (
+        tmp_path
+        / "pipy"
+        / "2026"
+        / "04"
+        / "2026-04-30T133100Z-studio-codex-non-utf8.jsonl"
+    )
     non_utf8.write_bytes(b"\xff\xfe\n")
 
     table_code = main(["--root", str(tmp_path), "list"])
     table_output = capsys.readouterr()
 
     assert table_code == 0
-    assert f"\tstudio\tcodex\tvalid-list\tcomplete\troot\tyes\t{record.jsonl_path}" in table_output.out
+    assert (
+        f"\tstudio\tcodex\tvalid-list\tcomplete\troot\tyes\t{record.jsonl_path}"
+        in table_output.out
+    )
     assert str(non_utf8) not in table_output.out
     assert "\xff" not in table_output.out
     assert "\xfe" not in table_output.out
@@ -772,10 +874,15 @@ def test_search_finalized_sessions_returns_newest_first(tmp_path):
 
     results = search_finalized_sessions("shared search needle", root=tmp_path)
 
-    assert [result.jsonl_path for result in results] == [newer.jsonl_path, older.jsonl_path]
+    assert [result.jsonl_path for result in results] == [
+        newer.jsonl_path,
+        older.jsonl_path,
+    ]
 
 
-def test_search_ignores_active_state_partials_unsupported_and_malformed_records(tmp_path):
+def test_search_ignores_active_state_partials_unsupported_and_malformed_records(
+    tmp_path,
+):
     active = init_session(
         agent="codex",
         slug="needlexyz-active",
@@ -801,12 +908,16 @@ def test_search_ignores_active_state_partials_unsupported_and_malformed_records(
 
     archive = tmp_path / "pipy" / "2026" / "04"
     partial = archive / "2026-04-30T133200Z-studio-codex-needlexyz.jsonl.partial"
-    partial.write_text('{"type":"session.started","summary":"needlexyz"}\n', encoding="utf-8")
+    partial.write_text(
+        '{"type":"session.started","summary":"needlexyz"}\n', encoding="utf-8"
+    )
     unsupported = archive / "needlexyz.txt"
     unsupported.write_text("needlexyz unsupported", encoding="utf-8")
     malformed = archive / "2026-04-30T133300Z-studio-codex-needlexyz-bad.jsonl"
     malformed.write_text("{not-json with needlexyz}\n", encoding="utf-8")
-    later_malformed = archive / "2026-04-30T133400Z-studio-codex-needlexyz-later-bad.jsonl"
+    later_malformed = (
+        archive / "2026-04-30T133400Z-studio-codex-needlexyz-later-bad.jsonl"
+    )
     later_malformed.write_text(
         (
             '{"agent":"codex","machine":"studio","project":"pipy","slug":"needlexyz-later-bad",'
@@ -844,7 +955,13 @@ def test_search_skips_unreadable_records_without_aborting(tmp_path, monkeypatch)
         now=FIXED_NOW,
     )
     valid = finalize_session(active, root=tmp_path)
-    unreadable = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133100Z-studio-codex-unreadable.jsonl"
+    unreadable = (
+        tmp_path
+        / "pipy"
+        / "2026"
+        / "04"
+        / "2026-04-30T133100Z-studio-codex-unreadable.jsonl"
+    )
     unreadable.write_text(
         (
             '{"agent":"codex","machine":"studio","project":"pipy","slug":"unreadable",'
@@ -890,7 +1007,9 @@ def test_format_session_search_results_is_stable_and_privacy_safe(tmp_path):
     )
     record = finalize_session(active, root=tmp_path)
 
-    table = format_session_search_results(search_finalized_sessions("needle", root=tmp_path))
+    table = format_session_search_results(
+        search_finalized_sessions("needle", root=tmp_path)
+    )
 
     assert table.splitlines() == [
         "started\tmachine\tagent\tslug\tcapture\tmatches\tpath",
@@ -925,7 +1044,9 @@ def test_search_human_output_sanitizes_event_type_labels(tmp_path):
     )
     record = finalize_session(active, root=tmp_path)
 
-    table = format_session_search_results(search_finalized_sessions("tool", root=tmp_path))
+    table = format_session_search_results(
+        search_finalized_sessions("tool", root=tmp_path)
+    )
     lines = table.splitlines()
 
     assert lines == [
@@ -938,7 +1059,9 @@ def test_search_human_output_sanitizes_event_type_labels(tmp_path):
     assert len(lines[1].split("\t")) == 7
 
 
-def test_cli_search_supports_human_and_json_output_without_payload_values(tmp_path, capsys):
+def test_cli_search_supports_human_and_json_output_without_payload_values(
+    tmp_path, capsys
+):
     active = init_session(
         agent="codex",
         slug="cli-search",
@@ -959,7 +1082,13 @@ def test_cli_search_supports_human_and_json_output_without_payload_values(tmp_pa
         root=tmp_path,
         summary_text="# Summary\n\nNeedle markdown summary.",
     )
-    invalid = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133100Z-studio-codex-invalid.jsonl"
+    invalid = (
+        tmp_path
+        / "pipy"
+        / "2026"
+        / "04"
+        / "2026-04-30T133100Z-studio-codex-invalid.jsonl"
+    )
     invalid.write_bytes(b"\xff\xfe\n")
 
     human_code = main(["--root", str(tmp_path), "search", "needle"])
@@ -967,8 +1096,9 @@ def test_cli_search_supports_human_and_json_output_without_payload_values(tmp_pa
 
     assert human_code == 0
     assert "started\tmachine\tagent\tslug\tcapture\tmatches\tpath" in human_output.out
-    assert f"\tstudio\tcodex\tcli-search\tcomplete\tsummary, markdown\t{record.jsonl_path}" in (
-        human_output.out
+    assert (
+        f"\tstudio\tcodex\tcli-search\tcomplete\tsummary, markdown\t{record.jsonl_path}"
+        in (human_output.out)
     )  # search table header/columns are unchanged by lineage
     assert "PAYLOAD_SECRET" not in human_output.out
     assert "prompt text" not in human_output.out
@@ -1071,7 +1201,11 @@ def test_cli_search_empty_results(tmp_path, capsys):
     assert json_code == 0
     assert json.loads(json_output.out) == []
     assert json_output.err == ""
-def test_inspect_finalized_session_by_absolute_path_reads_metadata_counts_and_summary(tmp_path):
+
+
+def test_inspect_finalized_session_by_absolute_path_reads_metadata_counts_and_summary(
+    tmp_path,
+):
     active = init_session(
         agent="codex",
         slug="inspect-absolute",
@@ -1087,7 +1221,9 @@ def test_inspect_finalized_session_by_absolute_path_reads_metadata_counts_and_su
         summary="Inspect records without dumping raw content.",
         now=FIXED_NOW,
     )
-    record = finalize_session(active, root=tmp_path, summary_text="# Summary\n\nSafe inspection.")
+    record = finalize_session(
+        active, root=tmp_path, summary_text="# Summary\n\nSafe inspection."
+    )
 
     inspection = inspect_finalized_session(record.jsonl_path, root=tmp_path)
 
@@ -1118,7 +1254,9 @@ def test_inspect_finalized_session_by_basename_and_stem(tmp_path):
     record = finalize_session(active, root=tmp_path)
 
     by_basename = inspect_finalized_session(record.jsonl_path.name, root=tmp_path)
-    by_dot_basename = inspect_finalized_session(f"./{record.jsonl_path.name}", root=tmp_path)
+    by_dot_basename = inspect_finalized_session(
+        f"./{record.jsonl_path.name}", root=tmp_path
+    )
     by_stem = inspect_finalized_session(record.jsonl_path.stem, root=tmp_path)
 
     assert by_basename.jsonl_path == record.jsonl_path
@@ -1141,9 +1279,13 @@ def test_cli_inspect_json_output_contains_metadata_counts_and_summary(tmp_path, 
         summary="pytest passed.",
         now=FIXED_NOW,
     )
-    record = finalize_session(active, root=tmp_path, summary_text="# Summary\n\nJSON output.")
+    record = finalize_session(
+        active, root=tmp_path, summary_text="# Summary\n\nJSON output."
+    )
 
-    exit_code = main(["--root", str(tmp_path), "inspect", record.jsonl_path.stem, "--json"])
+    exit_code = main(
+        ["--root", str(tmp_path), "inspect", record.jsonl_path.stem, "--json"]
+    )
     output = capsys.readouterr()
 
     assert exit_code == 0
@@ -1172,7 +1314,9 @@ def test_cli_inspect_json_output_contains_metadata_counts_and_summary(tmp_path, 
     }
 
 
-def test_cli_inspect_human_output_includes_metadata_counts_and_summary(tmp_path, capsys):
+def test_cli_inspect_human_output_includes_metadata_counts_and_summary(
+    tmp_path, capsys
+):
     active = init_session(
         agent="codex",
         slug="cli-inspect-human",
@@ -1187,7 +1331,9 @@ def test_cli_inspect_human_output_includes_metadata_counts_and_summary(tmp_path,
         summary="Updated catalog.",
         now=FIXED_NOW,
     )
-    record = finalize_session(active, root=tmp_path, summary_text="# Summary\n\nHuman output.")
+    record = finalize_session(
+        active, root=tmp_path, summary_text="# Summary\n\nHuman output."
+    )
 
     exit_code = main(["--root", str(tmp_path), "inspect", str(record.jsonl_path)])
     output = capsys.readouterr()
@@ -1206,7 +1352,9 @@ def test_cli_inspect_human_output_includes_metadata_counts_and_summary(tmp_path,
     assert "# Summary\n\nHuman output." in output.out
 
 
-def test_format_session_inspection_collapses_control_whitespace_in_metadata(tmp_path, capsys):
+def test_format_session_inspection_collapses_control_whitespace_in_metadata(
+    tmp_path, capsys
+):
     root = tmp_path / "session\troot\nsandbox"
     archive = root / "pipy" / "2026" / "04"
     archive.mkdir(parents=True)
@@ -1275,7 +1423,9 @@ def test_format_session_inspection_collapses_control_whitespace_in_metadata(tmp_
     assert parsed["summary_text"] == summary_text
 
 
-def test_inspect_human_output_sanitizes_event_type_labels_but_json_keeps_raw(tmp_path, capsys):
+def test_inspect_human_output_sanitizes_event_type_labels_but_json_keeps_raw(
+    tmp_path, capsys
+):
     active = init_session(
         agent="codex",
         slug="inspect-event-label",
@@ -1304,7 +1454,9 @@ def test_inspect_human_output_sanitizes_event_type_labels_but_json_keeps_raw(tmp
     assert "forged.label:" not in lines
     assert all(line != " 999: 1" for line in lines)
 
-    json_code = main(["--root", str(tmp_path), "inspect", str(record.jsonl_path), "--json"])
+    json_code = main(
+        ["--root", str(tmp_path), "inspect", str(record.jsonl_path), "--json"]
+    )
     json_output = capsys.readouterr()
 
     assert json_code == 0
@@ -1359,7 +1511,9 @@ def test_cli_inspect_rejects_arbitrary_outside_path(tmp_path, capsys):
 
 
 def test_cli_inspect_rejects_malformed_finalized_jsonl(tmp_path, capsys):
-    malformed = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133000Z-studio-codex-bad.jsonl"
+    malformed = (
+        tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133000Z-studio-codex-bad.jsonl"
+    )
     malformed.parent.mkdir(parents=True)
     malformed.write_text("{not-json}\n", encoding="utf-8")
 
@@ -1371,7 +1525,13 @@ def test_cli_inspect_rejects_malformed_finalized_jsonl(tmp_path, capsys):
 
 
 def test_cli_inspect_rejects_empty_finalized_jsonl(tmp_path, capsys):
-    empty = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133000Z-studio-codex-empty.jsonl"
+    empty = (
+        tmp_path
+        / "pipy"
+        / "2026"
+        / "04"
+        / "2026-04-30T133000Z-studio-codex-empty.jsonl"
+    )
     empty.parent.mkdir(parents=True)
     empty.write_text("", encoding="utf-8")
 
@@ -1382,8 +1542,16 @@ def test_cli_inspect_rejects_empty_finalized_jsonl(tmp_path, capsys):
     assert "pipy-session: malformed finalized session record: empty file" in output.err
 
 
-def test_cli_inspect_rejects_finalized_jsonl_without_session_started_first(tmp_path, capsys):
-    wrong_event = tmp_path / "pipy" / "2026" / "04" / "2026-04-30T133000Z-studio-codex-wrong.jsonl"
+def test_cli_inspect_rejects_finalized_jsonl_without_session_started_first(
+    tmp_path, capsys
+):
+    wrong_event = (
+        tmp_path
+        / "pipy"
+        / "2026"
+        / "04"
+        / "2026-04-30T133000Z-studio-codex-wrong.jsonl"
+    )
     wrong_event.parent.mkdir(parents=True)
     wrong_event.write_text('{"type":"decision.recorded"}\n', encoding="utf-8")
 
@@ -1391,7 +1559,10 @@ def test_cli_inspect_rejects_finalized_jsonl_without_session_started_first(tmp_p
     output = capsys.readouterr()
 
     assert exit_code == 2
-    assert "pipy-session: malformed finalized session record: first event is not session.started" in output.err
+    assert (
+        "pipy-session: malformed finalized session record: first event is not session.started"
+        in output.err
+    )
 
 
 def test_cli_inspect_rejects_ambiguous_basename_matches(tmp_path, capsys):

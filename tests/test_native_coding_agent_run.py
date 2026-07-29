@@ -269,9 +269,7 @@ class _RequestSource:
             messages=active_input.request_messages(history),
             available_tools=available_tools,
         )
-        return AgentLoopRequestPreparation(
-            history, snapshot_provider_request(request)
-        )
+        return AgentLoopRequestPreparation(history, snapshot_provider_request(request))
 
 
 class _ProviderTurn:
@@ -532,9 +530,7 @@ def test_constructor_rejects_non_callable_retain_seam() -> None:
     with pytest.raises(TypeError, match="retain_next_input must be callable"):
         _make_coordinator(
             coding_state=_coding_state(),
-            retain_next_input=cast(
-                Callable[[AgentQueuedInput | None], None], object()
-            ),
+            retain_next_input=cast(Callable[[AgentQueuedInput | None], None], object()),
         )
 
 

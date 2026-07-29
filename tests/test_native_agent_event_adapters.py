@@ -661,7 +661,9 @@ def test_product_projection_pins_exact_append_sequence_for_a_real_assistant_turn
     assert appended == [user, real_assistant, completed, skipped]
     assert all(
         actual is expected
-        for actual, expected in zip(appended, (user, real_assistant, completed, skipped))
+        for actual, expected in zip(
+            appended, (user, real_assistant, completed, skipped)
+        )
     )
     # The already completed tool result is not re-appended from ``TurnCompleted``.
     assert appended.count(completed) == 1
@@ -702,7 +704,9 @@ def test_product_projection_synthetic_suppression_is_one_shot_and_reset_scoped()
     ]
 
 
-def test_product_projection_with_default_sink_stays_inert_across_a_full_stream() -> None:
+def test_product_projection_with_default_sink_stays_inert_across_a_full_stream() -> (
+    None
+):
     # Production now wires this projection with a live
     # ``NativeProductSessionActionSink`` (Slice 3.3 cutover); the default
     # ``sink=None`` construction remains a safe inert fallback that accepts the
@@ -722,7 +726,9 @@ def test_product_projection_with_default_sink_stays_inert_across_a_full_stream()
     projection.emit(MessageCompleted(0, user))
     projection.emit(MessageCompleted(0, assistant))
     projection.emit(ToolCallCompleted(0, completed))
-    projection.emit(TurnCompleted(0, AgentTurnOutcome.SUCCEEDED, assistant, (completed,)))
+    projection.emit(
+        TurnCompleted(0, AgentTurnOutcome.SUCCEEDED, assistant, (completed,))
+    )
     projection.emit(
         RunCancelled(AgentCancellationReason.OPERATOR_ABORT, ProductContent("detail"))
     )

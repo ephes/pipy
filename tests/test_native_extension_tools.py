@@ -358,7 +358,5 @@ def test_extension_tool_exception_is_bounded(tmp_path, monkeypatch) -> None:
     # The run survived and the raw exception message did not leak.
     assert result.status is HarnessStatus.SUCCEEDED
     second = provider.requests[1]
-    joined = " ".join(
-        message.content.value for message in second.messages
-    )
+    joined = " ".join(message.content.value for message in second.messages)
     assert "/secret" not in joined and "leak-xyz" not in joined

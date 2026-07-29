@@ -193,9 +193,9 @@ def test_bedrock_sigv4_signed_headers_match_signing_order_golden() -> None:
     )
     assert signed == golden["headers"]
     # SignedHeaders list is sorted and stable; it is the signing-order contract.
-    signed_headers = signed["Authorization"].split("SignedHeaders=", 1)[1].split(
-        ",", 1
-    )[0]
+    signed_headers = (
+        signed["Authorization"].split("SignedHeaders=", 1)[1].split(",", 1)[0]
+    )
     assert signed_headers == golden["signed_headers"]
     assert signed_headers == "accept;content-type;host;x-amz-content-sha256;x-amz-date"
 
@@ -274,9 +274,7 @@ def test_bedrock_error_metadata_falls_back_to_type_and_redacts_secret() -> None:
             msg="Forbidden",
             hdrs=Message(),
             fp=io.BytesIO(
-                json.dumps(
-                    {"message": "SECRET_PROMPT_SHOULD_NOT_LEAK"}
-                ).encode("utf-8")
+                json.dumps({"message": "SECRET_PROMPT_SHOULD_NOT_LEAK"}).encode("utf-8")
             ),
         )
     )

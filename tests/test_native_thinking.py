@@ -74,12 +74,21 @@ def test_supported_levels_derived_from_map():
 # ---- available_thinking_levels / clamp (Pi getSupportedThinkingLevels) -------
 
 _SOL_MAP = {
-    "off": None, "minimal": "low", "low": "low", "medium": "medium",
-    "high": "high", "xhigh": "xhigh", "max": "max",
+    "off": None,
+    "minimal": "low",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "xhigh",
+    "max": "max",
 }
 _XHIGH_MAP = {
-    "off": None, "minimal": "minimal", "low": "low", "medium": "medium",
-    "high": "high", "xhigh": "xhigh",
+    "off": None,
+    "minimal": "minimal",
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "xhigh",
 }
 
 
@@ -96,7 +105,13 @@ def test_available_levels_ordinary_tier_for_partial_map():
 
 def test_available_levels_appends_max_only_when_mapped():
     assert available_thinking_levels(_model(True, _SOL_MAP)) == [
-        "off", "minimal", "low", "medium", "high", "xhigh", "max",
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
     ]
     assert "max" not in available_thinking_levels(_model(True, _XHIGH_MAP))
 
@@ -105,8 +120,16 @@ def test_clamp_walks_forward_then_backward():
     xhigh_model = _model(True, _XHIGH_MAP)
     # max unsupported -> nearest available walking back is xhigh
     assert clamp_thinking_level(xhigh_model, "max") == "xhigh"
-    ordinary = _model(True, {"off": None, "minimal": "minimal", "low": "low",
-                             "medium": "medium", "high": "high"})
+    ordinary = _model(
+        True,
+        {
+            "off": None,
+            "minimal": "minimal",
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+        },
+    )
     assert clamp_thinking_level(ordinary, "xhigh") == "high"
     assert clamp_thinking_level(ordinary, "max") == "high"
     assert clamp_thinking_level(ordinary, "off") == "off"

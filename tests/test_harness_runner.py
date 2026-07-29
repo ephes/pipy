@@ -23,8 +23,12 @@ def read_jsonl(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
-def test_runner_success_creates_finalized_partial_record_without_child_output(tmp_path, capfd):
-    result = HarnessRunner(adapter=SubprocessAdapter(), id_factory=lambda: "run123").run(
+def test_runner_success_creates_finalized_partial_record_without_child_output(
+    tmp_path, capfd
+):
+    result = HarnessRunner(
+        adapter=SubprocessAdapter(), id_factory=lambda: "run123"
+    ).run(
         RunRequest(
             agent="custom",
             slug="smoke",
@@ -40,9 +44,9 @@ def test_runner_success_creates_finalized_partial_record_without_child_output(tm
     assert result.record.jsonl_path.exists()
     assert result.record.markdown_path.exists()
 
-    combined = result.record.jsonl_path.read_text(encoding="utf-8") + result.record.markdown_path.read_text(
+    combined = result.record.jsonl_path.read_text(
         encoding="utf-8"
-    )
+    ) + result.record.markdown_path.read_text(encoding="utf-8")
     assert "hello child output" not in combined
     events = read_jsonl(result.record.jsonl_path)
     assert events[0]["type"] == "session.started"
@@ -51,7 +55,9 @@ def test_runner_success_creates_finalized_partial_record_without_child_output(tm
     assert events[0]["event_id"] == "run123-0000"
     assert events[0]["sequence"] == 0
     assert events[0]["harness_protocol_version"] == 1
-    harness_events = [event for event in events if str(event["type"]).startswith("harness.")]
+    harness_events = [
+        event for event in events if str(event["type"]).startswith("harness.")
+    ]
     assert [event["type"] for event in harness_events] == [
         "harness.run.started",
         "harness.run.completed",
@@ -63,7 +69,9 @@ def test_runner_success_creates_finalized_partial_record_without_child_output(tm
 
 
 def test_runner_nonzero_child_finalizes_and_returns_native_exit_code(tmp_path):
-    result = HarnessRunner(adapter=SubprocessAdapter(), id_factory=lambda: "run-failed").run(
+    result = HarnessRunner(
+        adapter=SubprocessAdapter(), id_factory=lambda: "run-failed"
+    ).run(
         RunRequest(
             agent="custom",
             slug="failure",
@@ -83,7 +91,9 @@ def test_runner_nonzero_child_finalizes_and_returns_native_exit_code(tmp_path):
 
 def test_runner_records_no_full_command_or_prompt_like_argv_by_default(tmp_path):
     secret_prompt = "PROMPT_SECRET token=SECRET123"
-    result = HarnessRunner(adapter=SubprocessAdapter(), id_factory=lambda: "run-secret").run(
+    result = HarnessRunner(
+        adapter=SubprocessAdapter(), id_factory=lambda: "run-secret"
+    ).run(
         RunRequest(
             agent="custom",
             slug="privacy",
@@ -93,9 +103,9 @@ def test_runner_records_no_full_command_or_prompt_like_argv_by_default(tmp_path)
         )
     )
 
-    combined = result.record.jsonl_path.read_text(encoding="utf-8") + result.record.markdown_path.read_text(
+    combined = result.record.jsonl_path.read_text(
         encoding="utf-8"
-    )
+    ) + result.record.markdown_path.read_text(encoding="utf-8")
     assert "SECRET123" not in combined
     assert secret_prompt not in combined
     assert f"print({secret_prompt!r})" not in combined
@@ -108,18 +118,28 @@ def test_runner_record_files_is_opt_in_and_records_paths_only(tmp_path):
     _run_git(repo, "init")
     root = tmp_path / "sessions"
 
-    default_result = HarnessRunner(adapter=SubprocessAdapter(), id_factory=lambda: "run-no-files").run(
+    default_result = HarnessRunner(
+        adapter=SubprocessAdapter(), id_factory=lambda: "run-no-files"
+    ).run(
         RunRequest(
             agent="custom",
             slug="no-files",
-            command=[sys.executable, "-c", "from pathlib import Path; Path('default.txt').write_text('x')"],
+            command=[
+                sys.executable,
+                "-c",
+                "from pathlib import Path; Path('default.txt').write_text('x')",
+            ],
             cwd=repo,
             root=root,
         )
     )
-    assert "default.txt" not in default_result.record.jsonl_path.read_text(encoding="utf-8")
+    assert "default.txt" not in default_result.record.jsonl_path.read_text(
+        encoding="utf-8"
+    )
 
-    recorded_result = HarnessRunner(adapter=SubprocessAdapter(), id_factory=lambda: "run-files").run(
+    recorded_result = HarnessRunner(
+        adapter=SubprocessAdapter(), id_factory=lambda: "run-files"
+    ).run(
         RunRequest(
             agent="custom",
             slug="with-files",
@@ -140,22 +160,26 @@ def test_runner_record_files_is_opt_in_and_records_paths_only(tmp_path):
         )
     )
     events = read_jsonl(recorded_result.record.jsonl_path)
-    file_events = [event for event in events if event["type"] == "workspace.files.changed"]
+    file_events = [
+        event for event in events if event["type"] == "workspace.files.changed"
+    ]
     assert len(file_events) == 1
     payload = file_events[0]["payload"]
     assert "recorded.txt" in payload["paths"]
     assert "secret_config.py" in payload["paths"]
     assert "auth_token.py" in payload["paths"]
     assert "[REDACTED]" in payload["paths"]
-    assert "hunter2" not in recorded_result.record.jsonl_path.read_text(encoding="utf-8")
+    assert "hunter2" not in recorded_result.record.jsonl_path.read_text(
+        encoding="utf-8"
+    )
     assert payload["diffs_stored"] is False
     assert payload["file_contents_stored"] is False
-    assert "write_text('x')" not in recorded_result.record.jsonl_path.read_text(encoding="utf-8")
+    assert "write_text('x')" not in recorded_result.record.jsonl_path.read_text(
+        encoding="utf-8"
+    )
 
 
-def test_null_session_recorder_does_not_write_finalized_event(
-    tmp_path, monkeypatch
-):
+def test_null_session_recorder_does_not_write_finalized_event(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
     sentinel = tmp_path / "pipy-no-session.jsonl"
 
@@ -179,7 +203,9 @@ def test_null_session_recorder_does_not_write_finalized_event(
 
 def test_new_records_remain_compatible_with_catalog_commands(tmp_path):
     root = tmp_path / "sessions"
-    result = HarnessRunner(adapter=SubprocessAdapter(), id_factory=lambda: "run-catalog").run(
+    result = HarnessRunner(
+        adapter=SubprocessAdapter(), id_factory=lambda: "run-catalog"
+    ).run(
         RunRequest(
             agent="custom",
             slug="catalog",
@@ -228,8 +254,12 @@ def test_runner_returns_after_recorder_finalize(tmp_path):
     assert finalized["done"] is True
 
 
-def test_runner_finalizes_aborted_record_when_adapter_raises_keyboard_interrupt(tmp_path):
-    result = HarnessRunner(adapter=InterruptingAdapter(), id_factory=lambda: "run-abort").run(
+def test_runner_finalizes_aborted_record_when_adapter_raises_keyboard_interrupt(
+    tmp_path,
+):
+    result = HarnessRunner(
+        adapter=InterruptingAdapter(), id_factory=lambda: "run-abort"
+    ).run(
         RunRequest(
             agent="custom",
             slug="abort",
@@ -244,16 +274,22 @@ def test_runner_finalizes_aborted_record_when_adapter_raises_keyboard_interrupt(
     assert result.status == HarnessStatus.ABORTED
     assert result.error_type == "KeyboardInterrupt"
     events = read_jsonl(result.record.jsonl_path)
-    assert [event["type"] for event in events[-2:]] == ["harness.run.aborted", "session.finalized"]
+    assert [event["type"] for event in events[-2:]] == [
+        "harness.run.aborted",
+        "session.finalized",
+    ]
     assert events[-2]["payload"]["duration_seconds"] >= 0
-    assert "none collected because the run did not complete" in result.record.markdown_path.read_text(
-        encoding="utf-8"
+    assert (
+        "none collected because the run did not complete"
+        in result.record.markdown_path.read_text(encoding="utf-8")
     )
     assert verify_session_archive(root=tmp_path / "sessions").ok is True
 
 
 def test_runner_records_aborted_event_when_adapter_returns_aborted_status(tmp_path):
-    result = HarnessRunner(adapter=AbortedResultAdapter(), id_factory=lambda: "run-aborted-result").run(
+    result = HarnessRunner(
+        adapter=AbortedResultAdapter(), id_factory=lambda: "run-aborted-result"
+    ).run(
         RunRequest(
             agent="custom",
             slug="aborted-result",
@@ -266,11 +302,16 @@ def test_runner_records_aborted_event_when_adapter_returns_aborted_status(tmp_pa
     assert result.exit_code == 130
     assert result.status == HarnessStatus.ABORTED
     events = read_jsonl(result.record.jsonl_path)
-    assert [event["type"] for event in events[-2:]] == ["harness.run.aborted", "session.finalized"]
+    assert [event["type"] for event in events[-2:]] == [
+        "harness.run.aborted",
+        "session.finalized",
+    ]
 
 
 def test_runner_finalizes_failed_record_when_adapter_raises_exception(tmp_path):
-    result = HarnessRunner(adapter=ExplodingAdapter(), id_factory=lambda: "run-error").run(
+    result = HarnessRunner(
+        adapter=ExplodingAdapter(), id_factory=lambda: "run-error"
+    ).run(
         RunRequest(
             agent="custom",
             slug="adapter-error",
@@ -285,12 +326,19 @@ def test_runner_finalizes_failed_record_when_adapter_raises_exception(tmp_path):
     assert result.error_type == "RuntimeError"
     assert result.error_message == "adapter exploded"
     events = read_jsonl(result.record.jsonl_path)
-    assert [event["type"] for event in events[-2:]] == ["harness.run.exception", "session.finalized"]
+    assert [event["type"] for event in events[-2:]] == [
+        "harness.run.exception",
+        "session.finalized",
+    ]
     assert events[-2]["payload"]["error_type"] == "RuntimeError"
     assert events[-2]["payload"]["error_message"] == "RuntimeError"
     assert events[-2]["payload"]["duration_seconds"] >= 0
-    assert "- Error detail: RuntimeError" in result.record.markdown_path.read_text(encoding="utf-8")
-    assert "adapter exploded" not in result.record.markdown_path.read_text(encoding="utf-8")
+    assert "- Error detail: RuntimeError" in result.record.markdown_path.read_text(
+        encoding="utf-8"
+    )
+    assert "adapter exploded" not in result.record.markdown_path.read_text(
+        encoding="utf-8"
+    )
     assert verify_session_archive(root=tmp_path / "sessions").ok is True
 
 
@@ -315,7 +363,9 @@ def test_runner_bounds_escaped_exception_detail_in_metadata_archive(tmp_path):
     assert result.error_type == "RuntimeError"
     assert result.error_message == raw_message
     events = read_jsonl(result.record.jsonl_path)
-    exception_event = next(event for event in events if event["type"] == "harness.run.exception")
+    exception_event = next(
+        event for event in events if event["type"] == "harness.run.exception"
+    )
     assert exception_event["payload"]["error_type"] == "RuntimeError"
     assert exception_event["payload"]["error_message"] == "RuntimeError"
     archive_jsonl = result.record.jsonl_path.read_text(encoding="utf-8")
@@ -337,7 +387,9 @@ def test_runner_clock_sets_monotonic_sequence_not_event_time_order(tmp_path):
         assert times, "runner made an unexpected clock call"
         return times.pop(0)
 
-    result = HarnessRunner(adapter=SubprocessAdapter(), clock=clock, id_factory=lambda: "run-clock").run(
+    result = HarnessRunner(
+        adapter=SubprocessAdapter(), clock=clock, id_factory=lambda: "run-clock"
+    ).run(
         RunRequest(
             agent="custom",
             slug="clock",
@@ -459,7 +511,9 @@ def test_runner_records_resume_lineage_into_started_and_event(tmp_path):
         prior_model_id="gpt-5",
         prior_turn_count=3,
     )
-    result = HarnessRunner(adapter=SubprocessAdapter(), id_factory=lambda: "run-resume").run(
+    result = HarnessRunner(
+        adapter=SubprocessAdapter(), id_factory=lambda: "run-resume"
+    ).run(
         RunRequest(
             agent="pipy-native",
             slug="resumed",

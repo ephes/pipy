@@ -119,10 +119,12 @@ def _tool(name: str) -> ToolDefinition:
 def _completed_sse() -> SseResponse:
     return SseResponse(
         status_code=200,
-        body=sse_payload([
-            {"type": "response.output_text.delta", "delta": "done"},
-            {"type": "response.completed", "response": {"status": "completed"}},
-        ]),
+        body=sse_payload(
+            [
+                {"type": "response.output_text.delta", "delta": "done"},
+                {"type": "response.completed", "response": {"status": "completed"}},
+            ]
+        ),
     )
 
 
@@ -551,8 +553,7 @@ def test_openai_codex_merges_added_metadata_into_done_placeholder(
 
     assert len(result.tool_calls) == 1
     assert (
-        result.tool_calls[0].provider_correlation_id
-        == "call_done_first|fc_done_first"
+        result.tool_calls[0].provider_correlation_id == "call_done_first|fc_done_first"
     )
     assert result.tool_calls[0].arguments_json == '{"path": "x.py"}'
 
@@ -756,52 +757,68 @@ def test_openai_codex_replays_legacy_call_id_without_item_id(tmp_path: Path):
     }
 
 
-def test_openai_codex_places_deferred_tools_with_full_correlation_hash(tmp_path: Path) -> None:
+def test_openai_codex_places_deferred_tools_with_full_correlation_hash(
+    tmp_path: Path,
+) -> None:
     client = FakeSseHTTPClient(_completed_sse())
     provider = OpenAICodexResponsesProvider(
-        model_id="gpt-5.6-sol", auth_manager=auth_manager_with(credentials()),
-        http_client=client, supports_tool_search=True,
+        model_id="gpt-5.6-sol",
+        auth_manager=auth_manager_with(credentials()),
+        http_client=client,
+        supports_tool_search=True,
     )
-    provider.complete(ProviderRequest(
-        system_prompt="SYS", user_prompt="load", provider_name="openai-codex",
-        model_id="gpt-5.6-sol", cwd=tmp_path,
-        messages=(
-            AgentAssistantMessage(
-                content=ProductContent(""),
-                tool_calls=(
-                    AgentToolCall(
-                        "call_loader|fc_loader", "loader", ProductContent("{}")
+    provider.complete(
+        ProviderRequest(
+            system_prompt="SYS",
+            user_prompt="load",
+            provider_name="openai-codex",
+            model_id="gpt-5.6-sol",
+            cwd=tmp_path,
+            messages=(
+                AgentAssistantMessage(
+                    content=ProductContent(""),
+                    tool_calls=(
+                        AgentToolCall(
+                            "call_loader|fc_loader", "loader", ProductContent("{}")
+                        ),
                     ),
                 ),
+                AgentToolResultMessage(
+                    tool_request_id="pipy-tool-load",
+                    tool_name="loader",
+                    content=ProductContent("loaded"),
+                    provider_correlation_id="call_loader|fc_loader",
+                    added_tool_names=("late_tool", "later_tool"),
+                ),
             ),
-            AgentToolResultMessage(
-                tool_request_id="pipy-tool-load", tool_name="loader",
-                content=ProductContent("loaded"),
-                provider_correlation_id="call_loader|fc_loader",
-                added_tool_names=("late_tool", "later_tool"),
-            ),
-        ),
-        available_tools=(_tool("loader"), _tool("late_tool"), _tool("later_tool")),
-    ))
+            available_tools=(_tool("loader"), _tool("late_tool"), _tool("later_tool")),
+        )
+    )
 
     body = client.requests[0]["body"]
     assert [tool["name"] for tool in body["tools"]] == ["loader"]
     assert body["input"][-3:] == [
         {"type": "function_call_output", "call_id": "call_loader", "output": "loaded"},
         {
-            "type": "tool_search_call", "call_id": "pi_tool_load_igackd1nf7qef",
-            "execution": "client", "status": "completed",
+            "type": "tool_search_call",
+            "call_id": "pi_tool_load_igackd1nf7qef",
+            "execution": "client",
+            "status": "completed",
             "arguments": {"query": "late_tool later_tool", "limit": 2},
         },
         {
-            "type": "tool_search_output", "call_id": "pi_tool_load_igackd1nf7qef",
-            "execution": "client", "status": "completed",
+            "type": "tool_search_output",
+            "call_id": "pi_tool_load_igackd1nf7qef",
+            "execution": "client",
+            "status": "completed",
             "tools": [
                 {
-                    "type": "function", "name": name,
+                    "type": "function",
+                    "name": name,
                     "description": f"{name} description",
                     "parameters": {"type": "object", "properties": {}},
-                    "strict": False, "defer_loading": True,
+                    "strict": False,
+                    "defer_loading": True,
                 }
                 for name in ("late_tool", "later_tool")
             ],
@@ -812,19 +829,28 @@ def test_openai_codex_places_deferred_tools_with_full_correlation_hash(tmp_path:
 def test_openai_codex_tool_search_defaults_off(tmp_path: Path) -> None:
     client = FakeSseHTTPClient(_completed_sse())
     OpenAICodexResponsesProvider(
-        model_id="gpt-test", auth_manager=auth_manager_with(credentials()),
+        model_id="gpt-test",
+        auth_manager=auth_manager_with(credentials()),
         http_client=client,
-    ).complete(ProviderRequest(
-        system_prompt="SYS", user_prompt="load", provider_name="openai-codex",
-        model_id="gpt-test", cwd=tmp_path,
-        messages=(AgentToolResultMessage(
-            tool_request_id="pipy-tool-load", tool_name="loader",
-            content=ProductContent("loaded"),
-            provider_correlation_id="call_loader|fc_loader",
-            added_tool_names=("late_tool",),
-        ),),
-        available_tools=(_tool("late_tool"),),
-    ))
+    ).complete(
+        ProviderRequest(
+            system_prompt="SYS",
+            user_prompt="load",
+            provider_name="openai-codex",
+            model_id="gpt-test",
+            cwd=tmp_path,
+            messages=(
+                AgentToolResultMessage(
+                    tool_request_id="pipy-tool-load",
+                    tool_name="loader",
+                    content=ProductContent("loaded"),
+                    provider_correlation_id="call_loader|fc_loader",
+                    added_tool_names=("late_tool",),
+                ),
+            ),
+            available_tools=(_tool("late_tool"),),
+        )
+    )
 
     body = client.requests[0]["body"]
     assert [tool["name"] for tool in body["tools"]] == ["late_tool"]

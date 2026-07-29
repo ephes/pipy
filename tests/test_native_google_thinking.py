@@ -235,7 +235,9 @@ def test_thinking_budget_tables():
 
 
 def test_disabled_config_per_family():
-    assert _disabled_thinking_config("gemini-3.1-pro-preview") == {"thinkingLevel": "LOW"}
+    assert _disabled_thinking_config("gemini-3.1-pro-preview") == {
+        "thinkingLevel": "LOW"
+    }
     assert _disabled_thinking_config("gemini-3-flash") == {"thinkingLevel": "MINIMAL"}
     assert _disabled_thinking_config("gemma-4-it") == {"thinkingLevel": "MINIMAL"}
     assert _disabled_thinking_config("gemini-2.5-pro") == {"thinkingBudget": 0}

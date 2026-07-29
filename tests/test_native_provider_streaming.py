@@ -55,7 +55,9 @@ def test_stream_chunk_sink_alias_is_a_callable_protocol() -> None:
     sample("hello")
 
 
-def test_fake_provider_complete_without_sink_keeps_existing_behavior(tmp_path: Path) -> None:
+def test_fake_provider_complete_without_sink_keeps_existing_behavior(
+    tmp_path: Path,
+) -> None:
     captured: list[str] = []
     provider = FakeNativeProvider(programmable_text_chunks=("a", "b", "c"))
     request = _request_for(provider, tmp_path)
@@ -67,7 +69,9 @@ def test_fake_provider_complete_without_sink_keeps_existing_behavior(tmp_path: P
     assert result.final_text == "pipy native fake provider completed."
 
 
-def test_fake_provider_complete_with_sink_and_chunks_streams_in_order(tmp_path: Path) -> None:
+def test_fake_provider_complete_with_sink_and_chunks_streams_in_order(
+    tmp_path: Path,
+) -> None:
     captured: list[str] = []
     provider = FakeNativeProvider(programmable_text_chunks=("hel", "lo ", "world"))
     request = _request_for(provider, tmp_path)
@@ -79,7 +83,9 @@ def test_fake_provider_complete_with_sink_and_chunks_streams_in_order(tmp_path: 
     assert result.status == HarnessStatus.SUCCEEDED
 
 
-def test_fake_provider_complete_with_sink_no_chunks_leaves_sink_untouched(tmp_path: Path) -> None:
+def test_fake_provider_complete_with_sink_no_chunks_leaves_sink_untouched(
+    tmp_path: Path,
+) -> None:
     captured: list[str] = []
     provider = FakeNativeProvider()
     request = _request_for(provider, tmp_path)
@@ -90,9 +96,13 @@ def test_fake_provider_complete_with_sink_no_chunks_leaves_sink_untouched(tmp_pa
     assert result.final_text == "pipy native fake provider completed."
 
 
-def test_fake_provider_streamed_final_text_equals_join_of_chunks(tmp_path: Path) -> None:
+def test_fake_provider_streamed_final_text_equals_join_of_chunks(
+    tmp_path: Path,
+) -> None:
     captured: list[str] = []
-    provider = FakeNativeProvider(programmable_text_chunks=("first ", "second ", "third"))
+    provider = FakeNativeProvider(
+        programmable_text_chunks=("first ", "second ", "third")
+    )
     request = _request_for(provider, tmp_path)
 
     result = provider.complete(request, stream_sink=captured.append)

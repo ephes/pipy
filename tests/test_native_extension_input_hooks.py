@@ -107,7 +107,10 @@ def test_input_hook_observe_only_leaves_text(tmp_path: Path) -> None:
     )
     hooks = extension_event_hooks(_activate(workspace), "input")
 
-    assert dispatch_input_hooks(hooks, "hello", cwd=str(workspace), has_ui=False) == "hello"
+    assert (
+        dispatch_input_hooks(hooks, "hello", cwd=str(workspace), has_ui=False)
+        == "hello"
+    )
 
 
 def test_input_hooks_chain(tmp_path: Path) -> None:
@@ -150,7 +153,9 @@ def test_input_hook_non_string_transform_is_ignored(tmp_path: Path) -> None:
     )
     hooks = extension_event_hooks(_activate(workspace), "input")
 
-    assert dispatch_input_hooks(hooks, "keep", cwd=str(workspace), has_ui=False) == "keep"
+    assert (
+        dispatch_input_hooks(hooks, "keep", cwd=str(workspace), has_ui=False) == "keep"
+    )
 
 
 def test_before_agent_start_hooks_see_accumulated_prompt(tmp_path: Path) -> None:
@@ -197,7 +202,9 @@ def test_crashing_input_hook_leaves_text(tmp_path: Path) -> None:
     )
     hooks = extension_event_hooks(_activate(workspace), "input")
 
-    assert dispatch_input_hooks(hooks, "keep", cwd=str(workspace), has_ui=False) == "keep"
+    assert (
+        dispatch_input_hooks(hooks, "keep", cwd=str(workspace), has_ui=False) == "keep"
+    )
 
 
 def test_before_agent_start_appends_system_prompt(tmp_path: Path) -> None:
@@ -272,9 +279,7 @@ def test_send_user_message_enqueues(tmp_path: Path) -> None:
     outbox: list = []
     activated = _activate(workspace, outbox)
     # Invoke the command handler (as the dispatcher would).
-    handler = next(
-        c.handler for a in activated for c in a.commands if c.name == "go"
-    )
+    handler = next(c.handler for a in activated for c in a.commands if c.name == "go")
     handler(object(), "")
 
     queued = drain_user_messages(outbox)

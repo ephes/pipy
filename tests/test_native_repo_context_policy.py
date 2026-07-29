@@ -25,11 +25,16 @@ def markdown_section(text: str, heading: str) -> str:
 
 def test_native_provider_visible_repo_context_policy_is_documented():
     spec = read_repo_file("docs/harness-spec.md")
-    policy_section = markdown_section(spec, "Native Provider-Visible Repo Context Policy")
+    policy_section = markdown_section(
+        spec, "Native Provider-Visible Repo Context Policy"
+    )
     compact_policy = collapse_whitespace(policy_section)
 
     assert "### Native Provider-Visible Repo Context Policy" in compact_policy
-    assert "Provider-visible repo context is provider input, not archive content." in compact_policy
+    assert (
+        "Provider-visible repo context is provider input, not archive content."
+        in compact_policy
+    )
     assert "exactly one follow-up provider turn" in compact_policy
     assert "bounded explicit file excerpts" in compact_policy
     assert "bounded search-result excerpts" in compact_policy
@@ -62,18 +67,27 @@ def test_native_provider_visible_repo_context_policy_is_documented():
 
     assert "per excerpt: 4 KiB and 80 lines" in compact_policy
     assert "per source file per provider turn: 8 KiB and 160 lines" in compact_policy
-    assert "total provider-visible repo context per provider turn: 24 KiB and 480 lines" in compact_policy
+    assert (
+        "total provider-visible repo context per provider turn: 24 KiB and 480 lines"
+        in compact_policy
+    )
     assert "maximum excerpts per provider turn: 12" in compact_policy
     assert "maximum distinct source files per provider turn: 6" in compact_policy
     assert "normalized relative workspace path" in compact_policy
     assert "source label plus a stable path hash or omit the path" in compact_policy
     assert "must fail closed" in compact_policy
-    assert "Unsafe data must be dropped or skipped in memory before provider-visible context" in compact_policy
+    assert (
+        "Unsafe data must be dropped or skipped in memory before provider-visible context"
+        in compact_policy
+    )
     assert "JSONL, Markdown, and the metadata archive may record only" in compact_policy
     assert "`tool_request_id`" in compact_policy
     assert "`turn_index`" in compact_policy
     assert "`native.tool.observation.recorded`" in compact_policy
-    assert "No-fixture fake/OpenAI/OpenRouter runs still perform no repo reads" in compact_policy
+    assert (
+        "No-fixture fake/OpenAI/OpenRouter runs still perform no repo reads"
+        in compact_policy
+    )
 
 
 def test_session_storage_matches_repo_context_archive_boundary():
@@ -91,8 +105,14 @@ def test_session_storage_matches_repo_context_archive_boundary():
     assert "dropped or skipped before provider visibility" in compact_storage
     assert "metadata-only context fields" in compact_storage
     assert "raw excerpt text" in compact_storage
-    assert "The direct native explicit file excerpt tool keeps successful excerpt text in memory only" in compact_storage
-    assert "runtime may forward that text only to the one bounded follow-up provider turn" in compact_storage
+    assert (
+        "The direct native explicit file excerpt tool keeps successful excerpt text in memory only"
+        in compact_storage
+    )
+    assert (
+        "runtime may forward that text only to the one bounded follow-up provider turn"
+        in compact_storage
+    )
 
 
 def test_backlog_records_repo_context_policy_as_done():

@@ -144,8 +144,14 @@ def test_read_only_tool_request_requires_current_pipy_owned_identity():
     [
         ("per_excerpt_bytes", NativeReadOnlyToolLimits.MAX_PER_EXCERPT_BYTES + 1),
         ("per_excerpt_lines", NativeReadOnlyToolLimits.MAX_PER_EXCERPT_LINES + 1),
-        ("per_source_file_bytes", NativeReadOnlyToolLimits.MAX_PER_SOURCE_FILE_BYTES + 1),
-        ("per_source_file_lines", NativeReadOnlyToolLimits.MAX_PER_SOURCE_FILE_LINES + 1),
+        (
+            "per_source_file_bytes",
+            NativeReadOnlyToolLimits.MAX_PER_SOURCE_FILE_BYTES + 1,
+        ),
+        (
+            "per_source_file_lines",
+            NativeReadOnlyToolLimits.MAX_PER_SOURCE_FILE_LINES + 1,
+        ),
         ("total_context_bytes", NativeReadOnlyToolLimits.MAX_TOTAL_CONTEXT_BYTES + 1),
         ("total_context_lines", NativeReadOnlyToolLimits.MAX_TOTAL_CONTEXT_LINES + 1),
         ("max_excerpts", NativeReadOnlyToolLimits.MAX_EXCERPTS + 1),
@@ -165,7 +171,9 @@ def test_read_only_tool_limits_cannot_exceed_policy_bounds(field_name: str, valu
     "bad_sandbox",
     [
         NativeToolSandboxPolicy(mode=NativeToolSandboxMode.NO_WORKSPACE_ACCESS),
-        NativeToolSandboxPolicy(mode=NativeToolSandboxMode.MUTATING_WORKSPACE, workspace_read_allowed=True),
+        NativeToolSandboxPolicy(
+            mode=NativeToolSandboxMode.MUTATING_WORKSPACE, workspace_read_allowed=True
+        ),
         NativeToolSandboxPolicy(mode=NativeToolSandboxMode.READ_ONLY_WORKSPACE),
         NativeToolSandboxPolicy(
             mode=NativeToolSandboxMode.READ_ONLY_WORKSPACE,
@@ -193,13 +201,17 @@ def test_read_only_tool_request_rejects_non_read_only_capabilities(
 
 def test_read_only_tool_request_allows_explicit_no_approval_policy():
     request = current_read_only_request(
-        approval_policy=NativeToolApprovalPolicy(mode=NativeToolApprovalMode.NOT_REQUIRED)
+        approval_policy=NativeToolApprovalPolicy(
+            mode=NativeToolApprovalMode.NOT_REQUIRED
+        )
     )
 
     assert request.approval_policy.label == "not-required"
 
 
-@pytest.mark.parametrize("scope_label", ["src/pipy_harness/native/models.py", "../models.py", "~/.ssh"])
+@pytest.mark.parametrize(
+    "scope_label", ["src/pipy_harness/native/models.py", "../models.py", "~/.ssh"]
+)
 def test_read_only_tool_request_scope_label_is_not_path_authority(scope_label: str):
     with pytest.raises(ValueError, match="scope_label"):
         current_read_only_request(scope_label=scope_label)
@@ -212,13 +224,15 @@ def test_generated_target_wins_before_missing_file_shape(tmp_path: Path):
         NativeExplicitFileExcerptTarget("__pycache__/missing.py"),
     )
 
-    assert result.reason_label == NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE
+    assert (
+        result.reason_label == NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE
+    )
 
 
 def test_read_only_tool_request_contract_is_threaded_only_through_fixture_gated_session_path():
-    session_source = (Path(__file__).parents[1] / "src/pipy_harness/native/session.py").read_text(
-        encoding="utf-8"
-    )
+    session_source = (
+        Path(__file__).parents[1] / "src/pipy_harness/native/session.py"
+    ).read_text(encoding="utf-8")
 
     assert "NativeReadOnlyToolRequest" in session_source
     assert "PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY" in session_source

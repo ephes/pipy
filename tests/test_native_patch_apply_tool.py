@@ -50,7 +50,9 @@ def current_request(
 
 
 def allowed_gate() -> NativePatchApplyGateDecision:
-    return NativePatchApplyGateDecision(approval_decision=NativePatchApplyApprovalDecision.ALLOWED)
+    return NativePatchApplyGateDecision(
+        approval_decision=NativePatchApplyApprovalDecision.ALLOWED
+    )
 
 
 def sha256_text(value: str) -> str:
@@ -147,7 +149,9 @@ def test_patch_apply_requires_human_reviewed_gate_and_expected_hash(tmp_path: Pa
                 new_text="old = 2\n",
             )
         ),
-        NativePatchApplyGateDecision(approval_decision=NativePatchApplyApprovalDecision.DENIED),
+        NativePatchApplyGateDecision(
+            approval_decision=NativePatchApplyApprovalDecision.DENIED
+        ),
     )
     missing_hash = NativePatchApplyTool(tmp_path).invoke(
         current_request(
@@ -195,7 +199,9 @@ def test_patch_apply_request_rejects_unsafe_policy():
                 workspace_relative_path="example.py",
                 new_text="value = 1\n",
             ),
-            approval_policy=NativeToolApprovalPolicy(mode=NativeToolApprovalMode.NOT_REQUIRED),
+            approval_policy=NativeToolApprovalPolicy(
+                mode=NativeToolApprovalMode.NOT_REQUIRED
+            ),
         )
     with pytest.raises(ValueError, match="mutating-workspace"):
         current_request(
@@ -204,7 +210,9 @@ def test_patch_apply_request_rejects_unsafe_policy():
                 workspace_relative_path="example.py",
                 new_text="value = 1\n",
             ),
-            sandbox_policy=NativeToolSandboxPolicy(mode=NativeToolSandboxMode.READ_ONLY_WORKSPACE),
+            sandbox_policy=NativeToolSandboxPolicy(
+                mode=NativeToolSandboxMode.READ_ONLY_WORKSPACE
+            ),
         )
 
 
@@ -343,11 +351,17 @@ def test_patch_apply_creates_deletes_and_renames_files(tmp_path: Path):
     )
 
     assert result.status == NativeToolStatus.SUCCEEDED
-    assert (tmp_path / "src" / "new.py").read_text(encoding="utf-8") == "created = True\n"
+    assert (tmp_path / "src" / "new.py").read_text(
+        encoding="utf-8"
+    ) == "created = True\n"
     assert not delete_target.exists()
     assert not rename_target.exists()
     assert (tmp_path / "renamed.py").read_text(encoding="utf-8") == "keep_me = True\n"
-    assert result.archive_metadata()["operation_labels"] == ["create", "delete", "rename"]
+    assert result.archive_metadata()["operation_labels"] == [
+        "create",
+        "delete",
+        "rename",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -384,7 +398,9 @@ def test_patch_apply_rejects_unsafe_create_targets_and_content(
     operation: NativePatchApplyOperationRequest,
     reason: NativePatchApplyReason,
 ):
-    result = NativePatchApplyTool(tmp_path).invoke(current_request(operation), allowed_gate())
+    result = NativePatchApplyTool(tmp_path).invoke(
+        current_request(operation), allowed_gate()
+    )
 
     assert result.status == NativeToolStatus.SKIPPED
     assert result.reason_label == reason
@@ -462,7 +478,9 @@ def test_patch_apply_records_partial_mutation_when_write_fails_mid_apply(
             return None
         raise OSError("simulated write failure")
 
-    monkeypatch.setattr("pipy_harness.native.patch_apply._apply_planned_operation", apply_then_fail)
+    monkeypatch.setattr(
+        "pipy_harness.native.patch_apply._apply_planned_operation", apply_then_fail
+    )
 
     result = NativePatchApplyTool(tmp_path).invoke(
         current_request(

@@ -198,9 +198,7 @@ def test_resume_malformed_first_event_raises_value_error(tmp_path: Path) -> None
     # by writing the file directly into the finalized archive layout.
     archive_dir = tmp_path / "pipy" / "2026" / "04"
     archive_dir.mkdir(parents=True)
-    record_path = (
-        archive_dir / "2026-04-30T133000Z-studio-codex-malformed-first.jsonl"
-    )
+    record_path = archive_dir / "2026-04-30T133000Z-studio-codex-malformed-first.jsonl"
     with record_path.open("w", encoding="utf-8") as handle:
         handle.write(json.dumps({"type": "not.session.started"}, sort_keys=True))
         handle.write("\n")
@@ -360,9 +358,7 @@ def test_resume_info_cli_emits_json_to_stdout(tmp_path: Path, capsys) -> None:
         ],
     )
 
-    exit_code = main(
-        ["--root", str(tmp_path), "resume-info", record_path.stem]
-    )
+    exit_code = main(["--root", str(tmp_path), "resume-info", record_path.stem])
     captured = capsys.readouterr()
 
     assert exit_code == 0

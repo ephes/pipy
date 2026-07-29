@@ -58,9 +58,7 @@ def test_edit_diff_definition_requires_path_and_unified_diff():
 
 def test_applies_simple_single_hunk_diff(tmp_path: Path):
     target = tmp_path / "config.py"
-    target.write_text(
-        "alpha\nbeta\ngamma\ndelta\n", encoding="utf-8"
-    )
+    target.write_text("alpha\nbeta\ngamma\ndelta\n", encoding="utf-8")
     diff = (
         "--- a/config.py\n"
         "+++ b/config.py\n"
@@ -78,9 +76,7 @@ def test_applies_simple_single_hunk_diff(tmp_path: Path):
     result = tool.invoke(request, context)
 
     assert result.is_error is False
-    assert target.read_text(encoding="utf-8") == (
-        "alpha\nBETA\ngamma\ndelta\n"
-    )
+    assert target.read_text(encoding="utf-8") == ("alpha\nBETA\ngamma\ndelta\n")
     assert "applied 1 hunk(s)" in result.output_text
     assert "(1+ / 1-)" in result.output_text
     assert "config.py" in result.output_text
@@ -123,13 +119,7 @@ def test_applies_multi_hunk_diff(tmp_path: Path):
 def test_refuses_path_under_dot_git(tmp_path: Path):
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "config").write_text("x\n", encoding="utf-8")
-    diff = (
-        "--- a/.git/config\n"
-        "+++ b/.git/config\n"
-        "@@ -1,1 +1,1 @@\n"
-        "-x\n"
-        "+y\n"
-    )
+    diff = "--- a/.git/config\n+++ b/.git/config\n@@ -1,1 +1,1 @@\n-x\n+y\n"
     tool = EditDiffTool()
     context = ToolContext(workspace_root=tmp_path)
     request = _make_request({"path": ".git/config", "unified_diff": diff})
@@ -142,13 +132,7 @@ def test_refuses_path_under_dot_git(tmp_path: Path):
 
 
 def test_refuses_absolute_path(tmp_path: Path):
-    diff = (
-        "--- a//etc/passwd\n"
-        "+++ b//etc/passwd\n"
-        "@@ -1,1 +1,1 @@\n"
-        "-x\n"
-        "+y\n"
-    )
+    diff = "--- a//etc/passwd\n+++ b//etc/passwd\n@@ -1,1 +1,1 @@\n-x\n+y\n"
     tool = EditDiffTool()
     context = ToolContext(workspace_root=tmp_path)
     request = _make_request({"path": "/etc/passwd", "unified_diff": diff})
@@ -158,13 +142,7 @@ def test_refuses_absolute_path(tmp_path: Path):
 
 
 def test_refuses_missing_file(tmp_path: Path):
-    diff = (
-        "--- a/missing.py\n"
-        "+++ b/missing.py\n"
-        "@@ -1,1 +1,1 @@\n"
-        "-x\n"
-        "+y\n"
-    )
+    diff = "--- a/missing.py\n+++ b/missing.py\n@@ -1,1 +1,1 @@\n-x\n+y\n"
     tool = EditDiffTool()
     context = ToolContext(workspace_root=tmp_path)
     request = _make_request({"path": "missing.py", "unified_diff": diff})
@@ -178,13 +156,7 @@ def test_refuses_missing_file(tmp_path: Path):
 def test_refuses_oversized_file_before_read(tmp_path: Path):
     target = tmp_path / "large.py"
     target.write_bytes(b"x" * 65)
-    diff = (
-        "--- a/large.py\n"
-        "+++ b/large.py\n"
-        "@@ -1,1 +1,1 @@\n"
-        "-x\n"
-        "+y\n"
-    )
+    diff = "--- a/large.py\n+++ b/large.py\n@@ -1,1 +1,1 @@\n-x\n+y\n"
     tool = EditDiffTool(max_content_bytes=64)
     context = ToolContext(workspace_root=tmp_path)
     request = _make_request({"path": "large.py", "unified_diff": diff})
@@ -223,12 +195,7 @@ def test_refuses_context_mismatch(tmp_path: Path):
 def test_refuses_malformed_diff_missing_plus_header(tmp_path: Path):
     target = tmp_path / "f.py"
     target.write_text("x\n", encoding="utf-8")
-    diff = (
-        "--- a/f.py\n"
-        "@@ -1,1 +1,1 @@\n"
-        "-x\n"
-        "+y\n"
-    )
+    diff = "--- a/f.py\n@@ -1,1 +1,1 @@\n-x\n+y\n"
     tool = EditDiffTool()
     context = ToolContext(workspace_root=tmp_path)
     request = _make_request({"path": "f.py", "unified_diff": diff})
@@ -243,13 +210,7 @@ def test_refuses_malformed_diff_missing_plus_header(tmp_path: Path):
 def test_refuses_malformed_diff_invalid_hunk_header(tmp_path: Path):
     target = tmp_path / "f.py"
     target.write_text("x\n", encoding="utf-8")
-    diff = (
-        "--- a/f.py\n"
-        "+++ b/f.py\n"
-        "@@ not-a-valid-header @@\n"
-        "-x\n"
-        "+y\n"
-    )
+    diff = "--- a/f.py\n+++ b/f.py\n@@ not-a-valid-header @@\n-x\n+y\n"
     tool = EditDiffTool()
     context = ToolContext(workspace_root=tmp_path)
     request = _make_request({"path": "f.py", "unified_diff": diff})
@@ -264,14 +225,7 @@ def test_refuses_malformed_diff_invalid_hunk_header(tmp_path: Path):
 def test_writes_unified_diff_to_stderr_sink(tmp_path: Path):
     target = tmp_path / "stream.py"
     target.write_text("hello\nworld\n", encoding="utf-8")
-    diff = (
-        "--- a/stream.py\n"
-        "+++ b/stream.py\n"
-        "@@ -1,2 +1,2 @@\n"
-        " hello\n"
-        "-world\n"
-        "+WORLD\n"
-    )
+    diff = "--- a/stream.py\n+++ b/stream.py\n@@ -1,2 +1,2 @@\n hello\n-world\n+WORLD\n"
     buffer = io.StringIO()
     tool = EditDiffTool()
     context = ToolContext(
@@ -349,8 +303,7 @@ def test_atomic_failure_does_not_partially_write(tmp_path: Path):
 
 def test_edit_diff_tool_source_does_not_import_recorder():
     source = (
-        Path(__file__).parents[1]
-        / "src/pipy_harness/native/tools/edit_diff.py"
+        Path(__file__).parents[1] / "src/pipy_harness/native/tools/edit_diff.py"
     ).read_text(encoding="utf-8")
 
     assert "import pipy_session" not in source

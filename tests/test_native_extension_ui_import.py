@@ -242,9 +242,7 @@ def test_public_extension_api_inventory_and_owner_identity() -> None:
     assert tuple(public_extensions.__all__) == _PUBLIC_EXTENSION_NAMES
     assert len(_PUBLIC_EXTENSION_NAMES) == 97
 
-    owned_names = tuple(
-        name for _owner, names in _OWNER_GROUPS for name in names
-    )
+    owned_names = tuple(name for _owner, names in _OWNER_GROUPS for name in names)
     assert len(owned_names) == len(set(owned_names)) == 97
     assert set(owned_names) == set(_PUBLIC_EXTENSION_NAMES)
     for owner, names in _OWNER_GROUPS:
@@ -256,9 +254,7 @@ def test_public_extension_api_imports_every_name_from_its_owner() -> None:
     expected_owners = {
         name: owner.__name__ for owner, names in _OWNER_GROUPS for name in names
     }
-    facade_path = (
-        Path(__file__).parents[1] / "src" / "pipy_harness" / "extensions.py"
-    )
+    facade_path = Path(__file__).parents[1] / "src" / "pipy_harness" / "extensions.py"
     tree = ast.parse(facade_path.read_text(encoding="utf-8"))
     direct_imports = [
         (alias.asname or alias.name, node.module)

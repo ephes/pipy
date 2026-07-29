@@ -63,9 +63,7 @@ def test_resolve_reference_roots_skips_missing_paths(tmp_path: Path):
     real = tmp_path / "real"
     real.mkdir()
 
-    resolved = _resolve_reference_roots(
-        [str(missing), str(real)], cwd=workspace
-    )
+    resolved = _resolve_reference_roots([str(missing), str(real)], cwd=workspace)
 
     assert resolved == (real.resolve(),)
 
@@ -76,9 +74,7 @@ def test_resolve_reference_roots_deduplicates(tmp_path: Path):
     ref = tmp_path / "ref"
     ref.mkdir()
 
-    resolved = _resolve_reference_roots(
-        [str(ref), str(ref)], cwd=workspace
-    )
+    resolved = _resolve_reference_roots([str(ref), str(ref)], cwd=workspace)
 
     assert resolved == (ref.resolve(),)
 

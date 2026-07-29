@@ -37,7 +37,12 @@ def test_command_context_send_message_aliases_append_through_bound_writer(tmp_pa
 
     def handler(ctx, args):
         assert ctx.send_message({"customType": "note", "content": args}) == "e1"
-        assert ctx.sendMessage({"customType": "note", "content": "hidden", "display": False}) == "e2"
+        assert (
+            ctx.sendMessage(
+                {"customType": "note", "content": "hidden", "display": False}
+            )
+            == "e2"
+        )
 
     result = dispatch_extension_command(
         "/emit hello",
@@ -45,10 +50,10 @@ def test_command_context_send_message_aliases_append_through_bound_writer(tmp_pa
         cwd=str(tmp_path),
         has_ui=False,
         coding_session=ExtensionCodingSessionControl(
-            send_message_fn=lambda custom_type, content, display, options, details: calls.append(
-                (custom_type, content, display, dict(options), details)
-            )
-            or f"e{len(calls)}",
+            send_message_fn=lambda custom_type, content, display, options, details: (
+                calls.append((custom_type, content, display, dict(options), details))
+                or f"e{len(calls)}"
+            ),
         ),
     )
 
@@ -97,13 +102,51 @@ def test_activation_api_stages_custom_messages_only_on_success(tmp_path):
 
     activated = activate_extensions(
         [
-            ExtensionDescriptor("good", "", "0.1", "", "workspace", "single_file", "good.py", "good", "activate", "good.py", {}, False, "loadable", None, "", 0, entry_path=str(good)),
-            ExtensionDescriptor("bad", "", "0.1", "", "workspace", "single_file", "bad.py", "bad", "activate", "bad.py", {}, False, "loadable", None, "", 0, entry_path=str(bad)),
+            ExtensionDescriptor(
+                "good",
+                "",
+                "0.1",
+                "",
+                "workspace",
+                "single_file",
+                "good.py",
+                "good",
+                "activate",
+                "good.py",
+                {},
+                False,
+                "loadable",
+                None,
+                "",
+                0,
+                entry_path=str(good),
+            ),
+            ExtensionDescriptor(
+                "bad",
+                "",
+                "0.1",
+                "",
+                "workspace",
+                "single_file",
+                "bad.py",
+                "bad",
+                "activate",
+                "bad.py",
+                {},
+                False,
+                "loadable",
+                None,
+                "",
+                0,
+                entry_path=str(bad),
+            ),
         ]
     )
 
     assert activated[0].status == "activated"
-    assert [(m.custom_type, m.content, m.display) for m in activated[0].custom_messages] == [
+    assert [
+        (m.custom_type, m.content, m.display) for m in activated[0].custom_messages
+    ] == [
         ("note", "boot", True),
         ("note", "hidden", False),
     ]

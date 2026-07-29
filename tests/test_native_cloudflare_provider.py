@@ -150,7 +150,7 @@ def test_success_returns_tool_calls(tmp_path):
                                     "type": "function",
                                     "function": {
                                         "name": "read_file",
-                                        "arguments": "{\"path\":\"README.md\"}",
+                                        "arguments": '{"path":"README.md"}',
                                     },
                                 }
                             ],

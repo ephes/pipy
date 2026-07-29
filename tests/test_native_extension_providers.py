@@ -128,7 +128,9 @@ def test_register_provider_is_collected(tmp_path: Path) -> None:
     assert providers[0].provider.models == ("myprov/big", "myprov/small")
 
 
-def test_extension_oauth_provider_login_and_logout_wires_auth_store(tmp_path: Path) -> None:
+def test_extension_oauth_provider_login_and_logout_wires_auth_store(
+    tmp_path: Path,
+) -> None:
     workspace = _make_workspace(tmp_path)
     _write(
         workspace,
@@ -151,7 +153,9 @@ def test_extension_oauth_provider_login_and_logout_wires_auth_store(tmp_path: Pa
     assert sorted(oauth_map) == ["corp-ai"]
 
     store = AuthStore(tmp_path / "auth.json")
-    state = ProviderCatalogState(models_json_path=tmp_path / "absent.json", auth_store=store)
+    state = ProviderCatalogState(
+        models_json_path=tmp_path / "absent.json", auth_store=store
+    )
     state.set_extension_provider_contributions(extension_providers(activated), ())
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
@@ -165,12 +169,18 @@ def test_extension_oauth_provider_login_and_logout_wires_auth_store(tmp_path: Pa
     import io
 
     out = io.StringIO()
-    ok, message = repl_state.login("corp-ai", input_stream=io.StringIO("acme\n1\n"), output_stream=out)
+    ok, message = repl_state.login(
+        "corp-ai", input_stream=io.StringIO("acme\n1\n"), output_stream=out
+    )
 
     assert ok, message
     assert message == "pipy: corp-ai OAuth login stored."
     assert "https://login.example.test" in out.getvalue()
-    assert store.get("corp-ai") == {"type": "oauth", "access": "tok-acme", "choice": "one"}
+    assert store.get("corp-ai") == {
+        "type": "oauth",
+        "access": "tok-acme",
+        "choice": "one",
+    }
     assert state.provider_available("corp-ai") is True
 
     ok, message = repl_state.logout("corp-ai")
@@ -322,7 +332,9 @@ def test_extension_provider_appears_in_catalog_options_and_list_output(
     refs = [option.selection.reference for option in repl_state.model_options()]
     assert "extprov/big" in refs
     assert "extprov/small" in refs
-    output = format_list_models(state.get_available(), search="extprov", load_error=None)
+    output = format_list_models(
+        state.get_available(), search="extprov", load_error=None
+    )
     assert "extprov" in output
     assert "big" in output
     assert str(workspace) not in output
@@ -334,7 +346,9 @@ def test_selecting_extension_provider_constructs_selected_provider_port(
     workspace = _make_workspace(tmp_path)
     _write(workspace, "selectable", _SELECTABLE_PROVIDER)
     state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
-    state.set_extension_provider_contributions(extension_providers(_activate(workspace)), ())
+    state.set_extension_provider_contributions(
+        extension_providers(_activate(workspace)), ()
+    )
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("fake", "fake-native-bootstrap"),
         model_runtime=ModelRuntime(catalog=state),
@@ -366,7 +380,9 @@ def test_startup_selection_resolves_extension_provider_default(
     workspace = _make_workspace(tmp_path)
     _write(workspace, "selectable", _SELECTABLE_PROVIDER)
     state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
-    state.set_extension_provider_contributions(extension_providers(_activate(workspace)), ())
+    state.set_extension_provider_contributions(
+        extension_providers(_activate(workspace)), ()
+    )
 
     selection = default_selection_for(
         native_provider="extprov", native_model=None, rows=state.get_all()
@@ -486,14 +502,18 @@ def test_failing_extension_provider_factory_fails_closed_from_catalog(
         "        default_model='m', models=('m',), factory=_boom))\n",
     )
     state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
-    state.set_extension_provider_contributions(extension_providers(_activate(workspace)), ())
+    state.set_extension_provider_contributions(
+        extension_providers(_activate(workspace)), ()
+    )
     repl_state = NativeReplProviderState(
         selection=NativeModelSelection("crashy", "m"),
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
 
-    assert [o.selection.reference for o in repl_state.model_options()].count("crashy/m") == 1
+    assert [o.selection.reference for o in repl_state.model_options()].count(
+        "crashy/m"
+    ) == 1
     port = repl_state.current_provider()
     assert port.name == "crashy"
     assert port.supports_tool_calls is False
@@ -535,6 +555,7 @@ def test_unregister_provider_hides_extension_overlay_without_corrupting_builtin(
 
     assert state.find("openai", "ext") is None
     assert state.find("openai", "gpt-5.5") is not None
+
 
 _OAUTH_PROVIDER = (
     "from pipy_harness.extensions import ExtensionOAuthConfig, ExtensionProvider\n"

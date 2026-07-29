@@ -74,7 +74,9 @@ def test_cloudflare_availability_depends_only_on_api_key():
 
 
 def test_bedrock_ambient_credentials_count_as_available():
-    assert env_api_key("amazon-bedrock", {"AWS_PROFILE": "default"}) == "<authenticated>"
+    assert (
+        env_api_key("amazon-bedrock", {"AWS_PROFILE": "default"}) == "<authenticated>"
+    )
     assert (
         env_api_key(
             "amazon-bedrock",

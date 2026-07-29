@@ -106,7 +106,9 @@ def _wait_for(collected: list[bytes], needle: str, *, timeout: float = 8.0) -> b
     # mean prompt readiness rather than paint completion. The two phases share
     # one monotonic deadline in the synchronization owner.
     if needle == "escape interrupt" or needle.endswith("_DONE"):
-        return wait_for_input_ready_after(collected, needle, timeout=timeout) is not None
+        return (
+            wait_for_input_ready_after(collected, needle, timeout=timeout) is not None
+        )
     return wait_for_output(collected, needle, timeout=timeout) is not None
 
 
@@ -387,9 +389,7 @@ class _FixedProviderReplState(NativeReplProviderState):
 class _RecordingProviderReplState(NativeReplProviderState):
     """State whose provider build is a recording double (runtime-owned otherwise)."""
 
-    def __init__(
-        self, seen: list[tuple[str, str]], **kwargs: object
-    ) -> None:
+    def __init__(self, seen: list[tuple[str, str]], **kwargs: object) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self._seen_ref = seen
 
@@ -493,9 +493,9 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
             is not None
         ), "selector input never became ready"
         # The selector lists availability state and reasons.
-        assert wait_for_output(
-            err_chunks, "[available]", after=selector_start
-        ) is not None, "availability state missing"
+        assert (
+            wait_for_output(err_chunks, "[available]", after=selector_start) is not None
+        ), "availability state missing"
         # Opening the selector runs no provider turn.
         assert seen == [], "selector opened a provider turn"
         # Navigate up one row from the current openrouter/openai/gpt-5.1-codex
@@ -503,9 +503,10 @@ def test_pty_inline_tui_model_selector_selects_and_rebinds(
         # openai-completions rows), then choose the available row above it.
         navigation_start = len(output_bytes(err_chunks))
         os.write(in_master, b"\x1b[A")  # up arrow
-        assert wait_for_output(
-            err_chunks, "Select provider/model", after=navigation_start
-        ) is not None, "selector navigation did not repaint"
+        assert (
+            wait_for_output(err_chunks, "Select provider/model", after=navigation_start)
+            is not None
+        ), "selector navigation did not repaint"
         selection_start = len(output_bytes(err_chunks))
         os.write(in_master, b"\r")  # enter selects the highlighted available row
         assert (
@@ -1107,9 +1108,7 @@ def test_pty_login_then_logout_updates_availability_without_provider_turn(
         login_start = len(output_bytes(err_chunks))
         os.write(in_master, b"/login\n")
         assert (
-            wait_for_input_ready_after(
-                err_chunks, "login stored", after=login_start
-            )
+            wait_for_input_ready_after(err_chunks, "login stored", after=login_start)
             is not None
         ), "/login did not return to ready input"
         assert codex_available() is True, "login did not refresh availability"
@@ -1765,12 +1764,12 @@ def test_pty_settings_dialog_live_navigate_toggle_clear_and_resize(
         reopen_start = len(output_bytes(ctx.err_chunks))
         os.write(ctx.in_master, b"\x1b")
         assert (
-            wait_for_input_ready_after(
-                ctx.err_chunks, "Settings —", after=reopen_start
-            )
+            wait_for_input_ready_after(ctx.err_chunks, "Settings —", after=reopen_start)
             is not None
         ), "settings dialog input never became ready after selector cancel"
-        assert provider_state.current_selection().reference == "fake/fake-native-bootstrap"
+        assert (
+            provider_state.current_selection().reference == "fake/fake-native-bootstrap"
+        )
 
         # Navigate down across actionable rows (skipping headers/status) to the
         # persistent-history toggle, then toggle it OFF with Space.
@@ -1906,9 +1905,7 @@ def test_pty_settings_persistent_history_cross_session_recall(
         close_start = len(output_bytes(ctx1.err_chunks))
         os.write(ctx1.in_master, b"\x1b")  # esc closes the dialog
         assert (
-            wait_for_input_ready_after(
-                ctx1.err_chunks, "─" * 100, after=close_start
-            )
+            wait_for_input_ready_after(ctx1.err_chunks, "─" * 100, after=close_start)
             is not None
         ), "session1 input did not resume"
         # Submit a real prompt; it should be persisted.
@@ -1964,9 +1961,7 @@ def test_pty_settings_persistent_history_cross_session_recall(
         close_start = len(output_bytes(ctx2.err_chunks))
         os.write(ctx2.in_master, b"\x1b")  # esc closes the dialog
         assert (
-            wait_for_input_ready_after(
-                ctx2.err_chunks, "─" * 100, after=close_start
-            )
+            wait_for_input_ready_after(ctx2.err_chunks, "─" * 100, after=close_start)
             is not None
         ), "session2 input did not resume"
         os.write(ctx2.in_master, b"\x04")  # exit on empty prompt
@@ -2096,9 +2091,9 @@ def test_pty_tree_selector_rehydrates_user_message_into_editor(
         # Default highlight is the last active row (assistant); move up to the
         # 'beta' user message and select it.
         os.write(ctx.in_master, b"\x1b[A\r")  # up to beta, then select it
-        assert wait_for_input_ready_after(ctx.err_chunks, "rehydrating editor") is not None, (
-            "rehydrated editor input never became ready"
-        )
+        assert (
+            wait_for_input_ready_after(ctx.err_chunks, "rehydrating editor") is not None
+        ), "rehydrated editor input never became ready"
         # The editor is pre-filled with the selected text; submit it as-is to
         # branch from beta's parent.
         os.write(ctx.in_master, b"\r")
@@ -2179,9 +2174,9 @@ def test_pty_tree_selector_escape_label_and_filter(
             "filter cycle not reflected"
         )
         os.write(ctx.in_master, b"\x1b")  # Escape cancels
-        assert wait_for_input_ready_after(ctx.err_chunks, "/tree cancelled") is not None, (
-            "tree cancellation did not return to ready input"
-        )
+        assert (
+            wait_for_input_ready_after(ctx.err_chunks, "/tree cancelled") is not None
+        ), "tree cancellation did not return to ready input"
         os.write(ctx.in_master, b"\x04")
         ctx.worker.join(timeout=8.0)
     finally:
@@ -2279,9 +2274,9 @@ def test_pty_active_turn_interrupt_cancels_and_returns_to_prompt(
         os.write(in_master, key)
         # The abort notice is painted before the next outer raw transition;
         # observe both phases under one deadline.
-        assert wait_for_input_ready_after(err_chunks, "Operation aborted") is not None, (
-            f"{label}: post-abort input never became ready"
-        )
+        assert (
+            wait_for_input_ready_after(err_chunks, "Operation aborted") is not None
+        ), f"{label}: post-abort input never became ready"
         # The provider observed cancellation at its boundary, not a UI-only flag.
         assert _wait_for_predicate(lambda: provider.cancel_observed), (
             f"{label}: provider never observed cancellation"
@@ -2514,7 +2509,9 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
         assert wait_for_input_ready_count(err_chunks, command_ready + 2), (
             f"{label}: !cmd did not return to ready input"
         )
-        assert b"ctx-bang" in output_bytes(err_chunks), f"{label}: !cmd output not shown"
+        assert b"ctx-bang" in output_bytes(err_chunks), (
+            f"{label}: !cmd output not shown"
+        )
         assert provider.calls == 0, f"{label}: !cmd ran a provider turn"
         # The next provider turn sees the recorded command/output in context.
         os.write(in_master, b"recall now\n")
@@ -2550,9 +2547,9 @@ def test_pty_bash_shortcuts_run_record_and_cancel(
             f"{label}: active command input never became ready"
         )
         os.write(in_master, b"\x1b")
-        assert wait_for_input_ready_after(err_chunks, "cancelled by escape") is not None, (
-            f"{label}: post-cancel input never became ready"
-        )
+        assert (
+            wait_for_input_ready_after(err_chunks, "cancelled by escape") is not None
+        ), f"{label}: post-cancel input never became ready"
         # Session is still usable.
         third_turn_start = len(output_bytes(err_chunks))
         os.write(in_master, b"still here\n")
@@ -2972,9 +2969,7 @@ def test_pty_thinking_and_model_cycle_hotkeys(
         model_start = len(output_bytes(err_chunks))
         os.write(in_master, b"\x10")
         assert (
-            wait_for_input_ready_after(
-                err_chunks, "selected model", after=model_start
-            )
+            wait_for_input_ready_after(err_chunks, "selected model", after=model_start)
             is not None
         ), f"{label}: ctrl+p did not return to ready input"
         assert provider.calls == 0, f"{label}: model cycle ran a provider turn"
@@ -3145,25 +3140,19 @@ def test_pty_never_enables_mouse_tracking(
         settings_start = len(output_bytes(err_chunks))
         os.write(in_master, b"/settings\n")  # open an overlay
         assert (
-            wait_for_input_ready_after(
-                err_chunks, "Settings", after=settings_start
-            )
+            wait_for_input_ready_after(err_chunks, "Settings", after=settings_start)
             is not None
         ), f"{label}: settings overlay input never became ready"
         close_start = len(output_bytes(err_chunks))
         os.write(in_master, b"\x1b")  # close overlay
         assert (
-            wait_for_input_ready_after(
-                err_chunks, "─" * columns, after=close_start
-            )
+            wait_for_input_ready_after(err_chunks, "─" * columns, after=close_start)
             is not None
         ), f"{label}: main input did not resume after settings"
         turn_start = len(output_bytes(err_chunks))
         os.write(in_master, b"ask something\n")  # active turn
         assert (
-            wait_for_input_ready_after(
-                err_chunks, "MOUSE_TURN_DONE", after=turn_start
-            )
+            wait_for_input_ready_after(err_chunks, "MOUSE_TURN_DONE", after=turn_start)
             is not None
         ), f"{label}: turn did not return to ready input"
         os.write(in_master, b"\x04")
@@ -3493,18 +3482,16 @@ def test_pty_scoped_models_overlay_saves_cycle_scope(
         overlay_start = len(output_bytes(err_chunks))
         os.write(in_master, b"/scoped-models\n")
         assert (
-            wait_for_input_ready_after(
-                err_chunks, "Scoped models", after=overlay_start
-            )
+            wait_for_input_ready_after(err_chunks, "Scoped models", after=overlay_start)
             is not None
         ), f"{label}: scoped-models overlay input never became ready"
         # Toggle under the established raw owner and require its fresh repaint
         # before saving; do not hide the intermediate state in combined keys.
         toggle_start = len(output_bytes(err_chunks))
         os.write(in_master, b" ")
-        assert wait_for_output(
-            err_chunks, "Scoped models", after=toggle_start
-        ) is not None, f"{label}: toggled scope did not repaint"
+        assert (
+            wait_for_output(err_chunks, "Scoped models", after=toggle_start) is not None
+        ), f"{label}: toggled scope did not repaint"
         assert ui.scoped_models_checked, f"{label}: highlighted model was not checked"
         save_start = len(output_bytes(err_chunks))
         os.write(in_master, b"\n")

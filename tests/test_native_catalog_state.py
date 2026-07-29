@@ -76,7 +76,12 @@ def test_stored_copilot_oauth_rewrites_base_url_via_modify_models(tmp_path):
     store = AuthStore(path=auth_path)
     store.set(
         "github-copilot",
-        {"type": "oauth", "access": "tid=x;proxy-ep=proxy.example.com;", "refresh": "r", "expires": 9999999999000},
+        {
+            "type": "oauth",
+            "access": "tid=x;proxy-ep=proxy.example.com;",
+            "refresh": "r",
+            "expires": 9999999999000,
+        },
     )
     models_path = tmp_path / "models.json"
     models_path.write_text(
@@ -143,7 +148,9 @@ def test_format_list_models_no_models_guidance():
 
 def test_format_list_models_no_match_message(tmp_path):
     state = _state(tmp_path, env={"OPENAI_API_KEY": "k"})
-    output = format_list_models(state.get_available(), search="zzzznope", load_error=None)
+    output = format_list_models(
+        state.get_available(), search="zzzznope", load_error=None
+    )
     assert 'No models matching "zzzznope"' in output
 
 

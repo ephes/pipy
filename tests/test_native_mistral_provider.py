@@ -77,7 +77,10 @@ def test_success_returns_final_text(tmp_path):
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": "hello from mistral"},
+                        "message": {
+                            "role": "assistant",
+                            "content": "hello from mistral",
+                        },
                         "finish_reason": "stop",
                     }
                 ],
@@ -141,7 +144,7 @@ def test_success_returns_tool_calls(tmp_path):
                                     "type": "function",
                                     "function": {
                                         "name": "read_file",
-                                        "arguments": "{\"path\":\"README.md\"}",
+                                        "arguments": '{"path":"README.md"}',
                                     },
                                 }
                             ],
@@ -345,8 +348,7 @@ def test_malformed_json_response_returns_failed_result(tmp_path):
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "MistralResponseParseError"
     assert (
-        result.error_message
-        == "Mistral response did not include a completion choice."
+        result.error_message == "Mistral response did not include a completion choice."
     )
     assert result.metadata == {
         "provider_response_store_requested": False,

@@ -279,7 +279,6 @@ def test_invalid_external_port_and_duplicate_local_command_fail_closed() -> None
         queue.defer_local_command(ProductContent("two"))
 
 
-
 def test_retained_agent_handoffs_survive_command_and_append_fifo() -> None:
     first = _queued("first", AgentQueuedInputKind.STEERING)
     second = _queued("second", AgentQueuedInputKind.FOLLOW_UP)
@@ -340,9 +339,7 @@ def test_external_wake_classifies_registered_source_exactly_once() -> None:
 
 def test_external_wake_rejects_unregistered_source_without_polling() -> None:
     registered = _ExternalQueue()
-    unregistered = _ExternalQueue(
-        (_queued("wake", AgentQueuedInputKind.FOLLOW_UP),)
-    )
+    unregistered = _ExternalQueue((_queued("wake", AgentQueuedInputKind.FOLLOW_UP),))
     queue = CodingInputQueue(external_inputs=(registered,))
 
     with pytest.raises(ValueError, match="not registered"):

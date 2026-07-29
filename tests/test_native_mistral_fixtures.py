@@ -87,7 +87,9 @@ def _tool_history_request(tmp_path: Path) -> ProviderRequest:
         model_id="mistral-large-latest",
         cwd=tmp_path,
         messages=(
-            AgentUserMessage(content=ProductContent("Read config.toml and summarize it.")),
+            AgentUserMessage(
+                content=ProductContent("Read config.toml and summarize it.")
+            ),
             AgentAssistantMessage(
                 content=ProductContent("I'll read the file first."),
                 tool_calls=(
@@ -187,5 +189,7 @@ def test_mistral_error_metadata_matches_golden(tmp_path: Path) -> None:
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "MistralHTTPStatusError"
     assert result.metadata == _load("error_metadata.json")
-    assert "SECRET_PROMPT_SHOULD_NOT_LEAK" not in json.dumps(result.metadata, sort_keys=True)
+    assert "SECRET_PROMPT_SHOULD_NOT_LEAK" not in json.dumps(
+        result.metadata, sort_keys=True
+    )
     assert "SECRET_PROMPT_SHOULD_NOT_LEAK" not in (result.error_message or "")

@@ -1074,9 +1074,7 @@ def test_render_lines_excludes_session_picker_but_live_paint_projection_keeps_it
     ui.session_picker_open = True
 
     captured = "\n".join(ui.render_lines(width=88, height=24, pad=False))
-    live = "\n".join(
-        line.text for line in ui._live_region_lines(width=88, height=24)
-    )
+    live = "\n".join(line.text for line in ui._live_region_lines(width=88, height=24))
 
     assert "Resume session" not in captured
     assert "Resume session" in live
@@ -1660,9 +1658,7 @@ def test_model_command_refusal_preserves_resolved_thinking_level_mutation(
 
     result = session.run(
         workspace_root=tmp_path,
-        input_stream=io.StringIO(
-            "/model fake/fake-native-bootstrap:high\n/exit\n"
-        ),
+        input_stream=io.StringIO("/model fake/fake-native-bootstrap:high\n/exit\n"),
         output_stream=io.StringIO(),
         error_stream=error_stream,
     )

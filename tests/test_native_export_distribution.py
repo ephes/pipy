@@ -95,18 +95,14 @@ def _tree(tmp_path: Path) -> NativeSessionTree:
         AgentToolResultMessage(
             tool_request_id="pipy-tool-1",
             tool_name="write",
-            content=ProductContent(
-                "wrote file token=ghp_SHOULD_NOT_LEAK_123456789"
-            ),
+            content=ProductContent("wrote file token=ghp_SHOULD_NOT_LEAK_123456789"),
             provider_correlation_id="call-1",
         )
     )
     main_leaf = tree.get_leaf_id()
     tree.branch(first_reply.id)
     tree.append_message(AgentUserMessage(content=ProductContent("ALT prompt")))
-    tree.append_message(
-        AgentAssistantMessage(content=ProductContent("ALT answer"))
-    )
+    tree.append_message(AgentAssistantMessage(content=ProductContent("ALT answer")))
     assert main_leaf is not None
     tree.branch(main_leaf)
     return tree
@@ -197,7 +193,9 @@ def test_session_export_payload_keeps_exact_top_level_shape(tmp_path: Path) -> N
     assert len(payload["entries"]) == len(tree.get_entries())
 
 
-def test_tool_loop_export_command_writes_jsonl_and_html_with_quoted_path(tmp_path: Path) -> None:
+def test_tool_loop_export_command_writes_jsonl_and_html_with_quoted_path(
+    tmp_path: Path,
+) -> None:
     tree = _tree(tmp_path)
     cwd = Path(tree.get_header().cwd)
     jsonl = cwd / "quoted export.jsonl"
@@ -216,7 +214,9 @@ def test_tool_loop_export_command_writes_jsonl_and_html_with_quoted_path(tmp_pat
     assert _decode_html_payload(html)["header"]["id"] == tree.session_id
 
 
-def test_tool_loop_import_command_reports_usage_and_imports_with_yes(tmp_path: Path) -> None:
+def test_tool_loop_import_command_reports_usage_and_imports_with_yes(
+    tmp_path: Path,
+) -> None:
     source_tree = _tree(tmp_path)
     source = tmp_path / "portable import.jsonl"
     export_native_branch_to_jsonl(source_tree, source)
@@ -227,7 +227,7 @@ def test_tool_loop_import_command_reports_usage_and_imports_with_yes(tmp_path: P
     err = _run_commands(
         target_tree,
         cwd,
-        f"/import\n/import \"{source}\" --yes\n/exit\n",
+        f'/import\n/import "{source}" --yes\n/exit\n',
     )
 
     assert "Usage: /import <path.jsonl>" in err
@@ -255,7 +255,9 @@ def test_tool_loop_share_command_uses_token_and_share_boundary(
         )
 
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_UPLOAD_TOKEN_123456789")
-    monkeypatch.setattr("pipy_harness.native.tool_loop_session.share_native_session", fake_share)
+    monkeypatch.setattr(
+        "pipy_harness.native.tool_loop_session.share_native_session", fake_share
+    )
 
     err = _run_commands(tree, cwd, "/share\n/exit\n")
 
@@ -291,13 +293,17 @@ def test_html_export_embeds_full_tree_and_redacts_auth_tokens(tmp_path: Path) ->
     assert "https://" not in html
 
 
-def test_jsonl_export_linearizes_active_branch_and_import_round_trips(tmp_path: Path) -> None:
+def test_jsonl_export_linearizes_active_branch_and_import_round_trips(
+    tmp_path: Path,
+) -> None:
     tree = _tree(tmp_path)
     output = tmp_path / "portable.jsonl"
 
     export_native_branch_to_jsonl(tree, output)
 
-    lines = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    lines = [
+        json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()
+    ]
     assert lines[0]["type"] == "session"
     entries = lines[1:]
     assert entries[0]["parentId"] is None
@@ -476,8 +482,12 @@ def test_tool_loop_tui_share_command_cancels_worker_with_cancel_token(
         observed.append("cancelled")
         raise ShareCancelled("Share cancelled.")
 
-    monkeypatch.setattr("pipy_harness.native.tool_loop_session.share_native_session", fake_share)
-    result = NativeToolReplSession(provider=_NoTurnProvider())._share_native_session_command(
+    monkeypatch.setattr(
+        "pipy_harness.native.tool_loop_session.share_native_session", fake_share
+    )
+    result = NativeToolReplSession(
+        provider=_NoTurnProvider()
+    )._share_native_session_command(
         session_tree=tree,
         token="ghp_UPLOAD_TOKEN_123456789",
         terminal_ui=ui,  # type: ignore[arg-type]
@@ -504,8 +514,14 @@ def test_top_level_export_cli_writes_html(tmp_path: Path, capfd) -> None:
 
 
 def test_parse_path_argument_supports_quotes() -> None:
-    assert parse_command_path_argument(' "dir/my export.html" trailing') == "dir/my export.html"
-    assert parse_command_path_argument(" 'dir/my export.jsonl' --yes") == "dir/my export.jsonl"
+    assert (
+        parse_command_path_argument(' "dir/my export.html" trailing')
+        == "dir/my export.html"
+    )
+    assert (
+        parse_command_path_argument(" 'dir/my export.jsonl' --yes")
+        == "dir/my export.jsonl"
+    )
     assert parse_command_path_argument(" plain.jsonl more") == "plain.jsonl"
 
 
@@ -515,7 +531,9 @@ def test_update_helpers_plan_known_install_methods(tmp_path: Path) -> None:
     exe.parent.mkdir(parents=True)
     exe.write_text("", encoding="utf-8")
 
-    method = detect_install_method(executable=str(exe), env={"UV_TOOL_DIR": str(uv_root)})
+    method = detect_install_method(
+        executable=str(exe), env={"UV_TOOL_DIR": str(uv_root)}
+    )
     plan = self_update_plan(method=method, distribution_name="pipy-test-package")
 
     assert method == "uv-tool"
@@ -553,7 +571,10 @@ def test_version_check_honors_offline_and_skip_env() -> None:
     )
     assert (
         fetch_latest_pipy_version(
-            env={"PIPY_SKIP_VERSION_CHECK": "1", "PIPY_SELF_UPDATE_PACKAGE": "pipy-test"},
+            env={
+                "PIPY_SKIP_VERSION_CHECK": "1",
+                "PIPY_SELF_UPDATE_PACKAGE": "pipy-test",
+            },
             opener=opener,
         )
         is None

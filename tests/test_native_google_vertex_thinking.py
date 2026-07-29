@@ -304,7 +304,9 @@ def test_thinking_budget_tables_no_flash_lite_branch():
 
 
 def test_disabled_config_per_family_no_gemma():
-    assert _disabled_thinking_config("gemini-3.1-pro-preview") == {"thinkingLevel": "LOW"}
+    assert _disabled_thinking_config("gemini-3.1-pro-preview") == {
+        "thinkingLevel": "LOW"
+    }
     assert _disabled_thinking_config("gemini-3-flash") == {"thinkingLevel": "MINIMAL"}
     assert _disabled_thinking_config("gemini-2.5-pro") == {"thinkingBudget": 0}
     # No gemma branch: a gemma id gets the 2.x budget-zero fallback.

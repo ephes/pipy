@@ -61,7 +61,9 @@ def _ext_dir(workspace: Path) -> Path:
     return directory
 
 
-def _write_single_file(workspace: Path, name: str, body: str = "def activate(api):\n    pass\n") -> Path:
+def _write_single_file(
+    workspace: Path, name: str, body: str = "def activate(api):\n    pass\n"
+) -> Path:
     path = _ext_dir(workspace) / f"{name}.py"
     path.write_text(body, encoding="utf-8")
     return path
@@ -88,7 +90,9 @@ def _by_name(descriptors: list[ExtensionDescriptor], name: str) -> ExtensionDesc
     for descriptor in descriptors:
         if descriptor.name == name:
             return descriptor
-    raise AssertionError(f"no descriptor named {name!r} in {[d.name for d in descriptors]}")
+    raise AssertionError(
+        f"no descriptor named {name!r} in {[d.name for d in descriptors]}"
+    )
 
 
 def test_single_file_extension_infers_safe_defaults(tmp_path: Path) -> None:
@@ -148,7 +152,9 @@ ui = true
     assert descriptor.description == "Block writes to protected paths."
     assert descriptor.manifest_present is True
     assert descriptor.path_label == ".pipy/extensions/protected-paths"
-    assert descriptor.entry_path_label == ".pipy/extensions/protected-paths/extension.py"
+    assert (
+        descriptor.entry_path_label == ".pipy/extensions/protected-paths/extension.py"
+    )
     assert dict(descriptor.permissions) == {
         "workspace_read": True,
         "workspace_write": False,

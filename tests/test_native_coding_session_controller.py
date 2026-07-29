@@ -240,7 +240,9 @@ def test_fresh_line_read_when_queue_empty() -> None:
 
 def test_external_wake_matching_line_yields_provider_content() -> None:
     port = _StaticPort(
-        AgentQueuedInput(ProductContent("queued prompt"), AgentQueuedInputKind.FOLLOW_UP)
+        AgentQueuedInput(
+            ProductContent("queued prompt"), AgentQueuedInputKind.FOLLOW_UP
+        )
     )
     queue = CodingInputQueue(external_inputs=(port,))
     controller, _ = _controller(queue)
@@ -579,9 +581,7 @@ class _FakeCommandEffects:
     def record_resource_invocation(self) -> None:
         self.resource_invocations += 1
 
-    def dispatch_resource(
-        self, command_text: str
-    ) -> ResourceDispatchResolution | None:
+    def dispatch_resource(self, command_text: str) -> ResourceDispatchResolution | None:
         self.resource_dispatches.append(command_text)
         return self._resource
 
@@ -654,7 +654,9 @@ def test_resource_list_is_consumed_locally() -> None:
         resource=ResourceDispatchResolution(ResourceDispatchKind.LIST, "the list")
     )
 
-    resolution = _dispatch(command_text="/skills", user_input="/skills", effects=effects)
+    resolution = _dispatch(
+        command_text="/skills", user_input="/skills", effects=effects
+    )
 
     assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
     assert effects.diagnostics == ["the list"]
@@ -726,9 +728,7 @@ def test_extension_command_failure_surfaces_diagnostic() -> None:
     resolution = _dispatch(command_text="/hi", user_input="/hi", effects=effects)
 
     assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
-    assert effects.diagnostics == [
-        "pipy: extension command /hi failed (ValueError)"
-    ]
+    assert effects.diagnostics == ["pipy: extension command /hi failed (ValueError)"]
     assert effects.footer_calls == 1
 
 
@@ -749,9 +749,7 @@ def test_unhandled_slash_command_reports_supported_commands() -> None:
 
 def test_precedence_resource_run_beats_extension() -> None:
     effects = _FakeCommandEffects(
-        resource=ResourceDispatchResolution(
-            ResourceDispatchKind.RUN, "ran", "text"
-        ),
+        resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "ran", "text"),
         extension=ExtensionDispatchResolution(name="x", ran=True, error=None),
     )
 
@@ -838,9 +836,7 @@ def test_empty_typed_submission_interprets_an_actionless_builtin() -> None:
         resource=ResourceDispatchResolution(ResourceDispatchKind.RUN, "ran", "t")
     )
 
-    resolution = _dispatch(
-        command_text="", user_input="", stripped="", effects=effects
-    )
+    resolution = _dispatch(command_text="", user_input="", stripped="", effects=effects)
 
     assert resolution.kind is CommandDispatchResolutionKind.CONTINUE_LOOP
     assert len(effects.interpretations) == 1
@@ -897,9 +893,7 @@ def test_dispatch_command_rejects_wrong_resource_result_type() -> None:
 
 def test_dispatch_command_rejects_wrong_extension_result_type() -> None:
     class _BadExtension(_FakeCommandEffects):
-        def dispatch_extension(
-            self, command_text: str
-        ) -> ExtensionDispatchResolution:
+        def dispatch_extension(self, command_text: str) -> ExtensionDispatchResolution:
             return object()  # type: ignore[return-value]
 
     controller, _ = _controller(CodingInputQueue())
@@ -953,7 +947,9 @@ class _LogEmitter:
         self._log.append("settled")
 
 
-def _repl_result(status: HarnessStatus = HarnessStatus.SUCCEEDED) -> NativeToolReplResult:
+def _repl_result(
+    status: HarnessStatus = HarnessStatus.SUCCEEDED,
+) -> NativeToolReplResult:
     now = datetime.now(UTC)
     return NativeToolReplResult(
         status=status,

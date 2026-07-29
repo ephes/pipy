@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.adapters.subprocess import SubprocessAdapter
-from pipy_harness.capture import CapturePolicy, collect_changed_file_paths, redacted_argv
+from pipy_harness.capture import (
+    CapturePolicy,
+    collect_changed_file_paths,
+    redacted_argv,
+)
 from pipy_harness.models import RunRequest
 
 
@@ -98,7 +102,9 @@ def test_redacted_argv_redacts_hyphenated_api_key() -> None:
     ]
 
 
-def test_subprocess_adapter_terminates_child_on_keyboard_interrupt(tmp_path, monkeypatch):
+def test_subprocess_adapter_terminates_child_on_keyboard_interrupt(
+    tmp_path, monkeypatch
+):
     fake_process = FakeInterruptingProcess()
 
     def fake_popen(command, cwd):
@@ -113,7 +119,9 @@ def test_subprocess_adapter_terminates_child_on_keyboard_interrupt(tmp_path, mon
     )
 
     with pytest.raises(KeyboardInterrupt):
-        adapter.run(prepared, event_sink=RecordingSink(), capture_policy=CapturePolicy())
+        adapter.run(
+            prepared, event_sink=RecordingSink(), capture_policy=CapturePolicy()
+        )
 
     assert fake_process.terminated is True
     assert fake_process.reaped_after_terminate is True
@@ -133,11 +141,15 @@ def test_subprocess_adapter_kills_child_when_graceful_interrupt_wait_is_interrup
     monkeypatch.setattr("pipy_harness.adapters.subprocess.subprocess.Popen", fake_popen)
     adapter = SubprocessAdapter()
     prepared = adapter.prepare(
-        RunRequest(agent="custom", slug="double-interrupt", command=["fake"], cwd=tmp_path)
+        RunRequest(
+            agent="custom", slug="double-interrupt", command=["fake"], cwd=tmp_path
+        )
     )
 
     with pytest.raises(KeyboardInterrupt):
-        adapter.run(prepared, event_sink=RecordingSink(), capture_policy=CapturePolicy())
+        adapter.run(
+            prepared, event_sink=RecordingSink(), capture_policy=CapturePolicy()
+        )
 
     assert fake_process.terminated is True
     assert fake_process.killed is True

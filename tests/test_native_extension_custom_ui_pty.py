@@ -166,7 +166,9 @@ def test_pty_custom_component_types_and_submits(
     monkeypatch.delenv("COLUMNS", raising=False)
     monkeypatch.delenv("LINES", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
-    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
+        tmp_path
+    )
     result: list[object] = []
 
     def _run() -> None:
@@ -197,7 +199,9 @@ def test_pty_custom_component_paint_precedes_observable_input_readiness(
     """A painted overlay is not writable until the post-TCSAFLUSH byte."""
 
     monkeypatch.setenv("TERM", "xterm-256color")
-    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
+        tmp_path
+    )
     transition_started = threading.Event()
     release_transition = threading.Event()
     result: list[object] = []
@@ -220,9 +224,7 @@ def test_pty_custom_component_paint_precedes_observable_input_readiness(
         assert _wait_for(err_chunks, "PROBE-OVERLAY"), "overlay never painted"
         assert transition_started.wait(timeout=8.0), "raw transition never started"
         assert (
-            wait_for_input_ready_after(
-                err_chunks, "PROBE-OVERLAY", timeout=0.05
-            )
+            wait_for_input_ready_after(err_chunks, "PROBE-OVERLAY", timeout=0.05)
             is None
         ), "paint incorrectly acknowledged input readiness"
         release_transition.set()
@@ -241,7 +243,9 @@ def test_pty_custom_component_esc_cancels(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("TERM", "xterm-256color")
-    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
+        tmp_path
+    )
     result: list[object] = []
 
     def _run() -> None:
@@ -266,7 +270,9 @@ def test_pty_extension_editor_accepts_newline_and_submits(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("TERM", "xterm-256color")
-    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
+        tmp_path
+    )
     result: list[object] = []
 
     def _run() -> None:
@@ -307,7 +313,9 @@ def test_pty_extension_editor_external_editor_success(
         encoding="utf-8",
     )
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
-    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
+        tmp_path
+    )
     result: list[object] = []
     # Hold an outer raw owner so the extension editor acquires nested depth 2.
     # The foreign child must still see cooked mode, and the editor must resume
@@ -322,7 +330,9 @@ def test_pty_extension_editor_external_editor_success(
     try:
         assert _wait_for(err_chunks, "ctrl-g external edit"), "external hint missing"
         os.write(in_master, b"\x07")  # Ctrl+G -> external editor.
-        assert _wait_for(err_chunks, "edited from external"), "edited text never rendered"
+        assert _wait_for(err_chunks, "edited from external"), (
+            "edited text never rendered"
+        )
         os.write(in_master, b"\r")  # Enter -> submit edited text.
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "editor worker did not exit"
@@ -358,7 +368,9 @@ def test_pty_external_editor_suspends_nested_raw_owners_and_resumes(
         "Path(sys.argv[1]).write_text('nested edit\\n', encoding='utf-8')\n",
         encoding="utf-8",
     )
-    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
+        tmp_path
+    )
     try:
         ui._driver.enter_raw_mode()
         ui._driver.enter_raw_mode()
@@ -403,7 +415,9 @@ def test_pty_extension_editor_external_editor_failure_keeps_text(
         encoding="utf-8",
     )
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
-    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
+        tmp_path
+    )
     result: list[object] = []
 
     def _run() -> None:
@@ -442,7 +456,9 @@ def test_pty_extension_editor_external_editor_invalid_utf8_keeps_text(
         encoding="utf-8",
     )
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor_script}")
-    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
+        tmp_path
+    )
     result: list[object] = []
 
     def _run() -> None:
@@ -477,7 +493,9 @@ def test_pty_extension_shortcut_returns_sentinel(
     from pipy_harness.native.tui import HOTKEY_EXTENSION_SHORTCUT_PREFIX
 
     monkeypatch.setenv("TERM", "xterm-256color")
-    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
+        tmp_path
+    )
     ui.extension_shortcut_keys = frozenset({"ctrl-x"})
     result: list[str] = []
 

@@ -56,7 +56,9 @@ def test_append_assigns_id_and_open_status(tmp_path: Path) -> None:
 
 def test_append_refuses_near_duplicate(tmp_path: Path) -> None:
     ledger = tmp_path / "lessons.jsonl"
-    parity_lessons.append_lesson(ledger, _base_record(), today="2026-06-22", rand="aaaaaa")
+    parity_lessons.append_lesson(
+        ledger, _base_record(), today="2026-06-22", rand="aaaaaa"
+    )
     # Same skill+target_area+normalized lesson (case/whitespace folded) -> duplicate.
     dup = _base_record(lesson="  RUN   just check  before every review.  ")
     try:
@@ -92,7 +94,9 @@ def test_append_rejects_missing_field_and_bad_enum(tmp_path: Path) -> None:
 
 def test_append_rejects_id_collision(tmp_path: Path) -> None:
     ledger = tmp_path / "lessons.jsonl"
-    parity_lessons.append_lesson(ledger, _base_record(), today="2026-06-22", rand="aaaaaa")
+    parity_lessons.append_lesson(
+        ledger, _base_record(), today="2026-06-22", rand="aaaaaa"
+    )
     try:
         parity_lessons.append_lesson(
             ledger, _base_record(lesson="different"), today="2026-06-22", rand="aaaaaa"
@@ -105,7 +109,9 @@ def test_append_rejects_id_collision(tmp_path: Path) -> None:
 def test_append_rejects_malformed_generated_id(tmp_path: Path) -> None:
     ledger = tmp_path / "lessons.jsonl"
     try:
-        parity_lessons.append_lesson(ledger, _base_record(), today="2026/06/22", rand="zz")
+        parity_lessons.append_lesson(
+            ledger, _base_record(), today="2026/06/22", rand="zz"
+        )
         raise AssertionError("malformed today/rand must be refused")
     except ValueError as exc:
         assert "match" in str(exc).lower()
@@ -113,7 +119,9 @@ def test_append_rejects_malformed_generated_id(tmp_path: Path) -> None:
 
 def test_list_filters_by_status(tmp_path: Path) -> None:
     ledger = tmp_path / "lessons.jsonl"
-    parity_lessons.append_lesson(ledger, _base_record(), today="2026-06-22", rand="aaaaaa")
+    parity_lessons.append_lesson(
+        ledger, _base_record(), today="2026-06-22", rand="aaaaaa"
+    )
     parity_lessons.append_lesson(
         ledger, _base_record(lesson="Second lesson."), today="2026-06-22", rand="bbbbbb"
     )
@@ -173,14 +181,19 @@ def test_validate_catches_bad_id_and_duplicate(tmp_path: Path) -> None:
     _write_raw(ledger, [_valid_open(id="BADID")])
     assert any("id" in e for e in parity_lessons.validate(ledger, repo_root=tmp_path))
     _write_raw(ledger, [_valid_open(), _valid_open(lesson="y")])  # same id twice
-    assert any("duplicate" in e.lower() for e in parity_lessons.validate(ledger, repo_root=tmp_path))
+    assert any(
+        "duplicate" in e.lower()
+        for e in parity_lessons.validate(ledger, repo_root=tmp_path)
+    )
 
 
 def test_validate_catches_malformed_json(tmp_path: Path) -> None:
     ledger = tmp_path / "lessons.jsonl"
     ledger.write_text("{not json}\n", encoding="utf-8")
-    assert any("parse" in e.lower() or "json" in e.lower()
-               for e in parity_lessons.validate(ledger, repo_root=tmp_path))
+    assert any(
+        "parse" in e.lower() or "json" in e.lower()
+        for e in parity_lessons.validate(ledger, repo_root=tmp_path)
+    )
 
 
 def test_validate_catches_non_object_line(tmp_path: Path) -> None:
@@ -245,9 +258,18 @@ def test_validate_applied_ok(tmp_path: Path) -> None:
 def test_validate_applied_bad_sha(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     ledger = repo / "lessons.jsonl"
-    _write_raw(ledger, [_applied("2026-06-22-aaaaaa", "0123456789abcdef0123456789abcdef01234567", "docs")])
-    assert any("resolve" in e.lower() or "ancestor" in e.lower()
-               for e in parity_lessons.validate(ledger, repo_root=repo))
+    _write_raw(
+        ledger,
+        [
+            _applied(
+                "2026-06-22-aaaaaa", "0123456789abcdef0123456789abcdef01234567", "docs"
+            )
+        ],
+    )
+    assert any(
+        "resolve" in e.lower() or "ancestor" in e.lower()
+        for e in parity_lessons.validate(ledger, repo_root=repo)
+    )
 
 
 def test_validate_applied_rejects_ref_sha(tmp_path: Path) -> None:
@@ -280,7 +302,9 @@ def test_validate_applied_not_ancestor(tmp_path: Path) -> None:
     _git(repo, "checkout", "-q", "-")
     ledger = repo / "lessons.jsonl"
     _write_raw(ledger, [_applied(rid, sha, "docs")])
-    assert any("ancestor" in e.lower() for e in parity_lessons.validate(ledger, repo_root=repo))
+    assert any(
+        "ancestor" in e.lower() for e in parity_lessons.validate(ledger, repo_root=repo)
+    )
 
 
 def test_validate_applied_wrong_area(tmp_path: Path) -> None:
@@ -289,18 +313,24 @@ def test_validate_applied_wrong_area(tmp_path: Path) -> None:
     sha = _commit_file(repo, "tests/test_x.py", f"t\n\nCloses lessons: {rid}")
     ledger = repo / "lessons.jsonl"
     _write_raw(ledger, [_applied(rid, sha, "docs")])  # claims docs, touched tests/
-    assert any("target_area" in e or "materializ" in e.lower()
-               for e in parity_lessons.validate(ledger, repo_root=repo))
+    assert any(
+        "target_area" in e or "materializ" in e.lower()
+        for e in parity_lessons.validate(ledger, repo_root=repo)
+    )
 
 
 def test_validate_applied_ledger_only(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     rid = "2026-06-22-aaaaaa"
-    sha = _commit_file(repo, "docs/parity-loop/lessons/lessons.jsonl", f"x\n\nCloses lessons: {rid}")
+    sha = _commit_file(
+        repo, "docs/parity-loop/lessons/lessons.jsonl", f"x\n\nCloses lessons: {rid}"
+    )
     ledger = repo / "other.jsonl"
     _write_raw(ledger, [_applied(rid, sha, "docs")])
-    assert any("materializ" in e.lower() or "ledger" in e.lower()
-               for e in parity_lessons.validate(ledger, repo_root=repo))
+    assert any(
+        "materializ" in e.lower() or "ledger" in e.lower()
+        for e in parity_lessons.validate(ledger, repo_root=repo)
+    )
 
 
 def test_validate_applied_message_missing_id(tmp_path: Path) -> None:
@@ -309,16 +339,22 @@ def test_validate_applied_message_missing_id(tmp_path: Path) -> None:
     sha = _commit_file(repo, "docs/guide.md", "docs fix without id reference")
     ledger = repo / "lessons.jsonl"
     _write_raw(ledger, [_applied(rid, sha, "docs")])
-    assert any("message" in e.lower() for e in parity_lessons.validate(ledger, repo_root=repo))
+    assert any(
+        "message" in e.lower() for e in parity_lessons.validate(ledger, repo_root=repo)
+    )
 
 
 def test_validate_applied_instruction_needs_signoff(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     rid = "2026-06-22-aaaaaa"
-    sha = _commit_file(repo, "docs/parity-loop/skill-body.md", f"edit\n\nCloses lessons: {rid}")
+    sha = _commit_file(
+        repo, "docs/parity-loop/skill-body.md", f"edit\n\nCloses lessons: {rid}"
+    )
     ledger = repo / "lessons.jsonl"
     _write_raw(ledger, [_applied(rid, sha, "skill-body")])  # no signed_off_by
-    assert any("sign" in e.lower() for e in parity_lessons.validate(ledger, repo_root=repo))
+    assert any(
+        "sign" in e.lower() for e in parity_lessons.validate(ledger, repo_root=repo)
+    )
     signed = _applied(rid, sha, "skill-body")
     signed["resolution"]["signed_off_by"] = "jochen"
     _write_raw(ledger, [signed])
@@ -378,7 +414,10 @@ def test_mark_applied_instruction_area_requires_signoff(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     ledger = repo / "lessons.jsonl"
     lid = parity_lessons.append_lesson(
-        ledger, _base_record(target_area="skill-body"), today="2026-06-22", rand="eeeeee"
+        ledger,
+        _base_record(target_area="skill-body"),
+        today="2026-06-22",
+        rand="eeeeee",
     )
     sha = _commit_file(
         repo, "docs/parity-loop/skill-body.md", f"edit\n\nCloses lessons: {lid}"
@@ -388,15 +427,25 @@ def test_mark_applied_instruction_area_requires_signoff(tmp_path: Path) -> None:
         raise AssertionError("instruction-area apply must require sign-off")
     except ValueError as exc:
         assert "sign" in str(exc).lower()
-    parity_lessons.mark_applied(ledger, lid, sha=sha, repo_root=repo, signed_off_by="jochen")
-    assert parity_lessons.list_lessons(ledger)[0]["resolution"]["signed_off_by"] == "jochen"
+    parity_lessons.mark_applied(
+        ledger, lid, sha=sha, repo_root=repo, signed_off_by="jochen"
+    )
+    assert (
+        parity_lessons.list_lessons(ledger)[0]["resolution"]["signed_off_by"]
+        == "jochen"
+    )
 
 
-def test_mark_applied_instruction_area_accepts_standing_human_signoff(tmp_path: Path) -> None:
+def test_mark_applied_instruction_area_accepts_standing_human_signoff(
+    tmp_path: Path,
+) -> None:
     repo = _init_repo(tmp_path)
     ledger = repo / "lessons.jsonl"
     lid = parity_lessons.append_lesson(
-        ledger, _base_record(target_area="skill-body"), today="2026-06-22", rand="eeeeef"
+        ledger,
+        _base_record(target_area="skill-body"),
+        today="2026-06-22",
+        rand="eeeeef",
     )
     sha = _commit_file(
         repo, "docs/parity-loop/skill-body.md", f"edit\n\nCloses lessons: {lid}"
@@ -414,9 +463,13 @@ def test_mark_applied_instruction_area_accepts_standing_human_signoff(tmp_path: 
 def test_mark_unknown_id_raises(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     ledger = repo / "lessons.jsonl"
-    parity_lessons.append_lesson(ledger, _base_record(), today="2026-06-22", rand="ffffff")
+    parity_lessons.append_lesson(
+        ledger, _base_record(), today="2026-06-22", rand="ffffff"
+    )
     try:
-        parity_lessons.mark_applied(ledger, "2026-06-22-000000", sha="0" * 40, repo_root=repo)
+        parity_lessons.mark_applied(
+            ledger, "2026-06-22-000000", sha="0" * 40, repo_root=repo
+        )
         raise AssertionError("unknown id must raise")
     except KeyError:
         pass
@@ -424,13 +477,17 @@ def test_mark_unknown_id_raises(tmp_path: Path) -> None:
 
 def test_mark_rejected_requires_reason_and_signoff(tmp_path: Path) -> None:
     ledger = tmp_path / "lessons.jsonl"
-    lid = parity_lessons.append_lesson(ledger, _base_record(), today="2026-06-22", rand="ababab")
+    lid = parity_lessons.append_lesson(
+        ledger, _base_record(), today="2026-06-22", rand="ababab"
+    )
     try:
         parity_lessons.mark_rejected(ledger, lid, reason="", signed_off_by="judge")
         raise AssertionError("empty reason must be refused")
     except ValueError:
         pass
-    parity_lessons.mark_rejected(ledger, lid, reason="Not reusable.", signed_off_by="judge")
+    parity_lessons.mark_rejected(
+        ledger, lid, reason="Not reusable.", signed_off_by="judge"
+    )
     row = parity_lessons.list_lessons(ledger)[0]
     assert row["status"] == "rejected"
     assert row["resolution"] == {"reason": "Not reusable.", "signed_off_by": "judge"}
@@ -438,8 +495,17 @@ def test_mark_rejected_requires_reason_and_signoff(tmp_path: Path) -> None:
 
 def _run_cli(repo: Path, ledger: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["python3", str(_MOD_PATH), "--ledger", str(ledger), "--repo", str(repo), *args],
-        capture_output=True, text=True,
+        [
+            "python3",
+            str(_MOD_PATH),
+            "--ledger",
+            str(ledger),
+            "--repo",
+            str(repo),
+            *args,
+        ],
+        capture_output=True,
+        text=True,
     )
 
 
@@ -486,7 +552,9 @@ def test_cli_mark_applied_nonmaterializing_sha_exits_one(tmp_path: Path) -> None
     _write_raw(ledger, [_valid_open(target_area="docs")])
     # 'HEAD' is a ref, not a 40-char hex sha — the dry-run materialization check
     # must reject it and leave the ledger untouched.
-    result = _run_cli(repo, ledger, "mark", "2026-06-22-a3f9c1", "applied", "--sha", "HEAD")
+    result = _run_cli(
+        repo, ledger, "mark", "2026-06-22-a3f9c1", "applied", "--sha", "HEAD"
+    )
     assert result.returncode == 1
     assert parity_lessons.list_lessons(ledger)[0]["status"] == "open"
 

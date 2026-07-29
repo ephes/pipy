@@ -95,7 +95,9 @@ def test_convention_fallback_without_manifest(tmp_path: Path) -> None:
     assert roots.packages[0].status == "loaded"
 
 
-def test_manifest_without_resources_table_falls_back_to_convention(tmp_path: Path) -> None:
+def test_manifest_without_resources_table_falls_back_to_convention(
+    tmp_path: Path,
+) -> None:
     # A manifest may carry only name/version; the [resources] table is
     # optional, so convention subdirs are still discovered (Pi auto-discovery).
     pkg = _make_package(
@@ -123,7 +125,9 @@ def test_empty_source_entry_is_rejected(tmp_path: Path) -> None:
         "---\nname: x\ndescription: d\n---\nbody\n", encoding="utf-8"
     )
 
-    roots = resolve_package_roots(["", "   ", {"source": ""}, {"source": "  "}], workspace)
+    roots = resolve_package_roots(
+        ["", "   ", {"source": ""}, {"source": "  "}], workspace
+    )
 
     assert roots.skills == ()
     assert roots.packages == ()
@@ -182,11 +186,7 @@ def test_resource_dir_escaping_package_is_rejected(tmp_path: Path) -> None:
     pkg = _make_package(
         src,
         "escaper",
-        manifest=(
-            'name = "escaper"\n'
-            "[resources]\n"
-            'skills = ["../evil"]\n'
-        ),
+        manifest=('name = "escaper"\n[resources]\nskills = ["../evil"]\n'),
     )
 
     roots = resolve_package_roots([str(pkg)], tmp_path)

@@ -172,9 +172,7 @@ def test_resolve_model_scope_dedupes_across_patterns():
 
 
 def test_resolve_model_scope_preserves_expansion_order_and_first_level():
-    scope = resolve_model_scope(
-        ["openai/gpt-*:high", "openai/gpt-5.5:low"], ROWS
-    )
+    scope = resolve_model_scope(["openai/gpt-*:high", "openai/gpt-5.5:low"], ROWS)
 
     assert [item.model.reference for item in scope.models] == [
         "openai/gpt-5.5",
@@ -223,9 +221,7 @@ def test_resolve_cli_model_synthesizes_per_provider_fallback_with_warning():
 
 
 def test_resolve_cli_model_unknown_provider_errors():
-    result = resolve_cli_model(
-        cli_provider="nope", cli_model="whatever", rows=ROWS
-    )
+    result = resolve_cli_model(cli_provider="nope", cli_model="whatever", rows=ROWS)
     assert result.model is None
     assert result.error is not None and "nope" in result.error
 

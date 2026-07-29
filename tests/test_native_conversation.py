@@ -20,7 +20,9 @@ from pipy_harness.native import (
 
 def test_native_conversation_identity_is_pipy_owned_and_safe():
     identity = NativeConversationIdentity.bootstrap()
-    boundary_identity = NativeConversationIdentity("c" * NativeConversationIdentity.MAX_LENGTH)
+    boundary_identity = NativeConversationIdentity(
+        "c" * NativeConversationIdentity.MAX_LENGTH
+    )
     boundary_turn_identity = NativeTurnIdentity(
         conversation_id=boundary_identity,
         turn_index=0,
@@ -156,7 +158,9 @@ def test_native_turn_metadata_storage_booleans_must_remain_false():
 
 
 def test_native_turn_contract_has_closed_role_and_status_labels():
-    assert {field.name for field in fields(NativeTurnMetadata)} == NATIVE_TURN_METADATA_KEYS
+    assert {
+        field.name for field in fields(NativeTurnMetadata)
+    } == NATIVE_TURN_METADATA_KEYS
     assert NATIVE_TURN_PAYLOAD_KEYS == NATIVE_TURN_METADATA_KEYS
     assert {role.value for role in NativeTurnRole} == {
         "system",

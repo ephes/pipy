@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 
-from pipy_harness.native.catalog import build_builtin_catalog, default_model_per_provider
+from pipy_harness.native.catalog import (
+    build_builtin_catalog,
+    default_model_per_provider,
+)
 from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.ds4 import (
     DS4_DEFAULT_BASE_URL,
@@ -51,9 +54,7 @@ def test_env_shim_and_preset_produce_equivalent_rows(tmp_path):
     # Preset file path
     preset_path = tmp_path / "models.json"
     preset_path.write_text(json.dumps(ds4_preset_dict()), encoding="utf-8")
-    preset_state = ProviderCatalogState(
-        models_json_path=preset_path, env={}
-    )
+    preset_state = ProviderCatalogState(models_json_path=preset_path, env={})
     preset_row = preset_state.find("ds4", "deepseek-v4-flash")
 
     # Env shim path (no models.json file)

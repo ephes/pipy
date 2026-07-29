@@ -283,9 +283,7 @@ def test_tool_request_rejects_empty_or_non_string_fields():
     with pytest.raises(ValueError, match="non-empty tool_request_id"):
         ToolRequest(tool_request_id="", tool_name="read", arguments={})
     with pytest.raises(ValueError, match="non-empty tool_name"):
-        ToolRequest(
-            tool_request_id=make_tool_request_id(), tool_name="", arguments={}
-        )
+        ToolRequest(tool_request_id=make_tool_request_id(), tool_name="", arguments={})
     with pytest.raises(ValueError, match="must be a mapping"):
         ToolRequest(
             tool_request_id=make_tool_request_id(),
@@ -598,9 +596,7 @@ class _FixtureEchoTool:
     def definition(self) -> ToolDefinition:
         return self._definition
 
-    def invoke(
-        self, request: ToolRequest, context: ToolContext
-    ) -> ToolExecutionResult:
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
         text = str(request.arguments["text"])
         return ToolExecutionResult(
             tool_request_id=request.tool_request_id,
@@ -653,8 +649,7 @@ def test_module_does_not_introduce_runtime_dependencies():
     """
 
     base_source = (
-        Path(__file__).parents[1]
-        / "src/pipy_harness/native/tools/base.py"
+        Path(__file__).parents[1] / "src/pipy_harness/native/tools/base.py"
     ).read_text(encoding="utf-8")
 
     forbidden_imports = (

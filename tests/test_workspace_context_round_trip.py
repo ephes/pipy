@@ -60,7 +60,9 @@ class _CapturingFakeProvider:
 
     name = "capturing-fake"
 
-    def __init__(self, *, model_id: str = "capturing-model", final_text: str = "done") -> None:
+    def __init__(
+        self, *, model_id: str = "capturing-model", final_text: str = "done"
+    ) -> None:
         self.model_id = model_id
         self.final_text = final_text
         self.captured_requests: list[ProviderRequest] = []
@@ -93,7 +95,9 @@ class _ShortMarkerLeakingProvider:
 
     name = "short-marker-fake"
 
-    def __init__(self, *, model_id: str = "short-marker-model", final_text: str = "done") -> None:
+    def __init__(
+        self, *, model_id: str = "short-marker-model", final_text: str = "done"
+    ) -> None:
         self.model_id = model_id
         self.final_text = final_text
         self.captured_requests: list[ProviderRequest] = []
@@ -127,7 +131,9 @@ class _EchoingFakeProvider:
 
     name = "echoing-fake"
 
-    def __init__(self, *, model_id: str = "echoing-model", final_text: str = "done") -> None:
+    def __init__(
+        self, *, model_id: str = "echoing-model", final_text: str = "done"
+    ) -> None:
         self.model_id = model_id
         self.final_text = final_text
         self.captured_requests: list[ProviderRequest] = []
@@ -161,9 +167,7 @@ class _EchoingFakeProvider:
                     "instructions": request.system_prompt,
                 }
             },
-            "echoed_call": {
-                "arguments": {"system_prompt": request.system_prompt}
-            },
+            "echoed_call": {"arguments": {"system_prompt": request.system_prompt}},
             # Allowlisted keys stuffed with prompt-bearing values so the
             # per-key projector in `_safe_provider_metadata` is exercised:
             # the booleans, ints, and short labels coerce; everything
@@ -196,7 +200,9 @@ class _CapturingToolFakeProvider:
 
     name = "capturing-fake-tool"
 
-    def __init__(self, *, model_id: str = "capturing-tool-model", final_text: str = "done") -> None:
+    def __init__(
+        self, *, model_id: str = "capturing-tool-model", final_text: str = "done"
+    ) -> None:
         self.model_id = model_id
         self.final_text = final_text
         self.captured_requests: list[ProviderRequest] = []
@@ -297,9 +303,7 @@ def test_tool_loop_round_trip_AGENTS_md_reaches_system_prompt_and_archive_exclud
     # Metadata fields are exposed via the dedicated workspace-context event.
     events = _read_jsonl(result.record.jsonl_path)
     instruction_events = [
-        event
-        for event in events
-        if event["type"] == "native.workspace_context.loaded"
+        event for event in events if event["type"] == "native.workspace_context.loaded"
     ]
     assert instruction_events
     payload = instruction_events[0]["payload"]

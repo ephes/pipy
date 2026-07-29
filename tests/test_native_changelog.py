@@ -76,7 +76,11 @@ def test_new_entries_since_current_returns_empty() -> None:
 def test_startup_first_run_shows_nothing_but_records_version() -> None:
     entries = parse_changelog(SAMPLE)
     lines, store = changelog_startup(
-        entries, last_version=None, current_version="0.3.0", collapse=False, is_fresh=True
+        entries,
+        last_version=None,
+        current_version="0.3.0",
+        collapse=False,
+        is_fresh=True,
     )
     assert lines == []
     assert store == "0.3.0"
@@ -85,7 +89,11 @@ def test_startup_first_run_shows_nothing_but_records_version() -> None:
 def test_startup_version_bump_shows_new_entries_and_records() -> None:
     entries = parse_changelog(SAMPLE)
     lines, store = changelog_startup(
-        entries, last_version="0.1.0", current_version="0.3.0", collapse=False, is_fresh=True
+        entries,
+        last_version="0.1.0",
+        current_version="0.3.0",
+        collapse=False,
+        is_fresh=True,
     )
     text = "\n".join(lines)
     assert "0.3.0" in text and "0.2.0" in text
@@ -96,7 +104,11 @@ def test_startup_version_bump_shows_new_entries_and_records() -> None:
 def test_startup_collapse_shows_condensed_line() -> None:
     entries = parse_changelog(SAMPLE)
     lines, store = changelog_startup(
-        entries, last_version="0.2.0", current_version="0.3.0", collapse=True, is_fresh=True
+        entries,
+        last_version="0.2.0",
+        current_version="0.3.0",
+        collapse=True,
+        is_fresh=True,
     )
     text = "\n".join(lines)
     assert "0.3.0" in text
@@ -107,7 +119,11 @@ def test_startup_collapse_shows_condensed_line() -> None:
 def test_startup_no_bump_shows_nothing() -> None:
     entries = parse_changelog(SAMPLE)
     lines, store = changelog_startup(
-        entries, last_version="0.3.0", current_version="0.3.0", collapse=False, is_fresh=True
+        entries,
+        last_version="0.3.0",
+        current_version="0.3.0",
+        collapse=False,
+        is_fresh=True,
     )
     assert lines == []
     assert store is None
@@ -116,7 +132,11 @@ def test_startup_no_bump_shows_nothing() -> None:
 def test_startup_resumed_session_skips_entirely() -> None:
     entries = parse_changelog(SAMPLE)
     lines, store = changelog_startup(
-        entries, last_version="0.1.0", current_version="0.3.0", collapse=False, is_fresh=False
+        entries,
+        last_version="0.1.0",
+        current_version="0.3.0",
+        collapse=False,
+        is_fresh=False,
     )
     assert lines == []
     assert store is None

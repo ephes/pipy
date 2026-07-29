@@ -101,9 +101,7 @@ def test_custom_model_wins_on_provider_id_conflict(tmp_path):
         {
             "providers": {
                 "anthropic": {
-                    "models": [
-                        {"id": "claude-opus-4-7", "name": "OVERRIDDEN OPUS"}
-                    ]
+                    "models": [{"id": "claude-opus-4-7", "name": "OVERRIDDEN OPUS"}]
                 }
             }
         },
@@ -184,9 +182,7 @@ def test_per_model_override_explicit_zero_cost_wins(tmp_path):
         {
             "providers": {
                 "anthropic": {
-                    "modelOverrides": {
-                        "claude-opus-4-7": {"cost": {"input": 0}}
-                    }
+                    "modelOverrides": {"claude-opus-4-7": {"cost": {"input": 0}}}
                 }
             }
         },
@@ -249,7 +245,11 @@ def test_non_builtin_provider_with_models_requires_baseurl_and_apikey(tmp_path):
     path = tmp_path / "models.json"
     _write(
         path,
-        {"providers": {"custom": {"api": "openai-completions", "models": [{"id": "m"}]}}},
+        {
+            "providers": {
+                "custom": {"api": "openai-completions", "models": [{"id": "m"}]}
+            }
+        },
     )
     catalog = ModelCatalog(models_json_path=path)
     assert catalog.error is not None
@@ -275,11 +275,7 @@ def test_invalid_context_window_rejected(tmp_path):
     path = tmp_path / "models.json"
     _write(
         path,
-        {
-            "providers": {
-                "anthropic": {"models": [{"id": "m", "contextWindow": -5}]}
-            }
-        },
+        {"providers": {"anthropic": {"models": [{"id": "m", "contextWindow": -5}]}}},
     )
     catalog = ModelCatalog(models_json_path=path)
     assert catalog.error is not None
@@ -293,9 +289,7 @@ def test_model_semantics_preserve_first_failure_order(tmp_path):
         {
             "providers": {
                 "anthropic": {
-                    "models": [
-                        {"id": "m", "contextWindow": -1, "maxTokens": -1}
-                    ]
+                    "models": [{"id": "m", "contextWindow": -1, "maxTokens": -1}]
                 }
             }
         },
@@ -371,9 +365,7 @@ def test_input_values_restricted_to_text_and_image(tmp_path):
         path,
         {
             "providers": {
-                "anthropic": {
-                    "models": [{"id": "m", "input": ["text", "video"]}]
-                }
+                "anthropic": {"models": [{"id": "m", "input": ["text", "video"]}]}
             }
         },
     )
@@ -386,13 +378,7 @@ def test_custom_model_cost_requires_all_four_fields(tmp_path):
     path = tmp_path / "models.json"
     _write(
         path,
-        {
-            "providers": {
-                "anthropic": {
-                    "models": [{"id": "m", "cost": {"input": 1.0}}]
-                }
-            }
-        },
+        {"providers": {"anthropic": {"models": [{"id": "m", "cost": {"input": 1.0}}]}}},
     )
     catalog = ModelCatalog(models_json_path=path)
     assert catalog.error is not None

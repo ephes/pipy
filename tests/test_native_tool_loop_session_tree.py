@@ -1258,9 +1258,7 @@ def test_resume_switch_order_gate_and_fresh_history(
     cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
     assert selected.path is not None
     command = "/resume" if selection_mode == "picker" else f"/resume {selected.path}"
-    _install_resume_terminal(
-        monkeypatch, cwd=cwd, commands=(command, "FRESH", "/exit")
-    )
+    _install_resume_terminal(monkeypatch, cwd=cwd, commands=(command, "FRESH", "/exit"))
     trace: list[str] = []
     original_gate = loop_module.dispatch_session_before_hooks
     original_open = NativeSessionTree.open
@@ -1518,7 +1516,11 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
     )
 
     with pytest.raises(RuntimeError, match=f"{failure_stage} failed"):
-        _run(NativeToolReplSession(provider=_SeenProvider(), native_session=active), cwd, "")
+        _run(
+            NativeToolReplSession(provider=_SeenProvider(), native_session=active),
+            cwd,
+            "",
+        )
 
     expected = ["hook", "open"]
     if failure_stage != "open":

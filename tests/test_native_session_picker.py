@@ -50,7 +50,10 @@ def test_relative_age_buckets() -> None:
 
 def test_scope_toggle_switches_source() -> None:
     project = [_entry("p", "aaa", mtime=2.0)]
-    everything = [_entry("p", "aaa", mtime=2.0), _entry("o", "bbb", cwd="/other", mtime=1.0)]
+    everything = [
+        _entry("p", "aaa", mtime=2.0),
+        _entry("o", "bbb", cwd="/other", mtime=1.0),
+    ]
     cur = build_session_picker_rows(project, everything, scope="current")
     assert [r.session_id for r in cur] == ["aaa"]
     all_rows = build_session_picker_rows(project, everything, scope="all")
@@ -71,9 +74,15 @@ def test_query_matches_name_id_and_cwd() -> None:
         _entry("alpha", "111", cwd="/projects/foo"),
         _entry("beta", "222", cwd="/projects/bar"),
     ]
-    assert [r.session_id for r in build_session_picker_rows(sessions, [], query="alph")] == ["111"]
-    assert [r.session_id for r in build_session_picker_rows(sessions, [], query="222")] == ["222"]
-    assert [r.session_id for r in build_session_picker_rows(sessions, [], query="bar")] == ["222"]
+    assert [
+        r.session_id for r in build_session_picker_rows(sessions, [], query="alph")
+    ] == ["111"]
+    assert [
+        r.session_id for r in build_session_picker_rows(sessions, [], query="222")
+    ] == ["222"]
+    assert [
+        r.session_id for r in build_session_picker_rows(sessions, [], query="bar")
+    ] == ["222"]
 
 
 def test_sort_modes() -> None:

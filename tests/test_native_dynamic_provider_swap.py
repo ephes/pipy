@@ -78,9 +78,7 @@ class _ProbeReplState(NativeReplProviderState):
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self._probe = probe
 
-    def provider_for(
-        self, selection: NativeModelSelection
-    ) -> _RecordingToolProvider:
+    def provider_for(self, selection: NativeModelSelection) -> _RecordingToolProvider:
         return self._probe.factory(selection)
 
 
@@ -121,9 +119,7 @@ def test_tool_loop_switch_clears_then_refusal_preserves(tmp_path: Path) -> None:
     # Three prompts -> three provider calls; the two /model commands add none.
     assert [r.model_id for r in requests] == ["model-a", "model-b", "model-b"]
     # Successful switch rebinds and clears the provider-visible conversation.
-    assert [
-        m.content.value.strip() for m in requests[1].messages
-    ] == ["second"]
+    assert [m.content.value.strip() for m in requests[1].messages] == ["second"]
     # Refused switch (availability gate) preserves the accumulated conversation.
     assert len(requests[2].messages) > 1
     assert requests[2].messages[0].content.value.strip() == "second"

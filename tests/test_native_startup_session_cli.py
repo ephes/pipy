@@ -48,7 +48,9 @@ _run_counter = [0]
 def _repl(
     monkeypatch, tmp_path: Path, cwd: Path, *extra: str, stdin: str = "/exit\n"
 ) -> int:
-    monkeypatch.setattr("pipy_harness.native.fake.FakeNativeProvider", _FakeReplProvider)
+    monkeypatch.setattr(
+        "pipy_harness.native.fake.FakeNativeProvider", _FakeReplProvider
+    )
     monkeypatch.setattr(sys, "stdin", StringIO(stdin))
     _run_counter[0] += 1
     return main(
@@ -68,7 +70,9 @@ def _repl(
 
 
 def _project_dir(cwd: Path, sessions_root: Path) -> Path:
-    return default_native_session_dir(cwd.expanduser().resolve(), sessions_root=sessions_root)
+    return default_native_session_dir(
+        cwd.expanduser().resolve(), sessions_root=sessions_root
+    )
 
 
 def test_session_id_creates_then_reopens(tmp_path, monkeypatch) -> None:
@@ -77,8 +81,13 @@ def test_session_id_creates_then_reopens(tmp_path, monkeypatch) -> None:
     cwd.mkdir()
 
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(sessions_root),
-        "--session-id", "fixed-id-xyz",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(sessions_root),
+        "--session-id",
+        "fixed-id-xyz",
     )
     assert code == 0
     sessions = list_native_sessions(_project_dir(cwd, sessions_root))
@@ -86,8 +95,13 @@ def test_session_id_creates_then_reopens(tmp_path, monkeypatch) -> None:
 
     # Re-running with the same id reopens it (no second file).
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(sessions_root),
-        "--session-id", "fixed-id-xyz",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(sessions_root),
+        "--session-id",
+        "fixed-id-xyz",
     )
     assert code == 0
     sessions = list_native_sessions(_project_dir(cwd, sessions_root))
@@ -99,8 +113,13 @@ def test_name_flag_is_applied(tmp_path, monkeypatch) -> None:
     cwd = tmp_path / "ws"
     cwd.mkdir()
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(sessions_root),
-        "-n", "named-session",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(sessions_root),
+        "-n",
+        "named-session",
     )
     assert code == 0
     sessions = list_native_sessions(_project_dir(cwd, sessions_root))
@@ -112,7 +131,12 @@ def test_fork_continue_mutually_exclusive(tmp_path, monkeypatch, capfd) -> None:
     cwd = tmp_path / "ws"
     cwd.mkdir()
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--fork", "abc", "--continue",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--fork",
+        "abc",
+        "--continue",
     )
     err = capfd.readouterr().err
     assert code == 2
@@ -123,34 +147,55 @@ def test_session_id_session_mutually_exclusive(tmp_path, monkeypatch, capfd) -> 
     cwd = tmp_path / "ws"
     cwd.mkdir()
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-id", "x", "--session", "y",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-id",
+        "x",
+        "--session",
+        "y",
     )
     err = capfd.readouterr().err
     assert code == 2
     assert "--session-id cannot be combined with --session" in err
 
 
-def _seed_other_project_session(tmp_path, monkeypatch, sessions_root: Path) -> tuple[Path, str]:
+def _seed_other_project_session(
+    tmp_path, monkeypatch, sessions_root: Path
+) -> tuple[Path, str]:
     other = tmp_path / "other"
     other.mkdir()
     code = _repl(
-        monkeypatch, tmp_path, other, "--session-dir", str(sessions_root),
-        "-n", "from-other",
+        monkeypatch,
+        tmp_path,
+        other,
+        "--session-dir",
+        str(sessions_root),
+        "-n",
+        "from-other",
     )
     assert code == 0
     sessions = list_native_sessions(_project_dir(other, sessions_root))
     return other, sessions[0].session_id
 
 
-def test_cross_project_session_aborts_when_declined(tmp_path, monkeypatch, capfd) -> None:
+def test_cross_project_session_aborts_when_declined(
+    tmp_path, monkeypatch, capfd
+) -> None:
     sessions_root = tmp_path / "store"
     _other, sid = _seed_other_project_session(tmp_path, monkeypatch, sessions_root)
     here = tmp_path / "here"
     here.mkdir()
 
     code = _repl(
-        monkeypatch, tmp_path, here, "--session-dir", str(sessions_root),
-        "--session", sid[:8], stdin="n\n/exit\n",
+        monkeypatch,
+        tmp_path,
+        here,
+        "--session-dir",
+        str(sessions_root),
+        "--session",
+        sid[:8],
+        stdin="n\n/exit\n",
     )
     err = capfd.readouterr().err
     assert code == 0
@@ -160,15 +205,23 @@ def test_cross_project_session_aborts_when_declined(tmp_path, monkeypatch, capfd
     assert list_native_sessions(_project_dir(here, sessions_root)) == []
 
 
-def test_cross_project_session_forks_when_confirmed(tmp_path, monkeypatch, capfd) -> None:
+def test_cross_project_session_forks_when_confirmed(
+    tmp_path, monkeypatch, capfd
+) -> None:
     sessions_root = tmp_path / "store"
     _other, sid = _seed_other_project_session(tmp_path, monkeypatch, sessions_root)
     here = tmp_path / "here"
     here.mkdir()
 
     code = _repl(
-        monkeypatch, tmp_path, here, "--session-dir", str(sessions_root),
-        "--session", sid[:8], stdin="y\n/exit\n",
+        monkeypatch,
+        tmp_path,
+        here,
+        "--session-dir",
+        str(sessions_root),
+        "--session",
+        sid[:8],
+        stdin="y\n/exit\n",
     )
     assert code == 0
     forked = list_native_sessions(_project_dir(here, sessions_root))
@@ -182,15 +235,25 @@ def test_resume_flag_non_tty_continues_most_recent(tmp_path, monkeypatch) -> Non
     cwd.mkdir()
     # Seed a session, then `-r` on a non-TTY must continue it (not create new).
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(sessions_root),
-        "-n", "seed",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(sessions_root),
+        "-n",
+        "seed",
     )
     assert code == 0
     before = list_native_sessions(_project_dir(cwd, sessions_root))
     assert len(before) == 1
 
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(sessions_root), "-r",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(sessions_root),
+        "-r",
     )
     assert code == 0
     after = list_native_sessions(_project_dir(cwd, sessions_root))
@@ -231,7 +294,13 @@ def test_resume_flag_tty_cancel_aborts(tmp_path, monkeypatch, capfd) -> None:
     cwd.mkdir()
     # Seed a session so the interactive picker path runs.
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(sessions_root), "-n", "seed",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(sessions_root),
+        "-n",
+        "seed",
     )
     assert code == 0
 
@@ -241,15 +310,24 @@ def test_resume_flag_tty_cancel_aborts(tmp_path, monkeypatch, capfd) -> None:
         "pipy_harness.native.tui.run_startup_session_picker",
         lambda **kwargs: None,
     )
-    before = [s.session_id for s in list_native_sessions(_project_dir(cwd, sessions_root))]
+    before = [
+        s.session_id for s in list_native_sessions(_project_dir(cwd, sessions_root))
+    ]
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(sessions_root), "-r",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(sessions_root),
+        "-r",
     )
     err = capfd.readouterr().err
     assert code == 0
     assert "aborted" in err.lower()
     # No new session created by the aborted run.
-    after = [s.session_id for s in list_native_sessions(_project_dir(cwd, sessions_root))]
+    after = [
+        s.session_id for s in list_native_sessions(_project_dir(cwd, sessions_root))
+    ]
     assert after == before
 
 
@@ -261,8 +339,13 @@ def test_unsafe_session_id_is_rejected(tmp_path, monkeypatch, capfd) -> None:
     cwd = tmp_path / "ws"
     cwd.mkdir()
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(sessions_root),
-        "--session-id", "../../evil",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(sessions_root),
+        "--session-id",
+        "../../evil",
     )
     err = capfd.readouterr().err
     assert code == 2
@@ -271,13 +354,20 @@ def test_unsafe_session_id_is_rejected(tmp_path, monkeypatch, capfd) -> None:
     assert not list(tmp_path.glob("**/evil*"))
 
 
-def test_retired_resume_branch_flags_rejected_with_message(tmp_path, monkeypatch, capfd) -> None:
+def test_retired_resume_branch_flags_rejected_with_message(
+    tmp_path, monkeypatch, capfd
+) -> None:
     cwd = tmp_path / "ws"
     cwd.mkdir()
     for flag, value in (("--resume", "rec"), ("--branch", "lbl")):
         code = _repl(
-            monkeypatch, tmp_path, cwd, "--session-dir", str(tmp_path / "store"),
-            flag, value,
+            monkeypatch,
+            tmp_path,
+            cwd,
+            "--session-dir",
+            str(tmp_path / "store"),
+            flag,
+            value,
         )
         err = capfd.readouterr().err
         assert code == 2, flag
@@ -291,8 +381,13 @@ def test_empty_session_id_is_rejected_not_ignored(tmp_path, monkeypatch, capfd) 
     sessions_root = tmp_path / "store"
     # An explicit empty --session-id must not be silently ignored.
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(sessions_root),
-        "--session-id", "",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(sessions_root),
+        "--session-id",
+        "",
     )
     err = capfd.readouterr().err
     assert code == 2
@@ -301,37 +396,60 @@ def test_empty_session_id_is_rejected_not_ignored(tmp_path, monkeypatch, capfd) 
     assert list_native_sessions(_project_dir(cwd, sessions_root)) == []
 
 
-def test_empty_session_id_still_triggers_mutual_exclusion(tmp_path, monkeypatch, capfd) -> None:
+def test_empty_session_id_still_triggers_mutual_exclusion(
+    tmp_path, monkeypatch, capfd
+) -> None:
     cwd = tmp_path / "ws"
     cwd.mkdir()
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-id", "", "--continue",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-id",
+        "",
+        "--continue",
     )
     err = capfd.readouterr().err
     assert code == 2
     assert "--session-id cannot be combined with --continue" in err
 
 
-def test_empty_session_and_fork_targets_are_rejected(tmp_path, monkeypatch, capfd) -> None:
+def test_empty_session_and_fork_targets_are_rejected(
+    tmp_path, monkeypatch, capfd
+) -> None:
     cwd = tmp_path / "ws"
     cwd.mkdir()
     for flag in ("--session", "--fork"):
         code = _repl(
-            monkeypatch, tmp_path, cwd, "--session-dir", str(tmp_path / "store"),
-            flag, "",
+            monkeypatch,
+            tmp_path,
+            cwd,
+            "--session-dir",
+            str(tmp_path / "store"),
+            flag,
+            "",
         )
         err = capfd.readouterr().err
         assert code == 2, flag
         assert "requires a path or id" in err, (flag, err)
 
 
-def test_empty_fork_with_session_id_does_not_silently_open(tmp_path, monkeypatch, capfd) -> None:
+def test_empty_fork_with_session_id_does_not_silently_open(
+    tmp_path, monkeypatch, capfd
+) -> None:
     cwd = tmp_path / "ws"
     cwd.mkdir()
     sessions_root = tmp_path / "store"
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(sessions_root),
-        "--fork", "", "--session-id", "foo",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(sessions_root),
+        "--fork",
+        "",
+        "--session-id",
+        "foo",
     )
     capfd.readouterr()
     assert code == 2
@@ -346,8 +464,13 @@ def test_retired_resume_flag_rejected(tmp_path, monkeypatch, capfd) -> None:
     cwd = tmp_path / "ws"
     cwd.mkdir()
     code = _repl(
-        monkeypatch, tmp_path, cwd, "--session-dir", str(tmp_path / "store"),
-        "--resume", "rec",
+        monkeypatch,
+        tmp_path,
+        cwd,
+        "--session-dir",
+        str(tmp_path / "store"),
+        "--resume",
+        "rec",
     )
     err = capfd.readouterr().err
     assert code == 2

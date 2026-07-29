@@ -111,9 +111,7 @@ def test_marker_reports_exact_omitted_counts(tmp_path: Path) -> None:
 
     result = tool.invoke(request, _context(tmp_path))
 
-    match = re.search(
-        r"--- omitted (\d+) lines, (\d+) bytes ---", result.output_text
-    )
+    match = re.search(r"--- omitted (\d+) lines, (\d+) bytes ---", result.output_text)
     assert match is not None, result.output_text
     omitted_lines = int(match.group(1))
     omitted_bytes = int(match.group(2))
@@ -133,9 +131,7 @@ def test_byte_cap_enforced(tmp_path: Path) -> None:
     line = "x" * 50
     text = "\n".join(line for _ in range(1000))
     cap = 2048
-    request = _make_request(
-        {"text": text, "max_bytes": cap, "max_lines": 5000}
-    )
+    request = _make_request({"text": text, "max_bytes": cap, "max_lines": 5000})
 
     result = tool.invoke(request, _context(tmp_path))
 
@@ -147,9 +143,7 @@ def test_byte_cap_enforced(tmp_path: Path) -> None:
 def test_line_cap_enforced(tmp_path: Path) -> None:
     tool = TruncateTool()
     text = "\n".join(f"row{i}" for i in range(300))
-    request = _make_request(
-        {"text": text, "max_lines": 20, "max_bytes": MAX_MAX_BYTES}
-    )
+    request = _make_request({"text": text, "max_lines": 20, "max_bytes": MAX_MAX_BYTES})
 
     result = tool.invoke(request, _context(tmp_path))
 

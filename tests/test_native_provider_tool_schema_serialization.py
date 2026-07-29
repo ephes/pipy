@@ -75,8 +75,6 @@ def test_provider_serializers_materialize_nested_immutable_schema(
 
     assert schema_from_payload(payload) == {
         "type": "object",
-        "properties": {
-            "query": {"type": "string", "enum": ["one", "two"]}
-        },
+        "properties": {"query": {"type": "string", "enum": ["one", "two"]}},
         "required": ["query"],
     }

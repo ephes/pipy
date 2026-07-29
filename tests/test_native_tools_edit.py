@@ -162,9 +162,7 @@ def test_edit_tool_rejects_empty_old_string(tmp_path: Path):
     (tmp_path / "f.py").write_text("x", encoding="utf-8")
     tool = EditTool()
     context = ToolContext(workspace_root=tmp_path)
-    request = _make_request(
-        {"path": "f.py", "old_string": "", "new_string": "y"}
-    )
+    request = _make_request({"path": "f.py", "old_string": "", "new_string": "y"})
 
     with pytest.raises(ToolArgumentError) as info:
         tool.invoke(request, context)
@@ -190,9 +188,7 @@ def test_edit_tool_refuses_oversized_file_before_read(tmp_path: Path):
     target.write_bytes(b"x" * 65)
     tool = EditTool(max_content_bytes=64)
     context = ToolContext(workspace_root=tmp_path)
-    request = _make_request(
-        {"path": "large.py", "old_string": "x", "new_string": "y"}
-    )
+    request = _make_request({"path": "large.py", "old_string": "x", "new_string": "y"})
 
     result = tool.invoke(request, context)
 
@@ -258,9 +254,7 @@ def test_edit_tool_does_not_invoke_archive_recorder(tmp_path: Path, monkeypatch)
 
     tool = EditTool()
     context = ToolContext(workspace_root=tmp_path)
-    request = _make_request(
-        {"path": "f.py", "old_string": "x", "new_string": "y"}
-    )
+    request = _make_request({"path": "f.py", "old_string": "x", "new_string": "y"})
 
     tool.invoke(request, context)
 
@@ -269,8 +263,7 @@ def test_edit_tool_does_not_invoke_archive_recorder(tmp_path: Path, monkeypatch)
 
 def test_edit_tool_source_does_not_import_recorder():
     source = (
-        Path(__file__).parents[1]
-        / "src/pipy_harness/native/tools/edit.py"
+        Path(__file__).parents[1] / "src/pipy_harness/native/tools/edit.py"
     ).read_text(encoding="utf-8")
 
     assert "import pipy_session" not in source

@@ -17,7 +17,11 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native import themes
-from pipy_harness.native.package_manager import git_cache_path, install_package, parse_git_source
+from pipy_harness.native.package_manager import (
+    git_cache_path,
+    install_package,
+    parse_git_source,
+)
 from pipy_harness.native.package_resources import (
     PackageResourceRoots as OwnedPackageResourceRoots,
 )
@@ -47,7 +51,9 @@ def _reset_registry() -> Iterator[None]:
 def _make_package(root: Path) -> Path:
     pkg = root / "pkg"
     (pkg / "skills").mkdir(parents=True)
-    (pkg / "skills" / "s.md").write_text(_SKILL.format(name="pkg-skill"), encoding="utf-8")
+    (pkg / "skills" / "s.md").write_text(
+        _SKILL.format(name="pkg-skill"), encoding="utf-8"
+    )
     (pkg / "prompts").mkdir(parents=True)
     (pkg / "prompts" / "p.md").write_text(
         _TEMPLATE.format(name="pkg-prompt"), encoding="utf-8"
@@ -138,7 +144,9 @@ def test_user_scoped_git_package_does_not_resolve_project_cache(
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps({"packages": [source]}), encoding="utf-8")
 
-    roots = compose_package_runtime(_settings(cwd, env), cwd, install_theme_registry=False)
+    roots = compose_package_runtime(
+        _settings(cwd, env), cwd, install_theme_registry=False
+    )
 
     assert tuple(root.path for root in roots.skills) == (user_cache / "skills",)
 

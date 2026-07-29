@@ -25,6 +25,7 @@ from pipy_harness.native.providers.openai_responses_wire import responses_input
 def _content(message: object) -> list[dict[str, Any]]:
     return cast(list[dict[str, Any]], cast(dict[str, Any], message)["content"])
 
+
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 _B64 = base64.b64encode(_PNG).decode("ascii")
 

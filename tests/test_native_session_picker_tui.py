@@ -233,7 +233,11 @@ def test_delete_blocked_on_current_session(tmp_path) -> None:
 
 def test_region_lines_escape_safe_and_resize_coherent(tmp_path) -> None:
     ui = _ui(tmp_path)
-    _open(ui, [_entry("name\x1b[31m", "111", cwd="/a\x07b")], current=Path("/store/111.jsonl"))
+    _open(
+        ui,
+        [_entry("name\x1b[31m", "111", cwd="/a\x07b")],
+        current=Path("/store/111.jsonl"),
+    )
     for width, height in ((80, 24), (100, 40), (62, 13)):
         lines = ui._session_picker_region_lines(width=width, height=height)
         for fl in lines:

@@ -125,7 +125,9 @@ def test_finalize_moves_active_record_to_project_year_month_archive(tmp_path):
     assert not active.exists()
     assert record.markdown_path is None
     assert record.jsonl_path.parent == tmp_path / "pipy" / "2026" / "04"
-    assert record.jsonl_path.name == "2026-04-30T133000Z-studio-codex-finalize-test.jsonl"
+    assert (
+        record.jsonl_path.name == "2026-04-30T133000Z-studio-codex-finalize-test.jsonl"
+    )
     assert re.fullmatch(
         r"\d{4}-\d{2}-\d{2}T\d{6}Z-studio-codex-finalize-test\.jsonl",
         record.jsonl_path.name,
@@ -219,7 +221,9 @@ def test_finalize_can_create_matching_markdown_summary_from_file(tmp_path):
     record = finalize_session(active, root=tmp_path, summary_file=source)
 
     assert record.markdown_path == record.jsonl_path.with_suffix(".md")
-    assert record.markdown_path.read_text(encoding="utf-8") == "# Summary\n\nFrom file.\n"
+    assert (
+        record.markdown_path.read_text(encoding="utf-8") == "# Summary\n\nFrom file.\n"
+    )
 
 
 def test_markdown_staging_uses_sync_excluded_partial_suffix(tmp_path, monkeypatch):
@@ -244,7 +248,9 @@ def test_markdown_staging_uses_sync_excluded_partial_suffix(tmp_path, monkeypatc
     with pytest.raises(RuntimeError):
         finalize_session(active, root=tmp_path, summary_text="# Summary")
 
-    assert staged_names == ["2026-04-30T133000Z-studio-codex-partial-suffix-test.md.partial"]
+    assert staged_names == [
+        "2026-04-30T133000Z-studio-codex-partial-suffix-test.md.partial"
+    ]
     assert not list((tmp_path / "pipy" / "2026" / "04").glob("*.partial"))
 
 
@@ -267,7 +273,10 @@ def test_init_collision_suffix_is_finalizeable_as_part_of_slug(tmp_path):
     assert first.name == "2026-04-30T133000Z-studio-codex-collision-test.jsonl"
     assert second.name == "2026-04-30T133000Z-studio-codex-collision-test-2.jsonl"
     record = finalize_session(second, root=tmp_path)
-    assert record.jsonl_path.name == "2026-04-30T133000Z-studio-codex-collision-test-2.jsonl"
+    assert (
+        record.jsonl_path.name
+        == "2026-04-30T133000Z-studio-codex-collision-test-2.jsonl"
+    )
 
 
 def test_resolve_active_path_rejects_absolute_non_active_path(tmp_path):

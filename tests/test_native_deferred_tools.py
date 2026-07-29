@@ -64,7 +64,8 @@ def test_split_deferred_tools_pins_history_matrix() -> None:
     )
 
     immediate, deferred = split_deferred_tools(
-        _request((AgentUserMessage(ProductContent("load")), marker), tools), enabled=True
+        _request((AgentUserMessage(ProductContent("load")), marker), tools),
+        enabled=True,
     )
     assert [tool.name for tool in immediate] == ["base_tool"]
     assert [(tool.name, tool.description) for tool in deferred] == [
@@ -82,9 +83,7 @@ def test_split_keeps_prior_used_tool_immediate_and_allows_all_deferred() -> None
     messages = (
         AgentAssistantMessage(
             content=ProductContent(""),
-            tool_calls=(
-                AgentToolCall("call_late", "late_tool", ProductContent("{}")),
-            ),
+            tool_calls=(AgentToolCall("call_late", "late_tool", ProductContent("{}")),),
         ),
         AgentToolResultMessage(
             tool_request_id="pipy-tool-used",
@@ -118,11 +117,7 @@ def test_deferred_tool_payload_materializes_immutable_nested_schema() -> None:
             {
                 "type": "object",
                 "properties": MappingProxyType(
-                    {
-                        "path": MappingProxyType(
-                            {"type": "string", "enum": ("a", "b")}
-                        )
-                    }
+                    {"path": MappingProxyType({"type": "string", "enum": ("a", "b")})}
                 ),
                 "required": ("path",),
             }
@@ -149,9 +144,7 @@ def test_deferred_tool_payload_materializes_immutable_nested_schema() -> None:
             "description": "late_tool description",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string", "enum": ["a", "b"]}
-                },
+                "properties": {"path": {"type": "string", "enum": ["a", "b"]}},
                 "required": ["path"],
             },
             "strict": False,

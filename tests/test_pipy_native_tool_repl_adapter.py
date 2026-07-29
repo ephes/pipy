@@ -41,7 +41,8 @@ class _NullEventSink:
 
 
 def test_repl_explicit_fake_provider_resolves_to_tool_capable_selection(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ):
     """``pipy repl --native-provider fake`` must yield a tool-capable provider.
 
@@ -93,7 +94,9 @@ def test_pipy_native_tool_repl_adapter_requires_tool_capable_provider(
     )
 
     with pytest.raises(ValueError, match="supports_tool_calls"):
-        adapter.run(prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy())
+        adapter.run(
+            prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy()
+        )
 
 
 def test_pipy_native_tool_repl_adapter_runs_with_fake_provider(tmp_path: Path):
@@ -127,7 +130,9 @@ def test_pipy_native_tool_repl_adapter_runs_with_fake_provider(tmp_path: Path):
         )
     )
 
-    result = adapter.run(prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy())
+    result = adapter.run(
+        prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy()
+    )
 
     assert result.exit_code == 0
     metadata = result.metadata or {}
@@ -234,9 +239,7 @@ def test_system_prompt_omits_skill_block_when_read_excluded(
     tmp_path: Path, monkeypatch
 ):
     skills_dir = tmp_path / ".pipy" / "skills"
-    _write_skill(
-        skills_dir, name="lint", description="Lint the code", body="lint body"
-    )
+    _write_skill(skills_dir, name="lint", description="Lint the code", body="lint body")
     adapter = PipyNativeToolReplAdapter(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={},
@@ -255,9 +258,7 @@ def test_skill_dirs_added_to_reference_roots(tmp_path: Path, monkeypatch):
     from pipy_harness.native.tools.read import ReadTool
 
     skills_dir = tmp_path / ".pipy" / "skills"
-    _write_skill(
-        skills_dir, name="lint", description="Lint the code", body="lint body"
-    )
+    _write_skill(skills_dir, name="lint", description="Lint the code", body="lint body")
     adapter = PipyNativeToolReplAdapter(
         provider=FakeNativeProvider(supports_tool_calls=True),
         tool_registry={"read": ReadTool()},
@@ -476,7 +477,9 @@ def test_pipy_native_tool_repl_adapter_metadata_is_metadata_only(tmp_path: Path)
         )
     )
 
-    result = adapter.run(prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy())
+    result = adapter.run(
+        prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy()
+    )
 
     metadata = result.metadata or {}
     forbidden = {

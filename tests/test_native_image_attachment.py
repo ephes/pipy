@@ -46,7 +46,9 @@ def test_detect_image_media_type_by_magic_bytes() -> None:
 
 
 def test_parse_image_references_anchored_and_deduped() -> None:
-    refs = parse_image_references("look at @image:a.png and (@img:b.jpg) and @image:a.png")
+    refs = parse_image_references(
+        "look at @image:a.png and (@img:b.jpg) and @image:a.png"
+    )
     assert refs == ("a.png", "b.jpg")
     # A bare @file (text) reference is not an image reference.
     assert parse_image_references("@file.txt @notes.md") == ()
@@ -56,7 +58,9 @@ def test_parse_image_references_anchored_and_deduped() -> None:
 
 def test_resolve_loads_supported_image_with_safe_metadata(tmp_path: Path) -> None:
     _write(tmp_path / "shot.png", _PNG)
-    resolution = resolve_image_attachments("see @image:shot.png", workspace_root=tmp_path)
+    resolution = resolve_image_attachments(
+        "see @image:shot.png", workspace_root=tmp_path
+    )
     assert resolution.used is True
     assert resolution.loaded_count == 1
     attachments = resolution.attachments()
@@ -95,7 +99,9 @@ def test_oversized_image_fails_closed(tmp_path: Path) -> None:
 
 def test_git_path_refused(tmp_path: Path) -> None:
     _write(tmp_path / ".git" / "secret.png", _PNG)
-    resolution = resolve_image_attachments("@image:.git/secret.png", workspace_root=tmp_path)
+    resolution = resolve_image_attachments(
+        "@image:.git/secret.png", workspace_root=tmp_path
+    )
     assert resolution.used is False
 
 

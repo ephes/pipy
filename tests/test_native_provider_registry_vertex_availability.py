@@ -15,12 +15,8 @@ def test_available_with_express_api_key_alone():
 
 
 def test_available_with_adc_token_and_project():
-    assert _available(
-        {"GOOGLE_ACCESS_TOKEN": "ya29.x", "GOOGLE_CLOUD_PROJECT": "p"}
-    )
-    assert _available(
-        {"GOOGLE_ACCESS_TOKEN": "ya29.x", "GOOGLE_PROJECT_ID": "p"}
-    )
+    assert _available({"GOOGLE_ACCESS_TOKEN": "ya29.x", "GOOGLE_CLOUD_PROJECT": "p"})
+    assert _available({"GOOGLE_ACCESS_TOKEN": "ya29.x", "GOOGLE_PROJECT_ID": "p"})
 
 
 def test_unavailable_without_key_or_adc():

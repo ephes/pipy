@@ -37,9 +37,7 @@ def test_explicit_skill_file_loads_when_defaults_disabled(tmp_path: Path) -> Non
     )
     explicit = tmp_path / "outside" / "explicit.md"
     explicit.parent.mkdir()
-    explicit.write_text(
-        _SKILL.format(name="explicit", desc="cli"), encoding="utf-8"
-    )
+    explicit.write_text(_SKILL.format(name="explicit", desc="cli"), encoding="utf-8")
 
     resources = WorkspaceResources.discover(
         workspace,

@@ -224,8 +224,6 @@ def test_tool_result_hook_transforms_through_session(tmp_path, monkeypatch) -> N
     )
 
     second = provider.requests[1]
-    joined = " ".join(
-        message.content.value for message in second.messages
-    )
+    joined = " ".join(message.content.value for message in second.messages)
     assert "WRAPPED::" in joined
     assert "hello-note" in joined

@@ -119,9 +119,7 @@ def test_provider_failed_while_active_fails_and_suppresses() -> None:
         ProviderFailed(AgentFailure("boom", ProductContent("no")), will_retry=False),
     )
 
-    assert state == UiState(
-        assistant_active=True, assistant_completion_suppressed=True
-    )
+    assert state == UiState(assistant_active=True, assistant_completion_suppressed=True)
     assert decisions == (FailAssistantMessage(),)
 
 
@@ -141,9 +139,7 @@ def test_run_cancelled_while_active_cancels_with_each_reason(
 ) -> None:
     state, decisions = reduce(UiState(assistant_active=True), RunCancelled(reason))
 
-    assert state == UiState(
-        assistant_active=True, assistant_completion_suppressed=True
-    )
+    assert state == UiState(assistant_active=True, assistant_completion_suppressed=True)
     assert decisions == (CancelAssistantMessage(reason),)
 
 

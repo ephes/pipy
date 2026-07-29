@@ -35,7 +35,7 @@ from pty_sync import wait_for_input_ready_after
 # themes a known body sentinel via ctx.theme.fg. The
 # `/mkcard` command appends a custom entry whose registered renderer runs
 # synchronously through the live ui_driver.
-_EXT = '''
+_EXT = """
 from pipy_harness.extensions import lines_component
 
 
@@ -54,7 +54,7 @@ def activate(api):
         ctx.append_entry("card", {"k": "v"})
 
     api.register_command("mkcard", "append a styled card entry", _mkcard)
-'''
+"""
 
 
 class _Provider:
@@ -174,7 +174,7 @@ def test_rich_message_renderer_color_visible_over_pty(
         # follows it (theme.fg wraps the text in \x1b[..m...\x1b[0m).
         body_at = frame.index("PTYBODY")
         before = frame[:body_at]
-        after = frame[body_at + len("PTYBODY"):]
+        after = frame[body_at + len("PTYBODY") :]
         # An SGR escape (\x1b[..m) sits immediately before the body with no other
         # text between the escape and the sentinel: the color is ON the body.
         last_esc = before.rfind("\x1b[")

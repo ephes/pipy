@@ -32,9 +32,7 @@ def _record(
         "phase": phase,
         "findings": {
             "prompt": [{"row": prompt_row, "column": 1, "attr": {"fg": "white"}}],
-            "expected_output": [
-                {"row": output_row, "column": 1, "attr": {"fg": None}}
-            ],
+            "expected_output": [{"row": output_row, "column": 1, "attr": {"fg": None}}],
             "status": [{"row": status_row, "column": 71, "attr": {"fg": "dim"}}],
             "cwd": [{"row": status_row - 1, "column": 0, "attr": {"fg": "dim"}}],
         },
@@ -57,7 +55,9 @@ def _record(
     return record
 
 
-def test_compare_screen_metrics_writes_row_column_delta_artifacts(tmp_path: Path) -> None:
+def test_compare_screen_metrics_writes_row_column_delta_artifacts(
+    tmp_path: Path,
+) -> None:
     reference = tmp_path / "pipy.jsonl"
     target = tmp_path / "pi.jsonl"
     _write_jsonl(reference, [_record()])

@@ -349,10 +349,7 @@ def test_http_429_returns_failed_result(tmp_path):
 
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "OpenAICompletionsHTTPStatusError"
-    assert (
-        result.error_message
-        == "OpenAI API request failed with HTTP status 429."
-    )
+    assert result.error_message == "OpenAI API request failed with HTTP status 429."
     assert result.metadata == {
         "http_status": 429,
         "api_error_type": "rate_limit_exceeded",
@@ -419,8 +416,7 @@ def test_malformed_json_response_returns_failed_result(tmp_path):
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == OpenAICompletionsResponseParseError.__name__
     assert (
-        result.error_message
-        == "OpenAI response did not include a completion choice."
+        result.error_message == "OpenAI response did not include a completion choice."
     )
     assert result.metadata == {
         "provider_response_store_requested": False,

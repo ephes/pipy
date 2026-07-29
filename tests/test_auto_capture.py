@@ -44,7 +44,9 @@ def test_auto_capture_state_lives_under_in_progress_project_state(tmp_path):
     assert ".in-progress/pipy/.state" in state.state_path.as_posix()
 
 
-def test_auto_capture_start_event_stop_finalizes_partial_record_and_removes_state(tmp_path):
+def test_auto_capture_start_event_stop_finalizes_partial_record_and_removes_state(
+    tmp_path,
+):
     state = start_auto_capture(
         agent="codex",
         slug="auto-lifecycle",
@@ -232,7 +234,9 @@ def test_prune_removes_corrupt_and_non_object_state(tmp_path):
 
     results = prune_auto_capture_state(root=tmp_path)
 
-    assert [(result.path.name, result.reason, result.removed) for result in results] == [
+    assert [
+        (result.path.name, result.reason, result.removed) for result in results
+    ] == [
         ("claude-corrupt.json", "invalid-json", True),
         ("claude-list.json", "invalid-state", True),
     ]
@@ -354,7 +358,9 @@ def test_claude_hook_start_prompt_metadata_and_end_are_partial_and_redacted(tmp_
         "model": "claude-sonnet-4-6",
     }
 
-    result = handle_claude_hook(start_payload, root=tmp_path, machine="studio", now=FIXED_NOW)
+    result = handle_claude_hook(
+        start_payload, root=tmp_path, machine="studio", now=FIXED_NOW
+    )
     assert result.active_path is not None
 
     prompt_payload = {
@@ -384,9 +390,13 @@ def test_claude_hook_start_prompt_metadata_and_end_are_partial_and_redacted(tmp_
     assert events[0]["agent"] == "claude"
     assert events[0]["partial"] is True
     model_event = [event for event in events if event["type"] == "model.used"][0]
-    assert model_event["summary"] == "Model used: agent=claude, model=claude-sonnet-4-6."
+    assert (
+        model_event["summary"] == "Model used: agent=claude, model=claude-sonnet-4-6."
+    )
     assert model_event["payload"] == {"agent": "claude", "model": "claude-sonnet-4-6"}
-    prompt_event = [event for event in events if event["type"] == "claude.userpromptsubmit"][0]
+    prompt_event = [
+        event for event in events if event["type"] == "claude.userpromptsubmit"
+    ][0]
     assert prompt_event["payload"]["prompt"] == {"characters": 47, "redacted": True}
     assert prompt_event["payload"]["transcript_file"] == "session.jsonl"
     assert prompt_event["payload"]["cwd_name"] == "pipy"
@@ -407,8 +417,14 @@ def test_claude_session_end_without_state_is_ignored(tmp_path):
     assert "no active state" in result.message
 
 
-def test_claude_hook_cli_writes_ignored_messages_to_stderr(tmp_path, capsys, monkeypatch):
-    monkeypatch.setattr(sys, "stdin", io.StringIO('{"hook_event_name":"SessionEnd","session_id":"missing"}'))
+def test_claude_hook_cli_writes_ignored_messages_to_stderr(
+    tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO('{"hook_event_name":"SessionEnd","session_id":"missing"}'),
+    )
 
     exit_code = main(["--root", str(tmp_path), "auto", "hook", "claude"])
 
@@ -510,7 +526,9 @@ def test_sensitive_session_id_is_not_written_to_state_or_record(tmp_path):
     assert "SECRET123" not in record.jsonl_path.read_text(encoding="utf-8")
 
 
-def test_sensitive_session_id_resume_keeps_raw_id_in_memory_without_persisting_it(tmp_path):
+def test_sensitive_session_id_resume_keeps_raw_id_in_memory_without_persisting_it(
+    tmp_path,
+):
     first = start_auto_capture(
         agent="claude",
         slug="sensitive-resume",
@@ -619,7 +637,10 @@ def test_wrapper_argv_model_is_recorded_as_summary_safe_model_event(
         assert model_events == []
     else:
         assert len(model_events) == 1
-        assert model_events[0]["summary"] == f"Model used: agent=codex, model={expected_model}."
+        assert (
+            model_events[0]["summary"]
+            == f"Model used: agent=codex, model={expected_model}."
+        )
         assert model_events[0]["payload"] == {"agent": "codex", "model": expected_model}
 
 
@@ -644,7 +665,9 @@ def test_cli_metadata_json_argv_is_redacted_before_recording(tmp_path):
     )
 
     assert exit_code == 0
-    active_records = list((tmp_path / ".in-progress" / "pipy").glob("*-studio-codex-argv-bypass.jsonl"))
+    active_records = list(
+        (tmp_path / ".in-progress" / "pipy").glob("*-studio-codex-argv-bypass.jsonl")
+    )
     assert len(active_records) == 1
     active = active_records[0]
     text = active.read_text(encoding="utf-8")

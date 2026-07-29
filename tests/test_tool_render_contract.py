@@ -54,7 +54,9 @@ def test_extension_tool_accepts_renderers():
 
 def test_extension_tool_renderers_default_none():
     tool = ExtensionTool(
-        name="t", description="d", input_schema={"type": "object"},
+        name="t",
+        description="d",
+        input_schema={"type": "object"},
         handler=lambda ctx, inp: None,
     )
     assert tool.render_call is None and tool.render_result is None
@@ -62,9 +64,16 @@ def test_extension_tool_renderers_default_none():
 
 def test_render_context_is_frozen_with_state_mapping():
     ctx = ToolRenderContext(
-        tool_name="t", args={}, is_result=False, is_error=False,
-        content=None, details=None, expanded=False, width=80,
-        theme=None, state={},
+        tool_name="t",
+        args={},
+        is_result=False,
+        is_error=False,
+        content=None,
+        details=None,
+        expanded=False,
+        width=80,
+        theme=None,
+        state={},
     )
     assert isinstance(ctx.args, Mapping)
     ctx.state["x"] = 1  # state mapping is mutable even though the dataclass is frozen

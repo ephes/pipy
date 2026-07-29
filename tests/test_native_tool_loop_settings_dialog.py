@@ -231,9 +231,7 @@ class _RecordingReplState(NativeReplProviderState):
     rebinds while ``/model`` listing/availability run through the bound catalog.
     """
 
-    def __init__(
-        self, built: list[_RecordingProvider], **kwargs: object
-    ) -> None:
+    def __init__(self, built: list[_RecordingProvider], **kwargs: object) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self._built = built
 

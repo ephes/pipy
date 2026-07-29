@@ -19,7 +19,9 @@ from pipy_harness.native.providers.openrouter import (
 
 
 class FakeJsonHTTPClient:
-    def __init__(self, response: JsonResponse | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self, response: JsonResponse | None = None, error: Exception | None = None
+    ) -> None:
         self.response = response
         self.error = error
         self.requests: list[dict[str, Any]] = []
@@ -68,7 +70,10 @@ def test_openrouter_provider_posts_chat_completion_request_and_parses_output(tmp
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": "hello from openrouter"},
+                        "message": {
+                            "role": "assistant",
+                            "content": "hello from openrouter",
+                        },
                         "finish_reason": "stop",
                     }
                 ],
@@ -240,7 +245,9 @@ def test_openrouter_provider_http_error_keeps_message_conservative(tmp_path):
     provider = OpenRouterChatCompletionsProvider(
         model_id="openai/gpt-test",
         api_key="sk-or-test",
-        http_client=FakeJsonHTTPClient(error=OpenRouterHTTPStatusError.from_http_error(http_error)),
+        http_client=FakeJsonHTTPClient(
+            error=OpenRouterHTTPStatusError.from_http_error(http_error)
+        ),
     )
 
     result = provider.complete(provider_request(tmp_path))
@@ -358,7 +365,10 @@ def test_openrouter_provider_rejects_malformed_choices(tmp_path):
 
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "OpenRouterResponseParseError"
-    assert result.error_message == "OpenRouter response did not include a completion choice."
+    assert (
+        result.error_message
+        == "OpenRouter response did not include a completion choice."
+    )
     assert result.metadata == {
         "provider_response_store_requested": False,
         "response_object": "chat.completion",

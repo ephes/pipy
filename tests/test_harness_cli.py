@@ -74,7 +74,9 @@ def test_cli_run_nonzero_returns_child_exit_after_finalization(tmp_path, capfd):
 
 
 def test_cli_requires_command_after_separator(tmp_path, capsys):
-    exit_code = main(["run", "--agent", "custom", "--slug", "missing", "--root", str(tmp_path)])
+    exit_code = main(
+        ["run", "--agent", "custom", "--slug", "missing", "--root", str(tmp_path)]
+    )
 
     captured = capsys.readouterr()
     assert exit_code == 2
@@ -139,5 +141,9 @@ def test_cli_record_files_records_changed_paths_when_enabled(tmp_path):
     finalized = list((root / "pipy").glob("*/*/*.jsonl"))
     assert len(finalized) == 1
     events = read_jsonl(finalized[0])
-    payload = [event["payload"] for event in events if event["type"] == "workspace.files.changed"][0]
+    payload = [
+        event["payload"]
+        for event in events
+        if event["type"] == "workspace.files.changed"
+    ][0]
     assert payload["paths"] == ["created.txt"]

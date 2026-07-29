@@ -68,6 +68,6 @@ def test_collecting_invalid_widget_key_ignored():
 
 def test_collecting_working_indicator_failsoft_on_bad_frames():
     ui = _CollectingUi(has_ui=False)
-    ui.set_working_indicator(123)        # non-iterable frames must not raise
+    ui.set_working_indicator(123)  # non-iterable frames must not raise
     ui.set_working_indicator(["a"], interval_ms=50)
-    assert ui.indicator == (["a"], 50)   # a valid call still records
+    assert ui.indicator == (["a"], 50)  # a valid call still records

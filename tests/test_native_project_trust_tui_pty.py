@@ -60,13 +60,13 @@ def _wait_for(
         timeout=timeout,
     )
     if observed.match_end is None:
-        raise AssertionError(
-            f"selector did not render {needle!r}: {observed.output!r}"
-        )
+        raise AssertionError(f"selector did not render {needle!r}: {observed.output!r}")
     return observed.output, observed.match_end
 
 
-def _wait_for_input_ready_after(fd: int, needle: bytes, *, timeout: float = 8.0) -> bytes:
+def _wait_for_input_ready_after(
+    fd: int, needle: bytes, *, timeout: float = 8.0
+) -> bytes:
     observed = wait_for_fd_input_ready_after(fd, needle, timeout=timeout)
     if observed.ready_end is None:
         raise AssertionError(

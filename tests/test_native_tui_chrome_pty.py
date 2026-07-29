@@ -78,7 +78,9 @@ def test_pty_chrome_header_widget_and_footer_render_with_input(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     worker = threading.Thread(
@@ -104,9 +106,7 @@ def test_pty_chrome_header_widget_and_footer_render_with_input(
             return type("C", (), {"render": lambda self, w: ["CHROME_FOOTER_LINE"]})()
 
         ui.set_extension_header(header_factory)
-        ui.set_extension_widget(
-            "w", ["CHROME_ABOVE_WIDGET"], placement="above_editor"
-        )
+        ui.set_extension_widget("w", ["CHROME_ABOVE_WIDGET"], placement="above_editor")
         ui.set_extension_footer(footer_factory)
 
         assert _wait_for(err_chunks, "CHROME_HEADER_LINE"), "header never painted"

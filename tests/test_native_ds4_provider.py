@@ -114,7 +114,9 @@ def test_ds4_registry_entry_defaults_and_advertises_tool_loop(tmp_path: Path):
         model_runtime=ModelRuntime(catalog=catalog),
         persist_defaults=False,
     )
-    options = {option.selection.provider_name: option for option in state.model_options()}
+    options = {
+        option.selection.provider_name: option for option in state.model_options()
+    }
     assert options["ds4"].available is True
     assert options["ds4"].selection.model_id == DS4_DEFAULT_MODEL
 
@@ -258,9 +260,7 @@ def test_ds4_base_url_override_accepts_base_or_endpoint():
         == "http://localhost:9000/v1/chat/completions"
     )
     assert (
-        ds4_chat_completions_endpoint(
-            "http://localhost:9000/v1/chat/completions"
-        )
+        ds4_chat_completions_endpoint("http://localhost:9000/v1/chat/completions")
         == "http://localhost:9000/v1/chat/completions"
     )
 
@@ -331,10 +331,9 @@ def test_cli_ds4_product_path_against_hermetic_openai_compatible_server(
         "response_object": "chat.completion",
         "finish_reason": "stop",
     }
-    combined = (
-        finalized[0].read_text(encoding="utf-8")
-        + finalized[0].with_suffix(".md").read_text(encoding="utf-8")
-    )
+    combined = finalized[0].read_text(encoding="utf-8") + finalized[0].with_suffix(
+        ".md"
+    ).read_text(encoding="utf-8")
     assert "DS4_STUB_FINAL_TEXT_SHOULD_NOT_ARCHIVE" not in combined
     assert "SYSTEM_PROMPT_SHOULD_NOT_BE_ARCHIVED" not in combined
     assert "chatcmpl-ds4-provider-id-should-not-archive" not in combined

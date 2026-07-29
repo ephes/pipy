@@ -83,7 +83,9 @@ def test_codex_refresh_has_no_margin():
             )
         }
     )
-    provider = OpenAICodexOAuthProvider(transport=transport, now_ms=lambda: FIXED_NOW_MS)
+    provider = OpenAICodexOAuthProvider(
+        transport=transport, now_ms=lambda: FIXED_NOW_MS
+    )
     cred = provider.refresh_token({"refresh": "r"})
     # No safety margin for Codex (Date.now() + expires_in*1000)
     assert cred["expires"] == FIXED_NOW_MS + 3600 * 1000
@@ -93,8 +95,7 @@ def test_copilot_base_url_from_proxy_ep_converts_proxy_to_api():
     token = "tid=abc;exp=123;proxy-ep=proxy.individual.githubcopilot.com;more=x"
     # Pi converts the proxy. host prefix to api.
     assert (
-        copilot_base_url_from_token(token)
-        == "https://api.individual.githubcopilot.com"
+        copilot_base_url_from_token(token) == "https://api.individual.githubcopilot.com"
     )
 
 
@@ -138,9 +139,16 @@ def test_copilot_enable_model_hits_policy_endpoint():
 
 def test_copilot_refresh_uses_bearer_and_expires_at_with_margin():
     transport = FakeTransport(
-        {"copilot_internal/v2/token": (200, json.dumps({"token": "ctok", "expires_at": 2000}))}
+        {
+            "copilot_internal/v2/token": (
+                200,
+                json.dumps({"token": "ctok", "expires_at": 2000}),
+            )
+        }
     )
-    provider = GitHubCopilotOAuthProvider(transport=transport, now_ms=lambda: FIXED_NOW_MS)
+    provider = GitHubCopilotOAuthProvider(
+        transport=transport, now_ms=lambda: FIXED_NOW_MS
+    )
     cred = provider.refresh_token({"refresh": "gh-token"})
     assert cred["access"] == "ctok"
     # expires_at (seconds) * 1000 - 5min margin

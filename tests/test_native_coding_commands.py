@@ -1253,7 +1253,9 @@ def test_registry_carries_the_exact_advertised_descriptions() -> None:
     assert builtin_command_description("/export") == (
         "Export the native session to HTML or active-branch JSONL"
     )
-    assert builtin_command_description("/import") == "Import a native session JSONL file"
+    assert (
+        builtin_command_description("/import") == "Import a native session JSONL file"
+    )
     assert builtin_command_description("/share") == (
         "Upload the native session as a secret GitHub gist"
     )

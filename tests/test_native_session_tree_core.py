@@ -83,9 +83,7 @@ def test_append_message_advances_leaf_and_sets_parent(tmp_path: Path) -> None:
 def test_append_persists_each_entry_as_jsonl_line(tmp_path: Path) -> None:
     tree = _new_tree(tmp_path)
     tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
-    tree.append_message(
-        AgentAssistantMessage(content=ProductContent("SEEN:ROOT"))
-    )
+    tree.append_message(AgentAssistantMessage(content=ProductContent("SEEN:ROOT")))
     assert tree.path is not None
     lines = [
         line
@@ -108,16 +106,12 @@ def test_branch_creates_sibling_without_rewriting_entries(tmp_path: Path) -> Non
         AgentAssistantMessage(content=ProductContent("SEEN:ROOT"))
     )
     main = tree.append_message(AgentUserMessage(content=ProductContent("MAIN")))
-    tree.append_message(
-        AgentAssistantMessage(content=ProductContent("SEEN:ROOT,MAIN"))
-    )
+    tree.append_message(AgentAssistantMessage(content=ProductContent("SEEN:ROOT,MAIN")))
 
     # Re-edit MAIN: move leaf to MAIN's parent and submit an alternative.
     tree.branch(a_reply.id)
     alt = tree.append_message(AgentUserMessage(content=ProductContent("ALT")))
-    tree.append_message(
-        AgentAssistantMessage(content=ProductContent("SEEN:ROOT,ALT"))
-    )
+    tree.append_message(AgentAssistantMessage(content=ProductContent("SEEN:ROOT,ALT")))
 
     assert alt.parent_id == a_reply.id
     assert main.parent_id == a_reply.id
@@ -138,15 +132,11 @@ def test_build_context_follows_only_active_branch(tmp_path: Path) -> None:
         AgentAssistantMessage(content=ProductContent("SEEN:ROOT"))
     )
     tree.append_message(AgentUserMessage(content=ProductContent("MAIN")))
-    tree.append_message(
-        AgentAssistantMessage(content=ProductContent("SEEN:ROOT,MAIN"))
-    )
+    tree.append_message(AgentAssistantMessage(content=ProductContent("SEEN:ROOT,MAIN")))
 
     tree.branch(a_reply.id)
     tree.append_message(AgentUserMessage(content=ProductContent("ALT")))
-    tree.append_message(
-        AgentAssistantMessage(content=ProductContent("SEEN:ROOT,ALT"))
-    )
+    tree.append_message(AgentAssistantMessage(content=ProductContent("SEEN:ROOT,ALT")))
 
     texts = [m.content.value for m in tree.build_context().messages]
     assert "ROOT" in texts
@@ -162,9 +152,7 @@ def test_build_context_follows_only_active_branch(tmp_path: Path) -> None:
         and e.message.content.value == "SEEN:ROOT,MAIN"
     )
     tree.branch(main_leaf.id)
-    texts_main = [
-        m.content.value for m in tree.build_context().messages
-    ]
+    texts_main = [m.content.value for m in tree.build_context().messages]
     assert "MAIN" in texts_main
     assert "ALT" not in texts_main
 
@@ -216,9 +204,7 @@ def test_open_rebuilds_tree_labels_leaf_and_name(tmp_path: Path) -> None:
     assert reply.id in {e.id for e in reopened.get_branch()}
     assert reopened.get_label(root.id) == "start"
     assert reopened.name == "conformance-tree"
-    texts = [
-        m.content.value for m in reopened.build_context().messages
-    ]
+    texts = [m.content.value for m in reopened.build_context().messages]
     assert texts == ["ROOT", "SEEN:ROOT"]
 
 
@@ -229,9 +215,7 @@ def test_open_skips_malformed_lines(tmp_path: Path) -> None:
     with tree.path.open("a", encoding="utf-8") as handle:
         handle.write("this is not json\n")
     reopened = NativeSessionTree.open(tree.path)
-    texts = [
-        m.content.value for m in reopened.build_context().messages
-    ]
+    texts = [m.content.value for m in reopened.build_context().messages]
     assert texts == ["ROOT"]
 
 
@@ -247,9 +231,7 @@ def test_tool_result_message_round_trips(tmp_path: Path) -> None:
         AgentAssistantMessage(
             content=ProductContent(""),
             tool_calls=(
-                AgentToolCall(
-                    "provider-call-1", "test_tool", ProductContent("{}")
-                ),
+                AgentToolCall("provider-call-1", "test_tool", ProductContent("{}")),
             ),
         )
     )
@@ -265,9 +247,7 @@ def test_tool_result_message_round_trips(tmp_path: Path) -> None:
     assert tree.path is not None
     reopened = NativeSessionTree.open(tree.path)
     messages = reopened.build_context().messages
-    tool_results = [
-        m for m in messages if isinstance(m, AgentToolResultMessage)
-    ]
+    tool_results = [m for m in messages if isinstance(m, AgentToolResultMessage)]
     assert len(tool_results) == 1
     assert tool_results[0].content.value == "done"
     assert tool_results[0].added_tool_names == ("late_one", "late_two")
@@ -297,7 +277,9 @@ def test_tool_result_name_inference_is_branch_local(tmp_path: Path) -> None:
         AgentAssistantMessage(
             content=ProductContent(""),
             tool_calls=(
-                AgentToolCall("shared-correlation", "second_tool", ProductContent("{}")),
+                AgentToolCall(
+                    "shared-correlation", "second_tool", ProductContent("{}")
+                ),
             ),
         )
     )
@@ -394,9 +376,7 @@ def test_fork_of_compacted_branch_preserves_kept_messages(tmp_path: Path) -> Non
     )
     tree.append_message(AgentAssistantMessage(content=ProductContent("KEEP-R")))
 
-    source_texts = [
-        m.content.value for m in tree.build_context().messages
-    ]
+    source_texts = [m.content.value for m in tree.build_context().messages]
     assert "KEEP" in source_texts
     assert "OLD" not in source_texts
 
@@ -404,9 +384,7 @@ def test_fork_of_compacted_branch_preserves_kept_messages(tmp_path: Path) -> Non
     forked = NativeSessionTree.fork_from(
         tree.path, cwd, leaf_id=tree.get_leaf_id(), session_dir=session_dir
     )
-    fork_texts = [
-        m.content.value for m in forked.build_context().messages
-    ]
+    fork_texts = [m.content.value for m in forked.build_context().messages]
     # The retained boundary must survive the fork: KEEP/KEEP-R kept, OLD dropped.
     assert "KEEP" in fork_texts
     assert "KEEP-R" in fork_texts
@@ -416,20 +394,14 @@ def test_fork_of_compacted_branch_preserves_kept_messages(tmp_path: Path) -> Non
 def test_compaction_keeps_summary_then_kept_messages(tmp_path: Path) -> None:
     tree = _new_tree(tmp_path)
     tree.append_message(AgentUserMessage(content=ProductContent("OLD-1")))
-    tree.append_message(
-        AgentAssistantMessage(content=ProductContent("REPLY-1"))
-    )
-    keep_user = tree.append_message(
-        AgentUserMessage(content=ProductContent("KEEP"))
-    )
+    tree.append_message(AgentAssistantMessage(content=ProductContent("REPLY-1")))
+    keep_user = tree.append_message(AgentUserMessage(content=ProductContent("KEEP")))
     tree.append_compaction(
         summary="earlier turns summarized",
         first_kept_entry_id=keep_user.id,
         tokens_before=1234,
     )
-    tree.append_message(
-        AgentAssistantMessage(content=ProductContent("REPLY-KEEP"))
-    )
+    tree.append_message(AgentAssistantMessage(content=ProductContent("REPLY-KEEP")))
 
     texts = [m.content.value for m in tree.build_context().messages]
     assert "earlier turns summarized" in texts[0]
@@ -482,9 +454,7 @@ def test_build_tree_nodes_derives_labels_from_entries(tmp_path: Path) -> None:
 
     tree = _new_tree(tmp_path)
     root = tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
-    reply = tree.append_message(
-        AgentAssistantMessage(content=ProductContent("REPLY"))
-    )
+    reply = tree.append_message(AgentAssistantMessage(content=ProductContent("REPLY")))
     tree.append_label_change(root.id, "pinned")
 
     roots = build_tree_nodes(tree.entries)
@@ -524,9 +494,7 @@ def test_snapshot_entries_and_leaf_coherent_under_concurrent_appends(
     def hammer() -> None:
         i = 0
         while not stop.is_set():
-            tree.append_message(
-                AgentAssistantMessage(content=ProductContent(f"M{i}"))
-            )
+            tree.append_message(AgentAssistantMessage(content=ProductContent(f"M{i}")))
             if i % 5 == 0:
                 leaf = tree.leaf_id
                 if leaf is not None:

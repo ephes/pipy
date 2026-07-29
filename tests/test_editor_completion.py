@@ -104,7 +104,10 @@ class TestAtCandidates:
         items = at_candidates(workspace, "tui")
         dir_items = [item for item in items if item.label.endswith("/")]
         assert dir_items
-        assert all(item.value.rstrip('@"').endswith("/") or item.value.endswith("/") for item in dir_items)
+        assert all(
+            item.value.rstrip('@"').endswith("/") or item.value.endswith("/")
+            for item in dir_items
+        )
 
     def test_space_path_is_quoted(self, workspace: Path) -> None:
         items = at_candidates(workspace, "my dir")
@@ -248,9 +251,7 @@ class TestPathCandidates:
         assert "linked.py" in labels
         assert "linkescape.py" not in labels
 
-    def test_absolute_outside_dir_listing_is_unfiltered(
-        self, tmp_path: Path
-    ) -> None:
+    def test_absolute_outside_dir_listing_is_unfiltered(self, tmp_path: Path) -> None:
         # Explicit absolute/home navigation outside the workspace is Pi-like:
         # the workspace-relative ignored/containment filter does not apply, so an
         # entry named like a generated dir is still listed when the user pointed

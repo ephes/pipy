@@ -24,7 +24,9 @@ from pipy_harness.native.resources import (
 )
 
 
-def _write(directory: Path, filename: str, *, name: str, description: str, body: str) -> None:
+def _write(
+    directory: Path, filename: str, *, name: str, description: str, body: str
+) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     text = f"---\nname: {name}\ndescription: {description}\n---\n\n{body}"
     (directory / filename).write_text(text, encoding="utf-8")
@@ -109,7 +111,9 @@ def test_reserved_command_names_covers_full_registry_plus_adjuncts() -> None:
     assert "template" not in RESERVED_COMMAND_NAMES
 
 
-def test_custom_command_colliding_with_widened_builtin_is_dropped(tmp_path: Path) -> None:
+def test_custom_command_colliding_with_widened_builtin_is_dropped(
+    tmp_path: Path,
+) -> None:
     # A custom command named after a built-in that was NOT in the pre-3.2
     # reserved set (e.g. ``reload``) is now dropped from slash discovery and is
     # never claimed by resource dispatch.
@@ -293,7 +297,9 @@ def test_control_bytes_in_name_and_description_are_stripped(tmp_path: Path) -> N
     assert "\x1b" not in listing.message
 
 
-def test_control_bytes_in_custom_command_description_are_stripped(tmp_path: Path) -> None:
+def test_control_bytes_in_custom_command_description_are_stripped(
+    tmp_path: Path,
+) -> None:
     workspace = tmp_path / "ws"
     _write_raw(
         workspace / ".pipy" / "commands",
@@ -310,7 +316,9 @@ def test_control_bytes_in_custom_command_description_are_stripped(tmp_path: Path
     assert "\x1b" not in descriptions["/dep"]
 
 
-def test_whitespace_named_command_is_not_advertised_or_dispatched(tmp_path: Path) -> None:
+def test_whitespace_named_command_is_not_advertised_or_dispatched(
+    tmp_path: Path,
+) -> None:
     workspace = tmp_path / "ws"
     _write_raw(
         workspace / ".pipy" / "commands",

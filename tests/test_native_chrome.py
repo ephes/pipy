@@ -22,9 +22,7 @@ def test_sol_uses_372k_status_budget() -> None:
     assert sol.budget_label == "372k"
     assert sol.token_budget == 372_000
     # Other GPT-5 Codex models keep the 272k subscription denominator.
-    assert chrome._context_budget_for(
-        "openai-codex", "gpt-5.5"
-    ).budget_label == "272k"
+    assert chrome._context_budget_for("openai-codex", "gpt-5.5").budget_label == "272k"
 
 
 def test_format_bottom_status_line_aligns_left_and_right() -> None:
@@ -210,9 +208,7 @@ def test_print_startup_chrome_renders_context(
     (workspace / "AGENTS.md").write_text("hi", encoding="utf-8")
 
     stream = io.StringIO()
-    chrome.print_startup_chrome(
-        stream, cwd=workspace, include_workspace_defaults=True
-    )
+    chrome.print_startup_chrome(stream, cwd=workspace, include_workspace_defaults=True)
     output = stream.getvalue()
 
     assert "pipy v" in output
@@ -253,9 +249,7 @@ def test_print_startup_chrome_renders_skills_when_store_populated(
     )
 
     stream = io.StringIO()
-    chrome.print_startup_chrome(
-        stream, cwd=workspace, include_workspace_defaults=True
-    )
+    chrome.print_startup_chrome(stream, cwd=workspace, include_workspace_defaults=True)
     output = stream.getvalue()
 
     assert "[Skills]" in output

@@ -229,7 +229,9 @@ def test_export_omits_raw_model_output(tmp_path):
 
     events = payload["events"]
     assert isinstance(events, list)
-    assistant_events = [event for event in events if event.get("type") == "assistant.message"]
+    assistant_events = [
+        event for event in events if event.get("type") == "assistant.message"
+    ]
     assert len(assistant_events) == 1
     assistant_event = assistant_events[0]
     assert set(assistant_event.keys()) <= {
@@ -275,9 +277,7 @@ def test_export_cli_emits_json_to_stdout(tmp_path, capsys):
         ],
     )
 
-    exit_code = main(
-        ["--root", str(tmp_path), "export", record_path.stem]
-    )
+    exit_code = main(["--root", str(tmp_path), "export", record_path.stem])
     captured = capsys.readouterr()
 
     assert exit_code == 0

@@ -918,9 +918,9 @@ def test_extension_send_message_trigger_turn_runs_provider_turn(
 
     assert len(provider.requests) == 1
     assert provider.requests[0].user_prompt == "provider-visible"
-    assert [
-        m.content.value for m in provider.requests[0].messages
-    ] == ["provider-visible"]
+    assert [m.content.value for m in provider.requests[0].messages] == [
+        "provider-visible"
+    ]
     custom_messages = [
         e for e in native_session.entries if isinstance(e, CustomMessageEntry)
     ]
@@ -1041,9 +1041,10 @@ def test_extension_send_message_next_turn_injects_next_provider_context(
 
     assert len(provider.requests) == 1
     assert provider.requests[0].user_prompt == "real prompt"
-    assert [
-        m.content.value for m in provider.requests[0].messages
-    ] == ["real prompt", "custom context"]
+    assert [m.content.value for m in provider.requests[0].messages] == [
+        "real prompt",
+        "custom context",
+    ]
     assert result.user_turn_count == 1
 
 
@@ -1083,14 +1084,15 @@ def test_extension_send_message_next_turn_is_not_long_lived_history(
         "first prompt",
         "second prompt",
     ]
-    assert [
-        message.content.value
-        for message in provider.requests[0].messages
-    ] == ["first prompt", "single-use context"]
-    assert [
-        message.content.value
-        for message in provider.requests[1].messages
-    ] == ["first prompt", "OK", "second prompt"]
+    assert [message.content.value for message in provider.requests[0].messages] == [
+        "first prompt",
+        "single-use context",
+    ]
+    assert [message.content.value for message in provider.requests[1].messages] == [
+        "first prompt",
+        "OK",
+        "second prompt",
+    ]
     assert result.user_turn_count == 2
 
 
@@ -1168,9 +1170,7 @@ def test_extension_send_message_next_turn_clears_on_session_switch(
 
     assert len(provider.requests) == 1
     assert provider.requests[0].user_prompt == "new prompt"
-    assert [
-        m.content.value for m in provider.requests[0].messages
-    ] == ["new prompt"]
+    assert [m.content.value for m in provider.requests[0].messages] == ["new prompt"]
 
 
 def test_builtin_is_not_shadowed_by_extension(tmp_path, monkeypatch) -> None:

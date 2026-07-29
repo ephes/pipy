@@ -66,7 +66,14 @@ def test_native_tool_value_objects_do_not_model_payload_or_output_storage():
     assert request_fields["sandbox_policy"]["filesystem_mutation_allowed"] is False
     assert request_fields["sandbox_policy"]["shell_execution_allowed"] is False
     assert request_fields["sandbox_policy"]["network_access_allowed"] is False
-    for forbidden in ("arguments", "payload", "stdout", "stderr", "diff", "file_content"):
+    for forbidden in (
+        "arguments",
+        "payload",
+        "stdout",
+        "stderr",
+        "diff",
+        "file_content",
+    ):
         assert forbidden not in request_fields
 
 
@@ -86,7 +93,16 @@ def test_native_tool_intent_value_object_is_metadata_only():
 
     assert intent_fields["turn_index"] == 0
     assert intent_fields["intent_source"] == "fake_provider"
-    for forbidden in ("arguments", "payload", "stdout", "stderr", "diff", "file_content", "command", "path"):
+    for forbidden in (
+        "arguments",
+        "payload",
+        "stdout",
+        "stderr",
+        "diff",
+        "file_content",
+        "command",
+        "path",
+    ):
         assert forbidden not in intent_fields
 
 
@@ -156,7 +172,9 @@ def test_native_tool_observation_storage_booleans_default_false():
 
     observation_fields = asdict(observation)
 
-    storage_fields = {key: observation_fields[key] for key in NATIVE_TOOL_OBSERVATION_STORAGE_KEYS}
+    storage_fields = {
+        key: observation_fields[key] for key in NATIVE_TOOL_OBSERVATION_STORAGE_KEYS
+    }
     assert set(storage_fields.values()) == {False}
 
 
@@ -220,7 +238,10 @@ def test_native_patch_proposal_value_object_is_metadata_only_and_bounded():
         reason_label=NativePatchProposalReason.STRUCTURED_PROPOSAL_ACCEPTED,
         file_count=2,
         operation_count=3,
-        operation_labels=(NativePatchProposalOperation.MODIFY, NativePatchProposalOperation.CREATE),
+        operation_labels=(
+            NativePatchProposalOperation.MODIFY,
+            NativePatchProposalOperation.CREATE,
+        ),
     )
 
     proposal_fields = asdict(proposal)
@@ -232,7 +253,10 @@ def test_native_patch_proposal_value_object_is_metadata_only_and_bounded():
         "reason_label": NativePatchProposalReason.STRUCTURED_PROPOSAL_ACCEPTED,
         "file_count": 2,
         "operation_count": 3,
-        "operation_labels": (NativePatchProposalOperation.MODIFY, NativePatchProposalOperation.CREATE),
+        "operation_labels": (
+            NativePatchProposalOperation.MODIFY,
+            NativePatchProposalOperation.CREATE,
+        ),
         "patch_text_stored": False,
         "diffs_stored": False,
         "file_contents_stored": False,
@@ -281,7 +305,10 @@ def test_native_patch_proposal_event_contract_is_closed_and_metadata_only():
         "raw_transcript_imported",
         "workspace_mutated",
     }
-    assert {status.value for status in NativePatchProposalStatus} == {"proposed", "skipped"}
+    assert {status.value for status in NativePatchProposalStatus} == {
+        "proposed",
+        "skipped",
+    }
     assert {reason.value for reason in NativePatchProposalReason} == {
         "structured_proposal_accepted",
         "unsupported_proposal",
@@ -335,7 +362,9 @@ def test_native_verification_request_value_object_is_metadata_only_and_bounded()
     assert request_fields["sandbox_policy"]["filesystem_mutation_allowed"] is False
     assert request_fields["sandbox_policy"]["shell_execution_allowed"] is True
     assert request_fields["sandbox_policy"]["network_access_allowed"] is False
-    storage_fields = {key: request_fields[key] for key in NATIVE_VERIFICATION_STORAGE_KEYS}
+    storage_fields = {
+        key: request_fields[key] for key in NATIVE_VERIFICATION_STORAGE_KEYS
+    }
     assert set(storage_fields.values()) == {False}
     forbidden_fields = {
         "args",
@@ -377,13 +406,19 @@ def test_native_verification_event_contract_is_closed_and_metadata_only():
 def test_native_tool_observation_contract_is_threaded_only_as_sanitized_session_metadata():
     """The runtime may use sanitized observations, but not raw result surfaces."""
 
-    session_source = (Path(__file__).parents[1] / "src/pipy_harness/native/session.py").read_text(
-        encoding="utf-8"
-    )
+    session_source = (
+        Path(__file__).parents[1] / "src/pipy_harness/native/session.py"
+    ).read_text(encoding="utf-8")
 
     assert "NativeToolObservation" in session_source
     assert "NATIVE_TOOL_OBSERVATION_RECORDED_EVENT" in session_source
-    for forbidden in ("raw_tool_observation", "provider_response_body", "file_contents_text", "stdout_text", "stderr_text"):
+    for forbidden in (
+        "raw_tool_observation",
+        "provider_response_body",
+        "file_contents_text",
+        "stdout_text",
+        "stderr_text",
+    ):
         assert forbidden not in session_source
 
 

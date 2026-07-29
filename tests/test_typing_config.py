@@ -59,10 +59,7 @@ def test_strict_frontier_has_exact_source_package_patterns() -> None:
             path.stem if path.is_file() else f"{path.name}.*"
             for path in source_root.iterdir()
             if (
-                (
-                    path.is_file()
-                    and path.suffix in _PYTHON_SOURCE_SUFFIXES
-                )
+                (path.is_file() and path.suffix in _PYTHON_SOURCE_SUFFIXES)
                 or (
                     path.is_dir()
                     and any(

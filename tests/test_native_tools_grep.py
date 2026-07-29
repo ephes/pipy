@@ -42,12 +42,8 @@ def test_grep_tool_definition_requires_pattern_only():
 
 
 def test_grep_tool_matches_literal_strings_across_files(tmp_path: Path):
-    (tmp_path / "a.txt").write_text(
-        "alpha\nNEEDLE_HERE\nomega\n", encoding="utf-8"
-    )
-    (tmp_path / "b.txt").write_text(
-        "beta\nNEEDLE_HERE\n", encoding="utf-8"
-    )
+    (tmp_path / "a.txt").write_text("alpha\nNEEDLE_HERE\nomega\n", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("beta\nNEEDLE_HERE\n", encoding="utf-8")
     tool = GrepTool()
     context = ToolContext(workspace_root=tmp_path)
     request = _make_request({"pattern": "NEEDLE_HERE"})
@@ -61,9 +57,7 @@ def test_grep_tool_matches_literal_strings_across_files(tmp_path: Path):
 
 def test_grep_tool_refuses_path_under_dot_git(tmp_path: Path):
     (tmp_path / ".git").mkdir()
-    (tmp_path / ".git" / "config").write_text(
-        "NEEDLE_HERE\n", encoding="utf-8"
-    )
+    (tmp_path / ".git" / "config").write_text("NEEDLE_HERE\n", encoding="utf-8")
     tool = GrepTool()
     context = ToolContext(workspace_root=tmp_path)
     request = _make_request({"pattern": "NEEDLE_HERE", "path": ".git"})
@@ -177,9 +171,7 @@ def test_grep_tool_rejects_invalid_scan_file_cap():
         GrepTool(max_scan_file_bytes=GrepTool.HARD_MAX_SCAN_FILE_BYTES + 1)
 
 
-def test_grep_stdlib_fallback_skips_outside_workspace_symlink(
-    tmp_path, monkeypatch
-):
+def test_grep_stdlib_fallback_skips_outside_workspace_symlink(tmp_path, monkeypatch):
     """Regression for the second review: with `rg` unavailable, a workspace
     symlink that resolves outside the workspace must not raise; the walker
     skips it via `_resolved_relative_label`.

@@ -50,9 +50,7 @@ def test_public_run_model_type_hints_resolve_at_runtime() -> None:
     assert get_type_hints(RunResult)["record"] is SessionRecord
     assert get_type_hints(ProviderResult)["status"] is CanonicalHarnessStatus
     assert get_type_hints(NativeRunOutput)["status"] is CanonicalHarnessStatus
-    assert (
-        get_type_hints(NativeToolReplResult)["status"] is CanonicalHarnessStatus
-    )
+    assert get_type_hints(NativeToolReplResult)["status"] is CanonicalHarnessStatus
 
 
 def test_make_native_run_request_fills_pipy_native_defaults(tmp_path: Path) -> None:
@@ -79,7 +77,9 @@ def test_make_native_run_request_requires_path_cwd() -> None:
         sdk.make_native_run_request(goal="GOAL", cwd="/tmp")  # type: ignore[arg-type]
 
 
-def test_run_native_with_fake_provider_returns_succeeded_run_result(tmp_path: Path) -> None:
+def test_run_native_with_fake_provider_returns_succeeded_run_result(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "sessions"
     request = sdk.make_native_run_request(
         goal="sdk smoke",
@@ -120,9 +120,7 @@ def test_run_native_uses_supplied_provider(tmp_path: Path) -> None:
             )
 
     root = tmp_path / "sessions"
-    request = sdk.make_native_run_request(
-        goal="sdk goal", cwd=tmp_path, root=root
-    )
+    request = sdk.make_native_run_request(goal="sdk goal", cwd=tmp_path, root=root)
 
     result = sdk.run_native(request, provider=SDKObservingProvider())
 

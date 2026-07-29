@@ -54,9 +54,7 @@ class FakeKeyBindings:
     def __init__(self) -> None:
         self.bindings: list[tuple[tuple[str, ...], Callable[..., None]]] = []
 
-    def add(
-        self, *keys: str
-    ) -> Callable[[Callable[..., None]], Callable[..., None]]:
+    def add(self, *keys: str) -> Callable[[Callable[..., None]], Callable[..., None]]:
         def decorator(func: Callable[..., None]) -> Callable[..., None]:
             self.bindings.append((keys, func))
             return func
@@ -238,9 +236,7 @@ def test_prompt_toolkit_repl_input_uses_optional_line_editor_when_available(
         def prompt(self, prompt_label: str, **kwargs) -> str:
             created["prompt_label"] = prompt_label
             existing = created.get("bottom_toolbar_history")
-            history: list[object] = (
-                list(existing) if isinstance(existing, list) else []
-            )
+            history: list[object] = list(existing) if isinstance(existing, list) else []
             history.append(kwargs.get("bottom_toolbar"))
             created["bottom_toolbar_history"] = history
             return "edited\ninput"
@@ -653,7 +649,9 @@ def test_repl_completer_descriptions_cover_every_default_command() -> None:
     for command_name in DEFAULT_REPL_SLASH_COMMAND_COMPLETIONS:
         description = DEFAULT_REPL_COMMAND_DESCRIPTIONS[command_name]
         assert description, f"missing description for {command_name}"
-        assert command_name.strip("/") not in description.lower() or len(description) > 5
+        assert (
+            command_name.strip("/") not in description.lower() or len(description) > 5
+        )
 
 
 def test_readline_repl_input_matches_for_empty_input_returns_all_commands() -> None:
@@ -819,7 +817,9 @@ def test_prompt_toolkit_read_line_forwards_footer_as_bottom_toolbar(
         def prompt(self, prompt_label: str, **kwargs) -> str:
             created["prompt_label"] = prompt_label
             toolbar = kwargs.get("bottom_toolbar")
-            created["bottom_toolbar_value"] = toolbar() if callable(toolbar) else toolbar
+            created["bottom_toolbar_value"] = (
+                toolbar() if callable(toolbar) else toolbar
+            )
             return "ok"
 
     prompt_toolkit_module = types.SimpleNamespace(PromptSession=FakePromptSession)

@@ -223,7 +223,9 @@ def test_refuses_symlink_outside_workspace(tmp_path: Path) -> None:
     assert any(skill.name == "legitimate" for skill in skills)
 
 
-def test_refuses_symlink_inside_workspace_but_outside_resource_dir(tmp_path: Path) -> None:
+def test_refuses_symlink_inside_workspace_but_outside_resource_dir(
+    tmp_path: Path,
+) -> None:
     workspace = _make_workspace(tmp_path)
     secret = workspace / "secret.md"
     secret.write_text(
@@ -253,7 +255,9 @@ def test_refuses_symlink_inside_workspace_but_outside_resource_dir(tmp_path: Pat
     assert [skill.name for skill in skills] == ["legitimate"]
 
 
-def test_refuses_global_symlink_inside_root_but_outside_resource_dir(tmp_path: Path) -> None:
+def test_refuses_global_symlink_inside_root_but_outside_resource_dir(
+    tmp_path: Path,
+) -> None:
     workspace = _make_workspace(tmp_path)
     global_root = tmp_path / "global-pipy"
     secret = global_root / "secret.md"

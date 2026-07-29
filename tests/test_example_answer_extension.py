@@ -54,7 +54,7 @@ def test_parse_plain_json() -> None:
 
 
 def test_parse_fenced_json() -> None:
-    text = "Sure!\n```json\n{\"questions\": [{\"question\": \"TS or JS?\"}]}\n```\n"
+    text = 'Sure!\n```json\n{"questions": [{"question": "TS or JS?"}]}\n```\n'
     assert answer.parse_extraction_result(text) == [{"question": "TS or JS?"}]
 
 

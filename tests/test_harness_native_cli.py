@@ -672,7 +672,8 @@ def test_cli_native_openai_codex_provider_is_selectable_without_storing_output(
             )
 
     monkeypatch.setattr(
-        "pipy_harness.native.openai_codex_provider.OpenAICodexResponsesProvider", CliFakeOpenAICodexProvider
+        "pipy_harness.native.openai_codex_provider.OpenAICodexResponsesProvider",
+        CliFakeOpenAICodexProvider,
     )
 
     exit_code = main(
@@ -1390,7 +1391,9 @@ def test_cli_stream_with_fake_provider_streams_chunks_to_stdout_and_keeps_archiv
                 metadata=None,
             )
 
-    monkeypatch.setattr("pipy_harness.native.fake.FakeNativeProvider", CliStreamingFakeProvider)
+    monkeypatch.setattr(
+        "pipy_harness.native.fake.FakeNativeProvider", CliStreamingFakeProvider
+    )
 
     exit_code = main(
         [
@@ -1456,7 +1459,9 @@ def test_cli_stream_off_keeps_existing_buffered_stdout_behavior(
                 metadata=None,
             )
 
-    monkeypatch.setattr("pipy_harness.native.fake.FakeNativeProvider", CliBufferedFakeProvider)
+    monkeypatch.setattr(
+        "pipy_harness.native.fake.FakeNativeProvider", CliBufferedFakeProvider
+    )
 
     exit_code = main(
         [
@@ -1678,7 +1683,8 @@ def _capturing_repl_provider(captured: list) -> type:
 def test_cli_system_prompt_flag_replaces_base_prompt(tmp_path, monkeypatch) -> None:
     captured: list = []
     monkeypatch.setattr(
-        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider",
+        _capturing_repl_provider(captured),
     )
     monkeypatch.setattr(sys, "stdin", StringIO("hello\n/exit\n"))
     main(
@@ -1708,7 +1714,8 @@ def test_cli_system_prompt_flag_replaces_base_prompt(tmp_path, monkeypatch) -> N
 def test_cli_append_system_prompt_flag_appends(tmp_path, monkeypatch) -> None:
     captured: list = []
     monkeypatch.setattr(
-        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider",
+        _capturing_repl_provider(captured),
     )
     monkeypatch.setattr(sys, "stdin", StringIO("hello\n/exit\n"))
     main(
@@ -1739,7 +1746,8 @@ def test_positional_prompt_seeds_interactive_first_message(
 ) -> None:
     captured: list = []
     monkeypatch.setattr(
-        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider",
+        _capturing_repl_provider(captured),
     )
     # Only `/exit` on stdin: the seeded positional prompt must be the first user
     # turn, so the provider sees it before the interactive loop reads stdin.
@@ -1774,7 +1782,8 @@ def test_bare_positional_prompt_routes_and_seeds_interactive(
     monkeypatch.setenv("PIPY_SESSION_DIR", str(root))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider",
+        _capturing_repl_provider(captured),
     )
     monkeypatch.setattr(sys, "stdin", StringIO("/exit\n"))
     exit_code = main(["summarize this repo"])
@@ -1862,7 +1871,8 @@ def test_cli_system_md_auto_discovery_replaces(tmp_path, monkeypatch) -> None:
     )
     captured: list = []
     monkeypatch.setattr(
-        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider",
+        _capturing_repl_provider(captured),
     )
     monkeypatch.setattr(sys, "stdin", StringIO("hi\n/exit\n"))
     main(
@@ -1887,7 +1897,8 @@ def test_cli_no_context_files_disables_discovery(tmp_path, monkeypatch) -> None:
     (tmp_path / "AGENTS.md").write_text("SECRET PROJECT INSTRUCTIONS", encoding="utf-8")
     captured: list = []
     monkeypatch.setattr(
-        "pipy_harness.native.fake.AutomationFakeProvider", _capturing_repl_provider(captured)
+        "pipy_harness.native.fake.AutomationFakeProvider",
+        _capturing_repl_provider(captured),
     )
     monkeypatch.setattr(sys, "stdin", StringIO("hi\n/exit\n"))
     main(

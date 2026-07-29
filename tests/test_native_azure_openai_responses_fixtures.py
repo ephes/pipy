@@ -78,9 +78,7 @@ class RecordingJsonHTTPClient:
         timeout_seconds: float,
         cancel_token: object = None,
     ) -> JsonResponse:
-        self.requests.append(
-            {"url": url, "headers": dict(headers), "body": dict(body)}
-        )
+        self.requests.append({"url": url, "headers": dict(headers), "body": dict(body)})
         if self.error is not None:
             raise self.error
         assert self.response is not None

@@ -157,9 +157,7 @@ def test_resolve_rejects_symlinked_record(tmp_path: Path) -> None:
 
 def test_resolve_rejects_out_of_archive_record(tmp_path: Path) -> None:
     outside = tmp_path / "loose.jsonl"
-    outside.write_text(
-        json.dumps({"type": "session.started"}) + "\n", encoding="utf-8"
-    )
+    outside.write_text(json.dumps({"type": "session.started"}) + "\n", encoding="utf-8")
     with pytest.raises(ValueError):
         resolve_finalized_record(outside, root=tmp_path)
 

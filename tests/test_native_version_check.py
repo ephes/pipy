@@ -27,14 +27,23 @@ def test_setting_opt_in() -> None:
 def test_env_telemetry_overrides_setting() -> None:
     assert resolve_telemetry_enabled(setting=False, env={"PIPY_TELEMETRY": "1"}) is True
     assert resolve_telemetry_enabled(setting=True, env={"PIPY_TELEMETRY": "0"}) is False
-    assert resolve_telemetry_enabled(setting=True, env={"PIPY_TELEMETRY": "no"}) is False
-    assert resolve_telemetry_enabled(setting=False, env={"PIPY_TELEMETRY": "yes"}) is True
+    assert (
+        resolve_telemetry_enabled(setting=True, env={"PIPY_TELEMETRY": "no"}) is False
+    )
+    assert (
+        resolve_telemetry_enabled(setting=False, env={"PIPY_TELEMETRY": "yes"}) is True
+    )
 
 
 def test_offline_forces_off_even_when_opted_in() -> None:
     assert update_check_enabled(setting=True, env={"PIPY_OFFLINE": "1"}) is False
-    assert update_check_enabled(setting=True, env={"PIPY_SKIP_VERSION_CHECK": "1"}) is False
     assert (
-        update_check_enabled(setting=True, env={"PIPY_TELEMETRY": "1", "PIPY_OFFLINE": "1"})
+        update_check_enabled(setting=True, env={"PIPY_SKIP_VERSION_CHECK": "1"})
+        is False
+    )
+    assert (
+        update_check_enabled(
+            setting=True, env={"PIPY_TELEMETRY": "1", "PIPY_OFFLINE": "1"}
+        )
         is False
     )

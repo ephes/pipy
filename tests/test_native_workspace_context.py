@@ -125,7 +125,9 @@ def test_per_directory_precedence_falls_through_in_declared_order(
 
     for index, candidate in enumerate(INSTRUCTION_CANDIDATE_FILENAMES):
         for present in INSTRUCTION_CANDIDATE_FILENAMES[index:]:
-            (tmp_path / present).write_text(expected_payloads[present], encoding="utf-8")
+            (tmp_path / present).write_text(
+                expected_payloads[present], encoding="utf-8"
+            )
         result = _discover(tmp_path)
         assert len(result.instructions) == 1
         assert result.instructions[0].path_label == candidate
@@ -179,8 +181,10 @@ def test_parent_walk_root_most_first_workspace_last(tmp_path: Path) -> None:
     assert "../AGENTS.md" in labels
     assert "../../AGENTS.md" in labels
     # Ordering: grandparent (..) is the root-most of the three, then parent (..), then ws (.).
-    assert labels.index("../../AGENTS.md") < labels.index("../AGENTS.md") < labels.index(
-        "AGENTS.md"
+    assert (
+        labels.index("../../AGENTS.md")
+        < labels.index("../AGENTS.md")
+        < labels.index("AGENTS.md")
     )
 
 

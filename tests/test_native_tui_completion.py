@@ -188,9 +188,7 @@ class TestAtPicker:
             ui._move_input_cursor(key)
             assert not ui.autocomplete_open, f"{key} did not dismiss the popup"
 
-    def test_accept_with_stale_start_past_cursor_is_safe(
-        self, tmp_path: Path
-    ) -> None:
+    def test_accept_with_stale_start_past_cursor_is_safe(self, tmp_path: Path) -> None:
         # Defensive: if the popup is somehow left open with an anchor beyond the
         # caret (start > cursor), the replacement span ``[start, cursor)`` is
         # nonsensical — accept must close instead of splicing and corrupting the
@@ -311,7 +309,9 @@ class TestKeyDecoding:
         # Shifted uppercase P codepoint (80) under the kitty protocol.
         assert self._decode(tmp_path, b"[80;6u") == "shift-ctrl-p"
 
-    def test_shift_ctrl_p_uppercase_modify_other_keys_form(self, tmp_path: Path) -> None:
+    def test_shift_ctrl_p_uppercase_modify_other_keys_form(
+        self, tmp_path: Path
+    ) -> None:
         assert self._decode(tmp_path, b"[27;6;80~") == "shift-ctrl-p"
 
     def test_shift_tab(self, tmp_path: Path) -> None:

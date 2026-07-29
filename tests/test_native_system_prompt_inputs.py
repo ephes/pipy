@@ -55,7 +55,9 @@ def test_relative_file_resolved_against_cwd(tmp_path: Path) -> None:
     assert was_file is True
 
 
-def test_unreadable_existing_path_warns_and_falls_back_to_literal(tmp_path: Path) -> None:
+def test_unreadable_existing_path_warns_and_falls_back_to_literal(
+    tmp_path: Path,
+) -> None:
     # A directory exists but cannot be read as a file: Pi warns and treats the
     # literal input string as the prompt text (not fail-closed).
     a_dir = tmp_path / "adir"
@@ -72,7 +74,10 @@ def test_unreadable_existing_path_warns_and_falls_back_to_literal(tmp_path: Path
 
 def test_replace_via_flag_overrides_default(tmp_path: Path) -> None:
     result = resolve_system_prompt(
-        DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg", system_prompt_source="CUSTOM"
+        DEFAULT,
+        cwd=tmp_path,
+        config_home=tmp_path / "cfg",
+        system_prompt_source="CUSTOM",
     )
     assert result.base_prompt == "CUSTOM"
     assert result.replaced is True
@@ -144,14 +149,18 @@ def test_append_via_file(tmp_path: Path) -> None:
 
 def test_append_via_append_system_md_when_no_flag(tmp_path: Path) -> None:
     (tmp_path / ".pipy").mkdir()
-    (tmp_path / ".pipy" / "APPEND_SYSTEM.md").write_text("PROJECT APPEND", encoding="utf-8")
+    (tmp_path / ".pipy" / "APPEND_SYSTEM.md").write_text(
+        "PROJECT APPEND", encoding="utf-8"
+    )
     result = resolve_system_prompt(DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg")
     assert result.base_prompt == f"{DEFAULT}\n\nPROJECT APPEND"
 
 
 def test_append_flag_wins_over_append_system_md(tmp_path: Path) -> None:
     (tmp_path / ".pipy").mkdir()
-    (tmp_path / ".pipy" / "APPEND_SYSTEM.md").write_text("FILE APPEND", encoding="utf-8")
+    (tmp_path / ".pipy" / "APPEND_SYSTEM.md").write_text(
+        "FILE APPEND", encoding="utf-8"
+    )
     result = resolve_system_prompt(
         DEFAULT,
         cwd=tmp_path,
@@ -198,12 +207,16 @@ def test_safe_metadata_has_no_body(tmp_path: Path) -> None:
 # --- empty-string flag values are treated as absent (Pi parity) -------------
 
 
-def test_empty_system_prompt_flag_keeps_default_and_skips_discovery(tmp_path: Path) -> None:
+def test_empty_system_prompt_flag_keeps_default_and_skips_discovery(
+    tmp_path: Path,
+) -> None:
     # Pi's resolvePromptInput("") -> undefined -> default; the empty flag value
     # does not wipe the prompt, and (matching `"" ?? discover`) does not consult
     # SYSTEM.md auto-discovery.
     (tmp_path / ".pipy").mkdir()
-    (tmp_path / ".pipy" / "SYSTEM.md").write_text("SHOULD NOT BE USED", encoding="utf-8")
+    (tmp_path / ".pipy" / "SYSTEM.md").write_text(
+        "SHOULD NOT BE USED", encoding="utf-8"
+    )
     result = resolve_system_prompt(
         DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg", system_prompt_source=""
     )
@@ -222,7 +235,9 @@ def test_empty_append_flag_value_is_dropped(tmp_path: Path) -> None:
 
 def test_empty_append_flag_does_not_fall_through_to_file(tmp_path: Path) -> None:
     (tmp_path / ".pipy").mkdir()
-    (tmp_path / ".pipy" / "APPEND_SYSTEM.md").write_text("FILE APPEND", encoding="utf-8")
+    (tmp_path / ".pipy" / "APPEND_SYSTEM.md").write_text(
+        "FILE APPEND", encoding="utf-8"
+    )
     # An explicit (even if empty) append flag list suppresses APPEND_SYSTEM.md.
     result = resolve_system_prompt(
         DEFAULT, cwd=tmp_path, config_home=tmp_path / "cfg", append_sources=[""]

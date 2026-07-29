@@ -67,6 +67,8 @@ def test_hotkeys_reads_edited_keybindings_json_from_config_home(
     workspace = tmp_path / "ws"
     workspace.mkdir()
     # No injected manager: the session loads <config>/keybindings.json itself.
-    session = NativeToolReplSession(provider=FakeNativeProvider(supports_tool_calls=True))
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True)
+    )
     out = _run(session, "/hotkeys\n/exit\n", workspace)
     assert "Ctrl+Y" in out

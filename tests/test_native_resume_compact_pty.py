@@ -67,7 +67,9 @@ class _SeqProvider:
     def name(self) -> str:
         return "fake"
 
-    def complete(self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None):  # noqa: ANN001
+    def complete(
+        self, request, *, stream_sink=None, reasoning_sink=None, cancel_token=None
+    ):  # noqa: ANN001
         self.n += 1
         now = datetime.now(UTC)
         return ProviderResult(
@@ -130,7 +132,9 @@ def test_pty_resume_and_compact(
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kwargs: (
+            ui
+        ),
     )
 
     result_holder: list[object] = []

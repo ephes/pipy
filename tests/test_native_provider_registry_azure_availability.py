@@ -36,5 +36,8 @@ def test_unavailable_with_only_base_source():
 def test_legacy_endpoint_env_no_longer_grants_availability():
     # The pipy-only AZURE_OPENAI_ENDPOINT name was dropped for Pi parity.
     assert not _available(
-        {"AZURE_OPENAI_ENDPOINT": "https://r.openai.azure.com", "AZURE_OPENAI_API_KEY": "k"}
+        {
+            "AZURE_OPENAI_ENDPOINT": "https://r.openai.azure.com",
+            "AZURE_OPENAI_API_KEY": "k",
+        }
     )

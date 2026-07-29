@@ -96,7 +96,10 @@ def test_discover_package_themes_collects_across_roots(tmp_path: Path) -> None:
 
 def test_discover_package_themes_builtin_wins_collision(tmp_path: Path) -> None:
     root = tmp_path / "p"
-    _write(root / "pi.toml", f'name = "{DEFAULT_THEME_NAME}"\naccent_truecolor = "38;2;9;9;9"\n')
+    _write(
+        root / "pi.toml",
+        f'name = "{DEFAULT_THEME_NAME}"\naccent_truecolor = "38;2;9;9;9"\n',
+    )
 
     palettes, diagnostics = discover_package_themes(_roots(root))
 

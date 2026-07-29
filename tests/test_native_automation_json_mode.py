@@ -132,8 +132,7 @@ def test_run_json_mode_emits_single_agent_settled_at_true_idle(tmp_path: Path) -
     )
 
     records = [
-        json.loads(line)
-        for line in stdout.getvalue().decode("utf-8").splitlines()
+        json.loads(line) for line in stdout.getvalue().decode("utf-8").splitlines()
     ]
     types = [r["type"] for r in records]
     # CANONICAL json-mode terminator: the stream ends `agent_end -> agent_settled`.
@@ -185,7 +184,9 @@ def test_json_mode_multiline_prompt_is_a_single_turn(tmp_path: Path) -> None:
         error_stream=io.StringIO(),
     )
 
-    records = [json.loads(line) for line in stdout.getvalue().decode("utf-8").splitlines()]
+    records = [
+        json.loads(line) for line in stdout.getvalue().decode("utf-8").splitlines()
+    ]
     types = [r["type"] for r in records]
     # A multiline prompt is one non-interactive turn, not three.
     assert types.count("agent_start") == 1

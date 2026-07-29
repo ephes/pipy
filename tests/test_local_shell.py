@@ -42,9 +42,7 @@ def test_runs_in_workspace_root(tmp_path: Path) -> None:
     assert "marker.txt" in result.output
 
 
-@pytest.mark.skipif(
-    not Path("/bin/sh").exists(), reason="requires a POSIX shell"
-)
+@pytest.mark.skipif(not Path("/bin/sh").exists(), reason="requires a POSIX shell")
 def test_cancel_event_terminates_long_command(tmp_path: Path) -> None:
     cancel = threading.Event()
 
@@ -54,9 +52,7 @@ def test_cancel_event_terminates_long_command(tmp_path: Path) -> None:
 
     threading.Thread(target=_cancel_soon, daemon=True).start()
     start = time.monotonic()
-    result = run_local_command(
-        "sleep 30", workspace_root=tmp_path, cancel_event=cancel
-    )
+    result = run_local_command("sleep 30", workspace_root=tmp_path, cancel_event=cancel)
     elapsed = time.monotonic() - start
     assert result.cancelled
     assert elapsed < 5.0, "cancel did not interrupt the sleep promptly"

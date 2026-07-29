@@ -64,10 +64,7 @@ def test_terminal_screen_tracks_cursor_clear_and_cell_attributes() -> None:
 def test_terminal_screen_finds_visible_text_wrapped_across_rows() -> None:
     screen = TerminalScreen(columns=20, rows=4)
 
-    screen.write(
-        "\x1b[38;2;212;212;212m Reply exactly: This\r\n"
-        " prompt wraps"
-    )
+    screen.write("\x1b[38;2;212;212;212m Reply exactly: This\r\n prompt wraps")
     snapshot = screen.snapshot()
 
     findings = snapshot.find("Reply exactly: This prompt wraps")
@@ -106,9 +103,7 @@ def test_parse_tui_paint_locates_prompt_footer_and_drawn_cursor(
     assert any(cell["char"] == " " and cell["column"] == 4 for cell in reverse_cells)
     assert snapshot.cursor_x == 4
     assert snapshot.cursor_y == next(
-        index
-        for index, line in enumerate(snapshot.viewport)
-        if line.startswith("next")
+        index for index, line in enumerate(snapshot.viewport) if line.startswith("next")
     )
 
 
@@ -129,8 +124,7 @@ def test_analyze_frame_files_writes_machine_readable_cursor_and_visibility(
     (frames / "frame-001-active.ansi").write_text(frame, encoding="utf-8")
     cursor_metrics = tmp_path / "cursor-metrics.tsv"
     cursor_metrics.write_text(
-        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
-        "1\tactive\t0\t3\t1\n",
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n1\tactive\t0\t3\t1\n",
         encoding="utf-8",
     )
     out_jsonl = tmp_path / "screen-metrics.jsonl"
@@ -182,8 +176,7 @@ def test_analyze_frame_files_treats_tmux_lf_rows_as_static_viewport(
     (frames / "frame-001-active.ansi").write_text(frame, encoding="utf-8")
     cursor_metrics = tmp_path / "cursor-metrics.tsv"
     cursor_metrics.write_text(
-        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
-        "1\tactive\t0\t2\t1\n",
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n1\tactive\t0\t2\t1\n",
         encoding="utf-8",
     )
     out_jsonl = tmp_path / "screen-metrics.jsonl"
@@ -222,8 +215,7 @@ def test_analyze_frame_files_infers_input_row_when_slash_menu_is_open(
     (frames / "frame-001-slash-open.ansi").write_text(frame, encoding="utf-8")
     cursor_metrics = tmp_path / "cursor-metrics.tsv"
     cursor_metrics.write_text(
-        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
-        "1\tslash-open\t1\t1\t1\n",
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n1\tslash-open\t1\t1\t1\n",
         encoding="utf-8",
     )
     out_jsonl = tmp_path / "screen-metrics.jsonl"
@@ -244,7 +236,9 @@ def test_analyze_frame_files_infers_input_row_when_slash_menu_is_open(
     assert record["visual_regions"]["slash_menu"][0]["text"].startswith("  model")
 
 
-def test_visual_regions_preserve_precedence_and_independent_rows(tmp_path: Path) -> None:
+def test_visual_regions_preserve_precedence_and_independent_rows(
+    tmp_path: Path,
+) -> None:
     frames = tmp_path / "frames"
     frames.mkdir()
     frame = (
@@ -294,8 +288,7 @@ def test_analyze_frame_files_counts_wrapped_prompt_once(tmp_path: Path) -> None:
     (frames / "frame-001-final.ansi").write_text(frame, encoding="utf-8")
     cursor_metrics = tmp_path / "cursor-metrics.tsv"
     cursor_metrics.write_text(
-        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
-        "1\tfinal\t0\t4\t1\n",
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n1\tfinal\t0\t4\t1\n",
         encoding="utf-8",
     )
     out_jsonl = tmp_path / "screen-metrics.jsonl"
@@ -336,8 +329,7 @@ def test_analyze_frame_files_excludes_expected_output_inside_wrapped_prompt(
     (frames / "frame-001-final.ansi").write_text(frame, encoding="utf-8")
     cursor_metrics = tmp_path / "cursor-metrics.tsv"
     cursor_metrics.write_text(
-        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
-        "1\tfinal\t0\t4\t1\n",
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n1\tfinal\t0\t4\t1\n",
         encoding="utf-8",
     )
     out_jsonl = tmp_path / "screen-metrics.jsonl"
@@ -374,8 +366,7 @@ def test_analyze_frame_files_reports_core_tui_regressions(tmp_path: Path) -> Non
     (frames / "frame-001-final.ansi").write_text(frame, encoding="utf-8")
     cursor_metrics = tmp_path / "cursor-metrics.tsv"
     cursor_metrics.write_text(
-        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
-        "1\tfinal\t10\t0\t1\n",
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n1\tfinal\t10\t0\t1\n",
         encoding="utf-8",
     )
     anomalies = tmp_path / "screen-anomalies.tsv"
@@ -407,9 +398,7 @@ def test_analyze_frame_files_reports_prompt_pinned_to_top_row(tmp_path: Path) ->
     frame = (
         "user prompt\n"
         "\n"
-        "visible answer\n"
-        + "\n" * 18
-        + "────────────\n"
+        "visible answer\n" + "\n" * 18 + "────────────\n"
         "\x1b[7m \x1b[0m\n"
         "────────────\n"
         "~/projects/pipy (main)\n"
@@ -418,8 +407,7 @@ def test_analyze_frame_files_reports_prompt_pinned_to_top_row(tmp_path: Path) ->
     (frames / "frame-001-final.ansi").write_text(frame, encoding="utf-8")
     cursor_metrics = tmp_path / "cursor-metrics.tsv"
     cursor_metrics.write_text(
-        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n"
-        "1\tfinal\t0\t22\t1\n",
+        "frame\tphase\tcursor_x\tcursor_y\tpane_active\n1\tfinal\t0\t22\t1\n",
         encoding="utf-8",
     )
     anomalies = tmp_path / "screen-anomalies.tsv"

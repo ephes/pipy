@@ -85,9 +85,7 @@ def test_shipped_examples_do_not_register_reserved_external_editor_shortcut() ->
         re.escape(key).replace(r"\-", "[-+]") for key in RESERVED_SHORTCUT_KEYS
     )
     forbidden = re.compile(
-        r"register_?shortcut\s*\(\s*['\"](?:"
-        + "|".join(reserved_patterns)
-        + r")['\"]",
+        r"register_?shortcut\s*\(\s*['\"](?:" + "|".join(reserved_patterns) + r")['\"]",
         re.IGNORECASE,
     )
     offenders: list[str] = []
@@ -171,9 +169,7 @@ def activate(api):
 
 def test_dispatch_unknown_shortcut_returns_none(tmp_path) -> None:
     assert (
-        dispatch_extension_shortcut(
-            "ctrl-g", {}, cwd=str(tmp_path), has_ui=True
-        )
+        dispatch_extension_shortcut("ctrl-g", {}, cwd=str(tmp_path), has_ui=True)
         is None
     )
 
@@ -333,7 +329,9 @@ def activate(api):
     monkeypatch.setattr(
         NativeToolReplSession,
         "_build_terminal_ui",
-        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: terminal_ui,
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: (
+            terminal_ui
+        ),
     )
     session = NativeToolReplSession(
         provider=provider,

@@ -134,9 +134,9 @@ def test_pty_picker_navigate_resize_and_select(
         # Resize while the overlay is open; observe the poll-driven full repaint.
         resize_start = len(b"".join(err_chunks))
         _set_winsize(err_slave, 40, 100)
-        assert wait_for_output(err_chunks, b"\x1b[2J", after=resize_start) is not None, (
-            "picker resize never repainted"
-        )
+        assert (
+            wait_for_output(err_chunks, b"\x1b[2J", after=resize_start) is not None
+        ), "picker resize never repainted"
         # Ordered raw bytes navigate to beta and select it without a timing gap.
         os.write(in_master, b"\x1b[B\r")
         worker.join(timeout=8.0)

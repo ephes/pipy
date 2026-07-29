@@ -55,7 +55,9 @@ def test_header_failsoft_drops_on_bad_factory():
 
 def test_footer_replace_and_restore():
     ui = _ui()
-    ui.set_extension_footer(lambda theme, footer_data: type("C", (), {"render": lambda self, w: ["f"]})())
+    ui.set_extension_footer(
+        lambda theme, footer_data: type("C", (), {"render": lambda self, w: ["f"]})()
+    )
     assert ui.extension_footer is not None
     ui.set_extension_footer(None)
     assert ui.extension_footer is None
@@ -80,7 +82,7 @@ def test_dispose_called_on_replace_and_clear():
 
     ui.set_extension_widget("k", lambda theme: _Comp())
     ui.set_extension_widget("k", ["plain"])  # replace -> dispose old
-    ui.set_extension_widget("k", None)       # clear
+    ui.set_extension_widget("k", None)  # clear
     assert disposed == [True]
 
 
@@ -98,7 +100,9 @@ def test_widget_move_to_full_placement_keeps_original():
 def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values():
     ui = _ui()
     ui.set_extension_widget("k", ["a"])
-    ui.set_extension_header(lambda theme: type("C", (), {"render": lambda self, w: ["h"]})())
+    ui.set_extension_header(
+        lambda theme: type("C", (), {"render": lambda self, w: ["h"]})()
+    )
     ui.set_extension_footer(lambda theme, data: ["f"])
     ui.set_extension_title("t")
     ui.set_extension_status("status", "value")
@@ -183,9 +187,7 @@ def test_stale_facade_disposers_cannot_remove_reused_fresh_registrations():
     fresh_listener_dispose = ui.add_extension_terminal_input_listener(
         lambda key: {"data": f"fresh:{key}"}
     )
-    fresh_callback_dispose = ui.register_footer_branch_change_callback(
-        lambda: "fresh"
-    )
+    fresh_callback_dispose = ui.register_footer_branch_change_callback(lambda: "fresh")
     assert set(ui._extension_terminal_input_listeners) == {old_listener_id}
     assert set(ui._footer_branch_callbacks) == {old_callback_id}
 
@@ -214,7 +216,9 @@ def test_terminal_input_listeners_transform_consume_and_dispose():
     assert ui._apply_extension_terminal_input_listeners("a") == "b"
     assert seen == ["b"]
 
-    ui.add_extension_terminal_input_listener(lambda key: {"data": "xy"} if key == "b" else None)
+    ui.add_extension_terminal_input_listener(
+        lambda key: {"data": "xy"} if key == "b" else None
+    )
     assert ui._apply_extension_terminal_input_listeners("a") == "xy"
 
     ui.add_extension_terminal_input_listener(lambda key: {"consume": True})
@@ -251,7 +255,9 @@ def _frame_text(ui, width=60, height=24):
 
 def test_header_renders_above_pending_and_input():
     ui = _ui()
-    ui.set_extension_header(lambda theme: type("C", (), {"render": lambda self, w: ["HEADER_ROW"]})())
+    ui.set_extension_header(
+        lambda theme: type("C", (), {"render": lambda self, w: ["HEADER_ROW"]})()
+    )
     text = "\n".join(_frame_text(ui))
     assert "HEADER_ROW" in text
 
@@ -271,7 +277,9 @@ def test_below_widget_renders_in_frame():
 def test_footer_replaces_builtin_rows():
     ui = _ui()
     ui.footer_lines = ("builtin-a", "builtin-b")
-    ui.set_extension_footer(lambda theme, fd: type("C", (), {"render": lambda self, w: ["EXT_FOOTER"]})())
+    ui.set_extension_footer(
+        lambda theme, fd: type("C", (), {"render": lambda self, w: ["EXT_FOOTER"]})()
+    )
     text = "\n".join(_frame_text(ui))
     assert "EXT_FOOTER" in text and "builtin-a" not in text
 
@@ -301,7 +309,9 @@ def test_chrome_factory_gets_pi_shaped_tui_handle_and_theme():
             return ["ok"]
 
     def factory(tui, theme):
-        seen.append((hasattr(tui, "requestRender"), hasattr(tui, "request_render"), theme))
+        seen.append(
+            (hasattr(tui, "requestRender"), hasattr(tui, "request_render"), theme)
+        )
         return _Comp()
 
     ui.set_extension_widget("k", factory)
@@ -321,7 +331,12 @@ def test_footer_factory_gets_pi_shaped_tui_theme_and_footer_data():
         return _Comp()
 
     ui.set_extension_footer(factory)
-    assert seen and seen[0][0] is True and seen[0][1] is not None and seen[0][2] is not None
+    assert (
+        seen
+        and seen[0][0] is True
+        and seen[0][1] is not None
+        and seen[0][2] is not None
+    )
 
 
 def test_factory_widget_rerenders_each_frame_at_same_width():
@@ -400,15 +415,17 @@ def test_tall_chrome_clamped_and_input_preserved():
             f"w{i}", [f"r{i}-{j}" for j in range(10)], placement="above_editor"
         )
     frame = ui._frame_lines(width=60, height=24, pad=False)
-    assert len(frame) <= 24                                  # fits the viewport
-    assert any(fl.kind == "input" for fl in frame)           # input not starved
-    assert any(fl.kind == "footer" for fl in frame)          # footer survives
+    assert len(frame) <= 24  # fits the viewport
+    assert any(fl.kind == "input" for fl in frame)  # input not starved
+    assert any(fl.kind == "footer" for fl in frame)  # footer survives
     assert any("chrome clipped" in fl.text for fl in frame)  # truncation marker
 
 
 def _fill_tall_chrome(ui, *, custom_footer=False):
     ui.set_extension_header(
-        lambda theme: type("C", (), {"render": lambda self, w: [f"H{i}" for i in range(8)]})()
+        lambda theme: type(
+            "C", (), {"render": lambda self, w: [f"H{i}" for i in range(8)]}
+        )()
     )
     for i in range(16):  # _WIDGET_MAX_COUNT widgets, each _WIDGET_MAX_LINES tall
         ui.set_extension_widget(
@@ -436,12 +453,12 @@ def test_frame_clamp_never_overflows_or_starves(height):
     _fill_tall_chrome(ui, custom_footer=custom_footer)
     frame = ui._frame_lines(width=60, height=height, pad=False)
     footer_kind = "chrome_custom" if custom_footer else "footer"
-    assert len(frame) <= height                              # fits the viewport
-    assert any(fl.kind == "input" for fl in frame)           # input never starved
+    assert len(frame) <= height  # fits the viewport
+    assert any(fl.kind == "input" for fl in frame)  # input never starved
     if custom_footer:
         assert any(fl.text.startswith("F") for fl in frame)  # custom footer survives
     else:
-        assert any(fl.kind == footer_kind for fl in frame)   # footer always survives
+        assert any(fl.kind == footer_kind for fl in frame)  # footer always survives
 
 
 @pytest.mark.parametrize("height", [12, 16, 24, 40])
@@ -449,8 +466,8 @@ def test_live_region_clamp_never_overflows_or_starves(height):
     ui = _ui()
     _fill_tall_chrome(ui, custom_footer=(height == 24))
     lines = ui._live_region_lines(width=60, height=height)
-    assert len(lines) <= height                          # fits the viewport
-    assert any(fl.kind == "input" for fl in lines)       # input never starved
+    assert len(lines) <= height  # fits the viewport
+    assert any(fl.kind == "input" for fl in lines)  # input never starved
 
 
 def test_indicator_frames_override_used_by_tui_renderer():
@@ -498,7 +515,7 @@ def test_tiny_viewport_with_pending_status_and_tall_footer_no_overflow(h):
         )()
     )
     live = ui._live_region_lines(width=80, height=h)
-    assert len(live) <= h                          # live region never exceeds the viewport
+    assert len(live) <= h  # live region never exceeds the viewport
     assert any(fl.kind == "input" for fl in live)  # input survives
     frame = ui._frame_lines(width=80, height=h, pad=False)
     assert len(frame) <= h

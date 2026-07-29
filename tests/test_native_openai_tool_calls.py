@@ -227,45 +227,66 @@ def test_openai_serializes_tool_result_envelope(tmp_path: Path):
 def test_openai_places_deferred_tools_at_result_marker(tmp_path: Path) -> None:
     client = FakeJsonHTTPClient(_completed_response())
     provider = OpenAIResponsesProvider(
-        model_id="gpt-5.5", api_key="sk-test", http_client=client,
+        model_id="gpt-5.5",
+        api_key="sk-test",
+        http_client=client,
         supports_tool_search=True,
     )
-    provider.complete(ProviderRequest(
-        system_prompt="SYS", user_prompt="load", provider_name="openai",
-        model_id="gpt-5.5", cwd=tmp_path,
-        messages=(
-            AgentAssistantMessage(
-                content=ProductContent(""),
-                tool_calls=(AgentToolCall("call_loader", "loader", ProductContent("{}")),),
+    provider.complete(
+        ProviderRequest(
+            system_prompt="SYS",
+            user_prompt="load",
+            provider_name="openai",
+            model_id="gpt-5.5",
+            cwd=tmp_path,
+            messages=(
+                AgentAssistantMessage(
+                    content=ProductContent(""),
+                    tool_calls=(
+                        AgentToolCall("call_loader", "loader", ProductContent("{}")),
+                    ),
+                ),
+                AgentToolResultMessage(
+                    tool_request_id="pipy-tool-load",
+                    tool_name="loader",
+                    content=ProductContent("loaded"),
+                    provider_correlation_id="call_loader",
+                    added_tool_names=(
+                        "late_tool",
+                        "later_tool",
+                        "late_tool",
+                        "missing_tool",
+                    ),
+                ),
             ),
-            AgentToolResultMessage(
-                tool_request_id="pipy-tool-load", tool_name="loader",
-                content=ProductContent("loaded"),
-                provider_correlation_id="call_loader",
-                added_tool_names=("late_tool", "later_tool", "late_tool", "missing_tool"),
-            ),
-        ),
-        available_tools=(_tool("loader"), _tool("late_tool"), _tool("later_tool")),
-    ))
+            available_tools=(_tool("loader"), _tool("late_tool"), _tool("later_tool")),
+        )
+    )
 
     body = client.requests[0]["body"]
     assert [tool["name"] for tool in body["tools"]] == ["loader"]
     assert body["input"][-3:] == [
         {"type": "function_call_output", "call_id": "call_loader", "output": "loaded"},
         {
-            "type": "tool_search_call", "call_id": "pi_tool_load_dulyo1k6qd28",
-            "execution": "client", "status": "completed",
+            "type": "tool_search_call",
+            "call_id": "pi_tool_load_dulyo1k6qd28",
+            "execution": "client",
+            "status": "completed",
             "arguments": {"query": "late_tool later_tool", "limit": 2},
         },
         {
-            "type": "tool_search_output", "call_id": "pi_tool_load_dulyo1k6qd28",
-            "execution": "client", "status": "completed",
+            "type": "tool_search_output",
+            "call_id": "pi_tool_load_dulyo1k6qd28",
+            "execution": "client",
+            "status": "completed",
             "tools": [
                 {
-                    "type": "function", "name": name,
+                    "type": "function",
+                    "name": name,
                     "description": f"{name} description",
                     "parameters": {"type": "object", "properties": {}},
-                    "strict": False, "defer_loading": True,
+                    "strict": False,
+                    "defer_loading": True,
                 }
                 for name in ("late_tool", "later_tool")
             ],
@@ -278,55 +299,75 @@ def test_openai_places_distinct_searches_at_multiple_result_markers(
 ) -> None:
     client = FakeJsonHTTPClient(_completed_response())
     provider = OpenAIResponsesProvider(
-        model_id="gpt-5.5", api_key="sk-test", http_client=client,
+        model_id="gpt-5.5",
+        api_key="sk-test",
+        http_client=client,
         supports_tool_search=True,
     )
-    provider.complete(ProviderRequest(
-        system_prompt="SYS", user_prompt="load twice", provider_name="openai",
-        model_id="gpt-5.5", cwd=tmp_path,
-        messages=(
-            AgentAssistantMessage(
-                content=ProductContent(""),
-                tool_calls=(AgentToolCall("call_first", "loader", ProductContent("{}")),),
+    provider.complete(
+        ProviderRequest(
+            system_prompt="SYS",
+            user_prompt="load twice",
+            provider_name="openai",
+            model_id="gpt-5.5",
+            cwd=tmp_path,
+            messages=(
+                AgentAssistantMessage(
+                    content=ProductContent(""),
+                    tool_calls=(
+                        AgentToolCall("call_first", "loader", ProductContent("{}")),
+                    ),
+                ),
+                AgentToolResultMessage(
+                    tool_request_id="pipy-tool-load-first",
+                    tool_name="loader",
+                    content=ProductContent("first loaded"),
+                    provider_correlation_id="call_first",
+                    added_tool_names=("late_tool", "shared_tool"),
+                ),
+                AgentAssistantMessage(
+                    content=ProductContent(""),
+                    tool_calls=(
+                        AgentToolCall("call_second", "loader", ProductContent("{}")),
+                    ),
+                ),
+                AgentToolResultMessage(
+                    tool_request_id="pipy-tool-load-second",
+                    tool_name="loader",
+                    content=ProductContent("second loaded"),
+                    provider_correlation_id="call_second",
+                    added_tool_names=("shared_tool", "later_tool"),
+                ),
             ),
-            AgentToolResultMessage(
-                tool_request_id="pipy-tool-load-first", tool_name="loader",
-                content=ProductContent("first loaded"),
-                provider_correlation_id="call_first",
-                added_tool_names=("late_tool", "shared_tool"),
+            available_tools=(
+                _tool("loader"),
+                _tool("late_tool"),
+                _tool("shared_tool"),
+                _tool("later_tool"),
             ),
-            AgentAssistantMessage(
-                content=ProductContent(""),
-                tool_calls=(AgentToolCall("call_second", "loader", ProductContent("{}")),),
-            ),
-            AgentToolResultMessage(
-                tool_request_id="pipy-tool-load-second", tool_name="loader",
-                content=ProductContent("second loaded"),
-                provider_correlation_id="call_second",
-                added_tool_names=("shared_tool", "later_tool"),
-            ),
-        ),
-        available_tools=(
-            _tool("loader"), _tool("late_tool"), _tool("shared_tool"),
-            _tool("later_tool"),
-        ),
-    ))
+        )
+    )
 
     body = client.requests[0]["body"]
     assert [tool["name"] for tool in body["tools"]] == ["loader"]
     searches = [
-        item for item in body["input"]
+        item
+        for item in body["input"]
         if item.get("type") in {"tool_search_call", "tool_search_output"}
     ]
     assert [item["call_id"] for item in searches] == [
-        "pi_tool_load_14aec2a1ydkqv2", "pi_tool_load_14aec2a1ydkqv2",
-        "pi_tool_load_hvb69z1li7qa9", "pi_tool_load_hvb69z1li7qa9",
+        "pi_tool_load_14aec2a1ydkqv2",
+        "pi_tool_load_14aec2a1ydkqv2",
+        "pi_tool_load_hvb69z1li7qa9",
+        "pi_tool_load_hvb69z1li7qa9",
     ]
     assert searches[0]["arguments"] == {
-        "query": "late_tool shared_tool", "limit": 2,
+        "query": "late_tool shared_tool",
+        "limit": 2,
     }
     assert [tool["name"] for tool in searches[1]["tools"]] == [
-        "late_tool", "shared_tool",
+        "late_tool",
+        "shared_tool",
     ]
     assert searches[2]["arguments"] == {"query": "later_tool", "limit": 1}
     assert [tool["name"] for tool in searches[3]["tools"]] == ["later_tool"]
@@ -334,25 +375,39 @@ def test_openai_places_distinct_searches_at_multiple_result_markers(
 
 def test_openai_tool_search_unsupported_and_all_deferred_matrix(tmp_path: Path) -> None:
     marker = AgentToolResultMessage(
-        tool_request_id="pipy-tool-load", tool_name="loader",
+        tool_request_id="pipy-tool-load",
+        tool_name="loader",
         content=ProductContent("loaded"),
-        provider_correlation_id="call_loader", added_tool_names=("late_tool",),
+        provider_correlation_id="call_loader",
+        added_tool_names=("late_tool",),
     )
     for supported, expected_top_level, expected_search in (
-        (False, ["late_tool"], False), (True, [], True),
+        (False, ["late_tool"], False),
+        (True, [], True),
     ):
         client = FakeJsonHTTPClient(_completed_response())
         OpenAIResponsesProvider(
-            model_id="gpt-test", api_key="sk-test", http_client=client,
+            model_id="gpt-test",
+            api_key="sk-test",
+            http_client=client,
             supports_tool_search=supported,
-        ).complete(ProviderRequest(
-            system_prompt="SYS", user_prompt="load", provider_name="openai",
-            model_id="gpt-test", cwd=tmp_path, messages=(marker,),
-            available_tools=(_tool("late_tool"),),
-        ))
+        ).complete(
+            ProviderRequest(
+                system_prompt="SYS",
+                user_prompt="load",
+                provider_name="openai",
+                model_id="gpt-test",
+                cwd=tmp_path,
+                messages=(marker,),
+                available_tools=(_tool("late_tool"),),
+            )
+        )
         body = client.requests[0]["body"]
         assert [tool["name"] for tool in body.get("tools", [])] == expected_top_level
-        assert any(item.get("type") == "tool_search_output" for item in body["input"]) is expected_search
+        assert (
+            any(item.get("type") == "tool_search_output" for item in body["input"])
+            is expected_search
+        )
 
 
 def test_openai_includes_assistant_text_alongside_tool_calls(tmp_path: Path):

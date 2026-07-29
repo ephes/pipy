@@ -73,10 +73,7 @@ def test_provider_tool_call_enforces_max_lengths():
     with pytest.raises(ValueError, match="provider_correlation_id exceeds"):
         ProviderToolCall(
             provider_correlation_id=(
-                "x"
-                * (
-                    ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH + 1
-                )
+                "x" * (ProviderToolCall.PROVIDER_CORRELATION_ID_MAX_LENGTH + 1)
             ),
             tool_name="read",
             arguments_json="{}",

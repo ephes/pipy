@@ -37,24 +37,24 @@ from pipy_harness.native.tui import ToolLoopTerminalUi
 # live ui_driver, so this never reaches the screen/archive (the no-leak case).
 # Over a real PTY the live driver is wired into lifecycle dispatch, so the same
 # hook renders the widget (the session_start render case).
-_EXT = '''
+_EXT = """
 def activate(api):
     @api.on("session_start")
     def _s(event, ctx):
         ctx.ui.set_widget("demo", ["DEMO_WIDGET"])
         ctx.ui.set_title("demo-title")
-'''
+"""
 
 # A custom command is the lifecycle path that carries the live ui_driver, so
 # its chrome reaches the real TUI. Used by the PTY render+reload-clear test.
-_EXT_CMD = '''
+_EXT_CMD = """
 def activate(api):
     def _demo(ctx, args):
         ctx.ui.set_widget("demo", ["DEMO_WIDGET"], placement="above_editor")
         ctx.ui.set_title("demo-title")
 
     api.register_command("demo", "set demo chrome", _demo)
-'''
+"""
 
 
 class _Provider:
@@ -220,9 +220,9 @@ def test_pty_session_renders_then_reload_clears_chrome(
         # file is gone, so nothing re-sets the widget -> it must vanish.
         ext_file.unlink()
         os.write(in_master, b"/reload\n")
-        assert _wait_until_absent(
-            err_chunks, "DEMO_WIDGET", columns=100, rows=40
-        ), "widget still on screen after /reload cleared chrome"
+        assert _wait_until_absent(err_chunks, "DEMO_WIDGET", columns=100, rows=40), (
+            "widget still on screen after /reload cleared chrome"
+        )
 
         os.write(in_master, b"\x03")  # ctrl-c exits the prompt
         worker.join(timeout=8.0)

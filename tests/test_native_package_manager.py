@@ -187,7 +187,10 @@ def test_parse_git_source_and_cache_path_are_safe(tmp_path: Path) -> None:
         config_home=tmp_path / "cfg",
         local=True,
     )
-    assert cache == (tmp_path / "ws" / ".pipy" / "git" / "github.com" / "org" / "repo").resolve()
+    assert (
+        cache
+        == (tmp_path / "ws" / ".pipy" / "git" / "github.com" / "org" / "repo").resolve()
+    )
 
     assert parse_git_source("https://user:token@example.com/org/repo") is None
     assert parse_git_source("git:example.com/org/../repo") is None

@@ -71,9 +71,7 @@ def _driver(
     *, isatty: bool = True, fail: bool = False, fd: int = 7
 ) -> tuple[TerminalDriver, _RecordingTerminal]:
     terminal = _RecordingTerminal(isatty=isatty, fail=fail)
-    driver = TerminalDriver(
-        cast(TextIO, _FakeInput(fd)), cast(TextIO, terminal)
-    )
+    driver = TerminalDriver(cast(TextIO, _FakeInput(fd)), cast(TextIO, terminal))
     return driver, terminal
 
 
@@ -95,15 +93,18 @@ def test_write_swallows_errors_and_reports_failure() -> None:
 def test_write_frame_owns_relative_cursor_serialization() -> None:
     driver, terminal = _driver()
 
-    assert driver.write_frame(
-        prior_live_height=4,
-        prior_live_input_row=2,
-        committed_rows=(("history", True),),
-        live_rows=(("input", True), ("footer", True)),
-        cursor_lines_up=1,
-        cursor_col=5,
-        cursor_visible=True,
-    ) is True
+    assert (
+        driver.write_frame(
+            prior_live_height=4,
+            prior_live_input_row=2,
+            committed_rows=(("history", True),),
+            live_rows=(("input", True), ("footer", True)),
+            cursor_lines_up=1,
+            cursor_col=5,
+            cursor_visible=True,
+        )
+        is True
+    )
 
     assert terminal.value == (
         "\x1b[?25l\x1b[2A\r\x1b[J"
@@ -117,15 +118,18 @@ def test_write_frame_owns_relative_cursor_serialization() -> None:
 def test_write_frame_keeps_overlay_cursor_hidden_and_reports_failure() -> None:
     driver, terminal = _driver(fail=True)
 
-    assert driver.write_frame(
-        prior_live_height=0,
-        prior_live_input_row=0,
-        committed_rows=(),
-        live_rows=(("overlay", True),),
-        cursor_lines_up=0,
-        cursor_col=0,
-        cursor_visible=False,
-    ) is False
+    assert (
+        driver.write_frame(
+            prior_live_height=0,
+            prior_live_input_row=0,
+            committed_rows=(),
+            live_rows=(("overlay", True),),
+            cursor_lines_up=0,
+            cursor_col=0,
+            cursor_visible=False,
+        )
+        is False
+    )
     assert terminal.value == ""
 
 
@@ -172,10 +176,7 @@ def test_enter_raw_mode_uses_tcsaflush_typeahead_flush(
     """
 
     # The stdlib default `when` is the flushing TCSAFLUSH.
-    assert (
-        inspect.signature(tty.setraw).parameters["when"].default
-        == termios.TCSAFLUSH
-    )
+    assert inspect.signature(tty.setraw).parameters["when"].default == termios.TCSAFLUSH
 
     captured: dict[str, Any] = {}
 
@@ -268,9 +269,7 @@ def test_temporary_suspension_preserves_nested_owners_and_tcsaflush_resume(
         (17, termios.TCSAFLUSH),
     ]
     assert terminal.value == (
-        _BRACKETED_PASTE_ENABLE
-        + _BRACKETED_PASTE_DISABLE
-        + _BRACKETED_PASTE_ENABLE
+        _BRACKETED_PASTE_ENABLE + _BRACKETED_PASTE_DISABLE + _BRACKETED_PASTE_ENABLE
     )
 
     driver.restore_terminal_mode()
@@ -364,9 +363,7 @@ def test_failed_suspend_does_not_publish_cooked_handoff(
     assert driver._terminal_mode_suspend_depth == 0
     assert driver._bracketed_paste_active is True
     assert terminal.value == (
-        _BRACKETED_PASTE_ENABLE
-        + _BRACKETED_PASTE_DISABLE
-        + _BRACKETED_PASTE_ENABLE
+        _BRACKETED_PASTE_ENABLE + _BRACKETED_PASTE_DISABLE + _BRACKETED_PASTE_ENABLE
     )
 
 
@@ -475,9 +472,7 @@ def test_failed_resume_stays_suspended_until_forced_recovery(
 def test_restore_terminal_mode_disables_paste_and_restores_attrs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        termios, "tcgetattr", lambda fd: "SAVED-ATTRS"
-    )
+    monkeypatch.setattr(termios, "tcgetattr", lambda fd: "SAVED-ATTRS")
     monkeypatch.setattr(tty, "setraw", lambda fd: None)
     restored: dict[str, Any] = {}
 

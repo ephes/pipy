@@ -23,10 +23,10 @@ from pipy_harness.native.http import (
 def test_iter_sse_event_payloads_frames_data_lines_and_records_body() -> None:
     lines = [
         b": keepalive\n",
-        b"data: {\"type\": \"a\"}\n",
+        b'data: {"type": "a"}\n',
         b"\n",
-        b"data: {\"type\": \"b\", ",
-        b"data: \"partial\": 1}\n",
+        b'data: {"type": "b", ',
+        b'data: "partial": 1}\n',
         b"\n",
         b"data: [DONE]\n",
         b"\n",
@@ -41,7 +41,7 @@ def test_iter_sse_event_payloads_frames_data_lines_and_records_body() -> None:
 
 def test_iter_sse_event_payloads_flushes_trailing_event_without_blank_line() -> None:
     collected: list[str] = []
-    payloads = list(iter_sse_event_payloads(iter(["data: {\"x\": 1}"]), collected))
+    payloads = list(iter_sse_event_payloads(iter(['data: {"x": 1}']), collected))
     assert payloads == ['{"x": 1}']
 
 
@@ -51,13 +51,10 @@ def test_transport_exception_retryable_classifies_transient_and_permanent() -> N
     assert transport_exception_retryable(ConnectionResetError()) is True
     assert transport_exception_retryable(ssl.SSLError()) is True
     assert (
-        transport_exception_retryable(http.client.RemoteDisconnected("closed"))
-        is True
+        transport_exception_retryable(http.client.RemoteDisconnected("closed")) is True
     )
     assert transport_exception_retryable(ssl.SSLCertVerificationError()) is False
-    assert (
-        transport_exception_retryable(http.client.BadStatusLine("")) is False
-    )
+    assert transport_exception_retryable(http.client.BadStatusLine("")) is False
 
 
 def test_transport_exception_retryable_unwraps_urlerror_reason() -> None:

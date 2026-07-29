@@ -38,7 +38,9 @@ def _session(path: Path) -> SessionListEntry:
     )
 
 
-def test_overlay_owner_restores_nested_kind_without_duplicate_same_kind_frames() -> None:
+def test_overlay_owner_restores_nested_kind_without_duplicate_same_kind_frames() -> (
+    None
+):
     state = OverlayState()
     assert state.begin_model(
         (ModelSelectorOption("a", True), ModelSelectorOption("b", True)),
@@ -269,6 +271,7 @@ def test_nested_facade_driver_keeps_raw_mode_and_restores_outer(
         "tcsetattr",
         lambda fd, when, attrs: restore_calls.append((fd, when, attrs)),
     )
+
     def read_key(ui: ToolLoopTerminalUi, _fd: int) -> str:
         key = next(keys)
         if key == "esc" and ui._overlays.active == "settings":
@@ -373,9 +376,7 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
         SettingsRow("Outer status", kind="status"),
         SettingsRow("Continue outer", kind="action", action="finish"),
     )
-    inner_rows = (
-        SettingsRow("Inner trust only", kind="action", action="inner"),
-    )
+    inner_rows = (SettingsRow("Inner trust only", kind="action", action="inner"),)
 
     with input_path.open(encoding="utf-8") as input_stream:
         input_fd = input_stream.fileno()
@@ -436,9 +437,7 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
         for active, title, selection, rows, frame in paints
     )
     assert any(
-        active == "settings"
-        and selection == 3
-        and "Continue outer" in frame
+        active == "settings" and selection == 3 and "Continue outer" in frame
         for active, _title, selection, _rows, frame in paints
     )
     assert paints[-1][0] is None
@@ -482,9 +481,7 @@ def test_external_io_scope_pairs_nested_exception_and_repaints_once(
         assert ui._driver._raw_mode_depth == 2
         assert ui._driver._terminal_mode_suspend_depth == 0
         assert raw_calls == [input_stream.fileno(), input_stream.fileno()]
-        assert restore_calls == [
-            (input_stream.fileno(), termios.TCSADRAIN, "saved")
-        ]
+        assert restore_calls == [(input_stream.fileno(), termios.TCSADRAIN, "saved")]
         assert paints == [None]
         ui._driver.force_restore_terminal_mode()
 
@@ -739,7 +736,9 @@ def test_facade_assignable_chrome_projections_write_through_by_identity(
     assert ui.extension_status is statuses is ui._chrome.statuses
     assert ui.extension_widgets_above is above is ui._chrome.widgets_above
     assert ui.extension_widgets_below is below is ui._chrome.widgets_below
-    assert ui._footer_branch_callbacks is callbacks is ui._chrome.footer_branch_callbacks
+    assert (
+        ui._footer_branch_callbacks is callbacks is ui._chrome.footer_branch_callbacks
+    )
     assert (
         ui._extension_terminal_input_listeners
         is listeners

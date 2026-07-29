@@ -43,7 +43,9 @@ def current_request(
 
 
 def allowed_gate() -> NativeReadOnlyGateDecision:
-    return NativeReadOnlyGateDecision(approval_decision=NativeReadOnlyApprovalDecision.ALLOWED)
+    return NativeReadOnlyGateDecision(
+        approval_decision=NativeReadOnlyApprovalDecision.ALLOWED
+    )
 
 
 def invoke_success(tmp_path: Path, relative_path: str = "src/example.py"):
@@ -67,13 +69,16 @@ def unsafe_request(
     identity = NativeToolRequestIdentity.current_noop()
     object.__setattr__(request, "tool_request_id", identity.request_id)
     object.__setattr__(request, "turn_index", identity.turn_index)
-    object.__setattr__(request, "request_kind", NativeReadOnlyToolRequestKind.EXPLICIT_FILE_EXCERPT)
+    object.__setattr__(
+        request, "request_kind", NativeReadOnlyToolRequestKind.EXPLICIT_FILE_EXCERPT
+    )
     object.__setattr__(request, "tool_name", "read_only_repo_inspection")
     object.__setattr__(request, "tool_kind", "read_only_workspace")
     object.__setattr__(
         request,
         "approval_policy",
-        approval_policy or NativeToolApprovalPolicy(mode=NativeToolApprovalMode.REQUIRED),
+        approval_policy
+        or NativeToolApprovalPolicy(mode=NativeToolApprovalMode.REQUIRED),
     )
     object.__setattr__(
         request,
@@ -139,7 +144,9 @@ def test_explicit_file_excerpt_requires_pipy_owned_identity_and_gate_data(tmp_pa
         )
     denied = NativeExplicitFileExcerptTool(tmp_path).invoke(
         current_request(),
-        NativeReadOnlyGateDecision(approval_decision=NativeReadOnlyApprovalDecision.DENIED),
+        NativeReadOnlyGateDecision(
+            approval_decision=NativeReadOnlyApprovalDecision.DENIED
+        ),
         NativeExplicitFileExcerptTarget("missing.txt"),
     )
 
@@ -205,7 +212,11 @@ def test_explicit_file_excerpt_enforces_sandbox_and_capability_posture(
 
 def test_explicit_file_excerpt_allows_not_required_approval_policy(tmp_path):
     result = NativeExplicitFileExcerptTool(tmp_path).invoke(
-        unsafe_request(approval_policy=NativeToolApprovalPolicy(mode=NativeToolApprovalMode.NOT_REQUIRED)),
+        unsafe_request(
+            approval_policy=NativeToolApprovalPolicy(
+                mode=NativeToolApprovalMode.NOT_REQUIRED
+            )
+        ),
         allowed_gate(),
         NativeExplicitFileExcerptTarget("safe.txt"),
     )
@@ -226,7 +237,9 @@ def test_explicit_file_excerpt_skips_search_requests(tmp_path):
     )
 
     assert result.status == NativeToolStatus.SKIPPED
-    assert result.reason_label == NativeExplicitFileExcerptReason.UNSUPPORTED_REQUEST_KIND
+    assert (
+        result.reason_label == NativeExplicitFileExcerptReason.UNSUPPORTED_REQUEST_KIND
+    )
 
 
 @pytest.mark.parametrize(
@@ -243,14 +256,18 @@ def test_explicit_file_excerpt_skips_search_requests(tmp_path):
         "secret_config.py",
     ],
 )
-def test_explicit_file_excerpt_target_validation_rejects_unsafe_targets(target_value: str):
+def test_explicit_file_excerpt_target_validation_rejects_unsafe_targets(
+    target_value: str,
+):
     with pytest.raises(ValueError):
         NativeExplicitFileExcerptTarget(target_value)
 
 
 def test_explicit_file_excerpt_rejects_provider_or_model_authority():
     with pytest.raises(ValueError, match="pipy-owned"):
-        NativeExplicitFileExcerptTarget("src/example.py", target_authority="model-selected")
+        NativeExplicitFileExcerptTarget(
+            "src/example.py", target_authority="model-selected"
+        )
 
 
 def test_explicit_file_excerpt_resolved_path_must_stay_in_workspace(tmp_path):
@@ -269,7 +286,9 @@ def test_explicit_file_excerpt_resolved_path_must_stay_in_workspace(tmp_path):
     assert result.reason_label == NativeExplicitFileExcerptReason.UNSAFE_TARGET
 
 
-def test_explicit_file_excerpt_missing_directories_and_unreadable_files_fail_closed(tmp_path):
+def test_explicit_file_excerpt_missing_directories_and_unreadable_files_fail_closed(
+    tmp_path,
+):
     directory = tmp_path / "folder"
     directory.mkdir()
     unreadable = tmp_path / "unreadable.txt"
@@ -278,18 +297,20 @@ def test_explicit_file_excerpt_missing_directories_and_unreadable_files_fail_clo
 
     tool = NativeExplicitFileExcerptTool(tmp_path)
     request = current_request()
-    assert tool.invoke(request, allowed_gate(), NativeExplicitFileExcerptTarget("missing.txt")).reason_label == (
-        NativeExplicitFileExcerptReason.MISSING_FILE
-    )
-    assert tool.invoke(request, allowed_gate(), NativeExplicitFileExcerptTarget("folder")).reason_label == (
-        NativeExplicitFileExcerptReason.DIRECTORY_TARGET
-    )
-    assert tool.invoke(request, allowed_gate(), NativeExplicitFileExcerptTarget("unreadable.txt")).reason_label == (
-        NativeExplicitFileExcerptReason.UNREADABLE_FILE
-    )
+    assert tool.invoke(
+        request, allowed_gate(), NativeExplicitFileExcerptTarget("missing.txt")
+    ).reason_label == (NativeExplicitFileExcerptReason.MISSING_FILE)
+    assert tool.invoke(
+        request, allowed_gate(), NativeExplicitFileExcerptTarget("folder")
+    ).reason_label == (NativeExplicitFileExcerptReason.DIRECTORY_TARGET)
+    assert tool.invoke(
+        request, allowed_gate(), NativeExplicitFileExcerptTarget("unreadable.txt")
+    ).reason_label == (NativeExplicitFileExcerptReason.UNREADABLE_FILE)
 
 
-def test_explicit_file_excerpt_binary_unsupported_secret_and_oversized_content_fail_closed(tmp_path):
+def test_explicit_file_excerpt_binary_unsupported_secret_and_oversized_content_fail_closed(
+    tmp_path,
+):
     (tmp_path / "binary.txt").write_bytes(b"abc\x00def")
     (tmp_path / "latin1.txt").write_bytes("caf\xe9".encode("latin-1"))
     (tmp_path / "config.txt").write_text("api_key = raw-value\n", encoding="utf-8")
@@ -310,18 +331,20 @@ def test_explicit_file_excerpt_binary_unsupported_secret_and_oversized_content_f
         )
     )
 
-    assert tool.invoke(request, allowed_gate(), NativeExplicitFileExcerptTarget("binary.txt")).reason_label == (
-        NativeExplicitFileExcerptReason.BINARY_FILE
-    )
-    assert tool.invoke(request, allowed_gate(), NativeExplicitFileExcerptTarget("latin1.txt")).reason_label == (
-        NativeExplicitFileExcerptReason.UNSUPPORTED_ENCODING
-    )
-    assert tool.invoke(request, allowed_gate(), NativeExplicitFileExcerptTarget("config.txt")).reason_label == (
-        NativeExplicitFileExcerptReason.SECRET_LOOKING_CONTENT
-    )
-    assert tool.invoke(small_limit_request, allowed_gate(), NativeExplicitFileExcerptTarget("large.txt")).reason_label == (
-        NativeExplicitFileExcerptReason.OVERSIZED_FILE
-    )
+    assert tool.invoke(
+        request, allowed_gate(), NativeExplicitFileExcerptTarget("binary.txt")
+    ).reason_label == (NativeExplicitFileExcerptReason.BINARY_FILE)
+    assert tool.invoke(
+        request, allowed_gate(), NativeExplicitFileExcerptTarget("latin1.txt")
+    ).reason_label == (NativeExplicitFileExcerptReason.UNSUPPORTED_ENCODING)
+    assert tool.invoke(
+        request, allowed_gate(), NativeExplicitFileExcerptTarget("config.txt")
+    ).reason_label == (NativeExplicitFileExcerptReason.SECRET_LOOKING_CONTENT)
+    assert tool.invoke(
+        small_limit_request,
+        allowed_gate(),
+        NativeExplicitFileExcerptTarget("large.txt"),
+    ).reason_label == (NativeExplicitFileExcerptReason.OVERSIZED_FILE)
 
 
 def test_explicit_file_excerpt_line_and_count_limits_fail_closed(tmp_path):
@@ -353,20 +376,28 @@ def test_explicit_file_excerpt_line_and_count_limits_fail_closed(tmp_path):
 
     tool = NativeExplicitFileExcerptTool(tmp_path)
 
-    assert tool.invoke(
-        line_limit_request,
-        allowed_gate(),
-        NativeExplicitFileExcerptTarget("too-many-lines.txt"),
-    ).reason_label == NativeExplicitFileExcerptReason.LIMIT_EXCEEDED
-    assert tool.invoke(
-        zero_count_request,
-        allowed_gate(),
-        NativeExplicitFileExcerptTarget("too-many-lines.txt"),
-    ).reason_label == NativeExplicitFileExcerptReason.LIMIT_EXCEEDED
+    assert (
+        tool.invoke(
+            line_limit_request,
+            allowed_gate(),
+            NativeExplicitFileExcerptTarget("too-many-lines.txt"),
+        ).reason_label
+        == NativeExplicitFileExcerptReason.LIMIT_EXCEEDED
+    )
+    assert (
+        tool.invoke(
+            zero_count_request,
+            allowed_gate(),
+            NativeExplicitFileExcerptTarget("too-many-lines.txt"),
+        ).reason_label
+        == NativeExplicitFileExcerptReason.LIMIT_EXCEEDED
+    )
 
 
 def test_explicit_file_excerpt_ignored_and_generated_files_fail_closed(tmp_path):
-    (tmp_path / ".gitignore").write_text("ignored.txt\nignored-dir/\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(
+        "ignored.txt\nignored-dir/\n", encoding="utf-8"
+    )
     (tmp_path / "ignored.txt").write_text("safe\n", encoding="utf-8")
     ignored_dir = tmp_path / "ignored-dir"
     ignored_dir.mkdir()
@@ -378,15 +409,17 @@ def test_explicit_file_excerpt_ignored_and_generated_files_fail_closed(tmp_path)
     tool = NativeExplicitFileExcerptTool(tmp_path)
     request = current_request()
 
-    assert tool.invoke(request, allowed_gate(), NativeExplicitFileExcerptTarget("ignored.txt")).reason_label == (
-        NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE
-    )
-    assert tool.invoke(request, allowed_gate(), NativeExplicitFileExcerptTarget("ignored-dir/safe.txt")).reason_label == (
-        NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE
-    )
-    assert tool.invoke(request, allowed_gate(), NativeExplicitFileExcerptTarget("__pycache__/module.pyc")).reason_label == (
-        NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE
-    )
+    assert tool.invoke(
+        request, allowed_gate(), NativeExplicitFileExcerptTarget("ignored.txt")
+    ).reason_label == (NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE)
+    assert tool.invoke(
+        request, allowed_gate(), NativeExplicitFileExcerptTarget("ignored-dir/safe.txt")
+    ).reason_label == (NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE)
+    assert tool.invoke(
+        request,
+        allowed_gate(),
+        NativeExplicitFileExcerptTarget("__pycache__/module.pyc"),
+    ).reason_label == (NativeExplicitFileExcerptReason.IGNORED_OR_GENERATED_FILE)
 
 
 def test_explicit_file_excerpt_archive_metadata_is_closed_and_metadata_only(tmp_path):
@@ -467,7 +500,15 @@ def test_explicit_file_excerpt_tool_boundary_is_documented():
 
     done = backlog[: backlog.index("## Next Slice")]
     assert "Native explicit file excerpt read-only tool implementation" in done
-    assert "bounded post-tool provider turn against synthetic sanitized observations" in compact_backlog
-    assert "Native bounded read-only tool observation into follow-up provider turn" in done
+    assert (
+        "bounded post-tool provider turn against synthetic sanitized observations"
+        in compact_backlog
+    )
+    assert (
+        "Native bounded read-only tool observation into follow-up provider turn" in done
+    )
 
-    assert "explicit file excerpt tool keeps successful excerpt text in memory only" in compact_storage
+    assert (
+        "explicit file excerpt tool keeps successful excerpt text in memory only"
+        in compact_storage
+    )

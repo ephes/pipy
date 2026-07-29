@@ -261,10 +261,7 @@ def test_http_429_returns_failed_result(tmp_path):
         }
     ).encode("utf-8")
     http_error = urllib.error.HTTPError(
-        url=(
-            "https://my-resource.openai.azure.com/openai/v1/responses"
-            "?api-version=v1"
-        ),
+        url=("https://my-resource.openai.azure.com/openai/v1/responses?api-version=v1"),
         code=429,
         msg="Too Many Requests",
         hdrs={},
@@ -281,8 +278,7 @@ def test_http_429_returns_failed_result(tmp_path):
     assert result.status == HarnessStatus.FAILED
     assert result.error_type == "AzureOpenAIHTTPStatusError"
     assert (
-        result.error_message
-        == "Azure OpenAI API request failed with HTTP status 429."
+        result.error_message == "Azure OpenAI API request failed with HTTP status 429."
     )
     assert result.metadata == {
         "api_error_code": "429",
@@ -309,9 +305,7 @@ def test_missing_base_url_returns_failed_result(tmp_path):
 def test_env_base_url_overrides_catalog_endpoint(tmp_path, monkeypatch):
     # Pi precedence: AZURE_OPENAI_BASE_URL (env) wins over model.baseUrl
     # (the catalog/endpoint_url field).
-    monkeypatch.setenv(
-        "AZURE_OPENAI_BASE_URL", "https://env-resource.openai.azure.com"
-    )
+    monkeypatch.setenv("AZURE_OPENAI_BASE_URL", "https://env-resource.openai.azure.com")
     client = FakeJsonHTTPClient(
         JsonResponse(status_code=200, body={"status": "completed", "output_text": "ok"})
     )
@@ -382,9 +376,7 @@ def test_deployment_name_map_env_resolves_deployment(tmp_path, monkeypatch):
 
 
 def test_explicit_deployment_field_outranks_map(tmp_path, monkeypatch):
-    monkeypatch.setenv(
-        "AZURE_OPENAI_DEPLOYMENT_NAME_MAP", "gpt-4o-deployment=from-map"
-    )
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME_MAP", "gpt-4o-deployment=from-map")
     client = FakeJsonHTTPClient(
         JsonResponse(status_code=200, body={"status": "completed", "output_text": "ok"})
     )
@@ -397,7 +389,9 @@ def test_explicit_deployment_field_outranks_map(tmp_path, monkeypatch):
     assert client.requests[0]["body"]["model"] == "explicit"
 
 
-def test_deployment_name_map_unmapped_model_falls_back_to_model_id(tmp_path, monkeypatch):
+def test_deployment_name_map_unmapped_model_falls_back_to_model_id(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_NAME_MAP", "someone-else=x")
     client = FakeJsonHTTPClient(
         JsonResponse(status_code=200, body={"status": "completed", "output_text": "ok"})
