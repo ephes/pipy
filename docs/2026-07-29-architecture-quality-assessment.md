@@ -1,7 +1,14 @@
 # Architecture quality assessment — 2026-07-29
 
-Status: Slice 16 implementation complete; independent review complete; landed
-Slice 16 commit pending. No Slice 16 commit hash exists yet.
+Status: completed/reconciled architecture-quality program. Slice 16 landed in
+commit `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+(`docs: close architecture quality program`). Integration review remains open:
+exhaustive partitions A–E are complete CLEAN; valid, complete bundle F found
+this documentation-synchronization Warning, which is being fixed by this ledger
+update; final cross-cutting review is still pending. The overall integration
+review is not yet CLEAN. The explicit next architecture boundary is bounded
+transactional-reload contract completion or formal reconciliation before
+ordinary product-parity selection.
 
 This is the durable closeout assessment for the
 [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md).
@@ -12,13 +19,20 @@ queued recommendations. It does not authorize product-parity implementation.
 
 The assessed pipy baseline is clean `main` at
 `fe474e0e55b3d1e8ae370534acb54a0a5fd9496b` and the implementation checkpoint
-is clean `main` at `e35a0d54898c160ac37acbdbdd35fff727569508`. The assessed
-range is therefore
+before closeout documentation is clean `main` at
+`e35a0d54898c160ac37acbdbdd35fff727569508`. That pre-Slice 16 implementation
+range is
 `fe474e0e55b3d1e8ae370534acb54a0a5fd9496b..e35a0d54898c160ac37acbdbdd35fff727569508`:
-eight commits, 287 changed files, 15,922 insertions, and 5,454 deletions. Before
-Slice 16 it was 0 commits behind and 8 ahead of `origin/main`.
+eight commits, 287 changed files, 15,922 insertions, and 5,454 deletions. At
+that checkpoint it was 0 commits behind and 8 ahead of `origin/main`.
 
-Slices 10–15 are exactly:
+The complete landed Slice 10–16 program checkpoint is clean `main` at
+`7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`. The complete range
+`fe474e0e55b3d1e8ae370534acb54a0a5fd9496b..7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+contains nine commits and 295 changed paths, with 16,581 insertions and 5,640
+deletions.
+
+Slices 10–16 are exactly:
 
 | Slice | Commit | Subject |
 | --- | --- | --- |
@@ -30,6 +44,7 @@ Slices 10–15 are exactly:
 | 15a | `f02255a82a2eeed10185fdb7977ec440ba1eb6d1` | `style: format examples scripts and source` |
 | 15b | `d1c8cbccfe1992dc080bc79e7ba7eaba149dddcb` | `style: format tests` |
 | 15c | `e35a0d54898c160ac37acbdbdd35fff727569508` | `chore: enforce Ruff formatting` |
+| 16 | `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727` | `docs: close architecture quality program` |
 
 The comparison worktrees were independently checked clean at these exact
 revisions:
@@ -85,9 +100,9 @@ focused documentation-consistency test only.
 | Ruff formatter | 261 files would reformat; no gate | no repository gate | clean and enforced across 479 files |
 | PTY sequencing | load-sensitive paint/readiness races were recorded | races still queued | byte/offset readiness handshakes; bounded polling only |
 
-The final uncommitted Slice 16 documentation worktree leaves source metrics
-unchanged and adds 27 physical test lines for its documentation-consistency
-check: **81,738 / 121,052** source/test lines, **34 / 18** C901 findings,
+The landed Slice 16 documentation commit leaves source metrics unchanged and
+adds 27 physical test lines for its documentation-consistency check: **81,738 /
+121,052** source/test lines, **34 / 18** C901 findings,
 **43** TUI fields, and **1** source suppression. Ruff still discovers **479**
 files because the focused check extends an existing test module. Its full gate
 is **4,827 passed / 2 skipped**.
@@ -245,7 +260,8 @@ Repository-recorded implementation evidence:
   169 files, combined Mypy across 437 files, docs built, formatting was clean
   across 479 files, and `just check` reported 4,826 / 2.
 
-Slice 16 implementation verification on the uncommitted documentation diff:
+Slice 16 implementation verification recorded before the documentation commit
+landed:
 
 - focused architecture quality/metrics: **8 passed**;
 - `uv run mypy --strict src`: clean across **169 source files**;
@@ -277,9 +293,13 @@ fresh valid round-2 retry exited 0, covered the complete final **114,722-byte /
 truncations, redactions, Critical, Warning, or Suggestion findings; its
 structured result was **CLEAN**. Review stopped because the accepted exactness
 finding was fixed and the final complete patch was valid CLEAN, so another
-per-slice round would add no material value. The landed Slice 16 commit and its
-hash remain pending; the post-commit complete program-range integration review
-will cover this mechanical review-ledger synchronization.
+per-slice round would add no material value. Slice 16 then landed as commit
+`7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+(`docs: close architecture quality program`). The subsequent exhaustive
+integration partitions A–E are complete CLEAN. Valid, complete bundle F found
+the stale post-commit ledger state now being synchronized; this Warning is the
+reason for the present documentation-only fix. Final cross-cutting review is
+still pending, so no overall integration CLEAN is claimed.
 
 ## Preserved invariants and metadata disposition
 

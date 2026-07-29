@@ -9,6 +9,17 @@ import tomllib
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FORMAT_CHECK_COMMAND = "uv run ruff format --check ."
 FORMAT_WRITE_COMMAND = "uv run ruff format ."
+SLICE_16_REVISION = "7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727"
+SLICE_16_SUBJECT = "docs: close architecture quality program"
+PROGRAM_DOCUMENTS = (
+    "docs/2026-07-29-architecture-quality-assessment.md",
+    "docs/architecture.md",
+    "docs/backlog.md",
+    "docs/index.md",
+    "docs/pi-mono-gap-audit.md",
+    "docs/specs/2026-07-24-architecture-quality-improvement-plan.md",
+)
+RELATED_HISTORICAL_DOCUMENTS = ("docs/architecture-migration.md",)
 
 
 def _read(path: str) -> str:
@@ -72,6 +83,39 @@ def test_architecture_assessment_navigation_and_reference_identity() -> None:
     assert assessment_path in nav
     assert "Codex WebSocket transport uses" in readme
     assert "declared `websockets` dependency" in readme
-    assert "independent review complete; landed Slice 16 commit pending" in (
-        " ".join(assessment.split())
+
+
+def test_architecture_program_closeout_ledgers_stay_synchronized() -> None:
+    stale_claims = (
+        "landed Slice 16 commit pending",
+        "Slice 16 commit hash remains pending",
+        "No Slice 16 commit hash exists yet",
+        "Status: active implementation program",
     )
+    required_claims = (
+        "exhaustive partitions A–E are complete CLEAN",
+        "valid, complete bundle F found",
+        "final cross-cutting review is still pending",
+        "overall integration review is not yet CLEAN",
+        "bounded transactional-reload contract completion or formal reconciliation",
+    )
+
+    for path in PROGRAM_DOCUMENTS:
+        document = " ".join(_read(path).split())
+        assert SLICE_16_REVISION in document
+        assert f"`{SLICE_16_SUBJECT}`" in document
+        for claim in required_claims:
+            assert claim in document
+        for stale_claim in stale_claims:
+            assert stale_claim not in document
+
+    for path in RELATED_HISTORICAL_DOCUMENTS:
+        document = " ".join(_read(path).split())
+        assert SLICE_16_REVISION in document
+        assert f"`{SLICE_16_SUBJECT}`" in document
+        for stale_claim in stale_claims:
+            assert stale_claim not in document
+
+    plan = _read(PROGRAM_DOCUMENTS[-1])
+    assert "Status: completed/reconciled historical plan." in plan
+    assert "it is no longer an active implementation queue" in plan

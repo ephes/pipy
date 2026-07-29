@@ -8,12 +8,19 @@ CLI. `pipy_harness` owns the agent runtime, providers, tools, private product
 sessions, automation modes, extensions, and terminal UI. `pipy_session` is a
 separate metadata-only workflow archive and catalog.
 
-The Phase 0–7 [Architecture Migration](architecture-migration.md) is completed
-historical evidence. The reviewed
+The Phase 0–7 [Architecture Migration](architecture-migration.md) and reviewed
 [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
-has complete Slice 16 implementation; independent review complete; landed
-Slice 16 commit pending. Its measured disposition and current comparison are in
-the [2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md);
+are completed/reconciled historical evidence. Slice 16 landed in commit
+`7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+(`docs: close architecture quality program`). Integration review remains open:
+exhaustive partitions A–E are complete CLEAN; valid, complete bundle F found
+this documentation-synchronization Warning, which is being fixed by this ledger
+update; final cross-cutting review is still pending. The overall integration
+review is not yet CLEAN. The explicit next architecture boundary is bounded
+transactional-reload contract completion or formal reconciliation before
+ordinary product-parity selection. The measured disposition and current
+comparison are in the
+[2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md);
 the [Backlog](backlog.md) owns the exact pointer and next queue. The package
 metadata's native coding-agent description matches this architecture and stays
 unchanged; version/distribution identity, license/URLs, and wheel verification

@@ -21,18 +21,23 @@ follow-up. The big-topic specs indexed by the plan are
 [tui-workflow.md](tui-workflow.md), and
 [export-distribution.md](export-distribution.md).
 
-## Active Reviewed Program — Architecture Quality
+## Completed Reviewed Program — Architecture Quality
 
-The active queue is the ordered
-[Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md).
-It follows the completed Phase 0–7
+The ordered
+[Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
+is completed/reconciled historical evidence. It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
-historical ledger. Slice 16 implementation complete; **independent review
-complete; landed Slice 16 commit pending**. No Slice 16 commit hash exists yet. Its durable output is the
+historical ledger. Slice 16 landed in commit
+`7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+(`docs: close architecture quality program`). Integration review remains open:
+exhaustive partitions A–E are complete CLEAN; valid, complete bundle F found
+this documentation-synchronization Warning, which is being fixed by this ledger
+update; final cross-cutting review is still pending. The overall integration
+review is not yet CLEAN. Its durable output is the
 [2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md).
-The next architecture action after that commit is a bounded transactional-reload
-contract completion or formal reconciliation. Ordinary product-parity selection
-waits behind that correctness boundary and does not expand Slice 16.
+The explicit next architecture boundary is bounded transactional-reload
+contract completion or formal reconciliation before ordinary product-parity
+selection.
 
 Progress:
 
@@ -1433,7 +1438,8 @@ Progress:
   historical pointer then advanced to Slice 16.
 
 - **Slice 16 — final documentation, disposition, and fresh comparison:
-  IMPLEMENTATION AND INDEPENDENT REVIEW COMPLETE; LANDED COMMIT PENDING.** The
+  LANDED.** Commit `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+  (`docs: close architecture quality program`). The
   [2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md)
   consolidates three exact-model read-only audits, records the pipy/Tau/Pi
   revisions and versions, before/after evidence, every residual and C901 pin,
@@ -1466,9 +1472,11 @@ Progress:
   truncations, redactions, or findings, and structured **CLEAN**. Review stopped
   because the accepted exactness finding was fixed and the final complete patch
   was valid CLEAN; another per-slice round would add no material value. The
-  Slice 16 commit hash remains pending, and the post-commit complete
-  program-range integration review will cover this mechanical ledger sync. The
-  next queue item remains bounded reload-contract completion or formal
+  subsequent integration review remains open: exhaustive partitions A–E are
+  complete CLEAN; valid, complete bundle F found the stale documentation state
+  being fixed by this ledger synchronization; final cross-cutting review is
+  still pending, so the overall integration review is not yet CLEAN. The next
+  queue item remains bounded transactional-reload contract completion or formal
   reconciliation before ordinary product-parity selection.
 
 ## Current State
@@ -1485,15 +1493,18 @@ OpenAI-compatible Chat Completions machinery with tool-loop support. Specific
 feature coverage and parity status live in [pi-parity.md](pi-parity.md). Code
 shape lives in [architecture.md](architecture.md). The Phase 0–7 internal migration in
 [architecture-migration.md](architecture-migration.md) is completed historical
-evidence. The reviewed architecture-quality program is complete through Slice
-16 independent review, with the landed Slice 16 commit pending; its assessment
-and the bounded reload-contract follow-up supersede the old migration
-ordering—but not its recorded findings or ledger.
+evidence. The reviewed architecture-quality program is completed/reconciled
+through landed Slice 16 commit
+`7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+(`docs: close architecture quality program`); its assessment and the bounded
+reload-contract follow-up supersede the old migration ordering—but not its
+recorded findings or ledger.
 
 This page is the forward-planning index:
 
-- `Active Reviewed Program` names the exact review-complete, commit-pending
-  disposition and the reload-contract follow-up that precedes product parity.
+- `Completed Reviewed Program` names the exact landed disposition, still-open
+  integration status, and reload-contract follow-up that precedes product
+  parity.
 - `Pi Parity Roadmap` and the refreshed Pi audit rank product gaps without
   silently adding them to architecture work.
 - The named parity and quality tracks below preserve shipped detail and
@@ -3072,7 +3083,7 @@ The heading is retained because executable historical backlog contracts use it
 as a section boundary. The entries in this section are the former migration
 queue. They are preserved
 for auditability and do **not** identify the current implementation target; use
-`Active Reviewed Program` above.
+`Completed Reviewed Program` above.
 
 ### Architecture migration baseline — SHIPPED (2026-07-17)
 
@@ -6808,10 +6819,10 @@ within Claude Code. The first selected local integration is `ds4`, using
 it is registered as tool-loop capable after live ds4 smoke proved OpenAI-style
 tool-call round trips with pipy's loop.
 
-The current disposition and next target are in `Active Reviewed Program`
-above: land the reviewed Slice 16 commit, then complete or formally reconcile
-the bounded transactional reload contract before selecting ordinary product
-parity.
+The current disposition and next target are in `Completed Reviewed Program`
+above: Slice 16 is landed, and the explicit next architecture boundary is
+bounded transactional-reload contract completion or formal reconciliation
+before ordinary product-parity selection.
 
 Historical gates before the single product REPL are preserved in `Done` and
 `docs/harness-spec.md` for auditability, but they are not current product
@@ -7050,8 +7061,9 @@ summaries. Raw transcript import from external agents remains deferred.
 
 ## Maintenance Notes
 
-- Advance the pointer in `Active Reviewed Program` only when the coordinator
-  accepts the current slice; the git log is the authoritative record of shipped work.
+- Reopen or replace `Completed Reviewed Program` only when the coordinator
+  authorizes a new bounded program; the git log is the authoritative record of
+  shipped work.
 - Keep deferred items here brief; put detailed design and rationale in
   `docs/harness-spec.md`.
 - Keep archive and privacy rules aligned with `docs/session-storage.md`.

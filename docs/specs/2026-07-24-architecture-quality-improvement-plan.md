@@ -1,9 +1,20 @@
 # Architecture quality improvement program
 
-Status: active implementation program. Review outcomes are recorded in the
-coordinator ledger and commit history.
+Status: completed/reconciled historical plan. Review outcomes are preserved in
+the coordinator ledger and commit history. Slice 16 landed in commit
+`7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+(`docs: close architecture quality program`).
 
 Date: 2026-07-24.
+
+Integration review remains open: exhaustive partitions A–E are complete CLEAN;
+valid, complete bundle F found this documentation-synchronization Warning,
+which is being fixed by this ledger update; final cross-cutting review is still
+pending. The overall integration review is not yet CLEAN. The explicit next
+architecture boundary is bounded transactional-reload contract completion or
+formal reconciliation before ordinary product-parity selection. This plan is
+preserved as the historical definition and acceptance ledger for the completed
+program; it is no longer an active implementation queue.
 
 ## Purpose
 

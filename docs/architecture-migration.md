@@ -4,9 +4,13 @@ Status: completed historical engineering plan.
 
 > **Historical notice:** Phase 0–7 and the recorded quality burn-down are
 > complete. Preserve the slice narratives and ledger below as contemporaneous
-> implementation evidence. For the current code shape, read the living
-> [Architecture Overview](architecture.md); for active structural work, read the
-> reviewed [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md).
+> implementation evidence. For the current code shape and next bounded
+> architecture boundary, read the living [Architecture Overview](architecture.md)
+> and [Backlog](backlog.md). The subsequent reviewed
+> [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
+> is also completed/reconciled historical evidence; its Slice 16 closeout landed
+> in `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+> (`docs: close architecture quality program`).
 
 This document was the source of truth for improving pipy's internal architecture
 while preserving its shipped Pi-shaped product behavior. It turned the

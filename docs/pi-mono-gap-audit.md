@@ -17,9 +17,16 @@ This page is a selection aid, not an implementation plan and not a claim of
 line-by-line TypeScript parity. Detailed pipy behavior remains owned by the
 topic specs and conformance gates. The reviewed
 [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
-has complete Slice 16 implementation; independent review complete; landed
-Slice 16 commit pending. Its assessment queues a bounded reload-contract reconciliation
-before product selection; none of the product gaps below is part of Slice 16.
+is completed/reconciled historical evidence. Slice 16 landed in commit
+`7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+(`docs: close architecture quality program`). Integration review remains open:
+exhaustive partitions A–E are complete CLEAN; valid, complete bundle F found
+this documentation-synchronization Warning, which is being fixed by this ledger
+update; final cross-cutting review is still pending. The overall integration
+review is not yet CLEAN. The explicit next architecture boundary is bounded
+transactional-reload contract completion or formal reconciliation before
+ordinary product-parity selection; none of the product gaps below is part of
+Slice 16.
 
 ## Current reading
 

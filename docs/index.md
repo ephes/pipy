@@ -38,11 +38,17 @@ Read these documents in order to learn the project from the outside in:
     [Python SDK and Headless Embedding](sdk.md) for in-process Python callers.
 10. [Architecture](architecture.md): the current runtime, ownership boundaries,
     executable gates, and measured residual risks. The Phase 0–7
-    [Architecture Migration](architecture-migration.md) is completed historical
-    evidence; the reviewed
+    [Architecture Migration](architecture-migration.md) and reviewed
     [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
-    has complete Slice 16 implementation; independent review complete; landed
-    Slice 16 commit pending.
+    are completed/reconciled historical evidence. Slice 16 landed in commit
+    `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
+    (`docs: close architecture quality program`). Integration review remains
+    open: exhaustive partitions A–E are complete CLEAN; valid, complete bundle
+    F found this documentation-synchronization Warning, which is being fixed by
+    this ledger update; final cross-cutting review is still pending. The overall
+    integration review is not yet CLEAN. The explicit next architecture
+    boundary is bounded transactional-reload contract completion or formal
+    reconciliation before ordinary product-parity selection.
 11. [Architecture Quality Assessment — 2026-07-29](2026-07-29-architecture-quality-assessment.md):
     exact revisions, before/after evidence, ownership outcomes, residuals,
     comparisons, and the bounded next queue.
