@@ -23,7 +23,9 @@ from typing import TextIO, cast
 import fcntl
 import pytest
 
+from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pty_sync import wait_for_input_ready, wait_for_input_ready_after
 
 _DETACHED_PTY_STREAMS: list[object] = []
 _ABANDONED_PTY_FDS: list[int] = []
@@ -173,9 +175,10 @@ def test_pty_custom_component_types_and_submits(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        assert _wait_for(err_chunks, "PROBE-OVERLAY"), "overlay never rendered"
+        assert wait_for_input_ready_after(err_chunks, "PROBE-OVERLAY") is not None, (
+            "overlay input never became ready"
+        )
         os.write(in_master, b"hi")
-        time.sleep(0.1)
         assert _wait_for(err_chunks, "text:[hi]"), "typed text never rendered"
         os.write(in_master, b"\r")  # Enter -> submit
         worker.join(timeout=8.0)
@@ -185,6 +188,52 @@ def test_pty_custom_component_types_and_submits(
     assert result == ["hi"]
     captured = b"".join(err_chunks).decode("utf-8", "replace")
     assert "\x1b[?1049h" not in captured, "custom overlay must not use alt screen"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_custom_component_paint_precedes_observable_input_readiness(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A painted overlay is not writable until the post-TCSAFLUSH byte."""
+
+    monkeypatch.setenv("TERM", "xterm-256color")
+    ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(tmp_path)
+    transition_started = threading.Event()
+    release_transition = threading.Event()
+    result: list[object] = []
+    original_enter = type(ui._driver).enter_raw_mode
+
+    def delayed_enter(driver: TerminalDriver) -> None:
+        transition_started.set()
+        assert release_transition.wait(timeout=8.0)
+        original_enter(driver)
+
+    monkeypatch.setattr(type(ui._driver), "enter_raw_mode", delayed_enter)
+    worker = threading.Thread(
+        target=lambda: result.append(
+            ui.run_custom_component(lambda done: _ProbeComponent(done))
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "PROBE-OVERLAY"), "overlay never painted"
+        assert transition_started.wait(timeout=8.0), "raw transition never started"
+        assert (
+            wait_for_input_ready_after(
+                err_chunks, "PROBE-OVERLAY", timeout=0.05
+            )
+            is None
+        ), "paint incorrectly acknowledged input readiness"
+        release_transition.set()
+        assert wait_for_input_ready_after(err_chunks, "PROBE-OVERLAY") is not None
+        os.write(in_master, b"ok\r")
+        worker.join(timeout=8.0)
+        assert not worker.is_alive(), "custom-component worker did not exit"
+    finally:
+        release_transition.set()
+        _teardown(stdin, terminal, in_master, err_master, err_thread)
+    assert result == ["ok"]
 
 
 @pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
@@ -201,7 +250,9 @@ def test_pty_custom_component_esc_cancels(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        assert _wait_for(err_chunks, "PROBE-OVERLAY"), "overlay never rendered"
+        assert wait_for_input_ready_after(err_chunks, "PROBE-OVERLAY") is not None, (
+            "overlay input never became ready"
+        )
         os.write(in_master, b"\x1b")  # Esc -> cancel
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "custom-component worker did not exit"
@@ -224,10 +275,11 @@ def test_pty_extension_editor_accepts_newline_and_submits(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        assert _wait_for(err_chunks, "Draft"), "editor overlay never rendered"
-        os.write(in_master, b"\x1b\r")  # Alt+Enter -> newline fallback.
-        time.sleep(0.1)
-        os.write(in_master, b"next")
+        assert wait_for_input_ready_after(err_chunks, "Draft") is not None, (
+            "editor input never became ready"
+        )
+        # Ordered raw bytes need no paint delay between newline insertion and text.
+        os.write(in_master, b"\x1b\rnext")
         assert _wait_for(err_chunks, "next"), "typed second line never rendered"
         os.write(in_master, b"\r")  # Enter -> submit
         worker.join(timeout=8.0)
@@ -360,10 +412,14 @@ def test_pty_extension_editor_external_editor_failure_keeps_text(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        assert _wait_for(err_chunks, "ctrl-g external edit"), "external hint missing"
+        assert (
+            wait_for_input_ready_after(err_chunks, "ctrl-g external edit") is not None
+        ), "external-editor input never became ready"
         os.write(in_master, b"\x07")  # Ctrl+G -> failing external editor.
-        assert _wait_for(err_chunks, "Launching external editor"), "editor never launched"
-        time.sleep(0.2)
+        assert (
+            wait_for_input_ready_after(err_chunks, "Launching external editor")
+            is not None
+        ), "editor did not resume raw input"
         os.write(in_master, b"\r")  # Enter -> submit original text.
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "editor worker did not exit"
@@ -395,10 +451,14 @@ def test_pty_extension_editor_external_editor_invalid_utf8_keeps_text(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        assert _wait_for(err_chunks, "ctrl-g external edit"), "external hint missing"
+        assert (
+            wait_for_input_ready_after(err_chunks, "ctrl-g external edit") is not None
+        ), "external-editor input never became ready"
         os.write(in_master, b"\x07")  # Ctrl+G -> invalid UTF-8 save.
-        assert _wait_for(err_chunks, "Launching external editor"), "editor never launched"
-        time.sleep(0.2)
+        assert (
+            wait_for_input_ready_after(err_chunks, "Launching external editor")
+            is not None
+        ), "editor did not resume raw input"
         os.write(in_master, b"\r")  # Enter -> submit original text.
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "editor worker did not exit"
@@ -427,7 +487,9 @@ def test_pty_extension_shortcut_returns_sentinel(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        time.sleep(0.2)
+        assert wait_for_input_ready(err_chunks) is not None, (
+            "read_line input never became ready"
+        )
         os.write(in_master, b"\x18")  # Ctrl+X
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "read_line did not return on shortcut"

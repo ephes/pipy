@@ -390,8 +390,41 @@ terminal is physically raw or suspended; repeated close is idempotent. Decoded
 paste bodies transfer once into
 `EditorState`; the TUI decides what to draw and which pure transition to apply,
 while the driver decides how bytes and terminal lifecycle transitions occur.
-Real-PTY and effect-layer tests protect prompt readiness, nested key handling,
-and restoration.
+Real-PTY synchronization treats paint as presentation, not input readiness.
+At every audited ownership handoff after startup, an overlay/command/turn, a
+foreign-editor resume, or a final notice/turn before Ctrl-D exit, tests wait for
+the bracketed-paste enable sequence emitted only after the driver's outer
+`TCSAFLUSH` raw transition. The inventory includes direct and settings-nested
+model selectors, settings open/reopen/close, login/logout continuations,
+thinking/model/folding hotkeys, mid-turn local commands, scoped-model open/save,
+queued steering drain completion, and the changed final-exit paths. Repeated transitions are
+distinguished by exact invocation byte offset or acknowledgement count, so an
+older marker cannot satisfy a later handoff. Two-phase output/readiness
+observations share one monotonic deadline; count waits also inspect an existing
+capture at zero or negative budget and sleep for no more than the remaining
+clamped budget.
+The fd aggregate used by project-trust tests searches already captured bytes at
+or after the preceding match end. Its typed output-then-readiness observation
+preserves the full aggregate and both exact offsets while sharing one absolute
+monotonic deadline across fd reads and both match phases; coalesced and split
+bytes are equivalent, and stale pre-title acknowledgements cannot match.
+Resize tests first establish quiescence under the existing raw owner, then use a
+fresh pre-resize offset. A PTY master read may split the driver's coalesced
+clear-plus-paint flush, so `ESC[2J` alone is not frame completion. Snapshot tests
+observe that clear and then a unique visible footer sentinel serialized after
+the asserted input, overlay, separator, and settings rows, in order under one
+monotonic deadline. In the long-input case, a separate unique final rendered
+glyph first proves the complete repetitive byte burst was consumed. Without
+that pre-resize acknowledgement, the split-PTY harness can change output
+geometry between an input poll and an ordinary key-triggered paint; that paint
+adopts the new size, leaving no delta for the next poll and therefore no
+full-clear byte. A real foreground terminal's SIGWINCH pending flag is the
+second product trigger, but this test-owned split PTY has no such signal
+ownership and must not use a partial render as quiescence. The reusable helpers
+live only in the test suite; no test-only product API or terminal byte was
+added. Polling/deadline sleeps remain safety bounds, not sequencing. Real-PTY
+and effect-layer tests protect these handshakes, nested key handling, and
+restoration.
 
 ## Executable architecture gates
 
@@ -412,7 +445,7 @@ non-strict baseline. The override spells out every per-module sub-flag from
 `--strict`; the three global-only flags (`warn_unused_configs`,
 `warn_redundant_casts`, and `strict_bytes`) remain enabled globally. The
 authoritative CI typecheck still runs `mypy src tests`, and the independent
-repository-strict diagnostic `mypy --strict src` is clean across all 168 source
+repository-strict diagnostic `mypy --strict src` is clean across all 169 source
 files.
 
 `pipy_harness.status.HarnessStatus` is the sole enum definition and the
@@ -493,8 +526,9 @@ The active program addresses ownership risks rather than cosmetic size:
   `EditorState`, `OverlayState`, and `ExtensionChromeState`; Slices 11–13 keep
   the measured façade inventory at **43 fields** after reducing it from 128,
   below the cumulative **89-field** ceiling; and
-- load-sensitive PTY readiness races and the absence of a repository Ruff-format
-  gate remain explicit quality work.
+- deterministic PTY byte handshakes now cover the previously load-sensitive
+  readiness transitions; the absence of a repository Ruff-format gate remains
+  explicit quality work.
 
 See the active improvement plan for ordered acceptance criteria. These are
 intentional, measured residuals—not evidence that the completed migration is

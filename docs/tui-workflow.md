@@ -57,7 +57,34 @@ termios while preserving all logical owners, then unavoidably resumes through
 the same guarded nesting depth and `TCSAFLUSH` raw-entry policy. The scope also
 blocks raw acquisition when entered without an existing owner; failed entry
 launches no consumer, and failed resumption remains suspended for forced-close
-recovery. `!` commands and model tools retain detached
+recovery. The real-PTY suite observes that ordering directly: painted output is
+never a readiness signal; input after startup, overlays, active work, local
+commands, external-editor resume, and final Ctrl-D exits waits for the later
+bracketed-paste enable byte emitted after the outer `TCSAFLUSH` transition.
+Output/readiness phases share one monotonic deadline, and exact invocation byte
+offsets prevent coalesced output or stale acknowledgements from satisfying the
+wrong handoff. Count waits honor the same edge semantics: they inspect the
+existing capture at non-positive budget and never sleep past the clamped
+remaining budget. The exhaustive Slice 14 handoff audit covers direct and
+settings-nested model selectors, settings open/reopen/close, login/logout
+continuations, thinking/model/folding hotkeys, mid-turn local commands,
+scoped-model open/toggle/repaint/save, queued steering drain completion, and all
+changed final exits. The project-trust fd path follows the same rule with a typed
+aggregate observation: title/notice and readiness searches share one absolute
+deadline, preserve exact match-end offsets, and work for already coalesced or
+split reads while excluding stale markers. Resize tests establish a quiescent
+frame and start from a fresh offset because no new raw owner is acquired. A PTY
+read can split the coalesced clear-plus-redraw write, so screen snapshots wait
+for `ESC[2J` and then a unique visible final-footer sentinel under one shared
+deadline before parsing. For long repetitive input, a separate unique final
+rendered glyph proves that the input burst is fully consumed before changing
+geometry. A repeated suffix can appear while bytes remain unread; in the
+split-PTY test harness, the next ordinary key paint can then adopt the new size
+before the polling boundary and erase the size delta that would request a full
+clear. Real foreground-terminal SIGWINCH remains the product's parallel trigger;
+no runtime behavior changed. These test-only handshakes replace fixed sequencing
+sleeps without changing product bytes or exposing a test API.
+`!` commands and model tools retain detached
 child stdin while pipy's interrupt watcher owns raw input, so they do not
 suspend. The actual TUI close boundary is a third operation that separately
 forces restoration, clearing abandoned raw and suspension ownership whether

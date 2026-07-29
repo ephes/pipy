@@ -25,6 +25,7 @@ from pipy_harness.native.models import ProviderResult
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pty_sync import wait_for_input_ready_after
 
 
 def _spawn_live_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:
@@ -147,7 +148,9 @@ def test_pty_resume_and_compact(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        assert wait_for_input_ready_after(err_chunks, "escape interrupt") is not None, (
+            "startup input never became ready"
+        )
         # Resumed-state banner is committed at startup (safe labels only).
         assert _wait_for(err_chunks, "Resumed (resume) from session"), (
             f"{label}: resumed-state banner never shown"
@@ -156,13 +159,14 @@ def test_pty_resume_and_compact(
         # active-turn Escape watcher does not eat the next input.
         for index in (1, 2, 3):
             os.write(in_master, b"prompt\n")
-            assert _wait_for(err_chunks, f"DONE_{index}"), (
-                f"{label}: turn {index} answer never rendered"
-            )
+            assert (
+                wait_for_input_ready_after(err_chunks, f"DONE_{index}") is not None
+            ), f"{label}: turn {index} did not return to ready input"
         os.write(in_master, b"/compact\n")
-        assert _wait_for(err_chunks, "compacted conversation context"), (
-            f"{label}: /compact notice never shown"
-        )
+        assert (
+            wait_for_input_ready_after(err_chunks, "compacted conversation context")
+            is not None
+        ), f"{label}: /compact did not return to ready input"
         os.write(in_master, b"\x04")
         worker.join(timeout=8.0)
     finally:

@@ -29,6 +29,7 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pty_sync import wait_for_input_ready_after
 
 # A 2-arg `(entry, ctx)` durable-entry renderer takes the rich styled path: it
 # themes a known body sentinel via ctx.theme.fg. The
@@ -154,12 +155,16 @@ def test_rich_message_renderer_color_visible_over_pty(
     )
     worker.start()
     try:
-        assert _wait_for(err_chunks, "escape interrupt"), "startup never painted"
+        assert wait_for_input_ready_after(err_chunks, "escape interrupt") is not None, (
+            "startup input never became ready"
+        )
 
         # Dispatch the extension command: it calls ctx.append_entry("card", ...),
         # which runs the registered 2-arg renderer through the live ui_driver.
         os.write(in_master, b"/mkcard\n")
-        assert _wait_for(err_chunks, "PTYBODY"), "styled card body never painted"
+        assert wait_for_input_ready_after(err_chunks, "PTYBODY") is not None, (
+            "styled card command did not return to ready input"
+        )
 
         frame = b"".join(err_chunks).decode("utf-8", "replace")
         # Color/SGR is visible on the styled path on a real terminal.

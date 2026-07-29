@@ -30,6 +30,7 @@ from pipy_harness.native.tool_loop_session import (
     _tool_loop_command_names,
 )
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pty_sync import wait_for_input_ready_after
 
 
 @dataclass
@@ -158,7 +159,9 @@ def _drive_session(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        assert wait_for_input_ready_after(err_chunks, "escape interrupt") is not None, (
+            "startup input never became ready"
+        )
         interact(in_master, err_chunks)
         os.write(in_master, b"\x04")
         worker.join(timeout=8.0)
@@ -193,7 +196,9 @@ def test_pty_slash_menu_discovers_and_runs_custom_command(
         assert _wait_for(err_chunks, "deploy"), "custom command not in slash menu"
         # Finish the command and execute it through the real command path.
         os.write(in_master, b" staging\n")
-        assert _wait_for(err_chunks, "RESPONSE_MARKER_DONE"), "provider turn never ran"
+        assert (
+            wait_for_input_ready_after(err_chunks, "RESPONSE_MARKER_DONE") is not None
+        ), "provider turn did not return to ready input"
 
     provider, captured, result = _drive_session(
         tmp_path, monkeypatch, columns, rows, interact
@@ -218,7 +223,9 @@ def test_pty_unsafe_resource_is_rejected_without_provider_turn(
 
     def interact(in_master: int, err_chunks: list[bytes]) -> None:
         os.write(in_master, b"/skill nope\n")
-        assert _wait_for(err_chunks, "no skill named 'nope'"), "rejection not shown"
+        assert (
+            wait_for_input_ready_after(err_chunks, "no skill named 'nope'") is not None
+        ), "rejection did not return to ready input"
 
     provider, captured, result = _drive_session(
         tmp_path, monkeypatch, columns, rows, interact

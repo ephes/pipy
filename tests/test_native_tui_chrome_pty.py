@@ -22,6 +22,7 @@ import pytest
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pty_sync import wait_for_input_ready_after
 
 
 def _spawn_live_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:
@@ -91,7 +92,9 @@ def test_pty_chrome_header_widget_and_footer_render_with_input(
     )
     worker.start()
     try:
-        assert _wait_for(err_chunks, "escape interrupt"), "startup chrome never painted"
+        assert wait_for_input_ready_after(err_chunks, "escape interrupt") is not None, (
+            "startup input never became ready"
+        )
 
         # Install the three chrome regions on the live UI; each setter repaints.
         def header_factory(theme: object) -> object:

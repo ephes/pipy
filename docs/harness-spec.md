@@ -2337,11 +2337,42 @@ Raw-mode transition typeahead policy (preserved, not changed): `enter_raw_mode`
 calls `tty.setraw(fd)` with no explicit `when`, relying on the standard-library
 default `termios.TCSAFLUSH`, which discards input queued before the raw-mode
 switch. Consumers therefore synchronize on a fresh prompt (prompt readiness)
-rather than on bytes typed ahead of the transition. The extraction deliberately
-keeps that flush unchanged rather than silently altering terminal semantics in a
-control-plane move; `tests/test_native_terminal_driver.py` characterizes it
-explicitly. The agent and coding import-boundary gates forbid depending on
-`native.terminal_driver`.
+rather than on bytes typed ahead of the transition. Real-PTY tests make that
+contract observable: a paint is not readiness, so any later input write —
+including final Ctrl-D after a notice or completed turn — waits for the
+bracketed-paste enable sequence that the driver emits only after the outer raw
+transition succeeds. Tests chain the byte after the exact end offset of the
+specific notice/answer/overlay or count fresh acknowledgements across
+active-work and prompt owners; an old marker cannot satisfy a new handoff. The
+audited set includes direct and settings-nested model selectors, settings
+open/reopen/close, login/logout command continuations, thinking/model/folding
+hotkeys, mid-turn local commands, scoped-model open/save, queued steering drain
+completion, and every final Ctrl-D path changed in this slice. Two-phase observations
+consume one monotonic timeout budget. Count waits inspect already captured
+acknowledgements even with a zero or negative timeout, clamp their deadline, and
+sleep only for the remaining budget. The typed project-trust fd handshake
+preserves one aggregate plus the exact title/notice and readiness end offsets.
+It searches captured/coalesced bytes before reading, accepts split reads, starts
+the second phase at the first match end, and uses one absolute monotonic deadline
+for both phases. A resize under one existing owner first observes a quiescent
+frame and records a fresh pre-resize offset. Because a PTY master can split a
+coalesced clear-plus-paint flush, seeing `ESC[2J` is not enough to parse a screen
+snapshot. The snapshot contract observes that clear and then a unique visible
+footer sentinel emitted after the asserted frame regions, in order under one
+shared deadline. For repetitive long input, a separate unique final glyph
+acknowledges that the complete byte burst was consumed before the geometry
+change. A partial repeated suffix is not quiescence: in the split-PTY harness,
+geometry can then change between the input poll and the next ordinary key paint,
+which adopts the new geometry and consumes the size delta before the full-clear
+poll. The harness does not own a foreground terminal that can supply the
+product's normal SIGWINCH trigger, so this ordering is test-owned rather than a
+product-runtime change. Poll intervals and process deadlines remain bounded
+safety mechanisms and are not used to sequence input. This synchronization adds
+no product API or wire byte.
+The extraction deliberately keeps the flush unchanged rather than silently
+altering terminal semantics in a control-plane move;
+`tests/test_native_terminal_driver.py` characterizes it explicitly. The agent
+and coding import-boundary gates forbid depending on `native.terminal_driver`.
 
 ### Canonical Agent Tool-Capability Port
 

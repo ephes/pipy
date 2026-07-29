@@ -28,11 +28,12 @@ The active queue is the ordered
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
 historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 13 — pure frame composition**. Slice 12 implementation,
-verification, independent review, documentation, and commit integration are
-complete in the change that advances this pointer. Product-parity deltas in the
-Pi audit remain selection candidates after the architecture program and do not
-expand an architecture slice.
+is **Slice 15 — repository formatting baseline and gate**. Slice 14
+implementation, stress verification, independent review, and documentation are
+complete in this commit; the separately shipped Slice 14 prerequisite remained
+part of its evidence rather than counting as completion by itself.
+Product-parity deltas in the Pi audit remain selection candidates after the
+architecture program and do not expand an architecture slice.
 
 Progress:
 
@@ -1162,6 +1163,225 @@ Progress:
   documentation, and review are complete. **Slice 14 — deterministic PTY
   synchronization** is now active; the Slice 13 commit integrates this ledger
   and advances the pointer atomically.
+
+- **Slice 14 — deterministic PTY synchronization: SHIPPED IN THIS COMMIT.**
+  One typed
+  test-only owner, `tests/pty_sync.py`, waits on bytes already emitted by the
+  product. A rendered title, notice, answer, input frame, or external-editor
+  hint is presentation only. Input is writable only after the later
+  `ESC[?2004h` acknowledgement emitted by `TerminalDriver` after a successful
+  outer `TCSAFLUSH` raw transition. Helpers chain from the precise preceding
+  output offset, or count fresh acknowledgements where an active-work raw owner
+  is followed by a prompt raw owner. The two output/readiness phases consume
+  one monotonic timeout budget. The shared typed fd aggregate immediately
+  searches already captured bytes from a supplied offset before reading more,
+  preserves exact output/readiness match ends, and uses one absolute deadline
+  across both ordered phases, so coalesced and split title/readiness output are
+  accepted while stale acknowledgements are rejected. Resize tests keep their
+  existing owner. Snapshot paths wait for the fresh clear and then a unique
+  visible final-footer sentinel under one deadline; a clear prefix alone does
+  not prove a split PTY read captured the complete redraw. No product API, byte,
+  timeout, or terminal policy changed.
+
+  Recorded race inventory:
+
+  - the shipped multi-tool/local-command prerequisite remains intact, now using
+    the shared post-`Keyboard Shortcuts` raw acknowledgement rather than a
+    one-off partition scan;
+  - startup chrome, the project-trust selector, session picker, extension
+    chrome/message commands, resources, and resume/compact painted before their
+    first or next outer raw owner; each write now follows that owner's byte;
+  - the extension editor's Ctrl+G hint painted before the outer raw transition,
+    and the launch notice preceded the post-editor `TCSAFLUSH` resume; both
+    invalid-UTF8 and ordinary failure paths now handshake on each transition;
+  - custom-overlay typing/cancel/editor/shortcut tests could write after paint
+    but before raw entry; a delayed-transition real-PTY characterization proves
+    paint alone cannot acknowledge readiness;
+  - active-turn Escape/Ctrl-C painted `Operation aborted` before the follow-up
+    prompt acquired raw mode; follow-up input now waits for the later byte;
+  - thinking/model/folding hotkey notices painted before the next input owner;
+    every hotkey now starts at a fresh capture offset and waits through its
+    notice to the following readiness acknowledgement;
+  - queued steering reached the third provider call before its result and next
+    prompt were ready; final exit now waits for `DRAINED_TURN_3` and the later
+    prompt acknowledgement while preserving provider-call and drain-order
+    assertions;
+  - a mid-turn `/hotkeys` driver returned after presentation only, leaving its
+    helper's final Ctrl-D exposed; it now starts at the command invocation
+    offset and waits through `Keyboard Shortcuts` to ready input;
+  - settings close/reopen, persistent-history sessions, tree turns/selectors,
+    scoped-model save, and local-command cancellation used fixed sleeps or
+    output-only waits across ownership handoffs; they now use byte offsets,
+    acknowledgement counts, or ordered bytes under one already-ready owner;
+  - final exits after `/copy`, the balanced multi-tool follow-up, and scoped-
+    model save now record fresh invocation/output offsets and wait for the
+    later prompt acknowledgement before writing Ctrl-D;
+  - project-trust/session-picker resize tests now observe the clear/redraw byte
+    instead of sleeping for the resize poll; and
+  - the former bracketed-paste exit race is covered by the shared startup and
+    post-turn prompt handshake, so an exit byte cannot be discarded by the
+    next outer raw transition.
+
+  The remaining sleeps in `tests/*_pty.py` are only output-poll cadence and
+  macOS PTY EIO/empty-read backoff. Join/provider/process timeouts remain
+  bounded failure deadlines.
+
+  Verification on macOS/Python 3.14.5: before review, eight formerly flaky
+  focused nodes (14 parameter cases per batch) passed 20 consecutive batches;
+  after the round-1 fixes, the helper, complete project-trust module, and three
+  final-exit nodes (18 parameter cases per batch) passed
+  **20 consecutive batches**, 360 checks total. The exhaustive nine changed
+  test modules (81 cases including the helper tests) passed **10 consecutive
+  batches**, 810 checks total. `just test-pty-smoke` passed **5/5** runs at 8
+  tests each, and the complete real-PTY inventory passed at **75/75**.
+  Diagnostic `mypy --strict src` passed **169** files, followed serially by
+  `just typecheck` across **436** source/test files. `just docs-build` completed
+  with no issues, and final `just check` passed Ruff, Mypy, and Pytest (**4,816
+  passed, 2 skipped**). Final architecture metrics remain **34** repository /
+  **18** source C901 findings, **43** `ToolLoopTerminalUi` fields, and **1**
+  source `type: ignore`. CI still defines both Linux and macOS real-PTY jobs;
+  settings and native theme stores both remain `pi`; no pre-commit configuration
+  is present. Independent Pi review round 1 reported three Warnings: one
+  duplicated two-phase timeout budget, one non-offset-aware project-trust fd
+  aggregate, and three final-exit handoff omissions. All three were accepted and
+  fixed in the active worktree.
+
+  Independent review round 2 found four accepted gaps: remaining manual
+  output-then-readiness chains could still spend two nominal timeout budgets;
+  direct/nested model, settings, auth, and scoped-model paths had paint-before-
+  raw or notice-before-prompt handoffs without fresh invocation offsets; count
+  waits skipped an already captured acknowledgement at zero/negative timeout
+  and could oversleep their budget; and the documentation overstated the audit
+  before those paths were exhaustive. The fixes route every two-phase chain
+  through the shared absolute deadline, make count waits inspect first and sleep
+  only for their clamped remaining budget, and handshake direct and settings-
+  nested model selectors, settings open/reopen/close, login/logout
+  continuations, scoped-model open/toggle-repaint/save, and all three changed
+  final exits. Intermediate availability, selector repaint, settings
+  navigation/resize, scoped checked-state, auth availability, provider-turn,
+  and persistence assertions remain intact.
+
+  Round-2 verification on macOS/Python 3.14.5: the helper and every newly
+  synchronized overlay/auth/final-exit node passed **20 consecutive batches**
+  at **23 cases** each (**460 checks**). An implementation-agent run initially
+  failed the long-input resize node once for 80x24→100x40, after which that node
+  passed 20/20 alone and a restarted ten-batch changed-module group passed. A
+  coordinator rerun then passed batch 1 at 83/83 but failed batch 2 for the
+  opposite 100x40→80x24 direction. This was not an unrelated existing timeout.
+  The test waited for the final 24 bytes of a prompt made from one repeated
+  12-byte token; that same suffix appeared after only the first 24 input bytes,
+  so the test could resize while most of the burst remained unread. In the
+  split-input/output PTY harness there is no foreground-terminal SIGWINCH owner.
+  A geometry change between `_read_key_polling_resize()` and the ensuing
+  ordinary key paint therefore let that paint adopt the new size and update
+  `_last_painted_size`; the next polling boundary saw no size delta and emitted
+  no full-clear byte. Assertion cleanup then detached the output wrapper while
+  the worker was still polling, producing the secondary `ValueError` recorded
+  in `/tmp/pipy-s14-coordinator-modules-2.log`.
+
+  The test-only fix uses a unique final rendered glyph as the acknowledgement
+  that the complete repetitive input burst has been consumed, records the
+  output length immediately before `TIOCSWINSZ`, and accepts only `ESC[2J`
+  after that fresh offset. Every tool-loop resize path now uses the same fresh-
+  offset clear contract. Failure cleanup clears the editor, requests exit, and
+  joins the worker before teardown; if a bounded join still leaves it active,
+  teardown retains rather than detaches its stream wrappers, preserving the
+  primary failure. The ioctl continues to target the output slave read by
+  `TerminalDriver.size()`; executable evidence did not justify a product
+  change. Foreground-terminal SIGWINCH remains the product's parallel resize
+  trigger.
+
+  Final resize-fix verification on macOS/Python 3.14.5: both resize directions
+  passed **20 consecutive focused batches** at 2 cases each (**40 checks**),
+  followed from batch zero by all nine changed test modules passing **10
+  consecutive batches** at 83 cases each (**830 checks**). The PTY smoke gate
+  passed **5/5** at 8 tests each, and the complete real-PTY inventory passed
+  **75/75**. Strict source Mypy passed **169** files, followed serially by the
+  combined typecheck across **436** source/test files. `just docs-build`,
+  `git diff --check`, and final `just check` pass; the latter reports **4,818
+  passed / 2 skipped**. Architecture metrics remain **34 / 18**
+  repository/source C901 findings, **43** `ToolLoopTerminalUi` fields, and **1**
+  source `type: ignore`. CI retains Linux and macOS PTY jobs, both theme stores
+  remain `pi`, and no `.pre-commit-config.yaml` exists.
+
+  Independent review round 3 found one Warning and one Suggestion, both
+  accepted. The remaining thinking/model/folding hotkey waits and mid-turn
+  `/hotkeys` driver treated their notices as completion, while the steering
+  path treated the third provider call as completion before
+  `DRAINED_TURN_3` and the next prompt were observable. Each affected action
+  now records a fresh invocation offset and waits through its exact notice or
+  result marker to the following raw-input acknowledgement; intermediate UI
+  state, provider-call, and steering-order assertions remain. Architecture now
+  records the verified strict-Mypy count of **169** source files.
+
+  Round-3 verification on macOS/Python 3.14.5: the four affected nodes passed
+  **20 consecutive batches** at 7 parameter cases each (**140 checks**), and
+  all nine changed test modules passed **10 consecutive batches** at 83 cases
+  each (**830 checks**). PTY smoke passed **5/5** at 8 tests each, and all
+  `tests/*_pty.py` passed **75/75**. Strict source Mypy passed **169** files,
+  followed serially by combined typecheck across **436** source/test files.
+  `just docs-build`, architecture metrics JSON, `git diff --check`, and final
+  `just check` pass; the latter reports **4,818 passed / 2 skipped**. Metrics
+  remain **34 / 18** repository/source C901 findings, **43**
+  `ToolLoopTerminalUi` fields, and **1** source `type: ignore`. CI retains Linux
+  and macOS PTY jobs, both theme stores remain `pi`, and no
+  `.pre-commit-config.yaml` exists.
+
+  Two subsequent attempted round-4 outputs were formally invalid because they
+  did not satisfy the review gate's required output schema. They do **not**
+  count as review round 4 and are not independent review verdicts. Their logs
+  are `/tmp/pipy-slice14-pi-review-r4.CSmg5f/review.log` and
+  `/tmp/pipy-slice14-pi-review-r4-retry.uwYfrI/review.log`. The repeated
+  diagnostics were nevertheless accepted as actionable implementation
+  evidence: project-trust's fd title/warning and readiness calls each started a
+  fresh timeout, and four immediate resize snapshots parsed after only the
+  clear prefix even though the PTY master may split the coalesced flush.
+
+  The accepted fd fix adds one typed output-then-readiness observation carrying
+  the preserved aggregate, first match end, and readiness match end. One
+  absolute monotonic deadline covers searches and fd reads in both phases; the
+  readiness search begins at the exact first match end. Deterministic tests pin
+  total-budget and nonpositive-budget behavior, already-coalesced bytes, split
+  reads, aggregate preservation, and stale-marker rejection. Both startup trust
+  and untrusted-warning paths use this helper.
+
+  The accepted resize fix uses the shared ordered-byte helper to observe a fresh
+  `ESC[2J` and then a unique visible footer sentinel. The product serializer
+  emits that footer after the input, menu/settings rows, and separators needed
+  by each parsed snapshot, so this establishes post-resize capture completion
+  even when the PTY read splits clear from paint. The unique long-input glyph
+  remains a separate pre-resize consumption acknowledgement. Both geometry
+  directions, real PTYs, overlay navigation/selection, multiline paste, long
+  input rewrap, pinned footers, settings state, and no-alternate-screen checks
+  remain. Failure cleanup now asks live workers to exit and joins before stream
+  teardown, retaining wrappers if a worker survives the bounded join.
+
+  Post-diagnostic verification on macOS/Python 3.14.5: all **14** deterministic
+  helper cases pass. The six project-trust cases and eight resize parameter
+  cases passed together for **20 consecutive batches** at 14 cases each (**280
+  checks**) in both the implementation-agent run and an independent coordinator
+  run. All nine changed test modules passed **10 consecutive batches** at 88
+  cases each (**880 checks**) in both runs. `just test-pty-smoke` passed
+  **5/5** at eight cases per run, and all `tests/*_pty.py` passed **75/75**.
+  Strict source Mypy passed **169** files, followed serially by combined
+  typecheck across **436** source/test files. `just docs-build`, architecture
+  metrics JSON, and `git diff --check` pass; final `just check` reports **4,823
+  passed / 2 skipped**. Metrics remain **34 / 18** repository/source C901
+  findings, **43** `ToolLoopTerminalUi` fields, and **1** source
+  `type: ignore`. CI retains Linux and macOS real-PTY jobs, settings and native
+  theme stores remain `pi`, and no `.pre-commit-config.yaml` exists.
+
+  A first post-fix structured round-4 attempt ended in a provider error and is
+  also invalid; it supplied no review verdict or additional evidence. A fresh
+  exact-model retry then completed with exit 0. The configured reviewer was Pi
+  `openai-codex/gpt-5.6-sol`, restricted to read/grep/find/ls. Its structured
+  result was **CLEAN** with complete, unscoped coverage of all fourteen Slice
+  14 files and supporting ownership code, zero forbidden tool uses, no skipped
+  files, truncations, or redactions, and zero Critical, Warning, or Suggestion
+  findings. Repository status was unchanged by the review. Review stopped at
+  CLEAN because another round would add no material evidence. Slice 14 is
+  complete; this commit advances the active pointer to **Slice 15 — repository
+  formatting baseline and gate**.
 
 ## Current State
 

@@ -22,6 +22,7 @@ import pytest
 
 from pipy_harness.native.session_tree_commands import SessionListEntry
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pty_sync import wait_for_input_ready_after, wait_for_output
 
 
 def _spawn_live_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:
@@ -126,15 +127,18 @@ def test_pty_picker_navigate_resize_and_select(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        assert _wait_for(err_chunks, "Resume session"), "picker title never rendered"
+        assert wait_for_input_ready_after(err_chunks, "Resume session") is not None, (
+            "picker input never became ready"
+        )
         assert _wait_for(err_chunks, "alpha"), "rows never rendered"
-        # Resize while the overlay is open; the poll repaint must keep it coherent.
+        # Resize while the overlay is open; observe the poll-driven full repaint.
+        resize_start = len(b"".join(err_chunks))
         _set_winsize(err_slave, 40, 100)
-        time.sleep(0.25)
-        # Down to the second row (beta), then Enter selects it.
-        os.write(in_master, b"\x1b[B")
-        time.sleep(0.1)
-        os.write(in_master, b"\r")
+        assert wait_for_output(err_chunks, b"\x1b[2J", after=resize_start) is not None, (
+            "picker resize never repainted"
+        )
+        # Ordered raw bytes navigate to beta and select it without a timing gap.
+        os.write(in_master, b"\x1b[B\r")
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "picker worker did not exit"
     finally:
@@ -174,7 +178,7 @@ def test_pty_picker_esc_cancels(
     worker = threading.Thread(target=_run, daemon=True)
     worker.start()
     try:
-        assert _wait_for(err_chunks, "Resume session")
+        assert wait_for_input_ready_after(err_chunks, "Resume session") is not None
         os.write(in_master, b"\x1b")  # bare Esc cancels
         worker.join(timeout=8.0)
         assert not worker.is_alive(), "picker worker did not exit"

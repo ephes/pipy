@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from pty_sync import wait_for_fd_input_ready_after, wait_for_fd_output
+
 
 _CHILD = r"""
 import sys
@@ -42,21 +44,36 @@ def _set_size(fd: int, columns: int, rows: int) -> None:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
 
 
-def _wait_for(fd: int, needle: bytes, *, timeout: float = 8.0) -> bytes:
-    output = bytearray()
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        readable, _, _ = select.select([fd], [], [], 0.1)
-        if not readable:
-            continue
-        try:
-            chunk = os.read(fd, 65536)
-        except OSError:
-            break
-        output.extend(chunk)
-        if needle in output:
-            return bytes(output)
-    raise AssertionError(f"selector did not render {needle!r}: {bytes(output)!r}")
+def _wait_for(
+    fd: int,
+    needle: bytes,
+    *,
+    initial: bytes = b"",
+    after: int = 0,
+    timeout: float = 8.0,
+) -> tuple[bytes, int]:
+    observed = wait_for_fd_output(
+        fd,
+        needle,
+        initial=initial,
+        after=after,
+        timeout=timeout,
+    )
+    if observed.match_end is None:
+        raise AssertionError(
+            f"selector did not render {needle!r}: {observed.output!r}"
+        )
+    return observed.output, observed.match_end
+
+
+def _wait_for_input_ready_after(fd: int, needle: bytes, *, timeout: float = 8.0) -> bytes:
+    observed = wait_for_fd_input_ready_after(fd, needle, timeout=timeout)
+    if observed.ready_end is None:
+        raise AssertionError(
+            "selector did not become input-ready after "
+            f"{needle!r} (observed_end={observed.observed_end!r}): {observed.output!r}"
+        )
+    return observed.output
 
 
 def _run_selector(
@@ -78,10 +95,16 @@ def _run_selector(
         close_fds=True,
     )
     os.close(slave)
-    output = _wait_for(master, b"Trust project folder?")
+    output = _wait_for_input_ready_after(master, b"Trust project folder?")
     if resize_before_input:
+        resize_start = len(output)
         _set_size(master, 100, 40)
-        time.sleep(0.25)
+        output, _ = _wait_for(
+            master,
+            b"\x1b[2J",
+            initial=output,
+            after=resize_start,
+        )
     os.write(master, keys)
     deadline = time.monotonic() + 8.0
     while proc.poll() is None and time.monotonic() < deadline:
@@ -185,8 +208,7 @@ def test_untrusted_product_warning_is_live_only_not_session_content(
         close_fds=True,
     )
     os.close(slave)
-    output = _wait_for(master, b"This project is not trusted")
-    output += _wait_for(master, b"\x1b[?2004h")
+    output = _wait_for_input_ready_after(master, b"This project is not trusted")
     os.write(master, b"/exit\r")
     deadline = time.monotonic() + 8.0
     while proc.poll() is None and time.monotonic() < deadline:
