@@ -30,10 +30,14 @@ is completed/reconciled historical evidence. It follows the completed Phase 0–
 historical ledger. Slice 16 landed in commit
 `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
 (`docs: close architecture quality program`). Integration review remains open:
-exhaustive partitions A–E are complete CLEAN; valid, complete bundle F found
-this documentation-synchronization Warning, which is being fixed by this ledger
-update; final cross-cutting review is still pending. The overall integration
-review is not yet CLEAN. Its durable output is the
+exhaustive partitions A–E are complete CLEAN. The valid, complete original
+Bundle F found one documentation-ledger Warning; a fresh exact-model Pi
+`openai-codex/gpt-5.6-sol` implementer fixed it, and a valid, complete focused
+re-review was CLEAN. The fix landed as `ffeb86f`
+(`docs: reconcile architecture program ledger`), closing the Warning.
+Final cross-cutting integration review remains pending, so no overall
+integration CLEAN is claimed. Its durable
+output is the
 [2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md).
 The explicit next architecture boundary is bounded transactional-reload
 contract completion or formal reconciliation before ordinary product-parity
@@ -1473,11 +1477,15 @@ Progress:
   because the accepted exactness finding was fixed and the final complete patch
   was valid CLEAN; another per-slice round would add no material value. The
   subsequent integration review remains open: exhaustive partitions A–E are
-  complete CLEAN; valid, complete bundle F found the stale documentation state
-  being fixed by this ledger synchronization; final cross-cutting review is
-  still pending, so the overall integration review is not yet CLEAN. The next
-  queue item remains bounded transactional-reload contract completion or formal
-  reconciliation before ordinary product-parity selection.
+  complete CLEAN. The valid, complete original Bundle F found one
+  documentation-ledger Warning; a fresh exact-model Pi
+  `openai-codex/gpt-5.6-sol` implementer fixed it, and a valid, complete focused
+  re-review was CLEAN. The fix landed as `ffeb86f`
+  (`docs: reconcile architecture program ledger`), closing the Warning.
+  Final cross-cutting integration review remains pending, so no overall
+  integration CLEAN is claimed. The next queue item remains bounded
+  transactional-reload contract completion or formal reconciliation before
+  ordinary product-parity selection.
 
 ## Current State
 

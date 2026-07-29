@@ -11,6 +11,8 @@ FORMAT_CHECK_COMMAND = "uv run ruff format --check ."
 FORMAT_WRITE_COMMAND = "uv run ruff format ."
 SLICE_16_REVISION = "7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727"
 SLICE_16_SUBJECT = "docs: close architecture quality program"
+LEDGER_FIX_REVISION = "ffeb86f"
+LEDGER_FIX_SUBJECT = "docs: reconcile architecture program ledger"
 PROGRAM_DOCUMENTS = (
     "docs/2026-07-29-architecture-quality-assessment.md",
     "docs/architecture.md",
@@ -20,6 +22,7 @@ PROGRAM_DOCUMENTS = (
     "docs/specs/2026-07-24-architecture-quality-improvement-plan.md",
 )
 RELATED_HISTORICAL_DOCUMENTS = ("docs/architecture-migration.md",)
+STATUS_DOCUMENTS = PROGRAM_DOCUMENTS + RELATED_HISTORICAL_DOCUMENTS
 
 
 def _read(path: str) -> str:
@@ -91,28 +94,32 @@ def test_architecture_program_closeout_ledgers_stay_synchronized() -> None:
         "Slice 16 commit hash remains pending",
         "No Slice 16 commit hash exists yet",
         "Status: active implementation program",
+        "is being fixed",
+        "being fixed by this ledger synchronization",
+        "now being synchronized",
+        "reason for the present documentation-only fix",
+        "fix is under review",
     )
     required_claims = (
         "exhaustive partitions A–E are complete CLEAN",
-        "valid, complete bundle F found",
-        "final cross-cutting review is still pending",
-        "overall integration review is not yet CLEAN",
+        "valid, complete original Bundle F found one documentation-ledger Warning",
+        "`openai-codex/gpt-5.6-sol` implementer fixed it",
+        "valid, complete focused re-review was CLEAN",
+        "fix landed as `ffeb86f`",
+        "closing the Warning",
+        "Final cross-cutting integration review remains pending",
+        "no overall integration CLEAN is claimed",
         "bounded transactional-reload contract completion or formal reconciliation",
     )
 
-    for path in PROGRAM_DOCUMENTS:
-        document = " ".join(_read(path).split())
+    for path in STATUS_DOCUMENTS:
+        document = " ".join(_read(path).replace("\n> ", "\n").split())
         assert SLICE_16_REVISION in document
         assert f"`{SLICE_16_SUBJECT}`" in document
+        assert LEDGER_FIX_REVISION in document
+        assert f"`{LEDGER_FIX_SUBJECT}`" in document
         for claim in required_claims:
             assert claim in document
-        for stale_claim in stale_claims:
-            assert stale_claim not in document
-
-    for path in RELATED_HISTORICAL_DOCUMENTS:
-        document = " ".join(_read(path).split())
-        assert SLICE_16_REVISION in document
-        assert f"`{SLICE_16_SUBJECT}`" in document
         for stale_claim in stale_claims:
             assert stale_claim not in document
 

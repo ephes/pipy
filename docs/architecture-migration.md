@@ -10,7 +10,16 @@ Status: completed historical engineering plan.
 > [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
 > is also completed/reconciled historical evidence; its Slice 16 closeout landed
 > in `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
-> (`docs: close architecture quality program`).
+> (`docs: close architecture quality program`). Integration review remains open:
+> exhaustive partitions A–E are complete CLEAN. The valid, complete original
+> Bundle F found one documentation-ledger Warning; a fresh exact-model Pi
+> `openai-codex/gpt-5.6-sol` implementer fixed it, and a valid, complete focused
+> re-review was CLEAN. The fix landed as `ffeb86f`
+> (`docs: reconcile architecture program ledger`), closing the Warning.
+> Final cross-cutting integration review remains pending, so no overall
+> integration CLEAN is claimed. The next
+> boundary remains bounded transactional-reload contract completion or formal
+> reconciliation before ordinary product-parity selection.
 
 This document was the source of truth for improving pipy's internal architecture
 while preserving its shipped Pi-shaped product behavior. It turned the

@@ -7,12 +7,15 @@ the coordinator ledger and commit history. Slice 16 landed in commit
 
 Date: 2026-07-24.
 
-Integration review remains open: exhaustive partitions A–E are complete CLEAN;
-valid, complete bundle F found this documentation-synchronization Warning,
-which is being fixed by this ledger update; final cross-cutting review is still
-pending. The overall integration review is not yet CLEAN. The explicit next
-architecture boundary is bounded transactional-reload contract completion or
-formal reconciliation before ordinary product-parity selection. This plan is
+Integration review remains open: exhaustive partitions A–E are complete CLEAN.
+The valid, complete original Bundle F found one documentation-ledger Warning; a
+fresh exact-model Pi `openai-codex/gpt-5.6-sol` implementer fixed it, and a
+valid, complete focused re-review was CLEAN. The fix landed as `ffeb86f`
+(`docs: reconcile architecture program ledger`), closing the Warning.
+Final cross-cutting integration review remains pending, so no overall
+integration CLEAN is claimed. The explicit
+next architecture boundary is bounded transactional-reload contract completion
+or formal reconciliation before ordinary product-parity selection. This plan is
 preserved as the historical definition and acceptance ledger for the completed
 program; it is no longer an active implementation queue.
 

@@ -20,13 +20,16 @@ topic specs and conformance gates. The reviewed
 is completed/reconciled historical evidence. Slice 16 landed in commit
 `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
 (`docs: close architecture quality program`). Integration review remains open:
-exhaustive partitions A–E are complete CLEAN; valid, complete bundle F found
-this documentation-synchronization Warning, which is being fixed by this ledger
-update; final cross-cutting review is still pending. The overall integration
-review is not yet CLEAN. The explicit next architecture boundary is bounded
-transactional-reload contract completion or formal reconciliation before
-ordinary product-parity selection; none of the product gaps below is part of
-Slice 16.
+exhaustive partitions A–E are complete CLEAN. The valid, complete original
+Bundle F found one documentation-ledger Warning; a fresh exact-model Pi
+`openai-codex/gpt-5.6-sol` implementer fixed it, and a valid, complete focused
+re-review was CLEAN. The fix landed as `ffeb86f`
+(`docs: reconcile architecture program ledger`), closing the Warning.
+Final cross-cutting integration review remains pending, so no overall
+integration CLEAN is claimed. The explicit
+next architecture boundary is bounded transactional-reload contract completion
+or formal reconciliation before ordinary product-parity selection; none of the
+product gaps below is part of Slice 16.
 
 ## Current reading
 
