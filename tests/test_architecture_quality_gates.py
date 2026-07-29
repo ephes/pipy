@@ -9,6 +9,7 @@ import tomllib
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FORMAT_CHECK_COMMAND = "uv run ruff format --check ."
 FORMAT_WRITE_COMMAND = "uv run ruff format ."
+REVIEWED_ENDPOINT = "87c6f887f4afb719da89e68074551e9b8786ac1d"
 COMMIT_FACTS = (
     (
         "7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727",
@@ -23,6 +24,7 @@ COMMIT_FACTS = (
         "docs: record integration warning closure",
     ),
     ("b64ceb7db9581bf3ebfab51f5803c513c1fdb549", "docs: align provider catalog status"),
+    (REVIEWED_ENDPOINT, "docs: sync final integration ledger"),
 )
 PARTITION_FACTS = (
     "A: 29/29, 220,750 bytes/5,384 lines, valid complete CLEAN",
@@ -31,9 +33,10 @@ PARTITION_FACTS = (
     "D: 103/103, 410,314 bytes/9,494 lines, valid complete CLEAN",
     "E: 150/150, 406,331 bytes/9,333 lines, valid complete CLEAN",
     "Refreshed F: 19/19, 139,365 bytes/1,892 lines, valid complete CLEAN",
+    "G: 8/8, 36,717 bytes, valid complete CLEAN",
 )
-CURRENT_WORKTREE_FACTS = (
-    "Current-worktree verification after this ledger/test fix",
+STABLE_VERIFICATION_FACTS = (
+    "Latest stable verification for reviewed endpoint `87c6f88`",
     "strict Mypy across 169 source files",
     "combined Mypy across 438 source/test files",
     "`just check` at 4,829 passed / 2 skipped",
@@ -124,21 +127,23 @@ def test_architecture_assessment_navigation_and_reference_identity() -> None:
 
 def test_architecture_program_closeout_ledgers_stay_synchronized() -> None:
     required_claims = (
-        "12 program/integration commits",
-        "exhaustive partition union exactly covers all 298 changed paths",
-        "valid complete exact-schema cross-cutting review",
-        "at committed endpoint `b64ceb7` found only this incomplete-ledger Warning",
-        "zero Critical or Suggestion findings, omissions, forbidden tool uses, skips, truncations, or redactions",
-        "The incomplete-ledger documentation/test fix is implemented in the current worktree",
-        "its fresh cross-cutting re-review remains pending",
-        "no overall integration CLEAN is claimed",
+        "13 program/integration commits",
+        "final integration ledger is closed/reconciled at reviewed endpoint `87c6f887f4afb719da89e68074551e9b8786ac1d`",
+        "A-G manifest union exactly covers all 298 changed paths",
+        "covered A-G manifests/reports, prior cross-cutting evidence, final ledger files, and unchanged cross-contracts",
+        "`STATE: CLEAN`, `COVERAGE_COMPLETE: yes`, `PARTITION_UNION_COMPLETE: yes`, and `VERDICT: CLEAN`",
+        "zero Critical, Warning, or Suggestion findings",
+        "`SCOPED_OMISSIONS: none`, `FORBIDDEN_TOOL_USES: 0`, `SKIPPED_FILES: none`, `TRUNCATIONS: none`, and `REDACTIONS: none`",
+        "architecture-quality program and final integration review are closed/reconciled",
+        "further review would add no material value unless scope changes",
         "bounded transactional-reload contract completion or formal reconciliation",
     )
     stale_claims = (
-        "exhaustive partitions A–E are complete CLEAN",
-        "fix landed as `ffeb86f`",
-        "is now being implemented",
-        "Latest verification at that committed endpoint",
+        "The integration ledger remains open",
+        "its fresh cross-cutting re-review remains pending",
+        "no overall integration CLEAN is claimed",
+        "Current-worktree verification after this ledger/test fix",
+        "final integration review is in progress",
     )
 
     for path in STATUS_DOCUMENTS:
@@ -147,15 +152,10 @@ def test_architecture_program_closeout_ledgers_stay_synchronized() -> None:
         for revision, subject in COMMIT_FACTS:
             assert revision in document
             assert f"`{subject}`" in document
-        for claim in PARTITION_FACTS + CURRENT_WORKTREE_FACTS + required_claims:
+        for claim in PARTITION_FACTS + STABLE_VERIFICATION_FACTS + required_claims:
             assert claim in document
         for stale_claim in stale_claims:
             assert stale_claim not in document
-
-        current_verification = raw_document.split(
-            "Current-worktree verification after this ledger/test fix", maxsplit=1
-        )[1].split("Slice 14 stress evidence", maxsplit=1)[0]
-        assert "committed endpoint" not in current_verification
 
     plan = _read(PROGRAM_DOCUMENTS[-1])
     assert "Status: completed/reconciled historical plan." in plan

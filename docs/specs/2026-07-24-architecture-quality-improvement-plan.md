@@ -5,10 +5,10 @@ the coordinator ledger and commit history.
 
 Date: 2026-07-24.
 
-The integration ledger remains open through committed endpoint
-`b64ceb7db9581bf3ebfab51f5803c513c1fdb549`: 12 program/integration commits
+The final integration ledger is closed/reconciled at reviewed endpoint
+`87c6f887f4afb719da89e68074551e9b8786ac1d`: 13 program/integration commits
 since `fe474e0e55b3d1e8ae370534acb54a0a5fd9496b`, with 298 changed paths. The
-exhaustive partition union exactly covers all 298 changed paths:
+exhaustive A-G partition union exactly covers all 298 changed paths:
 
 - A: 29/29, 220,750 bytes/5,384 lines, valid complete CLEAN.
 - B: 22/22, 359,459 bytes/8,776 lines, valid complete CLEAN.
@@ -16,6 +16,7 @@ exhaustive partition union exactly covers all 298 changed paths:
 - D: 103/103, 410,314 bytes/9,494 lines, valid complete CLEAN.
 - E: 150/150, 406,331 bytes/9,333 lines, valid complete CLEAN.
 - Refreshed F: 19/19, 139,365 bytes/1,892 lines, valid complete CLEAN.
+- G: 8/8, 36,717 bytes, valid complete CLEAN.
 
 Slice 16 landed as `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
 (`docs: close architecture quality program`). The three integration-fix commits
@@ -25,24 +26,42 @@ are the original Bundle F ledger fix
 `aea52b438713ce04fcad93ae32927ff156574aac`
 (`docs: record integration warning closure`), and README/provider-catalog
 closure `b64ceb7db9581bf3ebfab51f5803c513c1fdb549`
-(`docs: align provider catalog status`). A valid complete exact-schema
+(`docs: align provider catalog status`). The prior valid complete exact-schema
 cross-cutting review by Pi `openai-codex/gpt-5.6-sol` at committed endpoint
-`b64ceb7` found only this incomplete-ledger Warning. It found zero Critical or
-Suggestion findings, omissions, forbidden tool uses, skips, truncations, or
-redactions. The incomplete-ledger documentation/test fix is implemented in the
-current worktree; its fresh cross-cutting re-review remains pending, so no
-overall integration CLEAN is claimed.
+`b64ceb7` found the sole incomplete-ledger Warning: living ledgers omitted
+refreshed F and `aea52b4`/`b64ceb7`. It found zero Critical or Suggestion
+findings, omissions, forbidden tool uses, skips, truncations, or redactions.
+Fresh exact-model Pi implementation fixed the ledger/test and metric
+synchronization. A first focused review then found inaccurate
+implementation/endpoint attribution and missing ratchets; those were corrected.
+The final focused exact-schema G review covered 8/8 files and 36,717 bytes and
+was valid CLEAN with no findings or coverage defects. That synchronization
+landed as `87c6f887f4afb719da89e68074551e9b8786ac1d`
+(`docs: sync final integration ledger`).
 
-Current-worktree verification after this ledger/test fix is strict Mypy across
-169 source files, combined Mypy across 438 source/test files, and `just check`
-at 4,829 passed / 2 skipped. Ruff formatting covers 480 files. Current-worktree
+A fresh valid complete exact-schema cross-cutting re-review by Pi
+`openai-codex/gpt-5.6-sol` at reviewed endpoint `87c6f88` covered A-G
+manifests/reports, prior cross-cutting evidence, final ledger files, and
+unchanged cross-contracts. The A-G manifest union exactly covers all 298 changed
+paths. It returned `STATE: CLEAN`, `COVERAGE_COMPLETE: yes`,
+`PARTITION_UNION_COMPLETE: yes`, and `VERDICT: CLEAN`, with zero Critical,
+Warning, or Suggestion findings; `SCOPED_OMISSIONS: none`,
+`FORBIDDEN_TOOL_USES: 0`, `SKIPPED_FILES: none`, `TRUNCATIONS: none`, and
+`REDACTIONS: none`. Review stopped because the sole prior ledger Warning was
+fixed and the fresh complete re-review was CLEAN; further review would add no
+material value unless scope changes.
+
+Latest stable verification for reviewed endpoint `87c6f88` is strict Mypy
+across 169 source files, combined Mypy across 438 source/test files, and `just
+check` at 4,829 passed / 2 skipped. Ruff formatting covers 480 files. Stable
 metrics are 34 / 18 repository/source C901 findings, 81,738 / 121,175
 source/test physical lines, 43 `ToolLoopTerminalUi` fields, one source ignore,
 and 5,433 / 6,329 lines in `tool_loop_session.py` / `tui.py`. Docs are clean,
-both theme sources are `pi`, and pre-commit is absent. Slice 14 stress evidence remains focused 20x, groups
-10x, PTY smoke 5x, then the full check; the latest PTY smoke is 8/8.
+diff is clean, both theme sources are `pi`, and pre-commit is absent. Slice 14
+stress evidence remains focused 20x, groups 10x, PTY smoke 5x, then the full
+check; the latest PTY smoke is 8/8.
 
-The completed/reconciled disposition is unchanged. The explicit next
+The architecture-quality program and final integration review are closed/reconciled. The explicit next
 architecture boundary is bounded transactional-reload contract completion or
 formal reconciliation before ordinary product-parity selection. This plan is
 preserved as the historical definition and acceptance ledger for the completed
