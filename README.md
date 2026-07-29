@@ -247,11 +247,10 @@ Optional:
   the same catalog as the `/model` selector. Column shape matches Pi's
   `pi --list-models`.
 - `--thinking <level>` / `--api-key <key>`: session thinking level and a runtime
-  API-key override. For the OpenAI-Chat-Completions API family (custom
-  models.json providers, ds4, OpenRouter, openai-completions) these reach the
-  real request — mapped thinking as `reasoning_effort`/`reasoning.effort` and the
-  key as the `Authorization` header (highest auth priority). Non-completions
-  families are still tracked in `docs/provider-catalog.md`.
+  API-key override. Catalog-driven construction passes these to the selected
+  adapter when supported: the runtime key has highest auth priority, and mapped
+  thinking uses the API family's native request shape. See
+  `docs/provider-catalog.md` for per-family behavior and IAM/auth exceptions.
 - `--models <patterns>`: Pi-style scoped-model patterns. In `pipy repl` these
   apply as a final CLI override of `enabledModels` (CLI wins over
   `settings.json`), constraining the `/scoped-models` set and live Ctrl+P
@@ -269,11 +268,15 @@ Provider/model catalog (`docs/provider-catalog.md`):
   comment/trailing-comma stripping, provider/per-model overrides (deep-merged),
   OpenRouter/Vercel routing, per-model thinking, and graceful degradation (a
   malformed `models.json` keeps the built-ins and reports a path-qualified
-  error). For the OpenAI-Chat-Completions API family (custom models.json
-  providers, ds4, OpenRouter, openai-completions), a mid-session `/model`
-  selection runs a real turn that uses the catalog baseUrl/model/auth/headers/
-  routing/thinking. Catalog-driven construction for the non-completions families
-  and startup/`pipy run` resolution remain (see `docs/provider-catalog.md`).
+  error). The product path constructs the Chat Completions family (custom
+  `models.json` providers, ds4, OpenRouter, openai-completions) and all current
+  non-completions adapter families from resolved catalog rows, applying catalog
+  model/base URL/auth/headers/routing/thinking where supported. Mid-session
+  `/model`, startup `--native-provider`/`--native-model`, and one-shot `pipy run`
+  resolve and construct through the same catalog-backed boundary, including
+  custom providers. This completes construction wiring for current provider
+  sources, not full Pi catalog parity; provider-specific compatibility and
+  adapter follow-ons remain tracked in `docs/provider-catalog.md`.
 - `ds4` is not a built-in catalog row: it is a `models.json` custom provider.
   Paste `docs/examples/ds4.models.json` into your `models.json`, or set
   `PIPY_DS4_BASE_URL` (and optionally `PIPY_DS4_API_KEY`) to have pipy
