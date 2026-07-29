@@ -61,7 +61,7 @@ material value unless scope changes.
 Latest stable verification for reviewed endpoint `87c6f88` is strict Mypy
 across 169 source files, combined Mypy across 438 source/test files, and `just
 check` at 4,829 passed / 2 skipped. Ruff formatting covers 480 files. Stable
-metrics are 34 / 18 repository/source C901 findings, 81,738 / 121,175
+metrics are 34 / 18 repository/source C901 findings, 81,738 / 121,191
 source/test physical lines, 43 `ToolLoopTerminalUi` fields, one source ignore,
 and 5,433 / 6,329 lines in `tool_loop_session.py` / `tui.py`. Docs are clean,
 diff is clean, both theme sources are `pi`, and pre-commit is absent. Slice 14

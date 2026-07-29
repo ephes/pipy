@@ -51,7 +51,7 @@ material value unless scope changes.
 Latest stable verification for reviewed endpoint `87c6f88` is strict Mypy
 across 169 source files, combined Mypy across 438 source/test files, and `just
 check` at 4,829 passed / 2 skipped. Ruff formatting covers 480 files. Stable
-metrics are 34 / 18 repository/source C901 findings, 81,738 / 121,175
+metrics are 34 / 18 repository/source C901 findings, 81,738 / 121,191
 source/test physical lines, 43 `ToolLoopTerminalUi` fields, one source ignore,
 and 5,433 / 6,329 lines in `tool_loop_session.py` / `tui.py`. Docs are clean,
 diff is clean, both theme sources are `pi`, and pre-commit is absent. Slice 14
@@ -348,9 +348,20 @@ finding was fixed and the final complete patch was valid CLEAN, so another
 per-slice round would add no material value. Slice 16 then landed as commit
 `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
 (`docs: close architecture quality program`). The subsequent partition and
-integration-fix evidence, current incomplete-ledger Warning, and pending fresh
-cross-cutting re-review are recorded in the opening integration ledger. No
-overall integration CLEAN is claimed.
+integration-fix evidence are recorded in the opening integration ledger. The
+prior incomplete-ledger Warning was fixed, and the fresh A–G cross-cutting
+re-review was CLEAN. The later H disposition focused review was also CLEAN. The
+complete A–H synthesis found only the stale-paragraph Warning, fixed by the
+final stale-pending correction plus optional A–G regex fix. Its fresh
+exact-schema focused re-review by Pi `openai-codex/gpt-5.6-sol` covered the
+complete patch (11,186 bytes / 185 lines, all 8 files) and returned `STATE:
+CLEAN`, `COVERAGE_COMPLETE: yes`, and `VERDICT: CLEAN`, with zero Critical,
+Warning, or Suggestion findings; `SCOPED_OMISSIONS: none`,
+`FORBIDDEN_TOOL_USES: 0`, `SKIPPED_FILES: none`, `TRUNCATIONS: none`, and
+`REDACTIONS: none`. This later docs-only correction does not invalidate the
+already-reviewed A–G cross-contract CLEAN because its cross-contract evidence
+is unchanged, or reopen the closed/reconciled architecture-quality program and
+final integration disposition.
 
 ## Preserved invariants and metadata disposition
 

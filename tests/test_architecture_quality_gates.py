@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import tomllib
 
 
@@ -42,7 +43,7 @@ STABLE_VERIFICATION_FACTS = (
     "`just check` at 4,829 passed / 2 skipped",
     "Ruff formatting covers 480 files",
     "34 / 18 repository/source C901 findings",
-    "81,738 / 121,175 source/test physical lines",
+    "81,738 / 121,191 source/test physical lines",
     "43 `ToolLoopTerminalUi` fields",
     "one source ignore",
     "5,433 / 6,329 lines in `tool_loop_session.py` / `tui.py`",
@@ -138,24 +139,39 @@ def test_architecture_program_closeout_ledgers_stay_synchronized() -> None:
         "further review would add no material value unless scope changes",
         "bounded transactional-reload contract completion or formal reconciliation",
     )
-    stale_claims = (
-        "The integration ledger remains open",
-        "its fresh cross-cutting re-review remains pending",
-        "no overall integration CLEAN is claimed",
-        "Current-worktree verification after this ledger/test fix",
-        "final integration review is in progress",
+    focused_closure_claims = (
+        "complete A–H synthesis found only the stale-paragraph Warning",
+        "final stale-pending correction plus optional A–G regex fix",
+        "fresh exact-schema focused re-review by Pi `openai-codex/gpt-5.6-sol`",
+        "complete patch (11,186 bytes / 185 lines, all 8 files) and returned `STATE: CLEAN`, `COVERAGE_COMPLETE: yes`, and `VERDICT: CLEAN`, with zero Critical, Warning, or Suggestion findings",
+        "`STATE: CLEAN`, `COVERAGE_COMPLETE: yes`, and `VERDICT: CLEAN`",
+        "zero Critical, Warning, or Suggestion findings",
+        "`SCOPED_OMISSIONS: none`, `FORBIDDEN_TOOL_USES: 0`, `SKIPPED_FILES: none`, `TRUNCATIONS: none`, and `REDACTIONS: none`",
+        "later docs-only correction does not invalidate the already-reviewed A–G cross-contract CLEAN because its cross-contract evidence is unchanged",
     )
-
+    stale_status_patterns = (
+        r"\bintegration ledger(?: \w+){0,12} (?:(?:remain(?:s|ed)?|is|was|still)(?: still)? )?open\b",
+        r"\b(?:(?:still )?open integration (?:ledger|status)|integration status(?: \w+){0,8} (?:remain(?:s|ed)?|is|was|still)(?: still)? open)\b",
+        r"\b(?:(?:(?:current|fresh|focused|overall|final|integration|cross cutting|[a-z](?: [a-z])?) )+(?:re )?review(?: \w+){0,8} (?:(?:remain(?:s|ed)?|is|was|still) )?(?:still )?(?:pending|open)|(?:pending|open)(?: \w+){0,8} (?:(?:current|fresh|focused|overall|final|integration|cross cutting|[a-z](?: [a-z])?) )+(?:re )?review)\b",
+        r"\bno (?:[a-z](?: [a-z])? )?overall(?: integration)? clean\b",
+        r"\b(?:current incomplete ledger warning|current worktree verification after this ledger test fix|final integration review(?: \w+){0,8} in progress|integration status(?: \w+){0,8} pending|(?:current|this) (?:fix|correction|status)(?: \w+){0,8} (?:(?:fresh|focused|[a-z](?: [a-z])?) )*(?:re )?review(?: \w+){0,8} (?:pending|open)|(?:current|this|stale paragraph|stale pending)(?: \w+){0,8} (?:awaits?|awaiting)(?: \w+){0,8} (?:[a-z](?: [a-z])? )?(?:focused )?(?:re )?review)\b",
+    )
     for path in STATUS_DOCUMENTS:
         raw_document = _read(path)
         document = " ".join(raw_document.replace("\n> ", "\n").split())
+        normalized_document = re.sub(r"[\W_]+", " ", raw_document.casefold())
         for revision, subject in COMMIT_FACTS:
             assert revision in document
             assert f"`{subject}`" in document
         for claim in PARTITION_FACTS + STABLE_VERIFICATION_FACTS + required_claims:
             assert claim in document
-        for stale_claim in stale_claims:
-            assert stale_claim not in document
+        for stale_pattern in stale_status_patterns:
+            assert re.search(stale_pattern, normalized_document) is None
+
+    for path in (PROGRAM_DOCUMENTS[0], PROGRAM_DOCUMENTS[2]):
+        document = " ".join(_read(path).split())
+        for claim in focused_closure_claims:
+            assert claim in document
 
     plan = _read(PROGRAM_DOCUMENTS[-1])
     assert "Status: completed/reconciled historical plan." in plan

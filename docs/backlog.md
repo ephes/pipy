@@ -78,7 +78,7 @@ material value unless scope changes.
 Latest stable verification for reviewed endpoint `87c6f88` is strict Mypy
 across 169 source files, combined Mypy across 438 source/test files, and `just
 check` at 4,829 passed / 2 skipped. Ruff formatting covers 480 files. Stable
-metrics are 34 / 18 repository/source C901 findings, 81,738 / 121,175
+metrics are 34 / 18 repository/source C901 findings, 81,738 / 121,191
 source/test physical lines, 43 `ToolLoopTerminalUi` fields, one source ignore,
 and 5,433 / 6,329 lines in `tool_loop_session.py` / `tui.py`. Docs are clean,
 diff is clean, both theme sources are `pi`, and pre-commit is absent. Slice 14
@@ -1554,9 +1554,21 @@ recorded findings or ledger.
 
 This page is the forward-planning index:
 
-- `Completed Reviewed Program` names the exact landed disposition, still-open
+- `Completed Reviewed Program` names the exact landed A–G disposition, closed
   integration status, and reload-contract follow-up that precedes product
-  parity.
+  parity. The prior incomplete-ledger Warning was fixed and the fresh A–G
+  cross-cutting re-review was CLEAN; the later H disposition focused review was
+  also CLEAN. The complete A–H synthesis found only the stale-paragraph Warning,
+  fixed by the final stale-pending correction plus optional A–G regex fix. Its
+  fresh exact-schema focused re-review by Pi `openai-codex/gpt-5.6-sol` covered
+  the complete patch (11,186 bytes / 185 lines, all 8 files) and returned
+  `STATE: CLEAN`, `COVERAGE_COMPLETE: yes`, and `VERDICT: CLEAN`, with zero
+  Critical, Warning, or Suggestion findings; `SCOPED_OMISSIONS: none`,
+  `FORBIDDEN_TOOL_USES: 0`, `SKIPPED_FILES: none`, `TRUNCATIONS: none`, and
+  `REDACTIONS: none`. This later docs-only correction does not invalidate the
+  already-reviewed A–G cross-contract CLEAN because its cross-contract evidence
+  is unchanged, or reopen the closed/reconciled program and final integration
+  disposition.
 - `Pi Parity Roadmap` and the refreshed Pi audit rank product gaps without
   silently adding them to architecture work.
 - The named parity and quality tracks below preserve shipped detail and
