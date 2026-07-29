@@ -1555,9 +1555,10 @@ travel only through the canonical event sink, and each follow-up explicitly
 passes `False`. The serialized RPC boundary uses a callback-capable
 accepted-abort latch; its executor callback is registered before the RPC provider
 starts, preserving actual acceptance-before-completion order even if waiter
-observation is delayed. Phase 2.2a therefore does not yet extract the full
-provider/tool cycle or make `NativeToolReplSession.run()` composition-only;
-Phase 2.2b owns that remaining move. The old `_ProviderTurnCompletion`, delta
+observation is delayed. Phase 2.2a did not itself extract the full provider/tool
+cycle; the later completed Phase 2.2b moved that cycle into the canonical
+`AgentLoop`, while product composition remains in `NativeToolReplSession` and
+its typed collaborators. The old `_ProviderTurnCompletion`, delta
 sink helpers, headless/TUI completion helpers, and active-turn cancellation
 helper are removed rather than retained as a second implementation.
 

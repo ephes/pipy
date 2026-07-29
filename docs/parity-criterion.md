@@ -8,6 +8,11 @@ detailed specs in `docs/backlog.md`, `docs/pi-parity.md`, `docs/session-tree.md`
 `docs/automation-rpc.md`, `docs/tui-workflow.md`, and
 `docs/export-distribution.md`.
 
+The current comparison reference is Pi
+`7df73a00c6cf85c000bf1ce1594c9284067a92f0`, coding-agent version `0.82.0`.
+The locked rows below were not revalidated one by one against that revision;
+use the dated assessment and `docs/pi-mono-gap-audit.md` for current selection.
+
 This document keeps two scores distinct:
 
 1. **Legacy objective score** — the current 49-row, script-verifiable form of
@@ -56,7 +61,7 @@ feature is deferred or spec-only.
 | Extension/package platform | 🟡 Pi-shaped core, not Pi-equivalent | The Python runtime ships discovery/activation, commands/shortcuts/flags, tools and core hooks, provider registration, local/managed-git packages, rich rendering/UI helpers, project-trust APIs, `before_provider_headers`, true-idle `agent_settled`, and cache-friendly dynamic tool loading for Anthropic plus OpenAI/Codex Responses. Current gaps include Kimi deferred tools, full component/overlay parity, live tool-render invalidation, richer/RPC UI, and remote package ecosystems. Source: `docs/extension-api.md`. |
 | Provider/model catalog | 🟡 catalog + implemented-family product construction gated; follow-ons remain | Catalog/model resolution, auth/availability, product construction for implemented families, one-shot/startup paths, extension providers, and OpenAI-Codex timeout/retry/WebSocket behavior ship. GPT-5.6 Sol + `max` shipped 2026-07-14; later July candidates include forced tool choice, OpenRouter affinity, Copilot routing, auth/pricing/catalog changes, and live Anthropic/Copilot login UX. Spec in `docs/provider-catalog.md`. |
 | Settings/config/keybindings | 🟡 core plus project trust shipped; display/editor follow-ons remain | Layered settings/keybindings, scoped models, prompts/resources, reload/changelog/version, transport settings, `max` thinking, project trust/defaults/CLI overrides, and project-local config management ship. Remaining July polish includes prompt-cache miss notices, automatic theme mode, output padding, and editor/shell refinements. Spec in `docs/settings-config.md`. |
-| JSON/RPC automation | 🟡 31-command baseline shipped | Pi-shaped JSON/print/RPC modes ship with queueing, abort, bash, session operations, and introspection, including the read-only `get_entries`/`get_tree` (full 31-command Pi vocabulary) and true-idle `agent_settled` on both the RPC and JSON streams. The independently shipped extension hook does not duplicate protocol output. Spec/gate in `docs/automation-rpc.md`. |
+| JSON/RPC automation | 🟡 31-command-name baseline shipped | Pi-shaped JSON/print/RPC modes ship with queueing, abort, bash, session operations, `get_entries`/`get_tree`, and true-idle `agent_settled`. Command-name coverage is not full semantic equivalence: direct RPC bash lacks Pi's correlated updates and actual cancellation of a running command. The independently shipped extension hook does not duplicate protocol output. Spec/gate in `docs/automation-rpc.md`. |
 | Export/share/distribution/package polish | 🟡 product export baseline shipped; update semantics drifted | HTML/JSONL export, import/resume, gist share, top-level export, and self-update planning pass their gate. Pi's bare update is now self-only with `--all` for composition; pipy still composes both halves. Remote PyPI/npm sources remain deferred. |
 | User documentation | ✅ baseline pages shipped | Quickstart/usage, providers, settings/keybindings, sessions/compaction, customization/packages, JSON/RPC/SDK, terminal setup, and tmux pages ship; keep them synchronized with current slices. |
 | Verification/project policy | ❌ not separately specified | The former pipy-specific `/verify just-check` command has been removed from the REPL because it was not a Pi slash command. Pi's comparable capability is broad model-visible `bash` plus extension-defined gates. Broader pipy verification policy needs its own spec and should not be scored as Pi parity without mapping it to a Pi user workflow. |
@@ -360,9 +365,11 @@ matrix where appropriate:
 
 These pipy invariants are **NOT relaxed** by the parity push:
 
-- **No new runtime dependencies.** All new providers must use `urllib` +
-  stdlib JSON, mirroring `providers/openai_responses.py`. No `httpx`, `boto3`,
-  `anthropic`, `google-generativeai`, etc.
+- **Standard-library-first provider transports; no provider SDKs.** Provider
+  adapters use `urllib` + stdlib JSON where applicable and do not use `httpx`,
+  `boto3`, `anthropic`, `google-generativeai`, or another vendor SDK. The
+  OpenAI Codex WebSocket transport uses the existing bounded `websockets`
+  dependency; any further runtime dependency needs separate review.
 - **Metadata-first archive.** No new feature may write raw prompts, model
   text, tool payloads, file contents, diffs, or auth material to the
   pipy session archive.

@@ -5,9 +5,10 @@ local Pi reference in `/Users/jochen/src/pi-mono`.
 
 Pipy is a Python slopfork inspired by Pi. The goal is Pi-class local
 coding-agent usefulness — including the terminal UI — through pipy-owned
-Python boundaries. It is not a literal port of Pi's TypeScript packages,
-extension system, or command names: pipy slopforks the same end-user
-capability into Python, not the TypeScript code itself.
+Python boundaries. It is not a literal port of Pi's TypeScript packages or
+extension implementation. Selection is capability-first, while Pi command
+names and flags remain the reference wherever user-visible behavior specifies
+them.
 
 **Parity stance (2026-06-02):** real parity means Pi-equivalent *behavior*,
 including Pi's storage and output model. The latest ranked comparison snapshot
@@ -21,9 +22,9 @@ is streamed (`docs/automation-rpc.md`) and exported (`docs/export-distribution.m
 like Pi. See [parity-plan.md](/parity-plan/) for the full plan and the list of
 accidental pipy-only surfaces being removed or realigned.
 
-**Current delta note (2026-07-17):** local Pi main `c8560b8d` has moved beyond
-several green June baselines.
-GPT-5.6 Sol/`max`, RPC `get_entries`/`get_tree`, and the true-idle
+**Current delta note (2026-07-29):** the exact local Pi reference is clean
+main `7df73a00c6cf85c000bf1ce1594c9284067a92f0`, coding-agent version
+`0.82.0`. GPT-5.6 Sol/`max`, RPC `get_entries`/`get_tree`, and the true-idle
 `agent_settled` event (on both the `--mode rpc` and `--mode json` streams)
 shipped 2026-07-14. The project-trust design, trust-core/settings-resource
 gate, interactive/package management integration, and extension-owned trust
@@ -34,7 +35,10 @@ Anthropic plus OpenAI/Codex Responses now also ship. Kimi deferred tools and
 bare-update/config semantics remain real gaps. The detailed ranked queue in
 [backlog.md](backlog.md) and
 [pi-mono-gap-audit.md](pi-mono-gap-audit.md) supersedes older broad status
-wording in this map.
+wording in this map. Current high-confidence gaps also include Pi's default
+parallel tool execution with per-tool sequential overrides, and direct RPC bash
+correlated updates plus actual `abort_bash` cancellation; pipy is sequential and
+cannot externally cancel a running direct RPC bash command.
 
 **Top-level CLI cleanup (2026-06-20):** the command surface is now Pi-shaped.
 Bare `pipy` and `pipy "<prompt>"` launch the interactive product session (a bare
@@ -83,7 +87,7 @@ This is an input gate, not a sandbox.
 | Pi idea | Pipy state | Notes |
 | --- | --- | --- |
 | Local-first terminal coding agent | Partial | Bare `pipy` and `pipy "<prompt>"` start the interactive product session (the model-visible tool-loop REPL) in the current workspace; `pipy repl` is the same path. The tool-loop REPL enters a pipy-owned inline-scrollback TTY shell: finalized output commits into the terminal's normal buffer (so native scrollback in Ghostty/zellij reviews it) while the input and footer/status stay in a live frame pinned at the bottom, using the full window height. The captured-stream (non-TTY) fallback remains line-oriented. (There is one product REPL — the former no-tool REPL was retired in the 2026-06-20 cleanup.) |
-| Direct provider access | Implemented (12 real providers plus fake) | `ProviderPort` now supports fake plus ds4, OpenAI Responses, OpenAI Chat Completions, OpenAI Codex subscription, OpenRouter, Anthropic, Google (Gemini Generative AI), Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI Responses, and Cloudflare Workers AI. All are stdlib-only (urllib + JSON + hashlib/hmac for SigV4); the no-new-runtime-deps invariant is preserved. See `docs/parity-criterion.md` for the locked feature list. |
+| Direct provider access | Implemented (12 real providers plus fake) | `ProviderPort` now supports fake plus ds4, OpenAI Responses, OpenAI Chat Completions, OpenAI Codex subscription, OpenRouter, Anthropic, Google (Gemini Generative AI), Google Vertex, Mistral, Amazon Bedrock, Azure OpenAI Responses, and Cloudflare Workers AI. Transports are standard-library-first and use no third-party provider SDKs; the Codex WebSocket transport uses the declared `websockets` dependency. See `docs/parity-criterion.md` for the locked historical feature list. |
 | Arbitrary shell execution | Implemented | The model-visible `bash` tool is a real shell, matching Pi's bash tool: it spawns `bash -c <command>` in the workspace root with the inherited environment, an optional `timeout` in seconds (the whole process group is killed when it elapses), and returns the combined, bounded stdout/stderr to the model. Pipes, redirection, command substitution, globbing, chaining, and any executable on `PATH` are allowed. Registered in `production_tool_registry`. The archive boundary records only counters and labels — never the raw command string or output body. |
 | Retry/backoff for transient provider errors | Implemented as reusable `RetryPolicy`; OpenAI-Codex stream ownership shipped | `pipy_harness.native.retry.retry_with_backoff` provides bounded exponential backoff, jitter, cancellation-aware sleep seams, and capped server-requested delay support. OpenAI-Codex owns each complete request-plus-SSE-stream attempt: it retries transient HTTP and normalized transport/read failures only before the first parsed provider event, then refuses replay so text, reasoning, tool assembly, and tool effects cannot be duplicated. Cancellation is always non-retryable. Other adapters retain their existing HTTP-status policy. |
 | Unified-diff edit tool | Implemented as `edit-diff` | `pipy_harness.native.tools.edit_diff.EditDiffTool` parses and applies a unified-diff patch in pure stdlib (no shell-out to `patch(1)`), atomic temp-file rename, and reuses the same `.git`/symlink/pre-read byte-cap defenses as `EditTool`. |
@@ -101,7 +105,7 @@ This is an input gate, not a sandbox.
 | Provider-visible file context | Implemented for user-directed `@file` | A genuine user prompt that names workspace files with `@path` loads bounded UTF-8 excerpts into the next provider request in the product tool-loop REPL, de-duping references and resolving through the same bounded reader as the model-selected `read` tool (workspace plus configured `--read-root` reference roots), so missing/ignored/binary/oversized/secret-shaped/out-of-workspace paths fail closed with safe local diagnostics while the user's literal prompt is preserved; only safe counters reach the archive. (The `/ask-file` command was removed with the no-tool REPL in the 2026-06-20 cleanup.) |
 | Write/edit capability | Implemented in the model-driven tool loop | The model-driven tool loop exposes bounded `write`, `edit`, and `edit_diff` tools (workspace-confined, with the shared `.git`/`.gitignore`/symlink/byte-cap defenses). (The human-mediated `/propose-file` + `/apply-proposal` flow and `NativePatchApplyTool` review path were removed with the no-tool REPL in the 2026-06-20 cleanup.) |
 | Verification after changes | Not a separate Pi-parity feature | The former pipy-specific `/verify just-check` command was removed because Pi has no matching built-in slash command; Pi-style verification happens through the model-visible `bash` tool and future extension/project policy. |
-| Session records | Different foundation implemented | Pipy writes metadata-first JSONL plus optional Markdown under `~/.local/state/pipy/sessions`; Pi stores full tree sessions under its own agent state. |
+| Session records | Intentional two-store design | Like Pi, pipy's private native product session tree stores full conversation/tool content for resume, branching, compaction, and export. A separate optional `pipy-session` JSONL/Markdown workflow archive stores summary-safe metadata only and is not the product session source. |
 | Search/inspect | Implemented for pipy records | `pipy-session list/search/inspect/export/resume-info/verify` operates over finalized metadata records, not full transcripts, and now surfaces safe resume/branch/compaction metadata read-only (lineage relationship + branch label in `list`; relationship, parent id, and `compaction_event_count` in `inspect`; a `resume` lineage object and `compaction_event_count` in `export`; branch/parent/compaction fields in `resume-info`). All catalog commands reject malformed, ambiguous, symlinked, active (`.in-progress`), or out-of-archive records without printing raw event bodies or unsafe labels. The `reflect` surface was removed in the 2026-05-26 code-quality audit cleanup. See backlog Track CQ-A. |
 | Print-like one-shot mode | Implemented | `pipy repl --print`/`-p "<prompt>"` runs one non-interactive turn and prints only the final assistant text to stdout (Pi `-p`), and `pipy repl --mode json "<prompt>"` emits the full Pi-shaped session event stream as LF-only JSONL (`docs/automation-rpc.md`). `pipy run --agent pipy-native` remains the metadata-recording one-shot path; the legacy metadata-only `--native-output json` flag was **removed** in the 2026-06-20 cleanup (callers use `--mode json`; the removed flag emits guidance). |
 | Subprocess wrapping | Implemented as support path | `pipy run --agent custom|codex|claude|pi -- ...` records conservative lifecycle metadata around another command, but this is not the product runtime. |
@@ -156,7 +160,7 @@ is **not** the product session source. The deterministic conformance gate
 `scripts/parity_checks/session_tree_conformance.py --json` and the
 `scripts/parity_checks/session_tree_pi_comparison.py --json` Pi comparison
 prove the full workflow end to end.
-All 50 rows are ✅. B7 (`bash`) is green as a real shell matching Pi (arbitrary
+All 49 current legacy rows are ✅. B7 (`bash`) is green as a real shell matching Pi (arbitrary
 commands in the workspace, combined bounded output, optional timeout); D7
 (themes), D8 (image
 attachments), and E5 (dynamic provider swap) are behavior checks that
@@ -230,13 +234,16 @@ flowchart LR
   end
 
   subgraph Pipy[Pipy current architecture]
-    PipyCLI[pipy CLI]
-    PipyRunner[HarnessRunner]
-    PipyAdapters[AgentPort adapters]
-    PipyNative[Native sessions]
+    PipyModes[Interactive, print, JSON, RPC]
+    PipyComposition[Native product composition]
+    PipyCoding[Headless coding session]
+    PipyAgent[Canonical AgentLoop]
     PipyProviders[ProviderPort providers]
-    PipyTools[Bounded tool boundaries]
-    PipyArchive[Metadata-first archive]
+    PipyTools[Bounded tool capabilities]
+    PipySessions[Private full-content session tree]
+    PipyUi[Inline TUI / automation projections]
+    PipyCompat[pipy run / narrow SDK compatibility]
+    PipyArchive[Metadata-only workflow archive]
   end
 
   PiModes --> PiAgentSession --> PiAgent --> PiAI
@@ -244,32 +251,40 @@ flowchart LR
   PiAgentSession --> PiSessions
   PiAgentSession --> PiExt
 
-  PipyCLI --> PipyRunner --> PipyAdapters --> PipyNative --> PipyProviders
-  PipyNative --> PipyTools
-  PipyRunner --> PipyArchive
+  PipyModes --> PipyComposition --> PipyCoding --> PipyAgent
+  PipyAgent --> PipyProviders
+  PipyAgent --> PipyTools
+  PipyAgent --> PipySessions
+  PipyAgent --> PipyUi
+  PipyCompat --> PipyProviders
+  PipyCompat --> PipyArchive
 
   classDef pi fill:#fff7ed,stroke:#c2410c,color:#111111;
   classDef pipy fill:#eef2ff,stroke:#1d4ed8,color:#111111;
   class PiModes,PiAgentSession,PiAgent,PiAI,PiTools,PiSessions,PiExt pi;
-  class PipyCLI,PipyRunner,PipyAdapters,PipyNative,PipyProviders,PipyTools,PipyArchive pipy;
+  class PipyModes,PipyComposition,PipyCoding,PipyAgent,PipyProviders,PipyTools,PipySessions,PipyUi,PipyCompat,PipyArchive pipy;
 ```
 
-Pi's durable center is `AgentSession`: it composes agent state, model and
-thinking-level management, persistence, settings, resources, extensions, bash,
-compaction, branching, and mode integration. Interactive, print, RPC, and SDK
-surfaces sit above that shared session abstraction.
+Pi's mode-shared behavioral center remains `AgentSession`, which composes agent
+state, model/thinking management, persistence, extensions, bash, compaction,
+and branching. Current Pi also has `AgentSessionRuntime` for replacement and
+lifecycle plus `AgentSessionServices` for cwd-bound model/settings/resources,
+so it is not one undifferentiated owner.
 
-Pipy's durable center is currently split:
+Pipy's primary product center is intentionally layered:
 
-- `HarnessRunner` owns run lifecycle, event recording, and finalization.
+- `tool_loop_session.py` is the composition root over the headless coding
+  session and canonical `AgentLoop` for interactive, JSON, print, and RPC
+  modes.
 - `NativeHarnessCompatibilityRuntime` owns only the metadata-fixture
   `pipy run` / narrow SDK compatibility path and reuses the canonical
   provider-turn executor. The tool-loop product session and canonical
   `AgentLoop` own interactive, JSON, print, and RPC product execution. (The
   former `NativeNoToolReplSession` was removed in the 2026-06-20 cleanup; there
   is one product REPL.)
-- `pipy_session.recorder` owns file lifecycle.
-- `pipy_session.catalog` owns read-only archive inspection.
+- the private native session tree owns full product history; and
+- `HarnessRunner`, `pipy_session.recorder`, and `pipy_session.catalog` own only
+  the compatibility/capture and metadata-workflow lifecycle.
 
 That split is deliberate. Pipy is using clean-architecture boundaries while it
 bootstraps, so effectful adapters cannot silently become the product core.
@@ -279,14 +294,14 @@ bootstraps, so effectful adapters cannot silently become the product core.
 | Topic | Pi | Pipy |
 | --- | --- | --- |
 | Language and package shape | TypeScript monorepo with `coding-agent`, `agent`, `ai`, `tui`, and related packages. | Python package with `pipy_harness` and `pipy_session`. |
-| Main runtime center | `AgentSession` wrapped around `pi-agent-core` and `pi-ai`. | `HarnessRunner` plus native session classes behind explicit ports. |
-| UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Product tool-loop sessions use a pipy-owned inline-scrollback TUI (committed history in native scrollback, live input/footer frame pinned at the bottom, full window height) with prompt/footer ownership, slash menu, submitted prompt bands, tool rows, active assistant output, active-Escape abort rendering, an interactive `/settings` control dialog, an interactive `/model` provider/model selector, executable `/login`/`/logout`, and daily-driver editor ergonomics (prompt history with optional persistent cross-session recall, bracketed paste, undo/redo, resize handling). The captured-stream (non-TTY) fallback is line-oriented with compact startup chrome and a state-aware prompt label. Accepted or typed `@path` references in a submitted prompt load bounded excerpts into the provider request (see "Provider-visible file context"). Broader selectors/overlays and extension UI remain deferred. (The former no-tool line-oriented REPL was retired in the 2026-06-20 cleanup; there is one product REPL.) |
+| Main runtime center | `AgentSession` over the agent core, with separate runtime/services owners for replacement and cwd-bound dependencies. | Product composition → headless coding session → canonical `AgentLoop`; `HarnessRunner` is compatibility/capture ownership, not the product center. |
+| UI | Rich TUI with editor, footer, selectors, overlays, and extension UI. | Product tool-loop sessions use a pipy-owned inline-scrollback TUI (committed history in native scrollback, live input/footer frame pinned at the bottom, full window height) with prompt/footer ownership, slash menu, submitted prompt bands, tool rows, active assistant output, active-Escape abort rendering, an interactive `/settings` control dialog, an interactive `/model` provider/model selector, executable `/login`/`/logout`, and daily-driver editor ergonomics (prompt history with optional persistent cross-session recall, bracketed paste, undo/redo, resize handling). The captured-stream (non-TTY) fallback is line-oriented with compact startup chrome and a state-aware prompt label. Accepted or typed `@path` references in a submitted prompt load bounded excerpts into the provider request (see "Provider-visible file context"). Built-in model/settings/trust/tree/scoped/session/custom overlays ship behind typed ownership; richer extension-composed multi-widget UI remains deferred. (The former no-tool line-oriented REPL was retired in the 2026-06-20 cleanup; there is one product REPL.) |
 | Session storage | Full tree JSONL sessions with parent links, branching, compaction, and resume workflows. | Two stores by design. The Pi-style **native product session tree** (`pipy_harness.native.session_tree`, private append-only JSONL under `~/.local/state/pipy/native-sessions/--<encoded-cwd>--/`) is the product session source of truth: full conversation history with parent links, in-place `/tree` navigation, sibling branches, `/fork`/`/clone`, durable `/compact` entries, branch summaries, labels, naming, the interactive `/resume` picker overlay (search/scope/sort/named/rename/delete), and the full `-c`/`-r`/`--session`/`--session-id`/`--session-dir`/`--name`/`--fork`/`--no-session` startup flag set (mutual exclusion + cross-project fork prompt). The separate metadata-first `pipy-session` archive (immutable JSONL + Markdown summaries under `pipy/YYYY/MM`) stays a summary-safe catalog/learning surface and is **not** the product session source; it records only safe lineage/compaction counters. The full behavior, the conformance gate, and the Pi comparison are specified in [session-tree.md](session-tree.md). |
 | Tool model | Model-visible read, write, edit, and bash tools are core defaults. | Explicit, bounded, pipy-owned command/tool boundaries plus the bounded model-selected loop with `read`, `write`, `edit`, `ls`, `grep`, `find`, `edit_diff`, `truncate`, and `bash` as the default tools of the product tool-loop REPL (the single interactive product session); `bash` is a real shell matching Pi (arbitrary commands in the workspace, combined bounded output, optional timeout), with only metadata recorded at the archive boundary. See the [Tool-Loop Parity Track](/backlog/#tool-loop-parity-track). |
 | Approval posture | No permission popups for the normal product workflow. | Same direction for explicit REPL read/context commands, while non-interactive request objects still carry policy and authority data. |
 | Provider access | Broad provider/model registry through Pi's AI package, including subscription and API-key paths. | Twelve real provider adapters behind `ProviderPort` plus the fake bootstrap, now fronted by a pipy-owned catalog foundation (`native/catalog.py`/`catalog_data.py`) with multiple rows per provider, a `models.json` custom-provider/override loader (`native/models_json.py`), the layered matcher (`native/model_resolver.py`), auth helpers + availability gate (`native/auth_store.py`), the stdlib OAuth registry for Anthropic/Copilot/Codex (`native/oauth_providers.py`), thinking helpers (`native/thinking.py`), routing config (`native/routing.py`), `--list-models [search]`, the full-catalog `/model` selector + direct `/model <ref>` through the shared resolver, extension-registered provider rows, and catalog-driven product construction (`native/provider_construction.py`, `native/catalog_state.py`). ds4 is reframed as a `models.json` custom provider (`native/ds4.py`). Catalog construction now covers the OpenAI-compatible Chat Completions family, implemented catalog-constructed non-completions API families, `pipy run` one-shot construction, startup `--native-provider`/`--native-model` resolution, and extension-provider catalog wiring through the shared resolver; the conformance gate covers Verification-Plan items 1-25 with fake HTTP/product-path assertions. Remaining provider-access gaps are live Anthropic/Copilot login UX (Vertex API-key/Express auth, Anthropic adaptive thinking, and Azure URL/api-version parity have shipped); `openai-codex-responses` is now built by the total construction boundary threading its settings-derived retry policy; see `docs/provider-catalog.md`. |
 | Extension system | First-class extensions, skills, prompt templates, themes, custom commands, and UI hooks. | **Partial, Pi-shaped but not Pi-equivalent.** The Python extension runtime covers local activation, tools/hooks, provider registration, package resources, project trust, request-header mutation, true-idle settlement, rich rendering/UI helpers, and cache-friendly dynamic tool loading for Anthropic plus OpenAI/Codex Responses. Remaining gaps include Kimi deferred tools, broader component/overlay parity, richer multi-widget UI, live tool-render invalidation, remote package sources, and RPC extension UI. See [extension-api.md](extension-api.md). |
-| Privacy posture | Full Pi sessions are native product transcripts. | Pipy archive is metadata-first and excludes prompts, model output, provider payloads, file contents, command output, and auth material by default. |
+| Privacy posture | Full Pi sessions are native product transcripts. | Pipy's private native product tree is likewise full-content. Its separate workflow archive is metadata-only and excludes prompts, model output, provider payloads, file contents, command output, and auth material by default. |
 | External agent wrapping | Pi is itself the product. | Pipy can wrap external CLIs for conservative capture, but external wrappers are not the product runtime. |
 | Verification | Pi exposes broad bash/tool capability. | Pipy now relies on the Pi-style model-visible `bash` tool for verification-like workflows; a separate project-defined verification policy remains future work. |
 
@@ -325,9 +340,11 @@ Future Pi parity work should preserve these pipy-specific rules:
 - `pipy-native` remains the product runtime.
 - Codex, Claude, Pi, and arbitrary subprocess wrapping remain capture/reference
   paths unless the product direction explicitly changes.
-- Raw prompts, model output, provider responses, stdout, stderr, command output,
+- The private native product session retains full conversation/tool content;
+  raw prompts, model output, provider responses, stdout, stderr, command output,
   file contents, patches, diffs, secrets, credentials, tokens, private keys,
-  and sensitive personal data stay out of archives by default.
+  and sensitive personal data stay out of the separate metadata workflow
+  archive by default.
 - User-visible runtime behavior and docs must stay aligned in the same change.
 - Broad features should land as small named boundaries, with focused tests,
   `just check`, docs updates, and review.

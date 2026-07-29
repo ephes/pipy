@@ -48,3 +48,30 @@ def test_formatter_gate_has_no_custom_repository_exclusions() -> None:
     assert "extend-exclude" not in ruff
     assert not (REPO_ROOT / ".ruff.toml").exists()
     assert not (REPO_ROOT / "ruff.toml").exists()
+
+
+def test_architecture_assessment_navigation_and_reference_identity() -> None:
+    assessment_path = "2026-07-29-architecture-quality-assessment.md"
+    assessment = _read(f"docs/{assessment_path}")
+    architecture = _read("docs/architecture.md")
+    backlog = _read("docs/backlog.md")
+    index = _read("docs/index.md")
+    nav = _read("zensical.toml")
+    readme = _read("README.md")
+
+    for revision in (
+        "e35a0d54898c160ac37acbdbdd35fff727569508",
+        "edd4ccc6171420015fa0f04bec75d38fe32beb68",
+        "7df73a00c6cf85c000bf1ce1594c9284067a92f0",
+    ):
+        assert revision in assessment
+    assert "openai-codex/gpt-5.6-sol" in assessment
+    assert assessment_path in architecture
+    assert assessment_path in backlog
+    assert assessment_path in index
+    assert assessment_path in nav
+    assert "Codex WebSocket transport uses" in readme
+    assert "declared `websockets` dependency" in readme
+    assert "independent review complete; landed Slice 16 commit pending" in (
+        " ".join(assessment.split())
+    )

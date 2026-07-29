@@ -1,15 +1,28 @@
 # Transactional extension reload — rebuild plan and concurrency contract
 
-Status: reviewed plan for the active Slice 3 of the
-[Architecture Quality Improvement Program](2026-07-24-architecture-quality-improvement-plan.md).
+Status: partially implemented historical contract. It is no longer the active
+Slice 3 implementation plan; the outstanding clauses are queued for bounded
+completion or explicit reconciliation before ordinary product-parity work.
 
-Date: 2026-07-25.
+Date: 2026-07-25. Reconciled against shipped behavior: 2026-07-29.
 
-This document replaces an abandoned Slice 3 implementation attempt. It records
-the ownership and synchronization contract the rebuild must obey, the bounded
-sub-slices, the stop conditions, and the behavioral scenarios the finished
-slice must demonstrate. It describes intended work, not landed behavior;
-`docs/architecture.md` continues to describe only what has shipped.
+This document replaced an abandoned Slice 3 implementation attempt. It records
+the ideal ownership and synchronization contract, the bounded sub-slices, stop
+conditions, and behavioral scenarios the completed transaction was intended to
+demonstrate. The shipped work is a material safety ratchet, but it did not land
+every clause below. The current implementation has one generation pointer and
+session mutex, runtime-plus-flags candidate rejection, a publication gate,
+atomic active-tool/thinking admission, and post-selection default persistence.
+It still lacks an isolated/sealed activation host, complete frozen projections,
+production operation snapshots, generation-bound stale mutation refusal, and
+atomic `set_model` admission. Rejected activation can also clear retained
+chrome because activation still uses the live host.
+
+Read the contract below as the ideal target and historical design evidence, not
+as a claim that all S3.0–S3.9 guarantees shipped. The living
+[`architecture.md`](../architecture.md) and the dated
+[2026-07-29 assessment](../2026-07-29-architecture-quality-assessment.md)
+separate landed ratchets from outstanding correctness clauses.
 
 ## Why the first attempt was abandoned
 
@@ -771,6 +784,13 @@ exception, not an oversight; changing it requires a dedicated behavior slice.
   directly.
 
 ## Bounded sub-slices
+
+The labels below are the original implementation decomposition. The backlog's
+“shipped” sub-slice ledger records useful pieces that landed under these labels;
+it does not mean every ideal clause assigned to a label was completed. The
+2026-07-29 reconciliation queues the remaining clauses as one newly bounded
+contract-completion/re-specification slice rather than silently reopening this
+whole historical sequence.
 
 Hard bounds, per semantic slice: at most ~400 changed lines, at most four
 production source files, at most one new module-level abstraction. Formatting-

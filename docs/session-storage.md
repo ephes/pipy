@@ -177,17 +177,16 @@ storage split, command behavior, and the deterministic conformance gate
 (`scripts/parity_checks/session_tree_conformance.py --json`) are specified in
 [`session-tree.md`](session-tree.md).
 
-The architecture migration defines a canonical agent-event projection for the
-native product session and a Phase 3.1c typed synchronous coordination seam for
-full-content append, active-history load, and compaction transitions. Concrete
-`NativeSessionTree` callbacks and direct write ownership intentionally remain in
-the session composition root until migration Slice 3.3; the event projection is
-not yet a second writer. The coordinator's exact product-content DTOs are
-private session values and must never cross into the separate counts-only
-workflow projection, which never dereferences canonical full-content payloads.
-Historical tool results whose tool name cannot be inferred from their own
-branch ancestry remain private storage records: they preserve JSON and tree
-ancestry but are not supplied to providers.
+The completed architecture migration now routes canonical agent completion
+events through `ProductSessionEventProjection` and the typed native product-
+session action sink. That live projection is the single durable writer for
+ordinary canonical message appends; the synchronous Phase 3.1c coordinator
+still owns full-content active-history loads and compaction/session transitions.
+Its exact product-content DTOs are private session values and must never cross
+into the separate counts-only workflow projection, which never dereferences
+canonical full-content payloads. Historical tool results whose tool name cannot
+be inferred from their own branch ancestry remain private storage records: they
+preserve JSON and tree ancestry but are not supplied to providers.
 
 Follow-up filenames should keep the original slug and add a suffix:
 

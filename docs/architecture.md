@@ -9,9 +9,15 @@ sessions, automation modes, extensions, and terminal UI. `pipy_session` is a
 separate metadata-only workflow archive and catalog.
 
 The Phase 0–7 [Architecture Migration](architecture-migration.md) is completed
-historical evidence. Current structural work is ordered by the reviewed
+historical evidence. The reviewed
 [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
-and indexed in the [Backlog](backlog.md).
+has complete Slice 16 implementation; independent review complete; landed
+Slice 16 commit pending. Its measured disposition and current comparison are in
+the [2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md);
+the [Backlog](backlog.md) owns the exact pointer and next queue. The package
+metadata's native coding-agent description matches this architecture and stays
+unchanged; version/distribution identity, license/URLs, and wheel verification
+remain release-triggered while the project is private.
 
 ## Runtime structure
 
@@ -214,9 +220,11 @@ already-characterized direct-import compatibility identities explicit for
 internal consumers, including the headless UI bridge and render helpers; those
 aliases still denote the authoritative owner objects.
 
-Activation fails closed per extension. Trusted extension code may perform its
-own external effects, but pipy-owned registries do not publish a partial
-activation.
+Initial activation fails closed per extension. Trusted extension code may
+perform its own external effects. Reload now rejects a candidate runtime and
+parsed flags together, but the stronger claim that every pipy-owned registry,
+projection, listener, and chrome value publishes in one transaction is still an
+outstanding contract described below.
 
 The live extension state is one generation reached through
 `native/session_generation.py`. `SessionGenerationRef` owns the generation
@@ -225,10 +233,20 @@ reaches the generation only through that reference. `/reload` parses the
 candidate's flags before anything becomes live, so a malformed flag rejects the
 whole candidate and the previous generation stays complete — its commands,
 hooks, tools, providers, renderers and flag values together — instead of the
-new runtime being paired with stale flags. Only the extension generation is
-rejected: settings, keybindings, package roots, and workspace resources that
-reloaded successfully stay applied, and the rest of the reload runs against the
-unchanged generation.
+new runtime being paired with stale flags. Only the extension runtime-plus-flags
+generation is rejected: settings, keybindings, package roots, and workspace
+resources that reloaded successfully
+stay applied, and the rest of the reload runs against the unchanged generation.
+`SessionExtensionGeneration` does not yet freeze the tool-capability, renderer,
+emitter/lifecycle, or presentation projections; those publish separately after
+the pointer changes.
+
+Production consumers also still read the generation per access.
+`SessionGenerationRef.snapshot()` exists, but its own contract records that
+operation-level adoption is pending. No production extension mutation port
+captures a `generation_id`, so an old worker is not rejected by generation
+identity. These are outstanding clauses of the earlier ideal transactional
+reload contract, not properties of the shipped ratchet.
 
 While a reload republishes its derived projections the reference opens a
 publication gate, and the extension mutation ports refuse changes for that
@@ -495,7 +513,8 @@ repository findings, 23 under `src`. Slice 13 pure frame composition removes
 four TUI findings (`_frame_lines`, `_paint_locked`, `_styled_line`, and
 `_block_frame_lines`) without creating a renderer finding, leaving **34 / 18**
 repository/source findings (**9** remain in TUI and zero in the renderer).
-`src` still contains one justified `type: ignore`.
+The dated assessment individually inventories and justifies all 13 remaining
+pinned files. `src` still contains one justified `type: ignore`.
 
 Ruff formatting is also a repository-wide gate. The `format-check` recipe owns
 `uv run ruff format --check .`; both the aggregate `just check` gate and the CI
@@ -511,33 +530,36 @@ Run the reproducible source-only inventory with:
 uv run python scripts/architecture_metrics.py --json
 ```
 
-## Intentionally remaining risks
+## Remaining risks and disposition
 
-The active program addresses ownership risks rather than cosmetic size:
+The program addressed ownership risks rather than cosmetic size. The
+[2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md)
+classifies and proportionally justifies every residual, including every
+C901-pinned file. The load-bearing summary is:
 
-- extension reload publishes one generation and rejects a candidate whole, but
-  the candidate is not yet staged behind an isolated activation host. A
-  candidate activates against the live host, so extension chrome must still be
-  cleared before activation rather than after commit — which means a rejected
-  candidate leaves the retained generation's chrome cleared — and a timed-out
-  activation worker is not yet sealed out of its runtime;
+- the Slice 3 work is a useful generation/publication safety ratchet, but not
+  the complete ideal transaction. Candidate activation still uses the live
+  host; rejected activation can clear retained chrome; a timed-out worker is
+  not sealed; generation snapshots are not adopted by production operations;
+  mutation ports are not generation-bound; and tool, renderer, lifecycle, and
+  presentation projections publish separately;
 - `set_model` persists a default part-way through its mutation, so its
-  publication-gate admission is not yet atomic;
-- `_ReplLoopStep.step_once` remains a high-complexity cross-boundary
-  orchestrator with a wide collaborator list;
-- the harness/SDK one-shot compatibility runtime remains a deliberately
-  separate metadata-fixture contract, but its provider execution is canonical;
-  executable Slice 10 boundary tests prevent it from drifting into a second
-  silently equivalent agent loop;
-- `ToolLoopTerminalUi` still owns effectful snapshot preparation and custom
-  editor adaptation, but pure frame layout/style/paint planning now lives in
-  `frame_renderer`; editor, overlay, and extension-chrome state live behind
-  `EditorState`, `OverlayState`, and `ExtensionChromeState`; Slices 11–13 keep
-  the measured façade inventory at **43 fields** after reducing it from 128,
-  below the cumulative **89-field** ceiling; and
-- deterministic PTY byte handshakes now cover the previously load-sensitive
-  readiness transitions.
+  publication-gate admission is not atomic;
+- `_ReplLoopStep.step_once` remains the principal high-complexity,
+  cross-boundary orchestrator with a wide collaborator list;
+- the harness/SDK one-shot compatibility runtime is an intentional
+  metadata-fixture difference, with canonical provider execution and executable
+  non-equivalence tests;
+- `ToolLoopTerminalUi` intentionally remains the effectful terminal adapter at
+  **43 measured fields**, down from 128, while editor, overlay, chrome, and pure
+  frame state have dedicated owners;
+- tests intentionally retain their non-strict baseline while both complete
+  source packages are strict-equivalent and combined Mypy checks source+tests;
+  the one source suppression remains the documented runtime-selected stdlib
+  HTTP connection subclass; and
+- PTY sleeps and deadlines are bounded polling/backoff and failure limits;
+  observable bytes and offsets own sequencing.
 
-See the active improvement plan for ordered acceptance criteria. These are
-intentional, measured residuals—not evidence that the completed migration is
-still awaiting its original phases.
+The next architecture action is a bounded reload-contract completion or formal
+reconciliation before ordinary product-parity selection. That is not a verdict
+that the broader program failed, and Slice 16 does not implement it.

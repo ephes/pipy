@@ -235,8 +235,9 @@ Optional:
   defaulting to `fake`. Supported ids: `fake`, `ds4`, `openai`,
   `openai-codex`, `openrouter`, `anthropic`, `google`, `google-vertex`,
   `mistral`, `amazon-bedrock`, `azure-openai`, `cloudflare`,
-  `openai-completions`. All real providers are stdlib-only (no third-party SDK
-  dependencies).
+  `openai-completions`. Provider transports are standard-library-first and use
+  no third-party provider SDKs; the OpenAI Codex WebSocket transport uses the
+  declared `websockets` dependency.
 - `--native-model <id>`: model label for the native provider. Most real
   providers require it in one-shot `pipy run`; `ds4` defaults to
   `deepseek-v4-flash`.

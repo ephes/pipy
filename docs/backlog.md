@@ -7,14 +7,14 @@ level. It is not a full issue tracker. Use it to choose the next small,
 reviewable change while keeping the source-of-truth design constraints in
 `docs/harness-spec.md` and `docs/session-storage.md`.
 
-**The parity roadmap lives in [parity-plan.md](parity-plan.md).** That document
-is the single clear plan for reaching real feature parity with Pi: the
-slash-command and CLI matrices, the list of accidental pipy-only surfaces to
-remove or realign (§3 there, mirrored in `Parity Cleanup` below), and the index
-of per-topic specs with their conformance gates. The latest ranked comparison
-snapshot against `/Users/jochen/src/pi-mono` is
-[pi-mono-gap-audit.md](pi-mono-gap-audit.md). Read the plan first, then use the
-audit for current slice selection. The big-topic specs it indexes are
+**Parity policy and historical matrices live in
+[parity-plan.md](parity-plan.md).** Its command/flag policy, accidental-surface
+ledger, and topic-spec index remain authoritative, while its older matrices are
+historical. The current architecture disposition is the
+[2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md), and the
+latest ranked Pi comparison is [pi-mono-gap-audit.md](pi-mono-gap-audit.md).
+Use that audit for product selection only after the assessment's reload-contract
+follow-up. The big-topic specs indexed by the plan are
 [session-tree.md](session-tree.md),
 [extension-api.md](extension-api.md), [provider-catalog.md](provider-catalog.md),
 [settings-config.md](settings-config.md), [automation-rpc.md](automation-rpc.md),
@@ -27,13 +27,12 @@ The active queue is the ordered
 [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md).
 It follows the completed Phase 0–7
 [Architecture Migration](architecture-migration.md) without reopening that
-historical ledger. Implement one numbered slice at a time; the current pointer
-is **Slice 16 — final documentation, disposition, and fresh comparison**. Slice
-15's two formatter-only baselines and its gate/configuration/tests/documentation
-closeout are complete; Slice 16 owns the program-wide final measurements and
-fresh comparisons.
-Product-parity deltas in the Pi audit remain selection candidates after the
-architecture program and do not expand an architecture slice.
+historical ledger. Slice 16 implementation complete; **independent review
+complete; landed Slice 16 commit pending**. No Slice 16 commit hash exists yet. Its durable output is the
+[2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md).
+The next architecture action after that commit is a bounded transactional-reload
+contract completion or formal reconciliation. Ordinary product-parity selection
+waits behind that correctness boundary and does not expand Slice 16.
 
 Progress:
 
@@ -105,9 +104,9 @@ Progress:
   unsound, and the contract stabilized only once every cross-thread field named
   one guard taken by all of its readers and writers.
 
-- **Slice 3 — transactional extension reload: sub-slices S3.0–S3.9 SHIPPED.**
-  Commits, in order: `6e66b74` (ruff-format baseline for the files the slice
-  touches), `46cf091` (tool result renderers pinned to their originating call,
+- **Slice 3 — extension reload safety-ratchet sub-slices S3.0–S3.9 LANDED;
+  IDEAL CONTRACT PARTIAL.** Commits, in order: `6e66b74` (ruff-format baseline
+  for the files the slice touches), `46cf091` (tool result renderers pinned to their originating call,
   so a reload mid-call cannot re-target them), `f61d492` (tool capabilities
   behind one immutable `ToolCapabilityState` with candidate `prepare_extensions`
   and non-fallible `publish`), `486272a` (`native/session_generation.py`: the
@@ -135,16 +134,16 @@ Progress:
   workspace resources that reloaded successfully stay applied, and the rest of
   the reload runs against the unchanged generation.
 
-  **Deferred, and recorded rather than claimed:** the candidate is not yet
-  activated against an isolated staging host, so candidate sealing and explicit
-  disposal of rejected listeners/chrome requests are not implemented — and
-  because activation still installs chrome against the live host, extension
-  chrome is cleared before activation, leaving a rejected candidate's retained
-  generation without its chrome; and
-  `set_model` still persists part-way through its mutation, so its
-  publication-gate admission narrows but does not close its race window. Both
-  are described in
-  [the rebuild plan](specs/2026-07-25-transactional-extension-reload-rebuild.md).
+  **Outstanding ideal clauses, recorded rather than claimed:** the candidate is
+  not activated against an isolated staging host; timed-out registration is not
+  sealed; rejected listeners/chrome requests are not candidate-owned/disposed;
+  live-host chrome clears before activation; production consumers do not adopt
+  one generation snapshot per operation; class-A mutation ports do not capture
+  a generation id; and tool/renderer/lifecycle/presentation projections publish
+  separately. `set_model` also persists part-way through its mutation, so its
+  publication-gate admission narrows but does not close its race window. The
+  [reconciled rebuild contract](specs/2026-07-25-transactional-extension-reload-rebuild.md)
+  and dated assessment queue bounded completion or formal reconciliation.
 
 - **Slice 4 — session command effect family: SHIPPED in this commit**
   (`refactor: extract session command effects`). The eight session-owned
@@ -692,9 +691,10 @@ Progress:
   strict source frontier completion**; its `HarnessStatus` export cleanup and
   package-wide strict-frontier work remain untouched.
 
-- **Slice 9 — strict source frontier completion: COMPLETE, REVIEW READY.** The
-  enumerated strict-equivalent Mypy override is replaced rather than
-  supplemented: **35 entries -> 2** exact structured package patterns,
+- **Slice 9 — strict source frontier completion: LANDED.** Commit `b08b02a`
+  (`refactor: complete strict source frontier`). The enumerated strict-equivalent
+  Mypy override is replaced rather than supplemented: **35 entries -> 2** exact
+  structured package patterns,
   `pipy_harness.*` and `pipy_session.*`. Every per-module strict-equivalent
   sub-flag and all three global-only flags remain enabled. There is no global
   or per-module `strict = true`, exclusion, relaxed flag, suppression, cast,
@@ -735,13 +735,14 @@ Progress:
   architecture boundaries are unchanged. Credentials and tokens remain
   excluded, the native product session remains full-content, the workflow
   archive remains metadata-only, and both theme sources remain `pi`.
-  Implementation was direct with no coding subagent; independent review and
-  commit are separately orchestrated before landing. The active pointer
-  advances to **Slice 10 — one-shot runtime convergence decision**; no Slice 10
+  Implementation was direct with no coding subagent; the contemporaneous
+  review-ready record preceded the landed commit above. The historical pointer
+  then advanced to **Slice 10 — one-shot runtime convergence decision**; no Slice 10
   implementation is included, and its one-shot/runtime-convergence outcome
   remains intentionally undecided.
 
-- **Slice 10 — one-shot runtime convergence decision: COMPLETE.** Executable
+- **Slice 10 — one-shot runtime convergence decision: LANDED.** Commit
+  `ed85849` (`refactor: decide one-shot runtime convergence`). Executable
   overlap/difference contracts select intentional
   compatibility ownership rather than a false `AgentLoop` convergence. An
   ordinary successful provider completion has equivalent final text, token
@@ -814,11 +815,11 @@ Progress:
   fix/re-review round would not materially improve correctness, privacy, API,
   architecture, tests, or confidence. No substantive finding remains. Every
   valid round had zero skipped files, truncations, redactions, and forbidden
-  tool uses. Pi implementer self-verdicts were discarded. Commit remains
-  pending at the point this ledger is written.
+  tool uses. Pi implementer self-verdicts were discarded. The contemporaneous
+  “commit pending” state is superseded by landed commit `ed85849`.
 
-- **Slice 11 — editor state extraction: COMPLETE, REVIEW CLOSED; COMMIT
-  PENDING.** A new
+- **Slice 11 — editor state extraction: LANDED.** Commit `8f61ffe`
+  (`refactor: extract terminal editor state`). A new
   stdlib-only `native.editor_state.EditorState` is the single typed owner for
   editable buffer/cursor state, slash and completion selection/anchors,
   session-local prompt recall and draft navigation, bounded undo/redo, decoded
@@ -906,12 +907,11 @@ Progress:
   churn” stop signal applies to the projection-test chain, every remaining
   finding is a non-material Suggestion, and another round would not improve
   confidence. No correctness, privacy, trust, concurrency, data-loss, or
-  public-contract finding remains. Commit remains pending at the point this
-  ledger is written.
+  public-contract finding remained. The contemporaneous “commit pending” state
+  is superseded by landed commit `8f61ffe`.
 
-- **Slice 12 — overlay and extension-chrome state extraction: IMPLEMENTATION,
-  VERIFICATION, INDEPENDENT REVIEW, AND DOCUMENTATION COMPLETE; COMMIT
-  INTEGRATION IMMEDIATELY PENDING.** New terminal-independent
+- **Slice 12 — overlay and extension-chrome state extraction: LANDED.** Commit
+  `44c0948` (`refactor: extract overlay and chrome state`). New terminal-independent
   `native.overlay_state.OverlayState` is the single owner for model, settings,
   project-trust, tree, scoped-model, session-picker, and custom-extension
   overlays. Its closed `active` discriminator and typed owner frames make the
@@ -1065,11 +1065,11 @@ Progress:
   compatibility shim, alternate-screen behavior, schema, trust/session/privacy
   contract, or changelog entry is introduced. The ownership refactor is
   behavior-preserving, so the no-changelog disposition remains. Slice 12
-  implementation, verification, independent review, and documentation are
-  complete. **Slice 13 — pure frame composition** is now active; the Slice 12
-  commit integrates this ledger and advances the pointer atomically.
+  implementation, verification, independent review, and documentation were
+  complete before landed commit `44c0948` advanced the historical pointer.
 
-- **Slice 13 — pure frame composition: COMPLETE.** New
+- **Slice 13 — pure frame composition: LANDED.** Commit `eacb742`
+  (`refactor: extract pure terminal frame composition`). New
   `native.frame_renderer` is the cohesive terminal-independent owner for full
   and live frame composition. Frozen `FrameSnapshot` values contain copied raw
   history blocks, transient assistant/reasoning/tool/working strings, editor
@@ -1164,8 +1164,8 @@ Progress:
   synchronization** is now active; the Slice 13 commit integrates this ledger
   and advances the pointer atomically.
 
-- **Slice 14 — deterministic PTY synchronization: SHIPPED IN THIS COMMIT.**
-  One typed
+- **Slice 14 — deterministic PTY synchronization: LANDED.** Commit `03753be`
+  (`test: make PTY synchronization deterministic`). One typed
   test-only owner, `tests/pty_sync.py`, waits on bytes already emitted by the
   product. A rendered title, notice, answer, input frame, or external-editor
   hint is presentation only. Input is writable only after the later
@@ -1383,8 +1383,7 @@ Progress:
   complete; this commit advances the active pointer to **Slice 15 — repository
   formatting baseline and gate**.
 
-- **Slice 15 — repository formatting baseline and gate: COMPLETE IN THIS
-  COMMIT.** Slice 15a is commit
+- **Slice 15 — repository formatting baseline and gate: LANDED.** Slice 15a is commit
   `f02255a82a2eeed10185fdb7977ec440ba1eb6d1` (`style: format examples scripts
   and source`): Ruff formatter output only across **103** Python files. Slice
   15b is commit `d1c8cbccfe1992dc080bc79e7ba7eaba149dddcb` (`style: format
@@ -1392,8 +1391,9 @@ Progress:
   mechanical batch contains a semantic, gate, test-behavior, or documentation
   prose edit.
 
-  Slice 15c gives the repository-wide check one local owner: `just
-  format-check` runs `uv run ruff format --check .`, `just check` depends on
+  Slice 15c is commit `e35a0d54898c160ac37acbdbdd35fff727569508`
+  (`chore: enforce Ruff formatting`) and gives the repository-wide check one
+  local owner: `just format-check` runs `uv run ruff format --check .`, `just check` depends on
   that recipe, and the CI quality job invokes the same recipe rather than
   duplicating its command. `just format` applies `uv run ruff format .`.
   Contributor setup documentation names both direct commands. Three focused
@@ -1429,14 +1429,54 @@ Progress:
   (`SCOPED_OMISSIONS: none`), zero forbidden tool uses, and no skipped files,
   truncations, or redactions. Review stopped at the final complete CLEAN because
   there was no actionable feedback and another round would add no material
-  evidence. Slice 15c and Slice 15 close in this commit, and the active pointer
-  advances to **Slice 16 — final documentation, disposition, and fresh
-  comparison**.
+  evidence. Slice 15c and Slice 15 closed in landed commit `e35a0d5`; the
+  historical pointer then advanced to Slice 16.
+
+- **Slice 16 — final documentation, disposition, and fresh comparison:
+  IMPLEMENTATION AND INDEPENDENT REVIEW COMPLETE; LANDED COMMIT PENDING.** The
+  [2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md)
+  consolidates three exact-model read-only audits, records the pipy/Tau/Pi
+  revisions and versions, before/after evidence, every residual and C901 pin,
+  and package/publication disposition. The existing native-agent package
+  description is accurate and unchanged; version/publication details remain
+  provisional while private. Living architecture, the transactional reload
+  contract, session/harness migration prose, Pi comparison documents, provider
+  dependency wording, and documentation navigation now agree. Slice
+  16 changes no product behavior or package metadata and adds no changelog
+  entry. Focused architecture quality/metrics pass **8 tests**; strict source
+  Mypy is clean across **169** files, combined Mypy across **437** files, PTY
+  smoke passes **8/8**, docs and diff hygiene are clean, Ruff formatting covers
+  **479** files, and `just check` reports **4,827 passed / 2 skipped**. Final
+  worktree metrics are **34 / 18** repository/source C901, **43** TUI fields,
+  **1** source suppression, **81,738 / 121,052** source/test physical lines,
+  and **5,433 / 6,329** lines in `tool_loop_session.py` / `tui.py`. Both theme
+  sources remain `pi`.
+
+  Fresh independent read-only Pi review used exact
+  `openai-codex/gpt-5.6-sol` at high thinking. Two valid rounds exited 0: round
+  1 covered the complete **114,716-byte / 1,407-line**, 14-file patch through
+  EOF with no Critical or Warning and one Suggestion to spell Tau's tag exactly
+  `v0.3.1`; a fresh exact-model Pi implementation agent accepted it and changed
+  only that assessment text. One intervening invocation is **INVALID** and
+  discarded because, despite reading all 14 files and reporting zero findings,
+  it treated the intentionally unavailable shell/git/hash tools as a scoped
+  omission. The fresh valid retry covered the complete final **114,722-byte /
+  1,407-line** patch through EOF with all 14 files visible,
+  `SCOPED_OMISSIONS: none`, zero forbidden tool uses, skipped files,
+  truncations, redactions, or findings, and structured **CLEAN**. Review stopped
+  because the accepted exactness finding was fixed and the final complete patch
+  was valid CLEAN; another per-slice round would add no material value. The
+  Slice 16 commit hash remains pending, and the post-commit complete
+  program-range integration review will cover this mechanical ledger sync. The
+  next queue item remains bounded reload-contract completion or formal
+  reconciliation before ordinary product-parity selection.
 
 ## Current State
 
-Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve stdlib-only
-real providers plus the deterministic fake provider, a bounded model-driven
+Pipy is a native coding-agent runtime with a Pi-shape REPL, twelve real
+providers plus the deterministic fake provider, standard-library-first
+transports with no third-party provider SDKs (`websockets` supplies the Codex
+WebSocket transport), a bounded model-driven
 tool loop, and a full-transcript native session tree as the product session
 store. The older metadata-first `pipy-session` archive is now an optional
 summary-safe catalog/learning utility, not the product parity surface. The first
@@ -1445,28 +1485,29 @@ OpenAI-compatible Chat Completions machinery with tool-loop support. Specific
 feature coverage and parity status live in [pi-parity.md](pi-parity.md). Code
 shape lives in [architecture.md](architecture.md). The Phase 0–7 internal migration in
 [architecture-migration.md](architecture-migration.md) is completed historical
-evidence. The active reviewed architecture-quality program is linked above and
-supersedes the old migration ordering—but not its recorded findings or ledger.
+evidence. The reviewed architecture-quality program is complete through Slice
+16 independent review, with the landed Slice 16 commit pending; its assessment
+and the bounded reload-contract follow-up supersede the old migration
+ordering—but not its recorded findings or ledger.
 
 This page is the forward-planning index:
 
-- `Active Reviewed Program` is the only current architecture implementation
-  queue and names the exact ordered slice.
+- `Active Reviewed Program` names the exact review-complete, commit-pending
+  disposition and the reload-contract follow-up that precedes product parity.
 - `Pi Parity Roadmap` and the refreshed Pi audit rank product gaps without
   silently adding them to architecture work.
 - The named parity and quality tracks below preserve shipped detail and
   historical evidence.
 - `Near Term`, `Deferred`, and `Explicitly Not Now` retain relevant boundaries;
-  they do not override the active slice pointer above.
+  they do not override the current disposition above.
 
 ## Pi Parity Roadmap
 
 Pipy is a Python slopfork of Pi, so the long-term product target is Pi-class
 native coding-agent capability — including the terminal UI — through
-pipy-owned Python boundaries. Parity means matching the useful product
-surfaces and workflows in pipy's architecture. It does not require a literal
-port of Pi's TypeScript implementation, the `pi-tui` library, or exact command
-names; it does require comparable end-user capability.
+pipy-owned Python boundaries. Parity selection is capability-first and does not
+require a literal TypeScript or `pi-tui` port, while Pi command names and flags
+remain the reference wherever user-visible behavior specifies them.
 
 The broad parity ladder, applied with small-slice discipline:
 
@@ -1515,13 +1556,14 @@ The broad parity ladder, applied with small-slice discipline:
   learning.
 - Extension/RPC parity: the headless automation protocol has **shipped** —
   `--mode json` (full Pi-shaped event stream), `--print`/`-p` (one-shot text),
-  and `--mode rpc` (long-lived stdin/stdout JSONL with the full Pi command
-  vocabulary, including RPC thinking-level changes threaded into catalog-backed
-  provider request construction), gated by
+  and `--mode rpc` (long-lived stdin/stdout JSONL with the 31 Pi command names,
+  including RPC thinking-level changes threaded into catalog-backed provider
+  request construction), gated by
   `scripts/parity_checks/automation_rpc_conformance.py --json`
-  ([automation-rpc.md](automation-rpc.md)). Remaining integration points
-  (extension APIs, custom commands/UI surfaced over the RPC extension-UI
-  channel, and broader live provider switching over RPC) build on this foundation.
+  ([automation-rpc.md](automation-rpc.md)). Command-name coverage does not imply
+  semantic equivalence: direct RPC bash still lacks correlated updates and
+  actual running-command cancellation. Extension UI and broader live switching
+  also remain.
 
 ### Prioritized Pi Gap Queue (2026-05-28)
 
@@ -1748,12 +1790,13 @@ still recognizes that extension/package parity is the largest surface by area:
    persistence, package/config integration, pre-trust global/CLI extension
    decision ownership with activation reuse, and run-local trust read aliases.
    The project-trust track is complete.
-3. **Current RPC delta.** Pipy's gated RPC baseline is green at Pi's full
-   31-command vocabulary: the read-only `get_entries` (including `since`) and
+3. **Current RPC delta.** Pipy's gated RPC baseline covers Pi's 31 command
+   names: the read-only `get_entries` (including `since`) and
    `get_tree` **shipped** 2026-07-14. The asynchronous `agent_settled` event also
    shipped that day at the true-idle boundary on both the `--mode rpc` and
    `--mode json` streams. The extension-surface hook shipped independently on
-   2026-07-16; true in-turn injection remains a separate follow-on.
+   2026-07-16. Direct bash updates/cancellation and true in-turn injection
+   remain separate semantic follow-ons.
 4. **Extension lifecycle and rendering deltas.** The request-scoped
    `before_provider_headers` hook and the true-idle `agent_settled` lifecycle
    hook **shipped** 2026-07-16, and durable TUI-only entry renderers
@@ -6765,7 +6808,10 @@ within Claude Code. The first selected local integration is `ds4`, using
 it is registered as tool-loop capable after live ds4 smoke proved OpenAI-style
 tool-call round trips with pipy's loop.
 
-The current implementation target is in `Active Reviewed Program` above.
+The current disposition and next target are in `Active Reviewed Program`
+above: land the reviewed Slice 16 commit, then complete or formally reconcile
+the bounded transactional reload contract before selecting ordinary product
+parity.
 
 Historical gates before the single product REPL are preserved in `Done` and
 `docs/harness-spec.md` for auditability, but they are not current product

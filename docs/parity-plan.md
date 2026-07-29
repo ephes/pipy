@@ -1,14 +1,16 @@
 # Pipy → Pi Real Parity Plan
 
-Status: parity plan written 2026-06-02 and refreshed through 2026-07-16 against
-local Pi main `b084d2fb` (`0.80.6` plus 2026-07-13 unreleased changes) at
-`/Users/jochen/src/pi-mono`.
+Status: historical parity plan written 2026-06-02 and last matrix-validated
+through 2026-07-16 against local Pi main `b084d2fb` (`0.80.6` plus 2026-07-13
+unreleased changes) at `/Users/jochen/src/pi-mono`. Those matrices remain useful
+baseline evidence; they have not been revalidated row by row against current Pi.
 
-This document is the single clear plan for reaching **real feature parity** with
-Pi. It is the index that ties together the per-topic specs and the cleanup work.
-The latest ranked comparison snapshot against the local Pi checkout is
-[Pi-Mono Gap Audit](pi-mono-gap-audit.md); use that page for slice selection
-when a fresh "what is biggest now?" answer is needed. Use this plan to answer
+The current comparison reference is clean Pi main
+`7df73a00c6cf85c000bf1ce1594c9284067a92f0`, coding-agent version `0.82.0`.
+Use the [2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md)
+and [Pi-Mono Gap Audit](pi-mono-gap-audit.md) for current selection, after the
+queued reload-contract reconciliation. This document remains the policy and
+matrix index for reaching **real feature parity** with Pi. Use it to answer
 two questions at any time:
 
 1. What does Pi do that pipy does not yet do? (the parity gaps)
@@ -45,9 +47,11 @@ parity target:
 - **Python, pipy-owned boundaries.** Not a TypeScript port, not a wrapper around
   Pi/Codex/Claude. Pi's lifecycle, names, and semantics are the reference; the
   implementation is idiomatic Python.
-- **Standard-library-first, no new runtime dependencies.** `urllib` + stdlib
-  `json` for providers, stdlib for everything else. No pydantic, jsonschema,
-  attrs, httpx, boto3, vendor SDKs, or TUI frameworks in the runtime.
+- **Standard-library-first transports; no provider SDKs.** Provider adapters
+  use `urllib` + stdlib `json` and no vendor SDKs; the OpenAI Codex WebSocket
+  transport uses the bounded declared `websockets` dependency. No pydantic,
+  jsonschema, attrs, httpx, boto3, vendor SDKs, or TUI frameworks are added
+  without a separately reviewed dependency decision.
 - **Credential hygiene.** Auth tokens, API keys, OAuth refresh material, and
   secrets are never written to session files, event streams, exports, or shared
   artifacts. This is standard hygiene that Pi also observes — it is not the
@@ -115,8 +119,8 @@ polish tracked in [session-tree.md](session-tree.md).
 
 ## 2. CLI flag / mode parity matrix
 
-Reference note: this matrix is validated against local Pi main `b084d2fb`
-(`0.80.6` plus current unreleased changes), especially
+Historical reference note: this matrix was validated against local Pi main
+`b084d2fb` (`0.80.6` plus then-current unreleased changes), especially
 `packages/coding-agent/src/cli/args.ts` and `package-manager-cli.ts`. The full
 session-startup flag set below ships, with Pi mutual-exclusion errors and the
 cross-project `--session` fork prompt; the old metadata-only
@@ -218,7 +222,7 @@ the product state, not the spec state.
 | Extension / package platform (Python extensions, tools/commands/providers/keybindings/UI hooks, install/update/list/config) | [extension-api.md](extension-api.md) | 🟡 substantial Pi-shaped Python runtime ships, including project trust, request headers, true-idle settlement, rich rendering/UI helpers, and cache-friendly dynamic tool loading for Anthropic plus OpenAI/Codex Responses. Current Pi deltas still missing include Kimi deferred tools, full component/overlay parity, live tool-render invalidation, richer multi-widget UI, RPC extension UI, and remote package ecosystems. | the `extension_*_conformance.py` gates plus `extension_conformance_gate.py --json` |
 | Provider / model catalog (`models.json`, broad catalog, subscription auth incl. GitHub Copilot + Anthropic, thinking levels, `--list-models`, `--models` cycling) | [provider-catalog.md](provider-catalog.md) | 🟡 catalog construction and the implemented adapter families ship; OpenAI-Codex now has the 300-second idle timeout, sanitized failures, bounded pre-event retry, and real WebSocket/SSE selection. GPT-5.6 Sol + model-aware `max` shipped (2026-07-14). Remaining July deltas include forced tool choice, OpenRouter session affinity, Copilot MAI routing, auth refinements, pricing/catalog refreshes, and live Anthropic/Copilot login UX. | `scripts/parity_checks/provider_catalog_conformance.py --json` (items 1-25) |
 | Settings / config / keybindings (global + project `settings.json`, `keybindings.json`, scoped models, system-prompt files, resource toggles, `/reload`, `/changelog`, version/update) | [settings-config.md](settings-config.md) | 🟡 June baseline plus the complete project-trust track ships. Trust resolves for the final cwd, with closest-ancestor storage, a five-choice startup selector, `/trust`, reload persistence, global default control, run overrides, provenance-specific resource exclusion, extension-owned decisions, and run-local extension reads. Cache-miss notices, automatic theme mode, and more live display/editor settings are explicit follow-ons. | `scripts/parity_checks/settings_config_conformance.py --json`; `scripts/parity_checks/project_trust_conformance.py --json` |
-| JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | 🟡 the gated 31-command baseline ships, including async prompts, queueing, abort, bash, session ops, state/messages/stats, the read-only `get_entries`/`get_tree` (full Pi vocabulary), and `agent_settled` at true idle on both the RPC and JSON streams. The extension-surface hook now ships independently without duplicating protocol events. True in-turn injection, socket daemon, and RPC extension UI remain follow-ons. | `scripts/parity_checks/automation_rpc_conformance.py --json` |
+| JSON / RPC automation (`--mode json` full-event stream, `--mode rpc` protocol, steer/follow-up/abort, session switching) | [automation-rpc.md](automation-rpc.md) | 🟡 the gated 31-command-name baseline ships, including async prompts, queueing, abort, bash, session ops, state/messages/stats, `get_entries`/`get_tree`, and true-idle `agent_settled`. Name coverage is not semantic equivalence: direct RPC bash lacks Pi's correlated updates and actual running-command cancellation. True in-turn injection, socket daemon, and RPC extension UI also remain. | `scripts/parity_checks/automation_rpc_conformance.py --json` |
 | TUI / editor workflow depth (`@` file picker, path completion, image paste, `!`/`!!`, thinking/model hotkeys, folding, queueing, mouse selection) | [tui-workflow.md](tui-workflow.md) | ✅ tracked workflow depth ships, including soft wrapping and provider-request cancellation. Minor current drift: Pi's Ctrl+X transcript/tree copy binding is not yet present, though `/copy` ships. | `scripts/parity_checks/tui_workflow_conformance.py --json` + real-PTY tests |
 | Export / import / share / distribution / self-update (HTML + JSONL export, import-and-resume, gist share, `--export`, `/changelog`, update flow, install docs) | [export-distribution.md](export-distribution.md) | 🟡 export/import/share and self-update planning ship. Package-update semantics drifted: Pi's bare update is now self-only with `--all` for composition, while pipy still composes both halves by default. | `scripts/parity_checks/export_distribution_conformance.py --json` |
 | User documentation parity (quickstart, usage, providers, settings, keybindings, sessions, customization, automation, platform setup) | [user-documentation.md](user-documentation.md) | ✅ baseline pages ship across quickstart/usage, providers, settings, keybindings, sessions/compaction, customization/packages, JSON/RPC/SDK, terminal setup, and tmux; keep them synchronized as new slices land. | docs parity review checklist in spec |
@@ -235,7 +239,7 @@ core Pi single-agent feature. It needs its own target spec before any work.
 ## 5. Recommended sequencing
 
 Ordering reflects dependencies and reviewability, not a hard schedule. This
-sequence was groomed on 2026-07-14 against local Pi main `b084d2fb` after the
+historical sequence was groomed on 2026-07-14 against local Pi main `b084d2fb` after the
 OpenAI-Codex transport closeout and refreshed through the 2026-07-16 trust and
 extension-lifecycle slices.
 

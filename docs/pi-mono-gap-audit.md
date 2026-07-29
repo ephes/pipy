@@ -1,6 +1,7 @@
 # Pi-Mono Gap Audit
 
-Status: product-gap selection snapshot refreshed 2026-07-24.
+Status: product-gap selection snapshot refreshed 2026-07-29. It is a queue
+input, not authorization to implement a gap inside the architecture closeout.
 
 Reference: local `/Users/jochen/src/pi-mono` commit
 `7df73a00c6cf85c000bf1ce1594c9284067a92f0`, package version `0.82.0`.
@@ -14,9 +15,11 @@ node -p "require('/Users/jochen/src/pi-mono/packages/coding-agent/package.json')
 
 This page is a selection aid, not an implementation plan and not a claim of
 line-by-line TypeScript parity. Detailed pipy behavior remains owned by the
-topic specs and conformance gates. The active implementation queue is currently
-the reviewed [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md);
-none of the product gaps below is part of its slices.
+topic specs and conformance gates. The reviewed
+[Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
+has complete Slice 16 implementation; independent review complete; landed
+Slice 16 commit pending. Its assessment queues a bounded reload-contract reconciliation
+before product selection; none of the product gaps below is part of Slice 16.
 
 ## Current reading
 
@@ -28,7 +31,10 @@ Python extension host. The local Pi reference has moved from the previous
 `b084d2fb` / 0.80.6 audit through releases 0.80.7–0.82.0. The material new
 deltas are capability-gated constrained sampling, provider-owned OAuth and
 catalog growth, session-aware/direct-RPC bash behavior, and broader retry
-lifecycles.
+lifecycles. A current source comparison also confirms a pre-existing semantic
+gap omitted from the earlier snapshot: Pi defaults model tool calls to parallel
+execution with per-tool sequential overrides, while pipy executes them
+sequentially.
 
 Kimi deferred tools are **not “the next new Pi gap.”** Pi shipped the
 Chat-Completions Kimi deferred-tool protocol in 0.80.8/0.80.9. Pipy's
@@ -41,11 +47,12 @@ deltas—not the active queue by default.
 
 | Pi 0.81–0.82 delta | Evidence at `7df73a00` | Pipy status and selection guidance |
 | --- | --- | --- |
-| Constrained tool sampling and capability gates | `pi-ai` adds `Tool.constrainedSampling`: strict JSON Schema `prefer`/`require` plus OpenAI Lark/regex grammar tools. `supportsStrictTools` and `supportsGrammarTools` model metadata prevent unsupported requests across OpenAI, Anthropic, Bedrock, Google, Mistral, Azure, and compatible surfaces. | **Missing, high-value but cross-cutting.** Pipy's tool definition and model spec have no constrained-sampling or matching capability fields. Specify the provider-neutral contract and fail-closed capability checks first; then land strict-schema and grammar wire families independently. Do not send unsupported constraints or silently degrade `require`. |
+| Constrained tool sampling and capability gates | `pi-ai` adds `Tool.constrainedSampling`: strict JSON Schema `prefer`/`require` plus OpenAI Lark/regex grammar tools. Current capability fields include `supportsOpenAIGrammarTools`, API-family `supportsStrictMode`, and Anthropic `supportsStrictTools`; they prevent unsupported request shapes across provider families. | **Missing, high-value but cross-cutting.** Pipy's tool definition and model spec have no constrained-sampling or matching capability fields. Specify the provider-neutral contract and fail-closed capability checks first; then land strict-schema and grammar wire families independently. Do not send unsupported constraints or silently degrade `require`. |
+| Parallel tool execution | Pi defaults to parallel execution, allows per-tool `executionMode="sequential"`, emits finalized completion events in completion order, and emits the later tool-result message artifacts in assistant source order. | **Missing semantic contract.** Pipy's canonical `AgentLoop` iterates `assistant.tool_calls` sequentially and has no execution-mode vocabulary. Specify preparation, authority, cancellation, event/result ordering, and sequential overrides before implementation. |
 | Kimi Code subscription OAuth | Pi's `kimi-coding` provider owns device authorization, refresh, host overrides, auth availability, and subscription model behavior. | **Missing provider/auth family.** Pipy has no Kimi Coding provider or provider-owned OAuth flow. Treat auth, provider transport/catalog rows, thinking/replay behavior, implied cost, and deferred tools as reviewed sub-slices rather than one “Kimi parity” bundle. |
 | OpenRouter OAuth | Pi adds provider-owned PKCE login that mints a user-controlled API key usable by chat and image providers. | **Missing OAuth path; API-key provider already ships.** Pipy's OpenRouter Chat Completions adapter and API-key availability remain valid. Add PKCE only through the existing auth-store/catalog boundary, with secret-safe diagnostics and refresh/logout tests; do not fork a second OpenRouter construction path. |
 | Session-aware bash environment | Built-in and factory-created Pi bash tools receive `PI_SESSION_ID`, `PI_SESSION_FILE`, `PI_PROVIDER`, `PI_MODEL`, and `PI_REASONING_LEVEL`; the tool explicitly clears inherited stale values before injecting the current session snapshot. | **Missing.** Pipy's model-visible bash streams output and enforces its existing process/timeout boundary, but does not inject equivalent run metadata. This is a bounded tool/composition slice, with privacy and stale-environment characterization required before implementation. Decide pipy-prefixed naming deliberately rather than copying Pi environment names accidentally. |
-| Direct RPC bash streaming | Pi emits correlated `bash_execution_update` events for the direct RPC `bash` command. | **Missing protocol delta.** Pipy's direct RPC bash has a bounded worker/correlation boundary but no update event. Specify event shape, ordering, cancellation, terminal response, truncation, and stdout JSONL purity; keep this separate from model-tool streaming, which already exists. |
+| Direct RPC bash updates and cancellation | Pi emits correlated `bash_execution_update` events for direct RPC `bash` and `abort_bash` cancels the live command through its abort controller. | **Missing protocol lifecycle.** Pipy's direct RPC bash runs on a bounded worker but emits no update event, and `abort_bash` explicitly returns an error while a command is running because that worker is not externally cancellable. Characterize correlation, update order, cancellation, terminal response, truncation, and stdout JSONL purity; updates and cancellation may land as separate reviewed cuts within one protocol family. |
 | RPC thinking-level discovery | Pi 0.81 adds `get_available_thinking_levels` and a matching client method over the active catalog/model capabilities. | **Missing small RPC/catalog projection.** Pipy can set thinking level over RPC but does not expose this query. Add it only after pinning whether the response reflects the active model, scoped selection, and extension/catalog refresh snapshot. |
 | Compaction and branch-summary retry lifecycle | Pi 0.81.1 routes transient summary failures through the configured retry policy and emits scheduled / attempt-start / finished events to interactive, JSON, RPC, and SDK consumers. | **Missing and semantically significant.** Pipy compaction/branch summarization does not expose this lifecycle. Add only after characterizing queue, cancellation, persistence, and true-idle behavior; these retries must not duplicate summary writes or consume queued input early. |
 | Assistant/provider retry refinements | Pi classifies OpenAI Responses early EOF and DNS failures as retryable, makes OpenAI/Anthropic retry waits abortable and delay-bounded, and retries a missing Codex WebSocket continuation once without the stale continuation. | **Partially covered, not equivalent.** Pipy has robust pre-first-event Codex transport retry/fallback and cancellation, but the canonical agent policy remains zero-retry and other providers do not share Pi's lifecycle. Split transport classification, cancellable backoff, agent retry events, and Codex continuation recovery by owner. Preserve pipy's no-post-progress replay guarantee. |
@@ -53,33 +60,39 @@ deltas—not the active queue by default.
 | Usage/session refinements | Pi persists tool, compaction, and branch-summary usage in session totals and isolates summary requests with fresh routing session IDs and cache writes disabled. | **Partial.** Pipy tracks agent/provider usage and durable compaction metadata but should be compared with exact product-session totals and summary request/cache semantics before claiming equivalence. Keep accounting and routing/cache policy as separate slices if both differ. |
 | Smaller 0.81–0.82 fixes | Literal bracketed scoped-model IDs, `/model` reloading changed `models.json`, model catalog startup refresh timing, Wayland clipboard fallback, loaded llama output limits, and release packaging/catalog freshness. | **Groom individually.** Some are applicable correctness fixes, some concern Pi-only packaging/provider surfaces, and none should be bundled into the architecture program. |
 
-## Recommended product queue after the architecture program
+## Recommended queue after the architecture program
 
-This is a ranking for grooming, not authorization to bypass the parity-loop
+First complete or formally reconcile the bounded transactional reload contract
+identified by the 2026-07-29 assessment. Only then select product work. The
+ranking below is grooming input, not authorization to bypass the parity-loop
 review protocol.
 
 1. **Constrained sampling contract and capability gates.** It affects tool
    authority and provider request validity, so define the neutral model/tool
    vocabulary and unsupported-request behavior before adding wire variants.
-2. **Retry lifecycle decision.** Compare pipy's canonical zero-retry policy and
+2. **Parallel tool execution contract.** Define authority, preparation,
+   cancellation, per-tool sequential overrides, completion-event order, and
+   source-order result projection before adding a scheduler.
+3. **Retry lifecycle decision.** Compare pipy's canonical zero-retry policy and
    Codex-only pre-progress retry with Pi's assistant, compaction, and branch
    summary lifecycles. Land one owner at a time, with JSON/RPC/SDK event and
    true-idle characterization.
-3. **Direct RPC bash updates.** The protocol addition is bounded and useful once
-   event ordering, cancellation, and truncation are pinned. Session-aware bash
-   environment injection is adjacent but should remain a separate tool-policy
-   slice.
-4. **Provider-owned auth:** OpenRouter PKCE first because the provider and
+4. **Direct RPC bash updates and cancellation.** The protocol family is useful
+   once correlation, event ordering, cancellation, and truncation are pinned.
+   Streaming updates and actual abort may remain independently reviewable cuts.
+   Session-aware bash environment injection is adjacent but stays a separate
+   tool-policy slice.
+5. **Provider-owned auth:** OpenRouter PKCE first because the provider and
    API-key catalog path already exist; Kimi Code requires a larger new provider
    family and should follow a dedicated spec.
-5. **Provider/catalog candidates:** Qwen Token Plan, llama.cpp router/model
+6. **Provider/catalog candidates:** Qwen Token Plan, llama.cpp router/model
    management, dynamic provider refresh, generated catalog freshness/effort
    metadata, and current row refreshes. Choose by user value and testability;
    never treat generated model count as parity by itself.
-6. **Kimi Chat-Completions deferred tools.** Still a real missing adapter shape,
+7. **Kimi Chat-Completions deferred tools.** Still a real missing adapter shape,
    but no longer a fresh “next gap”; schedule it with Kimi/OpenAI-compatible
    transport work when that provider family is selected.
-7. **Small product polish and prior residuals:** bare-update realignment,
+8. **Small product polish and prior residuals:** bare-update realignment,
    Ctrl+X transcript copy, prompt-cache notices, automatic theme mode, output
    padding, and other previously audited request/auth details remain independent
    candidates.
