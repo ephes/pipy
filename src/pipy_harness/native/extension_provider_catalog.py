@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from pipy_harness.native.extension_runtime import (
+    _dispose_activation_results,
+    _finalize_provider_catalog_results,
+    _report_activation_cleanup,
+    _report_provider_catalog_finalization,
     activate_extensions,
     extension_providers,
     extension_unregistered_providers,
@@ -77,14 +81,19 @@ def load_extension_provider_contributions(
     include_workspace_defaults: bool = False,
     reserved_command_names: Sequence[str] = (),
     reserved_tool_names: Sequence[str] = (),
+    diagnostic: Callable[[str], None],
 ) -> tuple[tuple[RegisteredProvider, ...], tuple[str, ...]]:
     """Activate extensions and return only provider catalog contributions.
 
     This helper intentionally returns safe runtime metadata only: registered
     provider objects and unregister names. It does not persist package/catalog
     state, and callers must not archive extension source paths or factories.
-    Workspace extension discovery is fail-closed by default; product callers
-    opt in only after resolving project trust.
+    After those immutable outputs detach, every accepted host enters a terminal
+    catalog state that retains only guarded registration-time default flag reads
+    for provider factories. This helper does not parse or apply extension CLI
+    tokens; ``diagnostic`` receives any bounded finalization anomaly. Workspace
+    extension discovery is fail-closed by default; product callers opt in only
+    after resolving project trust.
     """
 
     descriptors = discover_extensions(
@@ -105,5 +114,18 @@ def load_extension_provider_contributions(
         descriptors,
         reserved_command_names=reserved_command_names,
         reserved_tool_names=reserved_tool_names,
+        diagnostic=diagnostic,
     )
-    return extension_providers(activated), extension_unregistered_providers(activated)
+    try:
+        providers = extension_providers(activated)
+        unregistered = extension_unregistered_providers(activated)
+    except BaseException:
+        _report_activation_cleanup(_dispose_activation_results(activated), diagnostic)
+        raise
+    # Provider factories commonly close over ``api.get_flag``. Only after both
+    # accepted outputs detach, finalize without registries, messages, or sends.
+    _report_provider_catalog_finalization(
+        _finalize_provider_catalog_results(activated),
+        diagnostic,
+    )
+    return providers, unregistered

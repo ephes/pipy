@@ -908,18 +908,18 @@ class ExtensionFlag:
 
 @dataclass(frozen=True, slots=True)
 class RegisteredFlag:
-    """One extension CLI flag accepted during activation, with its owner."""
+    """One extension CLI flag accepted during activation, with guarded access."""
 
     flag: ExtensionFlag
     extension: str
-    values: MutableMapping[str, object] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
+    _get_value: Callable[[str], object | None] = field(repr=False, compare=False)
+    _set_value: Callable[[str, object], None] = field(repr=False, compare=False)
 
     def get_value(self) -> object | None:
-        return self.values.get(self.flag.name)
+        return self._get_value(self.flag.name)
+
+    def _apply_value(self, value: object) -> None:
+        self._set_value(self.flag.name, value)
 
 
 @dataclass(frozen=True, slots=True)

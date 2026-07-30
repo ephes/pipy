@@ -266,7 +266,54 @@ The function may also be `async def activate(api) -> None`. Pipy should await
 async activation before the native session starts.
 
 Activation receives only the extension API. Runtime event handlers receive
-event-specific contexts later.
+event-specific contexts later. Contribution registration is activation-bounded:
+after activation succeeds or is rejected, every retained `register_*`,
+`unregister_provider(...)`, and direct or decorator-form `on(...)` call raises
+`ExtensionCapabilityError` at that call boundary. This includes void-return
+registrations, `register_flag(...)`, `on(event, handler)`, and `on(event)`; pipy
+does not return an inert decorator or fabricate a `RegisteredFlag`.
+
+For ordinary validation failures, precedence remains family-compatible when
+multiple fields are invalid: command/tool/flag reserved-or-duplicate checks
+precede their remaining values; shortcut key shape and handler callability
+precede normalized reserved/duplicate checks; provider factory/models/default/
+OAuth validation precedes duplicate checking; and message/entry renderer
+callability precedes duplicate checking. Unexpected exceptions from extension-
+controlled normalization or copying instead fail closed to that registration
+family's bounded `invalid_*` reason and type-only diagnostic. The first such
+failure remains recorded even if extension code catches the raised validation
+error, so this hostile-exception case intentionally does not promise exact pre-R1
+reason behavior.
+
+Names that are `str` subclasses—including `StrEnum`, default-stringifying
+`(str, Enum)` constants, and subclasses overriding `__str__`—remain accepted
+and are copied from their underlying value to plain strings without invoking
+the override before reservation. A non-string, empty/whitespace-only, or
+slash-containing
+`unregister_provider(...)` argument records and raises the same
+`invalid_provider` activation failure as invalid provider registration; it is
+not silently ignored. Runtime message sending keeps its existing return shape
+and is governed separately from
+contribution registration. Messages staged before the activation host seals are
+committed from that one frozen snapshot; a send racing after seal while
+activation is still pending silently returns `None` and has no effect. Accepted
+handlers continue to send through their runtime queues after activation commit.
+
+A provider-only catalog harvest detaches its immutable provider and
+unregistration outputs, then finalizes each accepted activation host into a
+narrow terminal state. Registration stays closed, sends are inert, and staged
+registries/messages are cleared, while guarded registration-time default flag
+values remain readable through `api.get_flag(...)` for a detached provider
+factory that captured its activation API. The production catalog helper does not
+parse or apply extension CLI tokens; parsed overrides are guaranteed only on the
+live session activation path described under [Dynamic CLI Flags](#dynamic-cli-flags).
+If a non-published host refuses catalog
+finalization, pipy disposes it fail-closed under its acquired guard; a published
+host is reported distinctly and left live, and an inaccessible/failing guard is
+reported separately. The finalized host is neither candidate-publishable nor
+a generally live runtime, and its caller must supply the diagnostic sink for
+any finalization anomaly. Rejected or otherwise abandoned hosts still use full
+disposal, including clearing flag values.
 
 ## Core API Shape
 

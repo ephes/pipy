@@ -205,6 +205,28 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Extension activation APIs retained after successful activation or candidate
+  rejection can no longer appear to register commands, shortcuts, hooks, tools,
+  providers, flags, or renderers into dead candidate state. Late contribution
+  registration now raises `ExtensionCapabilityError` at the call boundary,
+  `(str, Enum)` names and hostile `str.__str__` overrides retain their exact
+  underlying registration and `get_flag(...)` lookup value, and messages racing
+  after the activation seal
+  can no longer leak into (or mutate) the accepted frozen activation snapshot.
+  Unexpected extension-controlled normalization/copy exceptions now fail closed
+  to the registration family's bounded invalid reason and type-only diagnostic;
+  the first failure remains recorded even when extension code catches the raised
+  validation error, so this hostile case does not preserve exact pre-R1 reason
+  behavior. Provider-only catalog scans now terminally finalize accepted hosts:
+  staging, sends, and publication are inert, while guarded registration-time
+  default flag reads stay available to detached provider factories that captured
+  `api`; the catalog helper does not parse/apply CLI tokens, while live session
+  activation still exposes parsed overrides. Rejected or abandoned activation
+  disposal still clears flag values.
+- Calling `unregister_provider(...)` with a non-string, empty/whitespace-only,
+  or slash-containing provider name now records an `invalid_provider` activation
+  failure and disables that extension, instead of silently staging or ignoring
+  the malformed unregistration request.
 - Escaped adapter exceptions no longer copy raw exception messages into the
   durable metadata archive or its Markdown summary. Those records retain only
   the bounded exception type and fixed lifecycle metadata, while the in-memory

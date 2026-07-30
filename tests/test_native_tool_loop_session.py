@@ -11,6 +11,7 @@ script.
 from __future__ import annotations
 
 import ast
+import builtins
 import io
 import json
 import threading
@@ -22,6 +23,7 @@ from typing import Any, TextIO, cast
 
 import pytest
 
+from pipy_harness.extensions import ExtensionCapabilityError
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import (
     AgentEvent,
@@ -774,8 +776,16 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         for node in reload_owner.body
         if isinstance(node, ast.FunctionDef) and node.name == "execute"
     )
+    publication_lifetime = next(
+        node
+        for node in reload_execute.body
+        if isinstance(node, ast.Try)
+        and any(isinstance(statement, ast.With) for statement in node.body)
+    )
     publishing = next(
-        node for node in reload_execute.body if isinstance(node, ast.With)
+        statement
+        for statement in publication_lifetime.body
+        if isinstance(statement, ast.With)
     )
     assert len(publishing.items) == 1
     publishing_context = publishing.items[0].context_expr
@@ -794,18 +804,33 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
     assert isinstance(ctl.value, ast.Name)
     assert ctl.value.id == "self"
     phase_calls = [
-        node.func.attr
+        node
         for statement in publishing.body
         for node in ast.walk(statement)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        if isinstance(node, ast.Call)
     ]
-    assert phase_calls == [
+    assert len(phase_calls) == 5
+    assert all(isinstance(call.func, ast.Attribute) for call in phase_calls)
+    phase_names = [
+        call.func.attr for call in phase_calls if isinstance(call.func, ast.Attribute)
+    ]
+    assert phase_names == [
         "_reload_configuration_and_resources",
         "_reload_extension_generation",
         "refresh_provider_after_reload",
         "_publish_tool_and_lifecycle_projections",
         "_refresh_presentation_and_persistence",
     ]
+    disposal_call = next(
+        node
+        for statement in publication_lifetime.finalbody
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "candidate"
+        and node.func.attr == "dispose"
+    )
     lifecycle_call = next(
         node
         for node in reload_execute.body
@@ -835,16 +860,31 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
     )
     publishing_end = publishing.end_lineno
     assert publishing_end is not None
-    assert publishing_end < lifecycle_call.lineno
+    assert publishing_end < disposal_call.lineno
+    assert disposal_call.lineno < lifecycle_call.lineno
     assert lifecycle_call.lineno < final_diagnostic.lineno
-    reload_methods = [
-        node for node in reload_owner.body if isinstance(node, ast.FunctionDef)
-    ]
-    reload_method_lengths: list[int] = []
-    for method in reload_methods:
+    reload_methods = {
+        node.name: node
+        for node in reload_owner.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    reload_method_line_budgets = {
+        "execute": 36,
+        "_reload_configuration_and_resources": 32,
+        "_reload_extension_generation": 54,
+        "_commit_extension_generation": 26,
+        "_publish_tool_and_lifecycle_projections": 30,
+        "_diagnose_unknown_tool_filters": 12,
+        "_refresh_presentation_and_persistence": 40,
+    }
+    assert reload_methods.keys() == reload_method_line_budgets.keys()
+    for method_name, method in reload_methods.items():
         assert method.end_lineno is not None
-        reload_method_lengths.append(method.end_lineno - method.lineno + 1)
-    assert max(reload_method_lengths) < 80
+        method_length = method.end_lineno - method.lineno + 1
+        budget = reload_method_line_budgets[method_name]
+        assert method_length <= budget, (
+            f"{method_name} grew to {method_length} lines; phased-review budget is {budget}"
+        )
 
     reload_delegation = next(
         node
@@ -2548,6 +2588,7 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
         include_workspace_defaults=True,
         reserved_command_names=extension_reserved_command_names(),
         reserved_tool_names=extension_reserved_tool_names(),
+        diagnostic=lambda message: pytest.fail(message),
     )
     catalog_state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
     catalog_state.set_extension_provider_contributions(providers, unregistered)
@@ -2633,6 +2674,7 @@ def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator
         include_workspace_defaults=True,
         reserved_command_names=extension_reserved_command_names(),
         reserved_tool_names=extension_reserved_tool_names(),
+        diagnostic=lambda message: pytest.fail(message),
     )
     catalog_state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
     catalog_state.set_extension_provider_contributions(providers, unregistered)
@@ -2708,6 +2750,7 @@ def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
         include_workspace_defaults=True,
         reserved_command_names=extension_reserved_command_names(),
         reserved_tool_names=extension_reserved_tool_names(),
+        diagnostic=lambda message: pytest.fail(message),
     )
     catalog_state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
     catalog_state.set_extension_provider_contributions(providers, unregistered)
@@ -2785,6 +2828,7 @@ def test_reload_fail_closes_removed_extension_provider_when_no_fallback(
         include_workspace_defaults=True,
         reserved_command_names=extension_reserved_command_names(),
         reserved_tool_names=extension_reserved_tool_names(),
+        diagnostic=lambda message: pytest.fail(message),
     )
     catalog_state = ProviderCatalogState(
         models_json_path=tmp_path / "absent.json",
@@ -3760,6 +3804,7 @@ def test_lifecycle_hook_contexts_expose_no_model_runtime_controls(
 
 def test_a_malformed_candidate_flag_retains_the_complete_prior_generation(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Rejecting a candidate must leave the old generation whole.
 
@@ -3772,9 +3817,12 @@ def test_a_malformed_candidate_flag_retains_the_complete_prior_generation(
 
     from pipy_harness.native.resource_loading import RuntimeResourceOptions
 
+    retained_apis: list[Any] = []
+    monkeypatch.setattr(builtins, "_pipy_r1_apis", retained_apis, raising=False)
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     (extension_dir / "flagged.py").write_text(
+        "import builtins\n"
         "from pathlib import Path\n"
         "\n"
         "FLIPPED = Path(__file__).with_name('flipped.txt')\n"
@@ -3785,12 +3833,17 @@ def test_a_malformed_candidate_flag_retains_the_complete_prior_generation(
         "        handle.write(name + '\\n')\n"
         "\n"
         "def activate(api):\n"
+        "    builtins._pipy_r1_apis.append(api)\n"
         "    def flip(ctx, args):\n"
         "        FLIPPED.write_text('yes', encoding='utf-8')\n"
         "    api.register_command('flip', 'flip', flip)\n"
         "    if FLIPPED.exists():\n"
         "        # Candidate shape: the declared flag is gone, so the run's\n"
         "        # --needs-value token no longer parses.\n"
+        "        from pipy_harness.extensions import ExtensionFlag\n"
+        "        api.register_flag(\n"
+        "            ExtensionFlag('candidate-state', 'string', default='candidate')\n"
+        "        )\n"
         "        api.register_command('new-only', 'new', lambda c, a: _mark('NEW'))\n"
         "    else:\n"
         "        from pipy_harness.extensions import ExtensionFlag\n"
@@ -3824,3 +3877,67 @@ def test_a_malformed_candidate_flag_retains_the_complete_prior_generation(
     # The retained generation still serves its command; the rejected
     # candidate's command never became live.
     assert dispatched == ["OLD"], dispatched
+
+    assert len(retained_apis) == 2
+    live_api, rejected_api = retained_apis
+    assert live_api.get_flag("needs-value") == "x"
+    assert rejected_api.get_flag("candidate-state") is None
+
+    live_outbox_size = len(live_api._outbox)
+    live_api.send_user_message("live-after-rejection")
+    assert len(live_api._outbox) == live_outbox_size + 1
+    assert live_api._outbox[-1].content == "live-after-rejection"
+
+    rejected_outbox_size = len(rejected_api._outbox)
+    rejected_api.send_user_message("must-drop")
+    assert len(rejected_api._outbox) == rejected_outbox_size
+    with pytest.raises(ExtensionCapabilityError):
+        rejected_api.register_command("too-late", "late", lambda _ctx, _args: None)
+
+
+def test_a_malformed_startup_flag_disposes_the_unpublished_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pipy_harness.native.resource_loading import RuntimeResourceOptions
+
+    retained_apis: list[Any] = []
+    monkeypatch.setattr(builtins, "_pipy_r1_startup_apis", retained_apis, raising=False)
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "startup_flag.py").write_text(
+        "import builtins\n"
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        "    builtins._pipy_r1_startup_apis.append(api)\n"
+        "    api.register_flag(ExtensionFlag('needs-value', 'string'))\n"
+        "    api.register_command('candidate-only', 'candidate', lambda c, a: None)\n",
+        encoding="utf-8",
+    )
+    session = NativeToolReplSession(
+        provider=FakeNativeProvider(supports_tool_calls=True, final_text="ok"),
+        resource_options=RuntimeResourceOptions(
+            extension_flag_tokens=("--needs-value",),
+        ),
+    )
+    error_stream = io.StringIO()
+
+    result = session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert result.status is HarnessStatus.FAILED
+    assert result.exit_code == 2
+    assert result.error_type == "ExtensionFlagError"
+    assert "missing value for --needs-value" in error_stream.getvalue()
+    assert len(retained_apis) == 1
+    api = retained_apis[0]
+    assert api.get_flag("needs-value") is None
+    outbox_size = len(api._outbox)
+    api.send_user_message("must-drop")
+    assert len(api._outbox) == outbox_size
+    with pytest.raises(ExtensionCapabilityError):
+        api.register_command("late", "late", lambda _ctx, _args: None)

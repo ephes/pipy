@@ -308,23 +308,73 @@ therefore builds no settings/resource projection and R4a consumes none.
 `SessionExtensionGeneration` does not yet freeze tool capability, renderer,
 emitter/lifecycle, provider, menu, retained chrome, or queue-sidecar
 projections; those publish or drain separately. Production consumers still read
-`generation_ref.current` per access even though `snapshot()` exists. The
-activation registration API has no guard/seal, and live chrome is cleared before
-candidate validation. Current activation has no timeout —
-`extension_loader._drive_awaitable()` joins its private worker without a timeout
-— but R1 is not merely future timeout safety. An activated tool can retain its
-activation `api`; later `register_*`/`on` calls currently return normally and
-mutate the already-harvested host even though detached live contributions do not
-gain the registration. A published tool cannot race its own initial harvest,
-but extension-created activation threads can race today's separate unguarded
-harvest reads. R1 puts every staged registry/message, flag-value/failure field,
-`_activated`, and sealed/disposed state under one candidate-host guard and
-atomically seals/freezes success or disposes rejection/abandonment. Every late
-class-D `register_*`, `unregister_provider`, or direct/decorator `on` call must
-raise `ExtensionCapabilityError` at that call boundary; no inert decorator or
-`RegisteredFlag` is synthesized, and extension API docs/tests/changelog must
-cover each return-shape family. R2 owns old-chrome preservation and makes closed
-retained chrome writes silent shape-preserving no-ops (`on_terminal_input` still returns an inert disposer).
+`generation_ref.current` per access even though `snapshot()` exists. R1 now
+owns activation registration with one candidate-host guard over every staged
+registry/message, flag value/failure, `_activated`, and the one-way candidate
+open→sealed→committed→published/disposed transitions plus the accepted-catalog
+terminal transition and host-internal publication marker. Host-internal
+lifecycle methods take one atomic frozen contribution snapshot; live
+`_activated` state remains guarded on the host rather than duplicated there.
+Batch publication takes every host guard, validates the complete set,
+and only then applies each host-authored transition, so an open/unsealed sibling
+refuses the whole set without making any host live. The guarded host lifecycle
+is the sole ownership state machine: the prior wrapper state/lock and publish/
+dispose forwarding helpers are gone. Before a reload runtime exists, one
+session-thread-owned optional holder is sufficient; it either clears itself
+after publication or disposes through the bounded loader/composition seam after
+any publication-gate mutex handoff. Cleanup returns structured disposed,
+skipped-published, and inaccessible counts, and every ownership boundary routes
+anomalies through the single activation-cleanup reporter instead of `warnings`
+or runtime-owned raw stderr. Production startup/reload use their existing sinks;
+the provider-only catalog helper requires a caller sink, detaches immutable
+provider/unregistration outputs, and then terminally finalizes accepted hosts.
+A host that refuses that transition is disposed fail-closed while its acquired
+guard is held; a published host is instead recorded and left live, and an
+inaccessible/failing guard is reported separately. That terminal state clears
+all registries, messages, outbox references, and live-send or publication
+ability, but retains guarded registration-time default flag values because the
+catalog helper does not parse/apply CLI tokens and detached provider factories
+commonly capture `api.get_flag(...)`; rejected/abandoned
+hosts still dispose and clear flags. Recursive inventory covers activation
+producers, cleanup/finalization-reporting seams, and each production startup/
+reload caller; pending pre-trust batches finalize or
+abandon their one-shot host holders. Reload builds
+the exact `SessionExtensionGeneration` first, then ownership transfer is followed
+only by the generation reference's non-fallible pointer publication; later
+projection failures therefore leave the published host on the installed live
+generation rather than orphaning it. Startup likewise constructs its generation
+reference before transferring host ownership. Retained late
+class-D `register_*`, `unregister_provider`, and direct/decorator `on` calls
+raise `ExtensionCapabilityError`; accepted `str` subclasses (including
+`StrEnum`, default-stringifying `(str, Enum)` values, and subclasses overriding
+`__str__`) are detached from the underlying value to exact plain strings without
+invoking the override, while invalid provider unregistration records and raises
+the existing `invalid_provider`
+failure. Every `register_*` family uses one typed staging seam with explicit
+historical ordering for ordinary validation and a guarded atomic recheck-and-
+commit. Command, tool, and flag availability failures precede their remaining
+value validation; shortcut key shape precedes its callable check, which precedes
+normalization and reserved/duplicate checks; providers validate factory/models/
+default/OAuth before a duplicate; and message/entry renderers validate
+callability before a duplicate. Unexpected extension-controlled normalization/
+copy exceptions instead record the first bounded family-invalid reason and type-
+only diagnostic even if extension code catches the raised error; exact pre-R1
+reason behavior is not retained for that hostile case. All extension-controlled
+validation remains outside the guard. `RegisteredFlag`
+exposes guarded callbacks
+rather than a mutable values alias. The seal-time frozen snapshot is also
+authoritative for staged user/custom messages: sends after seal while activation
+is still pending retain their silent `None` shape but change nothing, and commit
+flushes the frozen messages exactly once. Accepted/live message routing after
+activation commit releases the candidate guard before its still-list-backed queue
+append. Only the frozen staged flush versus accepted/live runtime append
+ordering seam remains R4a-owned; R1 does not publish that queue sidecar early.
+Current activation still has
+no timeout—`extension_loader._drive_awaitable()` joins its private worker
+without one—and R1 added no timeout policy. Live chrome is still cleared before
+candidate validation. R2 owns old-chrome preservation and makes closed retained
+chrome writes silent shape-preserving no-ops (`on_terminal_input` still returns
+an inert disposer).
 
 The R0 audit also found a reachable queue lost update: a cancelled
 `pipy-tool-call` worker may outlive its bounded join and use a retained activation
@@ -332,7 +382,7 @@ API to append directly to a generation outbox while the session/RPC-session
 worker's `_CustomEntryRenderer.drain_extension_outboxes()` copies and clears the
 same list. R3 owns generation queue-sidecar values; R4a converts every writer—
 `_ActivationApi.send_user_message()`, `send_message()`/its alias, and
-`commit_activation()`'s staged user-message flush—plus that drain so the session
+`_commit_activation()`'s staged user-message flush—plus that drain so the session
 mutex serializes closed-check+append, detach/drain, and close. Accepted staged
 activation custom messages bypass `custom_outbox` and call
 `_CustomEntryRenderer.extension_send_message()` directly. That method is also
@@ -656,15 +706,16 @@ classifies and proportionally justifies every residual, including every
 C901-pinned file. The load-bearing summary is:
 
 - the Slice 3 work is a useful generation/publication safety ratchet, but not
-  the complete reconciled transaction. Candidate activation still lacks a
-  sealed host; rejected activation can clear retained chrome; generation
+  the complete reconciled transaction. R1 has shipped the guarded sealed/
+  disposed candidate activation host; rejected activation can still clear
+  retained chrome; generation
   snapshots are not adopted by production operations; mutation ports are not
   generation-bound; a cancelled extension-tool worker can race the session
   outbox copy/clear and lose its append; a retained coding-session control can
   race live tree/input use and reorder durable JSONL; and tool, renderer,
   lifecycle, provider, menu, retained-chrome, and queue projections publish
-  separately. Current activation has no timeout, but R1's mandatory
-  seal/disposal must make abandonment timeout-safe;
+  separately. Current activation has no timeout; R1's shipped seal/disposal is
+  future-timeout-safe without selecting a timeout policy;
 - `set_model` persists a default part-way through its mutation, so its
   publication-gate admission is not atomic;
 - `_ReplLoopStep.step_once` remains the principal high-complexity,
@@ -682,7 +733,8 @@ C901-pinned file. The load-bearing summary is:
 - PTY sleeps and deadlines are bounded polling/backoff and failure limits;
   observable bytes and offsets own sequencing.
 
-R0 has now reconciled the bounded contract without changing product behavior.
-The next architecture action is **R1 — seal candidate contribution
-registration**; ordinary product-parity selection remains blocked through R7.
+R0 reconciled the bounded contract and R1 shipped candidate registration
+sealing without advancing later projection work. The next architecture action
+is **R2 — stage candidate chrome and listeners**; ordinary product-parity
+selection remains blocked through R7.
 That is not a verdict that the broader program failed.

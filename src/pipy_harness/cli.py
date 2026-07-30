@@ -2814,6 +2814,7 @@ def _build_extension_activation_batch(
         reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
         preloaded=preloaded,
         pending=pending,
+        diagnostic=lambda message: print(message, file=sys.stderr),
     )
 
 

@@ -292,8 +292,14 @@ changelog entry. Commit: `docs: reconcile reload completion contract`.
 
 **Kind:** concurrency behavior at the activation boundary.
 
-**Scope:** Give candidate activation a candidate-owned registration host with a
-one-way sealed/disposed state under its own guard. That guard owns all command,
+**Scope:** Give candidate activation a candidate-owned registration host with
+one-way sealed/committed/published/disposed candidate transitions under its own
+guard, plus a narrow accepted-catalog terminal transition, with host-internal
+lifecycle methods and atomic all-host publication authored by the
+activation hosts; only the internal ownership protocol can authenticate the
+published transition. Host lifecycle is the sole ownership state machine: batch
+publication adds no second state/lock, and the pre-runtime reload seam uses only
+a session-thread-owned optional holder. That guard owns all command,
 shortcut, hook, tool, provider/unregistration, flag/value, message/entry-renderer,
 user/custom-message staging, first-failure state, `_activated`, and guarded
 parsed flag-value application/read views (no direct mutable
@@ -326,13 +332,58 @@ absent. Separate post-success and rejection arms assert
 void-return `register_*`/unregister calls, direct `on(event, handler)`, decorator-
 factory `on(event)`, and `register_flag`. No test or implementation invents an
 inert decorator or `RegisteredFlag`. One frozen snapshot contains every staged
-family and `_activated`; parser/get-value tests prove flag values use the host-
-owned guarded view; instrumented access proves every named reader/writer takes
-the candidate guard. Runtime message routing releases the
-host guard before any session-mutex append. The seam is ready for a future
+contribution family but not the host's future live `_activated` state; it is
+authoritative for messages, so post-seal sends while activation is still pending
+have no effect and finalization flushes its user/custom messages
+exactly once. `ActivatedExtension.hooks` is immutable for activated, disabled,
+and discovery-passthrough outcomes. Parser/get-value tests prove flag values use
+the host-owned guarded view; instrumented access proves every named reader/writer takes the candidate
+guard. Extension-controlled validation and normalization run outside that guard.
+One typed registration-staging helper owns every `register_*` family's open/name/
+availability/value/recheck/commit flow and encodes its prior reason order for
+ordinary validation: command/tool/flag availability precedes remaining value
+validation; shortcut key shape and handler callability precede normalized
+reserved/duplicate checks; provider factory/models/default/OAuth precede
+duplicate checking; and message/entry renderer callability precedes duplicate
+checking. Unexpected extension-controlled normalization/copy exceptions record
+the first bounded family-invalid reason and type-only diagnostic even when
+extension code catches the raised error; exact pre-R1 reason behavior is not
+retained for that hostile case. Extension-controlled work remains unlocked,
+followed by a guarded recheck-and-commit that refuses if
+seal won. Accepted runtime message
+routing after activation commit releases the host guard before any session-
+mutex append. The seam is ready for a future
 timeout without adding one here. Instrumented guards fail on attempted
 candidate-guard/session-mutex nesting in **both** directions, and barrier tests
-cover registration-versus-seal and seal-versus-publication order. No session
+cover registration-versus-seal and seal-versus-publication order. Contribution
+names accept prior-compatible `str` subclasses (including `StrEnum`, default-
+stringifying `(str, Enum)` values, and subclasses overriding `__str__`), detach
+their underlying values to exact plain strings without invoking the override,
+and prepare the complete successor reservation state before frozen messages
+flush, then publish it with one non-fallible assignment. Invalid
+provider unregistration raises and records `invalid_provider` rather than
+silently disappearing. Mixed/corrupted rejection cleanup disposes every
+unpublished sibling, returns structured skipped-published/inaccessible anomalies
+through one cleanup reporter (never `warnings.warn`), and never disposes a live
+published host. Startup/reload use their existing sinks; provider-only catalog
+harvest requires its caller's sink and finalizes accepted hosts after immutable
+provider/unregistration outputs detach. A refused non-published finalization
+uses host-owned disposal under the acquired guard; a published refusal is
+counted and left live, and guard inaccessibility/failure is counted separately.
+Successful finalization clears all staging and outbox reachability, refuses
+registration/sends/publication, and retains only guarded registration-time
+default flag values needed by provider factories that captured the API; the
+catalog helper does not parse/apply CLI tokens. Rejected/abandoned disposal
+still clears flags. An open/unsealed sibling refuses
+all-host publication while leaving the complete candidate disposable. Recursive
+inventory pins `activate_extension_batch(...)`, `activate_extensions(...)`,
+provider catalog harvest, every cleanup-reporting seam, and every production
+caller; each finalization path forwards the correct diagnostic sink, and pending
+pre-trust batches are finalized or abandoned once.
+Reload constructs
+the exact generation before ownership transfer
+and leaves only its non-fallible pointer publication before the generation is
+live; startup constructs its generation reference before transfer. No session
 mutex is held while extension code runs or cleanup callbacks execute.
 Chrome/listener sinks remain R2-owned. The candidate host guard is released
 before any later queue/session-mutex handoff; R1 introduces no nested edge.
@@ -428,7 +479,7 @@ before-provider, tool-result, and session-gate dispatch to take one R3 snapshot
 at operation start and use its runtime, flags, and queue sidecars throughout.
 At the concrete append end, convert every generation-outbox writer:
 `_ActivationApi.send_user_message()`, `send_message()`/`sendMessage()`, and
-`commit_activation()`'s staged user-message flush; at the concrete drain end,
+`_commit_activation()`'s staged user-message flush; at the concrete drain end,
 convert only `_CustomEntryRenderer.drain_extension_outboxes()` (not that class's
 rendering or coding-session send methods). Accepted staged activation custom
 messages also call `_CustomEntryRenderer.extension_send_message()` directly;
@@ -437,9 +488,14 @@ writer: completion targets the provider, append/name/label target the durable
 session tree, and the same renderer method targets that tree,
 rendering/diagnostics, and `CodingInputQueue`, never either generation outbox. For each queue, closed-check+append, atomic detach/drain, and
 rejection/retirement close are serialized by the same session mutex. Candidate
-staged messages are detached under the R1 host guard, that guard is released,
-and only then are they flushed under the session mutex. Sink delivery and
-cleanup occur after unlock. A stale activation-api append is silently refused,
+staged messages come only from the authoritative R1 frozen snapshot; the host
+guard is released before they are flushed under the session mutex. Post-seal
+pending sends are already silent no-ops. The R4a queue section must serialize
+that frozen staged flush with accepted/live runtime
+appends and preserve staged-user-message-first order; R1 intentionally leaves
+the current list-backed ordering window open rather than publishing the R4a
+sidecar early. Sink delivery
+and cleanup occur after unlock. A stale activation-api append is silently refused,
 returns its existing `None`, emits no exception/diagnostic, and cannot
 accumulate. Capture `project_trusted` when the provider-header request callback
 snapshot is built, removing the current provider-worker reach back into
@@ -472,8 +528,12 @@ generation snapshot. A retained/late `before_provider_headers` callback holds no
 `SettingsManager` reference and observes the `project_trusted` boolean captured
 with its request snapshot even if the manager attribute changes later. A
 deterministic `pipy-tool-call`-worker-versus-session-drain barrier proves no
-append can land between detach and clear and be lost; writer inventory tests
-cover both activation send names and the staged user-message flush, characterize
+append can land between detach and clear and be lost; a commit-flush-versus-
+accepted-live-send barrier proves the frozen staged flush remains ahead of an
+accepted runtime append, while a separate seal/late-send arm proves pending
+post-seal sends have no effect.
+Writer inventory tests cover both activation send names and the staged
+user-message flush, characterize
 accepted staged custom messages as direct tree/render/input delivery, and prove
 the coding-session callables touch only their distinct provider/tree/render/input
 sinks. Rejected/retired sidecars reject later appends by silent `None` no-op and

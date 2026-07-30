@@ -26,7 +26,7 @@ import hashlib
 import importlib.machinery
 import importlib.util
 import sys
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -139,10 +139,24 @@ def _safe_module_segment(name: str) -> str:
     return "".join(ch if (ch.isalnum() or ch == "_") else "_" for ch in name)
 
 
-def _run_awaitable(awaitable: Awaitable[object]) -> None:
-    """Drive an async `activate` coroutine to completion (return ignored)."""
+def _run_awaitable(
+    awaitable: Awaitable[object],
+    *,
+    abandon: Callable[[], object] | None = None,
+) -> None:
+    """Drive async activation, disposing its host if the drive is abandoned.
 
-    _drive_awaitable(awaitable)
+    Production still waits without a timeout. The callback is the bounded host
+    seam a future timeout policy can invoke without teaching this loader about
+    activation registries.
+    """
+
+    try:
+        _drive_awaitable(awaitable)
+    except BaseException:  # noqa: BLE001 - preserve activation control flow
+        if abandon is not None:
+            abandon()
+        raise
 
 
 def _drive_awaitable(awaitable: Awaitable[object]) -> object:

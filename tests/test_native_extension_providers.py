@@ -13,6 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
@@ -395,7 +397,9 @@ def test_extension_provider_reload_recomputes_removed_entries(tmp_path: Path) ->
     workspace = _make_workspace(tmp_path)
     _write(workspace, "selectable", _SELECTABLE_PROVIDER)
     providers, unregistered = load_extension_provider_contributions(
-        workspace, include_workspace_defaults=True
+        workspace,
+        include_workspace_defaults=True,
+        diagnostic=lambda message: pytest.fail(message),
     )
     state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
     state.set_extension_provider_contributions(providers, unregistered)
@@ -403,7 +407,9 @@ def test_extension_provider_reload_recomputes_removed_entries(tmp_path: Path) ->
 
     (workspace / ".pipy" / "extensions" / "selectable.py").unlink()
     providers2, unregistered2 = load_extension_provider_contributions(
-        workspace, include_workspace_defaults=True
+        workspace,
+        include_workspace_defaults=True,
+        diagnostic=lambda message: pytest.fail(message),
     )
     state.refresh()
     state.set_extension_provider_contributions(providers2, unregistered2)
@@ -417,7 +423,9 @@ def test_removed_active_extension_provider_resets_to_available_catalog_model(
     workspace = _make_workspace(tmp_path)
     _write(workspace, "selectable", _SELECTABLE_PROVIDER)
     providers, unregistered = load_extension_provider_contributions(
-        workspace, include_workspace_defaults=True
+        workspace,
+        include_workspace_defaults=True,
+        diagnostic=lambda message: pytest.fail(message),
     )
     state = ProviderCatalogState(models_json_path=tmp_path / "absent.json")
     state.set_extension_provider_contributions(providers, unregistered)
@@ -455,6 +463,7 @@ def test_reserved_command_collision_hides_provider_contribution(
         workspace,
         include_workspace_defaults=True,
         reserved_command_names=extension_reserved_command_names(),
+        diagnostic=lambda message: pytest.fail(message),
     )
 
     assert providers == ()
@@ -481,6 +490,7 @@ def test_reserved_tool_collision_hides_provider_contribution(
         workspace,
         include_workspace_defaults=True,
         reserved_tool_names=extension_reserved_tool_names(),
+        diagnostic=lambda message: pytest.fail(message),
     )
 
     assert providers == ()

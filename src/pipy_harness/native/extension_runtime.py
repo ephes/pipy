@@ -39,11 +39,28 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Callable, Iterable, Mapping, MutableMapping, Sequence
+import threading
+from collections.abc import (
+    Callable,
+    Container,
+    Iterable,
+    Mapping,
+    MutableMapping,
+    Sequence,
+)
+from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, Protocol, TypeAlias, runtime_checkable
+from typing import (
+    Literal,
+    NoReturn,
+    Protocol,
+    TypeAlias,
+    TypeVar,
+    cast,
+    runtime_checkable,
+)
 
 from pipy_harness.native.extension_loader import (
     _import_entry_module,
@@ -445,6 +462,9 @@ class RegisteredShortcut:
     extension: str
 
 
+_EMPTY_HOOKS: Mapping[str, tuple[HookHandler, ...]] = MappingProxyType({})
+
+
 @dataclass(frozen=True, slots=True)
 class ActivatedExtension:
     """The outcome of attempting to activate one extension.
@@ -464,7 +484,9 @@ class ActivatedExtension:
     reason: str | None
     commands: tuple[RegisteredCommand, ...]
     diagnostic: str | None
-    hooks: Mapping[str, tuple[HookHandler, ...]] = field(default_factory=dict)
+    hooks: Mapping[str, tuple[HookHandler, ...]] = field(
+        default_factory=lambda: _EMPTY_HOOKS
+    )
     tools: tuple[RegisteredTool, ...] = ()
     providers: tuple[RegisteredProvider, ...] = ()
     unregistered_providers: tuple[str, ...] = ()
@@ -474,9 +496,20 @@ class ActivatedExtension:
     entry_renderers: tuple[RegisteredEntryRenderer, ...] = ()
     custom_messages: tuple[QueuedCustomMessage, ...] = ()
     _activation_key: str | None = field(default=None, repr=False, compare=False)
-    _activation_api: "_ActivationApi | None" = field(
+    # Pending activation is a one-shot ownership token. Finalized candidates
+    # retain the host separately so the old pending/uncommitted sentinel never
+    # acquires a second meaning.
+    _pending_activation: "_PendingActivation | None" = field(
         default=None, repr=False, compare=False
     )
+    _activation_host: "_ActivationApi | None" = field(
+        default=None, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        """Freeze the hook map for activated, disabled, and passthrough results."""
+
+        object.__setattr__(self, "hooks", MappingProxyType(dict(self.hooks)))
 
 
 @dataclass(slots=True)
@@ -518,6 +551,7 @@ class _ExtensionRuntime:
     message_renderers: dict[str, RegisteredMessageRenderer]
     entry_renderers: dict[str, RegisteredEntryRenderer]
     custom_messages: tuple[QueuedCustomMessage, ...]
+    activation_hosts: tuple["_ActivationApi", ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -533,31 +567,187 @@ class _ContributionNames:
     entry_renderers: tuple[str, ...]
 
 
-@dataclass(slots=True)
-class _TakenContributions:
-    """Names committed by earlier extensions in the current activation pass."""
+@dataclass(frozen=True, slots=True)
+class _TakenContributionState:
+    """One immutable reservation snapshot for an activation pass."""
 
-    commands: set[str] = field(default_factory=set)
-    tools: set[str] = field(default_factory=set)
-    providers: set[str] = field(default_factory=set)
-    shortcuts: set[str] = field(default_factory=set)
-    flags: set[str] = field(default_factory=set)
-    message_renderers: set[str] = field(default_factory=set)
-    entry_renderers: set[str] = field(default_factory=set)
+    commands: frozenset[str] = frozenset()
+    tools: frozenset[str] = frozenset()
+    providers: frozenset[str] = frozenset()
+    shortcuts: frozenset[str] = frozenset()
+    flags: frozenset[str] = frozenset()
+    message_renderers: frozenset[str] = frozenset()
+    entry_renderers: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
-class _StagedContributions:
-    """All atomic registrations collected from one successful activation."""
+class _FrozenActivation:
+    """One atomic, immutable view of a sealed activation host."""
 
     commands: tuple[RegisteredCommand, ...]
     tools: tuple[RegisteredTool, ...]
     providers: tuple[RegisteredProvider, ...]
+    unregistered_providers: tuple[str, ...]
     shortcuts: tuple[RegisteredShortcut, ...]
     flags: tuple[RegisteredFlag, ...]
     message_renderers: tuple[RegisteredMessageRenderer, ...]
     entry_renderers: tuple[RegisteredEntryRenderer, ...]
+    hooks: Mapping[str, tuple[HookHandler, ...]]
+    user_messages: tuple[QueuedUserMessage, ...]
     custom_messages: tuple[QueuedCustomMessage, ...]
+    failure: tuple[str, str | None] | None
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalizedFlagRegistration:
+    """A normalized flag definition and its optional initial value."""
+
+    registered: RegisteredFlag
+    default: bool | str | None
+
+
+_RegistrationFamily: TypeAlias = Literal[
+    "command",
+    "shortcut",
+    "tool",
+    "provider",
+    "flag",
+    "message_renderer",
+    "entry_renderer",
+]
+_RegistrationValue: TypeAlias = (
+    RegisteredCommand
+    | RegisteredShortcut
+    | RegisteredTool
+    | RegisteredProvider
+    | _NormalizedFlagRegistration
+    | RegisteredMessageRenderer
+    | RegisteredEntryRenderer
+)
+_RegistrationOrdering: TypeAlias = Literal[
+    "availability_before_value",
+    "value_before_availability",
+]
+_RegistrationResult = TypeVar("_RegistrationResult")
+
+_REGISTRATION_INVALID_REASONS: Mapping[_RegistrationFamily, str] = MappingProxyType(
+    {
+        "command": REASON_INVALID_COMMAND_NAME,
+        "shortcut": REASON_INVALID_SHORTCUT,
+        "tool": REASON_INVALID_TOOL,
+        "provider": REASON_INVALID_PROVIDER,
+        "flag": REASON_INVALID_FLAG,
+        "message_renderer": REASON_INVALID_MESSAGE_RENDERER,
+        "entry_renderer": REASON_INVALID_ENTRY_RENDERER,
+    }
+)
+_REGISTRATION_ORDERING: Mapping[_RegistrationFamily, _RegistrationOrdering] = (
+    MappingProxyType(
+        {
+            "command": "availability_before_value",
+            "shortcut": "availability_before_value",
+            "tool": "availability_before_value",
+            "provider": "value_before_availability",
+            "flag": "availability_before_value",
+            "message_renderer": "value_before_availability",
+            "entry_renderer": "value_before_availability",
+        }
+    )
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ProviderCatalogFinalization:
+    """Bounded outcome from terminally finalizing accepted catalog hosts."""
+
+    finalized: int = 0
+    refused_disposed: int = 0
+    refused_published: int = 0
+    refused_already_terminal: int = 0
+    inaccessible: int = 0
+
+    @property
+    def anomaly_diagnostic(self) -> str | None:
+        if not (
+            self.refused_disposed
+            or self.refused_published
+            or self.refused_already_terminal
+            or self.inaccessible
+        ):
+            return None
+        return (
+            "pipy: extension provider catalog finalization anomalies: "
+            f"{self.refused_disposed} refused host(s) disposed, "
+            f"{self.refused_published} published host(s) skipped live, "
+            f"{self.refused_already_terminal} refused host(s) already terminal, "
+            f"and {self.inaccessible} inaccessible/failing host guard(s)."
+        )
+
+
+class _PendingActivation:
+    """Minimum one-shot holder used before a pre-trust host is composed."""
+
+    def __init__(self, host: "_ActivationApi") -> None:
+        self._host: _ActivationApi | None = host
+
+    def claim(self) -> "_ActivationApi | None":
+        """Transfer this session-thread-owned pending host exactly once."""
+
+        host = self._host
+        self._host = None
+        return host
+
+    def dispose(self) -> "_ActivationCleanup":
+        """Dispose an unclaimed host, retaining it only when cleanup cannot enter."""
+
+        host = self._host
+        if host is None:
+            return _ActivationCleanup()
+        cleanup = _dispose_activation_hosts((host,))
+        if cleanup.failed == 0:
+            self._host = None
+        return cleanup
+
+
+_ACTIVATION_LIFECYCLE_TOKEN = object()
+_ACTIVATION_PUBLICATION_TOKEN = object()
+
+
+@dataclass(frozen=True, slots=True)
+class _ActivationCleanup:
+    """Structured result from bounded per-host candidate cleanup."""
+
+    disposed: int = 0
+    skipped_published: int = 0
+    failed: int = 0
+
+    def merge(self, other: "_ActivationCleanup") -> "_ActivationCleanup":
+        return _ActivationCleanup(
+            disposed=self.disposed + other.disposed,
+            skipped_published=self.skipped_published + other.skipped_published,
+            failed=self.failed + other.failed,
+        )
+
+    @property
+    def anomaly_diagnostic(self) -> str | None:
+        if not self.skipped_published and not self.failed:
+            return None
+        return (
+            "pipy: extension candidate cleanup skipped "
+            f"{self.skipped_published} published and {self.failed} inaccessible "
+            "activation host(s)."
+        )
+
+
+def _report_activation_cleanup(
+    cleanup: _ActivationCleanup,
+    diagnostic: Callable[[str], None] | None,
+) -> None:
+    """Route cleanup anomalies through an existing diagnostic sink when present."""
+
+    message = cleanup.anomaly_diagnostic
+    if diagnostic is not None and message is not None:
+        diagnostic(message)
 
 
 class ExtensionCapabilityError(RuntimeError):
@@ -1220,10 +1410,19 @@ def _run_extension_handler(
     )
 
 
+def _coerce_activation_string(value: object, reason: str) -> str:
+    """Accept prior str subclasses but detach an exact plain str before staging."""
+
+    if not isinstance(value, str):
+        raise _ActivationError(reason)
+    # ``str(value)`` dispatches an overridden ``__str__`` on subclasses (and
+    # the default ``Enum.__str__`` for ``class Event(str, Enum)``). The base
+    # descriptor copies the underlying Unicode value without invoking either.
+    return str.__str__(value)
+
+
 def _normalize_provider_name(raw_name: object) -> str:
-    if not isinstance(raw_name, str):
-        raise _ActivationError(REASON_INVALID_PROVIDER)
-    name = raw_name.strip()
+    name = _coerce_activation_string(raw_name, REASON_INVALID_PROVIDER).strip()
     if not name or "/" in name:
         raise _ActivationError(REASON_INVALID_PROVIDER)
     return name
@@ -1234,9 +1433,7 @@ def _normalize_provider_models(models: object) -> tuple[str, ...]:
         raise _ActivationError(REASON_INVALID_PROVIDER)
     model_ids: list[str] = []
     for model in models:
-        if not isinstance(model, str):
-            raise _ActivationError(REASON_INVALID_PROVIDER)
-        model_id = model.strip()
+        model_id = _coerce_activation_string(model, REASON_INVALID_PROVIDER).strip()
         if not model_id:
             raise _ActivationError(REASON_INVALID_PROVIDER)
         model_ids.append(model_id)
@@ -1248,7 +1445,9 @@ def _normalize_default_model(
     model_ids: tuple[str, ...],
 ) -> str | None:
     if isinstance(default_model, str):
-        default_model = default_model.strip()
+        default_model = _coerce_activation_string(
+            default_model, REASON_INVALID_PROVIDER
+        ).strip()
     if default_model is not None and (
         not isinstance(default_model, str)
         or not default_model
@@ -1263,23 +1462,26 @@ def _normalize_provider_oauth(oauth: object) -> ExtensionOAuthConfig | None:
         return None
     if not isinstance(oauth, ExtensionOAuthConfig):
         raise _ActivationError(REASON_INVALID_PROVIDER)
-    oauth_name = oauth.name.strip() if isinstance(oauth.name, str) else ""
+    raw_oauth_name = oauth.name
+    oauth_name = (
+        _coerce_activation_string(raw_oauth_name, REASON_INVALID_PROVIDER).strip()
+        if isinstance(raw_oauth_name, str)
+        else ""
+    )
     if not oauth_name:
         raise _ActivationError(REASON_INVALID_PROVIDER)
+    login = oauth.login
+    refresh_token = oauth.refresh_token
+    get_api_key = oauth.get_api_key
+    modify_models = oauth.modify_models
     if (
-        not callable(oauth.login)
-        or not callable(oauth.refresh_token)
-        or not callable(oauth.get_api_key)
-        or (oauth.modify_models is not None and not callable(oauth.modify_models))
+        not callable(login)
+        or not callable(refresh_token)
+        or not callable(get_api_key)
+        or (modify_models is not None and not callable(modify_models))
     ):
         raise _ActivationError(REASON_INVALID_PROVIDER)
-    return ExtensionOAuthConfig(
-        name=oauth_name,
-        login=oauth.login,
-        refresh_token=oauth.refresh_token,
-        get_api_key=oauth.get_api_key,
-        modify_models=oauth.modify_models,
-    )
+    return replace(oauth, name=oauth_name)
 
 
 class _ActivationApi:
@@ -1306,8 +1508,21 @@ class _ActivationApi:
         taken_flags: frozenset[str] = frozenset(),
         taken_message_renderers: frozenset[str] = frozenset(),
         taken_entry_renderers: frozenset[str] = frozenset(),
+        guard: AbstractContextManager[object] | None = None,
     ) -> None:
         self._extension_name = extension_name
+        self._guard: AbstractContextManager[object] = (
+            guard if guard is not None else threading.RLock()
+        )
+        self._state: Literal[
+            "open",
+            "sealed",
+            "committed",
+            "published",
+            "catalog_finalized",
+            "disposed",
+        ] = "open"
+        self._publication_token: object | None = None
         self._reserved = reserved
         self._taken = taken
         self._reserved_tools = reserved_tools
@@ -1336,7 +1551,213 @@ class _ActivationApi:
         # runtime calls (from command handlers / hooks) append directly.
         self._staged_messages: list[QueuedUserMessage] = []
         self._staged_custom_messages: list[QueuedCustomMessage] = []
+        self._frozen_activation: _FrozenActivation | None = None
         self._activated = False
+
+    _STATE_TRANSITIONS: Mapping[str, frozenset[str]] = MappingProxyType(
+        {
+            "open": frozenset(("sealed", "disposed")),
+            "sealed": frozenset(("committed", "disposed")),
+            "committed": frozenset(("published", "catalog_finalized", "disposed")),
+            "published": frozenset(),
+            "catalog_finalized": frozenset(),
+            "disposed": frozenset(),
+        }
+    )
+
+    def _require_open_registration(self) -> None:
+        if self._state != "open":
+            raise ExtensionCapabilityError(
+                "extension contribution registration is closed"
+            )
+
+    def _allows_transition_locked(
+        self,
+        target: str,
+        *,
+        publication_token: object | None = None,
+    ) -> bool:
+        if (
+            target == "published"
+            and publication_token is not _ACTIVATION_PUBLICATION_TOKEN
+        ):
+            return False
+        return target in self._STATE_TRANSITIONS.get(self._state, frozenset())
+
+    def _transition_locked(
+        self,
+        target: str,
+        *,
+        publication_token: object | None = None,
+    ) -> bool:
+        """Apply one host-authored lifecycle edge while ``_guard`` is held."""
+
+        if not self._allows_transition_locked(
+            target,
+            publication_token=publication_token,
+        ):
+            return False
+        self._state = cast(
+            Literal[
+                "open",
+                "sealed",
+                "committed",
+                "published",
+                "catalog_finalized",
+                "disposed",
+            ],
+            target,
+        )
+        if target == "published":
+            self._publication_token = publication_token
+        return True
+
+    def _is_published_locked(self) -> bool:
+        return (
+            self._state == "published"
+            and self._publication_token is _ACTIVATION_PUBLICATION_TOKEN
+        )
+
+    def _record_failure(self, err: _ActivationError) -> None:
+        if self._failure is None:
+            self._failure = (err.reason, err.diagnostic)
+
+    def _check_registration_open(self) -> None:
+        """Check lifecycle state without running extension-controlled code."""
+
+        with self._guard:
+            self._require_open_registration()
+
+    def _raise_registration_failure(self, err: _ActivationError) -> NoReturn:
+        """Record a validation failure only if registration is still open."""
+
+        with self._guard:
+            self._require_open_registration()
+            self._record_failure(err)
+        raise err
+
+    def _validate_registration_unlocked(
+        self,
+        validate: Callable[[], _RegistrationResult],
+        *,
+        invalid_reason: str,
+    ) -> _RegistrationResult:
+        """Bound extension-controlled validation without holding the host guard."""
+
+        try:
+            return validate()
+        except _ActivationError as err:
+            self._raise_registration_failure(err)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException as err:  # noqa: BLE001 - hostile extension value
+            self._raise_registration_failure(
+                _ActivationError(invalid_reason, _safe_diagnostic(err))
+            )
+
+    def _stage_registration(
+        self,
+        family: _RegistrationFamily,
+        normalize_name: Callable[[], str],
+        normalize_value: Callable[[str], _RegistrationValue],
+    ) -> None:
+        """Validate unlocked in the family's historical order and commit atomically."""
+
+        self._check_registration_open()
+        invalid_reason = _REGISTRATION_INVALID_REASONS[family]
+        name = self._validate_registration_unlocked(
+            normalize_name,
+            invalid_reason=invalid_reason,
+        )
+        ordering = _REGISTRATION_ORDERING[family]
+        if ordering == "availability_before_value":
+            with self._guard:
+                self._require_open_registration()
+                self._check_registration_available_locked(family, name)
+        value = self._validate_registration_unlocked(
+            lambda: normalize_value(name),
+            invalid_reason=invalid_reason,
+        )
+        with self._guard:
+            self._require_open_registration()
+            self._check_registration_available_locked(family, name)
+            self._commit_registration_locked(family, name, value)
+
+    def _check_registration_available_locked(
+        self,
+        family: _RegistrationFamily,
+        name: str,
+    ) -> None:
+        registries: Mapping[
+            _RegistrationFamily,
+            tuple[Container[str], Container[str], str],
+        ] = {
+            "command": (self._taken, self._staged, REASON_DUPLICATE_COMMAND),
+            "shortcut": (
+                self._taken_shortcuts,
+                self._staged_shortcuts,
+                REASON_DUPLICATE_SHORTCUT,
+            ),
+            "tool": (self._taken_tools, self._staged_tools, REASON_DUPLICATE_TOOL),
+            "provider": (
+                self._taken_providers,
+                self._staged_providers,
+                REASON_DUPLICATE_PROVIDER,
+            ),
+            "flag": (self._taken_flags, self._staged_flags, REASON_DUPLICATE_FLAG),
+            "message_renderer": (
+                self._taken_message_renderers,
+                self._staged_message_renderers,
+                REASON_DUPLICATE_MESSAGE_RENDERER,
+            ),
+            "entry_renderer": (
+                self._taken_entry_renderers,
+                self._staged_entry_renderers,
+                REASON_DUPLICATE_ENTRY_RENDERER,
+            ),
+        }
+        reserved_reason: str | None = None
+        if family == "command" and name in self._reserved:
+            reserved_reason = REASON_RESERVED_COMMAND
+        elif family == "shortcut" and name in RESERVED_SHORTCUT_KEYS:
+            reserved_reason = REASON_RESERVED_SHORTCUT
+        elif family == "tool" and name in self._reserved_tools:
+            reserved_reason = REASON_RESERVED_TOOL
+        taken, staged, duplicate_reason = registries[family]
+        failure_reason = reserved_reason
+        if failure_reason is None and (name in taken or name in staged):
+            failure_reason = duplicate_reason
+        if failure_reason is not None:
+            failure = _ActivationError(failure_reason)
+            self._record_failure(failure)
+            raise failure
+
+    def _commit_registration_locked(
+        self,
+        family: _RegistrationFamily,
+        name: str,
+        value: _RegistrationValue,
+    ) -> None:
+        if family == "command" and isinstance(value, RegisteredCommand):
+            self._staged[name] = value
+        elif family == "shortcut" and isinstance(value, RegisteredShortcut):
+            self._staged_shortcuts[name] = value
+        elif family == "tool" and isinstance(value, RegisteredTool):
+            self._staged_tools[name] = value
+        elif family == "provider" and isinstance(value, RegisteredProvider):
+            self._staged_providers[name] = value
+        elif family == "flag" and isinstance(value, _NormalizedFlagRegistration):
+            self._staged_flags[name] = value.registered
+            if value.default is not None:
+                self._flag_values[name] = value.default
+        elif family == "message_renderer" and isinstance(
+            value, RegisteredMessageRenderer
+        ):
+            self._staged_message_renderers[name] = value
+        elif family == "entry_renderer" and isinstance(value, RegisteredEntryRenderer):
+            self._staged_entry_renderers[name] = value
+        else:
+            raise AssertionError(f"invalid normalized {family} registration")
 
     def send_user_message(
         self,
@@ -1346,10 +1767,21 @@ class _ActivationApi:
         """Enqueue a deterministic user turn (drained by the session loop)."""
 
         message = QueuedUserMessage(content=str(content), options=dict(options or {}))
-        if self._activated:
-            self._outbox.append(message)
-        else:
-            self._staged_messages.append(message)
+        target: list[QueuedUserMessage] | None = None
+        with self._guard:
+            if self._state == "open":
+                self._staged_messages.append(message)
+            elif self._state in ("committed", "published") and self._activated:
+                target = self._outbox
+            else:
+                # A sealed, still-pending send keeps its historical silent
+                # ``None`` shape but cannot alter the frozen activation.
+                return
+        # R4a will put the target append under the session mutex. Keeping it
+        # outside the candidate guard now establishes the required no-nesting
+        # handoff without changing the current list-backed queue semantics.
+        if target is not None:
+            target.append(message)
 
     def send_message(
         self,
@@ -1359,10 +1791,16 @@ class _ActivationApi:
         """Stage a custom session message until activation succeeds."""
 
         queued = coerce_custom_message(message, options)
-        if self._activated:
-            self._custom_outbox.append(queued)
-        else:
-            self._staged_custom_messages.append(queued)
+        target: list[QueuedCustomMessage] | None = None
+        with self._guard:
+            if self._state == "open":
+                self._staged_custom_messages.append(queued)
+            elif self._state in ("committed", "published") and self._activated:
+                target = self._custom_outbox
+            else:
+                return
+        if target is not None:
+            target.append(queued)
 
     def sendMessage(
         self,
@@ -1371,222 +1809,252 @@ class _ActivationApi:
     ) -> None:
         self.send_message(message, options)
 
-    def commit_activation(self) -> None:
-        """Flush staged `send_user_message` calls after successful activation."""
+    def _commit_activation(
+        self,
+        *,
+        _lifecycle_token: object | None = None,
+    ) -> tuple[QueuedCustomMessage, ...]:
+        """Host-internal commit of a sealed activation exactly once."""
 
-        self._activated = True
-        self._outbox.extend(self._staged_messages)
-        self._staged_messages = []
-
-    def staged_custom_messages(self) -> tuple[QueuedCustomMessage, ...]:
-        return tuple(self._staged_custom_messages)
+        if _lifecycle_token is not _ACTIVATION_LIFECYCLE_TOKEN:
+            raise ExtensionCapabilityError("extension activation is unavailable")
+        with self._guard:
+            snapshot = self._frozen_activation
+            if snapshot is None or not self._transition_locked("committed"):
+                raise ExtensionCapabilityError("extension activation is unavailable")
+            self._activated = True
+        # The one seal-time snapshot is authoritative. Sends racing after seal
+        # are silent no-ops, so finalization flushes exactly these messages once.
+        # R4a still owns serialization of this flush with accepted/live runtime
+        # appends after activation commit.
+        self._outbox.extend(snapshot.user_messages)
+        return snapshot.custom_messages
 
     def register_tool(self, tool: ExtensionTool) -> None:
-        try:
-            self._validate_and_stage_tool(tool)
-        except _ActivationError as err:
-            if self._failure is None:
-                self._failure = (err.reason, err.diagnostic)
-            raise
+        self._stage_registration(
+            "tool",
+            lambda: self._normalize_tool_name(tool),
+            lambda name: self._normalize_tool(tool, name=name),
+        )
 
-    def _validate_and_stage_tool(self, tool: ExtensionTool) -> None:
+    @staticmethod
+    def _normalize_tool_name(tool: ExtensionTool) -> str:
         if not isinstance(tool, ExtensionTool):
             raise _ActivationError(REASON_INVALID_TOOL)
-        name = tool.name
-        if not isinstance(name, str) or not name:
+        name = _coerce_activation_string(tool.name, REASON_INVALID_TOOL)
+        if not name:
             raise _ActivationError(REASON_INVALID_TOOL)
-        if name in self._reserved_tools:
-            raise _ActivationError(REASON_RESERVED_TOOL)
-        if name in self._taken_tools or name in self._staged_tools:
-            raise _ActivationError(REASON_DUPLICATE_TOOL)
-        if not callable(tool.handler):
-            raise _ActivationError(REASON_INVALID_TOOL)
-        if not isinstance(tool.input_schema, Mapping):
+        return name
+
+    def _normalize_tool(self, tool: ExtensionTool, *, name: str) -> RegisteredTool:
+        """Validate extension-controlled non-name values without the host guard."""
+
+        description = tool.description
+        input_schema = tool.input_schema
+        handler = tool.handler
+        if not callable(handler) or not isinstance(input_schema, Mapping):
             raise _ActivationError(REASON_INVALID_TOOL)
         try:
-            # Construct a ToolDefinition to validate the name + schema in
-            # pipy's supported subset (same validation built-in tools get).
+            normalized_description = str(description)
+            normalized_schema = dict(input_schema)
             ToolDefinition(
                 name=name,
-                description=str(tool.description),
-                input_schema=dict(tool.input_schema),
+                description=normalized_description,
+                input_schema=normalized_schema,
             )
         except (ValueError, TypeError) as exc:
             raise _ActivationError(REASON_INVALID_TOOL, _safe_diagnostic(exc)) from None
-        self._staged_tools[name] = RegisteredTool(
-            tool=tool, extension=self._extension_name
+        normalized = replace(
+            tool,
+            name=name,
+            description=normalized_description,
+            input_schema=normalized_schema,
         )
-
-    def staged_tools(self) -> tuple[RegisteredTool, ...]:
-        return tuple(self._staged_tools.values())
+        return RegisteredTool(tool=normalized, extension=self._extension_name)
 
     def register_provider(self, provider: ExtensionProvider) -> None:
-        try:
-            self._validate_and_stage_provider(provider)
-        except _ActivationError as err:
-            if self._failure is None:
-                self._failure = (err.reason, err.diagnostic)
-            raise
+        self._stage_registration(
+            "provider",
+            lambda: self._normalize_provider_registration_name(provider),
+            lambda name: self._normalize_provider(provider, name=name),
+        )
 
-    def _validate_and_stage_provider(self, provider: ExtensionProvider) -> None:
+    @staticmethod
+    def _normalize_provider_registration_name(provider: ExtensionProvider) -> str:
         if not isinstance(provider, ExtensionProvider):
             raise _ActivationError(REASON_INVALID_PROVIDER)
-        name = _normalize_provider_name(provider.name)
-        if not callable(provider.factory):
+        return _normalize_provider_name(provider.name)
+
+    def _normalize_provider(
+        self,
+        provider: ExtensionProvider,
+        *,
+        name: str,
+    ) -> RegisteredProvider:
+        """Validate extension-controlled provider values without the guard."""
+
+        factory = provider.factory
+        raw_models = provider.models
+        raw_default = provider.default_model
+        raw_oauth = provider.oauth
+        if not callable(factory):
             raise _ActivationError(REASON_INVALID_PROVIDER)
-        model_ids = _normalize_provider_models(provider.models)
-        default_model = _normalize_default_model(provider.default_model, model_ids)
-        oauth = _normalize_provider_oauth(provider.oauth)
-        # Providers MAY override a built-in of the same name (Pi behavior;
-        # unregister restores it), so there is no reserved-name check; only
-        # a duplicate registration across extensions is rejected.
-        if name in self._staged_providers or name in self._taken_providers:
-            raise _ActivationError(REASON_DUPLICATE_PROVIDER)
-        normalized = ExtensionProvider(
+        model_ids = _normalize_provider_models(raw_models)
+        default_model = _normalize_default_model(raw_default, model_ids)
+        oauth = _normalize_provider_oauth(raw_oauth)
+        normalized = replace(
+            provider,
             name=name,
             default_model=default_model,
             models=model_ids,
-            factory=provider.factory,
             oauth=oauth,
         )
-        self._staged_providers[name] = RegisteredProvider(
-            provider=normalized, extension=self._extension_name
+        return RegisteredProvider(
+            provider=normalized,
+            extension=self._extension_name,
         )
 
     def unregister_provider(self, name: str) -> None:
-        if isinstance(name, str) and name and name not in self._staged_unregistered:
-            self._staged_unregistered.append(name)
-
-    def staged_providers(self) -> tuple[RegisteredProvider, ...]:
-        return tuple(self._staged_providers.values())
-
-    def staged_unregistered(self) -> tuple[str, ...]:
-        return tuple(self._staged_unregistered)
+        self._check_registration_open()
+        try:
+            normalized = _normalize_provider_name(name)
+        except _ActivationError as err:
+            self._raise_registration_failure(err)
+        with self._guard:
+            self._require_open_registration()
+            if normalized not in self._staged_unregistered:
+                self._staged_unregistered.append(normalized)
 
     def register_flag(self, flag: ExtensionFlag) -> None:
-        try:
-            self._validate_and_stage_flag(flag)
-        except _ActivationError as err:
-            if self._failure is None:
-                self._failure = (err.reason, err.diagnostic)
-            raise
+        self._stage_registration(
+            "flag",
+            lambda: self._normalize_flag_name(flag),
+            lambda name: self._normalize_flag(flag, name=name),
+        )
 
-    def _validate_and_stage_flag(self, flag: ExtensionFlag) -> None:
+    @staticmethod
+    def _normalize_flag_name(flag: ExtensionFlag) -> str:
         if not isinstance(flag, ExtensionFlag):
             raise _ActivationError(REASON_INVALID_FLAG)
-        raw_name = flag.name
-        if not isinstance(raw_name, str):
-            raise _ActivationError(REASON_INVALID_FLAG)
-        name = raw_name.strip()
+        name = _coerce_activation_string(flag.name, REASON_INVALID_FLAG).strip()
         if not _is_valid_command_name(name):
             raise _ActivationError(REASON_INVALID_FLAG)
-        if name in self._taken_flags or name in self._staged_flags:
-            raise _ActivationError(REASON_DUPLICATE_FLAG)
-        flag_type = flag.flag_type
+        return name
+
+    def _normalize_flag(
+        self,
+        flag: ExtensionFlag,
+        *,
+        name: str,
+    ) -> _NormalizedFlagRegistration:
+        raw_flag_type = flag.flag_type
+        description = flag.description
+        default = flag.default
+        flag_type = _coerce_activation_string(raw_flag_type, REASON_INVALID_FLAG)
         if flag_type not in ("boolean", "string"):
             raise _ActivationError(REASON_INVALID_FLAG)
-        default = flag.default
-        if (
-            flag_type == "boolean"
-            and default is not None
-            and not isinstance(default, bool)
-        ):
+        flag_type = cast(Literal["boolean", "string"], flag_type)
+        if flag_type == "boolean" and default is not None and type(default) is not bool:
             raise _ActivationError(REASON_INVALID_FLAG)
-        if (
-            flag_type == "string"
-            and default is not None
-            and not isinstance(default, str)
-        ):
-            raise _ActivationError(REASON_INVALID_FLAG)
-        self._staged_flags[name] = RegisteredFlag(
-            flag=ExtensionFlag(
-                name=name,
-                flag_type=flag_type,
-                description=flag.description,
-                default=default,
-            ),
-            extension=self._extension_name,
-            values=self._flag_values,
+        if flag_type == "string" and default is not None:
+            default = _coerce_activation_string(default, REASON_INVALID_FLAG)
+        normalized_description = (
+            description
+            if description is None or type(description) is str
+            else str(description)
         )
-        if default is not None:
-            self._flag_values[name] = default
+        definition = replace(
+            flag,
+            name=name,
+            flag_type=flag_type,
+            description=normalized_description,
+            default=default,
+        )
+        return _NormalizedFlagRegistration(
+            registered=RegisteredFlag(
+                flag=definition,
+                extension=self._extension_name,
+                _get_value=self._get_flag_value,
+                _set_value=self._set_flag_value,
+            ),
+            default=default,
+        )
 
     def get_flag(self, name: str) -> object | None:
-        return self._flag_values.get(str(name))
+        try:
+            normalized = _coerce_activation_string(name, REASON_INVALID_FLAG)
+        except _ActivationError:
+            return None
+        return self._get_flag_value(normalized)
 
-    def staged_flags(self) -> tuple[RegisteredFlag, ...]:
-        return tuple(self._staged_flags.values())
+    def _get_flag_value(self, name: str) -> object | None:
+        with self._guard:
+            return self._flag_values.get(name)
+
+    def _set_flag_value(self, name: str, value: object) -> None:
+        with self._guard:
+            if self._state in ("catalog_finalized", "disposed"):
+                return
+            self._flag_values[name] = value
 
     def register_message_renderer(
         self,
         custom_type: str,
         renderer: Callable[..., object],
     ) -> None:
-        try:
-            self._validate_and_stage_message_renderer(custom_type, renderer)
-        except _ActivationError as err:
-            if self._failure is None:
-                self._failure = (err.reason, err.diagnostic)
-            raise
+        self._stage_registration(
+            "message_renderer",
+            lambda: self._normalize_renderer_name(
+                custom_type, reason=REASON_INVALID_MESSAGE_RENDERER
+            ),
+            lambda name: self._normalize_message_renderer(name, renderer),
+        )
 
-    def _validate_and_stage_message_renderer(
-        self,
-        custom_type: str,
-        renderer: Callable[..., object],
-    ) -> None:
-        if not isinstance(custom_type, str):
-            raise _ActivationError(REASON_INVALID_MESSAGE_RENDERER)
-        name = custom_type.strip()
+    @staticmethod
+    def _normalize_renderer_name(custom_type: str, *, reason: str) -> str:
+        name = _coerce_activation_string(custom_type, reason).strip()
         if not is_valid_custom_entry_type(name):
-            raise _ActivationError(REASON_INVALID_MESSAGE_RENDERER)
+            raise _ActivationError(reason)
+        return name
+
+    def _normalize_message_renderer(
+        self,
+        name: str,
+        renderer: Callable[..., object],
+    ) -> RegisteredMessageRenderer:
         if not callable(renderer):
             raise _ActivationError(REASON_INVALID_MESSAGE_RENDERER)
-        if (
-            name in self._taken_message_renderers
-            or name in self._staged_message_renderers
-        ):
-            raise _ActivationError(REASON_DUPLICATE_MESSAGE_RENDERER)
-        self._staged_message_renderers[name] = RegisteredMessageRenderer(
+        return RegisteredMessageRenderer(
             custom_type=name,
             renderer=renderer,
             extension=self._extension_name,
         )
-
-    def staged_message_renderers(self) -> tuple[RegisteredMessageRenderer, ...]:
-        return tuple(self._staged_message_renderers.values())
 
     def register_entry_renderer(
         self,
         custom_type: str,
         renderer: Callable[..., object],
     ) -> None:
-        try:
-            self._validate_and_stage_entry_renderer(custom_type, renderer)
-        except _ActivationError as err:
-            if self._failure is None:
-                self._failure = (err.reason, err.diagnostic)
-            raise
+        self._stage_registration(
+            "entry_renderer",
+            lambda: self._normalize_renderer_name(
+                custom_type, reason=REASON_INVALID_ENTRY_RENDERER
+            ),
+            lambda name: self._normalize_entry_renderer(name, renderer),
+        )
 
-    def _validate_and_stage_entry_renderer(
+    def _normalize_entry_renderer(
         self,
-        custom_type: str,
+        name: str,
         renderer: Callable[..., object],
-    ) -> None:
-        if not isinstance(custom_type, str):
+    ) -> RegisteredEntryRenderer:
+        if not callable(renderer):
             raise _ActivationError(REASON_INVALID_ENTRY_RENDERER)
-        name = custom_type.strip()
-        if not is_valid_custom_entry_type(name) or not callable(renderer):
-            raise _ActivationError(REASON_INVALID_ENTRY_RENDERER)
-        if name in self._taken_entry_renderers or name in self._staged_entry_renderers:
-            raise _ActivationError(REASON_DUPLICATE_ENTRY_RENDERER)
-        self._staged_entry_renderers[name] = RegisteredEntryRenderer(
+        return RegisteredEntryRenderer(
             custom_type=name,
             renderer=renderer,
             extension=self._extension_name,
         )
-
-    def staged_entry_renderers(self) -> tuple[RegisteredEntryRenderer, ...]:
-        return tuple(self._staged_entry_renderers.values())
 
     def register_command(
         self,
@@ -1594,31 +2062,30 @@ class _ActivationApi:
         description: str,
         handler: CommandHandler,
     ) -> None:
-        try:
-            self._validate_and_stage(name, description, handler)
-        except _ActivationError as err:
-            # Record the first failure so the extension is disabled even
-            # if it swallows this exception; then re-raise so a
-            # well-behaved extension aborts immediately.
-            if self._failure is None:
-                self._failure = (err.reason, err.diagnostic)
-            raise
+        self._stage_registration(
+            "command",
+            lambda: self._normalize_command_name(name),
+            lambda normalized: self._normalize_command(
+                normalized, description, handler
+            ),
+        )
 
-    def _validate_and_stage(
+    @staticmethod
+    def _normalize_command_name(name: str) -> str:
+        normalized = _coerce_activation_string(name, REASON_INVALID_COMMAND_NAME)
+        if not _is_valid_command_name(normalized):
+            raise _ActivationError(REASON_INVALID_COMMAND_NAME)
+        return normalized
+
+    def _normalize_command(
         self,
         name: str,
         description: str,
         handler: CommandHandler,
-    ) -> None:
-        if not isinstance(name, str) or not _is_valid_command_name(name):
-            raise _ActivationError(REASON_INVALID_COMMAND_NAME)
-        if name in self._reserved:
-            raise _ActivationError(REASON_RESERVED_COMMAND)
-        if name in self._taken or name in self._staged:
-            raise _ActivationError(REASON_DUPLICATE_COMMAND)
+    ) -> RegisteredCommand:
         if not callable(handler):
             raise _ActivationError(REASON_INVALID_COMMAND_NAME)
-        self._staged[name] = RegisteredCommand(
+        return RegisteredCommand(
             name=name,
             description=str(description),
             handler=handler,
@@ -1626,42 +2093,32 @@ class _ActivationApi:
         )
 
     def register_shortcut(self, key: str, handler: CommandHandler) -> None:
-        try:
-            if not isinstance(key, str) or not key.strip():
-                raise _ActivationError(REASON_INVALID_SHORTCUT)
-            if not callable(handler):
-                raise _ActivationError(REASON_INVALID_SHORTCUT)
-            normalized = normalize_shortcut_key(key)
-            # A single-character key (a bare printable like "a"/"." or a raw
-            # control char) would shadow ordinary typing in the editor, since
-            # the shortcut check runs before text insertion. Only multi-char
-            # named keys (e.g. "ctrl-g") may be bound.
-            if len(normalized) <= 1:
-                raise _ActivationError(REASON_INVALID_SHORTCUT)
-            # A modifier-only key with an empty base (e.g. "ctrl-" from "Ctrl+")
-            # can never be emitted by the decoder; refuse it rather than
-            # register an unreachable binding.
-            if normalized.endswith("-"):
-                raise _ActivationError(REASON_INVALID_SHORTCUT)
-            if normalized in RESERVED_SHORTCUT_KEYS:
-                raise _ActivationError(REASON_RESERVED_SHORTCUT)
-            if (
-                normalized in self._taken_shortcuts
-                or normalized in self._staged_shortcuts
-            ):
-                raise _ActivationError(REASON_DUPLICATE_SHORTCUT)
-            self._staged_shortcuts[normalized] = RegisteredShortcut(
-                key=normalized,
-                handler=handler,
-                extension=self._extension_name,
-            )
-        except _ActivationError as err:
-            if self._failure is None:
-                self._failure = (err.reason, err.diagnostic)
-            raise
+        self._stage_registration(
+            "shortcut",
+            lambda: self._normalize_shortcut_name(key, handler),
+            lambda normalized: self._normalize_shortcut(normalized, handler),
+        )
 
-    def staged_shortcuts(self) -> tuple[RegisteredShortcut, ...]:
-        return tuple(self._staged_shortcuts.values())
+    @staticmethod
+    def _normalize_shortcut_name(key: str, handler: CommandHandler) -> str:
+        plain_key = _coerce_activation_string(key, REASON_INVALID_SHORTCUT)
+        if not plain_key.strip() or not callable(handler):
+            raise _ActivationError(REASON_INVALID_SHORTCUT)
+        normalized = normalize_shortcut_key(plain_key)
+        if len(normalized) <= 1 or normalized.endswith("-"):
+            raise _ActivationError(REASON_INVALID_SHORTCUT)
+        return normalized
+
+    def _normalize_shortcut(
+        self,
+        normalized: str,
+        handler: CommandHandler,
+    ) -> RegisteredShortcut:
+        return RegisteredShortcut(
+            key=normalized,
+            handler=handler,
+            extension=self._extension_name,
+        )
 
     def on(
         self,
@@ -1677,37 +2134,197 @@ class _ActivationApi:
         extension is disabled even if it swallows the error.
         """
 
+        self._check_registration_open()
+        try:
+            normalized_event = self._normalize_hook_event(event)
+        except _ActivationError as err:
+            self._raise_registration_failure(err)
         if handler is None:
+            # Refuse if seal won while the event was being normalized.
+            self._check_registration_open()
 
             def _decorator(func: HookHandler) -> HookHandler:
-                self._register_hook(event, func)
+                self._register_hook(normalized_event, func)
                 return func
 
             return _decorator
-        self._register_hook(event, handler)
+        self._register_hook(normalized_event, handler)
         return handler
 
+    @staticmethod
+    def _normalize_hook_event(event: str) -> str:
+        normalized = _coerce_activation_string(event, REASON_INVALID_HOOK)
+        if not normalized:
+            raise _ActivationError(REASON_INVALID_HOOK)
+        return normalized
+
     def _register_hook(self, event: str, handler: HookHandler) -> None:
-        try:
-            if not isinstance(event, str) or not event:
-                raise _ActivationError(REASON_INVALID_HOOK)
-            if not callable(handler):
-                raise _ActivationError(REASON_INVALID_HOOK)
+        self._check_registration_open()
+        if not callable(handler):
+            self._raise_registration_failure(_ActivationError(REASON_INVALID_HOOK))
+        with self._guard:
+            self._require_open_registration()
             self._hooks.setdefault(event, []).append(handler)
-        except _ActivationError as err:
-            if self._failure is None:
-                self._failure = (err.reason, err.diagnostic)
+
+    def _seal_and_freeze(
+        self,
+        *,
+        _lifecycle_token: object | None = None,
+    ) -> _FrozenActivation:
+        """Host-internally seal registration and return one complete snapshot."""
+
+        if _lifecycle_token is not _ACTIVATION_LIFECYCLE_TOKEN:
+            raise ExtensionCapabilityError("extension activation is unavailable")
+        with self._guard:
+            if not self._transition_locked("sealed"):
+                raise ExtensionCapabilityError("extension activation is unavailable")
+            self._activated = False
+            user_messages = tuple(self._staged_messages)
+            custom_messages = tuple(self._staged_custom_messages)
+            snapshot = _FrozenActivation(
+                commands=tuple(self._staged.values()),
+                tools=tuple(self._staged_tools.values()),
+                providers=tuple(self._staged_providers.values()),
+                unregistered_providers=tuple(self._staged_unregistered),
+                shortcuts=tuple(self._staged_shortcuts.values()),
+                flags=tuple(self._staged_flags.values()),
+                message_renderers=tuple(self._staged_message_renderers.values()),
+                entry_renderers=tuple(self._staged_entry_renderers.values()),
+                hooks=MappingProxyType(
+                    {event: tuple(handlers) for event, handlers in self._hooks.items()}
+                ),
+                user_messages=user_messages,
+                custom_messages=custom_messages,
+                failure=self._failure,
+            )
+            self._frozen_activation = snapshot
+            # Detach mutable staging queues at the seal boundary. Commit reads
+            # only ``_frozen_activation``; no later send can enter this value.
+            self._staged_messages = []
+            self._staged_custom_messages = []
+        return snapshot
+
+    def _clear_terminal_storage_locked(self, *, retain_flag_values: bool) -> None:
+        """Drop all staging/outbox reachability while ``_guard`` is held."""
+
+        self._activated = False
+        self._reserved = frozenset()
+        self._taken = frozenset()
+        self._reserved_tools = frozenset()
+        self._taken_tools = frozenset()
+        self._taken_providers = frozenset()
+        self._taken_shortcuts = frozenset()
+        self._taken_flags = frozenset()
+        self._taken_message_renderers = frozenset()
+        self._taken_entry_renderers = frozenset()
+        # Replace rather than call extension-corruptible container methods.
+        self._staged = {}
+        self._staged_shortcuts = {}
+        self._hooks = {}
+        self._staged_tools = {}
+        self._staged_providers = {}
+        self._staged_unregistered = []
+        self._staged_flags = {}
+        if not retain_flag_values:
+            self._flag_values = {}
+        self._staged_message_renderers = {}
+        self._staged_entry_renderers = {}
+        self._staged_messages = []
+        self._staged_custom_messages = []
+        self._frozen_activation = None
+        self._failure = None
+        self._publication_token = None
+        self._outbox = []
+        self._custom_outbox = []
+
+    def _finalize_provider_catalog_locked(self) -> bool:
+        """Enter the accepted-catalog terminal state while retaining flag reads."""
+
+        if not self._transition_locked("catalog_finalized"):
+            return False
+        self._clear_terminal_storage_locked(retain_flag_values=True)
+        return True
+
+    def _dispose_locked(self) -> bool:
+        """Fail closed while ``_guard`` is held, including corrupted states."""
+
+        if self._is_published_locked() or self._state == "catalog_finalized":
+            return False
+        changed = self._state != "disposed"
+        if changed and not self._transition_locked("disposed"):
+            # Trusted Python can corrupt private attributes. Such a value is
+            # not a lifecycle state; terminal disposal is the bounded recovery.
+            self._state = "disposed"
+        self._clear_terminal_storage_locked(retain_flag_values=False)
+        return changed
+
+    def _dispose(self) -> bool:
+        """Host-internally clear candidate state without disposing a live host."""
+
+        with self._guard:
+            return self._dispose_locked()
+
+
+def _publish_activation_hosts_atomically(
+    hosts: tuple[_ActivationApi, ...],
+) -> bool:
+    """Validate all host-authored transitions, then publish the complete set."""
+
+    with ExitStack() as guards:
+        for host in hosts:
+            guards.enter_context(host._guard)
+        if any(
+            not _ActivationApi._allows_transition_locked(
+                host,
+                "published",
+                publication_token=_ACTIVATION_PUBLICATION_TOKEN,
+            )
+            for host in hosts
+        ):
+            return False
+        for host in hosts:
+            if not _ActivationApi._transition_locked(
+                host,
+                "published",
+                publication_token=_ACTIVATION_PUBLICATION_TOKEN,
+            ):
+                raise AssertionError("validated activation host did not publish")
+    return True
+
+
+def _dispose_activation_hosts(
+    hosts: tuple[_ActivationApi, ...],
+) -> _ActivationCleanup:
+    """Dispose every unpublished host and return bounded anomaly details."""
+
+    disposed = 0
+    skipped_published = 0
+    failed = 0
+    for host in hosts:
+        try:
+            with host._guard:
+                if _ActivationApi._is_published_locked(host):
+                    skipped_published += 1
+                    continue
+                if _ActivationApi._dispose_locked(host):
+                    disposed += 1
+        except (KeyboardInterrupt, SystemExit):
             raise
+        except BaseException:  # noqa: BLE001 - continue bounded sibling cleanup
+            failed += 1
+    return _ActivationCleanup(
+        disposed=disposed,
+        skipped_published=skipped_published,
+        failed=failed,
+    )
 
-    @property
-    def failure(self) -> tuple[str, str | None] | None:
-        return self._failure
 
-    def staged_commands(self) -> tuple[RegisteredCommand, ...]:
-        return tuple(self._staged.values())
-
-    def staged_hooks(self) -> dict[str, tuple[HookHandler, ...]]:
-        return {event: tuple(handlers) for event, handlers in self._hooks.items()}
+def _dispose_activation_host_with_diagnostic(
+    api: _ActivationApi,
+    diagnostic: Callable[[str], None] | None,
+) -> None:
+    cleanup = _dispose_activation_hosts((api,))
+    _report_activation_cleanup(cleanup, diagnostic)
 
 
 def activate_extensions(
@@ -1717,6 +2334,7 @@ def activate_extensions(
     reserved_tool_names: Sequence[str] = (),
     message_outbox: list[QueuedUserMessage] | None = None,
     custom_message_outbox: list[QueuedCustomMessage] | None = None,
+    diagnostic: Callable[[str], None] | None = None,
 ) -> list[ActivatedExtension]:
     """Activate the loadable descriptors, in order.
 
@@ -1737,8 +2355,75 @@ def activate_extensions(
         reserved_tool_names=reserved_tool_names,
         message_outbox=message_outbox,
         custom_message_outbox=custom_message_outbox,
+        diagnostic=diagnostic,
     )
     return list(batch.activated)
+
+
+def _dispose_activation_results(
+    activated: Iterable[ActivatedExtension],
+) -> _ActivationCleanup:
+    """Dispose every host still owned by uncomposed activation results."""
+
+    cleanup = _ActivationCleanup()
+    for extension in activated:
+        pending_activation = extension._pending_activation
+        if pending_activation is not None:
+            cleanup = cleanup.merge(pending_activation.dispose())
+        activation_host = extension._activation_host
+        if activation_host is not None:
+            cleanup = cleanup.merge(_dispose_activation_hosts((activation_host,)))
+    return cleanup
+
+
+def _finalize_provider_catalog_results(
+    activated: Iterable[ActivatedExtension],
+) -> _ProviderCatalogFinalization:
+    """Terminally retain only guarded flag reads needed by accepted factories."""
+
+    finalized = 0
+    refused_disposed = 0
+    refused_published = 0
+    refused_already_terminal = 0
+    inaccessible = 0
+    for extension in activated:
+        host = extension._activation_host
+        if host is None:
+            continue
+        try:
+            with host._guard:
+                if host._finalize_provider_catalog_locked():
+                    finalized += 1
+                elif host._state == "published":
+                    # A published host may be live even if its private marker was
+                    # corrupted. Catalog harvesting never takes that risk.
+                    refused_published += 1
+                elif host._dispose_locked():
+                    refused_disposed += 1
+                else:
+                    # Refusal can be an idempotent revisit of an existing
+                    # catalog-finalized/disposed terminal host.
+                    refused_already_terminal += 1
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - continue bounded sibling finalization
+            inaccessible += 1
+    return _ProviderCatalogFinalization(
+        finalized=finalized,
+        refused_disposed=refused_disposed,
+        refused_published=refused_published,
+        refused_already_terminal=refused_already_terminal,
+        inaccessible=inaccessible,
+    )
+
+
+def _report_provider_catalog_finalization(
+    result: _ProviderCatalogFinalization,
+    diagnostic: Callable[[str], None],
+) -> None:
+    message = result.anomaly_diagnostic
+    if message is not None:
+        diagnostic(message)
 
 
 def activate_extension_batch(
@@ -1750,6 +2435,7 @@ def activate_extension_batch(
     custom_message_outbox: list[QueuedCustomMessage] | None = None,
     preloaded: ExtensionActivationBatch | None = None,
     pending: bool = False,
+    diagnostic: Callable[[str], None] | None = None,
 ) -> ExtensionActivationBatch:
     """Activate once, or finalize a pending pre-trust batch in final order."""
 
@@ -1760,7 +2446,7 @@ def activate_extension_batch(
 
     reserved = frozenset(reserved_command_names)
     reserved_tools = frozenset(reserved_tool_names)
-    taken = _TakenContributions()
+    taken = _TakenContributionState()
     outbox = (
         preloaded.message_outbox
         if preloaded is not None
@@ -1782,30 +2468,32 @@ def activate_extension_batch(
         else {}
     )
 
-    for descriptor in descriptors:
-        if descriptor.status != "loadable":
-            # Discovery already disabled this; never import it.
-            results.append(_passthrough_disabled(descriptor))
-            continue
-        key = _descriptor_activation_key(descriptor)
-        existing = preloaded_by_key.get(key)
-        if existing is not None:
-            reused = _finalize_preloaded_extension(
-                existing,
-                descriptor=descriptor,
-                reserved=reserved,
-                reserved_tools=reserved_tools,
-                taken=taken,
-            )
-            results.append(reused)
-            continue
-        # Pending pre-trust activation stages each extension independently.
-        # Cross-extension collisions are provisional because the final reserved
-        # set can disable an earlier extension and free its names for a later
-        # one. Resolve those collisions only once, in final descriptor order.
-        activation_taken = _TakenContributions() if pending else taken
-        results.append(
-            _activate_one(
+    try:
+        for descriptor in descriptors:
+            if descriptor.status != "loadable":
+                # Discovery already disabled this; never import it.
+                results.append(_passthrough_disabled(descriptor))
+                continue
+            key = _descriptor_activation_key(descriptor)
+            existing = preloaded_by_key.get(key)
+            if existing is not None:
+                reused, taken = _finalize_preloaded_extension(
+                    existing,
+                    descriptor=descriptor,
+                    reserved=reserved,
+                    reserved_tools=reserved_tools,
+                    taken=taken,
+                    diagnostic=diagnostic,
+                )
+                results.append(reused)
+                continue
+            # Pending pre-trust activation stages each extension independently.
+            # Cross-extension collisions are provisional because the final
+            # reserved set can disable an earlier extension and free its names
+            # for a later one. Resolve those collisions only once, in final
+            # descriptor order.
+            activation_taken = _TakenContributionState() if pending else taken
+            activated, successor = _activate_one(
                 descriptor,
                 reserved=reserved,
                 reserved_tools=reserved_tools,
@@ -1813,8 +2501,22 @@ def activate_extension_batch(
                 outbox=outbox,
                 custom_outbox=custom_outbox,
                 commit_activation=not pending,
+                diagnostic=diagnostic,
             )
-        )
+            results.append(activated)
+            if not pending:
+                taken = successor
+    except BaseException:
+        cleanup = _dispose_activation_results(results)
+        if preloaded is not None:
+            cleanup = cleanup.merge(_dispose_activation_results(preloaded.activated))
+        _report_activation_cleanup(cleanup, diagnostic)
+        raise
+    if preloaded is not None:
+        # A pending descriptor omitted from the final trusted set is abandoned.
+        # Claimed tokens are already empty, so this cannot dispose a transferee.
+        cleanup = _dispose_activation_results(preloaded.activated)
+        _report_activation_cleanup(cleanup, diagnostic)
     return ExtensionActivationBatch(
         activated=tuple(results),
         message_outbox=outbox,
@@ -2376,7 +3078,7 @@ def parse_extension_flag_tokens(
         values[parsed.name] = parsed.value
         owner = owners.get(parsed.name)
         if owner is not None:
-            owner.values[parsed.name] = parsed.value
+            owner._apply_value(parsed.value)
         index = parsed.next_index
     return values, None
 
@@ -2426,7 +3128,7 @@ def _activated_contribution_names(existing: ActivatedExtension) -> _Contribution
     )
 
 
-def _staged_contribution_names(staged: _StagedContributions) -> _ContributionNames:
+def _staged_contribution_names(staged: _FrozenActivation) -> _ContributionNames:
     return _ContributionNames(
         commands=tuple(command.name for command in staged.commands),
         tools=tuple(registered.tool.name for registered in staged.tools),
@@ -2446,7 +3148,7 @@ def _reserved_or_taken_collision(
     names: Iterable[str],
     *,
     reserved: frozenset[str],
-    taken: set[str],
+    taken: frozenset[str],
     reserved_reason: str,
     duplicate_reason: str,
 ) -> str | None:
@@ -2461,7 +3163,7 @@ def _reserved_or_taken_collision(
 def _taken_collision(
     names: Iterable[str],
     *,
-    taken: set[str],
+    taken: frozenset[str],
     duplicate_reason: str,
 ) -> str | None:
     for name in names:
@@ -2475,7 +3177,7 @@ def _preloaded_collision_reason(
     *,
     reserved: frozenset[str],
     reserved_tools: frozenset[str],
-    taken: _TakenContributions,
+    taken: _TakenContributionState,
 ) -> str | None:
     reason = _reserved_or_taken_collision(
         names.commands,
@@ -2521,19 +3223,48 @@ def _preloaded_collision_reason(
     return None
 
 
-def _commit_contribution_names(
-    names: _ContributionNames,
-    taken: _TakenContributions,
-) -> None:
-    """Commit every category only after the complete collision check passes."""
+def _normalize_contribution_name_category(
+    category: tuple[str, ...],
+) -> tuple[str, ...]:
+    if any(type(name) is not str for name in category):
+        raise TypeError("extension contribution name is not an exact string")
+    copied = tuple(category)
+    if len(frozenset(copied)) != len(copied):
+        raise ValueError("duplicate extension contribution name")
+    return copied
 
-    taken.commands.update(names.commands)
-    taken.tools.update(names.tools)
-    taken.providers.update(names.providers)
-    taken.shortcuts.update(names.shortcuts)
-    taken.flags.update(names.flags)
-    taken.message_renderers.update(names.message_renderers)
-    taken.entry_renderers.update(names.entry_renderers)
+
+def _normalize_contribution_names(names: _ContributionNames) -> _ContributionNames:
+    """Copy exact immutable strings while preserving named category binding."""
+
+    return _ContributionNames(
+        commands=_normalize_contribution_name_category(names.commands),
+        tools=_normalize_contribution_name_category(names.tools),
+        providers=_normalize_contribution_name_category(names.providers),
+        shortcuts=_normalize_contribution_name_category(names.shortcuts),
+        flags=_normalize_contribution_name_category(names.flags),
+        message_renderers=_normalize_contribution_name_category(
+            names.message_renderers
+        ),
+        entry_renderers=_normalize_contribution_name_category(names.entry_renderers),
+    )
+
+
+def _prepare_contribution_names_commit(
+    names: _ContributionNames,
+    taken: _TakenContributionState,
+) -> _TakenContributionState:
+    """Build the complete successor reservation state without mutating ``taken``."""
+
+    return _TakenContributionState(
+        commands=taken.commands.union(names.commands),
+        tools=taken.tools.union(names.tools),
+        providers=taken.providers.union(names.providers),
+        shortcuts=taken.shortcuts.union(names.shortcuts),
+        flags=taken.flags.union(names.flags),
+        message_renderers=taken.message_renderers.union(names.message_renderers),
+        entry_renderers=taken.entry_renderers.union(names.entry_renderers),
+    )
 
 
 def _finalize_preloaded_extension(
@@ -2542,27 +3273,69 @@ def _finalize_preloaded_extension(
     descriptor: ExtensionDescriptor,
     reserved: frozenset[str],
     reserved_tools: frozenset[str],
-    taken: _TakenContributions,
-) -> ActivatedExtension:
+    taken: _TakenContributionState,
+    diagnostic: Callable[[str], None] | None,
+) -> tuple[ActivatedExtension, _TakenContributionState]:
     """Validate and commit one pending preload without running it again."""
 
     if existing.status != "activated":
-        return existing
-    api = existing._activation_api
+        return existing, taken
+    pending_activation = existing._pending_activation
+    if pending_activation is None:
+        return (
+            _disabled(descriptor, REASON_ACTIVATION_ERROR, "invalid preload state"),
+            taken,
+        )
+    api = pending_activation.claim()
     if api is None:
-        return _disabled(descriptor, REASON_ACTIVATION_ERROR, "invalid preload state")
-    names = _activated_contribution_names(existing)
-    collision = _preloaded_collision_reason(
-        names,
-        reserved=reserved,
-        reserved_tools=reserved_tools,
-        taken=taken,
-    )
-    if collision is not None:
-        return _disabled(descriptor, collision, None)
-    _commit_contribution_names(names, taken)
-    api.commit_activation()
-    return replace(existing, _activation_api=None)
+        # Re-finalizing the same pending batch is a bounded disabled outcome.
+        # The first final candidate owns the transferred host, so this path
+        # deliberately has nothing to dispose.
+        return (
+            _disabled(descriptor, REASON_ACTIVATION_ERROR, "invalid preload state"),
+            taken,
+        )
+    ownership_transferred = False
+    try:
+        names = _normalize_contribution_names(_activated_contribution_names(existing))
+        collision = _preloaded_collision_reason(
+            names,
+            reserved=reserved,
+            reserved_tools=reserved_tools,
+            taken=taken,
+        )
+        if collision is not None:
+            return _disabled(descriptor, collision, None), taken
+        # Complete every potentially fallible hash/equality operation before
+        # activation commit can flush the frozen messages.
+        prepared_names = _prepare_contribution_names_commit(names, taken)
+        # Build the immutable result before commit flushes staged messages, so
+        # a malformed/corrupted finalization cannot leak candidate effects.
+        finalized = replace(
+            existing,
+            _pending_activation=None,
+            _activation_host=api,
+        )
+        _ActivationApi._commit_activation(
+            api,
+            _lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN,
+        )
+        ownership_transferred = True
+        return finalized, prepared_names
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as err:  # noqa: BLE001 - bound a corrupted host
+        return (
+            _disabled(
+                descriptor,
+                REASON_ACTIVATION_ERROR,
+                _safe_diagnostic(err),
+            ),
+            taken,
+        )
+    finally:
+        if not ownership_transferred:
+            _dispose_activation_host_with_diagnostic(api, diagnostic)
 
 
 @dataclass(frozen=True, slots=True)
@@ -2613,11 +3386,17 @@ def _execute_activation_entry(
     descriptor: ExtensionDescriptor,
     activate: Callable[..., object],
     api: _ActivationApi,
+    diagnostic: Callable[[str], None] | None,
 ) -> ActivatedExtension | None:
     try:
         result = activate(api)
         if inspect.isawaitable(result):
-            _run_awaitable(result)
+            _run_awaitable(
+                result,
+                abandon=lambda: _dispose_activation_host_with_diagnostic(
+                    api, diagnostic
+                ),
+            )
     except _ActivationError as err:
         return _disabled(descriptor, err.reason, err.diagnostic)
     except (KeyboardInterrupt, SystemExit):
@@ -2625,25 +3404,7 @@ def _execute_activation_entry(
     except BaseException as err:  # noqa: BLE001 - bound a bad extension
         return _disabled(descriptor, REASON_ACTIVATION_ERROR, _safe_diagnostic(err))
 
-    # A failed registration disables the extension even if its own code
-    # swallowed the error: no partial registration set is ever committed.
-    if api.failure is not None:
-        failure_reason, failure_diagnostic = api.failure
-        return _disabled(descriptor, failure_reason, failure_diagnostic)
     return None
-
-
-def _collect_staged_contributions(api: _ActivationApi) -> _StagedContributions:
-    return _StagedContributions(
-        commands=api.staged_commands(),
-        tools=api.staged_tools(),
-        providers=api.staged_providers(),
-        shortcuts=api.staged_shortcuts(),
-        flags=api.staged_flags(),
-        message_renderers=api.staged_message_renderers(),
-        entry_renderers=api.staged_entry_renderers(),
-        custom_messages=api.staged_custom_messages(),
-    )
 
 
 def _activate_one(
@@ -2651,14 +3412,15 @@ def _activate_one(
     *,
     reserved: frozenset[str],
     reserved_tools: frozenset[str],
-    taken: _TakenContributions,
+    taken: _TakenContributionState,
     outbox: list[QueuedUserMessage],
     custom_outbox: list[QueuedCustomMessage],
+    diagnostic: Callable[[str], None] | None,
     commit_activation: bool = True,
-) -> ActivatedExtension:
+) -> tuple[ActivatedExtension, _TakenContributionState]:
     resolution = _resolve_activation_entry(descriptor)
     if isinstance(resolution, _FailedActivationEntry):
-        return resolution.disabled
+        return resolution.disabled, taken
 
     api = _ActivationApi(
         descriptor.name,
@@ -2674,34 +3436,122 @@ def _activate_one(
         outbox=outbox,
         custom_outbox=custom_outbox,
     )
-    disabled = _execute_activation_entry(descriptor, resolution.activate, api)
-    if disabled is not None:
-        return disabled
+    ownership_transferred = False
+    try:
+        disabled = _execute_activation_entry(
+            descriptor, resolution.activate, api, diagnostic
+        )
+        if disabled is not None:
+            return disabled, taken
 
-    staged = _collect_staged_contributions(api)
-    _commit_contribution_names(_staged_contribution_names(staged), taken)
-    if commit_activation:
-        api.commit_activation()
-    return ActivatedExtension(
-        name=descriptor.name,
-        version=descriptor.version,
-        path_label=descriptor.path_label,
-        status="activated",
-        reason=None,
-        commands=staged.commands,
-        diagnostic=None,
-        hooks=api.staged_hooks(),
-        tools=staged.tools,
-        providers=staged.providers,
-        unregistered_providers=api.staged_unregistered(),
-        shortcuts=staged.shortcuts,
-        flags=staged.flags,
-        message_renderers=staged.message_renderers,
-        entry_renderers=staged.entry_renderers,
-        custom_messages=staged.custom_messages,
-        _activation_key=_descriptor_activation_key(descriptor),
-        _activation_api=None if commit_activation else api,
-    )
+        staged = _ActivationApi._seal_and_freeze(
+            api,
+            _lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN,
+        )
+        if staged.failure is not None:
+            failure_reason, failure_diagnostic = staged.failure
+            return _disabled(descriptor, failure_reason, failure_diagnostic), taken
+        names = _normalize_contribution_names(_staged_contribution_names(staged))
+        collision = _preloaded_collision_reason(
+            names,
+            reserved=reserved,
+            reserved_tools=reserved_tools,
+            taken=taken,
+        )
+        if collision is not None:
+            return _disabled(descriptor, collision, None), taken
+        prepared_names = _prepare_contribution_names_commit(names, taken)
+        # Construct the immutable result before commit can flush staged user
+        # messages. Any bad host/result shape is then disabled without effects.
+        activated = ActivatedExtension(
+            name=descriptor.name,
+            version=descriptor.version,
+            path_label=descriptor.path_label,
+            status="activated",
+            reason=None,
+            commands=staged.commands,
+            diagnostic=None,
+            hooks=staged.hooks,
+            tools=staged.tools,
+            providers=staged.providers,
+            unregistered_providers=staged.unregistered_providers,
+            shortcuts=staged.shortcuts,
+            flags=staged.flags,
+            message_renderers=staged.message_renderers,
+            entry_renderers=staged.entry_renderers,
+            custom_messages=staged.custom_messages,
+            _activation_key=_descriptor_activation_key(descriptor),
+            _pending_activation=(
+                None if commit_activation else _PendingActivation(api)
+            ),
+            _activation_host=(api if commit_activation else None),
+        )
+        if commit_activation:
+            _ActivationApi._commit_activation(
+                api,
+                _lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN,
+            )
+        ownership_transferred = True
+        return activated, prepared_names
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as err:  # noqa: BLE001 - bound a corrupted host
+        return (
+            _disabled(
+                descriptor,
+                REASON_ACTIVATION_ERROR,
+                _safe_diagnostic(err),
+            ),
+            taken,
+        )
+    finally:
+        if not ownership_transferred:
+            _dispose_activation_host_with_diagnostic(api, diagnostic)
+
+
+@dataclass(slots=True)
+class _ExtensionCandidate:
+    """Optional runtime holder before reload/startup ownership is transferred."""
+
+    runtime: _ExtensionRuntime | None = None
+
+    def adopt(
+        self,
+        runtime: _ExtensionRuntime,
+        diagnostic: Callable[[str], None],
+    ) -> None:
+        """Take ownership immediately after the composition seam returns."""
+
+        if self.runtime is None:
+            self.runtime = runtime
+            return
+        _report_activation_cleanup(
+            _dispose_activation_hosts(runtime.activation_hosts),
+            diagnostic,
+        )
+        raise ExtensionCapabilityError("extension candidate already owns a runtime")
+
+    def publish(self) -> bool:
+        """Transfer the held runtime's hosts and clear the optional holder."""
+
+        runtime = self.runtime
+        if runtime is None or not _publish_activation_hosts_atomically(
+            runtime.activation_hosts
+        ):
+            return False
+        self.runtime = None
+        return True
+
+    def dispose(self) -> _ActivationCleanup:
+        """Dispose unpublished hosts, retaining only an inaccessible runtime."""
+
+        runtime = self.runtime
+        if runtime is None:
+            return _ActivationCleanup()
+        cleanup = _dispose_activation_hosts(runtime.activation_hosts)
+        if cleanup.failed == 0:
+            self.runtime = None
+        return cleanup
 
 
 def _passthrough_disabled(descriptor: ExtensionDescriptor) -> ActivatedExtension:

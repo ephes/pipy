@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R1 — seal candidate contribution registration**
+**Active/next slice:** **R2 — stage candidate chrome and listeners**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -48,18 +48,57 @@ settings-omitted R3/R4a path after enumerating RPC, worker, adapter, and externa
 manager surfaces; and retains generation queue/chrome sidecars. The exhaustive
 guarded-field table now assigns every staged contribution/message registry,
 flag-value/failure field, `_activated`, and sealed/disposed state to the R1
-candidate-host guard and one atomic freeze snapshot. R1 is present correctness:
-a tool-retained API currently appears to accept post-activation class-D writes
-into harvested host state, although that tool cannot race its own initial
-harvest. R1 makes every late `register_*`, `unregister_provider`, or direct/
-decorator `on` call raise `ExtensionCapabilityError` at its call boundary, with
-API docs, changelog wording, and tests for every return-shape family; it invents
-no inert decorator or `RegisteredFlag` and stays future-timeout-safe without
-adding timeout policy.
+candidate-host guard; the atomic freeze snapshot carries contributions, not a
+second live-state bit. R1 is complete: candidate
+activation now seals one guarded host into one complete snapshot. The guarded
+host lifecycle is the sole ownership state machine; all-host publication holds
+every host guard, refuses the whole set when any sibling is still open/unsealed,
+and a lock-free optional runtime holder publishes once or disposes rejected and
+otherwise abandoned hosts through the bounded loader/composition seam. Cleanup
+returns structured skipped/failed anomaly counts through one reporting seam:
+production startup/reload use their existing diagnostic sinks, while the
+provider-only catalog harvest requires its caller's sink and terminally finalizes
+accepted hosts after detaching immutable provider/unregistration outputs. A
+refused non-published transition disposes under the acquired host guard; a
+published refusal is reported and left live, while guard inaccessibility/failure
+is counted separately. The narrow finalized state retains guarded registration-
+time default flag reads for provider factories that captured the API; the catalog
+helper does not parse/apply CLI tokens. It clears staging/outboxes and refuses
+publication, registration, and sends; rejected/abandoned disposal still clears
+flags. Recursive producer, caller, and
+reporting-seam inventory plus one-shot pending-batch finalization pin
+those routes, and no raw warning path remains. Retained class-D
+`register_*`, `unregister_provider`, and direct/decorator `on` calls raise
+`ExtensionCapabilityError` without inert return values. Accepted `str`
+subclasses, including `(str, Enum)` values and subclasses with an overridden
+`__str__`, are detached from their underlying value to plain strings before
+reservation without invoking the override; invalid unregistration records
+`invalid_provider` rather than disappearing.
+One typed registration-staging seam preserves each prior family order for
+ordinary validation before a guarded atomic recheck: command/tool/flag
+availability precedes remaining value validation; shortcut key shape and
+callable validation precede normalized reserved/duplicate checks; provider
+factory/models/default/OAuth precede a duplicate; and message/entry renderer
+callability precedes a duplicate. Unexpected extension-controlled normalization/
+copy exceptions record the first bounded family-invalid reason and type-only
+diagnostic even when extension code catches the raised error, rather than
+preserving exact pre-R1 reason behavior. All extension-controlled validation
+remains unlocked. Flag parsing and reads use
+guarded host-owned state rather than a mutable
+`RegisteredFlag.values` alias. Barrier and lock instrumentation cover
+registration versus seal, seal before publication, post-success/rejection
+refusal, malformed-flag reload rejection, and candidate/session non-nesting.
+The frozen snapshot is authoritative for staged user/custom messages: post-seal
+sends while activation is still pending silently do nothing and commit flushes
+only that snapshot once. Runtime queue-sidecar conversion—including frozen-
+staged-flush before an accepted live runtime append—remains R4a; no activation timeout policy
+was added. R2 is now the only active slice and owns candidate chrome/listener
+staging plus rejected-candidate chrome preservation without publishing later
+projection work early.
 
 The reachable cancelled-tool-worker versus session-drain lost update is assigned
 to R3/R4a's complete writer set (both activation send names/alias and
-`commit_activation()`'s staged user-message flush) and renderer drain. Accepted
+`_commit_activation()`'s staged user-message flush) and renderer drain. Accepted
 staged custom messages bypass `custom_outbox` for direct tree/render/input
 delivery. Coding-session completion/entry/name/label/custom-message callables
 target provider, durable tree, render/diagnostic, and input-queue sinks instead. They

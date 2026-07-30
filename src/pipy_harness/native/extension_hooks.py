@@ -90,6 +90,8 @@ from pipy_harness.native.extension_runtime import (
     HookHandler,
     _CommandContext,
     _ExtensionRuntime,
+    _dispose_activation_results,
+    _report_activation_cleanup,
     activate_extensions,
     extension_command_map,
     extension_entry_renderers,
@@ -185,6 +187,7 @@ def _activate_workspace_extensions(
     include_default_extensions: bool = True,
     include_workspace_defaults: bool = False,
     activation_batch: ExtensionActivationBatch | None = None,
+    diagnostic: Callable[[str], None] | None = None,
 ) -> _ExtensionRuntime:
     """Discover + activate extensions and project their contributions.
 
@@ -200,41 +203,62 @@ def _activate_workspace_extensions(
     project state.
     """
 
-    if activation_batch is None:
-        reserved = extension_reserved_command_names(
-            resources.custom_command_slash_names()
-        )
-        descriptors = discover_extensions(
-            cwd,
-            package_roots=tuple(package_roots),
-            explicit_paths=explicit_extension_paths,
-            include_defaults=include_default_extensions,
-            include_workspace_defaults=include_workspace_defaults,
-        )
-        if extension_patterns:
-            from pipy_harness.native.resource_enablement import is_resource_enabled
+    activated: list[ActivatedExtension] = []
+    try:
+        if activation_batch is None:
+            reserved = extension_reserved_command_names(
+                resources.custom_command_slash_names()
+            )
+            descriptors = discover_extensions(
+                cwd,
+                package_roots=tuple(package_roots),
+                explicit_paths=explicit_extension_paths,
+                include_defaults=include_default_extensions,
+                include_workspace_defaults=include_workspace_defaults,
+            )
+            if extension_patterns:
+                from pipy_harness.native.resource_enablement import is_resource_enabled
 
-            descriptors = [
-                descriptor
-                for descriptor in descriptors
-                if descriptor.source_kind == "cli"
-                or is_resource_enabled(descriptor.name, list(extension_patterns))
-            ]
-        outbox: list[QueuedUserMessage] = []
-        custom_outbox: list[QueuedCustomMessage] = []
-        activated = activate_extensions(
-            descriptors,
-            reserved_command_names=reserved,
-            reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
-            message_outbox=outbox,
-            custom_message_outbox=custom_outbox,
+                descriptors = [
+                    descriptor
+                    for descriptor in descriptors
+                    if descriptor.source_kind == "cli"
+                    or is_resource_enabled(descriptor.name, list(extension_patterns))
+                ]
+            outbox: list[QueuedUserMessage] = []
+            custom_outbox: list[QueuedCustomMessage] = []
+            activated = activate_extensions(
+                descriptors,
+                reserved_command_names=reserved,
+                reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
+                message_outbox=outbox,
+                custom_message_outbox=custom_outbox,
+                diagnostic=diagnostic,
+            )
+        else:
+            activated = list(activation_batch.activated)
+            outbox = activation_batch.message_outbox
+            custom_outbox = activation_batch.custom_message_outbox
+            if activation_batch.pending:
+                raise ValueError("initial extension activation batch must be finalized")
+        return _compose_extension_runtime(activated, outbox, custom_outbox)
+    except BaseException:
+        # This boundary owns every supplied or newly activated candidate host
+        # until the runtime ownership value is constructed.
+        _report_activation_cleanup(
+            _dispose_activation_results(activated),
+            diagnostic,
         )
-    else:
-        if activation_batch.pending:
-            raise ValueError("initial extension activation batch must be finalized")
-        activated = list(activation_batch.activated)
-        outbox = activation_batch.message_outbox
-        custom_outbox = activation_batch.custom_message_outbox
+        raise
+
+
+def _compose_extension_runtime(
+    activated: Sequence[ActivatedExtension],
+    outbox: list[QueuedUserMessage],
+    custom_outbox: list[QueuedCustomMessage],
+) -> _ExtensionRuntime:
+    """Compose one candidate runtime without publishing its host ownership."""
+
     command_map = extension_command_map(activated)
     menu_names = tuple(f"/{name}" for name in command_map)
     descriptions = {
@@ -300,6 +324,12 @@ def _activate_workspace_extensions(
         message_renderers=extension_message_renderers(activated),
         entry_renderers=extension_entry_renderers(activated),
         custom_messages=custom_messages,
+        activation_hosts=tuple(
+            extension._activation_host
+            for extension in activated
+            if extension.status == "activated"
+            if extension._activation_host is not None
+        ),
     )
 
 

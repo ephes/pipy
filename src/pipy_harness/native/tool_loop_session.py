@@ -266,7 +266,9 @@ from pipy_harness.native.extension_runtime import (
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
     ToolRenderDetailsWriter,
+    _ExtensionCandidate,
     _ExtensionToolPort,
+    _report_activation_cleanup,
     dispatch_extension_command,
     dispatch_extension_shortcut,
     normalize_shortcut_key,
@@ -1317,13 +1319,20 @@ class _ReloadCommandEffects:
         if command_outcome.action is not CodingCommandAction.RELOAD:
             raise AssertionError("reload command executor received another action")
         # Open the publication gate before the first live selection, thinking,
-        # or tool-visibility read. It closes on every exception path.
-        with self.ctl.generation_ref.publishing():
-            self._reload_configuration_and_resources()
-            self._reload_extension_generation()
-            self.provider_mutation.refresh_provider_after_reload()
-            self._publish_tool_and_lifecycle_projections()
-            saved_implicit_trust = self._refresh_presentation_and_persistence()
+        # or tool-visibility read. The optional holder adopts the composed
+        # runtime immediately and disposes every rejected/exceptional candidate
+        # only after the gate's session-mutex handoff has closed. Publication
+        # empties it, so this cleanup can never dispose the live generation.
+        candidate = _ExtensionCandidate()
+        try:
+            with self.ctl.generation_ref.publishing():
+                self._reload_configuration_and_resources()
+                self._reload_extension_generation(candidate)
+                self.provider_mutation.refresh_provider_after_reload()
+                self._publish_tool_and_lifecycle_projections()
+                saved_implicit_trust = self._refresh_presentation_and_persistence()
+        finally:
+            _report_activation_cleanup(candidate.dispose(), self.diag)
         # Post-reload hooks deliberately run after the publication gate closes.
         self.emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
         self.diag(
@@ -1362,7 +1371,7 @@ class _ReloadCommandEffects:
             enable_skill_commands=self.settings.get_enable_skill_commands(),
         )
 
-    def _reload_extension_generation(self) -> None:
+    def _reload_extension_generation(self, candidate: _ExtensionCandidate) -> None:
         # The current live-host limitation requires clearing chrome before
         # activation. A rejected candidate therefore retains the documented
         # cleared-chrome residual behavior.
@@ -1381,7 +1390,9 @@ class _ReloadCommandEffects:
             explicit_extension_paths=self.resource_options.extension_paths,
             include_default_extensions=not self.resource_options.no_extensions,
             include_workspace_defaults=self.settings.project_trusted,
+            diagnostic=self.diag,
         )
+        candidate.adopt(reloaded_extension_runtime, self.diag)
         reloaded_flag_values, reloaded_flag_error = parse_extension_flag_tokens(
             reloaded_extension_runtime.flags,
             tuple(self.resource_options.extension_flag_tokens),
@@ -1390,11 +1401,15 @@ class _ReloadCommandEffects:
             self.diag(f"pipy: {reloaded_flag_error}")
             self.diag("pipy: keeping the previous extensions.")
             return
-        self.ctl.extension_generation = SessionExtensionGeneration(
+        candidate_generation = SessionExtensionGeneration(
             runtime=reloaded_extension_runtime,
             flag_values=reloaded_flag_values,
         )
-        self.emitter.set_flags(self.ctl.extension_generation.flag_values)
+        if not self._commit_extension_generation(candidate, candidate_generation):
+            self.diag("pipy: extension candidate ownership is unavailable")
+            self.diag("pipy: keeping the previous extensions.")
+            return
+        self.emitter.set_flags(candidate_generation.flag_values)
         for custom_message in reloaded_extension_runtime.custom_messages:
             self.extension_send_message(
                 custom_message.custom_type,
@@ -1403,6 +1418,27 @@ class _ReloadCommandEffects:
                 custom_message.options,
                 custom_message.details,
             )
+
+    def _commit_extension_generation(
+        self,
+        candidate: _ExtensionCandidate,
+        generation: SessionExtensionGeneration,
+    ) -> bool:
+        """Publish ownership immediately before the non-fallible pointer swap."""
+
+        try:
+            ownership_published = candidate.publish()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001 - reject a corrupted candidate
+            return False
+        if not ownership_published:
+            return False
+        # SessionGenerationRef.publish is a pointer assignment under the session
+        # mutex and is non-fallible by contract. No callback, projection, or I/O
+        # remains between host transfer and making this exact generation live.
+        self.ctl.extension_generation = generation
+        return True
 
     def _publish_tool_and_lifecycle_projections(self) -> None:
         runtime = self.ctl.extension_generation.runtime
@@ -3370,11 +3406,8 @@ class NativeToolReplSession:
             prompts_patterns=settings.get_prompts_patterns(),
             enable_skill_commands=settings.get_enable_skill_commands(),
         )
-        # Discover + activate Python extensions and project their slash
-        # commands. Activation runs extension code; a failing extension is
-        # disabled without affecting the session.
-        # Built-in tool names are reserved so an extension tool can never
-        # shadow a built-in tool.
+        # Activate extensions fail-closed; built-in tool names stay reserved
+        # so an extension cannot shadow them.
         extension_runtime = _activate_workspace_extensions(
             cwd,
             workspace_resources,
@@ -3387,31 +3420,61 @@ class NativeToolReplSession:
             include_default_extensions=not resource_options.no_extensions,
             include_workspace_defaults=settings.project_trusted,
             activation_batch=self.initial_extension_batch,
-        )
-        extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
-            extension_runtime.flags,
-            tuple(resource_options.extension_flag_tokens),
-        )
-        if extension_flag_error is not None:
-            print(f"pipy: {extension_flag_error}", file=error_stream)
-            now = datetime.now(UTC)
-            return NativeToolReplResult(
-                status=HarnessStatus.FAILED,
-                exit_code=2,
-                started_at=now,
-                ended_at=now,
-                provider_name=coding_state.provider_name,
-                model_id=coding_state.model_id,
-                error_type="ExtensionFlagError",
-                error_message=extension_flag_error,
-            )
-        generation_ref = SessionGenerationRef(
-            SessionExtensionGeneration(
-                runtime=extension_runtime,
-                flag_values=extension_flag_values,
+            diagnostic=lambda message: self._emit_diagnostic(
+                None, error_stream, message
             ),
-            lock=session_state_lock,
         )
+        candidate = _ExtensionCandidate(extension_runtime)
+        try:
+            extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
+                extension_runtime.flags,
+                tuple(resource_options.extension_flag_tokens),
+            )
+            if extension_flag_error is not None:
+                print(f"pipy: {extension_flag_error}", file=error_stream)
+                now = datetime.now(UTC)
+                return NativeToolReplResult(
+                    status=HarnessStatus.FAILED,
+                    exit_code=2,
+                    started_at=now,
+                    ended_at=now,
+                    provider_name=coding_state.provider_name,
+                    model_id=coding_state.model_id,
+                    error_type="ExtensionFlagError",
+                    error_message=extension_flag_error,
+                )
+            generation_ref = SessionGenerationRef(
+                SessionExtensionGeneration(
+                    runtime=extension_runtime,
+                    flag_values=extension_flag_values,
+                ),
+                lock=session_state_lock,
+            )
+            try:
+                ownership_published = candidate.publish()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001 - reject a corrupted candidate
+                ownership_published = False
+            if not ownership_published:
+                message = "extension candidate ownership is unavailable"
+                print(f"pipy: {message}", file=error_stream)
+                now = datetime.now(UTC)
+                return NativeToolReplResult(
+                    status=HarnessStatus.FAILED,
+                    exit_code=2,
+                    started_at=now,
+                    ended_at=now,
+                    provider_name=coding_state.provider_name,
+                    model_id=coding_state.model_id,
+                    error_type="ExtensionActivationError",
+                    error_message=message,
+                )
+        finally:
+            _report_activation_cleanup(
+                candidate.dispose(),
+                lambda message: self._emit_diagnostic(None, error_stream, message),
+            )
         extension_generation = generation_ref.current
         if isinstance(self.provider_state, NativeReplProviderState):
             runtime = self.provider_state.model_runtime
