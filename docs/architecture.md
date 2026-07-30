@@ -281,9 +281,11 @@ aliases still denote the authoritative owner objects.
 
 Initial activation fails closed per extension. Trusted extension code may
 perform its own external effects. Reload now rejects a candidate runtime and
-parsed flags together, but the stronger claim that every pipy-owned registry,
-projection, retained chrome value, and queue sidecar publishes coherently is
-still outstanding. The controlling R0 decisions and per-clause evidence are in
+parsed flags together and preserves the prior retained TUI chrome/listeners on
+that rejection. Candidate chrome requests use a closed guarded sink and are
+reconciled only after semantic acceptance, but the stronger claim that every
+pipy-owned registry, projection, retained chrome value, and queue sidecar
+publishes coherently is still outstanding. The controlling R0 decisions and per-clause evidence are in
 the transactional spec's
 [R0 current reconciliation](specs/2026-07-25-transactional-extension-reload-rebuild.md#r0-current-reconciliation-2026-07-30).
 
@@ -371,10 +373,26 @@ append. Only the frozen staged flush versus accepted/live runtime append
 ordering seam remains R4a-owned; R1 does not publish that queue sidecar early.
 Current activation still has
 no timeout—`extension_loader._drive_awaitable()` joins its private worker
-without one—and R1 added no timeout policy. Live chrome is still cleared before
-candidate validation. R2 owns old-chrome preservation and makes closed retained
-chrome writes silent shape-preserving no-ops (`on_terminal_input` still returns
-an inert disposer).
+without one—and R1 added no timeout policy. R2 removed the pre-validation live
+chrome clear: malformed flags and other candidate failures retain the old title,
+widgets, listeners, autocomplete/editor registrations, indicator, and folded-
+thinking label. Candidate sinks close without delivery; every late retained
+class-B setter/registration silently returns `None`, while
+`on_terminal_input` returns an inert disposer. A rejected reload does not
+re-fire the retained generation's `session_start`; its existing append-style
+listeners, autocomplete providers, and editor factory remain untouched.
+Replacement `session_start` callbacks are the production candidate-chrome
+producer only after semantic acceptance: R2 routes those post-gate,
+pre-reconciliation retained writes into the detached sink exactly once. The
+live driver's separate owner-selection guard records only short handoff/lease
+transitions. Reconcile/paint, factories and callbacks, session-mutex
+acquisition, and retired disposal run after it is released. Concurrent retained
+or candidate writes racing a handoff queue/replay exactly once; an explicit
+nested retirement routing scope sends synchronous disposal reentry to a closed
+sink, so retiring writes cannot join that queue or overwrite the candidate. R3 carries the
+sidecar in the complete generation; R4c, not R2, binds ordinary
+command/hook/tool invocations (including retained stale invocations) to the
+originating published or retired generation and closes retired-live handles.
 
 The R0 audit also found a reachable queue lost update: a cancelled
 `pipy-tool-call` worker may outlive its bounded join and use a retained activation
@@ -421,7 +439,8 @@ admission and makes stale or terminal calls return `False`. R6 owns terminal
 persistence. Model defaults are queued during selection and written only after
 the selection is live; a persistence failure is reported without claiming the
 selection reverted. The reload effect owner closes the publication gate before
-firing the replacement generation's `session_start` hook, emits the final reload
+firing an accepted replacement generation's `session_start` hook exactly once;
+a rejected replacement fires no retained-generation lifecycle hook. It emits the final reload
 diagnostic next, and the root footer policy runs only after that effect returns.
 The full R1–R6 sequence, including ordered R5a then R5b, remains mandatory before
 R7 can close this boundary; the remediation queue contains exactly 27 execution
@@ -511,11 +530,19 @@ runs callbacks and trusted components, paints, and restores the terminal. The
 captured `render_lines()` projection retains its characterized exclusion of the
 session picker while the live paint projection renders it.
 
-`native/extension_chrome_state.py` owns extension chrome values and one live
-region/hook generation. Clear snapshots the regions for effectful façade
-disposal first, then advances the generation and drops header/footer/widgets,
-title/indicator state, footer factory/branch/callback/rebuild state, and
-terminal-input registrations. Chrome or listeners synchronously registered by a
+`native/extension_chrome_state.py` owns both guarded candidate retained-chrome
+sidecars and the concrete TUI's live region/hook generation. One sidecar guard
+serializes each closed-check+write with close for header/footer/widgets,
+title/indicator, terminal-input listeners, autocomplete providers, custom editor
+registration, and the folded-thinking label. Attach keeps delivery unpublished
+while reconciling its snapshot, queues writes that race that handoff, drains each
+once, and only then exposes live delivery. Driver ownership stays on the old
+sink until this succeeds; reconcile failure restores the old snapshot or retries
+the candidate before transferring ownership. Adapter delivery, callbacks,
+disposal, paint, and session-mutex acquisition occur only after unlock. The TUI
+reconciliation clear snapshots regions for effectful façade disposal first,
+then advances the generation and drops all of those retained families plus
+footer factory/branch/callback/rebuild state. Chrome or listeners synchronously registered by a
 component's `dispose()` therefore remain in the retiring generation and are
 cleared too, while retained old-generation disposers are inert. Status rows and
 the sticky working message/visibility are cross-generation product values and
@@ -707,8 +734,8 @@ C901-pinned file. The load-bearing summary is:
 
 - the Slice 3 work is a useful generation/publication safety ratchet, but not
   the complete reconciled transaction. R1 has shipped the guarded sealed/
-  disposed candidate activation host; rejected activation can still clear
-  retained chrome; generation
+  disposed candidate activation host and R2 has shipped rejected-candidate
+  retained-chrome/listener staging and post-acceptance reconciliation; generation
   snapshots are not adopted by production operations; mutation ports are not
   generation-bound; a cancelled extension-tool worker can race the session
   outbox copy/clear and lose its append; a retained coding-session control can
@@ -733,8 +760,9 @@ C901-pinned file. The load-bearing summary is:
 - PTY sleeps and deadlines are bounded polling/backoff and failure limits;
   observable bytes and offsets own sequencing.
 
-R0 reconciled the bounded contract and R1 shipped candidate registration
-sealing without advancing later projection work. The next architecture action
-is **R2 — stage candidate chrome and listeners**; ordinary product-parity
-selection remains blocked through R7.
+R0 reconciled the bounded contract, R1 shipped candidate registration sealing,
+and R2 shipped candidate retained-chrome/listener staging without claiming
+retired-live generation binding. The next architecture action is **R3 — build
+one immutable extension projection**; ordinary product-parity selection remains
+blocked through R7.
 That is not a verdict that the broader program failed.

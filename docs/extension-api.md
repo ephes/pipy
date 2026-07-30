@@ -62,6 +62,26 @@ to another key. Raw terminal input subscriptions ship for live product-TUI comma
 `ctx.ui.onTerminalInput(handler)`: handlers see decoded key strings before
 built-in editor handling, may consume or replace them, and receive an
 idempotent disposer; headless contexts return a no-op disposer like Pi RPC.
+Retained chrome/listener/autocomplete/editor-component writes are staged in a
+candidate-owned sink during reload. Invalid flags or another fallible candidate
+failure leave the prior live chrome intact and never paint the candidate; an
+accepted candidate reconciles only after its generation commits. Rejection does
+not re-fire the retained generation's `session_start`, so append-style terminal
+listeners and autocomplete providers are not duplicated and its editor instance
+is not rebuilt. An accepted replacement's `session_start` retained writes use
+that detached sink exactly once and become visible as one accepted snapshot;
+writes racing the owner handoff are delivered once after the snapshot rather
+than being wiped by it. Reconcile/paint, factories and callbacks, session-mutex
+acquisition, and disposal run outside both the sink-local state guard and the
+live driver's short owner-selection guard. If reconciliation fails, pipy keeps
+or restores the prior chrome where possible and reports a bounded diagnostic;
+it never closes a sink after transferring live ownership. Interrupts from a
+retired listener disposer propagate after that transfer without closing the
+new live sink. Once a
+rejected candidate sink closes, late setters/registrations silently return
+`None`, and `on_terminal_input()` returns an inert disposer, with no diagnostic.
+This does not yet claim that a handle from a retired *live* generation is bound
+to that old generation (R4c) or that terminal teardown invokes closure (R5a).
 Autocomplete provider wrappers ship for live product-TUI command/
 shortcut contexts via `ctx.ui.add_autocomplete_provider` /
 `ctx.ui.addAutocompleteProvider`, using Pi-shaped `get_suggestions` /
@@ -832,8 +852,11 @@ commands remain strict and do not consume extension flags.
 
 `/reload` reactivates extensions and reparses the original per-run extension
 flag tokens. If the reloaded extension set no longer accepts those tokens, pipy
-reports the flag error and keeps the last valid flag values for the existing
-session instead of clearing them mid-run.
+reports the flag error and keeps the last valid flag values and retained TUI
+chrome/listeners for the existing session instead of clearing them mid-run.
+Candidate widgets, title, indicator, terminal-input listeners, autocomplete
+providers, editor component, and hidden-thinking label are never delivered on
+that rejection.
 
 ## Packages And Package-Manager CLI
 
@@ -1457,10 +1480,16 @@ and the live `scripts/tmux_answer_verify.sh`.
     alternate buffer, so it cannot own the host terminal's top row); aside from
     placement it is Pi's `setHeader`. `session_start` chrome renders live in an
     interactive TTY because lifecycle hooks now receive the live UI driver.
-    `/reload` clears all extension chrome before re-activating extensions, then
-    re-fires the new generation's `session_start` hook with `reason="reload"`,
-    matching Pi's reload `session_start` lifecycle. Chrome an extension sets
-    from that hook is restored immediately through the live UI driver.
+    `/reload` stages a fresh retained-chrome/listener sink while activation and
+    flag validation remain fallible. Rejection closes that sink without paint,
+    preserves the prior live chrome, and does not re-fire its `session_start`.
+    Acceptance commits the extension generation first, then fires the
+    replacement's `session_start` exactly once with `reason="reload"`
+    against the detached candidate and reconciles it (so removal clears old
+    chrome only after acceptance). Chrome that hook sets is staged rather than
+    painted early, then renders through the accepted sink. Registrations omitted
+    by the replacement hook are cleared; custom-editor text is preserved in the
+    built-in editor.
     The working indicator **does** animate: custom `frames` cycle through pipy's
     existing spinner loop at `interval_ms` (default interval otherwise). The live
     UI driver is now threaded into non-lifecycle event hooks too
@@ -1590,7 +1619,10 @@ and the live `scripts/tmux_answer_verify.sh`.
     for later listeners/built-ins with Pi's `{consume, data}` result shape, bad
     handlers fail soft, and the returned disposer is idempotent. Headless
     contexts return a no-op disposer and never invoke the handler; raw inputs
-    are live-only and never archived.
+    are live-only and never archived. Reload candidates now retain the exact
+    handler/disposer identity in their guarded sink; rejection never registers
+    it with the TUI, and a late registration after sink close returns an inert
+    disposer.
 26. Autocomplete provider wrappers — **landed for live product-TUI command/
     shortcut contexts**: `ctx.ui.add_autocomplete_provider(factory)` and the
     Pi-shaped `ctx.ui.addAutocompleteProvider(factory)` stack wrappers around

@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R2 — stage candidate chrome and listeners**
+**Active/next slice:** **R3 — build one immutable extension projection**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -92,9 +92,12 @@ The frozen snapshot is authoritative for staged user/custom messages: post-seal
 sends while activation is still pending silently do nothing and commit flushes
 only that snapshot once. Runtime queue-sidecar conversion—including frozen-
 staged-flush before an accepted live runtime append—remains R4a; no activation timeout policy
-was added. R2 is now the only active slice and owns candidate chrome/listener
-staging plus rejected-candidate chrome preservation without publishing later
-projection work early.
+was added. R2 is complete: candidate chrome/listener staging preserves rejected
+chrome without re-firing retained `session_start`; accepted replacements fire
+once after commit, and the effect-free owner handoff keeps delivery, paint,
+callbacks, disposal, and session-mutex acquisition outside its guards. R3 is the
+only active slice and builds the immutable projection without publishing later
+consumer work early.
 
 The reachable cancelled-tool-worker versus session-drain lost update is assigned
 to R3/R4a's complete writer set (both activation send names/alias and

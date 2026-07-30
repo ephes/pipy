@@ -27,6 +27,18 @@ class _FakeUi:
         self.calls = []
         self.input_text = "draft"
         self.pasted = []
+        self.theme = object()
+        self.keybindings = object()
+        self.retirement_scopes = []
+        self.editor_factory = None
+        self.editor_component = None
+
+    def reconcile_extension_chrome(self, snapshot, *, retirement_scope):
+        assert callable(retirement_scope)
+        self.retirement_scopes.append(retirement_scope)
+        self.calls.append(("reconcile", snapshot))
+        self.set_editor_component(snapshot.editor_component)
+        return {}
 
     def set_extension_widget(self, key, content, *, placement):
         self.calls.append(("widget", key, content, placement))
@@ -60,10 +72,13 @@ class _FakeUi:
 
     def set_editor_component(self, factory):
         self.calls.append(("set-editor-component", factory))
-        self.editor_component = factory
+        self.editor_factory = factory if callable(factory) else None
+        self.editor_component = (
+            factory(self, self.theme, self.keybindings) if callable(factory) else None
+        )
 
     def get_editor_component(self):
-        return getattr(self, "editor_component", None)
+        return self.editor_factory
 
 
 def test_driver_delegates_all_five(tmp_path):
@@ -114,20 +129,46 @@ def test_driver_delegates_editor_text_helpers(tmp_path):
     assert ui.calls[-1] == ("paste-input", "paste")
 
 
-def test_live_driver_delegates_editor_component_to_terminal_ui(tmp_path):
+def test_live_driver_returns_retained_editor_factory_across_candidate_handoff(
+    tmp_path,
+):
     ui = _FakeUi()
     driver = _LiveExtensionUiDriver(ui, tmp_path)
-    factory = object()
+    live_component = object()
+    candidate_component = object()
+    invocations = []
+
+    def live_factory(tui, theme, keybindings):
+        invocations.append(("live", tui, theme, keybindings))
+        return live_component
+
+    def candidate_factory(tui, theme, keybindings):
+        invocations.append(("candidate", tui, theme, keybindings))
+        return candidate_component
 
     assert driver.get_editor_component() is None
-    driver.set_editor_component(factory)
-    assert driver.get_editor_component() is factory
+    driver.set_editor_component(live_factory)
+    assert driver.get_editor_component() is live_factory
+    assert ui.editor_component is live_component
+
+    candidate = driver.new_candidate_sink()
+    candidate_driver = driver.candidate_driver(candidate)
+    candidate_driver.set_editor_component(candidate_factory)
+    assert driver.get_editor_component() is live_factory
+    assert candidate_driver.get_editor_component() is live_factory
+    assert ui.calls == [("set-editor-component", live_factory)]
+
+    accepted = driver.accept_candidate(candidate)
+    assert accepted.accepted
+    assert driver.get_editor_component() is candidate_factory
+    assert ui.editor_component is candidate_component
+    assert invocations == [
+        ("live", ui, ui.theme, ui.keybindings),
+        ("candidate", ui, ui.theme, ui.keybindings),
+    ]
+    assert ui.retirement_scopes == [driver._retiring_disposal_route]  # noqa: SLF001
     driver.set_editor_component(None)
     assert driver.get_editor_component() is None
-    assert ui.calls == [
-        ("set-editor-component", factory),
-        ("set-editor-component", None),
-    ]
 
 
 def test_lifecycle_hook_reaches_live_ui_driver(tmp_path):

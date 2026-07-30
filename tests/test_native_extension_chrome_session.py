@@ -25,6 +25,7 @@ import pytest
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
@@ -220,11 +221,156 @@ def test_pty_session_renders_then_reload_clears_chrome(
         # file is gone, so nothing re-sets the widget -> it must vanish.
         ext_file.unlink()
         os.write(in_master, b"/reload\n")
-        assert _wait_until_absent(err_chunks, "DEMO_WIDGET", columns=100, rows=40), (
-            "widget still on screen after /reload cleared chrome"
+        assert _wait_for(err_chunks, "reloaded settings"), "reload never finished"
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and ui.extension_widgets_above:
+            time.sleep(0.02)
+        assert ui.extension_widgets_above == {}
+        # Delayed acceptance intentionally lets the old live frame become host
+        # scrollback when /reload is submitted; only the post-reload live region
+        # is replaceable. The accepted sink must not repaint the removed widget.
+        snapshot = parse_ansi_screen(
+            b"".join(err_chunks).decode("utf-8", errors="replace"),
+            columns=100,
+            rows=40,
         )
+        rows = list(snapshot.viewport)
+        reload_row = next(i for i, row in enumerate(rows) if "reloaded settings" in row)
+        assert all("DEMO_WIDGET" not in row for row in rows[reload_row:])
 
         os.write(in_master, b"\x03")  # ctrl-c exits the prompt
+        worker.join(timeout=8.0)
+    finally:
+        try:
+            os.write(in_master, b"\x03")
+        except OSError:
+            pass
+        terminal.flush()
+        terminal.close()
+        stdin.close()
+        err_thread.join(timeout=8.0)
+        os.close(in_master)
+        os.close(err_master)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="pty integration requires posix")
+def test_pty_invalid_reload_flags_retain_old_widget_title_and_listener(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("LINES", "40")
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("PIPY_NATIVE_SESSIONS_ROOT", str(tmp_path / "sessions"))
+
+    ext_dir = tmp_path / ".pipy" / "extensions"
+    ext_dir.mkdir(parents=True)
+    ext_file = ext_dir / "chrome-flags.py"
+    callback_marker = tmp_path / "listener_calls.txt"
+    ext_file.write_text(
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        f"    callback_marker = Path({str(callback_marker)!r})\n"
+        "    api.register_flag(ExtensionFlag('keep', 'boolean'))\n"
+        "    def listener(key):\n"
+        "        if key == 'x':\n"
+        "            with callback_marker.open('a', encoding='utf-8') as fh:\n"
+        "                fh.write(key)\n"
+        "            return {'data': 'z'}\n"
+        "        return None\n"
+        "    def autocomplete(base):\n"
+        "        return base\n"
+        "    def editor(*_args):\n"
+        "        return None\n"
+        "    @api.on('session_start')\n"
+        "    def _start(event, ctx):\n"
+        "        ctx.ui.set_widget('old', ['OLD_FLAG_WIDGET'])\n"
+        "        ctx.ui.set_title('OLD_FLAG_TITLE')\n"
+        "        ctx.ui.on_terminal_input(listener)\n"
+        "        ctx.ui.add_autocomplete_provider(autocomplete)\n"
+        "        ctx.ui.set_editor_component(editor)\n",
+        encoding="utf-8",
+    )
+
+    in_master, in_slave = pty.openpty()
+    err_master, err_slave = pty.openpty()
+    stdin = os.fdopen(in_slave, "r", buffering=1, encoding="utf-8")
+    terminal = os.fdopen(err_slave, "w", buffering=1, encoding="utf-8")
+    err_thread, err_chunks = _spawn_live_drainer(err_master)
+    ui = ToolLoopTerminalUi(
+        input_stream=cast(TextIO, stdin),
+        terminal_stream=cast(TextIO, terminal),
+        cwd=tmp_path,
+    )
+    session = NativeToolReplSession(
+        provider=_Provider(),
+        tool_registry={},
+        resource_options=RuntimeResourceOptions(extension_flag_tokens=("--keep",)),
+    )
+    monkeypatch.setattr(
+        NativeToolReplSession,
+        "_build_terminal_ui",
+        lambda self, input_stream, error_stream, workspace, resources=None, **_kw: ui,
+    )
+    worker = threading.Thread(
+        target=lambda: session.run(
+            workspace_root=tmp_path,
+            input_stream=cast(TextIO, stdin),
+            output_stream=cast(TextIO, terminal),
+            error_stream=cast(TextIO, terminal),
+        ),
+        daemon=True,
+    )
+    worker.start()
+    try:
+        assert _wait_for(err_chunks, "OLD_FLAG_WIDGET"), (
+            "startup session_start chrome never painted"
+        )
+        listeners_before = tuple(ui._chrome.terminal_input_listeners.values())
+        providers_before = tuple(ui._autocomplete_provider_factories)
+        editor_before = ui.get_editor_component()
+        assert len(listeners_before) == len(providers_before) == 1
+        assert editor_before is not None
+
+        ext_file.write_text(
+            "def activate(api):\n"
+            "    api.register_command('new', 'candidate without keep flag', lambda ctx, args: None)\n",
+            encoding="utf-8",
+        )
+        for reload_index in range(2):
+            before_bytes = len(b"".join(err_chunks))
+            os.write(in_master, b"/reload\n")
+            deadline = time.monotonic() + 8.0
+            while time.monotonic() < deadline:
+                rendered = b"".join(err_chunks)
+                if (
+                    len(rendered) > before_bytes
+                    and rendered.count(b"keeping the previous extensions")
+                    >= reload_index + 1
+                ):
+                    break
+                time.sleep(0.02)
+            else:
+                pytest.fail("invalid candidate flag was not reported")
+
+            assert tuple(ui._chrome.terminal_input_listeners.values()) == (
+                listeners_before
+            )
+            assert tuple(ui._autocomplete_provider_factories) == providers_before
+            assert ui.get_editor_component() is editor_before
+            assert ui.extension_title == "OLD_FLAG_TITLE"
+            assert "old" in ui.extension_widgets_above
+            assert ui._apply_extension_terminal_input_listeners("x") == "z"
+            assert callback_marker.read_text(encoding="utf-8") == "x" * (
+                reload_index + 1
+            )
+            assert not _wait_until_absent(
+                err_chunks, "OLD_FLAG_WIDGET", columns=100, rows=40, timeout=0.3
+            )
+
+        os.write(in_master, b"\x03")
         worker.join(timeout=8.0)
     finally:
         try:

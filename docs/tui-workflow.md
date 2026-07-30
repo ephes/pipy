@@ -37,11 +37,29 @@ suspended frame restores the outer rows, title, and selection exactly before it
 resumes. Extension header/footer,
 widget, title, status, working/indicator, terminal-input-listener, and footer-
 branch bookkeeping moved behind
-`native.extension_chrome_state.ExtensionChromeState`. Chrome clear/reload
-runs component disposal before retiring generation-owned regions, footer rebuild
-hooks, and terminal-input registrations, so chrome/listeners registered during
-disposal are retired too; cross-generation status rows and sticky working
-message/visibility remain preserved. The same `ToolLoopTerminalUi` methods and
+`native.extension_chrome_state.ExtensionChromeState`, while
+`ExtensionChromeSink` owns each reload candidate's retained header/footer/
+widgets/title/indicator, terminal-input listeners, autocomplete providers,
+editor-component factory, and hidden-thinking label under one sink-local guard.
+An accepted replacement's `session_start` callback writes exactly once through
+a candidate-bound driver; candidate rejection closes without delivery or paint
+and does not re-fire the retained callback. Acceptance reconciles only after the
+extension generation commits; attach queues writes that race its snapshot,
+drains them once, and transfers driver ownership only after success. A separate
+short driver guard selects the owner and records handoff leases; it is released
+before sink writes, reconcile/paint, factories/callbacks, session-mutex
+acquisition, or disposal. Writes racing that selection queue until success or
+recovery picks their one owner. A failed reconcile restores old chrome where
+possible or retries the coherent candidate without double-close. Retired
+cleanup happens only after ownership transfer, and `KeyboardInterrupt`/
+`SystemExit` propagate without closing the live replacement. Concrete chrome clear runs component
+disposal before retiring those live registrations, so chrome/listeners
+registered during disposal are retired too; cross-generation status rows and
+sticky working message/visibility remain preserved. Clearing a custom editor
+round-trips its text to the built-in editor, while a built-in editor's text,
+cursor, and undo/redo state are not restaged. Paint, callbacks, disposal, and
+session-mutex acquisition never run while the sink guard is held. The same
+`ToolLoopTerminalUi` methods and
 live extension UI bridge remain the effect adapters: raw mode, decoded input,
 callbacks/components, disposal, filesystem/git reads, terminal titles, painting,
 and locks did not move. `TerminalDriver.raw_mode()` balances nested ownership

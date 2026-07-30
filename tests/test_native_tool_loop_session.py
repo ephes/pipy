@@ -684,6 +684,7 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
             "redraw_custom_entries_for_active_branch",
             "extension_send_message",
             "extension_render_details",
+            "extension_ui_driver",
         },
         "_BuiltinCommandInterpreter": {
             "session_effects",
@@ -831,47 +832,65 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         and node.func.value.id == "candidate"
         and node.func.attr == "dispose"
     )
-    lifecycle_call = next(
+    finish_chrome_call = next(
         node
-        for node in reload_execute.body
-        if isinstance(node, ast.Expr)
-        and isinstance(node.value, ast.Call)
-        and isinstance(node.value.func, ast.Attribute)
-        and node.value.func.attr == "fire_lifecycle"
+        for node in ast.walk(publication_lifetime)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_finish_candidate_chrome"
     )
-    lifecycle_expression = lifecycle_call.value
-    assert isinstance(lifecycle_expression, ast.Call)
-    assert len(lifecycle_expression.args) == 1
-    lifecycle_event = lifecycle_expression.args[0]
-    assert isinstance(lifecycle_event, ast.Name)
-    assert lifecycle_event.id == "EVENT_SESSION_START"
-    assert len(lifecycle_expression.keywords) == 1
-    lifecycle_reason = lifecycle_expression.keywords[0]
-    assert lifecycle_reason.arg == "reason"
-    assert isinstance(lifecycle_reason.value, ast.Constant)
-    assert lifecycle_reason.value.value == "reload"
     final_diagnostic = next(
         node
-        for node in reload_execute.body
-        if isinstance(node, ast.Expr)
-        and isinstance(node.value, ast.Call)
-        and isinstance(node.value.func, ast.Attribute)
-        and node.value.func.attr == "diag"
+        for node in ast.walk(publication_lifetime)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "diag"
+        and node.lineno > finish_chrome_call.lineno
     )
     publishing_end = publishing.end_lineno
     assert publishing_end is not None
-    assert publishing_end < disposal_call.lineno
-    assert disposal_call.lineno < lifecycle_call.lineno
-    assert lifecycle_call.lineno < final_diagnostic.lineno
+    assert publishing_end < finish_chrome_call.lineno
+    assert finish_chrome_call.lineno < final_diagnostic.lineno
+    assert final_diagnostic.lineno < disposal_call.lineno
     reload_methods = {
         node.name: node
         for node in reload_owner.body
         if isinstance(node, ast.FunctionDef)
     }
+    finish_chrome = reload_methods["_finish_candidate_chrome"]
+    lifecycle_calls = [
+        node
+        for node in ast.walk(finish_chrome)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "fire_lifecycle"
+    ]
+    assert len(lifecycle_calls) == 2
+    assert all(
+        isinstance(call.args[0], ast.Name)
+        and call.args[0].id == "EVENT_SESSION_START"
+        and any(
+            keyword.arg == "reason"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value == "reload"
+            for keyword in call.keywords
+        )
+        for call in lifecycle_calls
+    )
+    accept_call = next(
+        node
+        for node in ast.walk(finish_chrome)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "accept_candidate"
+    )
+    staged_call = next(call for call in lifecycle_calls if len(call.keywords) == 2)
+    assert staged_call.lineno < accept_call.lineno
     reload_method_line_budgets = {
-        "execute": 36,
+        "execute": 44,
+        "_finish_candidate_chrome": 43,
         "_reload_configuration_and_resources": 32,
-        "_reload_extension_generation": 54,
+        "_reload_extension_generation": 56,
         "_commit_extension_generation": 26,
         "_publish_tool_and_lifecycle_projections": 30,
         "_diagnose_unknown_tool_filters": 12,
@@ -2306,6 +2325,50 @@ def test_reload_refreshes_extension_entry_renderers(
     assert "new:two" in rendered_blocks
     assert "old:one" not in rendered_blocks
     assert "old:two" not in rendered_blocks
+
+
+def test_repeated_rejected_headless_reloads_do_not_refire_retained_session_start(
+    tmp_path: Path,
+) -> None:
+    from pipy_harness.native.resource_loading import RuntimeResourceOptions
+
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    proof = tmp_path / "rejected_session_start.txt"
+    extension_file = extension_dir / "rejected_lifecycle.py"
+    extension_file.write_text(
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import ExtensionFlag\n"
+        "def activate(api):\n"
+        f"    proof = Path({str(proof)!r})\n"
+        "    api.register_flag(ExtensionFlag('keep', 'boolean'))\n"
+        "    @api.on('session_start')\n"
+        "    def started(event, ctx):\n"
+        "        with proof.open('a', encoding='utf-8') as fh:\n"
+        "            fh.write((event.reason or '') + '\\n')\n"
+        "    def reject_next(ctx, args):\n"
+        "        Path(__file__).write_text(\"def activate(api):\\n    pass\\n\", encoding='utf-8')\n"
+        "    api.register_command('reject-next', 'make reload invalid', reject_next)\n",
+        encoding="utf-8",
+    )
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    session = NativeToolReplSession(
+        provider=provider,
+        tool_registry={},
+        resource_options=RuntimeResourceOptions(extension_flag_tokens=("--keep",)),
+    )
+    error_stream = io.StringIO()
+
+    session.run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("/reject-next\n/reload\n/reload\n/exit\n"),
+        output_stream=io.StringIO(),
+        error_stream=error_stream,
+    )
+
+    assert proof.read_text(encoding="utf-8").splitlines() == ["startup"]
+    assert error_stream.getvalue().count("keeping the previous extensions") == 2
+    assert provider._call_counter[0] == 0
 
 
 def test_reload_fires_session_start_reload_for_new_extension_generation(

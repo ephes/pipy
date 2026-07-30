@@ -592,7 +592,13 @@ class _ExtensionLifecycleAgentEventAdapter:
     def set_flags(self, flags: Mapping[str, object]) -> None:
         self._lifecycle_flags = dict(flags)
 
-    def fire_lifecycle(self, name: str, *, reason: str | None = None) -> None:
+    def fire_lifecycle(
+        self,
+        name: str,
+        *,
+        reason: str | None = None,
+        ui_driver_override: ExtensionUiDriver | None = None,
+    ) -> None:
         hooks = self._lifecycle_hooks.get(name)
         if not hooks:
             return
@@ -602,7 +608,11 @@ class _ExtensionLifecycleAgentEventAdapter:
             cwd=self._lifecycle_cwd,
             has_ui=self._lifecycle_has_ui,
             notify_sink=self._lifecycle_notify_sink,
-            ui_driver=self._lifecycle_ui_driver,
+            ui_driver=(
+                ui_driver_override
+                if ui_driver_override is not None
+                else self._lifecycle_ui_driver
+            ),
             flags=self._lifecycle_flags,
             project_trusted=self._lifecycle_project_trusted,
         )

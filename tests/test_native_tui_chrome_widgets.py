@@ -1,9 +1,17 @@
 import io
+import threading
 
 import pytest
 
-from pipy_harness.native.extension_chrome_state import ChromeRegion
-from pipy_harness.native.tui import ToolLoopTerminalUi, _TuiToolLoopRenderer
+from pipy_harness.native.extension_chrome_state import (
+    ChromeRegion,
+    ExtensionChromeSnapshot,
+)
+from pipy_harness.native.tui import (
+    ToolLoopTerminalUi,
+    _LiveExtensionUiDriver,
+    _TuiToolLoopRenderer,
+)
 from pathlib import Path
 
 
@@ -109,6 +117,9 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
     ui.set_extension_working_message("sticky")
     ui.set_extension_working_visible(False)
     ui.add_extension_terminal_input_listener(lambda key: None)
+    ui.add_extension_autocomplete_provider(lambda base: base)
+    ui.set_editor_component(lambda *_args: object())
+    ui.set_extension_hidden_thinking_label("Folded")
     ui.clear_extension_chrome()
     assert ui.extension_widgets_above == {}
     assert ui.extension_header is None
@@ -117,9 +128,167 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
     assert ui._extension_footer_branch is None
     assert ui.extension_title is None
     assert ui._extension_terminal_input_listeners == {}
+    assert ui._autocomplete_provider_factories == []
+    assert ui.get_editor_component() is None
+    assert ui.hidden_thinking_label == "Thinking..."
     assert ui.extension_status == {"status": "value"}
     assert ui.extension_working_message == "sticky"
     assert ui.extension_working_visible is False
+
+
+def test_clear_without_custom_editor_preserves_text_cursor_and_undo_state():
+    ui = _ui()
+    ui._editor.set_buffer("draft text", cursor=3)
+    ui._editor.undo_stack[:] = [("older", 2)]
+    ui._editor.redo_stack[:] = [("newer", 4)]
+    ui._editor.pending_initial_text = "pending draft"
+    before = (
+        ui._editor.text,
+        ui._editor.cursor,
+        list(ui._editor.undo_stack),
+        list(ui._editor.redo_stack),
+        ui._editor.pending_initial_text,
+    )
+
+    ui.clear_extension_chrome()
+
+    assert (
+        ui._editor.text,
+        ui._editor.cursor,
+        ui._editor.undo_stack,
+        ui._editor.redo_stack,
+        ui._editor.pending_initial_text,
+    ) == before
+
+
+def test_reconcile_clears_active_custom_editor_and_round_trips_its_text():
+    ui = _ui()
+    disposed: list[str] = []
+
+    class _Editor:
+        text = ""
+
+        def get_text(self):
+            return self.text
+
+        def set_text(self, text):
+            self.text = text
+
+        def dispose(self):
+            disposed.append(self.text)
+
+    component = _Editor()
+    ui.set_input_text("built-in draft")
+    ui.set_editor_component(lambda *_args: component)
+    component.text = "custom draft"
+
+    ui.reconcile_extension_chrome(ExtensionChromeSnapshot())
+
+    assert disposed == ["custom draft"]
+    assert ui.get_editor_component() is None
+    assert ui.get_input_text() == "custom draft"
+    assert ui.hidden_thinking_label == "Thinking..."
+
+
+@pytest.mark.parametrize("interrupt_type", [KeyboardInterrupt, SystemExit])
+def test_clear_propagates_custom_editor_text_interrupt_before_detach(interrupt_type):
+    ui = _ui()
+
+    class _Editor:
+        def get_text(self):
+            raise interrupt_type()
+
+        def set_text(self, _text):
+            return None
+
+        def render(self, _width):
+            return ["editor"]
+
+    factory = lambda *_args: _Editor()  # noqa: E731
+    ui.set_editor_component(factory)
+    ui.set_extension_widget("kept", ["kept"])
+    generation = ui._chrome.generation
+
+    with pytest.raises(interrupt_type):
+        ui.clear_extension_chrome()
+
+    assert ui._chrome.generation == generation
+    assert ui.get_editor_component() is factory
+    assert "kept" in ui.extension_widgets_above
+
+
+def test_clear_serializes_title_restore_and_paint_but_unlocks_callbacks(  # noqa: C901
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ui = _ui()
+    lock_observations: list[tuple[str, bool]] = []
+
+    def observe_lock(name: str) -> None:
+        acquired: list[bool] = []
+
+        def probe() -> None:
+            available = ui._paint_lock.acquire(timeout=1.0)
+            acquired.append(available)
+            if available:
+                ui._paint_lock.release()
+
+        thread = threading.Thread(target=probe)
+        thread.start()
+        thread.join(timeout=2.0)
+        assert not thread.is_alive()
+        lock_observations.append((name, acquired == [True]))
+
+    class _Region:
+        def render(self, _width):
+            return ["region"]
+
+        def dispose(self):
+            observe_lock("region-dispose")
+
+    class _Editor:
+        def get_text(self):
+            observe_lock("editor-get-text")
+            return "safe"
+
+        def set_text(self, _text):
+            return None
+
+        def render(self, _width):
+            return ["editor"]
+
+        def dispose(self):
+            observe_lock("editor-dispose")
+
+    ui.set_extension_widget("region", lambda _theme: _Region())
+    ui.set_editor_component(lambda *_args: _Editor())
+    ui.set_extension_title("extension")
+    driver_type = type(ui._driver)
+    original_restore = driver_type.restore_title
+
+    def restore_title(driver):
+        observe_lock("restore-title")
+        original_restore(driver)
+
+    monkeypatch.setattr(driver_type, "restore_title", restore_title)
+    ui_type = type(ui)
+    original_paint_locked = ui_type._paint_locked
+
+    def paint_locked(instance):
+        if instance is ui:
+            observe_lock("paint")
+        original_paint_locked(instance)
+
+    monkeypatch.setattr(ui_type, "_paint_locked", paint_locked)
+
+    ui.clear_extension_chrome()
+
+    assert lock_observations == [
+        ("editor-get-text", True),
+        ("region-dispose", True),
+        ("editor-dispose", True),
+        ("restore-title", False),
+        ("paint", False),
+    ]
 
 
 def test_clear_discards_chrome_and_listeners_registered_during_dispose():
@@ -153,6 +322,140 @@ def test_clear_discards_chrome_and_listeners_registered_during_dispose():
     assert callable(stale_dispose)
     stale_dispose()
     assert ui._apply_extension_terminal_input_listeners("x") == "fresh:x"
+
+
+def test_driver_acceptance_drops_retiring_disposal_writes_and_replays_live_races():  # noqa: C901
+    ui = _ui()
+    driver = _LiveExtensionUiDriver(ui, Path("."))
+    dispose_entered = threading.Event()
+    dispose_release = threading.Event()
+    paint_guard_was_free: list[bool] = []
+    retiring_seen: list[str] = []
+    candidate_seen: list[str] = []
+
+    def retiring_listener(key: str) -> str:
+        retiring_seen.append(key)
+        return f"retiring:{key}"
+
+    def retiring_header(_theme):
+        return ["RETIRING_HEADER"]
+
+    def retiring_editor(*_args):
+        return object()
+
+    def retiring_autocomplete(base):
+        return base
+
+    class _OldComponent:
+        def render(self, _width):
+            return ["old"]
+
+        def dispose(self):
+            driver.set_title("RETIRING_TITLE")
+            driver.set_header(retiring_header)
+            driver.set_editor_component(retiring_editor)
+            driver.add_terminal_input_listener(retiring_listener)
+            driver.add_autocomplete_provider(retiring_autocomplete)
+
+            def probe_paint_guard() -> None:
+                acquired = ui._paint_lock.acquire(timeout=1.0)
+                paint_guard_was_free.append(acquired)
+                if acquired:
+                    ui._paint_lock.release()
+
+            probe = threading.Thread(target=probe_paint_guard)
+            probe.start()
+            probe.join(timeout=2.0)
+            dispose_entered.set()
+            assert dispose_release.wait(timeout=2.0)
+            raise RuntimeError("injected retiring disposal failure")
+
+    driver.set_widget("old", lambda _theme: _OldComponent(), "above_editor")
+
+    class _HeaderComponent:
+        def render(self, _width):
+            return ["candidate"]
+
+    candidate_header = lambda _theme: _HeaderComponent()  # noqa: E731
+
+    class _EditorComponent:
+        text = ""
+
+        def get_text(self):
+            return self.text
+
+        def set_text(self, text):
+            self.text = text
+
+        def render(self, _width):
+            return [self.text]
+
+    candidate_editor = lambda *_args: _EditorComponent()  # noqa: E731
+
+    def candidate_listener(key: str):
+        candidate_seen.append(key)
+        return {"data": f"candidate:{key}"}
+
+    def candidate_autocomplete(base):
+        return base
+
+    candidate = driver.new_candidate_sink()
+    candidate_driver = driver.candidate_driver(candidate)
+    candidate_driver.set_title("CANDIDATE_TITLE")
+    candidate_driver.set_header(candidate_header)
+    candidate_driver.set_editor_component(candidate_editor)
+    candidate_driver.add_terminal_input_listener(candidate_listener)
+    candidate_driver.add_autocomplete_provider(candidate_autocomplete)
+
+    results = []
+    accept_thread = threading.Thread(
+        target=lambda: results.append(driver.accept_candidate(candidate))
+    )
+    accept_thread.start()
+    assert dispose_entered.wait(timeout=2.0)
+
+    # A candidate write racing its snapshot stays candidate-owned, while an
+    # unrelated retained write in another context follows the handoff queue.
+    candidate_driver.set_title("CANDIDATE_RACED_TITLE")
+    retained_writer = threading.Thread(
+        target=lambda: driver.set_hidden_thinking_label("retained-race")
+    )
+    retained_writer.start()
+    retained_writer.join(timeout=2.0)
+    assert not retained_writer.is_alive()
+
+    dispose_release.set()
+    accept_thread.join(timeout=2.0)
+    assert not accept_thread.is_alive()
+    assert len(results) == 1 and results[0].accepted
+    assert results[0].retired_sink is not None
+    assert driver.dispose_retired_sink(results[0].retired_sink) is None
+
+    snapshot = candidate.snapshot()
+    assert paint_guard_was_free == [True]
+    assert snapshot.title == "CANDIDATE_RACED_TITLE"
+    assert snapshot.header is candidate_header
+    assert snapshot.editor_component is candidate_editor
+    assert snapshot.autocomplete_providers == (candidate_autocomplete,)
+    assert [handler for _listener_id, handler in snapshot.terminal_input_listeners] == [
+        candidate_listener
+    ]
+    assert snapshot.hidden_thinking_label == "retained-race"
+    assert ui.extension_title == snapshot.title
+    assert ui.extension_header is not None
+    assert ui.extension_header.source is snapshot.header
+    assert ui.get_editor_component() is snapshot.editor_component
+    assert ui._autocomplete_provider_factories == [candidate_autocomplete]
+    assert ui.hidden_thinking_label == snapshot.hidden_thinking_label
+    assert ui._apply_extension_terminal_input_listeners("x") == "candidate:x"
+    assert candidate_seen == ["x"]
+    assert retiring_seen == []
+
+    # The exception path reset the scoped lease; later live writes still reach
+    # the accepted sink rather than the retirement drop sink.
+    driver.set_title("POST_ACCEPT_TITLE")
+    assert candidate.snapshot().title == "POST_ACCEPT_TITLE"
+    assert ui.extension_title == "POST_ACCEPT_TITLE"
 
 
 def test_clear_retires_state_even_when_dispose_propagates_interrupt():

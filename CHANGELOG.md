@@ -205,6 +205,24 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Extension reload no longer clears live retained TUI chrome before activation
+  and dynamic-flag validation succeed. Invalid flags or another rejected
+  candidate now preserve the prior title, header/footer/widgets, indicator,
+  terminal-input listeners, autocomplete providers, editor component, and
+  hidden-thinking label; rejected candidate chrome never paints and no longer
+  re-fires the retained generation's `session_start`, which previously appended
+  duplicate registrations and rebuilt its editor. A successful reload rebuilds
+  retained chrome from exactly one replacement-generation `session_start` after
+  commit; registrations it does not rebuild
+  (including autocomplete, a custom editor, and the hidden-thinking label) are
+  cleared, while custom-editor text returns to the built-in editor. Late
+  retained writes to a rejected candidate's closed sink are ignored with their
+  prior `None` return shape, while `on_terminal_input()` returns an inert
+  disposer. Concurrent retained writes now cross acceptance through a short
+  effect-free ownership handoff, and interrupts from retired listener disposal
+  propagate only after the replacement is explicitly live, without double
+  close. Retired-live handle binding and terminal teardown remain separate
+  follow-ons.
 - Extension activation APIs retained after successful activation or candidate
   rejection can no longer appear to register commands, shortcuts, hooks, tools,
   providers, flags, or renderers into dead candidate state. Late contribution

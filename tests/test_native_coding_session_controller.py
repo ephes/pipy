@@ -11,7 +11,9 @@ injected ports so the controller's contract is exercised without the monolith.
 
 from __future__ import annotations
 
+import io
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -45,6 +47,7 @@ from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
 class _FakeProvider:
@@ -1017,6 +1020,58 @@ def test_run_loop_iterates_then_finalizes_in_order() -> None:
         "shutdown",
         "clear",
     ]
+
+
+def test_run_loop_shutdown_clears_editor_when_extension_text_capture_throws() -> None:
+    log: list[str] = []
+    controller = _run_loop_controller(log)
+    result = _repl_result()
+    terminal = io.StringIO()
+    ui = ToolLoopTerminalUi(
+        input_stream=io.StringIO(), terminal_stream=terminal, cwd=Path(".")
+    )
+    disposed: list[str] = []
+
+    class _ExtensionEditorFailure(BaseException):
+        pass
+
+    class _ThrowingEditor:
+        def get_text(self) -> str:
+            raise _ExtensionEditorFailure("must not escape shutdown")
+
+        def set_text(self, _text: str) -> None:
+            return None
+
+        def render(self, _width: int) -> list[str]:
+            return ["custom editor"]
+
+        def dispose(self) -> None:
+            disposed.append("editor")
+
+    ui.set_input_text("safe shutdown draft")
+    ui.set_editor_component(lambda *_args: _ThrowingEditor())
+    ui.set_extension_widget("stale", ["stale chrome"])
+
+    def clear_chrome() -> None:
+        ui.clear_extension_chrome()
+        log.append("clear")
+
+    returned = controller.run_loop(
+        step_once=lambda: LoopStepSignal.break_loop(),
+        finalize=lambda: result,
+        fire_session_start=lambda: log.append("start"),
+        fire_session_shutdown=lambda: log.append("shutdown"),
+        consume_settle_pending=lambda: False,
+        clear_extension_chrome=clear_chrome,
+    )
+
+    assert returned is result
+    assert log == ["start", "shutdown", "clear"]
+    assert disposed == ["editor"]
+    assert ui.get_editor_component() is None
+    assert ui.extension_widgets_above == {}
+    assert ui.get_input_text() == "safe shutdown draft"
+    assert "must not escape shutdown" not in terminal.getvalue()
 
 
 def test_run_loop_returns_a_terminate_failed_result_without_finalizing() -> None:

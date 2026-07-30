@@ -29,7 +29,8 @@ from collections.abc import (
     MutableMapping,
     Sequence,
 )
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Protocol, Self, TYPE_CHECKING, TextIO, TypedDict, cast
@@ -72,6 +73,10 @@ from pipy_harness.native.editor_state import (
 )
 from pipy_harness.native.extension_chrome_state import (
     ChromeRegion,
+    ExtensionChromeAttachResult,
+    ExtensionChromeEvent,
+    ExtensionChromeSink,
+    ExtensionChromeSnapshot,
     ExtensionChromeState,
 )
 from pipy_harness.native.frame_renderer import (
@@ -218,6 +223,7 @@ HOTKEY_TOGGLE_THINKING = "\x00pipy-hotkey:toggle-thinking"
 # An activated extension's registered keyboard shortcut fired; the normalized
 # key follows the prefix so the session can look up and dispatch the handler.
 HOTKEY_EXTENSION_SHORTCUT_PREFIX = "\x00pipy-hotkey:ext-shortcut:"
+DEFAULT_HIDDEN_THINKING_LABEL = "Thinking..."
 
 # Outcomes of the active-turn watcher / mid-turn editor.
 TURN_SETTLED = "settled"  # the provider turn finished on its own
@@ -226,13 +232,478 @@ TURN_STEERED = "steered"  # a steering message interrupted the turn
 TURN_LOCAL_COMMAND = "local_command"  # a /… or !… command interrupted the turn
 
 
+@dataclass(frozen=True, slots=True)
+class _ChromeAcceptanceResult:
+    """Ownership result for one post-commit chrome acceptance attempt."""
+
+    accepted: bool
+    diagnostic: str | None = None
+    retired_sink: ExtensionChromeSink | None = None
+    candidate_closed: bool = False
+
+
+@dataclass(slots=True)
+class _ChromeHandoffOperation:
+    """One retained write admitted while chrome ownership is undecided."""
+
+    kind: str
+    values: tuple[object, ...]
+    cancelled: bool = False
+    live_disposer: Callable[[], None] | None = None
+
+
+@dataclass(slots=True)
+class _ChromeHandoff:
+    """Short-guard state that queues writes until acceptance selects an owner."""
+
+    candidate: ExtensionChromeSink
+    pending: list[_ChromeHandoffOperation] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class _ChromeHandoffLease:
+    """Exact installed handoff and the owner retained during acquisition."""
+
+    previous: ExtensionChromeSink
+    handoff: _ChromeHandoff
+
+
+@dataclass(frozen=True, slots=True)
+class _ChromeRoutingLease:
+    """Explicit source route for synchronous reentrant chrome writes."""
+
+    source: str
+    sink: ExtensionChromeSink
+
+
 class _LiveExtensionUiDriver:
     """Live `ExtensionUiDriver` backed by the product TUI (one per session)."""
 
     def __init__(self, terminal_ui: "ToolLoopTerminalUi", cwd: Path) -> None:
         self._terminal_ui = terminal_ui
         self._cwd = cwd
-        self._editor_component: object | None = None
+        self._sink_guard = threading.RLock()
+        self._sink_idle = threading.Condition(self._sink_guard)
+        self._active_sink = ExtensionChromeSink(self._deliver_chrome_event)
+        self._active_sink_leases = 0
+        self._handoff: _ChromeHandoff | None = None
+        self._routing_leases: ContextVar[tuple[_ChromeRoutingLease, ...]] = ContextVar(
+            "extension_chrome_routing_leases", default=()
+        )
+        self._retirement_drop_sink = ExtensionChromeSink()
+        self._retirement_drop_sink.close()
+
+    def new_candidate_sink(self) -> ExtensionChromeSink:
+        """Create a detached retained-chrome sink for one reload candidate."""
+
+        return ExtensionChromeSink()
+
+    def candidate_driver(
+        self, candidate: ExtensionChromeSink
+    ) -> "_CandidateExtensionUiDriver":
+        """Bind declarative writes from one candidate callback to its sink."""
+
+        return _CandidateExtensionUiDriver(self, candidate)
+
+    def accept_candidate(
+        self, candidate: ExtensionChromeSink
+    ) -> _ChromeAcceptanceResult:
+        """Reconcile without holding the owner guard, then select one live sink.
+
+        The short ``_sink_guard`` only starts/completes the handoff and accounts
+        for already-selected writes. Writes admitted while effects run are
+        queued in the handoff and replayed exactly once to whichever sink wins.
+        The accepted result transfers the retired sink to the caller so cleanup
+        can propagate interrupts without making candidate ownership ambiguous.
+        """
+
+        acquired = self._acquire_candidate_handoff(candidate)
+        if isinstance(acquired, _ChromeAcceptanceResult):
+            return acquired
+        previous = acquired.previous
+        handoff = acquired.handoff
+
+        try:
+            try:
+                attach_result = candidate.attach(self._deliver_chrome_event)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException as candidate_error:
+                restore_error = self._restore_previous_chrome(candidate, previous)
+                if restore_error is None:
+                    self._complete_handoff(previous, handoff)
+                    return _ChromeAcceptanceResult(
+                        accepted=False,
+                        diagnostic=(
+                            "pipy: extension chrome reconciliation failed; kept "
+                            "the previous chrome "
+                            f"({type(candidate_error).__name__})."
+                        ),
+                    )
+                try:
+                    attach_result = candidate.attach(self._deliver_chrome_event)
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except BaseException as retry_error:
+                    retry_restore_error = self._restore_previous_chrome(
+                        candidate, previous
+                    )
+                    self._complete_handoff(previous, handoff)
+                    if retry_restore_error is not None:
+                        return _ChromeAcceptanceResult(
+                            accepted=False,
+                            diagnostic=(
+                                "pipy: extension chrome reconciliation and "
+                                "bounded recovery failed; previous chrome "
+                                "ownership was retained "
+                                f"({type(retry_error).__name__})."
+                            ),
+                        )
+                    return _ChromeAcceptanceResult(
+                        accepted=False,
+                        diagnostic=(
+                            "pipy: extension chrome reconciliation failed; "
+                            "restored the previous chrome after retry "
+                            f"({type(candidate_error).__name__})."
+                        ),
+                    )
+                if not attach_result.attached:
+                    return self._finish_refused_attach(
+                        candidate,
+                        previous,
+                        attach_result,
+                        handoff,
+                        restore_required=True,
+                    )
+                self._complete_handoff(candidate, handoff)
+                return _ChromeAcceptanceResult(
+                    accepted=True,
+                    diagnostic=(
+                        "pipy: previous chrome restoration failed; accepted "
+                        "the reconciled candidate "
+                        f"({type(restore_error).__name__})."
+                    ),
+                    retired_sink=previous,
+                )
+            if not attach_result.attached:
+                return self._finish_refused_attach(
+                    candidate,
+                    previous,
+                    attach_result,
+                    handoff,
+                    restore_required=attach_result.reconciled,
+                )
+            self._complete_handoff(candidate, handoff)
+            return _ChromeAcceptanceResult(
+                accepted=True,
+                retired_sink=previous,
+            )
+        except (KeyboardInterrupt, SystemExit):
+            if not self.owns_sink(candidate):
+                self._complete_handoff(previous, handoff)
+            raise
+        except BaseException:
+            if not self.owns_sink(candidate):
+                self._complete_handoff(previous, handoff)
+            raise
+
+    def _acquire_candidate_handoff(
+        self, candidate: ExtensionChromeSink
+    ) -> _ChromeHandoffLease | _ChromeAcceptanceResult:
+        """Install one handoff and drain selected writes exception-safely."""
+
+        acquired: _ChromeHandoffLease | None = None
+        try:
+            with self._sink_guard:
+                previous = self._active_sink
+                if candidate is previous:
+                    return _ChromeAcceptanceResult(accepted=True)
+                if self._handoff is not None:
+                    return _ChromeAcceptanceResult(
+                        accepted=False,
+                        diagnostic=(
+                            "pipy: extension chrome handoff is already active."
+                        ),
+                    )
+                handoff = _ChromeHandoff(candidate)
+                acquired = _ChromeHandoffLease(previous, handoff)
+                self._handoff = handoff
+                while self._active_sink_leases:
+                    self._sink_idle.wait()
+        except BaseException:
+            # Condition.wait() may raise after writes have joined the handoff.
+            # Complete this exact installation only after the guard is released,
+            # so retained effects replay once to the still-selected owner.
+            if acquired is not None:
+                self._complete_handoff(acquired.previous, acquired.handoff)
+            raise
+        assert acquired is not None
+        return acquired
+
+    def _restore_previous_chrome(
+        self,
+        candidate: ExtensionChromeSink,
+        previous: ExtensionChromeSink,
+    ) -> BaseException | None:
+        """Try one rollback repaint and discard superseded candidate disposers."""
+
+        try:
+            previous.reconcile_attached(self._deliver_chrome_event)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException as restore_error:
+            return restore_error
+        candidate.discard_reconciled_disposers()
+        return None
+
+    def _finish_refused_attach(
+        self,
+        candidate: ExtensionChromeSink,
+        previous: ExtensionChromeSink,
+        attach_result: ExtensionChromeAttachResult,
+        handoff: _ChromeHandoff,
+        *,
+        restore_required: bool,
+    ) -> _ChromeAcceptanceResult:
+        """Finish an attach refusal with rollback only after candidate paint."""
+
+        if restore_required:
+            restore_error = self._restore_previous_chrome(candidate, previous)
+            self._complete_handoff(previous, handoff)
+            if restore_error is not None:
+                return _ChromeAcceptanceResult(
+                    accepted=False,
+                    diagnostic=(
+                        "pipy: closed extension chrome candidate and previous "
+                        "chrome recovery both failed."
+                    ),
+                    candidate_closed=attach_result.candidate_closed,
+                )
+            diagnostic = (
+                "pipy: extension chrome candidate closed during reconciliation; "
+                "restored the previous chrome."
+            )
+        else:
+            self._complete_handoff(previous, handoff)
+            diagnostic = (
+                "pipy: extension chrome candidate is closed."
+                if attach_result.candidate_closed
+                else "pipy: extension chrome candidate refused before reconciliation."
+            )
+        return _ChromeAcceptanceResult(
+            accepted=False,
+            diagnostic=diagnostic,
+            candidate_closed=attach_result.candidate_closed,
+        )
+
+    def owns_sink(self, sink: ExtensionChromeSink) -> bool:
+        """Return whether ``sink`` is the selected live owner."""
+
+        with self._sink_guard:
+            return self._active_sink is sink
+
+    def dispose_retired_sink(self, retired: ExtensionChromeSink) -> str | None:
+        """Dispose a transferred owner under an explicit retiring source route."""
+
+        try:
+            with self._retiring_disposal_route():
+                retired.close()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException as close_error:
+            return (
+                "pipy: accepted extension chrome; retired chrome cleanup "
+                f"was incomplete ({type(close_error).__name__})."
+            )
+        return None
+
+    def _complete_handoff(
+        self, owner: ExtensionChromeSink, handoff: _ChromeHandoff
+    ) -> None:
+        """Select ``owner`` and drain one exact handoff outside the guard."""
+
+        with self._sink_guard:
+            if self._handoff is not handoff:
+                return
+            self._active_sink = owner
+        try:
+            while True:
+                with self._sink_guard:
+                    if self._handoff is not handoff:
+                        return
+                    if not handoff.pending:
+                        self._handoff = None
+                        self._sink_idle.notify_all()
+                        return
+                    operation = handoff.pending.pop(0)
+                self._replay_handoff_operation(owner, operation)
+        except (KeyboardInterrupt, SystemExit):
+            with self._sink_guard:
+                if self._handoff is handoff:
+                    self._handoff = None
+                    self._sink_idle.notify_all()
+            raise
+
+    def _replay_handoff_operation(
+        self, sink: ExtensionChromeSink, operation: _ChromeHandoffOperation
+    ) -> None:
+        with self._sink_guard:
+            if operation.cancelled:
+                return
+        try:
+            result = self._apply_sink_operation(sink, operation)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:
+            # The originating void setter already returned while ownership was
+            # undecided. Keep one bad delayed paint bounded like other TUI
+            # extension effects and continue the handoff.
+            return
+        if operation.kind != "listener" or not callable(result):
+            return
+        with self._sink_guard:
+            if operation.cancelled:
+                stale_disposer = result
+            else:
+                operation.live_disposer = result
+                stale_disposer = None
+        if stale_disposer is not None:
+            try:
+                stale_disposer()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:
+                pass
+
+    @staticmethod
+    def _apply_sink_operation(
+        sink: ExtensionChromeSink, operation: _ChromeHandoffOperation
+    ) -> object:
+        values = operation.values
+        if operation.kind == "widget":
+            sink.set_widget(cast(str, values[0]), values[1], cast(str, values[2]))
+            return None
+        if operation.kind == "header":
+            sink.set_header(values[0])
+            return None
+        if operation.kind == "footer":
+            sink.set_footer(values[0])
+            return None
+        if operation.kind == "title":
+            sink.set_title(cast(str, values[0]))
+            return None
+        if operation.kind == "indicator":
+            sink.set_working_indicator(values[0], values[1])
+            return None
+        if operation.kind == "hidden-thinking-label":
+            sink.set_hidden_thinking_label(cast("str | None", values[0]))
+            return None
+        if operation.kind == "autocomplete":
+            sink.add_autocomplete_provider(values[0])
+            return None
+        if operation.kind == "editor-component":
+            sink.set_editor_component(values[0])
+            return None
+        if operation.kind == "listener":
+            return sink.add_terminal_input_listener(
+                cast("Callable[[str], object]", values[0])
+            )
+        raise AssertionError(f"unknown chrome handoff operation: {operation.kind}")
+
+    def _route_bound_sink_operation(
+        self, sink: ExtensionChromeSink, operation: _ChromeHandoffOperation
+    ) -> object:
+        """Route a generation-bound write, honoring an explicit callback source."""
+
+        routing_leases = self._routing_leases.get()
+        target = routing_leases[-1].sink if routing_leases else sink
+        return self._apply_sink_operation(target, operation)
+
+    def _route_sink_operation(self, operation: _ChromeHandoffOperation) -> object:
+        routing_leases = self._routing_leases.get()
+        if routing_leases:
+            # A synchronous callback inherits its explicit source route. In
+            # particular, writes from retiring component disposal target a
+            # closed sink instead of joining candidate/retained handoff traffic.
+            return self._apply_sink_operation(routing_leases[-1].sink, operation)
+        with self._sink_guard:
+            if self._handoff is not None:
+                self._handoff.pending.append(operation)
+                return None
+            sink = self._active_sink
+            self._active_sink_leases += 1
+        try:
+            return self._apply_sink_operation(sink, operation)
+        finally:
+            with self._sink_guard:
+                self._active_sink_leases -= 1
+                if not self._active_sink_leases:
+                    self._sink_idle.notify_all()
+
+    def _dispose_handoff_listener(self, operation: _ChromeHandoffOperation) -> None:
+        with self._sink_guard:
+            operation.cancelled = True
+            live_disposer = operation.live_disposer
+            operation.live_disposer = None
+        if live_disposer is not None:
+            live_disposer()
+
+    @contextmanager
+    def _retiring_disposal_route(self) -> Iterator[None]:
+        """Drop writes synchronously reentered by retiring TUI disposal.
+
+        ``ContextVar`` tokens provide explicit nesting and exception cleanup
+        without guessing callback ownership from a thread id. Other contexts,
+        including concurrent retained/candidate writers, do not inherit this
+        route and continue through the ordinary handoff exactly once.
+        """
+
+        current = self._routing_leases.get()
+        token = self._routing_leases.set(
+            (
+                *current,
+                _ChromeRoutingLease("retiring-disposal", self._retirement_drop_sink),
+            )
+        )
+        try:
+            yield
+        finally:
+            self._routing_leases.reset(token)
+
+    def _deliver_chrome_event(self, event: ExtensionChromeEvent) -> object:
+        kind = event.kind
+        values = event.values
+        if kind == "reconcile":
+            snapshot = cast(ExtensionChromeSnapshot, values[0])
+            return self._terminal_ui.reconcile_extension_chrome(
+                snapshot,
+                retirement_scope=self._retiring_disposal_route,
+            )
+        if kind == "widget":
+            self._terminal_ui.set_extension_widget(
+                cast(str, values[0]), values[1], placement=cast(str, values[2])
+            )
+        elif kind == "header":
+            self._terminal_ui.set_extension_header(values[0])
+        elif kind == "footer":
+            self._terminal_ui.set_extension_footer(values[0])
+        elif kind == "title":
+            self._terminal_ui.set_extension_title(cast(str, values[0]))
+        elif kind == "indicator":
+            self._terminal_ui.set_extension_working_indicator(values[0], values[1])
+        elif kind == "hidden-thinking-label":
+            self._terminal_ui.set_extension_hidden_thinking_label(
+                cast("str | None", values[0])
+            )
+        elif kind == "autocomplete":
+            self._terminal_ui.add_extension_autocomplete_provider(values[0])
+        elif kind == "editor-component":
+            self._terminal_ui.set_editor_component(values[0])
+        elif kind == "listener":
+            return self._terminal_ui.add_extension_terminal_input_listener(
+                cast("Callable[[str], object]", values[1])
+            )
+        return None
 
     def select(self, title: str, options: Sequence[str]) -> str | None:
         return self._terminal_ui.run_extension_select(title, options)
@@ -256,22 +727,28 @@ class _LiveExtensionUiDriver:
         self._terminal_ui.set_extension_working_visible(visible)
 
     def set_widget(self, key: str, content: object, placement: str) -> None:
-        self._terminal_ui.set_extension_widget(key, content, placement=placement)
+        self._route_sink_operation(
+            _ChromeHandoffOperation("widget", (key, content, placement))
+        )
 
     def set_header(self, factory: object | None) -> None:
-        self._terminal_ui.set_extension_header(factory)
+        self._route_sink_operation(_ChromeHandoffOperation("header", (factory,)))
 
     def set_footer(self, factory: object | None) -> None:
-        self._terminal_ui.set_extension_footer(factory)
+        self._route_sink_operation(_ChromeHandoffOperation("footer", (factory,)))
 
     def set_title(self, title: str) -> None:
-        self._terminal_ui.set_extension_title(title)
+        self._route_sink_operation(_ChromeHandoffOperation("title", (title,)))
 
     def set_working_indicator(self, frames: object, interval_ms: object) -> None:
-        self._terminal_ui.set_extension_working_indicator(frames, interval_ms)
+        self._route_sink_operation(
+            _ChromeHandoffOperation("indicator", (frames, interval_ms))
+        )
 
     def set_hidden_thinking_label(self, label: str | None = None) -> None:
-        self._terminal_ui.set_extension_hidden_thinking_label(label)
+        self._route_sink_operation(
+            _ChromeHandoffOperation("hidden-thinking-label", (label,))
+        )
 
     def get_editor_text(self) -> str:
         return self._terminal_ui.get_input_text()
@@ -283,7 +760,11 @@ class _LiveExtensionUiDriver:
         self._terminal_ui.paste_input_text(text)
 
     def add_terminal_input_listener(self, handler: Any) -> Callable[[], None]:
-        return self._terminal_ui.add_extension_terminal_input_listener(handler)
+        operation = _ChromeHandoffOperation("listener", (handler,))
+        result = self._route_sink_operation(operation)
+        if callable(result):
+            return result
+        return lambda: self._dispose_handoff_listener(operation)
 
     def get_tools_expanded(self) -> bool:
         return bool(self._terminal_ui.tools_expanded)
@@ -299,16 +780,17 @@ class _LiveExtensionUiDriver:
                 paint()
 
     def add_autocomplete_provider(self, factory: object) -> None:
-        self._terminal_ui.add_extension_autocomplete_provider(factory)
+        self._route_sink_operation(_ChromeHandoffOperation("autocomplete", (factory,)))
 
     def set_editor_component(self, factory: object | None) -> None:
-        self._terminal_ui.set_editor_component(factory)
-        self._editor_component = self._terminal_ui.get_editor_component()
+        self._route_sink_operation(
+            _ChromeHandoffOperation("editor-component", (factory,))
+        )
 
     def get_editor_component(self) -> object | None:
-        component = self._terminal_ui.get_editor_component()
-        self._editor_component = component
-        return component
+        # Preserve the pre-R2 API: callers observe the retained live factory,
+        # while the terminal UI keeps the instantiated component internally.
+        return self._terminal_ui.get_editor_component()
 
     def apply_theme(self, name: str) -> tuple[bool, str | None]:
         """Switch the live chrome theme (rich-UI item E: ``ctx.ui.set_theme``).
@@ -321,6 +803,57 @@ class _LiveExtensionUiDriver:
         """
         ok, message = select_theme(name, environ=os.environ, store=NativeThemeStore())
         return ok, None if ok else message
+
+
+class _CandidateExtensionUiDriver:
+    """Route only retained declarative candidate writes to a detached sink.
+
+    Immediate dialogs/editor text/overlays/tools/theme and sticky status/working
+    state retain their R0 behavior through ``_live``. This seam is used only for
+    replacement ``session_start`` callbacks; retired-live invocation binding
+    remains R4c-owned.
+    """
+
+    def __init__(self, live: _LiveExtensionUiDriver, sink: ExtensionChromeSink) -> None:
+        self._live = live
+        self._sink = sink
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._live, name)
+
+    def _route(self, operation: _ChromeHandoffOperation) -> object:
+        return self._live._route_bound_sink_operation(  # noqa: SLF001
+            self._sink, operation
+        )
+
+    def set_widget(self, key: str, content: object, placement: str) -> None:
+        self._route(_ChromeHandoffOperation("widget", (key, content, placement)))
+
+    def set_header(self, factory: object | None) -> None:
+        self._route(_ChromeHandoffOperation("header", (factory,)))
+
+    def set_footer(self, factory: object | None) -> None:
+        self._route(_ChromeHandoffOperation("footer", (factory,)))
+
+    def set_title(self, title: str) -> None:
+        self._route(_ChromeHandoffOperation("title", (title,)))
+
+    def set_working_indicator(self, frames: object, interval_ms: object) -> None:
+        self._route(_ChromeHandoffOperation("indicator", (frames, interval_ms)))
+
+    def set_hidden_thinking_label(self, label: str | None = None) -> None:
+        self._route(_ChromeHandoffOperation("hidden-thinking-label", (label,)))
+
+    def add_terminal_input_listener(self, handler: Any) -> Callable[[], None]:
+        result = self._route(_ChromeHandoffOperation("listener", (handler,)))
+        assert callable(result)
+        return result
+
+    def add_autocomplete_provider(self, factory: object) -> None:
+        self._route(_ChromeHandoffOperation("autocomplete", (factory,)))
+
+    def set_editor_component(self, factory: object | None) -> None:
+        self._route(_ChromeHandoffOperation("editor-component", (factory,)))
 
 
 class _BuiltinAutocompleteProvider:
@@ -1245,7 +1778,7 @@ class ToolLoopTerminalUi:
     # full retro-rebuild, which would rewrite the host terminal's scrollback).
     tools_expanded: bool = False
     thinking_hidden: bool = False
-    hidden_thinking_label: str = "Thinking..."
+    hidden_thinking_label: str = DEFAULT_HIDDEN_THINKING_LABEL
     # Reasoning blocks that settled while thinking was folded (Ctrl+T). They are
     # retained rather than dropped so toggling visibility back reveals them
     # (committed fresh at toggle time, not retro-written into scrollback).
@@ -2749,12 +3282,14 @@ class ToolLoopTerminalUi:
         if component is None:
             return self.input_text
         for name in ("get_text", "getText"):
-            getter = getattr(component, name, None)
-            if callable(getter):
-                try:
+            try:
+                getter = getattr(component, name, None)
+                if callable(getter):
                     return str(getter())
-                except Exception:  # noqa: BLE001 - fall back to mirrored text
-                    break
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:  # noqa: BLE001 - trusted editor fails soft
+                break
         if self._custom_editor_changed_text is not None:
             return self._custom_editor_changed_text
         return self.input_text
@@ -3653,21 +4188,88 @@ class ToolLoopTerminalUi:
             return None
         return current
 
-    def clear_extension_chrome(self) -> None:
-        """Dispose + drop all extension-owned chrome (used on /reload + shutdown)."""
+    def clear_extension_chrome(
+        self,
+        *,
+        retirement_scope: Callable[[], AbstractContextManager[None]] | None = None,
+    ) -> None:
+        """Detach, dispose unlocked, then retire all retained extension chrome."""
+
+        # Reading custom text can call trusted extension code. It therefore
+        # precedes the short state-detach section and holds no paint lock.
+        had_custom_editor = self._custom_editor_active
+        current_text = self.get_input_text() if had_custom_editor else None
         with self._paint_lock:
-            regions = self._chrome.regions_for_clear()
-            try:
+            regions = self._chrome.detach_generation_for_disposal()
+            custom_editor = self._custom_editor_component if had_custom_editor else None
+            self._editor.autocomplete_provider_factories.clear()
+            self._editor.close_autocomplete()
+            self._custom_editor_factory = None
+            self._custom_editor_component = None
+            self._custom_editor_active = False
+
+        dispose_scope = retirement_scope() if retirement_scope else nullcontext()
+        try:
+            # Disposal is trusted extension code. No paint/owner/sink guard is
+            # held, and an acceptance reconcile supplies an explicit route that
+            # keeps synchronous reentrant registrations retiring.
+            with dispose_scope:
                 for region in regions:
                     self._dispose_region(region)
-            finally:
-                # Disposal is trusted extension code and can synchronously
-                # register more chrome or listeners. Retire only afterward so
-                # those registrations remain in the old generation and are
-                # cleared just as they were before state extraction.
+                if custom_editor is not None:
+                    dispose = getattr(custom_editor, "dispose", None)
+                    if callable(dispose):
+                        try:
+                            dispose()
+                        except (KeyboardInterrupt, SystemExit):
+                            raise
+                        except BaseException:  # noqa: BLE001 - extension cleanup
+                            pass
+        finally:
+            with self._paint_lock:
+                # Clear direct-UI registrations made during disposal while they
+                # still carry the retiring id, then advance to a fresh id.
                 self._chrome.retire_generation()
+                self._editor.autocomplete_provider_factories.clear()
+                self._editor.close_autocomplete()
+                self._custom_editor_factory = None
+                self._custom_editor_component = None
+                self._custom_editor_active = False
+                if had_custom_editor:
+                    assert current_text is not None
+                    self._editor.set_buffer(current_text)
+                    self._editor.pending_initial_text = current_text
+                self.hidden_thinking_label = DEFAULT_HIDDEN_THINKING_LABEL
                 self._driver.restore_title()
         self.paint()
+
+    def reconcile_extension_chrome(
+        self,
+        snapshot: ExtensionChromeSnapshot,
+        *,
+        retirement_scope: Callable[[], AbstractContextManager[None]] | None = None,
+    ) -> dict[int, Callable[[], None]]:
+        """Replace accepted chrome, explicitly routing retiring disposal writes."""
+
+        self.clear_extension_chrome(retirement_scope=retirement_scope)
+        for key, content, placement in snapshot.widgets:
+            self.set_extension_widget(key, content, placement=placement)
+        self.set_extension_header(snapshot.header)
+        self.set_extension_footer(snapshot.footer)
+        if snapshot.title is not None:
+            self.set_extension_title(snapshot.title)
+        self.set_extension_working_indicator(
+            snapshot.indicator_frames, snapshot.indicator_interval_ms
+        )
+        listener_disposers = {
+            listener_id: self.add_extension_terminal_input_listener(handler)
+            for listener_id, handler in snapshot.terminal_input_listeners
+        }
+        for factory in snapshot.autocomplete_providers:
+            self.add_extension_autocomplete_provider(factory)
+        self.set_editor_component(snapshot.editor_component)
+        self.set_extension_hidden_thinking_label(snapshot.hidden_thinking_label)
+        return listener_disposers
 
     def set_extension_working_message(self, message: str | None = None) -> None:
         """Set the sticky working label used by future provider turns."""
@@ -4153,7 +4755,9 @@ class ToolLoopTerminalUi:
 
     def set_extension_hidden_thinking_label(self, label: str | None = None) -> None:
         """Set the live folded-thinking label; ``None`` restores Pi's default."""
-        self.hidden_thinking_label = "Thinking..." if label is None else str(label)
+        self.hidden_thinking_label = (
+            DEFAULT_HIDDEN_THINKING_LABEL if label is None else str(label)
+        )
         self.paint()
 
     def add_notice(self, text: str) -> None:

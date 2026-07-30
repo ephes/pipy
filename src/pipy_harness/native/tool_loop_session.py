@@ -252,6 +252,7 @@ from pipy_harness.native.session_tree_commands import (
     sanitize_label_text,
     visible_tree_entries,
 )
+from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_runtime import (
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
@@ -1312,6 +1313,7 @@ class _ReloadCommandEffects:
         [str, str, bool, "Mapping[str, object]", object | None], object
     ]
     extension_render_details: ToolRenderDetailsWriter
+    extension_ui_driver: _LiveExtensionUiDriver | None = None
 
     def execute(self, command_outcome: CodingCommandOutcome) -> None:
         """Reload settings and publish every derived live projection in order."""
@@ -1324,25 +1326,81 @@ class _ReloadCommandEffects:
         # only after the gate's session-mutex handoff has closed. Publication
         # empties it, so this cleanup can never dispose the live generation.
         candidate = _ExtensionCandidate()
+        chrome_candidate: ExtensionChromeSink | None = None
+        chrome_candidate_owned = False
         try:
             with self.ctl.generation_ref.publishing():
                 self._reload_configuration_and_resources()
-                self._reload_extension_generation(candidate)
+                replacement_accepted, chrome_candidate = (
+                    self._reload_extension_generation(candidate)
+                )
+                chrome_candidate_owned = chrome_candidate is not None
                 self.provider_mutation.refresh_provider_after_reload()
                 self._publish_tool_and_lifecycle_projections()
                 saved_implicit_trust = self._refresh_presentation_and_persistence()
-        finally:
-            _report_activation_cleanup(candidate.dispose(), self.diag)
-        # Post-reload hooks deliberately run after the publication gate closes.
-        self.emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
-        self.diag(
-            (
-                "pipy: reloaded settings, keybindings, and resources; "
-                "saved project trust."
-                if saved_implicit_trust
-                else "pipy: reloaded settings, keybindings, and resources."
+            # Transfer sink ownership before entering any post-acceptance work.
+            # The finisher guarantees close-or-live even if lifecycle/attach fails.
+            chrome_candidate_owned = False
+            chrome_diagnostic = self._finish_candidate_chrome(
+                chrome_candidate, replacement_accepted=replacement_accepted
             )
-        )
+            if chrome_diagnostic is not None:
+                self.diag(chrome_diagnostic)
+            self.diag(
+                (
+                    "pipy: reloaded settings, keybindings, and resources; "
+                    "saved project trust."
+                    if saved_implicit_trust
+                    else "pipy: reloaded settings, keybindings, and resources."
+                )
+            )
+        finally:
+            if chrome_candidate is not None and chrome_candidate_owned:
+                chrome_candidate.close()
+            _report_activation_cleanup(candidate.dispose(), self.diag)
+
+    def _finish_candidate_chrome(
+        self,
+        chrome_candidate: ExtensionChromeSink | None,
+        *,
+        replacement_accepted: bool,
+    ) -> str | None:
+        """Fire only an accepted replacement and guarantee close-or-live."""
+
+        if not replacement_accepted:
+            return None
+        if self.extension_ui_driver is None or chrome_candidate is None:
+            # Headless reloads have no retained TUI owner to reconcile, but the
+            # accepted replacement keeps the lifecycle event it historically saw.
+            self.emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
+            return None
+        owned = True
+        try:
+            self.emitter.fire_lifecycle(
+                EVENT_SESSION_START,
+                reason="reload",
+                ui_driver_override=self.extension_ui_driver.candidate_driver(
+                    chrome_candidate
+                ),
+            )
+            acceptance = self.extension_ui_driver.accept_candidate(chrome_candidate)
+            if not acceptance.accepted:
+                if not acceptance.candidate_closed:
+                    chrome_candidate.close()
+                owned = False
+                return acceptance.diagnostic
+            # Ownership transferred before retired cleanup. Interrupts from a
+            # retired disposer propagate without closing the now-live candidate.
+            owned = False
+            cleanup_diagnostic = (
+                self.extension_ui_driver.dispose_retired_sink(acceptance.retired_sink)
+                if acceptance.retired_sink is not None
+                else None
+            )
+            return cleanup_diagnostic or acceptance.diagnostic
+        finally:
+            if owned and not self.extension_ui_driver.owns_sink(chrome_candidate):
+                chrome_candidate.close()
 
     def _reload_configuration_and_resources(self) -> None:
         self.settings.reload()
@@ -1371,53 +1429,62 @@ class _ReloadCommandEffects:
             enable_skill_commands=self.settings.get_enable_skill_commands(),
         )
 
-    def _reload_extension_generation(self, candidate: _ExtensionCandidate) -> None:
-        # The current live-host limitation requires clearing chrome before
-        # activation. A rejected candidate therefore retains the documented
-        # cleared-chrome residual behavior.
-        if self.terminal_ui is not None:
-            self.terminal_ui.clear_extension_chrome()
-        reloaded_extension_runtime = _activate_workspace_extensions(
-            self.cwd,
-            self.ctl.workspace_resources,
-            tuple(self.session.tool_registry.keys()),
-            package_roots=(
-                ()
-                if self.resource_options.no_extensions
-                else self.ctl.package_roots.extensions
-            ),
-            extension_patterns=self.settings.get_extensions_patterns(),
-            explicit_extension_paths=self.resource_options.extension_paths,
-            include_default_extensions=not self.resource_options.no_extensions,
-            include_workspace_defaults=self.settings.project_trusted,
-            diagnostic=self.diag,
+    def _reload_extension_generation(
+        self, candidate: _ExtensionCandidate
+    ) -> tuple[bool, ExtensionChromeSink | None]:
+        chrome_candidate = (
+            self.extension_ui_driver.new_candidate_sink()
+            if self.extension_ui_driver is not None
+            else None
         )
-        candidate.adopt(reloaded_extension_runtime, self.diag)
-        reloaded_flag_values, reloaded_flag_error = parse_extension_flag_tokens(
-            reloaded_extension_runtime.flags,
-            tuple(self.resource_options.extension_flag_tokens),
-        )
-        if reloaded_flag_error is not None:
-            self.diag(f"pipy: {reloaded_flag_error}")
-            self.diag("pipy: keeping the previous extensions.")
-            return
-        candidate_generation = SessionExtensionGeneration(
-            runtime=reloaded_extension_runtime,
-            flag_values=reloaded_flag_values,
-        )
-        if not self._commit_extension_generation(candidate, candidate_generation):
-            self.diag("pipy: extension candidate ownership is unavailable")
-            self.diag("pipy: keeping the previous extensions.")
-            return
-        self.emitter.set_flags(candidate_generation.flag_values)
-        for custom_message in reloaded_extension_runtime.custom_messages:
-            self.extension_send_message(
-                custom_message.custom_type,
-                custom_message.content,
-                custom_message.display,
-                custom_message.options,
-                custom_message.details,
+        chrome_transferred = False
+        try:
+            reloaded_extension_runtime = _activate_workspace_extensions(
+                self.cwd,
+                self.ctl.workspace_resources,
+                tuple(self.session.tool_registry.keys()),
+                package_roots=(
+                    ()
+                    if self.resource_options.no_extensions
+                    else self.ctl.package_roots.extensions
+                ),
+                extension_patterns=self.settings.get_extensions_patterns(),
+                explicit_extension_paths=self.resource_options.extension_paths,
+                include_default_extensions=not self.resource_options.no_extensions,
+                include_workspace_defaults=self.settings.project_trusted,
+                diagnostic=self.diag,
             )
+            candidate.adopt(reloaded_extension_runtime, self.diag)
+            reloaded_flag_values, reloaded_flag_error = parse_extension_flag_tokens(
+                reloaded_extension_runtime.flags,
+                tuple(self.resource_options.extension_flag_tokens),
+            )
+            if reloaded_flag_error is not None:
+                self.diag(f"pipy: {reloaded_flag_error}")
+                self.diag("pipy: keeping the previous extensions.")
+                return False, None
+            candidate_generation = SessionExtensionGeneration(
+                runtime=reloaded_extension_runtime,
+                flag_values=reloaded_flag_values,
+            )
+            if not self._commit_extension_generation(candidate, candidate_generation):
+                self.diag("pipy: extension candidate ownership is unavailable")
+                self.diag("pipy: keeping the previous extensions.")
+                return False, None
+            self.emitter.set_flags(candidate_generation.flag_values)
+            for custom_message in reloaded_extension_runtime.custom_messages:
+                self.extension_send_message(
+                    custom_message.custom_type,
+                    custom_message.content,
+                    custom_message.display,
+                    custom_message.options,
+                    custom_message.details,
+                )
+            chrome_transferred = True
+            return True, chrome_candidate
+        finally:
+            if chrome_candidate is not None and not chrome_transferred:
+                chrome_candidate.close()
 
     def _commit_extension_generation(
         self,
@@ -2842,6 +2909,7 @@ class _SessionCollaborators:
             settings=self.settings,
             keybindings=keybindings,
             terminal_ui=self.terminal_ui,
+            extension_ui_driver=self.extension_ui_driver,
             renderer=renderer,
             error_stream=self.error_stream,
             emitter=emitter,
