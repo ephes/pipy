@@ -35,11 +35,13 @@ authorized exactly one additional docs review of the resulting corrections.
 Landing the planning commit on `main` certifies the required review completed,
 material findings were addressed, and G0 is authorized.
 
-**Active/next slice:** **G0 — retire frozen closeout synchronization**
+**Active/next slice:** **R0 — reconcile the bounded reload contract**
 
-G0 changes test policy, not product behavior, and removes the seven-document
-metric tax. The mandatory correctness sequence is
-then **R0–R7 — reconcile and close transactional reload**. No documentation
+G0 is complete: this test-policy-only slice retired frozen closeout
+synchronization, changed no product behavior, and requires no changelog entry.
+The dated assessment is the point-in-time source; other historical copies remain
+preserved. The mandatory correctness sequence is now **R0–R7 — reconcile and
+close transactional reload**. No documentation
 cleanup, Ruff expansion, tool-parity behavior change, ordinary ownership
 refactor, provider-test consolidation, or contributor work may begin until a
 committed R7 closes or proves a formal reconciliation for every reload residual

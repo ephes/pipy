@@ -3,64 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 import tomllib
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FORMAT_CHECK_COMMAND = "uv run ruff format --check ."
 FORMAT_WRITE_COMMAND = "uv run ruff format ."
-REVIEWED_ENDPOINT = "87c6f887f4afb719da89e68074551e9b8786ac1d"
-COMMIT_FACTS = (
-    (
-        "7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727",
-        "docs: close architecture quality program",
-    ),
-    (
-        "ffeb86f0319efd28f6f360174ae640fa358761d0",
-        "docs: reconcile architecture program ledger",
-    ),
-    (
-        "aea52b438713ce04fcad93ae32927ff156574aac",
-        "docs: record integration warning closure",
-    ),
-    ("b64ceb7db9581bf3ebfab51f5803c513c1fdb549", "docs: align provider catalog status"),
-    (REVIEWED_ENDPOINT, "docs: sync final integration ledger"),
-)
-PARTITION_FACTS = (
-    "A: 29/29, 220,750 bytes/5,384 lines, valid complete CLEAN",
-    "B: 22/22, 359,459 bytes/8,776 lines, valid complete CLEAN",
-    "C: 14/14, 111,705 bytes/2,418 lines, valid complete CLEAN",
-    "D: 103/103, 410,314 bytes/9,494 lines, valid complete CLEAN",
-    "E: 150/150, 406,331 bytes/9,333 lines, valid complete CLEAN",
-    "Refreshed F: 19/19, 139,365 bytes/1,892 lines, valid complete CLEAN",
-    "G: 8/8, 36,717 bytes, valid complete CLEAN",
-)
-STABLE_VERIFICATION_FACTS = (
-    "Latest stable verification for reviewed endpoint `87c6f88`",
-    "strict Mypy across 169 source files",
-    "combined Mypy across 438 source/test files",
-    "`just check` at 4,829 passed / 2 skipped",
-    "Ruff formatting covers 480 files",
-    "34 / 18 repository/source C901 findings",
-    "81,738 / 121,191 source/test physical lines",
-    "43 `ToolLoopTerminalUi` fields",
-    "one source ignore",
-    "5,433 / 6,329 lines in `tool_loop_session.py` / `tui.py`",
-    "Docs are clean",
-    "both theme sources are `pi`",
-    "pre-commit is absent",
-)
-PROGRAM_DOCUMENTS = (
-    "docs/2026-07-29-architecture-quality-assessment.md",
-    "docs/architecture.md",
-    "docs/backlog.md",
-    "docs/index.md",
-    "docs/pi-mono-gap-audit.md",
-    "docs/specs/2026-07-24-architecture-quality-improvement-plan.md",
-)
-RELATED_HISTORICAL_DOCUMENTS = ("docs/architecture-migration.md",)
-STATUS_DOCUMENTS = PROGRAM_DOCUMENTS + RELATED_HISTORICAL_DOCUMENTS
 
 
 def _read(path: str) -> str:
@@ -102,77 +50,8 @@ def test_formatter_gate_has_no_custom_repository_exclusions() -> None:
     assert not (REPO_ROOT / "ruff.toml").exists()
 
 
-def test_architecture_assessment_navigation_and_reference_identity() -> None:
-    assessment_path = "2026-07-29-architecture-quality-assessment.md"
-    assessment = _read(f"docs/{assessment_path}")
-    architecture = _read("docs/architecture.md")
-    backlog = _read("docs/backlog.md")
-    index = _read("docs/index.md")
-    nav = _read("zensical.toml")
+def test_readme_names_the_codex_websocket_dependency() -> None:
     readme = _read("README.md")
 
-    for revision in (
-        "e35a0d54898c160ac37acbdbdd35fff727569508",
-        "edd4ccc6171420015fa0f04bec75d38fe32beb68",
-        "7df73a00c6cf85c000bf1ce1594c9284067a92f0",
-    ):
-        assert revision in assessment
-    assert "openai-codex/gpt-5.6-sol" in assessment
-    assert assessment_path in architecture
-    assert assessment_path in backlog
-    assert assessment_path in index
-    assert assessment_path in nav
     assert "Codex WebSocket transport uses" in readme
     assert "declared `websockets` dependency" in readme
-
-
-def test_architecture_program_closeout_ledgers_stay_synchronized() -> None:
-    required_claims = (
-        "13 program/integration commits",
-        "final integration ledger is closed/reconciled at reviewed endpoint `87c6f887f4afb719da89e68074551e9b8786ac1d`",
-        "A-G manifest union exactly covers all 298 changed paths",
-        "covered A-G manifests/reports, prior cross-cutting evidence, final ledger files, and unchanged cross-contracts",
-        "`STATE: CLEAN`, `COVERAGE_COMPLETE: yes`, `PARTITION_UNION_COMPLETE: yes`, and `VERDICT: CLEAN`",
-        "zero Critical, Warning, or Suggestion findings",
-        "`SCOPED_OMISSIONS: none`, `FORBIDDEN_TOOL_USES: 0`, `SKIPPED_FILES: none`, `TRUNCATIONS: none`, and `REDACTIONS: none`",
-        "architecture-quality program and final integration review are closed/reconciled",
-        "further review would add no material value unless scope changes",
-        "bounded transactional-reload contract completion or formal reconciliation",
-    )
-    focused_closure_claims = (
-        "complete A–H synthesis found only the stale-paragraph Warning",
-        "final stale-pending correction plus optional A–G regex fix",
-        "fresh exact-schema focused re-review by Pi `openai-codex/gpt-5.6-sol`",
-        "complete patch (11,186 bytes / 185 lines, all 8 files) and returned `STATE: CLEAN`, `COVERAGE_COMPLETE: yes`, and `VERDICT: CLEAN`, with zero Critical, Warning, or Suggestion findings",
-        "`STATE: CLEAN`, `COVERAGE_COMPLETE: yes`, and `VERDICT: CLEAN`",
-        "zero Critical, Warning, or Suggestion findings",
-        "`SCOPED_OMISSIONS: none`, `FORBIDDEN_TOOL_USES: 0`, `SKIPPED_FILES: none`, `TRUNCATIONS: none`, and `REDACTIONS: none`",
-        "later docs-only correction does not invalidate the already-reviewed A–G cross-contract CLEAN because its cross-contract evidence is unchanged",
-    )
-    stale_status_patterns = (
-        r"\bintegration ledger(?: \w+){0,12} (?:(?:remain(?:s|ed)?|is|was|still)(?: still)? )?open\b",
-        r"\b(?:(?:still )?open integration (?:ledger|status)|integration status(?: \w+){0,8} (?:remain(?:s|ed)?|is|was|still)(?: still)? open)\b",
-        r"\b(?:(?:(?:current|fresh|focused|overall|final|integration|cross cutting|[a-z](?: [a-z])?) )+(?:re )?review(?: \w+){0,8} (?:(?:remain(?:s|ed)?|is|was|still) )?(?:still )?(?:pending|open)|(?:pending|open)(?: \w+){0,8} (?:(?:current|fresh|focused|overall|final|integration|cross cutting|[a-z](?: [a-z])?) )+(?:re )?review)\b",
-        r"\bno (?:[a-z](?: [a-z])? )?overall(?: integration)? clean\b",
-        r"\b(?:current incomplete ledger warning|current worktree verification after this ledger test fix|final integration review(?: \w+){0,8} in progress|integration status(?: \w+){0,8} pending|(?:current|this) (?:fix|correction|status)(?: \w+){0,8} (?:(?:fresh|focused|[a-z](?: [a-z])?) )*(?:re )?review(?: \w+){0,8} (?:pending|open)|(?:current|this|stale paragraph|stale pending)(?: \w+){0,8} (?:awaits?|awaiting)(?: \w+){0,8} (?:[a-z](?: [a-z])? )?(?:focused )?(?:re )?review)\b",
-    )
-    for path in STATUS_DOCUMENTS:
-        raw_document = _read(path)
-        document = " ".join(raw_document.replace("\n> ", "\n").split())
-        normalized_document = re.sub(r"[\W_]+", " ", raw_document.casefold())
-        for revision, subject in COMMIT_FACTS:
-            assert revision in document
-            assert f"`{subject}`" in document
-        for claim in PARTITION_FACTS + STABLE_VERIFICATION_FACTS + required_claims:
-            assert claim in document
-        for stale_pattern in stale_status_patterns:
-            assert re.search(stale_pattern, normalized_document) is None
-
-    for path in (PROGRAM_DOCUMENTS[0], PROGRAM_DOCUMENTS[2]):
-        document = " ".join(_read(path).split())
-        for claim in focused_closure_claims:
-            assert claim in document
-
-    plan = _read(PROGRAM_DOCUMENTS[-1])
-    assert "Status: completed/reconciled historical plan." in plan
-    assert "it is no longer an active implementation queue" in plan

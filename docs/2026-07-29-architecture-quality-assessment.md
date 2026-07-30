@@ -2,6 +2,9 @@
 
 Status: completed/reconciled architecture-quality program.
 
+All measurements, commit references, and review outcomes in this dated
+assessment are point-in-time evidence and are no longer test-enforced.
+
 The final integration ledger is closed/reconciled at reviewed endpoint
 `87c6f887f4afb719da89e68074551e9b8786ac1d`: 13 program/integration commits
 since `fe474e0e55b3d1e8ae370534acb54a0a5fd9496b`, with 298 changed paths. The
