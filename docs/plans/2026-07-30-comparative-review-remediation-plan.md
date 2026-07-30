@@ -18,10 +18,11 @@ The plan and backlog update are one planning commit, not an implementation
 slice. Before that commit, a fresh Claude Code Opus reviewer must review the
 complete docs diff. The default budget is at most two valid docs rounds,
 stopping at the first CLEAN result as required by `AGENTS.md`. Round 2 produced
-new actionable correctness and process findings about projection-source
-deletion, review-cap semantics, and slice execution, so the operator explicitly
-authorized one additional docs review of the resulting corrections. That
-one-off authorization does not enlarge any later slice's budget. If the
+new actionable shared-state correctness findings about candidate-host guard
+ownership, exhaustive queue writers, terminal mutation scope, and closed-sink
+refusal shapes, so the operator explicitly authorized one additional docs
+review of the resulting corrections. That one-off authorization does not enlarge
+any later slice's budget. If the
 applicable cap is reached with an unresolved Critical, Warning, correctness
 contradiction, or other material blocker, report it and do not land the plan.
 Thus the pre-commit worktree remains honestly proposed, while the committed
@@ -68,6 +69,25 @@ are point-in-time evidence, not permanent quotas.
   pending, class-A ports do not capture a generation id, and `set_model`
   admission remains non-atomic. These are current-code facts and are the first
   implementation priority.
+- The R0 re-audit corrected current ownership assumptions.
+  `extension_loader._drive_awaitable()` joins its private `pipy-ext-activate`
+  worker without a timeout, but R1 remains present correctness because retained
+  post-activation `register_*`/`on` calls appear to succeed into harvested host
+  state. R1 guards all staged fields and makes every late class-D call raise
+  `ExtensionCapabilityError` at its call boundary. Separately, a retained API's
+  cancellable `pipy-tool-call` worker can race the session worker's outbox copy/
+  clear; R3/R4a own the complete generation-outbox writer/drain set. Accepted
+  staged custom messages and `ExtensionCodingSessionControl` instead target
+  provider, durable tree, rendering, and `CodingInputQueue` sinks. A retained
+  control can race live session/RPC use: `NativeSessionTree` releases its partial
+  `_write_lock` before `_write_entry()` and `CodingInputQueue` has no guard. R5
+  is split. R5a promotes the existing per-run `mutation_io_lock` into one
+  coding-effect coordinator adopted by active-tree pointer access, every mutable
+  tree/input API, retained coding-session writers, and terminal teardown; R5b
+  keeps active-tool/thinking generation admission bounded. Closing a retired
+  generation outbox still changes no delivery, while R4a's live append-erasure
+  fix remains user-visible. The class-A count stays three and the queue becomes
+  exactly 27 slices.
 - The repeated six provider test names do occur in eight provider files, but
   shared names do not prove equivalent wire contracts. In particular, Azure
   Responses cases are not interchangeable with chat-completions cases.
@@ -95,9 +115,10 @@ and [What a generation is](../specs/2026-07-25-transactional-extension-reload-re
 sections. In this plan, **class A** means generation-bound session-state mutation
 ports whose liveness/gate check and mutation are atomic under the session mutex;
 **class D** means activation-scoped contribution registrations that are sealed
-when a candidate is frozen or disposed; and **queue sidecars** means the
-generation-owned mutable user/custom-message and notification queues (alongside
-the separately named chrome sidecar), which only the live generation drains.
+when a candidate is frozen or disposed; and **queue sidecar** means the
+user/custom-message queue owned by one generation. Notifications remain
+immediate effects under R0, and chrome is a separately named generation
+sidecar.
 
 ## Program invariants
 
@@ -110,13 +131,21 @@ names and tests a behavior change.
 2. CLI text, JSON/RPC schemas, provider wire requests, session formats, event
    ordering, extension contracts, terminal bytes/lifecycle, and command
    precedence do not change accidentally.
-3. The single session mutex is taken by every reader and writer of any guarded
-   field. No check-then-mutate window, lost update, callback, provider
-   construction, rendering, filesystem I/O, or finalizer release is permitted
-   under that mutex. A candidate-registration guard or candidate sink-local
-   guard never nests with the session mutex in either acquisition order: code
-   must snapshot/seal under the candidate guard, release it, and only then enter
-   a separate session-mutex publication phase (with cleanup after both).
+3. Every field has one named guard taken by all readers and writers. The R1
+   candidate-host guard owns staged registration/message/value/failure and seal/
+   dispose state. The session mutex guards generation/selection and generation-
+   outbox state; chrome sidecars use sink-local guards. R5a promotes the existing
+   per-run `mutation_io_lock` into one reentrant coding-effect coordinator used
+   by every effectful retained coding-session adapter, active-tree pointer read/
+   rebind, mutable `NativeSessionTree` API, and `CodingInputQueue` API. Atomic
+   admission claims one exclusive owner/depth lease (same-thread nested calls
+   re-enter), serializing retained effects while provider/render/callback work
+   runs with the lock released; terminal condition-waits for the owner to clear. Shared tree/input
+   phases take `mutation_io_lock`; durable tree append alone holds it across I/O.
+   The only nested order is `mutation_io_lock → session mutex`; all reverse
+   edges, candidate/session nesting, session/chrome nesting, and chrome/paint
+   nesting are forbidden and tested. The session mutex never spans provider or
+   filesystem I/O, and there is no check-then-act or lost update.
 4. No runtime dependency, unchecked `Any`, unexplained suppression, Mypy
    exclusion, new C901 pin, deprecation alias, or compatibility re-export is
    added. Pipy-only surfaces are removed outright when realigned to Pi.
@@ -173,15 +202,15 @@ slice below.
 changes no product behavior and removes an unrelated seven-document tax from
 the correctness slices. `R0` through `R7` then close the assessment's mandatory
 reload boundary. The mandatory order is `G0` → `R0` → `R1` → `R2` → `R3` →
-`R4a` → `R4b` → `R4c` → `R5` → `R6` → `R7`; none may be reordered or run in
-parallel. No `D`, `L`, `P`, `A`, `T`, or `C` slice may begin until `R7` records
-completion or an independently reviewed formal reconciliation that proves an
-alternative contract. Merely writing `R0` does not clear the gate.
+`R4a` → `R4b` → `R4c` → `R5a` → `R5b` → `R6` → `R7`; none may be reordered or
+run in parallel. No `D`, `L`, `P`, `A`, `T`, or `C` slice may begin until `R7`
+records completion or an independently reviewed formal reconciliation that
+proves an alternative contract. Merely writing `R0` does not clear the gate.
 
-The queue contains exactly **26 numbered execution slices**: G0; ten ordered
-reload slices (R0, R1, R2, R3, R4a, R4b, R4c, R5, R6, R7); D1; nine lint slices
-(L1-L9); P1-P2; A1; T1; and C1. The planning commit itself and the universal
-gate are not additional slices.
+The queue contains exactly **27 numbered execution slices**: G0; eleven ordered
+reload slices (R0, R1, R2, R3, R4a, R4b, R4c, R5a, R5b, R6, R7); D1; nine lint
+slices (L1-L9); P1-P2; A1; T1; and C1. The planning commit itself and the
+universal gate are not additional slices.
 
 ### G0 — retire frozen closeout synchronization
 
@@ -209,11 +238,12 @@ Commit: `test: retire frozen architecture closeout metrics`.
 
 **Scope:** Re-audit the current implementation against
 `docs/specs/2026-07-25-transactional-extension-reload-rebuild.md`. Add a current
-clause-disposition table to that spec: `landed`, `required in R1-R6`, or
-`formally narrowed`, with code/test evidence for every narrowed clause. The
+clause-disposition table to that spec: `landed`, `required in R1-R6` (including
+R5a/R5b), or `formally narrowed`, with code/test evidence for every narrowed clause. The
 minimum required set cannot be narrowed away: rejected activation must preserve
-old chrome, timed-out/rejected registration must be sealed/disposed, published
-extension projections must be coherent, operations must use one snapshot,
+old chrome, rejected/otherwise-abandoned registration must be sealed/disposed,
+published extension projections must be coherent, operations must use one
+snapshot,
 class-A ports must reject stale generations atomically, and `set_model` must
 separate fallible preparation/in-memory commit/fail-soft persistence. The audit
 must enumerate the complete current class-A port inventory by port and owner.
@@ -221,7 +251,7 @@ The expected inventory is the three families planned below:
 `set_active_tools`, `set_thinking_level`, and `set_model`. If any other class-A
 port exists, stop before code and revise/re-split this plan, including the
 reported slice count and dependency order, rather than silently assigning it to
-R5 or R6.
+R5a, R5b, or R6.
 
 The decision must explicitly settle which settings/resources and queue-sidecar
 clauses remain transactional. For settings, it must record exactly one
@@ -243,9 +273,15 @@ owner and confirms it is exactly the three expected families, otherwise the
 plan, dependency order, and slice count are corrected before code; lock
 ownership and all readers/writers are named; the settings disposition selects
 and evidences exactly one of the two R3/R4a paths above, with no unresolved
-placeholder; each R1-R6 sub-slice stays within its stated owning-module/
-touched-family bound and one concurrency mechanism; the acquisition graph
-proves candidate guards and the session mutex cannot nest in either direction;
+placeholder; queue and chrome sidecars have explicit retained/narrowed dispositions; the
+reachable outbox copy/clear and retained coding-session tree/input races each
+have an owning slice; the guarded table names the active-tree pointer, every
+mutable tree/input reader/writer, extension writer adapter, durable-write order,
+and terminal refusal; each R1-R6 sub-slice stays within its bound and mechanism;
+the acquisition graph proves the only nested order is
+`mutation_io_lock → session mutex`, with the reverse edge forbidden and
+provider/render/paint work unlocked; candidate guards and the session mutex
+cannot nest;
 two reports of the same shared-state defect force another contract revision
 before code, not automatic review rounds beyond the cap.
 
@@ -257,49 +293,90 @@ changelog entry. Commit: `docs: reconcile reload completion contract`.
 **Kind:** concurrency behavior at the activation boundary.
 
 **Scope:** Give candidate activation a candidate-owned registration host with a
-one-way sealed/disposed state under its own guard. Seal before harvesting a
-successful candidate and before disposing a timeout/rejection. Late class-D
-registrations must fail closed and cannot enter either the candidate projection
-or the live runtime. Do not integrate chrome publication or alter live
-selection in this slice.
+one-way sealed/disposed state under its own guard. That guard owns all command,
+shortcut, hook, tool, provider/unregistration, flag/value, message/entry-renderer,
+user/custom-message staging, first-failure state, `_activated`, and guarded
+parsed flag-value application/read views (no direct mutable
+`RegisteredFlag.values` alias). Replace the current separate `staged_*` harvest
+reads with one atomic seal/freeze snapshot before accepting a successful
+candidate; seal/dispose any rejected or otherwise abandoned host. Every late
+class-D `register_*`, `unregister_provider`, or `on` call raises
+`ExtensionCapabilityError` at that call boundary and cannot enter either the
+candidate projection or live runtime. This fixes present behavior
+where a retained post-activation API returns normally while mutating already-
+harvested dead/partially shared host state. A published `pipy-tool-call` cannot
+race its own initial harvest, but extension-created activation threads can; both
+reader/writer families take the host guard. Current activation waits without a
+production timeout; this slice also makes abandonment timeout-safe but does not
+add or select a timeout policy. Do not integrate chrome publication or alter
+live selection in this slice.
 
 **Bound:** production edits are limited to the activation/registration-host
 owner and reload composition adapter family; live chrome, selection, provider,
-and consumer-dispatch owners are out of scope.
+and consumer-dispatch owners are out of scope. R1 guards and seals staged
+messages with the host, but runtime queue-sidecar append/flush conversion is
+explicitly R4a-owned after R3 creates the sidecar.
 
-**Acceptance:** deterministic tests pause an activation worker, time it out,
-seal/dispose the host, then release the worker and prove late commands, tools,
-providers, hooks, renderers, flags, shortcuts, and listeners are absent.
-Instrumented guards fail on attempted candidate-guard/session-mutex nesting in
-**both** directions, and barrier tests cover registration-versus-seal and
-seal-versus-publication order. No session mutex is held while extension code
-runs or cleanup callbacks execute.
+**Acceptance:** deterministic tests pause an activation worker, abandon and
+seal/dispose its host through the bounded host seam, then release the worker and
+prove late commands, tools, providers/unregistrations, hooks, message/entry
+renderers, flags/value changes, shortcuts, and staged user/custom messages are
+absent. Separate post-success and rejection arms assert
+`ExtensionCapabilityError` for every extension-visible return-shape family:
+void-return `register_*`/unregister calls, direct `on(event, handler)`, decorator-
+factory `on(event)`, and `register_flag`. No test or implementation invents an
+inert decorator or `RegisteredFlag`. One frozen snapshot contains every staged
+family and `_activated`; parser/get-value tests prove flag values use the host-
+owned guarded view; instrumented access proves every named reader/writer takes
+the candidate guard. Runtime message routing releases the
+host guard before any session-mutex append. The seam is ready for a future
+timeout without adding one here. Instrumented guards fail on attempted
+candidate-guard/session-mutex nesting in **both** directions, and barrier tests
+cover registration-versus-seal and seal-versus-publication order. No session
+mutex is held while extension code runs or cleanup callbacks execute.
+Chrome/listener sinks remain R2-owned. The candidate host guard is released
+before any later queue/session-mutex handoff; R1 introduces no nested edge.
 
-**Docs/release/commit:** update the transactional clause table and extension
-implementation notes; add a changelog fix entry for rejected/timed-out late
-registration. Commit: `fix: seal rejected extension activation`.
+**Docs/release/commit:** update the transactional clause table and
+`docs/extension-api.md` to say late class-D calls raise
+`ExtensionCapabilityError`; add matching changelog fix wording for retained APIs
+after activation or rejection, without claiming a timeout or inert return.
+Commit:
+`fix: seal rejected extension activation`.
 
 ### R2 — stage chrome and dispose rejected candidates
 
 **Kind:** user-visible correctness fix.
 
 **Scope:** Stop clearing live TUI chrome before activation/flag validation.
-Collect candidate chrome/listener requests in candidate-owned sinks. On
-rejection, close/dispose those sinks without delivery; on acceptance, reconcile
-new chrome only after the candidate is committed. Preserve the prior chrome
-when any fallible candidate step fails.
+Collect candidate retained chrome/listener requests in candidate-owned sinks:
+header/footer/widgets/title/indicator, terminal-input listeners, autocomplete
+providers, editor-component and hidden-thinking-label registrations, and their
+callback/disposer identities. On rejection, close/dispose those sinks without
+delivery; on acceptance, reconcile new chrome only after the candidate is
+committed. Preserve the prior chrome when any fallible candidate step fails.
+Session-scoped sticky status rows and working message/visibility, plus imperative
+dialog/editor/overlay/theme effects, retain the R0 narrowed dispositions.
 
 **Bound:** production edits are limited to candidate chrome/listener sinks,
 reload orchestration, and the TUI chrome reconciliation adapter; other
-contribution projections and selection state are out of scope.
+contribution projections and selection state are out of scope. One sink-local
+guard serializes each sidecar's closed-check+write and close. Paint, callbacks,
+disposal, and the session mutex never run while that guard is held.
 
 **Acceptance:** captured and real-PTY tests prove (a) invalid flags and injected
 activation failure retain old title/widgets/listeners, (b) rejected candidate
-chrome never paints, and (c) successful removal clears old chrome exactly once
-after acceptance. `just test-pty-smoke` and the focused chrome PTY module pass.
+chrome never paints, (c) successful removal clears old chrome exactly once after
+acceptance, and (d) each retained class-B write racing/after close silently
+no-ops with its existing `None` return and no diagnostic/exception, while
+`on_terminal_input()` returns an inert disposer. `just test-pty-smoke` and the
+focused chrome PTY module pass.
 
-**Docs/release/commit:** update extension/TUI behavior docs and add a changelog
-fix entry. Commit: `fix: stage extension chrome until reload commit`.
+**Docs/release/commit:** update `docs/extension-api.md`, extension/TUI behavior
+docs, and a changelog fix entry that includes late writes to a rejected
+candidate's closed chrome being ignored. Retired-live invocation remains R4c and
+terminal invocation remains R5a. Commit:
+`fix: stage extension chrome until reload commit`.
 
 ### R3 — build one immutable extension projection
 
@@ -309,19 +386,20 @@ fix entry. Commit: `fix: stage extension chrome until reload commit`.
 `extension_runtime.py`) with immutable, candidate-built projections required by
 current consumers: runtime/flags, commands/menu/descriptions/shortcuts,
 lifecycle and request hooks, extension tool ports plus candidate capability
-state, renderer mappings, provider contributions, and candidate-owned sidecar
-handles. If R0 retains settings transactionally, also include an immutable
-settings projection supplied by an allowed session/settings-owned adapter; if
-R0 formally narrows settings, omit that projection. Build and validate the whole
-value before publication. This slice constructs the value and tests it; it does
-not yet switch all live consumers.
+state, renderer mappings, provider contributions, and candidate-owned queue and
+R2 chrome-sidecar handles. Queue sidecars own their outbox storage, one-way
+closed state, and reference to the existing session mutex that guards both; R3
+does not yet switch append/drain consumers. R0 formally
+narrowed settings, so the generation and builder contain no settings or resource
+projection and no settings-supplying adapter. Build and validate the whole value
+before publication. This slice constructs the value and tests it; it does not
+yet switch all live consumers.
 
 **Bound:** production edits are limited to the session-generation value,
-candidate projection builder, and their composition/adaptation points, plus,
-only under R0's retained-settings disposition, the allowed
-session/settings-owned adapter that supplies the immutable settings projection.
-Existing command, request, tool, renderer, provider, menu, lifecycle, and
-chrome consumer families remain unchanged.
+candidate projection builder, and their composition/adaptation points. Settings,
+keybindings, resource, and settings-supplying adapter owners are out of scope.
+Existing command, request, tool, renderer, provider, menu, lifecycle, and chrome
+consumer families remain unchanged.
 
 **Acceptance:** injected failure at each projection builder leaves the live
 reference and every existing live adapter unchanged; retained old projections
@@ -332,52 +410,87 @@ adapters observe from the same candidate. Each arm remains a required gate
 until the slice in which that family's last legacy consumer moves and its
 legacy source is deleted; that same slice removes the arm as part of the proven
 deletion. No arm may disappear before its last legacy consumer moves and its
-legacy source is deleted, and R4c removes only the final remaining arms. Under
-R0's retained-settings disposition, the immutable settings projection has the
-same isolation/equivalence characterization, is supplied through the bounded
-adapter, and adds no extension-boundary reverse import; under the narrowed disposition,
-the generation value, builder, and characterization arms contain no settings
-projection. The extension boundary gains no provider/TUI reverse import.
+legacy source is deleted, and R4c removes only the final remaining arms. Per
+R0's narrowed disposition, the generation value, builder, and characterization
+arms contain no settings, keybinding, or resource projection and no settings-
+supplying adapter. The extension boundary gains no provider/TUI reverse import.
 
 **Docs/release/commit:** update architecture/spec ownership; no changelog entry.
 Commit: `refactor: build immutable reload projections`.
 
 ### R4a — snapshot command and request-hook operations
 
-**Kind:** concurrency behavior; intended external behavior is coherence only.
+**Kind:** user-visible concurrency correctness: coherent snapshots and no erased
+live queue append; retired-handle close does not add delivery semantics.
 
 **Scope:** Convert extension command, shortcut, input, before-agent,
 before-provider, tool-result, and session-gate dispatch to take one R3 snapshot
-at operation start and use its runtime, flags, and sidecars throughout. Under
-R0's retained-settings disposition, each applicable operation also uses the
-snapshot's immutable settings projection; under the narrowed disposition, R4a
-does not consume settings from the generation snapshot. R3 must have built every
-applicable snapshot field before R4a begins. If a converted family's separately
-refreshed legacy source has no consumer left, delete that source and remove only
-its corresponding R3 equivalence arm in this same slice; every arm backed by a
+at operation start and use its runtime, flags, and queue sidecars throughout.
+At the concrete append end, convert every generation-outbox writer:
+`_ActivationApi.send_user_message()`, `send_message()`/`sendMessage()`, and
+`commit_activation()`'s staged user-message flush; at the concrete drain end,
+convert only `_CustomEntryRenderer.drain_extension_outboxes()` (not that class's
+rendering or coding-session send methods). Accepted staged activation custom
+messages also call `_CustomEntryRenderer.extension_send_message()` directly;
+they never enter `custom_outbox`. `ExtensionCodingSessionControl` adds no hidden
+writer: completion targets the provider, append/name/label target the durable
+session tree, and the same renderer method targets that tree,
+rendering/diagnostics, and `CodingInputQueue`, never either generation outbox. For each queue, closed-check+append, atomic detach/drain, and
+rejection/retirement close are serialized by the same session mutex. Candidate
+staged messages are detached under the R1 host guard, that guard is released,
+and only then are they flushed under the session mutex. Sink delivery and
+cleanup occur after unlock. A stale activation-api append is silently refused,
+returns its existing `None`, emits no exception/diagnostic, and cannot
+accumulate. Capture `project_trusted` when the provider-header request callback
+snapshot is built, removing the current provider-worker reach back into
+`SettingsManager`.
+Per R0's selected narrowed settings/resource disposition, R4a does not consume
+settings, keybindings, or resources from the generation snapshot. R3 must have
+built every applicable snapshot field before R4a begins. If a converted family's
+separately refreshed legacy source has no consumer left, delete that source and
+remove only its
+corresponding R3 equivalence arm in this same slice; every arm backed by a
 still-consumed source remains a gate. Do not convert tool execution/rendering,
 provider binding, menu, lifecycle, or chrome in this slice.
 
 **Bound:** production edits are limited to command/shortcut/input dispatch,
-request/session-hook dispatch, and their snapshot adapter, plus the reload
-publication/composition owner strictly for deletion of a converted family's
-legacy source after its last consumer moves. Tool, renderer, provider, menu,
-lifecycle, and chrome consumers are out of scope; R3's projection builder and
-settings-supplying adapter are out of scope.
+request/session-hook dispatch and snapshot adapters; every named
+`_ActivationApi` append/alias/flush method; `_CustomEntryRenderer.drain_extension_outboxes()`
+only; provider-header trust capture; and reload composition strictly for queue
+rejection/retirement close and proven legacy-source deletion. Coding-session
+completion/entry/name/label/custom-message sinks, tool execution, renderer
+selection/rendering, provider contribution/binding, menu, lifecycle, and chrome
+consumers are out of scope; R3's builder and settings adapter are out of scope.
+Named mechanisms are the R1 host guard for detach, followed after release by the
+existing session mutex for queue closed-check+append, detach/drain, close, and
+operation snapshot. They never nest.
 
 **Acceptance:** barrier tests publish between reads for every converted family
-and each operation reports one generation id with matching flags/hooks/sidecar
-and, only under R0's retained-settings disposition, settings; under the narrowed
-disposition no converted path reads a settings view from the generation
-snapshot. No converted path reads `generation_ref.current` twice or retains a
-separately refreshed hook/flag map. For each converted family whose last legacy
-consumer moves, the proof names that consumer, deletes the legacy source through
-the bounded publication/composition-owner edit, and only then removes that
-family's R3 equivalence arm; no other arm is removed.
+and each operation reports one generation id with matching flags/hooks/sidecar;
+no converted path reads a settings, keybinding, or resource view from the
+generation snapshot. A retained/late `before_provider_headers` callback holds no
+`SettingsManager` reference and observes the `project_trusted` boolean captured
+with its request snapshot even if the manager attribute changes later. A
+deterministic `pipy-tool-call`-worker-versus-session-drain barrier proves no
+append can land between detach and clear and be lost; writer inventory tests
+cover both activation send names and the staged user-message flush, characterize
+accepted staged custom messages as direct tree/render/input delivery, and prove
+the coding-session callables touch only their distinct provider/tree/render/input
+sinks. Rejected/retired sidecars reject later appends by silent `None` no-op and
+only the live generation drains. A retained-old-handle arm proves retired-handle
+delivery remains absent exactly as today; the changelog describes only the live
+append-versus-drain loss fix. No converted path reads `generation_ref.current`
+twice or retains a separately refreshed hook/flag map. For each converted family
+whose last legacy consumer moves, the proof names that consumer, deletes the
+legacy source through the bounded publication/composition-owner edit, and only
+then removes that family's R3 equivalence arm; no other arm is removed.
 
-**Docs/release/commit:** architecture/spec table; no changelog because only torn
-mixed-generation observations are removed. Commit:
-`refactor: snapshot extension dispatch operations`.
+**Docs/release/commit:** architecture/spec table and `docs/extension-api.md`
+closed-queue semantics; a changelog fix entry for a live extension user/custom
+message no longer being erased by a concurrent drain. The silent stale-send
+shape preserves the API and retired delivery was already absent, so neither gets
+a separate release claim. Commit:
+`fix: snapshot extension dispatch and queue operations`.
 
 ### R4b — snapshot tool, renderer, and provider projections
 
@@ -394,7 +507,8 @@ R0 contract and no provider construction occurs under the session mutex. Do
 not include class-A mutation admission.
 
 **Bound:** production edits are limited to the tool advertisement/execution,
-renderer selection, and provider contribution/refresh consumer families plus
+renderer selection/rendering **except the R4a-owned outbox drain method**, and
+provider contribution/refresh consumer families plus
 their snapshot adapters, and to the reload publication/composition owner
 strictly for deletion of a converted family's legacy source after its last
 consumer moves. Class-A mutation, menu, lifecycle, and chrome are out of scope.
@@ -417,16 +531,21 @@ R4c. Commit: `refactor: snapshot extension execution projections`.
 
 **Scope:** Convert menu/descriptions/shortcuts, lifecycle emitter inputs, and
 R2 chrome sinks to the R3 snapshot, then make reload's semantic commit solely a
-non-fallible generation-pointer publication under the session mutex. After its
-last consumer moves, delete the final separately refreshed contribution source
+non-fallible generation-pointer publication under the session mutex. Snapshot
+the retired chrome handle under that mutex, release it, then perform
+closed-check/snapshot/close under that handle's sink-local guard; paint and
+disposal follow after all guards. R5a, not R4c, invokes the completed close path
+from run finalization. After its last consumer moves, delete the final separately
+refreshed contribution source
 and remove only the final remaining R3 equivalence arms as part of that proven
 deletion. Post-commit paint, diagnostics, lifecycle notification, and
 persistence remain fail-soft and outside the mutex.
 
 **Bound:** production edits are limited to menu/description/shortcut consumers,
-lifecycle emitter inputs, chrome reconciliation, and the reload publication
-composition owner. Tool/provider/request dispatch and class-A mutation are out
-of scope.
+lifecycle emitter inputs, chrome reconciliation/retirement close, and the reload
+publication composition owner. Tool/provider/request dispatch, class-A mutation,
+and run-finally wiring are out of scope. The session mutex and chrome sink guard
+are named serial owners: never nested; TUI paint runs after both.
 
 **Acceptance:** barrier tests across all R4a-R4c families observe one old or one
 new generation id, never mixed flags/tools/renderers/hooks/providers/menu/
@@ -437,31 +556,101 @@ equivalence arms are removed here, each after this slice proves its last legacy
 consumer moved and its corresponding legacy projection source was deleted;
 arms already removed with proven R4a/R4b family deletions are not recreated.
 
-**Docs/release/commit:** architecture/spec table; extend the reload fix entry
-to state that accepted generations publish coherent tool/provider/render/UI
-projections. Commit: `refactor: publish one extension generation snapshot`.
+**Docs/release/commit:** architecture/spec table and the already-established
+closed-chrome API note; extend the reload fix entry to state that accepted
+generations publish coherent tool/provider/render/UI projections and stale
+writes through retired chrome handles are ignored. Commit:
+`refactor: publish one extension generation snapshot`.
 
-### R5 — bind active-tool and thinking mutations to a generation
+### R5a — serialize coding-session effects and terminal teardown
 
-**Kind:** concurrency correctness behavior.
+**Kind:** shared-state and durable-order correctness.
+
+**Scope:** Promote the existing per-run `mutation_io_lock` plus a condition on
+that lock into one coding-effect coordinator. Inject its reentrant lock into the
+active `NativeSessionTree` and `CodingInputQueue`; every mutable-state reader and
+writer in those owners takes it. Tree append methods hold it across id/parent
+selection, entries/index/leaf/name/label mutation, and `_write_entry()` so
+memory and JSONL share one order. Input-queue APIs hold it across complete check/
+use/mutate paths. Guard `_RunControlState.session_tree` pointer reads/rebinds.
+Completion, custom-entry append, name/label mutation, and custom-message writer
+adapters atomically reject terminal or claim one exclusive owner/depth lease,
+waiting if another thread owns it; same-thread nested effects re-enter. They
+release the lock while provider/render/callback work runs, then a `finally`
+decrements depth, clears the owner at zero, and notifies. Shared tree/input
+phases reacquire the same lock. Custom-message tree, unlocked render, and input
+phases keep their existing order. Read-only tree/name views use
+guarded APIs and remain readable at terminal.
+
+In `CodingSessionController.run_loop()`'s `finally`, preserve settle then
+`session_shutdown`. An inner teardown `finally` atomically closes admission and
+condition-waits for every accepted coding effect; the wait releases `mutation_io_lock`. Once the
+active owner clears it briefly takes the session mutex under `mutation_io_lock` to
+invalidate/detach the live generation and close/detach its generation outbox.
+Release both before R4c chrome close and paint/disposal. This terminal state is shared with R5b/R6. No provider or
+filesystem I/O occurs under the session mutex.
+
+**Bound:** production edits are limited to the coding-effect coordinator and
+composition wiring; `NativeSessionTree`; `CodingInputQueue` and its session-
+controller/agent/RPC adapters; active-tree pointer owner; effectful coding-
+session context/writer adapters; session-finalization ports; and terminal
+invocation of existing generation-queue/chrome close paths. Provider selection,
+class-A generation admission, and `set_model` construction are excluded. The
+single mechanism is the existing `mutation_io_lock` and a condition backed by
+it; tree/input nested calls are reentrant uses, not extra locks. The only cross-
+owner edge is `mutation_io_lock → session mutex` during terminal state. Provider,
+render, callbacks, and paint run unlocked; reverse acquisition is forbidden, and
+R4a releases the session mutex before input-queue delivery.
+
+**Acceptance:** deterministic barriers prove two retained/session tree appends
+cannot duplicate id/parent decisions or reverse in-memory versus JSONL order;
+name/label maps and RPC/read-only snapshots never tear. Inventory tests prove
+every active-tree pointer rebind/read family, mutable `NativeSessionTree` API,
+`CodingInputQueue` mutable-state API, and coding-session writer adapter enters
+the same
+coordinator. Queue enqueue/take/clear and next-turn-context races lose no item or
+check. A retained accepted completion or custom-message call paused before its
+last effect finishes keeps the exclusive lease; terminal waits while releasing
+the coordinator lock, the call completes, and later calls raise
+`ExtensionCapabilityError` with no effect. Exception and same-thread nested-call
+arms prove owner depth always releases; if close starts during an accepted
+owner, only its same-thread nested effects re-enter and unrelated waiters raise. Lock instrumentation rejects `session mutex → mutation_io_lock`; blocked
+provider/render callbacks can use guarded read APIs, and a blocked tree write
+proves the session mutex remains acquirable during filesystem I/O.
+Terminal queue/chrome close runs once even if `session_shutdown` propagates.
+
+**Docs/release/commit:** update `docs/extension-api.md`, architecture/spec tables,
+and changelog wording for concurrent/reordered durable coding-session effects
+and post-run refusal. Commit:
+`fix: serialize extension coding session effects`.
+
+### R5b — bind active-tool and thinking mutations to a generation
+
+**Kind:** generation-admission correctness.
 
 **Scope:** Contexts/ports for `set_active_tools` and `set_thinking_level` capture
-the creating generation id. Under the shared mutex, compare id and publication
-gate and apply the complete in-memory mutation in the same critical section.
-Move diagnostics, persistence, tree writes, footer updates, and callbacks after
-unlock. Do not include `set_model`.
+the creating generation id. Under the shared session mutex, compare id and gate
+and apply the complete in-memory mutation atomically. Thinking mutation keeps
+R5a's coordinator lock outermost through in-memory commit and durable tree I/O,
+releases the inner session mutex before that I/O and the outer lock before footer
+paint, and therefore preserves mutation/JSONL order without holding the session
+mutex across I/O. Reuse R5a terminal state: both methods
+return `False` after teardown. Do not include `set_model`.
 
 **Bound:** production edits are limited to active-tool/thinking context and port
-owners, their guarded selection-state owner, and post-lock presentation/
-persistence adapters; model/provider construction is out of scope.
+owners, guarded selection state, session-thread cycle and RPC thinking adapters,
+and post-lock tree/footer adapters. Coding-session callable/terminal wiring is
+R5a and model/provider construction is R6. Named order is only
+`mutation_io_lock → session mutex`; reverse acquisition is forbidden.
 
-**Acceptance:** stale and publication-pending calls return `False` and change
-nothing; a call admitted before gate-open survives publication; every reader
-and writer of the guarded selection uses the same mutex; no slow/arbitrary
-work or displaced-value destruction occurs under it.
+**Acceptance:** stale, publication-pending, and terminal calls return `False`
+and change nothing; a call admitted before gate-open survives publication;
+every selection reader/writer uses the session mutex. Thinking in-memory and
+JSONL order agree under concurrent callers, filesystem I/O occurs after session
+unlock, and lock-order instrumentation proves no reverse edge.
 
-**Docs/release/commit:** extension API concurrency semantics and spec table;
-changelog fix entry if stale-call behavior was previously observable. Commit:
+**Docs/release/commit:** update extension API concurrency semantics and the spec
+table; changelog fix wording covers stale selection refusal. Commit:
 `fix: reject stale extension selection mutations`.
 
 ### R6 — make model mutation admission atomic
@@ -481,9 +670,11 @@ and post-lock persistence/presentation adapter; no other class-A port changes.
 
 **Acceptance:** deterministic barriers cover stale-after-prepare,
 gate-open-during-prepare, provider-construction failure, persistence failure,
-and successful commit. History, usage, compaction, provider binding, selection,
-and defaults retain the reconciled contract; failure diagnostics contain no
-credential/private detail.
+and successful commit. A retained `set_model` call released after terminal
+teardown returns `False` and cannot construct/publish a provider, rebind coding
+state, refresh presentation, or persist a default. History, usage, compaction,
+provider binding, selection, and defaults retain the reconciled contract;
+failure diagnostics contain no credential/private detail.
 
 **Docs/release/commit:** extension/provider docs and changelog fix entry. Commit:
 `fix: commit extension model changes atomically`.
@@ -492,8 +683,9 @@ credential/private detail.
 
 **Kind:** integration tests and durable reconciliation; no new mechanism.
 
-**Scope:** Run the R0 scenario matrix over success, rejection, timeout,
-cancellation stragglers, teardown, and post-commit failure. Add only missing
+**Scope:** Run the R0 scenario matrix over success, rejection, the abandonment
+seam (without adding a product timeout), cancellation stragglers, teardown, and
+post-commit failure. Add only missing
 integration characterization. Update the transactional spec, architecture,
 assessment follow-up note, and backlog to state exactly what shipped and what
 was formally narrowed. Do not add a new concurrency abstraction in closeout.
@@ -507,7 +699,8 @@ not commit, the reload boundary remains open, and the plan must be revised,
 re-split, or stopped and reported. Only a committed R7 may authorize `D1`.
 
 **Docs/release/commit:** closeout docs; changelog only for behavior not already
-recorded in R1-R6. Commit: `docs: close transactional reload boundary`.
+recorded in R1-R6 (including R5a/R5b). Commit:
+`docs: close transactional reload boundary`.
 
 ### D1 — make the documentation entry point reader-facing
 

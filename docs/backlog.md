@@ -29,19 +29,59 @@ is the landing-gated dependency-ordered queue from the three-way `pipy`/
 `pi-mono`/`tau` review. Authorization is commit-state based: while the complete
 plan/backlog diff is uncommitted, implementation remains blocked on its fresh
 Claude Code Opus review under the default two-round docs cap. Round 2 produced
-new actionable correctness and process findings about projection-source
-deletion, review-cap semantics, and slice execution, so the operator explicitly
-authorized exactly one additional docs review of the resulting corrections.
-Landing the planning commit on `main` certifies the required review completed,
-material findings were addressed, and G0 is authorized.
+new actionable shared-state correctness findings about candidate-host guard
+ownership, exhaustive queue writers, terminal mutation scope, and closed-sink
+refusal shapes, so the operator explicitly authorized exactly one additional
+docs review of the resulting corrections. Landing the planning commit on `main`
+certifies the required review completed, material findings were addressed, and
+G0 is authorized.
 
-**Active/next slice:** **R0 — reconcile the bounded reload contract**
+**Active/next slice:** **R1 — seal candidate contribution registration**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
 The dated assessment is the point-in-time source; other historical copies remain
-preserved. The mandatory correctness sequence is now **R0–R7 — reconcile and
-close transactional reload**. No documentation
+preserved. R0 is complete as a docs/spec decision: the transactional spec now
+maps every assessment residual and ideal clause, confirms the class-A inventory
+is exactly `set_active_tools`, `set_thinking_level`, and `set_model`, selects the
+settings-omitted R3/R4a path after enumerating RPC, worker, adapter, and external
+manager surfaces; and retains generation queue/chrome sidecars. The exhaustive
+guarded-field table now assigns every staged contribution/message registry,
+flag-value/failure field, `_activated`, and sealed/disposed state to the R1
+candidate-host guard and one atomic freeze snapshot. R1 is present correctness:
+a tool-retained API currently appears to accept post-activation class-D writes
+into harvested host state, although that tool cannot race its own initial
+harvest. R1 makes every late `register_*`, `unregister_provider`, or direct/
+decorator `on` call raise `ExtensionCapabilityError` at its call boundary, with
+API docs, changelog wording, and tests for every return-shape family; it invents
+no inert decorator or `RegisteredFlag` and stays future-timeout-safe without
+adding timeout policy.
+
+The reachable cancelled-tool-worker versus session-drain lost update is assigned
+to R3/R4a's complete writer set (both activation send names/alias and
+`commit_activation()`'s staged user-message flush) and renderer drain. Accepted
+staged custom messages bypass `custom_outbox` for direct tree/render/input
+delivery. Coding-session completion/entry/name/label/custom-message callables
+target provider, durable tree, render/diagnostic, and input-queue sinks instead. They
+also expose a current live-run defect: a retained control can race session/RPC
+use, `NativeSessionTree` unlocks before durable append, and `CodingInputQueue` is
+unguarded. R5 is split. R5a promotes the existing per-run `mutation_io_lock`
+plus a condition into one coding-effect coordinator whose exclusive/reentrant owner
+lease serializes retained effects, plus active-tree pointer access, every mutable
+tree/input reader/writer,
+durable JSONL order, accepted-before-terminal completion, and later refusal.
+Provider/render work runs unlocked; durable tree append alone holds the lock
+across I/O. R5b owns only generation-bound `set_active_tools`/`set_thinking_level`; R6 owns
+`set_model`. The only nested lock order is `mutation_io_lock → session mutex`;
+provider, render, and paint run unlocked, reverse acquisition is forbidden, and no
+provider/filesystem I/O runs under the session mutex. R4a also proves retained provider-header callbacks hold no `SettingsManager`.
+Closed activation sends/chrome writes retain their prior silent shapes; retired
+generation outboxes were already excluded from live delivery. R4a's changelog
+claims only the live append-erasure fix, while R5a's definite fix entry covers
+concurrent/reordered and post-run coding-session effects. R0 itself changes no
+product behavior and has no changelog entry. The class-A count remains three,
+the queue contains exactly 27 slices, and the mandatory correctness sequence
+remains **R1–R7 — implement and close transactional reload**. No documentation
 cleanup, Ruff expansion, tool-parity behavior change, ordinary ownership
 refactor, provider-test consolidation, or contributor work may begin until a
 committed R7 closes or proves a formal reconciliation for every reload residual
@@ -49,9 +89,10 @@ identified by the
 [2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md).
 Writing R0 alone does not clear that boundary.
 
-The queue has exactly **26 numbered execution slices**: G0; ten R slices; D1;
-nine separately bounded lint/fix/enablement slices L1-L9; P1-P2; A1; T1; and
-C1. The plan's commit gate is universal rather than a final slice: every slice
+The queue has exactly **27 numbered execution slices**: G0; eleven R slices
+(R0, R1, R2, R3, R4a, R4b, R4c, R5a, R5b, R6, R7); D1; nine separately bounded
+lint/fix/enablement slices L1-L9; P1-P2; A1; T1; and C1. The plan's commit gate
+is universal rather than a final slice: every slice
 uses a fresh Pi implementer, focused and full checks, an update to the labeled
 **Active/next slice:** field, docs/release-note disposition, and fresh
 independent Opus review within `AGENTS.md` budgets. Shared-mutable-state

@@ -237,6 +237,48 @@ fully support that simplification.
 | **Verified fact** | The sole source suppression is the runtime-selected stdlib HTTP connection subclass in `native/http.py`, with an adjacent Mypy-limitation rationale. | Retain the narrow `misc, valid-type` suppression until the type checker can express the runtime base safely; the count stays ratcheted at one. |
 | **Queued recommendation** | Package publication metadata remains provisional while the repository is private. | Keep version/distribution identity, license/URLs, wheel contents, and installed-entry-point verification as release-triggered work. Do not create metadata churn in Slice 16. |
 
+R0's 2026-07-30 current-code re-audit is recorded in the transactional spec's
+[R0 current reconciliation](specs/2026-07-25-transactional-extension-reload-rebuild.md#r0-current-reconciliation-2026-07-30).
+It maps all six Actual gaps to R1–R6 and preserves them as mandatory. It also
+corrects one premise without rewriting this dated table: current activation
+joins its private worker without a timeout. R1 is still present-day correctness,
+not merely timeout preparation, because a tool-retained activation API currently
+accepts post-activation `register_*`/`on` calls into already-harvested host state
+without adding them to the detached live projection. R1 uniformly makes late
+`register_*`, `unregister_provider`, and direct/decorator `on` calls raise
+`ExtensionCapabilityError` at the call boundary; docs/tests/changelog cover all
+return-shape families without inert decorators or `RegisteredFlag` values. A
+published tool cannot
+race its own initial harvest, while extension-created activation threads can
+race the current separate unguarded harvest reads. R1's candidate guard therefore
+owns all staged contribution/message registries, flag-value/failure state,
+`_activated`, and one-way sealed/disposed state.
+
+The re-audit found an additional current outbox append-versus-clear lost-update
+window: a cancelled `pipy-tool-call` worker can retain the activation API and
+race the session/RPC-session worker's copy/clear drain. It assigns the queue-
+sidecar value and every activation-api append/alias writer plus
+`commit_activation()`'s staged user-message flush and the exact renderer-drain
+method to R3/R4a. Coding-session completion, entry, name, label, and custom-
+message methods instead target provider, durable session-tree, rendering, and input-queue sinks,
+not hidden outboxes. The re-audit found that retained controls can race live
+session/RPC access: `NativeSessionTree` unlocks before `_write_entry()` and
+`CodingInputQueue` is unguarded. R5 is split. R5a promotes the existing per-run
+`mutation_io_lock` plus a condition into one coordinator whose exclusive/
+reentrant owner lease serializes retained effects, plus the active-tree pointer,
+all mutable tree/input APIs, durable order,
+and terminal teardown; provider/render work runs unlocked, accepted calls finish
+before teardown, and later effectful calls raise.
+R5b owns only generation-bound active-tool/thinking admission, and R6 owns
+`set_model`. No provider/filesystem I/O runs under the session mutex. Retired
+outboxes remain non-deliverable, closed activation/chrome writes retain their
+silent shapes, and only the actual R4a/R5a correctness fixes get changelog text.
+The class-A inventory remains exactly three families; the split makes the
+program exactly 27 slices. The controlling
+guard and execution bounds are the spec's
+[guarded-field table](specs/2026-07-25-transactional-extension-reload-rebuild.md#guarded-fields-readers-and-writers)
+and [R1–R6 bounds](specs/2026-07-25-transactional-extension-reload-rebuild.md#executable-r1r6-bounds).
+
 The original Slice 3 ideal transaction is therefore **partially implemented**,
 not wholly satisfied. The shipped generation pointer, mutex, publication gate,
 atomic thinking/tool mutations, post-selection defaults persistence, and

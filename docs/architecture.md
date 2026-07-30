@@ -282,42 +282,100 @@ aliases still denote the authoritative owner objects.
 Initial activation fails closed per extension. Trusted extension code may
 perform its own external effects. Reload now rejects a candidate runtime and
 parsed flags together, but the stronger claim that every pipy-owned registry,
-projection, listener, and chrome value publishes in one transaction is still an
-outstanding contract described below.
+projection, retained chrome value, and queue sidecar publishes coherently is
+still outstanding. The controlling R0 decisions and per-clause evidence are in
+the transactional spec's
+[R0 current reconciliation](specs/2026-07-25-transactional-extension-reload-rebuild.md#r0-current-reconciliation-2026-07-30).
 
 The live extension state is one generation reached through
 `native/session_generation.py`. `SessionGenerationRef` owns the generation
 pointer, its identity, and the session's single mutex; `_RunControlState`
 reaches the generation only through that reference. `/reload` parses the
 candidate's flags before anything becomes live, so a malformed flag rejects the
-whole candidate and the previous generation stays complete — its commands,
-hooks, tools, providers, renderers and flag values together — instead of the
-new runtime being paired with stale flags. Only the extension runtime-plus-flags
-generation is rejected: settings, keybindings, package roots, and workspace
-resources that reloaded successfully
-stay applied, and the rest of the reload runs against the unchanged generation.
-`SessionExtensionGeneration` does not yet freeze the tool-capability, renderer,
-emitter/lifecycle, or presentation projections; those publish separately after
-the pointer changes.
+runtime-plus-flags candidate rather than pairing new commands with old flags.
+Settings, keybindings, package roots, and workspace resources that reload
+successfully stay applied when that extension candidate rejects. R0 formally
+retains that sequential configuration-refresh behavior: manager values stay
+independently immutable/locked and run-control resources are not fields of the
+extension generation. RPC's main dispatcher has no settings/keybinding/resource
+reference; its session worker runs the same serial loop. The provider-header
+worker currently reads only the run-local `project_trusted` scalar through the
+manager, and R4a must capture that scalar with the request snapshot. External
+callers may retain an injected manager, so the narrowing relies on manager-local
+synchronization, not on claiming that no external manager surface exists. R3
+therefore builds no settings/resource projection and R4a consumes none.
 
-Production consumers also still read the generation per access.
-`SessionGenerationRef.snapshot()` exists, but its own contract records that
-operation-level adoption is pending. No production extension mutation port
-captures a `generation_id`, so an old worker is not rejected by generation
-identity. These are outstanding clauses of the earlier ideal transactional
-reload contract, not properties of the shipped ratchet.
+`SessionExtensionGeneration` does not yet freeze tool capability, renderer,
+emitter/lifecycle, provider, menu, retained chrome, or queue-sidecar
+projections; those publish or drain separately. Production consumers still read
+`generation_ref.current` per access even though `snapshot()` exists. The
+activation registration API has no guard/seal, and live chrome is cleared before
+candidate validation. Current activation has no timeout —
+`extension_loader._drive_awaitable()` joins its private worker without a timeout
+— but R1 is not merely future timeout safety. An activated tool can retain its
+activation `api`; later `register_*`/`on` calls currently return normally and
+mutate the already-harvested host even though detached live contributions do not
+gain the registration. A published tool cannot race its own initial harvest,
+but extension-created activation threads can race today's separate unguarded
+harvest reads. R1 puts every staged registry/message, flag-value/failure field,
+`_activated`, and sealed/disposed state under one candidate-host guard and
+atomically seals/freezes success or disposes rejection/abandonment. Every late
+class-D `register_*`, `unregister_provider`, or direct/decorator `on` call must
+raise `ExtensionCapabilityError` at that call boundary; no inert decorator or
+`RegisteredFlag` is synthesized, and extension API docs/tests/changelog must
+cover each return-shape family. R2 owns old-chrome preservation and makes closed
+retained chrome writes silent shape-preserving no-ops (`on_terminal_input` still returns an inert disposer).
 
-While a reload republishes its derived projections the reference opens a
-publication gate, and the extension mutation ports refuse changes for that
-window. `set_active_tools` and `set_thinking_level` take the session mutex
-across both the refusal check and their assignment; `set_model` still persists
-part-way through its mutation, so for that one port the gate narrows the window
-rather than closing it. Model defaults are queued during a selection and written
-only after the selection is live, and a persistence failure is reported without
-claiming the selection reverted. The reload effect owner closes the gate before
-firing the replacement generation's `session_start` hook, then emits the final
-reload diagnostic; the root footer policy runs only after that complete effect
-returns.
+The R0 audit also found a reachable queue lost update: a cancelled
+`pipy-tool-call` worker may outlive its bounded join and use a retained activation
+API to append directly to a generation outbox while the session/RPC-session
+worker's `_CustomEntryRenderer.drain_extension_outboxes()` copies and clears the
+same list. R3 owns generation queue-sidecar values; R4a converts every writer—
+`_ActivationApi.send_user_message()`, `send_message()`/its alias, and
+`commit_activation()`'s staged user-message flush—plus that drain so the session
+mutex serializes closed-check+append, detach/drain, and close. Accepted staged
+activation custom messages bypass `custom_outbox` and call
+`_CustomEntryRenderer.extension_send_message()` directly. That method is also
+the `ExtensionCodingSessionControl` custom-message target; the control is not a
+hidden outbox writer: completion calls the provider; append/name/label
+write the durable session tree; custom-message send writes that tree and may
+render/diagnose or enqueue `CodingInputQueue`. Those sinks have a live-run race,
+not merely terminal liveness: `NativeSessionTree` releases `_write_lock` before
+its durable `_write_entry()`, while `CodingInputQueue` has no guard and retained
+controls may run beside session/RPC readers and writers. R5a promotes the
+existing per-run `mutation_io_lock` plus a condition into one coding-effect
+coordinator whose exclusive/reentrant owner lease serializes retained effects,
+plus active-tree pointer access, every mutable tree/input owner method, durable
+order, and terminal teardown. Provider/render work runs unlocked; durable tree append alone holds the
+coordinator lock across I/O. A closed activation send silently returns its
+existing `None` with no diagnostic. Closing a retired handle changes no
+observable delivery—the live
+adapter already stops draining the retired list. R4a is nevertheless a
+user-visible correctness slice because it prevents a live racing append from
+being erased; its future changelog entry must describe that loss fix without
+claiming retired handles become deliverable. It does not invent ids, retry
+cursors, deduplication, or queue-capacity semantics.
+
+While reload republishes current derived projections the reference opens a
+publication gate. `set_active_tools` and `set_thinking_level` take the session
+mutex across their gate check and assignment, but none of the exactly three
+class-A families (`set_active_tools`, `set_thinking_level`, `set_model`) captures
+a generation id. `set_model` also performs provider construction and persistence
+outside an atomic admission/commit shape. R5a's terminal path closes admission
+and condition-waits (releasing the lock) for effects accepted before close, then refuses later effectful coding-session
+calls with `ExtensionCapabilityError`; once quiescent it takes
+`mutation_io_lock → session mutex` only for terminal generation/outbox state and
+never holds the session mutex across provider or filesystem I/O. R5b owns generation-bound active-tool/thinking
+admission and makes stale or terminal calls return `False`. R6 owns terminal
+`set_model` refusal plus three-phase model preparation, in-memory commit, and fail-soft
+persistence. Model defaults are queued during selection and written only after
+the selection is live; a persistence failure is reported without claiming the
+selection reverted. The reload effect owner closes the publication gate before
+firing the replacement generation's `session_start` hook, emits the final reload
+diagnostic next, and the root footer policy runs only after that effect returns.
+The full R1–R6 sequence, including ordered R5a then R5b, remains mandatory before
+R7 can close this boundary; the remediation queue contains exactly 27 execution
+slices.
 
 ## Sessions, automation, and trust domains
 
@@ -598,11 +656,15 @@ classifies and proportionally justifies every residual, including every
 C901-pinned file. The load-bearing summary is:
 
 - the Slice 3 work is a useful generation/publication safety ratchet, but not
-  the complete ideal transaction. Candidate activation still uses the live
-  host; rejected activation can clear retained chrome; a timed-out worker is
-  not sealed; generation snapshots are not adopted by production operations;
-  mutation ports are not generation-bound; and tool, renderer, lifecycle, and
-  presentation projections publish separately;
+  the complete reconciled transaction. Candidate activation still lacks a
+  sealed host; rejected activation can clear retained chrome; generation
+  snapshots are not adopted by production operations; mutation ports are not
+  generation-bound; a cancelled extension-tool worker can race the session
+  outbox copy/clear and lose its append; a retained coding-session control can
+  race live tree/input use and reorder durable JSONL; and tool, renderer,
+  lifecycle, provider, menu, retained-chrome, and queue projections publish
+  separately. Current activation has no timeout, but R1's mandatory
+  seal/disposal must make abandonment timeout-safe;
 - `set_model` persists a default part-way through its mutation, so its
   publication-gate admission is not atomic;
 - `_ReplLoopStep.step_once` remains the principal high-complexity,
@@ -620,6 +682,7 @@ C901-pinned file. The load-bearing summary is:
 - PTY sleeps and deadlines are bounded polling/backoff and failure limits;
   observable bytes and offsets own sequencing.
 
-The next architecture action is a bounded reload-contract completion or formal
-reconciliation before ordinary product-parity selection. That is not a verdict
-that the broader program failed, and Slice 16 does not implement it.
+R0 has now reconciled the bounded contract without changing product behavior.
+The next architecture action is **R1 — seal candidate contribution
+registration**; ordinary product-parity selection remains blocked through R7.
+That is not a verdict that the broader program failed.
