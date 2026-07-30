@@ -1,24 +1,356 @@
-"""The session's live extension generation and its synchronization boundary.
+"""Session-owned extension generations and detached candidate projections.
 
-This module is session-owned on purpose. The generation value will grow to
-carry capability, renderer, provider, and chrome projections as the
-transactional reload rebuild proceeds, and none of that may be dragged into
-`extension_runtime.py` — the extension boundary must not import the
-composition surface. Keeping the generation here lets it grow without
-inverting that direction.
+The live :class:`SessionExtensionGeneration` remains the runtime-plus-flags
+value consumed by production.  R3a adds a separate immutable construction value
+for later transactional reload slices; no startup or reload path installs or
+reads that projection yet.
 
-See `docs/specs/2026-07-25-transactional-extension-reload-rebuild.md` for the
-concurrency contract this implements.
+See ``docs/specs/2026-07-25-transactional-extension-reload-rebuild.md`` for the
+concurrency contract.
 """
 
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from types import MappingProxyType
+from typing import Generic, TypeVar
 
-from pipy_harness.native.extension_runtime import _ExtensionRuntime
+from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
+from pipy_harness.native.extension_runtime import (
+    HookHandler,
+    RegisteredCommand,
+    RegisteredEntryRenderer,
+    RegisteredMessageRenderer,
+    RegisteredShortcut,
+    RegisteredTool,
+    _ExtensionRuntime,
+)
+from pipy_harness.native.extension_types import (
+    ExtensionTool,
+    QueuedCustomMessage,
+    QueuedUserMessage,
+    RegisteredFlag,
+    RegisteredProvider,
+)
+from pipy_harness.native.tool_capabilities import ToolCapabilityState
+from pipy_harness.native.tools import ToolPort
+
+
+ProjectionStepObserver = Callable[[str], None]
+ToolPortBuilder = Callable[[RegisteredTool, Mapping[str, object]], ToolPort]
+ToolCapabilityBuilder = Callable[[Mapping[str, ToolPort]], ToolCapabilityState]
+
+PROJECTION_BUILD_STEPS = (
+    "runtime_flags",
+    "commands_menu_shortcuts",
+    "lifecycle_request_hooks",
+    "tool_ports_capability",
+    "renderer_mappings",
+    "provider_contributions",
+    "queue_handles",
+    "chrome_handle",
+)
+
+_T = TypeVar("_T")
+_K = TypeVar("_K")
+_V = TypeVar("_V")
+_RLOCK_TYPE = type(threading.RLock())
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationQueueHandle(Generic[_T]):
+    """Unconsumed R3a handle for one candidate generation outbox.
+
+    The list identity intentionally remains shared with the candidate runtime so
+    R4a can move append/drain/close atomically without changing delivery
+    semantics.  R3a defines no queue operation and no production caller reaches
+    this handle.
+    """
+
+    storage: list[_T]
+    mutex: threading.RLock
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.storage, list):
+            raise TypeError("generation queue storage must be a list")
+        if not isinstance(self.mutex, _RLOCK_TYPE):
+            raise TypeError("generation queue mutex must be an RLock")
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionRuntimeFlagProjection:
+    flags: tuple[RegisteredFlag, ...]
+    values: Mapping[str, object]
+    custom_messages: tuple[QueuedCustomMessage, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionCommandProjection:
+    commands: Mapping[str, RegisteredCommand]
+    menu_names: tuple[str, ...]
+    descriptions: Mapping[str, str]
+    shortcuts: Mapping[str, RegisteredShortcut]
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionHookProjection:
+    tool_call: tuple[HookHandler, ...]
+    lifecycle: Mapping[str, tuple[HookHandler, ...]]
+    input: tuple[HookHandler, ...]
+    before_agent_start: tuple[HookHandler, ...]
+    tool_result: tuple[HookHandler, ...]
+    user_bash: tuple[HookHandler, ...]
+    before_provider_headers: tuple[HookHandler, ...]
+    before_provider_request: tuple[HookHandler, ...]
+    session_before_switch: tuple[HookHandler, ...]
+    session_before_fork: tuple[HookHandler, ...]
+    session_before_compact: tuple[HookHandler, ...]
+    session_before_tree: tuple[HookHandler, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionToolProjection:
+    registered: tuple[RegisteredTool, ...]
+    ports: Mapping[str, ToolPort]
+    capability_state: ToolCapabilityState
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionRendererProjection:
+    tools: Mapping[str, ExtensionTool]
+    messages: Mapping[str, RegisteredMessageRenderer]
+    entries: Mapping[str, RegisteredEntryRenderer]
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionProviderProjection:
+    providers: tuple[RegisteredProvider, ...]
+    unregistered: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionQueueProjection:
+    user: GenerationQueueHandle[QueuedUserMessage]
+    custom: GenerationQueueHandle[QueuedCustomMessage]
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionChromeHandle:
+    """The exact candidate-owned R2 retained-chrome sidecar handle."""
+
+    sink: ExtensionChromeSink
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.sink, ExtensionChromeSink):
+            raise TypeError("chrome sink must be an ExtensionChromeSink")
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionProjection:
+    """Detached contribution value; R1 activation ownership stays external."""
+
+    runtime_flags: ExtensionRuntimeFlagProjection
+    commands: ExtensionCommandProjection
+    hooks: ExtensionHookProjection
+    tools: ExtensionToolProjection
+    renderers: ExtensionRendererProjection
+    providers: ExtensionProviderProjection
+    queues: ExtensionQueueProjection
+    chrome: ExtensionChromeHandle | None
+
+
+def _freeze_mapping(value: Mapping[_K, _V]) -> Mapping[_K, _V]:
+    return MappingProxyType(dict(value))
+
+
+def _freeze_tuple(value: Iterable[_T]) -> tuple[_T, ...]:
+    return tuple(item for item in value)
+
+
+def _freeze_custom_message(message: QueuedCustomMessage) -> QueuedCustomMessage:
+    """Copy/freeze the options mapping without transforming opaque payloads.
+
+    Nested option values and ``details`` retain their established shallow,
+    caller-defined semantics; R3a does not recursively freeze arbitrary objects.
+    """
+
+    return replace(message, options=_freeze_mapping(message.options))
+
+
+def _validate_projection_inputs(
+    runtime: _ExtensionRuntime,
+    flag_values: Mapping[str, object],
+    *,
+    queue_mutex: threading.RLock,
+    reference_mutex: threading.RLock,
+    build_tool_port: ToolPortBuilder,
+    build_tool_capability: ToolCapabilityBuilder,
+    chrome: ExtensionChromeHandle | None,
+    step_observer: ProjectionStepObserver | None,
+) -> None:
+    if not isinstance(runtime, _ExtensionRuntime):
+        raise TypeError("runtime must be an _ExtensionRuntime")
+    if not isinstance(flag_values, Mapping) or not all(
+        isinstance(name, str) for name in flag_values
+    ):
+        raise TypeError("flag_values must be a string-keyed mapping")
+    if not isinstance(queue_mutex, _RLOCK_TYPE) or not isinstance(
+        reference_mutex, _RLOCK_TYPE
+    ):
+        raise TypeError("projection queue/reference mutexes must be RLocks")
+    if queue_mutex is not reference_mutex:
+        raise ValueError("projection queues and reference must share one mutex")
+    if not callable(build_tool_port):
+        raise TypeError("build_tool_port must be callable")
+    if not callable(build_tool_capability):
+        raise TypeError("build_tool_capability must be callable")
+    if chrome is not None and not isinstance(chrome, ExtensionChromeHandle):
+        raise TypeError("chrome must be an ExtensionChromeHandle or None")
+    if step_observer is not None and not callable(step_observer):
+        raise TypeError("step_observer must be callable or None")
+
+
+def _validate_capability_projection(
+    ports: Mapping[str, ToolPort], capability_state: ToolCapabilityState
+) -> None:
+    if not isinstance(capability_state, ToolCapabilityState):
+        raise TypeError("build_tool_capability must return ToolCapabilityState")
+    capability_ports = capability_state.extension_registry
+    if tuple(capability_ports) != tuple(ports) or any(
+        capability_ports[name] is not port for name, port in ports.items()
+    ):
+        raise ValueError("candidate capability state must contain projected ports")
+
+
+def build_extension_projection(
+    runtime: _ExtensionRuntime,
+    flag_values: Mapping[str, object],
+    *,
+    queue_mutex: threading.RLock,
+    reference_mutex: threading.RLock,
+    build_tool_port: ToolPortBuilder,
+    build_tool_capability: ToolCapabilityBuilder,
+    chrome: ExtensionChromeHandle | None,
+    step_observer: ProjectionStepObserver | None = None,
+) -> ExtensionProjection:
+    """Build and validate every detached projection family.
+
+    The observer is a deterministic unit-test seam.  A raised exception from an
+    observer or adapter prevents a value from being returned; this function has
+    no live reference, activation-host transfer, publication, or effect port to
+    mutate.  ``queue_mutex`` and ``reference_mutex`` remain separate inputs even
+    though the value stores only the former: validating their identity before
+    construction explicitly proves the future R3c ownership contract.
+    """
+
+    _validate_projection_inputs(
+        runtime,
+        flag_values,
+        queue_mutex=queue_mutex,
+        reference_mutex=reference_mutex,
+        build_tool_port=build_tool_port,
+        build_tool_capability=build_tool_capability,
+        chrome=chrome,
+        step_observer=step_observer,
+    )
+
+    def step(name: str) -> None:
+        if step_observer is not None:
+            step_observer(name)
+
+    step("runtime_flags")
+    values = _freeze_mapping(flag_values)
+    runtime_flags = ExtensionRuntimeFlagProjection(
+        flags=_freeze_tuple(runtime.flags),
+        values=values,
+        custom_messages=tuple(
+            _freeze_custom_message(message) for message in runtime.custom_messages
+        ),
+    )
+
+    step("commands_menu_shortcuts")
+    commands = ExtensionCommandProjection(
+        commands=_freeze_mapping(runtime.commands),
+        menu_names=_freeze_tuple(runtime.menu_names),
+        descriptions=_freeze_mapping(runtime.descriptions),
+        shortcuts=_freeze_mapping(runtime.shortcuts),
+    )
+
+    step("lifecycle_request_hooks")
+    hooks = ExtensionHookProjection(
+        tool_call=_freeze_tuple(runtime.tool_call_hooks),
+        lifecycle=_freeze_mapping(
+            {
+                name: _freeze_tuple(handlers)
+                for name, handlers in runtime.lifecycle_hooks.items()
+            }
+        ),
+        input=_freeze_tuple(runtime.input_hooks),
+        before_agent_start=_freeze_tuple(runtime.before_agent_start_hooks),
+        tool_result=_freeze_tuple(runtime.tool_result_hooks),
+        user_bash=_freeze_tuple(runtime.user_bash_hooks),
+        before_provider_headers=_freeze_tuple(runtime.before_provider_headers_hooks),
+        before_provider_request=_freeze_tuple(runtime.before_provider_request_hooks),
+        session_before_switch=_freeze_tuple(runtime.session_before_switch_hooks),
+        session_before_fork=_freeze_tuple(runtime.session_before_fork_hooks),
+        session_before_compact=_freeze_tuple(runtime.session_before_compact_hooks),
+        session_before_tree=_freeze_tuple(runtime.session_before_tree_hooks),
+    )
+
+    step("tool_ports_capability")
+    ports: dict[str, ToolPort] = {}
+    for registered in runtime.tools:
+        port = build_tool_port(registered, values)
+        if not isinstance(port, ToolPort):
+            raise TypeError("build_tool_port must return ToolPort")
+        ports[port.definition.name] = port
+    capability_state = build_tool_capability(ports)
+    _validate_capability_projection(ports, capability_state)
+    tools = ExtensionToolProjection(
+        registered=_freeze_tuple(runtime.tools),
+        ports=_freeze_mapping(ports),
+        capability_state=capability_state,
+    )
+
+    step("renderer_mappings")
+    renderers = ExtensionRendererProjection(
+        tools=_freeze_mapping(
+            {
+                registered.tool.name: registered.tool
+                for registered in runtime.tools
+                if registered.tool.render_call is not None
+            }
+        ),
+        messages=_freeze_mapping(runtime.message_renderers),
+        entries=_freeze_mapping(runtime.entry_renderers),
+    )
+
+    step("provider_contributions")
+    providers = ExtensionProviderProjection(
+        providers=_freeze_tuple(runtime.providers),
+        unregistered=_freeze_tuple(runtime.unregistered_providers),
+    )
+
+    step("queue_handles")
+    queues = ExtensionQueueProjection(
+        user=GenerationQueueHandle(runtime.outbox, queue_mutex),
+        custom=GenerationQueueHandle(runtime.custom_outbox, queue_mutex),
+    )
+
+    step("chrome_handle")
+    return ExtensionProjection(
+        runtime_flags=runtime_flags,
+        commands=commands,
+        hooks=hooks,
+        tools=tools,
+        renderers=renderers,
+        providers=providers,
+        queues=queues,
+        chrome=chrome,
+    )
 
 
 @dataclass(frozen=True, slots=True)

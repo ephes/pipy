@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import fields
+import ast
+import threading
+from collections.abc import Mapping, Sequence
+from dataclasses import fields, replace
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any, cast
 
 import pytest
 
+from pipy_harness.extensions import ToolResult
+from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_hooks import _activate_workspace_extensions
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
@@ -19,14 +26,34 @@ from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.package_resources import PackageResourceRoots
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session_generation import (
+    PROJECTION_BUILD_STEPS,
+    ExtensionChromeHandle,
+    ExtensionProjection,
+    GenerationQueueHandle,
     SessionExtensionGeneration,
     SessionGenerationRef,
+    build_extension_projection,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.tool_capabilities import (
+    ToolCapabilityState,
+    ToolFilterOptions,
+)
 from pipy_harness.native.tool_loop_session import (
     _ExtensionCustomEntryRunState,
     _RunControlState,
+    _build_candidate_extension_projection,
+    _build_legacy_extension_tool_port,
+    _build_projected_extension_tool_port,
 )
+from pipy_harness.native.tool_renderers import _extension_tool_renderer_map
+from pipy_harness.native.tools import (
+    ToolContext,
+    ToolPort,
+    ToolRequest,
+    make_tool_request_id,
+)
+from session_generation_test_support import build_test_projection
 
 
 def _empty_resources() -> WorkspaceResources:
@@ -265,3 +292,767 @@ def test_the_gate_stays_open_across_the_pointer_swap(tmp_path: Path) -> None:
 
     assert ref.publication_pending is False
     assert ref.snapshot().generation is second
+
+
+def _rich_runtime(tmp_path: Path, name: str) -> _ExtensionRuntime:
+    extension_dir = tmp_path / name / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "projection.py").write_text(
+        "from pipy_harness.extensions import (\n"
+        "    ExtensionFlag, ExtensionProvider, ExtensionTool, ToolResult,\n"
+        ")\n"
+        "def _handler(*_args): return None\n"
+        "def activate(api):\n"
+        "    api.register_command('projected', 'Projected command', _handler)\n"
+        "    api.register_shortcut('ctrl-k', _handler)\n"
+        "    api.register_flag(ExtensionFlag('projection-mode', 'string', default='base'))\n"
+        "    api.on('input', _handler)\n"
+        "    api.on('before_provider_request', _handler)\n"
+        "    api.on('tool_call', _handler)\n"
+        "    api.on('session_start', _handler)\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='projected_tool', description='Projected tool',\n"
+        "        input_schema={'type': 'object'},\n"
+        "        handler=lambda ctx, _params: ToolResult(content=str(ctx.flags['projection-mode'])),\n"
+        "        render_call=lambda _ctx: None))\n"
+        "    api.register_provider(ExtensionProvider(\n"
+        "        name='projected-provider', default_model='m', models=('m',),\n"
+        "        factory=lambda _ctx: None))\n"
+        "    api.unregister_provider('legacy-provider')\n"
+        "    api.register_message_renderer('card', _handler)\n"
+        "    api.register_entry_renderer('entry', _handler)\n"
+        "    api.send_user_message('queued-user')\n"
+        "    api.send_message({'customType': 'card', 'content': 'queued-custom',\n"
+        "                      'options': {'nested': 'copied'}})\n",
+        encoding="utf-8",
+    )
+    root = tmp_path / name
+    outbox: list[QueuedUserMessage] = []
+    custom_outbox: list[QueuedCustomMessage] = []
+    activated = tuple(
+        activate_extensions(
+            discover_extensions(
+                root,
+                config_home_env={},
+                home_dir=root,
+                include_workspace_defaults=True,
+            ),
+            message_outbox=outbox,
+            custom_message_outbox=custom_outbox,
+        )
+    )
+    return _runtime_from_batch(
+        root,
+        activated=activated,
+        message_outbox=outbox,
+        custom_message_outbox=custom_outbox,
+    )
+
+
+def _projection(
+    runtime: _ExtensionRuntime,
+    *,
+    lock: threading.RLock | None = None,
+    chrome: ExtensionChromeSink | None = None,
+    step_observer: Any = None,
+    flag_values: Mapping[str, object] | None = None,
+) -> ExtensionProjection:
+    mutex = threading.RLock() if lock is None else lock
+    return build_test_projection(
+        runtime,
+        {"projection-mode": "candidate"} if flag_values is None else flag_values,
+        queue_mutex=mutex,
+        chrome=chrome,
+        step_observer=step_observer,
+    )
+
+
+def test_live_generation_shape_and_reference_remain_the_legacy_value() -> None:
+    assert [field.name for field in fields(SessionExtensionGeneration)] == [
+        "runtime",
+        "flag_values",
+    ]
+    assert not hasattr(SessionExtensionGeneration, "projection")
+
+
+def test_every_runtime_contribution_field_has_an_exact_projection_disposition() -> None:
+    projection_family_by_runtime_field = {
+        "commands": "commands",
+        "menu_names": "commands",
+        "descriptions": "commands",
+        "tool_call_hooks": "hooks",
+        "lifecycle_hooks": "hooks",
+        "input_hooks": "hooks",
+        "before_agent_start_hooks": "hooks",
+        "tool_result_hooks": "hooks",
+        "user_bash_hooks": "hooks",
+        "before_provider_headers_hooks": "hooks",
+        "before_provider_request_hooks": "hooks",
+        "session_before_switch_hooks": "hooks",
+        "session_before_fork_hooks": "hooks",
+        "session_before_compact_hooks": "hooks",
+        "session_before_tree_hooks": "hooks",
+        "outbox": "queues",
+        "custom_outbox": "queues",
+        "tools": "tools",
+        "shortcuts": "commands",
+        "flags": "runtime_flags",
+        "providers": "providers",
+        "unregistered_providers": "providers",
+        "message_renderers": "renderers",
+        "entry_renderers": "renderers",
+        "custom_messages": "runtime_flags",
+    }
+    omitted_runtime_fields = {
+        "activation_hosts": "R1 mutable activation ownership state"
+    }
+    runtime_fields = {field.name for field in fields(_ExtensionRuntime)}
+
+    assert set(projection_family_by_runtime_field).isdisjoint(omitted_runtime_fields)
+    assert set(projection_family_by_runtime_field) | set(omitted_runtime_fields) == (
+        runtime_fields
+    )
+    assert omitted_runtime_fields == {
+        "activation_hosts": "R1 mutable activation ownership state"
+    }
+
+
+def test_runtime_flag_projection_matches_the_legacy_source(tmp_path: Path) -> None:
+    runtime = _rich_runtime(tmp_path, "runtime-flags")
+    caller_values: dict[str, object] = {"projection-mode": "candidate"}
+    nested_option: dict[str, object] = {"nested": "caller-owned"}
+    details: dict[str, object] = {"opaque": "caller-owned"}
+    caller_options: dict[str, object] = {"payload": nested_option}
+    source_message = replace(
+        runtime.custom_messages[0], options=caller_options, details=details
+    )
+    runtime = replace(runtime, custom_messages=(source_message,))
+
+    projected = _projection(runtime, flag_values=caller_values).runtime_flags
+    projected_message = projected.custom_messages[0]
+
+    assert projected.flags == runtime.flags
+    assert projected.values == {"projection-mode": "candidate"}
+    assert projected.values is not caller_values
+    assert projected.custom_messages == runtime.custom_messages
+    assert projected.custom_messages is not runtime.custom_messages
+    assert isinstance(projected_message.options, MappingProxyType)
+    assert projected_message.options is not caller_options
+    assert projected_message.options["payload"] is nested_option
+    assert projected_message.details is details
+
+    caller_values["projection-mode"] = "caller-mutated"
+    caller_options["late"] = "caller-mutated"
+    assert projected.values == {"projection-mode": "candidate"}
+    assert "late" not in projected_message.options
+
+
+def test_command_menu_description_shortcut_projection_matches_legacy_source(
+    tmp_path: Path,
+) -> None:
+    runtime = _rich_runtime(tmp_path, "commands")
+    projected = _projection(runtime).commands
+
+    assert projected.commands == runtime.commands
+    assert projected.menu_names == runtime.menu_names
+    assert projected.descriptions == runtime.descriptions
+    assert projected.shortcuts == runtime.shortcuts
+    assert projected.commands is not runtime.commands
+    assert projected.descriptions is not runtime.descriptions
+    assert projected.shortcuts is not runtime.shortcuts
+
+
+def test_lifecycle_request_hook_projection_matches_legacy_source(
+    tmp_path: Path,
+) -> None:
+    runtime = _rich_runtime(tmp_path, "hooks")
+    projected = _projection(runtime).hooks
+
+    assert projected.tool_call == runtime.tool_call_hooks
+    assert projected.lifecycle == runtime.lifecycle_hooks
+    assert projected.input == runtime.input_hooks
+    assert projected.before_agent_start == runtime.before_agent_start_hooks
+    assert projected.tool_result == runtime.tool_result_hooks
+    assert projected.user_bash == runtime.user_bash_hooks
+    assert projected.before_provider_headers == runtime.before_provider_headers_hooks
+    assert projected.before_provider_request == runtime.before_provider_request_hooks
+    assert projected.session_before_switch == runtime.session_before_switch_hooks
+    assert projected.session_before_fork == runtime.session_before_fork_hooks
+    assert projected.session_before_compact == runtime.session_before_compact_hooks
+    assert projected.session_before_tree == runtime.session_before_tree_hooks
+    assert projected.lifecycle is not runtime.lifecycle_hooks
+    assert all(isinstance(handlers, tuple) for handlers in projected.lifecycle.values())
+
+
+def _legacy_tool_port(registered: Any, flags: Mapping[str, object]) -> ToolPort:
+    return _build_legacy_extension_tool_port(
+        registered,
+        has_ui=False,
+        notify_sink=lambda *_args: None,
+        set_active_tools=lambda _names: True,
+        flags=flags,
+        render_details={},
+        project_trusted=True,
+    )
+
+
+def test_tool_ports_and_capability_match_the_legacy_adapter(tmp_path: Path) -> None:
+    runtime = _rich_runtime(tmp_path, "tools")
+    projected = _projection(runtime).tools
+    source_flags = {"projection-mode": "candidate"}
+    legacy_ports = {
+        registered.tool.name: _legacy_tool_port(registered, source_flags)
+        for registered in runtime.tools
+    }
+    legacy_state = ToolCapabilityState.build(
+        {},
+        legacy_ports,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=1.0,
+    )
+
+    assert projected.registered == runtime.tools
+    assert tuple(projected.ports) == tuple(legacy_state.extension_registry)
+    assert [port.definition for port in projected.ports.values()] == [
+        port.definition for port in legacy_state.extension_registry.values()
+    ]
+    assert (
+        projected.capability_state.active_tool_names == legacy_state.active_tool_names
+    )
+
+
+def test_renderer_projection_matches_every_legacy_renderer_map(tmp_path: Path) -> None:
+    runtime = _rich_runtime(tmp_path, "renderers")
+    projected = _projection(runtime).renderers
+
+    assert projected.tools == _extension_tool_renderer_map(runtime.tools)
+    assert projected.messages == runtime.message_renderers
+    assert projected.entries == runtime.entry_renderers
+    assert projected.messages is not runtime.message_renderers
+    assert projected.entries is not runtime.entry_renderers
+
+
+def test_provider_projection_matches_legacy_catalog_inputs(tmp_path: Path) -> None:
+    runtime = _rich_runtime(tmp_path, "providers")
+    projected = _projection(runtime).providers
+
+    assert projected.providers == runtime.providers
+    assert projected.unregistered == runtime.unregistered_providers
+    assert projected.providers is not runtime.providers
+    assert projected.unregistered is not runtime.unregistered_providers
+
+
+def test_queue_projection_matches_legacy_outboxes_and_reference_mutex(
+    tmp_path: Path,
+) -> None:
+    runtime = _rich_runtime(tmp_path, "queues")
+    lock = threading.RLock()
+    projected = _projection(runtime, lock=lock).queues
+
+    assert projected.user.storage is runtime.outbox
+    assert projected.custom.storage is runtime.custom_outbox
+    assert projected.user.mutex is lock
+    assert projected.custom.mutex is lock
+    assert not hasattr(projected.user, "close")
+    assert not hasattr(projected.custom, "drain")
+
+
+def test_chrome_projection_carries_the_exact_r2_handle(tmp_path: Path) -> None:
+    runtime = _rich_runtime(tmp_path, "chrome")
+    chrome = ExtensionChromeSink()
+    projected = _projection(runtime, chrome=chrome)
+
+    assert projected.chrome is not None
+    assert projected.chrome.sink is chrome
+
+
+@pytest.mark.parametrize(
+    ("has_ui", "project_trusted"),
+    ((True, False), (False, True)),
+    ids=("ui-only", "trusted-headless"),
+)
+def test_production_projection_tool_port_matches_legacy_behavior_without_aliases(
+    tmp_path: Path, has_ui: bool, project_trusted: bool
+) -> None:
+    runtime = _rich_runtime(tmp_path, "composition-adapter")
+    observations: list[dict[str, object]] = []
+
+    def handler(ctx: Any, params: Mapping[str, object]) -> ToolResult:
+        side = str(params["side"])
+        phase = str(params["phase"])
+        flags_before = dict(ctx.flags)
+        active_result = ctx.set_active_tools(("projected_tool", "secondary"))
+        ctx.ui.notify(f"{side}-{phase}", "warning")
+        observations.append(
+            {
+                "side": side,
+                "phase": phase,
+                "has_ui": ctx.has_ui,
+                "project_trusted": ctx.is_project_trusted(),
+                "flags": flags_before,
+                "active_result": active_result,
+            }
+        )
+        # A handler receives a mutable snapshot. Mutating it must affect neither
+        # a later invocation nor the other adapter's private flag snapshot.
+        ctx.flags["projection-mode"] = f"{side}-handler-mutated"
+        return ToolResult(
+            content=(
+                f"ui={ctx.has_ui};trusted={ctx.is_project_trusted()};"
+                f"flag={flags_before['projection-mode']};active={active_result}"
+            ),
+            details={"side": side, "phase": phase},
+        )
+
+    registered = runtime.tools[0]
+    registered = replace(
+        registered,
+        tool=replace(
+            registered.tool,
+            handler=handler,
+            render_result=lambda _ctx: None,
+        ),
+    )
+    runtime = replace(runtime, tools=(registered,))
+    lock = threading.RLock()
+    source_flags: dict[str, object] = {"projection-mode": "candidate"}
+    notices: list[tuple[str, str]] = []
+    active_calls: list[tuple[str, ...]] = []
+    render_details: dict[str, object | None] = {"preexisting": {"sink": "preserved"}}
+
+    def notify(kind: str, text: str) -> None:
+        notices.append((kind, text))
+
+    def set_active_tools(names: Sequence[str]) -> bool:
+        active_calls.append(tuple(names))
+        return False
+
+    def prepare(ports: Mapping[str, ToolPort]) -> ToolCapabilityState:
+        return ToolCapabilityState.build(
+            {},
+            ports,
+            filter_options=ToolFilterOptions.empty(),
+            cancel_join_timeout_seconds=1.0,
+        )
+
+    projected = _build_candidate_extension_projection(
+        runtime,
+        source_flags,
+        queue_mutex=lock,
+        reference_mutex=lock,
+        has_ui=has_ui,
+        notify_sink=notify,
+        set_active_tools=set_active_tools,
+        render_details=render_details,
+        project_trusted=project_trusted,
+        prepare_capability=prepare,
+        chrome=None,
+    )
+    projected_port = projected.tools.ports["projected_tool"]
+    legacy_port = _build_legacy_extension_tool_port(
+        registered,
+        has_ui=has_ui,
+        notify_sink=notify,
+        set_active_tools=set_active_tools,
+        flags=source_flags,
+        render_details=render_details,
+        project_trusted=project_trusted,
+    )
+
+    assert projected_port.definition == legacy_port.definition
+    source_flags["projection-mode"] = "caller-mutated"
+    context = ToolContext(workspace_root=tmp_path, stderr_sink=lambda _text: None)
+    outcomes: dict[str, list[tuple[str, bool]]] = {
+        "projected": [],
+        "legacy": [],
+    }
+    for side, port in (("projected", projected_port), ("legacy", legacy_port)):
+        for phase in ("mutate", "probe"):
+            result = port.invoke(
+                ToolRequest(
+                    make_tool_request_id(),
+                    "projected_tool",
+                    {"side": side, "phase": phase},
+                    provider_correlation_id=f"{side}-{phase}",
+                ),
+                context,
+            )
+            outcomes[side].append((result.output_text, result.is_error))
+
+    expected_output = (
+        f"ui={has_ui};trusted={project_trusted};flag=candidate;active=False"
+    )
+    assert outcomes == {
+        "projected": [(expected_output, False), (expected_output, False)],
+        "legacy": [(expected_output, False), (expected_output, False)],
+    }
+    expected_invocations = [
+        (side, phase)
+        for side in ("projected", "legacy")
+        for phase in ("mutate", "probe")
+    ]
+    assert observations == [
+        {
+            "side": side,
+            "phase": phase,
+            "has_ui": has_ui,
+            "project_trusted": project_trusted,
+            "flags": {"projection-mode": "candidate"},
+            "active_result": False,
+        }
+        for side, phase in expected_invocations
+    ]
+    assert notices == [
+        ("warning", f"{side}-{phase}") for side, phase in expected_invocations
+    ]
+    assert active_calls == [
+        ("projected_tool", "secondary") for _ in expected_invocations
+    ]
+    assert render_details == {
+        "preexisting": {"sink": "preserved"},
+        **{
+            f"{side}-{phase}": {"side": side, "phase": phase}
+            for side, phase in expected_invocations
+        },
+    }
+    assert projected.runtime_flags.values == {"projection-mode": "candidate"}
+
+
+def test_duplicate_projected_definition_names_preserve_legacy_last_wins(
+    tmp_path: Path,
+) -> None:
+    runtime = _rich_runtime(tmp_path, "duplicate-definition")
+    first = runtime.tools[0]
+    second = replace(first, tool=replace(first.tool, description="last definition"))
+    projected = _projection(replace(runtime, tools=(first, second))).tools
+
+    assert tuple(projected.ports) == ("projected_tool",)
+    assert len(projected.registered) == 2
+    assert projected.ports["projected_tool"].definition.description == "last definition"
+
+
+@pytest.mark.parametrize("failed_step", PROJECTION_BUILD_STEPS)
+def test_each_projection_builder_failure_returns_no_candidate_and_changes_no_live_state(
+    tmp_path: Path, failed_step: str
+) -> None:
+    live_runtime = _rich_runtime(tmp_path, "failure-live")
+    live_generation = SessionExtensionGeneration(
+        live_runtime, {"projection-mode": "live"}
+    )
+    ref = SessionGenerationRef(live_generation)
+    before = ref.snapshot()
+    live_flag_values = live_generation.flag_values
+    before_flag_values = dict(live_flag_values)
+    legacy_runtime_field_refs = {
+        field.name: getattr(live_runtime, field.name)
+        for field in fields(_ExtensionRuntime)
+    }
+    legacy_container_refs = {
+        name: value
+        for name, value in legacy_runtime_field_refs.items()
+        if isinstance(value, (dict, list))
+    }
+    assert set(legacy_container_refs) == {
+        "commands",
+        "descriptions",
+        "lifecycle_hooks",
+        "outbox",
+        "custom_outbox",
+        "shortcuts",
+        "message_renderers",
+        "entry_renderers",
+    }
+    before_container_values = {
+        name: value.copy() for name, value in legacy_container_refs.items()
+    }
+    candidate_runtime = _rich_runtime(tmp_path, f"failure-{failed_step}")
+
+    def fail(name: str) -> None:
+        if name == failed_step:
+            raise RuntimeError(f"injected {name}")
+
+    with pytest.raises(RuntimeError, match=f"injected {failed_step}"):
+        _projection(candidate_runtime, lock=ref.lock, step_observer=fail)
+
+    after = ref.snapshot()
+    assert after.generation is before.generation
+    assert after.generation is live_generation
+    assert after.generation_id == before.generation_id
+    assert after.generation.runtime is live_runtime
+    assert live_generation.flag_values is live_flag_values
+    assert live_generation.flag_values == before_flag_values
+    for name, legacy_adapter_or_container in legacy_runtime_field_refs.items():
+        assert getattr(live_runtime, name) is legacy_adapter_or_container
+    for name, before_contents in before_container_values.items():
+        assert getattr(live_runtime, name) == before_contents
+
+
+def test_foreign_reference_mutex_fails_before_projection_construction(
+    tmp_path: Path,
+) -> None:
+    runtime = _rich_runtime(tmp_path, "foreign-reference")
+    observed: list[str] = []
+    with pytest.raises(ValueError, match="share one mutex"):
+        build_test_projection(
+            runtime,
+            {"projection-mode": "candidate"},
+            queue_mutex=threading.RLock(),
+            reference_mutex=threading.RLock(),
+            step_observer=observed.append,
+        )
+    assert observed == []
+
+
+def test_invalid_builder_results_fail_before_returning_a_projection(
+    tmp_path: Path,
+) -> None:
+    runtime = _rich_runtime(tmp_path, "invalid-builder")
+    lock = threading.RLock()
+
+    def port(registered: Any, flags: Mapping[str, object]) -> ToolPort:
+        return _build_projected_extension_tool_port(
+            registered,
+            has_ui=False,
+            notify_sink=lambda *_args: None,
+            set_active_tools=lambda _names: True,
+            flags=flags,
+            render_details={},
+            project_trusted=True,
+        )
+
+    def wrong_capability(_ports: Mapping[str, ToolPort]) -> ToolCapabilityState:
+        return ToolCapabilityState.build(
+            {},
+            {},
+            filter_options=ToolFilterOptions.empty(),
+            cancel_join_timeout_seconds=1.0,
+        )
+
+    with pytest.raises(ValueError, match="must contain projected ports"):
+        build_extension_projection(
+            runtime,
+            {"projection-mode": "candidate"},
+            queue_mutex=lock,
+            reference_mutex=lock,
+            build_tool_port=port,
+            build_tool_capability=wrong_capability,
+            chrome=None,
+        )
+
+    with pytest.raises(TypeError, match="storage must be a list"):
+        GenerationQueueHandle(cast(Any, ()), lock)
+    with pytest.raises(TypeError, match="mutex must be an RLock"):
+        GenerationQueueHandle([], cast(Any, object()))
+    with pytest.raises(TypeError, match="chrome sink"):
+        ExtensionChromeHandle(cast(Any, object()))
+
+    with pytest.raises(TypeError, match="string-keyed mapping"):
+        build_extension_projection(
+            runtime,
+            cast(Any, {1: "candidate"}),
+            queue_mutex=lock,
+            reference_mutex=lock,
+            build_tool_port=port,
+            build_tool_capability=wrong_capability,
+            chrome=None,
+        )
+    foreign_object = cast(Any, object())
+    with pytest.raises(TypeError, match="must be RLocks"):
+        build_extension_projection(
+            runtime,
+            {"projection-mode": "candidate"},
+            queue_mutex=foreign_object,
+            reference_mutex=foreign_object,
+            build_tool_port=port,
+            build_tool_capability=wrong_capability,
+            chrome=None,
+        )
+    with pytest.raises(TypeError, match="step_observer"):
+        build_extension_projection(
+            runtime,
+            {"projection-mode": "candidate"},
+            queue_mutex=lock,
+            reference_mutex=lock,
+            build_tool_port=port,
+            build_tool_capability=wrong_capability,
+            chrome=None,
+            step_observer=cast(Any, object()),
+        )
+
+
+def test_successor_projections_share_no_mutable_mapping_or_list(
+    tmp_path: Path,
+) -> None:
+    old_runtime = _rich_runtime(tmp_path, "isolated-old")
+    candidate_runtime = _rich_runtime(tmp_path, "isolated-candidate")
+    old_chrome = ExtensionChromeSink()
+    candidate_chrome = ExtensionChromeSink()
+    old = _projection(old_runtime, chrome=old_chrome)
+    candidate = _projection(candidate_runtime, chrome=candidate_chrome)
+    old_mappings = (
+        old.runtime_flags.values,
+        old.commands.commands,
+        old.commands.descriptions,
+        old.commands.shortcuts,
+        old.hooks.lifecycle,
+        old.tools.ports,
+        old.tools.capability_state.extension_registry,
+        old.renderers.tools,
+        old.renderers.messages,
+        old.renderers.entries,
+    )
+    candidate_mappings = (
+        candidate.runtime_flags.values,
+        candidate.commands.commands,
+        candidate.commands.descriptions,
+        candidate.commands.shortcuts,
+        candidate.hooks.lifecycle,
+        candidate.tools.ports,
+        candidate.tools.capability_state.extension_registry,
+        candidate.renderers.tools,
+        candidate.renderers.messages,
+        candidate.renderers.entries,
+    )
+
+    assert all(isinstance(value, MappingProxyType) for value in old_mappings)
+    assert all(isinstance(value, MappingProxyType) for value in candidate_mappings)
+    assert not {id(value) for value in old_mappings}.intersection(
+        id(value) for value in candidate_mappings
+    )
+    assert old.queues.user.storage is old_runtime.outbox
+    assert candidate.queues.user.storage is candidate_runtime.outbox
+    assert old_runtime.outbox is not candidate_runtime.outbox
+    assert old_runtime.custom_outbox is not candidate_runtime.custom_outbox
+    assert old.chrome is not None and candidate.chrome is not None
+    assert old.chrome is not candidate.chrome
+    assert old.chrome.sink is old_chrome
+    assert candidate.chrome.sink is candidate_chrome
+
+    names = tuple(old.commands.commands)
+    hook_names = tuple(old.hooks.lifecycle)
+    renderer_names = tuple(old.renderers.messages)
+    old_runtime.commands.clear()
+    old_runtime.lifecycle_hooks.clear()
+    old_runtime.message_renderers.clear()
+    assert tuple(old.commands.commands) == names
+    assert tuple(old.hooks.lifecycle) == hook_names
+    assert tuple(old.renderers.messages) == renderer_names
+
+    with pytest.raises(TypeError):
+        cast(dict[str, Any], candidate.commands.commands)["late"] = next(
+            iter(candidate.commands.commands.values())
+        )
+
+
+def test_projection_omits_settings_keybindings_resources_and_reverse_adapters() -> None:
+    projection_fields = {field.name for field in fields(ExtensionProjection)}
+    forbidden = {"settings", "keybindings", "resources", "workspace_resources"}
+    assert projection_fields.isdisjoint(forbidden)
+
+    source = (
+        Path(__file__).parents[1] / "src/pipy_harness/native/session_generation.py"
+    ).read_text(encoding="utf-8")
+    imports = {
+        alias.name
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    assert imports.isdisjoint(
+        {
+            "SettingsManager",
+            "SettingsState",
+            "KeybindingsManager",
+            "KeybindingsState",
+            "WorkspaceResources",
+            "PackageResourceRoots",
+        }
+    )
+    assert "settings_adapter" not in source
+    extension_boundary = (
+        Path(__file__).parents[1] / "src/pipy_harness/native/extension_runtime.py"
+    ).read_text(encoding="utf-8")
+    assert "session_generation" not in extension_boundary
+    assert "extension_chrome_state" not in extension_boundary
+    assert "tool_capabilities" not in extension_boundary
+
+
+def test_production_projection_and_port_adapter_callers_are_exactly_bounded() -> None:
+    target_names = {
+        "build_extension_projection",
+        "_build_candidate_extension_projection",
+        "_build_projected_extension_tool_port",
+        "_build_legacy_extension_tool_port",
+    }
+    calls: dict[str, list[tuple[str, tuple[str, ...]]]] = {
+        name: [] for name in target_names
+    }
+
+    class CallInventory(ast.NodeVisitor):
+        def __init__(self, path: str) -> None:
+            self.path = path
+            self.owners: list[str] = []
+
+        def _visit_owner(self, label: str, node: ast.AST) -> None:
+            self.owners.append(label)
+            self.generic_visit(node)
+            self.owners.pop()
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            self._visit_owner(f"class:{node.name}", node)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self._visit_owner(f"function:{node.name}", node)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            self._visit_owner(f"async-function:{node.name}", node)
+
+        def visit_Call(self, node: ast.Call) -> None:
+            name = (
+                node.func.id
+                if isinstance(node.func, ast.Name)
+                else node.func.attr
+                if isinstance(node.func, ast.Attribute)
+                else ""
+            )
+            if name in calls:
+                calls[name].append((self.path, tuple(self.owners)))
+            self.generic_visit(node)
+
+    src_root = Path(__file__).parents[1] / "src"
+    package_root = src_root / "pipy_harness"
+    for path in sorted(package_root.rglob("*.py")):
+        relative_path = path.relative_to(src_root).as_posix()
+        CallInventory(relative_path).visit(ast.parse(path.read_text(encoding="utf-8")))
+
+    assert calls == {
+        "_build_candidate_extension_projection": [],
+        "build_extension_projection": [
+            (
+                "pipy_harness/native/tool_loop_session.py",
+                ("function:_build_candidate_extension_projection",),
+            )
+        ],
+        "_build_projected_extension_tool_port": [
+            (
+                "pipy_harness/native/tool_loop_session.py",
+                (
+                    "function:_build_candidate_extension_projection",
+                    "function:build_tool_port",
+                ),
+            )
+        ],
+        "_build_legacy_extension_tool_port": [
+            (
+                "pipy_harness/native/tool_loop_session.py",
+                (
+                    "class:_ReloadCommandEffects",
+                    "function:_publish_tool_and_lifecycle_projections",
+                ),
+            ),
+            (
+                "pipy_harness/native/tool_loop_session.py",
+                ("class:NativeToolReplSession", "function:run"),
+            ),
+        ],
+    }

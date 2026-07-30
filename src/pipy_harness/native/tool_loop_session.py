@@ -220,8 +220,11 @@ from pipy_harness.native.export_distribution import (
     share_native_session,
 )
 from pipy_harness.native.session_generation import (
+    ExtensionChromeHandle,
+    ExtensionProjection,
     SessionExtensionGeneration,
     SessionGenerationRef,
+    build_extension_projection,
 )
 from pipy_harness.native.session_resume import (
     ResumeContext,
@@ -266,8 +269,10 @@ from pipy_harness.native.extension_runtime import (
     QueuedUserMessage,
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,
+    RegisteredTool,
     ToolRenderDetailsWriter,
     _ExtensionCandidate,
+    _ExtensionRuntime,
     _ExtensionToolPort,
     _report_activation_cleanup,
     dispatch_extension_command,
@@ -339,6 +344,7 @@ from pipy_harness.native.tools import (
 )
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
+    ToolCapabilityState,
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_renderers import (
@@ -1291,6 +1297,92 @@ class _TransferCommandEffects:
             self.diag(f"pipy: gist URL: {result.gist_url}")
 
 
+def _build_projected_extension_tool_port(
+    registered: RegisteredTool,
+    *,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None],
+    set_active_tools: Callable[[Sequence[str]], bool],
+    flags: Mapping[str, object],
+    render_details: ToolRenderDetailsWriter,
+    project_trusted: bool,
+) -> ToolPort:
+    """Construct one detached projection port without touching live state."""
+
+    return _ExtensionToolPort(
+        registered,
+        has_ui=has_ui,
+        notify_sink=notify_sink,
+        set_active_tools_fn=set_active_tools,
+        flags=flags,
+        render_details_sink=render_details,
+        project_trusted=project_trusted,
+    )
+
+
+def _build_legacy_extension_tool_port(
+    registered: RegisteredTool,
+    *,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None],
+    set_active_tools: Callable[[Sequence[str]], bool],
+    flags: Mapping[str, object],
+    render_details: ToolRenderDetailsWriter,
+    project_trusted: bool,
+) -> ToolPort:
+    """Construct one live legacy port through the equivalence-source seam."""
+
+    return _ExtensionToolPort(
+        registered,
+        has_ui=has_ui,
+        notify_sink=notify_sink,
+        set_active_tools_fn=set_active_tools,
+        flags=flags,
+        render_details_sink=render_details,
+        project_trusted=project_trusted,
+    )
+
+
+def _build_candidate_extension_projection(
+    runtime: _ExtensionRuntime,
+    flag_values: Mapping[str, object],
+    *,
+    queue_mutex: threading.RLock,
+    reference_mutex: threading.RLock,
+    has_ui: bool,
+    notify_sink: Callable[[str, str], None],
+    set_active_tools: Callable[[Sequence[str]], bool],
+    render_details: ToolRenderDetailsWriter,
+    project_trusted: bool,
+    prepare_capability: Callable[[Mapping[str, ToolPort]], ToolCapabilityState],
+    chrome: ExtensionChromeHandle | None,
+) -> ExtensionProjection:
+    """Purely compose one detached candidate projection for later slices."""
+
+    def build_tool_port(
+        registered: RegisteredTool, frozen_flags: Mapping[str, object]
+    ) -> ToolPort:
+        return _build_projected_extension_tool_port(
+            registered,
+            has_ui=has_ui,
+            notify_sink=notify_sink,
+            set_active_tools=set_active_tools,
+            flags=frozen_flags,
+            render_details=render_details,
+            project_trusted=project_trusted,
+        )
+
+    return build_extension_projection(
+        runtime,
+        flag_values,
+        queue_mutex=queue_mutex,
+        reference_mutex=reference_mutex,
+        build_tool_port=build_tool_port,
+        build_tool_capability=prepare_capability,
+        chrome=chrome,
+    )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _ReloadCommandEffects:
     """Execute ``/reload`` through explicit behavior-preserving phases."""
@@ -1514,13 +1606,13 @@ class _ReloadCommandEffects:
         )
         reloaded_tool_registry: dict[str, ToolPort] = {}
         for registered_tool in runtime.tools:
-            port = _ExtensionToolPort(
+            port = _build_legacy_extension_tool_port(
                 registered_tool,
                 has_ui=self.terminal_ui is not None,
                 notify_sink=self.provider_mutation.extension_notify,
-                set_active_tools_fn=self.provider_mutation.extension_set_active_tools,
+                set_active_tools=self.provider_mutation.extension_set_active_tools,
                 flags=self.ctl.extension_generation.flag_values,
-                render_details_sink=self.extension_render_details,
+                render_details=self.extension_render_details,
                 project_trusted=self.settings.project_trusted,
             )
             reloaded_tool_registry[port.definition.name] = port
@@ -3662,15 +3754,15 @@ class NativeToolReplSession:
         )
         extension_tool_registry: dict[str, ToolPort] = {}
         for _registered_tool in extension_generation.runtime.tools:
-            _port = _ExtensionToolPort(
+            _port = _build_legacy_extension_tool_port(
                 _registered_tool,
                 has_ui=terminal_ui is not None,
                 notify_sink=_extension_notify,
-                set_active_tools_fn=lambda names: (
+                set_active_tools=lambda names: (
                     provider_mutation.extension_set_active_tools(names)
                 ),
                 flags=extension_generation.flag_values,
-                render_details_sink=render_details.writer,
+                render_details=render_details.writer,
                 project_trusted=settings.project_trusted,
             )
             extension_tool_registry[_port.definition.name] = _port

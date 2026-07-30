@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R3a — build detached immutable extension projections**
+**Active/next slice:** **R3b — build detached reload effects and ordered delivery**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -96,27 +96,36 @@ retained `session_start`; accepted replacements fire once after activation-host
 commit, and delivery, paint, callbacks, disposal, and session-mutex acquisition
 remain outside its guards.
 
-R3 is **not complete**. The uncommitted attempt based on `606a860` proved a
+R3 is **not complete**. The oversized attempt based on `606a860` proved a
 cycle: accepted-only activation-staged messages precede replacement
 `session_start` in the base observable order; that callback populates the exact
 candidate chrome sidecar; detached provider/catalog/fallback, coding, and
 capability work must all finish next; chrome prepare must be the final fallible
 step and irrevocable acceptance point; only then may the immutable generation
-publish. The attempted pre-acceptance provider refresh/fallback instead mutates
-live state without narrow undo. Its code/tests/docs remain preserved evidence
-but are now assigned to three reviewable slices.
+publish. The attempted pre-acceptance provider refresh/fallback instead mutated
+live state without narrow undo. That attempt has been reduced to the first of
+three reviewable slices; R3b/R3c retain all preparation and orchestration work.
 
-R3a is construction-only and next. It retains the standalone immutable
-projection values/builder, construction-time validation, pure composition
-adapters, and separate runtime/flag, command/menu/shortcut, hook, tool/
-capability, renderer, provider, queue, and exact-chrome equivalence/no-alias
-arms. Production startup/reload must not call, install, publish, snapshot, or
-consume the value; all legacy consumers and `606a860` observable ordering remain
-unchanged. Focused tests exercise every builder branch; Ruff does not reject
-uncalled typed module definitions and this repository has no coverage threshold.
-Settings, keybindings, resources, and a settings adapter stay absent. Every
-arm remains until the appropriate R4 consumer moves and deletes its legacy
-source.
+R3a is complete and construction-only. It adds standalone immutable projection
+values/builder, construction-time validation, and projected/legacy tool-port and
+candidate-composition adapters. Separate runtime/flag, command/menu/shortcut,
+hook, tool/capability, renderer, provider, queue-handle, and exact-chrome
+equivalence/no-alias arms remain. R1's mutable `activation_hosts` ownership state
+is explicitly excluded and exact runtime-field inventory prevents an undisposed
+future contribution field. Custom messages copy/freeze only the top-level
+`options` mapping; opaque nested option values and `details` are not recursively
+transformed. The two existing live startup/reload tool-port sites call the
+legacy helper with their prior arguments, making it the real comparison source;
+recursive AST inventory pins those exact callers and proves the candidate
+builder has none. Production startup/reload does not call, install, publish,
+snapshot, or consume the projection; the live `SessionExtensionGeneration`
+shape/reference, legacy behavior, and `606a860` observable ordering remain
+unchanged. Builder-step and mutex/result validation failures return no candidate
+and cannot change a live reference, generation id, legacy adapter identity, or
+copied live container contents. Settings, keybindings, resources, and a settings
+adapter are absent. Every arm remains until the appropriate R4 consumer moves
+and deletes its legacy source. R3a changes no product behavior and requires no
+changelog entry.
 
 R3b is a second behavior-neutral preparation slice. It owns one immutable
 `PreparedReloadEffects` value assembled/frozen once after detached mutable

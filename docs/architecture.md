@@ -283,9 +283,13 @@ Initial activation fails closed per extension. Trusted extension code may
 perform its own external effects. Reload now rejects a candidate runtime and
 parsed flags together and preserves the prior retained TUI chrome/listeners on
 that rejection. Candidate chrome requests use a closed guarded sink and are
-reconciled only after semantic acceptance, but the stronger claim that every
-pipy-owned registry, projection, retained chrome value, and queue sidecar
-publishes coherently is still outstanding. The controlling R0 decisions and per-clause evidence are in
+reconciled only after semantic acceptance. R3a now provides a detached,
+immutable projection construction value for every applicable extension
+contribution family. R1's mutable `activation_hosts` ownership state machines
+are explicitly excluded. No production startup/reload path constructs,
+installs, publishes, snapshots, or consumes the projection. Coherent publication
+remains outstanding. The
+controlling R0 decisions and per-clause evidence are in
 the transactional spec's
 [R0 current reconciliation](specs/2026-07-25-transactional-extension-reload-rebuild.md#r0-current-reconciliation-2026-07-30).
 
@@ -307,10 +311,34 @@ callers may retain an injected manager, so the narrowing relies on manager-local
 synchronization, not on claiming that no external manager surface exists. R3
 therefore builds no settings/resource projection and R4a consumes none.
 
-`SessionExtensionGeneration` does not yet freeze tool capability, renderer,
-emitter/lifecycle, provider, menu, retained chrome, or queue-sidecar
-projections; those publish or drain separately. Production consumers still read
-`generation_ref.current` per access even though `snapshot()` exists. R1 now
+`SessionExtensionGeneration` deliberately remains the live runtime-plus-mutable-
+flags value. Beside it, R3a's standalone `ExtensionProjection` builder copies
+and freezes runtime/flags, command/menu/description/shortcut, lifecycle/request
+hooks, tool ports and candidate capability state, renderer maps, provider
+contributions, queue handles, and the exact R2 chrome handle. Mapping families
+are copied read-only values and sequence families are tuples. A custom message's
+top-level `options` mapping is copied and frozen; opaque nested option values and
+`details` retain their established shallow semantics and are not recursively
+transformed. Projected and legacy tool ports retain independent private flag
+dictionaries. Only the explicitly unconsumed queue storage handles alias the
+candidate runtime outboxes. Builder input validation proves queue/reference
+mutex identity before construction and failure injection cannot reach a live
+reference or adapter. R1's mutable activation-host ownership state, settings,
+keybindings, resources, and a settings adapter are absent.
+
+The only `tool_loop_session.py` additions are construction-only projected,
+legacy-port, and candidate-composition adapters. The two existing live startup
+and reload port-construction sites now call the legacy helper with their exact
+prior arguments; this makes it the real equivalence source without changing
+behavior or order. Recursive source/AST inventory proves the candidate builder
+has no production caller, the direct builder and projected adapter are reached
+only inside that pure candidate builder, and the legacy helper has exactly those
+two live callers. Lifecycle/provider/TUI behavior and base ordering are
+unchanged. Every per-family equivalence arm against the legacy runtime or
+adapter remains until R4 moves that family's final consumer and deletes its
+source. R3b is the next detached preparation slice; R3c later installs these
+same R3a values. Production consumers still read `generation_ref.current` per
+access even though `snapshot()` exists. R1 now
 owns activation registration with one candidate-host guard over every staged
 registry/message, flag value/failure, `_activated`, and the one-way candidate
 open→sealed→committed→published/disposed transitions plus the accepted-catalog
@@ -369,8 +397,9 @@ authoritative for staged user/custom messages: sends after seal while activation
 is still pending retain their silent `None` shape but change nothing, and commit
 flushes the frozen messages exactly once. Accepted/live message routing after
 activation commit releases the candidate guard before its still-list-backed queue
-append. Only the frozen staged flush versus accepted/live runtime append
-ordering seam remains R4a-owned; R1 does not publish that queue sidecar early.
+append. R3b/R3c own authoritative staged-message detach, flush, and delivery
+ordering; R4a later synchronizes live append/drain/close and must not reimplement
+that staged flush. R1 does not publish the queue sidecar early.
 Current activation still has
 no timeout—`extension_loader._drive_awaitable()` joins its private worker
 without one—and R1 added no timeout policy. R2 removed the pre-validation live
@@ -398,10 +427,11 @@ The R0 audit also found a reachable queue lost update: a cancelled
 `pipy-tool-call` worker may outlive its bounded join and use a retained activation
 API to append directly to a generation outbox while the session/RPC-session
 worker's `_CustomEntryRenderer.drain_extension_outboxes()` copies and clears the
-same list. R3 owns generation queue-sidecar values; R4a converts every writer—
-`_ActivationApi.send_user_message()`, `send_message()`/its alias, and
-`_commit_activation()`'s staged user-message flush—plus that drain so the session
-mutex serializes closed-check+append, detach/drain, and close. Accepted staged
+same list. R3 owns generation queue-sidecar values and R3b/R3c own the authoritative staged
+activation detach/flush/delivery sequence. R4a later converts accepted/live
+`_ActivationApi.send_user_message()` and `send_message()`/its alias plus the live
+drain/close paths so the session mutex serializes closed-check+append,
+detach/drain, and close; it does not repeat the staged flush. Accepted staged
 activation custom messages bypass `custom_outbox` and call
 `_CustomEntryRenderer.extension_send_message()` directly. That method is also
 the `ExtensionCodingSessionControl` custom-message target; the control is not a
@@ -733,15 +763,17 @@ classifies and proportionally justifies every residual, including every
 C901-pinned file. The load-bearing summary is:
 
 - the Slice 3 work is a useful generation/publication safety ratchet, but not
-  the complete reconciled transaction. R1 has shipped the guarded sealed/
-  disposed candidate activation host and R2 has shipped rejected-candidate
-  retained-chrome/listener staging and post-acceptance reconciliation; generation
-  snapshots are not adopted by production operations; mutation ports are not
-  generation-bound; a cancelled extension-tool worker can race the session
-  outbox copy/clear and lose its append; a retained coding-session control can
-  race live tree/input use and reorder durable JSONL; and tool, renderer,
-  lifecycle, provider, menu, retained-chrome, and queue projections publish
-  separately. Current activation has no timeout; R1's shipped seal/disposal is
+  the complete reconciled transaction. R1 shipped the guarded sealed/disposed
+  candidate activation host, R2 shipped rejected-candidate retained-chrome/
+  listener staging and post-acceptance reconciliation, and R3a shipped only the
+  detached immutable construction values and pure adapters. Production does not
+  call or install them. Generation snapshots are not adopted by production
+  operations; mutation ports are not generation-bound; a cancelled extension-
+  tool worker can race the session outbox copy/clear and lose its append; a
+  retained coding-session control can race live tree/input use and reorder
+  durable JSONL; and tool, renderer, lifecycle, provider, menu, retained-chrome,
+  and queue projections still publish separately. Current activation has no
+  timeout; R1's shipped seal/disposal is
   future-timeout-safe without selecting a timeout policy;
 - `set_model` persists a default part-way through its mutation, so its
   publication-gate admission is not atomic;
@@ -761,8 +793,9 @@ C901-pinned file. The load-bearing summary is:
   observable bytes and offsets own sequencing.
 
 R0 reconciled the bounded contract, R1 shipped candidate registration sealing,
-and R2 shipped candidate retained-chrome/listener staging without claiming
-retired-live generation binding. The next architecture action is **R3 — build
-one immutable extension projection**; ordinary product-parity selection remains
-blocked through R7.
+R2 shipped candidate retained-chrome/listener staging, and R3a shipped detached
+immutable projection construction without changing a runtime caller or behavior.
+The next architecture action is **R3b — build detached reload effects and ordered
+delivery**; ordinary product-parity selection remains blocked through R7. R3a
+requires no changelog entry.
 That is not a verdict that the broader program failed.
