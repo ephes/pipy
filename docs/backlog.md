@@ -21,6 +21,47 @@ follow-up. The big-topic specs indexed by the plan are
 [tui-workflow.md](tui-workflow.md), and
 [export-distribution.md](export-distribution.md).
 
+## Landing-Gated Program — Comparative Review Remediation
+
+The
+[2026-07-30 comparative review remediation plan](plans/2026-07-30-comparative-review-remediation-plan.md)
+is the landing-gated dependency-ordered queue from the three-way `pipy`/
+`pi-mono`/`tau` review. Authorization is commit-state based: while the complete
+plan/backlog diff is uncommitted, implementation remains blocked on its fresh
+Claude Code Opus review under the default two-round docs cap. Round 2 produced
+new actionable correctness and process findings about projection-source
+deletion, review-cap semantics, and slice execution, so the operator explicitly
+authorized exactly one additional docs review of the resulting corrections.
+Landing the planning commit on `main` certifies the required review completed,
+material findings were addressed, and G0 is authorized.
+
+**Active/next slice:** **G0 — retire frozen closeout synchronization**
+
+G0 changes test policy, not product behavior, and removes the seven-document
+metric tax. The mandatory correctness sequence is
+then **R0–R7 — reconcile and close transactional reload**. No documentation
+cleanup, Ruff expansion, tool-parity behavior change, ordinary ownership
+refactor, provider-test consolidation, or contributor work may begin until a
+committed R7 closes or proves a formal reconciliation for every reload residual
+identified by the
+[2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md).
+Writing R0 alone does not clear that boundary.
+
+The queue has exactly **26 numbered execution slices**: G0; ten R slices; D1;
+nine separately bounded lint/fix/enablement slices L1-L9; P1-P2; A1; T1; and
+C1. The plan's commit gate is universal rather than a final slice: every slice
+uses a fresh Pi implementer, focused and full checks, an update to the labeled
+**Active/next slice:** field, docs/release-note disposition, and fresh
+independent Opus review within `AGENTS.md` budgets. Shared-mutable-state
+correctness findings never grant extra rounds automatically: they remain
+commit and dependency blockers at the cap and force contract/plan revision or
+a stop. Only explicit operator authorization based on new, actionable, material
+feedback may extend a review budget. A permitted slice lands as exactly one
+commit on `main`.
+Release publication, mass native-module moves, broad Ruff rules, unproved
+provider-test migrations, and destructive shared-`.venv` hook reproduction are
+explicitly deferred rather than silently included.
+
 ## Completed Reviewed Program — Architecture Quality
 
 The ordered
