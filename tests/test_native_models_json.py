@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import json
+from dataclasses import FrozenInstanceError, fields, replace
+from types import MappingProxyType
 
+import pytest
+
+from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
 from pipy_harness.native.models_json import (
     ModelCatalog,
+    ModelDefinition,
+    ModelOverride,
+    ModelsConfig,
+    ProviderConfig,
+    ProviderRequestConfig,
     default_models_json_path,
     strip_json_comments,
 )
@@ -472,3 +482,166 @@ def test_refresh_picks_up_edits(tmp_path):
     catalog.refresh()
     assert catalog.find("anthropic", "m2") is not None
     assert catalog.find("anthropic", "m1") is None
+
+
+def test_live_refresh_reset_failure_semantics_and_non_tautological_request(tmp_path):
+    path = tmp_path / "models.json"
+    _write(path, {"providers": {"anthropic": {"headers": {"x-live": "yes"}}}})
+    catalog = ModelCatalog(models_json_path=path)
+    expected_request = dict(catalog.provider_request_configs)
+    old_rows = catalog.rows
+
+    def fail(_rows):
+        raise RuntimeError("live modifier")
+
+    catalog.set_oauth_modifiers([fail])
+    with pytest.raises(RuntimeError, match="live modifier"):
+        catalog.refresh()
+    assert catalog.rows is old_rows
+    assert catalog.provider_request_configs == expected_request
+    assert isinstance(catalog.provider_request_configs, dict)
+    assert catalog.error is None and catalog._config is not None
+
+
+def test_prepared_refresh_covers_all_inputs_is_pure_and_reentrant(tmp_path):
+    nested = [{"value": 1}]
+    extra = {
+        "extra": ProviderConfig(
+            api="openai-completions",
+            base_url="https://extra.invalid",
+            compat={"nested": nested},
+            models=(ModelDefinition(id="extra-custom"),),
+        )
+    }
+    paths = (tmp_path / "live.json", tmp_path / "detached.json")
+    file_config = {
+        "providers": {
+            "anthropic": {
+                "models": [{"id": "file-custom"}],
+                "modelOverrides": {"claude-opus-4-7": {"name": "file-override"}},
+            }
+        }
+    }
+    for path in paths:
+        _write(path, file_config)
+    live, detached = (
+        ModelCatalog(models_json_path=path, extra_providers=extra) for path in paths
+    )
+    registered = ProviderConfig(
+        api="openai-completions",
+        base_url="https://registered.invalid",
+        models=(ModelDefinition(id="registered-custom"),),
+    )
+
+    def modifier(rows):
+        return [replace(row, display_name=f"oauth:{row.display_name}") for row in rows]
+
+    for catalog in (live, detached):
+        catalog.register_provider("registered", registered)
+        catalog.set_oauth_modifiers([modifier])
+    live.refresh()
+    field_names = tuple(field.name for field in fields(ModelCatalog))
+    before = tuple(getattr(detached, name) for name in field_names)
+    prepared = detached.prepare_catalog_reload()
+    assert all(
+        getattr(detached, name) is value for name, value in zip(field_names, before)
+    )
+    assert detached.validate_prepared_catalog_reload(prepared)
+    prepared_ids = {row.model_id for row in prepared.rows}
+    assert {"file-custom", "extra-custom", "registered-custom"} <= prepared_ids
+    assert (
+        next(
+            row for row in prepared.rows if row.model_id == "claude-opus-4-7"
+        ).display_name
+        == "oauth:file-override"
+    )
+    assert isinstance(
+        next(row for row in prepared.rows if row.model_id == "extra-custom").compat,
+        MappingProxyType,
+    )
+    replacement_token = prepared.replacement_owner_token
+    detached.publish_catalog_reload(prepared)
+    assert (detached.rows, detached.provider_request_configs) == (
+        live.rows,
+        live.provider_request_configs,
+    )
+    assert prepared.rows == prepared.replacement_rows == ()
+    assert detached._reload_identity is replacement_token
+
+    def mutate_owner(rows):
+        detached.set_oauth_modifiers([])
+        nested[0].update(value=2)
+        return rows
+
+    detached.set_oauth_modifiers([mutate_owner])
+    captured = detached.capture_catalog_reload_expected()
+    assert set(captured) == set(
+        "owner_token extra_providers registered_providers oauth_modifiers".split()
+    )
+    reentrant = detached.prepare_catalog_reload_from_snapshot(captured)
+    assert not detached.catalog_reload_matches_expected(reentrant)
+    assert captured["extra_providers"]["extra"].compat == {"nested": [{"value": 1}]}
+    nested_proxy = MappingProxyType({"items": [MappingProxyType({"value": 1})]})
+    detached.register_provider(
+        "frozen",
+        ProviderConfig(headers=MappingProxyType({"x": "yes"}), compat=nested_proxy),
+    )
+    captured = detached.capture_catalog_reload_expected()
+    frozen = captured["registered_providers"]["frozen"]
+    assert type(frozen.headers) is dict and type(frozen.compat["items"][0]) is dict
+    assert detached.validate_prepared_catalog_reload(
+        detached.prepare_catalog_reload_from_snapshot(captured)
+    )
+
+
+def test_model_cost_and_refresh_fields_are_complete_and_immutable(tmp_path):
+    definition = ModelDefinition(id="m", cost=NativeModelCost(input=1))
+    spec = NativeModelSpec("p", "m", "m", "api", cost=NativeModelCost(output=2))
+    assert type(definition.cost) is type(spec.cost) is NativeModelCost
+    with pytest.raises(FrozenInstanceError):
+        setattr(definition.cost, "input", 3)
+    path = tmp_path / "models.json"
+    _write(
+        path,
+        {
+            "providers": {
+                "anthropic": {
+                    "apiKey": "private-api-key",
+                    "headers": {"x-private-header": "private-header-value"},
+                    "modelOverrides": {"claude-opus-4-7": {"cost": {"input": 3}}},
+                }
+            }
+        },
+    )
+    catalog = ModelCatalog(models_json_path=path)
+    prepared = catalog.prepare_catalog_reload()
+    rendered = repr(prepared)
+    assert "private-api-key" not in rendered
+    assert "x-private-header" not in rendered
+    assert "private-header-value" not in rendered
+    # fmt: off
+    expected_fields = (
+        (ModelDefinition, "id name api base_url reasoning thinking_level_map input cost context_window max_tokens headers compat"),
+        (ModelOverride, "name reasoning thinking_level_map input cost context_window max_tokens headers compat"),
+        (ProviderConfig, "name base_url api_key api headers auth_header compat models model_overrides"),
+        (ProviderRequestConfig, "api_key headers auth_header"),
+        (ModelsConfig, "providers"),
+        (NativeModelSpec, "provider_name model_id display_name api base_url reasoning thinking_level_map input cost context_window max_tokens headers compat"),
+        (prepared.__class__, "expected_owner_token replacement_owner_token rows error provider_request_configs config replacement_rows replacement_provider_request_configs replacement_config"),
+    )
+    # fmt: on
+    for value_type, names in expected_fields:
+        assert {field.name for field in fields(value_type)} == set(names.split())
+    override = prepared.config.providers["anthropic"].model_overrides["claude-opus-4-7"]
+    assert isinstance(override.cost, MappingProxyType)
+    catalog.publish_catalog_reload(prepared)
+    assert prepared.rows == prepared.replacement_rows == ()
+    assert prepared.provider_request_configs == {}
+    assert prepared.replacement_provider_request_configs == {}
+    assert prepared.config is prepared.replacement_config is None
+    assert prepared.error is prepared.replacement_owner_token is None
+    names = ("rows", "error", "provider_request_configs", "_config")
+    live = tuple(getattr(catalog, name) for name in names)
+    catalog.publish_catalog_reload(prepared)
+    assert tuple(getattr(catalog, name) for name in names) == live
+    assert "private" not in repr(prepared)

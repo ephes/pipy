@@ -19,7 +19,12 @@ from pipy_harness.native.agent.usage import (
     AgentUsageRefreshValue,
     AgentUsageReloadValue,
 )
-from pipy_harness.native.catalog_state import ProviderCatalogReloadState
+from pipy_harness.native.auth_store import AuthStore
+from pipy_harness.native.catalog_state import (
+    ProviderCatalogRefreshValue,
+    ProviderCatalogReloadState,
+    ProviderCatalogState,
+)
 from pipy_harness.native.coding.state import (
     CodingReloadBindingValue,
     CodingReloadHistoryValue,
@@ -56,7 +61,6 @@ from pipy_harness.native.session_generation import (
     PreparedReloadEffects,
     PresentationPersistenceValue,
     ProviderFactoryValue,
-    ProviderRefreshValue,
     ReloadEffectPreparationPorts,
     SessionExtensionGeneration,
     SessionGenerationRef,
@@ -1099,7 +1103,7 @@ def test_production_projection_and_port_adapter_callers_are_exactly_bounded() ->
 _FamilyValue = TypeVar("_FamilyValue")
 
 
-def _reload_preparation_ports(  # noqa: C901 - all 15 typed families are explicit
+def _reload_preparation_ports(  # noqa: C901 - fixture exercises all 15 families
     tmp_path: Path,
     *,
     failed_step: str | None = None,
@@ -1156,6 +1160,16 @@ def _reload_preparation_ports(  # noqa: C901 - all 15 typed families are explici
     def owner_value(value: tuple[object, ...]) -> Any:
         return value
 
+    def provider_refresh_value(
+        _value: tuple[object, ...],
+    ) -> ProviderCatalogRefreshValue:
+        state = ProviderCatalogState(
+            models_json_path=tmp_path / "prepared-models.json",
+            auth_store=AuthStore(path=tmp_path / "prepared-auth.json"),
+            env={},
+        )
+        return state.prepare_catalog_auth_refresh()
+
     def usage_value(value: tuple[object, ...]) -> AgentUsageReloadValue:
         accumulator = cast(AgentUsageAccumulator, value[0])
         return accumulator.prepare_reload_value_refresh()
@@ -1164,7 +1178,7 @@ def _reload_preparation_ports(  # noqa: C901 - all 15 typed families are explici
         ActivationInputsValue,
         owner_value,
         ProviderFactoryValue,
-        ProviderRefreshValue,
+        provider_refresh_value,
         owner_value,
         owner_value,
         owner_value,
@@ -1237,7 +1251,9 @@ def test_mutable_reload_builders_finish_before_one_frozen_prepared_assembly(
         prepared.activation_inputs = cast(Any, None)  # type: ignore[misc]
     for name, source_value in sources.items():
         effect = cast(Any, getattr(prepared, name))
-        if name == "coding_usage":
+        if name == "provider_refresh":
+            assert isinstance(effect.value, ProviderCatalogRefreshValue)
+        elif name == "coding_usage":
             usage_value = cast(AgentUsageRefreshValue, effect.value)
             usage_source = cast(AgentUsageAccumulator, source_value[0])
             assert usage_value.retained.input_tokens == 7
@@ -1278,6 +1294,7 @@ def test_prepared_reload_owner_families_use_concrete_owner_values() -> None:
         "CodingReloadBindingValue": CodingReloadBindingValue,
         "CodingReloadHistoryValue": CodingReloadHistoryValue,
         "ExtensionChromePrepareInput": ExtensionChromePrepareInput,
+        "ProviderCatalogRefreshValue": ProviderCatalogRefreshValue,
         "ProviderCatalogReloadState": ProviderCatalogReloadState,
         "ReplPendingDefaultReloadValue": ReplPendingDefaultReloadValue,
         "ReplSelectionReloadValue": ReplSelectionReloadValue,
@@ -1286,6 +1303,7 @@ def test_prepared_reload_owner_families_use_concrete_owner_values() -> None:
     prepared_hints = get_type_hints(PreparedReloadEffects, localns=localns)
     expected = {
         "provider_catalog": ProviderCatalogReloadState,
+        "provider_refresh": ProviderCatalogRefreshValue,
         "provider_fallback": ReplSelectionReloadValue,
         "coding_binding": CodingReloadBindingValue,
         "coding_history": CodingReloadHistoryValue,
@@ -1297,10 +1315,7 @@ def test_prepared_reload_owner_families_use_concrete_owner_values() -> None:
         port_args = cast(Any, port_hints[name]).__args__
         assert value_type in cast(Any, port_args[-1]).__args__
         assert value_type in cast(Any, prepared_hints[name]).__args__
-    opaque = {
-        "provider_refresh": ProviderRefreshValue,
-        "coding_compaction": CodingCompactionValue,
-    }
+    opaque = {"coding_compaction": CodingCompactionValue}
     for name, value_type in opaque.items():
         port_args = cast(Any, port_hints[name]).__args__
         assert value_type in cast(Any, port_args[-1]).__args__
@@ -1420,6 +1435,221 @@ def test_r3c1_owner_apis_have_no_production_caller() -> None:
         name: [expected_path] for name, expected_path in expected_definitions.items()
     }
     assert calls == []
+
+
+def test_catalog_auth_api_is_uninstalled_and_phase_b_is_comparison_only() -> None:
+    root = Path(__file__).parents[1] / "src/pipy_harness"
+    api_groups = (
+        (
+            "native/auth_store.py",
+            "capture_reload_expected prepare_reload_data_from_snapshot prepare_reload_data "
+            "validate_prepared_reload_data reload_data_matches_expected publish_reload_data",
+        ),
+        (
+            "native/models_json.py",
+            "capture_catalog_reload_expected prepare_catalog_reload_from_snapshot "
+            "prepare_catalog_reload validate_prepared_catalog_reload "
+            "catalog_reload_matches_expected publish_catalog_reload",
+        ),
+        (
+            "native/catalog_state.py",
+            "prepare_catalog_auth_refresh validate_prepared_catalog_auth_refresh "
+            "catalog_auth_refresh_matches_expected publish_catalog_auth_refresh",
+        ),
+    )
+    owner_apis = {name: path for path, names in api_groups for name in names.split()}
+    publisher_targets = {
+        "publish_reload_data": (
+            "self._data self._reload_identity prepared.data prepared.validated_data "
+            "prepared.expected_owner_token prepared.replacement_owner_token"
+        ),
+        "publish_catalog_reload": (
+            "self.rows self.error self.provider_request_configs self._config "
+            "self._reload_identity prepared.rows prepared.error "
+            "prepared.provider_request_configs prepared.config prepared.replacement_rows "
+            "prepared.replacement_provider_request_configs "
+            "prepared.replacement_config prepared.expected_owner_token "
+            "prepared.replacement_owner_token"
+        ),
+    }
+    definitions: dict[str, list[tuple[str, ast.FunctionDef]]] = {
+        name: [] for name in owner_apis
+    }
+    calls: dict[str, list[str]] = {name: [] for name in owner_apis}
+    for path in sorted(root.rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.FunctionDef) and node.name in definitions:
+                definitions[node.name].append((relative, node))
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in calls:
+                    calls[node.func.attr].append(relative)
+                assert node.func.attr not in {
+                    "_capture_reload_expected",
+                    "_prepare_reload_data",
+                    "_capture_catalog_reload_expected",
+                    "_prepare_catalog_reload",
+                }
+
+    assert {
+        name: [path for path, _ in found] for name, found in definitions.items()
+    } == {name: [path] for name, path in owner_apis.items()}
+    assert {name for name, paths in calls.items() if not paths} == set(
+        "prepare_reload_data prepare_catalog_reload prepare_catalog_auth_refresh "
+        "catalog_auth_refresh_matches_expected publish_catalog_auth_refresh".split()
+    )
+    for name, targets in publisher_targets.items():
+        publisher = definitions[name][0][1]
+        assert [
+            ast.unparse(node.targets[0])
+            for node in publisher.body
+            if isinstance(node, ast.Assign)
+        ] == targets.split()
+        assert not any(isinstance(node, ast.Call) for node in ast.walk(publisher))
+        guards = [node for node in publisher.body if isinstance(node, ast.If)]
+        assert len(guards) == 1 and len(guards[0].body) == 1
+        assert isinstance(guards[0].body[0], ast.Return)
+    aggregate_publisher = definitions["publish_catalog_auth_refresh"][0][1]
+    assert [
+        node.func.attr
+        for node in ast.walk(aggregate_publisher)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ] == ["publish_catalog_reload", "publish_reload_data"]
+    assert not any(
+        isinstance(node, (ast.Assert, ast.Raise))
+        for node in ast.walk(aggregate_publisher)
+    )
+    aggregate_guards = [
+        node for node in aggregate_publisher.body if isinstance(node, ast.If)
+    ]
+    assert len(aggregate_guards) == 1
+    assert isinstance(aggregate_guards[0].body[0], ast.Return)
+    aggregate_match = definitions["catalog_auth_refresh_matches_expected"][0][1]
+    assert [
+        node.func.attr
+        for node in ast.walk(aggregate_match)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ] == ["catalog_reload_matches_expected", "reload_data_matches_expected"]
+    allowed = {
+        "reload_data_matches_expected": {"type"},
+        "catalog_reload_matches_expected": {"type"},
+        "catalog_auth_refresh_matches_expected": {
+            "type",
+            "catalog_reload_matches_expected",
+            "reload_data_matches_expected",
+        },
+    }
+    for name in allowed:
+        method = definitions[name][0][1]
+        assert not any(
+            isinstance(
+                node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+            )
+            for node in ast.walk(method)
+        )
+        assert {
+            node.func.id if isinstance(node.func, ast.Name) else node.func.attr
+            for node in ast.walk(method)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, (ast.Name, ast.Attribute))
+        } <= allowed[name]
+
+
+def _external_owner_writes(node, path, owner, aliases, fields) -> set[str]:
+    if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+        return set()
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    writes: set[str] = set()
+    for target in targets:
+        while isinstance(target, ast.Subscript):
+            target = target.value
+        if not isinstance(target, ast.Attribute):
+            continue
+        receiver = ast.unparse(target.value)
+        target_owner = (
+            owner if receiver == "self" else aliases.get(path, {}).get(receiver, "")
+        )
+        if target.attr in fields.get(target_owner, set()) and owner != target_owner:
+            writes.add(ast.unparse(target))
+    return writes
+
+
+def test_catalog_auth_known_alias_call_and_external_write_inventory() -> None:
+    root = Path(__file__).parents[1] / "src/pipy_harness"
+    sources = [
+        (path.relative_to(root).as_posix(), ast.parse(path.read_text(encoding="utf-8")))
+        for path in sorted(root.rglob("*.py"))
+    ]
+    methods = {
+        node.name: {
+            item.name for item in node.body if isinstance(item, ast.FunctionDef)
+        }
+        for _, tree in sources
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name in {"AuthStore", "ModelCatalog"}
+    }
+    owned_fields = {
+        "AuthStore": set("path _data _reload_identity".split()),
+        "ModelCatalog": set(
+            "builtin models_json_path extra_providers rows error provider_request_configs "
+            "_config _registered _oauth_modifiers _reload_identity".split()
+        ),
+    }
+    calls: set[tuple[str, str, str]] = set()
+    writes: set[tuple[str, str, str]] = set()
+    aliases = {
+        "native/auth_store.py": {"store": "AuthStore"},
+        "native/catalog_state.py": {
+            "self.auth_store": "AuthStore",
+            "auth_owner": "AuthStore",
+            "prepared.expected_auth_owner": "AuthStore",
+            "self.catalog": "ModelCatalog",
+            "catalog_owner": "ModelCatalog",
+            "prepared.expected_catalog_owner": "ModelCatalog",
+        },
+        "native/repl_state.py": {"store": "AuthStore"},
+    }
+    for path, tree in sources:
+        classes = {
+            child: owner.name
+            for owner in ast.walk(tree)
+            if isinstance(owner, ast.ClassDef)
+            for child in ast.walk(owner)
+        }
+        functions = {
+            child: function
+            for function in ast.walk(tree)
+            if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
+            for child in ast.walk(function)
+        }
+        for node in ast.walk(tree):
+            function = functions.get(node)
+            owner = classes.get(node, "")
+            scope = function.name if function else "<module>"
+            writes.update(
+                (path, scope, target)
+                for target in _external_owner_writes(
+                    node, path, owner, aliases, owned_fields
+                )
+            )
+            if not isinstance(node, ast.Call):
+                continue
+            name = (
+                node.func.attr
+                if isinstance(node.func, ast.Attribute)
+                else (node.func.id if isinstance(node.func, ast.Name) else "")
+            )
+            if isinstance(node.func, ast.Attribute) and function is not None:
+                receiver = ast.unparse(node.func.value)
+                target_owner = (
+                    owner
+                    if receiver == "self"
+                    else aliases.get(path, {}).get(receiver, "")
+                )
+                if name in methods.get(target_owner, set()):
+                    calls.add((path, function.name, f"{target_owner}.{name}"))
+    assert {path for path, _, _ in calls} == set(aliases) | {"native/models_json.py"}
+    assert writes == set()
 
 
 def test_usage_accumulator_reload_api_callers_are_exactly_coding_owner_adapters() -> (
@@ -1787,7 +2017,6 @@ def test_r3b_call_inventory_is_complete_and_uninstalled_across_package() -> None
         "ExtensionChromePreparePort",
         "ActivationInputsValue",
         "ProviderFactoryValue",
-        "ProviderRefreshValue",
         "CodingCompactionValue",
         "TemporaryLegacyValue",
         "PresentationPersistenceValue",

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from pipy_harness.native.auth_store import (
     AuthStatus,
     AuthStore,
+    AuthStoreReloadValue,
     ProviderAuthRequestConfig,
     provider_available as _auth_provider_available,
     provider_auth_status,
@@ -29,6 +30,7 @@ from pipy_harness.native.catalog import NativeModelSpec
 from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.models_json import (
     ModelCatalog,
+    ModelCatalogRefreshValue,
     ProviderConfig,
     _ModelRowsModifier,
     default_models_json_path,
@@ -124,6 +126,26 @@ class ProviderCatalogReloadState:
         )
 
 
+@dataclass(slots=True)
+class ProviderCatalogRefreshValue:
+    """Detached owner-checked full catalog/auth refresh, consumed on publish."""
+
+    expected_catalog_owner: ModelCatalog | None = field(repr=False)
+    expected_auth_owner: AuthStore | None = field(repr=False)
+    catalog: ModelCatalogRefreshValue = field(repr=False)
+    auth: AuthStoreReloadValue = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if type(self.expected_catalog_owner) is not ModelCatalog:
+            raise TypeError("expected_catalog_owner must be an exact ModelCatalog")
+        if type(self.expected_auth_owner) is not AuthStore:
+            raise TypeError("expected_auth_owner must be an exact AuthStore")
+        if type(self.catalog) is not ModelCatalogRefreshValue:
+            raise TypeError("catalog must be an exact ModelCatalogRefreshValue")
+        if type(self.auth) is not AuthStoreReloadValue:
+            raise TypeError("auth must be an exact AuthStoreReloadValue")
+
+
 @dataclass
 class ProviderCatalogState:
     """Merged catalog + auth availability gate."""
@@ -163,17 +185,18 @@ class ProviderCatalogState:
         stored OAuth credentials exist (model-registry.ts).
         """
 
-        if self.auth_store is None:
-            return
         from pipy_harness.native.oauth_providers import (
             _OAuthModelModifierProvider,
             get_oauth_provider,
             get_oauth_provider_ids,
         )
 
+        auth_store = self.auth_store
+        if auth_store is None:
+            return
         modifiers: list[_ModelRowsModifier] = []
         for provider_id in get_oauth_provider_ids():
-            cred = self.auth_store.get(provider_id)
+            cred = auth_store.get(provider_id)
             if not cred or cred.get("type") != "oauth":
                 continue
             provider = get_oauth_provider(provider_id)
@@ -217,10 +240,62 @@ class ProviderCatalogState:
         return [row for row in self.get_all() if row.provider_name.lower() == lowered]
 
     def refresh(self) -> None:
+        assert self.auth_store is not None, "auth_store is unavailable"
         self.catalog.refresh()
-        if self.auth_store is not None:
-            self.auth_store.reload()
+        self.auth_store.reload()
         self._rebuild_extension_provider_overlay_maps()
+
+    def prepare_catalog_auth_refresh(self) -> ProviderCatalogRefreshValue:
+        catalog_owner = self.catalog
+        auth_owner = self.auth_store
+        assert auth_owner is not None, "auth_store is unavailable"
+        auth_expected = auth_owner.capture_reload_expected()
+        catalog_expected = catalog_owner.capture_catalog_reload_expected()
+        catalog = catalog_owner.prepare_catalog_reload_from_snapshot(catalog_expected)
+        auth = auth_owner.prepare_reload_data_from_snapshot(auth_expected)
+        prepared = ProviderCatalogRefreshValue(catalog_owner, auth_owner, catalog, auth)
+        if not self.validate_prepared_catalog_auth_refresh(prepared):
+            raise ValueError("invalid prepared catalog/auth replacement")
+        return prepared
+
+    def validate_prepared_catalog_auth_refresh(self, prepared: object) -> bool:
+        return (
+            type(prepared) is ProviderCatalogRefreshValue
+            and type(prepared.expected_catalog_owner) is ModelCatalog
+            and type(prepared.expected_auth_owner) is AuthStore
+            and prepared.expected_catalog_owner.validate_prepared_catalog_reload(
+                prepared.catalog
+            )
+            and prepared.expected_auth_owner.validate_prepared_reload_data(
+                prepared.auth
+            )
+        )
+
+    def catalog_auth_refresh_matches_expected(self, prepared: object) -> bool:
+        return (
+            type(prepared) is ProviderCatalogRefreshValue
+            and type(prepared.expected_catalog_owner) is ModelCatalog
+            and type(prepared.expected_auth_owner) is AuthStore
+            and self.catalog is prepared.expected_catalog_owner
+            and self.auth_store is prepared.expected_auth_owner
+            and prepared.expected_catalog_owner.catalog_reload_matches_expected(
+                prepared.catalog
+            )
+            and prepared.expected_auth_owner.reload_data_matches_expected(prepared.auth)
+        )
+
+    def publish_catalog_auth_refresh(
+        self, prepared: ProviderCatalogRefreshValue
+    ) -> None:
+        if (
+            prepared.expected_catalog_owner is None
+            or prepared.expected_auth_owner is None
+        ):
+            return
+        prepared.expected_catalog_owner.publish_catalog_reload(prepared.catalog)
+        prepared.expected_auth_owner.publish_reload_data(prepared.auth)
+        prepared.expected_catalog_owner = None
+        prepared.expected_auth_owner = None
 
     def prepare_extension_provider_contributions(
         self,
@@ -339,25 +414,25 @@ class ProviderCatalogState:
         )
 
     def provider_available(self, provider: str) -> bool:
+        auth_store = self.auth_store
+        if auth_store is None:
+            return False
         extension_provider = self.extension_provider_for(provider)
         if extension_provider is not None:
             if extension_provider.provider.oauth is None:
                 return True
-            if self.auth_store is None:
-                return False
-            cred = self.auth_store.get(extension_provider.provider.name)
+            cred = auth_store.get(extension_provider.provider.name)
             return bool(cred and cred.get("type") == "oauth")
         if provider == "fake":
             return True
         if provider == "openai-codex":
             if self._openai_codex_logged_in():
                 return True
-        assert self.auth_store is not None
         if self.runtime_api_key:
             return True
         return _auth_provider_available(
             provider,
-            store=self.auth_store,
+            store=auth_store,
             env=self._env(),
             models_json_config=self._models_json_auth(provider),
         )
@@ -373,10 +448,11 @@ class ProviderCatalogState:
         return "auth-missing"
 
     def auth_status(self, provider: str) -> AuthStatus:
-        assert self.auth_store is not None
+        auth_store = self.auth_store
+        assert auth_store is not None, "auth_store is unavailable"
         return provider_auth_status(
             provider,
-            store=self.auth_store,
+            store=auth_store,
             env=self._env(),
             models_json_config=self._models_json_auth(provider),
             runtime_api_key=self.runtime_api_key,
@@ -399,6 +475,7 @@ def _bind_oauth_modifier(
     provider: "_OAuthModelModifierProvider",
     credentials: Mapping[str, object],
 ) -> _ModelRowsModifier:
+    # The bound callback captures credential data, never the AuthStore capability.
     def apply(rows: list[NativeModelSpec]) -> list[NativeModelSpec]:
         return provider.modify_models(rows, credentials)
 

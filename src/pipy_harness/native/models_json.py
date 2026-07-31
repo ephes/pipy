@@ -18,8 +18,17 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, replace
+from copy import deepcopy
+from dataclasses import (
+    dataclass,
+    field,
+    fields as dataclass_fields,
+    is_dataclass,
+    replace,
+)
 from pathlib import Path
+from types import MappingProxyType
+from typing import TypeVar, TypedDict, cast
 
 from pipy_harness.native._resource_files import resolve_global_resource_root
 from pipy_harness.native.catalog import (
@@ -714,13 +723,182 @@ def _replace_or_append_model(
 _ModelRowsModifier = Callable[[list[NativeModelSpec]], list[NativeModelSpec]]
 
 
+def _freeze_object(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {str(key): _freeze_object(item) for key, item in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_object(item) for item in value)
+    return value
+
+
+_DetachedValue = TypeVar("_DetachedValue")
+
+
+def _detach_object(value: _DetachedValue) -> _DetachedValue:
+    """Copy catalog values without relying on mapping-proxy pickling."""
+    if isinstance(value, Mapping):
+        detached_mapping = {key: _detach_object(item) for key, item in value.items()}
+        return cast(_DetachedValue, detached_mapping)
+    if isinstance(value, (list, tuple)):
+        items = (_detach_object(item) for item in value)
+        detached_sequence = list(items) if isinstance(value, list) else tuple(items)
+        return cast(_DetachedValue, detached_sequence)
+    if is_dataclass(value) and not isinstance(value, type):
+        changes = {
+            item.name: _detach_object(getattr(value, item.name))
+            for item in dataclass_fields(value)
+        }
+        return cast(_DetachedValue, replace(value, **changes))
+    return deepcopy(value)
+
+
+def _freeze_compat(
+    value: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    if value is None:
+        return None
+    frozen = _freeze_object(value)
+    if not isinstance(frozen, Mapping):
+        raise TypeError("compat must be a mapping")
+    return frozen
+
+
+_MappingValue = TypeVar("_MappingValue")
+
+
+def _freeze_mapping(
+    value: Mapping[str, _MappingValue] | None,
+) -> Mapping[str, _MappingValue] | None:
+    return MappingProxyType(dict(value)) if value is not None else None
+
+
+def _freeze_model_row(row: NativeModelSpec) -> NativeModelSpec:
+    return replace(
+        row,
+        thinking_level_map=MappingProxyType(dict(row.thinking_level_map)),
+        headers=_freeze_mapping(row.headers),
+        compat=_freeze_compat(row.compat),
+    )
+
+
+def _freeze_provider_config(config: ProviderConfig) -> ProviderConfig:
+    models = tuple(
+        replace(
+            model,
+            thinking_level_map=_freeze_mapping(model.thinking_level_map),
+            headers=_freeze_mapping(model.headers),
+            compat=_freeze_compat(model.compat),
+        )
+        for model in config.models
+    )
+    overrides = MappingProxyType(
+        {
+            model_id: replace(
+                override,
+                thinking_level_map=_freeze_mapping(override.thinking_level_map),
+                cost=_freeze_mapping(override.cost),
+                headers=_freeze_mapping(override.headers),
+                compat=_freeze_compat(override.compat),
+            )
+            for model_id, override in config.model_overrides.items()
+        }
+    )
+    return replace(
+        config,
+        headers=_freeze_mapping(config.headers),
+        compat=_freeze_compat(config.compat),
+        models=models,
+        model_overrides=overrides,
+    )
+
+
+def _freeze_models_config(config: ModelsConfig | None) -> ModelsConfig | None:
+    if config is None:
+        return None
+    return ModelsConfig(
+        providers=MappingProxyType(
+            {
+                name: _freeze_provider_config(provider)
+                for name, provider in config.providers.items()
+            }
+        )
+    )
+
+
+def _freeze_request_configs(
+    configs: Mapping[str, ProviderRequestConfig],
+) -> Mapping[str, ProviderRequestConfig]:
+    return MappingProxyType(
+        {
+            name: replace(
+                request,
+                headers=(
+                    MappingProxyType(dict(request.headers))
+                    if request.headers is not None
+                    else None
+                ),
+            )
+            for name, request in configs.items()
+        }
+    )
+
+
+_EMPTY_CATALOG_ROWS: tuple[NativeModelSpec, ...] = ()
+_EMPTY_CATALOG_REQUEST_CONFIGS: Mapping[str, ProviderRequestConfig] = MappingProxyType(
+    {}
+)
+_EMPTY_CATALOG_CONFIG: ModelsConfig | None = None
+
+
+class _CatalogReloadCapture(TypedDict):
+    owner_token: object
+    extra_providers: Mapping[str, ProviderConfig] | None
+    registered_providers: Mapping[str, ProviderConfig]
+    oauth_modifiers: tuple[_ModelRowsModifier, ...]
+
+
+@dataclass(slots=True, repr=False)
+class ModelCatalogRefreshValue:
+    expected_owner_token: object | None
+    replacement_owner_token: object | None
+    rows: tuple[NativeModelSpec, ...]
+    error: str | None
+    provider_request_configs: Mapping[str, ProviderRequestConfig]
+    config: ModelsConfig | None
+    replacement_rows: tuple[NativeModelSpec, ...] = field(repr=False)
+    replacement_provider_request_configs: Mapping[str, ProviderRequestConfig] = field(
+        repr=False
+    )
+    replacement_config: ModelsConfig | None = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if type(self.expected_owner_token) is not object:
+            raise TypeError("expected_owner_token must be an exact object")
+        if type(self.replacement_owner_token) is not object:
+            raise TypeError("replacement_owner_token must be an exact object")
+        self.rows = tuple(_freeze_model_row(row) for row in self.rows)
+        self.provider_request_configs = _freeze_request_configs(
+            self.provider_request_configs
+        )
+        self.config = _freeze_models_config(self.config)
+        self.replacement_rows = _detach_object(self.replacement_rows)
+        self.replacement_provider_request_configs = _detach_object(
+            self.replacement_provider_request_configs
+        )
+        self.replacement_config = _detach_object(self.replacement_config)
+
+
 @dataclass
 class ModelCatalog:
     """Built-in catalog deep-merged with ``models.json`` custom/override layer.
 
     The pipy analogue of Pi's ``ModelRegistry`` for the catalog/merge concern.
     Auth resolution (M6), OAuth ``modify_models`` (M7), and dynamic provider
-    registration (M12) compose with this structure.
+    registration (M12) compose here. This synchronous owner is confined to the
+    single session thread and is not thread-safe. Inputs/results are immutable
+    by contract; only owner refresh/registration/OAuth APIs replace state.
     """
 
     builtin: NativeCatalog = field(default_factory=build_builtin_catalog)
@@ -732,16 +910,19 @@ class ModelCatalog:
 
     rows: tuple[NativeModelSpec, ...] = field(init=False, default=())
     error: str | None = field(init=False, default=None)
-    provider_request_configs: dict[str, ProviderRequestConfig] = field(
+    provider_request_configs: Mapping[str, ProviderRequestConfig] = field(
         init=False, default_factory=dict
     )
     _config: ModelsConfig | None = field(init=False, default=None)
     # Dynamically registered providers (Pi's registerProvider): applied after
     # the file + extra providers, so a dynamic registration overrides both.
-    _registered: dict[str, "ProviderConfig"] = field(init=False, default_factory=dict)
+    _registered: Mapping[str, "ProviderConfig"] = field(
+        init=False, default_factory=dict
+    )
     # OAuth modify-models hooks applied to the merged rows (Pi's modifyModels,
     # e.g. Copilot rewriting baseUrl from the token's proxy-ep claim).
-    _oauth_modifiers: list[_ModelRowsModifier] = field(init=False, default_factory=list)
+    _oauth_modifiers: tuple[_ModelRowsModifier, ...] = field(init=False, default=())
+    _reload_identity: object = field(init=False, default_factory=object)
 
     def __post_init__(self) -> None:
         self.refresh()
@@ -755,17 +936,22 @@ class ModelCatalog:
         the same way a ``models.json`` provider entry does.
         """
 
-        self._registered[name] = config
+        self._registered = {**self._registered, name: config}
         self.refresh()
 
     def unregister_provider(self, name: str) -> None:
-        self._registered.pop(name, None)
+        self._registered = {
+            registered_name: config
+            for registered_name, config in self._registered.items()
+            if registered_name != name
+        }
         self.refresh()
 
     def set_oauth_modifiers(self, modifiers: list[_ModelRowsModifier]) -> None:
         """Set the OAuth modify-models hooks applied after each merge."""
 
-        self._oauth_modifiers = list(modifiers)
+        self._oauth_modifiers = tuple(modifiers)
+        self._reload_identity = object()
 
     # -- load / merge --------------------------------------------------------
 
@@ -773,6 +959,7 @@ class ModelCatalog:
         self.provider_request_configs = {}
         self.error = None
         self._config = None
+        self._reload_identity = object()
 
         file_config = self._load_models_json()
         combined = self._combine(file_config)
@@ -780,43 +967,135 @@ class ModelCatalog:
         for modifier in self._oauth_modifiers:
             merged = list(modifier(merged))
         self.rows = tuple(merged)
+        self._reload_identity = object()
+
+    def capture_catalog_reload_expected(self) -> _CatalogReloadCapture:
+        return {
+            "owner_token": self._reload_identity,
+            "extra_providers": (
+                _detach_object(self.extra_providers)
+                if self.extra_providers is not None
+                else None
+            ),
+            "registered_providers": _detach_object(self._registered),
+            "oauth_modifiers": tuple(self._oauth_modifiers),
+        }
+
+    def prepare_catalog_reload_from_snapshot(
+        self, captured: _CatalogReloadCapture
+    ) -> ModelCatalogRefreshValue:
+        file_config, error = self._read_models_json()
+        combined = self._combine_inputs(
+            file_config,
+            captured["extra_providers"],
+            captured["registered_providers"],
+        )
+        merged, request_configs = self._merge_detached(combined)
+        modifiers = captured["oauth_modifiers"]
+        for modifier in modifiers:
+            merged = list(modifier(merged))
+        replacement_rows = tuple(merged)
+        prepared = ModelCatalogRefreshValue(
+            expected_owner_token=captured["owner_token"],
+            replacement_owner_token=object(),
+            rows=replacement_rows,
+            error=error,
+            provider_request_configs=request_configs,
+            config=file_config,
+            replacement_rows=replacement_rows,
+            replacement_provider_request_configs=request_configs,
+            replacement_config=file_config,
+        )
+        if not self.validate_prepared_catalog_reload(prepared):
+            raise ValueError("invalid prepared catalog replacement")
+        return prepared
+
+    def prepare_catalog_reload(self) -> ModelCatalogRefreshValue:
+        return self.prepare_catalog_reload_from_snapshot(
+            self.capture_catalog_reload_expected()
+        )
+
+    def validate_prepared_catalog_reload(self, prepared: object) -> bool:
+        return (
+            type(prepared) is ModelCatalogRefreshValue
+            and tuple(_freeze_model_row(row) for row in prepared.replacement_rows)
+            == prepared.rows
+            and _freeze_request_configs(prepared.replacement_provider_request_configs)
+            == prepared.provider_request_configs
+            and _freeze_models_config(prepared.replacement_config) == prepared.config
+        )
+
+    def catalog_reload_matches_expected(self, prepared: object) -> bool:
+        return (
+            type(prepared) is ModelCatalogRefreshValue
+            and prepared.expected_owner_token is self._reload_identity
+        )
+
+    def publish_catalog_reload(self, prepared: ModelCatalogRefreshValue) -> None:
+        if prepared.expected_owner_token is None:
+            return
+        self.rows = prepared.replacement_rows
+        self.error = prepared.error
+        self.provider_request_configs = prepared.replacement_provider_request_configs
+        self._config = prepared.replacement_config
+        self._reload_identity = prepared.replacement_owner_token
+        prepared.rows = _EMPTY_CATALOG_ROWS
+        prepared.error = None
+        prepared.provider_request_configs = _EMPTY_CATALOG_REQUEST_CONFIGS
+        prepared.config = _EMPTY_CATALOG_CONFIG
+        prepared.replacement_rows = _EMPTY_CATALOG_ROWS
+        prepared.replacement_provider_request_configs = _EMPTY_CATALOG_REQUEST_CONFIGS
+        prepared.replacement_config = _EMPTY_CATALOG_CONFIG
+        prepared.expected_owner_token = None
+        prepared.replacement_owner_token = None
 
     def _combine(self, file_config: ModelsConfig | None) -> ModelsConfig | None:
-        if not self.extra_providers and not self._registered:
+        return self._combine_inputs(file_config, self.extra_providers, self._registered)
+
+    def _combine_inputs(
+        self,
+        file_config: ModelsConfig | None,
+        extra_providers: Mapping[str, ProviderConfig] | None,
+        registered: Mapping[str, ProviderConfig],
+    ) -> ModelsConfig | None:
+        if not extra_providers and not registered:
             return file_config
         # Precedence (low -> high): extra providers (e.g. ds4 env shim), then a
         # real file entry, then a dynamically registered provider.
-        providers: dict[str, ProviderConfig] = dict(self.extra_providers or {})
+        providers: dict[str, ProviderConfig] = dict(extra_providers or {})
         if file_config is not None:
             providers.update(file_config.providers)
-        providers.update(self._registered)
+        providers.update(registered)
         return ModelsConfig(providers=providers)
 
-    def _load_models_json(self) -> ModelsConfig | None:
+    def _read_models_json(self) -> tuple[ModelsConfig | None, str | None]:
         path = self.models_json_path
         if path is None or not path.exists():
-            return None
+            return None, None
         try:
             content = path.read_text(encoding="utf-8")
         except OSError as exc:
-            self.error = f"Failed to load models.json: {exc}\n\nFile: {path}"
-            return None
+            return None, f"Failed to load models.json: {exc}\n\nFile: {path}"
         try:
             parsed = json.loads(strip_json_comments(content))
         except json.JSONDecodeError as exc:
-            self.error = f"Failed to parse models.json: {exc}\n\nFile: {path}"
-            return None
+            return None, f"Failed to parse models.json: {exc}\n\nFile: {path}"
 
         config, schema_error = _validate_schema(parsed, path)
         if schema_error is not None:
-            self.error = schema_error
-            return None
+            return None, schema_error
         assert config is not None
         semantic_error = _validate_semantics(
             config, set(self.builtin.providers()), path
         )
         if semantic_error is not None:
-            self.error = semantic_error
+            return None, semantic_error
+        return config, None
+
+    def _load_models_json(self) -> ModelsConfig | None:
+        config, error = self._read_models_json()
+        if error is not None:
+            self.error = error
             return None
         self._config = config
         return config
@@ -827,6 +1106,15 @@ class ModelCatalog:
         self._store_provider_request_configs(config)
         self._merge_custom_model_rows(merged, config)
         return merged
+
+    def _merge_detached(
+        self, config: ModelsConfig | None
+    ) -> tuple[list[NativeModelSpec], dict[str, ProviderRequestConfig]]:
+        overrides = dict(config.providers) if config else {}
+        merged = self._merge_builtin_rows(overrides)
+        request_configs = self._provider_request_configs(config)
+        self._merge_custom_model_rows(merged, config)
+        return merged, request_configs
 
     def _merge_builtin_rows(
         self, overrides: Mapping[str, ProviderConfig]
@@ -840,20 +1128,30 @@ class ModelCatalog:
             merged.append(new_row)
         return merged
 
-    def _store_provider_request_configs(self, config: ModelsConfig | None) -> None:
+    def _provider_request_configs(
+        self, config: ModelsConfig | None
+    ) -> dict[str, ProviderRequestConfig]:
+        request_configs: dict[str, ProviderRequestConfig] = {}
         if config is None:
-            return
+            return request_configs
         for provider_name, provider_config in config.providers.items():
             if (
                 provider_config.api_key
                 or provider_config.headers
                 or provider_config.auth_header
             ):
-                self.provider_request_configs[provider_name] = ProviderRequestConfig(
+                request_configs[provider_name] = ProviderRequestConfig(
                     api_key=provider_config.api_key,
                     headers=provider_config.headers,
                     auth_header=provider_config.auth_header,
                 )
+        return request_configs
+
+    def _store_provider_request_configs(self, config: ModelsConfig | None) -> None:
+        self.provider_request_configs = {
+            **self.provider_request_configs,
+            **self._provider_request_configs(config),
+        }
 
     def _merge_custom_model_rows(
         self, merged: list[NativeModelSpec], config: ModelsConfig | None

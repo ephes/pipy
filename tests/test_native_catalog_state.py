@@ -6,9 +6,11 @@ import ast
 import json
 from pathlib import Path
 from types import MappingProxyType
+from typing import cast
 
 import pytest
 
+from pipy_harness.native import catalog_state
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import (
     ProviderCatalogReloadState,
@@ -118,6 +120,12 @@ def test_stored_copilot_oauth_rewrites_base_url_via_modify_models(tmp_path):
     )
     row = state.find("github-copilot", "gpt-5.4")
     assert row is not None and row.base_url == "https://api.example.com"
+    modifier = state.catalog._oauth_modifiers[0]
+    captured = tuple(cell.cell_contents for cell in modifier.__closure__ or ())
+    assert store not in captured
+    assert any(
+        isinstance(value, dict) and value.get("refresh") == "r" for value in captured
+    )
 
 
 def test_detached_provider_overlay_has_no_container_alias_and_publishes_only_assignments(
@@ -134,9 +142,9 @@ def test_detached_provider_overlay_has_no_container_alias_and_publishes_only_ass
     providers = [registered]
     unregistered = ["hidden"]
 
-    prepared = state.prepare_extension_provider_contributions(  # type: ignore[arg-type]
-        providers,
-        unregistered,  # exercise defensive copies from mutable callers
+    prepared = state.prepare_extension_provider_contributions(
+        cast(tuple[RegisteredProvider, ...], providers),
+        cast(tuple[str, ...], unregistered),  # exercise defensive copies
     )
     providers.clear()
     unregistered.append("detached")
@@ -145,7 +153,7 @@ def test_detached_provider_overlay_has_no_container_alias_and_publishes_only_ass
     assert prepared.providers == (registered,)
     assert prepared.unregistered == ("hidden",)
     with pytest.raises(TypeError):
-        prepared.provider_map["other"] = registered  # type: ignore[index]
+        cast(dict[str, RegisteredProvider], prepared.provider_map)["other"] = registered
     prior = state.extension_providers
     state.publish_extension_provider_contributions(prepared)
     assert prior == ()
@@ -216,6 +224,100 @@ def test_detached_publish_matches_live_extension_provider_overlay_rebuild(
     assert live.extension_oauth_provider_for("OAUTH") is oauth
     assert live.extension_oauth_provider_for("plain") is None
     assert calls == []
+
+
+def test_full_prepared_refresh_matches_live_catalog_auth_reload(tmp_path) -> None:
+    (tmp_path / "live").mkdir()
+    (tmp_path / "detached").mkdir()
+    models = {
+        "providers": {
+            "anthropic": {
+                "headers": {"x-source": "prepared"},
+                "models": [{"id": "prepared-model"}],
+            }
+        }
+    }
+    live = _state(tmp_path / "live", models_json=models)
+    detached = _state(tmp_path / "detached", models_json=models)
+    for state in (live, detached):
+        state.auth_store.path.write_text(
+            json.dumps({"anthropic": {"type": "api_key", "key": "prepared-key"}}),
+            encoding="utf-8",
+        )
+
+    live.refresh()
+    prepared = detached.prepare_catalog_auth_refresh()
+    assert detached.catalog_auth_refresh_matches_expected(prepared)
+    detached.publish_catalog_auth_refresh(prepared)
+
+    assert detached.catalog.rows == live.catalog.rows
+    assert detached.catalog._config == live.catalog._config
+    assert detached.auth_store.get("anthropic") == live.auth_store.get("anthropic")
+    assert prepared.expected_catalog_owner is prepared.expected_auth_owner is None
+    assert prepared.auth.data == prepared.auth.validated_data == {}
+
+    detached.auth_store.set("later", {"type": "api_key", "key": "later-key"})
+    live_after = (detached.catalog.rows, detached.auth_store.get("later"))
+    detached.publish_catalog_auth_refresh(prepared)
+    assert (detached.catalog.rows, detached.auth_store.get("later")) == live_after
+
+
+def test_auth_store_none_normalizes_once_then_reassignment_none_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setenv("PIPY_AUTH_DIR", str(tmp_path / "isolated-auth"))
+    state = ProviderCatalogState(tmp_path / "absent.json", auth_store=None, env={})
+    assert type(state.auth_store) is AuthStore
+    replacement = AuthStore(path=tmp_path / "replacement-auth.json")
+    state.auth_store = replacement
+    assert state.prepare_catalog_auth_refresh().expected_auth_owner is replacement
+
+    state.auth_store = None
+    rows_before = state.catalog.rows
+
+    def fail(*args, **kwargs):
+        raise AssertionError("ambient/default auth access")
+
+    monkeypatch.setattr(catalog_state, "AuthStore", fail)
+    monkeypatch.setattr(catalog_state, "_auth_provider_available", fail)
+    state._apply_oauth_modifiers()
+    assert not state.provider_available("google-vertex")
+    with pytest.raises(AssertionError, match="auth_store is unavailable"):
+        state.prepare_catalog_auth_refresh()
+    assert state.auth_store is None and state.catalog.rows is rows_before
+
+
+def test_adversarial_oauth_callback_token_rotation_refuses_prepared_refresh(tmp_path):
+    state = _state(tmp_path)
+    state.auth_store.set("anthropic", {"type": "api_key", "key": "private-before"})
+
+    def reentrant(rows):
+        state.auth_store.set(
+            "anthropic", {"type": "api_key", "key": "private-callback"}
+        )
+        return rows
+
+    state.catalog.set_oauth_modifiers([reentrant])
+    prepared = state.prepare_catalog_auth_refresh()
+    assert prepared.auth.data["anthropic"]["key"] == "private-callback"
+    assert prepared.auth.expected_owner_token is not state.auth_store._reload_identity
+    assert not state.catalog_auth_refresh_matches_expected(prepared)
+    assert "private" not in repr(prepared)
+
+
+def test_full_refresh_preparation_failure_isolated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    state = _state(tmp_path)
+    before = state.catalog.rows, state.catalog.provider_request_configs
+    monkeypatch.setattr(
+        state.auth_store,
+        "prepare_reload_data_from_snapshot",
+        lambda _: (_ for _ in ()).throw(RuntimeError("injected auth reload")),
+    )
+    with pytest.raises(RuntimeError, match="injected auth reload"):
+        state.prepare_catalog_auth_refresh()
+    assert (state.catalog.rows, state.catalog.provider_request_configs) == before
 
 
 def test_overlay_publisher_has_exact_assignments_and_no_calls() -> None:

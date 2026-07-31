@@ -27,6 +27,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 
 
 CommandRunner = Callable[[str], str | None]
@@ -180,36 +181,172 @@ def default_auth_store_path() -> Path:
     return base / "auth.json"
 
 
+class _FrozenAuthList(tuple[object, ...]):
+    def __eq__(self, other: object) -> bool:
+        return type(other) is _FrozenAuthList and tuple.__eq__(self, other)
+
+    __ne__ = object.__ne__
+    __hash__ = tuple.__hash__
+
+
+def _freeze_auth_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {str(key): _freeze_auth_value(item) for key, item in value.items()}
+        )
+    if isinstance(value, _FrozenAuthList):
+        return value
+    if isinstance(value, list):
+        return _FrozenAuthList(_freeze_auth_value(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze_auth_value(item) for item in value)
+    return value
+
+
+def _detach_auth_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {str(key): _detach_auth_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_detach_auth_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_detach_auth_value(item) for item in value)
+    return value
+
+
+def _thaw_auth_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_auth_value(item) for key, item in value.items()}
+    if isinstance(value, _FrozenAuthList):
+        return [_thaw_auth_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_thaw_auth_value(item) for item in value)
+    if isinstance(value, list):
+        return [_thaw_auth_value(item) for item in value]
+    return value
+
+
+def _detach_auth_data(value: Mapping[str, object]) -> dict[str, object]:
+    return {
+        str(provider): _detach_auth_value(entry) for provider, entry in value.items()
+    }
+
+
+def _freeze_auth_data(value: Mapping[str, object]) -> Mapping[str, object]:
+    return MappingProxyType(
+        {provider: _freeze_auth_value(entry) for provider, entry in value.items()}
+    )
+
+
+_EMPTY_AUTH_RELOAD_DATA: Mapping[str, object] = MappingProxyType({})
+
+
+@dataclass(slots=True)
+class AuthStoreReloadValue:
+    """Redacted owner token and detached live-shape replacement."""
+
+    expected_owner_token: object | None = field(repr=False)
+    replacement_owner_token: object | None = field(repr=False)
+    data: Mapping[str, object] = field(repr=False)
+    validated_data: Mapping[str, object] = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if type(self.expected_owner_token) is not object:
+            raise TypeError("expected_owner_token must be an exact object")
+        if type(self.replacement_owner_token) is not object:
+            raise TypeError("replacement_owner_token must be an exact object")
+        self.data = _detach_auth_data(self.data)
+        self.validated_data = _freeze_auth_data(self.validated_data)
+
+
 class AuthStore:
-    """Owner-only JSON credential store keyed by provider name."""
+    """Owner-only JSON credential store keyed by provider name.
+
+    This synchronous owner is confined to the single session thread and is not
+    thread-safe. ``path`` is immutable by contract after construction; callers
+    mutate credentials only through ``set()``, ``remove()``, and ``reload()``.
+    """
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or default_auth_store_path()
-        self._data: dict[str, dict[str, object]] = {}
+        self._data: Mapping[str, object] = {}
+        self._reload_identity = object()
         self._load()
 
-    def _load(self) -> None:
+    def _read_data(self) -> dict[str, object]:
         try:
             body = json.loads(self.path.read_text(encoding="utf-8"))
         except (FileNotFoundError, OSError, json.JSONDecodeError):
-            self._data = {}
-            return
-        self._data = body if isinstance(body, dict) else {}
+            return {}
+        return _detach_auth_data(body) if isinstance(body, dict) else {}
+
+    def _load(self) -> None:
+        self._data = self._read_data()
+        self._reload_identity = object()
 
     def reload(self) -> None:
         self._load()
 
+    def capture_reload_expected(self) -> object:
+        return self._reload_identity
+
+    def prepare_reload_data_from_snapshot(
+        self, expected_owner_token: object
+    ) -> AuthStoreReloadValue:
+        replacement = self._read_data()
+        prepared = AuthStoreReloadValue(
+            expected_owner_token=expected_owner_token,
+            replacement_owner_token=object(),
+            data=replacement,
+            validated_data=replacement,
+        )
+        if not self.validate_prepared_reload_data(prepared):
+            raise ValueError("invalid prepared auth replacement")
+        return prepared
+
+    def prepare_reload_data(self) -> AuthStoreReloadValue:
+        return self.prepare_reload_data_from_snapshot(self.capture_reload_expected())
+
+    def validate_prepared_reload_data(self, prepared: object) -> bool:
+        return (
+            type(prepared) is AuthStoreReloadValue
+            and _freeze_auth_data(prepared.data) == prepared.validated_data
+        )
+
+    def reload_data_matches_expected(self, prepared: object) -> bool:
+        return (
+            type(prepared) is AuthStoreReloadValue
+            and prepared.expected_owner_token is self._reload_identity
+        )
+
+    def publish_reload_data(self, prepared: AuthStoreReloadValue) -> None:
+        if prepared.expected_owner_token is None:
+            return
+        self._data = prepared.data
+        self._reload_identity = prepared.replacement_owner_token
+        prepared.data = _EMPTY_AUTH_RELOAD_DATA
+        prepared.validated_data = _EMPTY_AUTH_RELOAD_DATA
+        prepared.expected_owner_token = None
+        prepared.replacement_owner_token = None
+
     def get(self, provider: str) -> dict[str, object] | None:
         entry = self._data.get(provider)
-        return dict(entry) if isinstance(entry, dict) else None
+        if not isinstance(entry, Mapping):
+            return None
+        return {str(name): _thaw_auth_value(value) for name, value in entry.items()}
 
     def set(self, provider: str, entry: Mapping[str, object]) -> None:
-        self._data[provider] = dict(entry)
+        replacement = dict(self._data)
+        replacement[provider] = _detach_auth_value(entry)
+        self._data = replacement
+        self._reload_identity = object()
         self._persist()
 
     def remove(self, provider: str) -> bool:
         if provider in self._data:
-            del self._data[provider]
+            replacement = dict(self._data)
+            del replacement[provider]
+            self._data = replacement
+            self._reload_identity = object()
             self._persist()
             return True
         return False
@@ -222,7 +359,7 @@ class AuthStore:
             pass
         temporary = self.path.with_name(f"{self.path.name}.partial")
         with temporary.open("w", encoding="utf-8") as handle:
-            json.dump(self._data, handle, indent=2, sort_keys=True)
+            json.dump(_thaw_auth_value(self._data), handle, indent=2, sort_keys=True)
             handle.write("\n")
         temporary.chmod(stat.S_IRUSR | stat.S_IWUSR)
         temporary.replace(self.path)

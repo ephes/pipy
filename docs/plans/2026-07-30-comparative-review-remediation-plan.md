@@ -157,8 +157,9 @@ one uninterrupted mutex section. `snapshot_reload_state()` is absent and never
 existed in the committed baseline, so no REPL refresh snapshot/publish path
 exists for retained selection/default. At R3c1a shipment,
 `CodingCompactionValue`, `CodingUsageValue`, and `ProviderRefreshValue` were
-opaque and uninstalled. R3c1b has since made only usage concrete; compaction and
-provider refresh remain opaque and uninstalled. The concrete owner imports in
+opaque and uninstalled. R3c1b made usage concrete, and R3c1c has now made
+provider refresh concrete; only compaction remains opaque and uninstalled. The
+concrete owner imports in
 `session_generation.py` are type-checking only. The executable synthetic-parent
 test proves only that `session_generation.py`'s own runtime dependency closure
 does not import the catalog/auth/coding/REPL owner stacks; it does not exercise
@@ -177,33 +178,45 @@ one fresh owner-built fallback accumulator. Refresh publication is an explicit
 no-op that retains whatever usage is then live. Fallback ignores counter changes
 but carries an immutable expected-owner identity token, so an intervening
 accumulator swap refuses before publication without retaining the old
-accumulator. The same total check revalidates that the reachable prepared
-replacement is still cleared. A successful publication swaps in the detached
-cleared accumulator, preserves its pricing, and leaves the old accumulator and
-provider failure untouched. Shared-mutex coding adapters never reach
+accumulator. The detached replacement's complete cleared-state integrity is validated
+before the mutex section. It is not revalidated there because the prepared
+value remains exclusively owned until publication. A successful publication
+swaps in the detached cleared accumulator, preserves its pricing, and leaves the
+old accumulator and provider failure untouched. Shared-mutex coding adapters never reach
 accumulator-private fields. Their type annotations use the existing allowlisted
 usage-module dependency because the exact R3c1b manifest excludes an
-architecture allowlist change. **R3c1c** is active/next and adds the full
-catalog/auth refresh owner contracts. **R3c2** retains the behavior-neutral
+architecture allowlist change. **R3c1c** now ships the revised full catalog/auth
+refresh owner contract below without a production caller. **R3c2** is
+active/next and retains the behavior-neutral
 generation-message routing seam at the actual send and drain owners, with its
 default path exactly as shipped. **R3c3** remains the first user-visible effect
 boundary and composes the shipped R3a/R3b values through all four foundations.
-R3 remains incomplete; R3a, R3b, R3c1a, and R3c1b are shipped facts. Neither
-owner foundation has a production caller. This implementation changes no
+R3 remains incomplete; R3a, R3b, and R3c1a–R3c1c are shipped facts. R3c2 is
+active/next. None of these owner foundations has a production caller. This
+implementation changes no
 user-visible behavior and has no changelog entry.
 
-The accepted composition order remains: activation; the R3a builder;
-replacement `session_start` once against detached sinks; provider catalog,
-factory, refresh, and fallback preparation; coding history, usage, and
-compaction preparation; unavailable/default and capability preparation; one
-`PreparedReloadEffects` freeze; exact chrome prepare as the final fallible
-preparation; then take the session mutex, reserve the gate, and call the coding
-and REPL owner current-state checks immediately before irrevocable acceptance/
-publication. A mismatch refuses the prepared candidate without invoking a
-publisher and releases the mutex before cleanup, disposal, or diagnostics. A
-match proceeds directly to installation and calls only the explicitly vetted
-non-fallible owner publishers without unlocking, so no owner mutation can land
-between check and publication. This owner-state freshness is not the later
+The accepted composition order has three explicit phases. **A, before the
+session mutex:** complete every fallible I/O operation, callback, construction,
+immutable detachment, and deep replacement/shadow self-consistency validation. Before
+any callback, capture both exact owner tokens plus only the detached catalog
+preparation inputs: OAuth modifiers and detached extra/registered providers;
+auth capture returns only its owner token. **B, immediately before
+acceptance while
+holding the mutex:** reserve the gate and perform only constant-time,
+allocation-free owner identity/token comparisons. Every supported
+`ModelCatalog` and `AuthStore` owner mutation must rotate or replace its token.
+An inverse AST inventory checks writes through known/current typed or aliased
+production owner references and forbids writes to owned fields outside the
+declaring owner classes. Prepared-
+replacement drift validation is not repeated in this section because each
+detached value is exclusively owned between phase-A validation and publication.
+A mismatch refuses without invoking a publisher and unlocks before cleanup,
+disposal, or diagnostics. **C, after acceptance while the mutex remains held:**
+publication is assignment-only or calls only explicitly vetted non-fallible
+owner publishers. A match proceeds without unlocking, so no owner mutation can
+land between the token checks and publication. This owner-state freshness is
+not the later
 R5b/R6 generation-bound class-A API conversion; those scopes remain unchanged.
 Existing executable evidence
 `tests/test_native_coding_state.py::test_coding_state_shares_the_session_mutex_when_bound`
@@ -707,8 +720,8 @@ record no production caller and no changelog entry. Commit:
 ### R3c1a — local reload owner values
 
 **Status:** shipped in the intended same commit as its code. No production
-caller was installed and no changelog applies. R3c1b is shipped and R3c1c is
-active/next.
+caller was installed and no changelog applies. R3c1b and R3c1c are shipped;
+R3c2 is active/next.
 
 **Kind:** observable-behavior-neutral local owner-state foundation with an
 internal history representation/performance tradeoff.
@@ -742,10 +755,11 @@ publication. Observable message order/content remain unchanged, so no changelog
 applies; the representation and performance change is not otherwise described
 as behavior-neutral.
 
-Align `PreparedReloadEffects` with concrete values for only those families and
-the existing `ToolCapabilityState`; `CodingCompactionValue`, `CodingUsageValue`,
-and `ProviderRefreshValue` remain opaque, and package-wide inventory must prove
-all three uninstalled. Keep the concrete catalog/coding/REPL imports in
+At R3c1a shipment, align `PreparedReloadEffects` with concrete values for only
+those families and the existing `ToolCapabilityState`;
+`CodingCompactionValue`, `CodingUsageValue`, and `ProviderRefreshValue` remained
+opaque, and package-wide inventory had to prove all three uninstalled. Keep the
+concrete catalog/coding/REPL imports in
 `session_generation.py` under `TYPE_CHECKING` only. The executable test proves
 only that `session_generation.py`'s own runtime dependency closure omits the
 catalog/auth/coding/REPL owner stacks; it does not exercise or prove bypass of
@@ -760,9 +774,10 @@ failure; fallback publishes binding plus immutable empty replacement history and
 preserves later compaction/provider failure; REPL publication assigns only
 replacement selection/pending-default and preserves a later thinking change;
 prepared values are immutable/no-alias; publication is prevalidated assignment
-only; disposal remains complete; concrete family alignment leaves
+only; disposal remains complete; the R3c1a concrete family alignment left
 `CodingCompactionValue`, `CodingUsageValue`, and `ProviderRefreshValue` opaque
-and package-wide inventory proves them uninstalled. Tests also prove no
+and package-wide inventory proved them uninstalled. R3c1b later made usage
+concrete; R3c1c has since made provider refresh concrete. Tests also prove no
 production callers and, using synthetic parents, that `session_generation.py`'s
 own runtime dependency closure does not import the concrete catalog/auth/coding/
 REPL owner stacks. They do not exercise or prove bypass of real parent package
@@ -806,8 +821,8 @@ revision.
 ### R3c1b — usage accumulator reload owner
 
 **Status:** shipped in the intended same change as its code. No production caller
-was installed, no user-visible behavior changed, and no changelog applies. R3c1c
-is active/next.
+was installed, no user-visible behavior changed, and no changelog applies.
+R3c1c is shipped; R3c2 is active/next.
 
 **Kind:** behavior-neutral usage owner-state foundation.
 
@@ -821,23 +836,27 @@ live accumulator or caller-supplied prototype cannot change that replacement.
 Neither path compares counters. Fallback also carries an immutable identity
 token from the accumulator current at preparation, so an intervening pointer
 swap is refused even if the binding compares equal. The token does not retain
-the old accumulator. That total check also revalidates the prepared
-replacement's cleared invariant immediately before publication.
+the old accumulator. Preparation validates the replacement's complete cleared
+invariant before the
+mutex section. That deep validation is not repeated immediately before
+publication because the detached value is exclusively owned until assignment.
 `CodingSessionState` re-enters the shared session `RLock` and publishes fallback
 by one pointer assignment, preserving both the old accumulator and provider
 failure. Coding never reads or writes accumulator-private fields. Its annotations
 use the existing allowlisted usage-module dependency because the exact manifest
 does not permit changing the architecture import allowlist.
 `PreparedReloadEffects.coding_usage` uses concrete
-`AgentUsageReloadValue`; `CodingCompactionValue` and `ProviderRefreshValue`
-remain opaque. No production caller, preparation-time live mutation, gate
-routing, or consumer move was added.
+`AgentUsageReloadValue`; at R3c1b shipment `CodingCompactionValue` and
+`ProviderRefreshValue` remained opaque. R3c1c has now replaced it with concrete
+`ProviderCatalogRefreshValue`. No production caller,
+preparation-time live mutation, gate routing, or consumer move was added.
 
 **Acceptance:** focused characterization proves exact refresh retention,
 fallback pointer-replacement semantics, counter-change tolerance, equal-binding
-owner-swap refusal, prepared-replacement drift refusal, defensive detachment
-from later caller mutation, preserved replacement pricing, total rejection of
-unknown or corrupted prepared-family members, complete slot/value coverage, no
+owner-swap refusal by constant-time identity token, phase-A prepared-
+replacement integrity validation, defensive detachment from later caller
+mutation, preserved replacement pricing, total rejection of unknown or
+corrupted prepared-family members, complete slot/value coverage, no
 coding access to usage-owner private fields, same-mutex adapters, the exact
 no-op refresh publisher, and the fallback publisher's exact non-fallible
 assignment-only body. Recursive source/AST inventory proves the owner methods
@@ -864,24 +883,121 @@ editable path or limit breach requires plan revision.
 
 ### R3c1c — catalog/auth refresh reload owners
 
-**Status:** active/next after shipped R3c1b.
+**Status:** shipped in the intended same change as its code. No production
+caller was installed, no user-visible behavior changed, and no changelog
+applies. R3c2 is active/next.
 
-**Kind:** behavior-neutral catalog/auth owner-state foundation.
+**Kind:** shipped behavior-neutral catalog/auth owner-state foundation.
 
 **Scope:** Add owner-local detached preparation for the full `ModelCatalog`
 refresh and `AuthStore` reload performed by `ProviderCatalogState.refresh()`.
-All I/O and fallible construction finish before acceptance, and only a vetted
-non-fallible owner publication remains afterward. Preserve the R3c1a extension-
-provider overlay primitive unchanged. Prepared holders must not alias later live
-mutation. Align `provider_refresh` with the concrete owner value. No production
-caller, pre-acceptance live mutation, gate routing, or consumer move is
-permitted.
+`AuthStore` and `ModelCatalog` are synchronous, single-session-thread-confined
+owners, not thread-safe shared objects. All current production reads and writes,
+OAuth flows, provider registration, refresh, and future R3c3 checks and
+publication execute on that one session thread. No background thread, executor,
+`to_thread`, callback on another thread, or parallel writer may call either
+owner. Copy-on-write owner updates therefore have no concurrent lost-update
+window. If a future production path crosses threads, a named guard acquired by
+every reader and writer must land first in its own reviewed slice.
 
-**Acceptance:** focused characterization proves full refresh/reload equivalence,
-detachment from later live mutation, failure isolation, and assignment-only
-non-fallible owner publication after every fallible operation. Recursive source/
-AST inventory proves no startup/reload caller uses the API and publication
-performs no factory, callback, I/O, construction, diagnostic, or persistence.
+The contract has three phases. **A, before taking the session mutex:**
+`ModelCatalogRefreshValue`, `AuthStoreReloadValue`, and aggregate
+`ProviderCatalogRefreshValue` complete every file read, parse, validation,
+merge, OAuth modifier callback, credential load, construction, immutable
+detachment, and deep replacement/shadow self-consistency check. Before any callback,
+phase A captures both exact owner tokens plus only the detached catalog
+preparation inputs used to build the replacement: OAuth modifiers and detached
+extra/registered providers. Auth capture returns only its owner token. Recursive
+detachment accepts immutable mapping proxies and rebuilds them as detached
+ordinary containers before existing preparation and validation. Catalog/auth leaf prepared values retain only the expected-owner
+token and validation/replacement state until consumed. `ModelCatalogRefreshValue`
+has a wholly opaque repr; auth and aggregate refresh values remain redacted.
+Public leaf capture and prepare-from-snapshot operations are owner APIs. OAuth
+model-modifier callbacks are pure catalog-row transforms and must not mutate
+`AuthStore` or any other owner. The built-in bound modifier captures credential
+data but no `AuthStore` capability. The adversarial callback characterization
+is token-rotation refusal, not auth snapshotting: a reentrant callback mutation
+rotates the affected token, and phase B refuses the candidate. R3c3/operator
+retry is meaningful only after the violating mutation source stops.
+
+**B, immediately before acceptance under the session mutex:** perform only
+constant-time, allocation-free identity/token comparisons by delegating to the
+catalog/auth leaf match APIs. Every supported mutation API on `ModelCatalog` and
+`AuthStore`, including refresh, registration, auth write, and auth reload paths,
+rotates or replaces the relevant token. Direct mutation of nested owner state
+outside those APIs is forbidden. Deep replacement-drift validation is not
+repeated because the detached prepared value is exclusively owned between
+phase-A validation and publication. The R3c3 session mutex serializes reload
+with every other session-owned mutation.
+
+**C, after acceptance while still holding the mutex:** publish through
+assignments only or calls to the two explicitly vetted non-fallible leaf owner
+publishers. Phase B and phase C run as one section without yielding or unlocking.
+Leaf publishers transfer the already-built mutable live-shape replacements and
+then assignment-neutralize the consumed secret, validation, and replacement-data
+fields with prebuilt empty values; aggregate publication clears retained owner
+references and both leaf tokens. Consumed values fail phase B; duplicate leaf or
+aggregate publication takes only a cheap, nonfallible, allocation-free return and
+leaves live state unchanged. R3c3 owns the one successful match and aggregate
+publish. No consumed prepared
+value keeps a credential, private header, catalog row/config secret, or mutable
+live publication handle.
+
+Ordinary live `ModelCatalog.refresh()` and `AuthStore.reload()` retain their
+existing behavior, live representations, and reset/failure semantics.
+`ProviderCatalogState.auth_store` is an optional construction surface and the
+single authoritative normalized store; public reassignment is used by every
+live/prepared refresh. Successful catalog refresh rotates identity after final rows assignment as
+well as early enough to invalidate failure. Owner-lifetime paths/config inputs
+and direct public result containers are immutable by contract after
+construction/publication; only
+supported owner APIs may replace them. The inventory covers known/current typed
+or aliased production owner references; tests may deliberately violate ownership
+only to exercise failure preparation. Auth
+set/get deep-detaches nested values to prevent live caller aliases.
+List-versus-tuple representation tagging is auth-specific; catalog compat/config
+list/tuple handling is validation canonicalization. Prepared frozen validation
+values remain separate from detached replacements published in ordinary live
+shapes until both are cleared after successful publication. The
+separate R3c1a extension-provider overlay publication is not part of this full
+catalog/auth refresh. R3c3 must invoke it explicitly, and its equivalence
+characterization must include a non-empty overlay.
+
+`ModelDefinition.cost` and `NativeModelSpec.cost` are immutable
+`NativeModelCost` values. Partial override cost mappings remain mappings and
+must be copied and frozen during preparation. Characterization must be field-
+complete for every captured owner token/detached preparation input, prepared
+value, replacement, token, catalog row, provider config, auth value, and
+aggregate field, so adding a field cannot
+silently escape detachment, validation, token rotation, redaction, or
+publication. `PreparedReloadEffects.provider_refresh` becomes concrete only
+when this contract lands. No production caller, pre-acceptance live mutation,
+gate routing, or consumer move is permitted.
+
+**Acceptance:** focused characterization proves full refresh/reload equivalence
+for file, extra, registered-provider, and OAuth-modifier inputs while preserving
+ordinary live refresh behavior and representation. A separate non-empty R3c1a
+overlay arm proves overlay publication equivalence. Tests prove redacted repr
+for every secret-bearing auth prepared value; immutable `NativeModelCost` on
+`ModelDefinition` and `NativeModelSpec`; frozen partial override cost mappings;
+and field-complete coverage. Mutation inventory proves every supported `ModelCatalog`/`AuthStore` owner
+mutation rotates or replaces its token. Its inverse AST pass inspects
+`Assign`/`AnnAssign`/`AugAssign` and subscript stores through known/current typed
+or aliased production owner references, failing on writes to owned fields outside
+the declaring owner classes. Lock instrumentation proves phase B uses only constant-time,
+allocation-free vetted leaf identity/token comparisons, does not repeat the
+deep replacement/shadow check, and phase C uses assignments or vetted
+non-fallible publishers only. The source/AST inventory covers statically
+recognizable calls/writes through enumerated aliases. It is bounded regression
+evidence for confinement, not
+exhaustive proof of dynamic aliases, reflection, indirect callbacks, or runtime
+thread reachability. R3c1c's
+no-production-caller inventory includes the aggregate
+`prepare_catalog_auth_refresh()`, `validate_prepared_catalog_auth_refresh()`,
+`catalog_auth_refresh_matches_expected()`, and `publish_catalog_auth_refresh()`
+entry points as well as the leaf APIs.
+Publication performs no factory, callback, I/O, construction, validation,
+diagnostic, persistence, or allocation.
 
 **Exact landing manifest/checks:** source edits are exactly
 `src/pipy_harness/native/auth_store.py`,
@@ -903,7 +1019,7 @@ path or limit breach requires plan revision.
 
 ### R3c2 — installable generation message routing seam
 
-**Status:** follows R3c1c.
+**Status:** active/next after shipped R3c1c.
 
 **Kind:** behavior-neutral default-path realignment.
 
@@ -954,26 +1070,33 @@ breach requires plan revision.
 **Kind:** user-visible transactional reload ordering and correctness.
 
 **Scope:** Install the shared R3a construction adapters in startup/reload and
-consume R3c1a–R3c1c owner APIs plus the R3c2 routing seam. The exact ordered failure/
+consume R3c1a–R3c1c owner APIs plus the R3c2 routing seam. R3c3 preserves the
+same three-phase boundary established by R3c1c. The exact ordered failure/
 acceptance sequence is: activation → R3a builder → install the candidate route
 and invoke replacement `session_start` exactly once → provider catalog/factory/
 refresh/fallback preparation → coding/history/usage/compaction preparation →
-unavailable/default/capability preparation → one prepared freeze → chrome
-prepare as the final fallible preparation → take the session mutex and reserve
-the gate → call the coding and REPL owner current-state checks immediately before
-irrevocable acceptance/publication → on a match, install plus generation/chrome-
-token/temporary-legacy assignments and calls to only explicitly vetted
-non-fallible owner publishers without unlocking → unlock → frozen staged
+unavailable/default/capability preparation → exact owner-token and detached
+preparation-input capture plus deep replacement/shadow validation → one prepared
+freeze → chrome prepare as the
+final fallible preparation → take the session mutex and reserve the gate → make
+only constant-time, allocation-free owner identity/token comparisons
+immediately before irrevocable acceptance → on a match, install plus generation/chrome-
+token/temporary-legacy assignments and call only explicitly vetted non-fallible
+owner publishers without unlocking → unlock → frozen staged
 delivery → gate release/drain → presentation/persistence. No other R4 consumer
 moves.
 
-Any expected binding, selection, or pending-default mismatch refuses the
-prepared candidate without invoking a publisher. The mismatch path records the
-refusal under the mutex but releases it before cleanup, disposal, or diagnostics;
-all old live identities remain unchanged. The successful checks and publication
-share one uninterrupted mutex section, so no owner mutation can land between
-them. `_ProviderMutationEffects` may orchestrate only the detached owner
-preparations; it may not mutate live state and then repair or roll it back.
+Any expected binding, selection, pending-default, catalog, or auth mismatch
+refuses the prepared candidate without invoking a publisher. The mismatch path
+records the refusal under the mutex but releases it before cleanup, disposal, or
+diagnostics; all old live identities remain unchanged. `AuthStore` and
+`ModelCatalog` remain confined to the session thread, and the session mutex
+serializes reload with every other session-owned mutation. Phase B and phase C
+run without yielding or unlocking. Consumed values fail phase B; duplicate
+publication is a non-destructive consumed-state no-op. R3c3 owns the one
+successful match and aggregate-publish call. `_ProviderMutationEffects` may orchestrate only the
+detached owner preparations; it may not mutate live state and then repair or
+roll it back.
 R3c3's explicitly installed candidate route queues replacement-`session_start`
 post-freeze sends; by contrast, an ordinary R1 sealed-pending host with no route
 silently does nothing. These checks provide owner-state freshness only; they are
@@ -1002,12 +1125,18 @@ required; all other startup/reload events stay pinned.
 injection, projection-identity, gate barrier, direct custom-sink, startup/reload
 equivalence, provider/fallback/history/usage/compaction, malformed-flag, chrome,
 and interrupt/fail-soft checks. Static lock instrumentation allows only gate
-reserve/install, bounded expected-state comparisons/refusal, retired-value
-pinning, direct prevalidated assignments, and calls to the explicitly vetted
+reserve/install, bounded constant-time, allocation-free identity/token
+comparisons and refusal, retired-value pinning, direct prevalidated assignments,
+and calls to the explicitly vetted
 non-fallible owner publishers under the session mutex. It proves every mismatch
 refuses without a publisher and unlocks before cleanup/disposal/diagnostics, and
-that a successful check and publication have no mutex release or mutation window
-between them. Static tests pin the coding publisher's same-shared-RLock re-entry
+that a successful check and publication have no mutex release, yield, or
+mutation window between them. Executable production-call reachability and
+bounded inventory supplies regression evidence for catalog/auth owner confinement
+and common thread, executor, and `to_thread` escapes. Call-count tests enforce
+R3c3's one successful match and aggregate-publish call; consumed values fail
+phase B and duplicate publication is a non-destructive no-op. Static tests
+pin the coding publisher's same-shared-RLock re-entry
 and exact binding-only/binding-plus-history replacement assignments, the
 provider-catalog overlay publisher's exact assignments, and the
 `NativeReplProviderState` publisher's replacement-selection/pending-default-only

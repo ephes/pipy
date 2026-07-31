@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from typing import cast
+
 from pipy_harness.native.auth_store import (
     AuthStore,
     ProviderAuthRequestConfig,
@@ -115,13 +118,58 @@ def _store(tmp_path) -> AuthStore:
 
 def test_auth_store_set_get_remove(tmp_path):
     store = _store(tmp_path)
-    store.set("openai", {"type": "api_key", "key": "sk-stored"})
-    assert store.get("openai") == {"type": "api_key", "key": "sk-stored"}
-    # reload from disk
+    nested = {"items": [{"value": "original"}], "tuple": ({"n": 1},)}
+    store.set("openai", {"type": "api_key", "key": "sk-stored", **nested})
+    nested["items"][0]["value"] = "aliased"
+    nested["tuple"][0]["n"] = 2
+    stored = store.get("openai")
+    assert stored == {
+        "type": "api_key",
+        "key": "sk-stored",
+        "items": [{"value": "original"}],
+        "tuple": ({"n": 1},),
+    }
+    assert isinstance(stored["items"], list)
+    assert isinstance(stored["tuple"], tuple)
     store2 = _store(tmp_path)
-    assert store2.get("openai") == {"type": "api_key", "key": "sk-stored"}
+    persisted = store2.get("openai")
+    assert persisted == {**stored, "tuple": [{"n": 1}]}
+    assert isinstance(persisted["tuple"], list)
     store2.remove("openai")
     assert _store(tmp_path).get("openai") is None
+
+
+def test_prepared_auth_reload_is_redacted_detached_validated_and_live_shaped(
+    tmp_path,
+):
+    path = tmp_path / "auth.json"
+    path.write_text(
+        json.dumps({"openai": {"type": "api_key", "key": "private", "meta": [1]}}),
+        encoding="utf-8",
+    )
+    store = AuthStore(path=path)
+    expected = store.capture_reload_expected()
+    prepared = store.prepare_reload_data_from_snapshot(expected)
+    assert "private" not in repr(prepared)
+    assert isinstance(prepared.validated_data["openai"]["meta"], tuple)
+    assert store.validate_prepared_reload_data(prepared)
+    assert not store.reload_data_matches_expected(object())
+    meta = cast(list[object], cast(dict[str, object], prepared.data["openai"])["meta"])
+    meta.append(2)
+    assert not store.validate_prepared_reload_data(prepared)
+    meta.pop()
+    replacement_owner_token = prepared.replacement_owner_token
+    store.publish_reload_data(prepared)
+    live = store.get("openai")
+    assert live == {"type": "api_key", "key": "private", "meta": [1]}
+    assert prepared.data == prepared.validated_data == {}
+    assert prepared.expected_owner_token is prepared.replacement_owner_token is None
+    assert store._reload_identity is replacement_owner_token
+    live_identity = store._reload_identity
+    store.publish_reload_data(prepared)
+    assert store.get("openai") == live and store._reload_identity is live_identity
+    assert not store.reload_data_matches_expected(prepared)
+    assert "private" not in repr(prepared)
 
 
 def test_provider_available_reflects_store_env_and_models_json(tmp_path):

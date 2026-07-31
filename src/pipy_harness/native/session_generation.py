@@ -21,7 +21,10 @@ from typing import TYPE_CHECKING, Any, Generic, NewType, TypeVar
 
 if TYPE_CHECKING:
     from pipy_harness.native.agent.usage import AgentUsageReloadValue
-    from pipy_harness.native.catalog_state import ProviderCatalogReloadState
+    from pipy_harness.native.catalog_state import (
+        ProviderCatalogRefreshValue,
+        ProviderCatalogReloadState,
+    )
     from pipy_harness.native.coding.state import (
         CodingReloadBindingValue,
         CodingReloadHistoryValue,
@@ -389,7 +392,6 @@ def build_extension_projection(
 ReloadFamilyPayload = tuple[object, ...]
 ActivationInputsValue = NewType("ActivationInputsValue", ReloadFamilyPayload)
 ProviderFactoryValue = NewType("ProviderFactoryValue", ReloadFamilyPayload)
-ProviderRefreshValue = NewType("ProviderRefreshValue", ReloadFamilyPayload)
 CodingCompactionValue = NewType("CodingCompactionValue", ReloadFamilyPayload)
 TemporaryLegacyValue = NewType("TemporaryLegacyValue", ReloadFamilyPayload)
 PresentationPersistenceValue = NewType(
@@ -420,7 +422,7 @@ class ReloadEffectPreparationPorts:
     projection: ReloadEffectBuilder[ExtensionProjection]
     provider_catalog: ReloadEffectBuilder[ProviderCatalogReloadState]
     provider_factory: ReloadEffectBuilder[ProviderFactoryValue]
-    provider_refresh: ReloadEffectBuilder[ProviderRefreshValue]
+    provider_refresh: ReloadEffectBuilder[ProviderCatalogRefreshValue]
     provider_fallback: ReloadEffectBuilder[ReplSelectionReloadValue]
     coding_binding: ReloadEffectBuilder[CodingReloadBindingValue]
     coding_history: ReloadEffectBuilder[CodingReloadHistoryValue]
@@ -446,7 +448,7 @@ class PreparedReloadEffects:
     projection: DetachedReloadEffect[ExtensionProjection]
     provider_catalog: DetachedReloadEffect[ProviderCatalogReloadState]
     provider_factory: DetachedReloadEffect[ProviderFactoryValue]
-    provider_refresh: DetachedReloadEffect[ProviderRefreshValue]
+    provider_refresh: DetachedReloadEffect[ProviderCatalogRefreshValue]
     provider_fallback: DetachedReloadEffect[ReplSelectionReloadValue]
     coding_binding: DetachedReloadEffect[CodingReloadBindingValue]
     coding_history: DetachedReloadEffect[CodingReloadHistoryValue]
