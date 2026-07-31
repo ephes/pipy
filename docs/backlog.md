@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R3c — accept and publish one prepared reload**
+**Active/next slice:** **R3c1 — detached reload owner state**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -96,135 +96,106 @@ retained `session_start`; accepted replacements fire once after activation-host
 commit, and delivery, paint, callbacks, disposal, and session-mutex acquisition
 remain outside its guards.
 
-R3 is **not complete**. The oversized attempt based on `606a860` proved a
-cycle: accepted-only activation-staged messages precede replacement
-`session_start` in the base observable order; that callback populates the exact
-candidate chrome sidecar; detached provider/catalog/fallback, coding, and
-capability work must all finish next; chrome prepare must be the final fallible
-step and irrevocable acceptance point; only then may the immutable generation
-publish. The attempted pre-acceptance provider refresh/fallback instead mutated
-live state without narrow undo. That attempt has been reduced to the first of
-three reviewable slices; R3b/R3c retain all preparation and orchestration work.
+R3 is **not complete**. R3a and R3b remain shipped, behavior-neutral facts:
+R3a builds detached immutable projections, and R3b defines frozen prepared-effect
+families plus the uninstalled ordered-delivery gate and sequencer. Production
+startup/reload still neither calls, installs, publishes, snapshots, nor consumes
+either foundation.
 
-R3a is complete and construction-only. It adds standalone immutable projection
-values/builder, construction-time validation, and projected/legacy tool-port and
-candidate-composition adapters. Separate runtime/flag, command/menu/shortcut,
-hook, tool/capability, renderer, provider, queue-handle, and exact-chrome
-equivalence/no-alias arms remain. R1's mutable `activation_hosts` ownership state
-is explicitly excluded and exact runtime-field inventory prevents an undisposed
-future contribution field. Custom messages copy/freeze only the top-level
-`options` mapping; opaque nested option values and `details` are not recursively
-transformed. The two existing live startup/reload tool-port sites call the
-legacy helper with their prior arguments, making it the real comparison source;
-recursive AST inventory pins those exact callers and proves the candidate
-builder has none. Production startup/reload does not call, install, publish,
-snapshot, or consume the projection; the live `SessionExtensionGeneration`
-shape/reference, legacy behavior, and `606a860` observable ordering remain
-unchanged. Builder-step and mutex/result validation failures return no candidate
-and cannot change a live reference, generation id, legacy adapter identity, or
-copied live container contents. Settings, keybindings, resources, and a settings
-adapter are absent. Every arm remains until the appropriate R4 consumer moves
-and deletes its legacy source. R3a changes no product behavior and requires no
-changelog entry.
+The former one-shot R3c contract is non-executable and is replaced by exactly
+three ordered slices. Its source manifest excluded `extension_runtime.py`, the
+real `_ActivationApi` send owner, while requiring those send paths to consult
+the gate. Separately, the shipped provider catalog, coding session, and provider-
+selection/pending-default owners do not expose every detached prepare value and
+non-fallible publish port required by `PreparedReloadEffects`.
+`NativeReplProviderState` owns selection and pending-default state in
+`repl_state.py`; `_ProviderMutationEffects` currently orchestrates reload
+selection, fallback, and defaults. `NativeToolCapabilities` already ships the
+required `ToolCapabilityState` prepare/publish APIs. This docs-only correction
+changes no code behavior and has no changelog entry; private-field substitution,
+guard nesting, and list-subclass interception remain forbidden.
 
-R3b is complete as a second behavior-neutral preparation slice. Its immutable
-`PreparedReloadEffects` value assembles/freezes once from 15 distinct static
-family types after the exact detached builders finish. Complete disposal runs in
-reverse and groups errors; build-failure rollback is best effort while preserving
-the primary error. Its uninstalled ordered-delivery reservation context makes
-`submit()` linearizable against reserve: already-admitted delivery finishes
-unlocked, later submits queue, and abandonment aborts/reset queued work. The
-sequencer sends every staged user in order before every staged custom in order,
-then drains FIFO unlocked. It groups ordinary callback failures; interrupts stop,
-reset, and propagate. Accepted staged customs bypass `custom_outbox` through
-direct durable-tree, render/diagnostic, and input-queue ports, using the same
-legacy routing helper as live delivery with all established aliases/precedence.
-Chrome prepare is never called and returns refusal or an inert typed token, not a
-callback. Failure, freeze, disposal, exception, deterministic barrier, direct-
-sink, and package-recursive AST inventories pin these rules. No production
-startup/reload path or live producer/drain hook calls, installs, or consults an
-R3b definition; no consumer source changes, no behavior changes, and no
-changelog entry applies.
+**R3c1 — detached reload owner state** is active/next and behavior-neutral. It
+adds typed detached prepare/non-fallible publish values and APIs at the real
+provider catalog, coding session, and `NativeReplProviderState` selection/
+pending-default owner, then aligns `PreparedReloadEffects` with those values.
+It consumes/type-aligns `NativeToolCapabilities`' existing `ToolCapabilityState`
+APIs without editing that owner. It has no startup/reload caller, live mutation,
+provider factory invocation during publication, or gate routing.
+`_ProviderMutationEffects` may orchestrate only detached preparation through
+these APIs in R3c3, never pre-acceptance live mutation or rollback. Snapshot/no-
+alias, complete failure isolation/disposal, assignment-only publication, and
+recursive no-caller inventory are mandatory. Its exact source manifest is
+`catalog_state.py`, `coding/state.py`, `repl_state.py`, and
+`session_generation.py`; its exact editable test manifest is
+`tests/test_native_catalog_state.py`, `tests/test_native_coding_state.py`,
+`tests/test_native_repl_state.py`, and
+`tests/test_native_session_extension_generation.py`. Checks also run
+`tests/test_native_tool_capabilities.py`,
+`tests/test_native_extension_providers.py`,
+`tests/test_native_provider_catalog.py`, and
+`tests/test_native_dynamic_provider_swap.py`; `just check` is the full-suite
+gate. The production+test budget is 1,200
+changed lines and 400 per source. No changelog; commit
+`refactor: prepare detached reload owner state`.
 
-R3c then makes startup and reload use the same R3a builder/adapters, with an
-equivalence test, and installs R3b's prepared effects. Reload runs replacement
-`session_start` once against detached sinks; its candidate API routes post-freeze
-sends into the detached candidate generation queue sidecar. Reload then completes
-all provider/catalog/fallback, coding, and capability preparation, freezes the
-prepared value once, and invokes chrome prepare last. Successful chrome prepare
-is irrevocable acceptance and yields a non-refusing commit token. Refusal
-disposes the candidate queue and none of those sends reaches a sink.
+**R3c2 — installable generation message routing seam** is behavior-neutral on
+the default path. The actual `_ActivationApi` owner and generation queue sidecar
+provide one installable routing port consulted before the sealed/pending branch
+by user/custom send names and alias and by `_CustomEntryRenderer` drain/delivery.
+With no route, exact R1 sealed-pending silence and current direct append/drain
+behavior remain unchanged. R3c3 alone installs the candidate-generation route
+before replacement `session_start`, making post-freeze sends queue into the
+candidate sidecar; ordinary retained pending hosts cannot use it. Exact tests
+cover uninstalled silence, installed candidate routing, post-freeze sends, guard
+handoff, and aliases. Its exact source manifest is `extension_runtime.py`,
+`session_generation.py`, `extension_hooks.py`, and `tui.py`; its exact editable
+test manifest is `tests/test_native_extension_activation_sealing.py`,
+`tests/test_native_extension_chrome_staging.py`,
+`tests/test_native_extension_custom_ui.py`,
+`tests/test_native_session_extension_generation.py`, and
+`tests/test_native_tool_loop_session.py`. PTY modules are checks, not editable
+manifest paths. The same 1,200/400 budgets apply. No changelog; commit
+`refactor: route extension messages through queue sidecars`.
 
-After acceptance, R3c reserves/installs R3b's gate and completes the finally-
-protected non-fallible generation/chrome/prepared-reference/temporary-legacy-
-adapter publication under the session mutex. As the sole narrow carve-out from
-R4a consumer exclusion, R3c makes the existing live `_ActivationApi` send names/
-alias and `_CustomEntryRenderer` drain/delivery hook consult that gate. After
-unlock it delivers the authoritative frozen staged batch through the newly
-published projection, then finally releases/drains the gate so preserved
-replacement-`session_start` sends and concurrent candidate/live sends follow in
-queue order through normal delivery. Fail-soft delivery cannot undo or prevent
-publication or strand the gate. It moves no other consumer source of truth;
-every R3a equivalence arm remains until its R4 consumer/source deletion.
-Compensating live provider rollback, duplicate lifecycle invocation, and mutable
-prepared holders are forbidden. Provider work, callbacks, render, sink delivery,
-chrome materialization/paint, I/O, diagnostics, persistence, and retired-value
-release remain unlocked.
+**R3c3 — accept and publish one prepared reload** retains the prior user-visible
+composition scope and consumes R3c1/R3c2. Its exact sequence is activation →
+R3a builder → install candidate routing and run replacement `session_start` once
+→ provider catalog/factory/refresh/fallback → coding/history/usage/compaction →
+unavailable/default/capability → one prepared freeze → chrome prepare as final
+acceptance → gate reserve/install plus assignment-only publication under the
+session mutex → unlock → frozen staged delivery → gate release/drain →
+presentation/persistence. Installed candidate routing queues post-freeze sends;
+an ordinary uninstalled R1 sealed-pending host remains a silent no-op.
 
-R3c documents exactly two user-visible deltas: replacement `session_start` runs
-before accepted staged custom messages become live; and a pre-acceptance
-`session_start`, provider-preparation, or chrome-preparation refusal/failure now
-suppresses staged messages that `606a860` could already expose. Preserving that
-replacement callback's post-freeze candidate-API sends across acceptance is a
-loss-prevention mechanism within the first delta, not a third delta; unlike R1's
-retained pending-activation API post-seal sends, it queues rather than silently
-doing nothing. Focused accepted/refusal/order and projection-identity tests plus
-the existing changelog `### Fixed` bullet beginning “Extension reload no longer
-clears live retained TUI chrome before activation” cover both deltas. All other
-startup/reload ordering stays pinned. R4a begins only after R3c publishes the
-prepared value and releases the initial gate.
+Static lock instrumentation allows only gate state, prevalidated assignments,
+and retired-value pinning under the session mutex; candidate/chrome/paint guards
+and all callbacks, provider work, delivery, cleanup, I/O, and persistence remain
+outside. Candidate↔session, session→chrome, session→`mutation_io_lock`, and
+chrome→paint nesting are forbidden. Free-form undo logs, compensating live
+provider rollback, duplicate `session_start`, mutable prepared holders, and
+preserved destructive reconcile/repair hunks are forbidden. R3c3 retains exactly
+two documented deltas: replacement `session_start` precedes accepted staged
+custom-message visibility, and pre-acceptance lifecycle/provider/chrome refusal
+suppresses staged messages that `606a860` could expose. Its exact manifests,
+1,200/400 limits, and commit `fix: publish accepted reload effects` remain. The
+changelog target is the existing `### Fixed` bullet beginning “Extension reload
+no longer clears live retained TUI chrome before activation”.
 
-R3b defines the authoritative ordered gate/token and frozen staged user/custom
-sequencer; R3c installs/invokes it and makes both activation send names/alias and
-the renderer drain/delivery hook consult it. R4a must neither redefine the token
-nor change/reimplement staged sequencing; it later converts only those same
-hooks' append/detach/drain synchronization. The reachable cancelled-tool-worker
-versus session-drain lost update belongs to that R4a live writer set. Coding-
-session completion/entry/name/label/custom-message callables target provider,
-durable tree, render/diagnostic, and input-
-queue sinks instead. They
-also expose a current live-run defect: a retained control can race session/RPC
-use, `NativeSessionTree` unlocks before durable append, and `CodingInputQueue` is
-unguarded. R5 is split. R5a promotes the existing per-run `mutation_io_lock`
-plus a condition into one coding-effect coordinator whose exclusive/reentrant owner
-lease serializes retained effects, plus active-tree pointer access, every mutable
-tree/input reader/writer,
-durable JSONL order, accepted-before-terminal completion, and later refusal.
-Provider/render work runs unlocked; durable tree append alone holds the lock
-across I/O. R5b owns only generation-bound `set_active_tools`/`set_thinking_level`; R6 owns
-`set_model`. The only nested lock order is `mutation_io_lock → session mutex`;
-provider, render, and paint run unlocked, reverse acquisition is forbidden, and no
-provider/filesystem I/O runs under the session mutex. R4a also proves retained
-provider-header callbacks hold no `SettingsManager`. Closed activation sends/
-chrome writes retain their prior silent shapes; retired generation outboxes were
-already excluded from live delivery. R3c's production manifest narrowly owns
-generation/queue-sidecar gate installation, candidate API routing, and gate
-consultation in the existing live send/drain hooks; all other R4 consumers stay
-excluded. R3c extends the named existing reload changelog entry with both
-intentional deltas, R4a claims only the later live append-erasure synchronization
-fix, and R5a covers concurrent/reordered and post-run coding-session effects. R0
-itself changes no product behavior. The class-A count remains three, the queue
-now contains exactly 29 slices, and the mandatory correctness
-sequence remains **R1–R7 — implement and close transactional reload**. No documentation
-cleanup, Ruff expansion, tool-parity behavior change, ordinary ownership
-refactor, provider-test consolidation, or contributor work may begin until a
-committed R7 closes or proves a formal reconciliation for every reload residual
-identified by the
-[2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md).
-Writing R0 alone does not clear that boundary.
+The mandatory order is R3c1 → R3c2 → R3c3 → R4a. R4a later converts only live
+append/detach/drain/close synchronization and must not redefine R3b's token or
+staged sequence. R5a/R5b/R6 ownership and the class-A count of three are
+unchanged. Provenance is fixed: the R5a split brought the queue to 27 slices,
+the R3a/R3b/R3c split brought it to 29, and the R3c1/R3c2/R3c3 split brings it
+to exactly 31. No ordinary cleanup, parity, lint, provider-test, or contributor
+work may start before R7 closes the transactional boundary or an independently
+reviewed formal reconciliation proves an alternative contract. The controlling
+boundary remains the
+[2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md); R0 alone
+does not clear it.
 
-The queue has exactly **29 numbered execution slices**: G0; thirteen R slices
-(R0, R1, R2, R3a, R3b, R3c, R4a, R4b, R4c, R5a, R5b, R6, R7); D1;
+The queue has exactly **31 numbered execution slices**: G0; fifteen R slices
+(R0, R1, R2, R3a, R3b, R3c1, R3c2, R3c3, R4a, R4b, R4c, R5a, R5b, R6, R7); D1;
 nine separately bounded lint/fix/enablement slices L1-L9; P1-P2; A1; T1; and C1. The plan's commit gate
 is universal rather than a final slice: every slice
 uses a fresh Pi implementer, focused and full checks, an update to the labeled
@@ -489,8 +460,8 @@ Progress:
   tool-capability publication, terminal refresh, publication-gate closure,
   post-gate lifecycle firing, and the final diagnostic order. The uncommitted
   R3 attempt sought to move replacement `session_start` before pointer
-  publication; the R3a/R3b/R3c split leaves this shipped order unchanged until
-  R3c owns the two documented candidate-effect visibility changes.
+  publication; the R3a/R3b/R3c1–R3c3 split leaves this shipped order unchanged until
+  R3c3 owns the two documented candidate-effect visibility changes.
   `_ProviderMutationEffects` remains authoritative for reload provider refresh,
   fallback, unavailable binding, usage rebinding, and default-persistence
   diagnostics.
@@ -508,7 +479,7 @@ Progress:
   collaborators, complete transfer/reload action absence from the root, four
   exact delegation paths, phased reload order, the exact publication context,
   post-gate reload lifecycle event/reason (still the committed baseline until
-  R3c), final diagnostic/footer ordering,
+  R3c3), final diagnostic/footer ordering,
   narrow root parameters, and removal of the transitional reload dependency
   bundle. The
   requested non-PTY gate passes **949 tests**; PTY smoke passes **8 tests** and

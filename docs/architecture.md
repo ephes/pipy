@@ -351,8 +351,15 @@ the live legacy helper and preserves all camel/snake aliases and precedence.
 Chrome prepare is uncalled and can return refusal or an inert token carrying the
 exact typed input, with no commit callback. Production startup/reload,
 activation sends, and the live custom-renderer drain do not call or consult any
-R3b definition; R3c must install these same R3a/R3b values. Production consumers still read
-`generation_ref.current` per access even though `snapshot()` exists. R1 now
+R3b definition. R3c1 must add detached prepare/non-fallible publish APIs at the
+real provider-catalog, coding-session, and `NativeReplProviderState` selection/
+pending-default owners; it consumes/type-aligns `NativeToolCapabilities`'
+existing `ToolCapabilityState` prepare/publish APIs without editing that owner.
+R3c2 must add the behavior-neutral routing seam at the actual activation-send
+and renderer-drain owners; R3c3 then installs these same R3a/R3b values through
+those seams.
+Production consumers still read `generation_ref.current` per access even though
+`snapshot()` exists. R1 now
 owns activation registration with one candidate-host guard over every staged
 registry/message, flag value/failure, `_activated`, and the one-way candidate
 open→sealed→committed→published/disposed transitions plus the accepted-catalog
@@ -411,9 +418,12 @@ authoritative for staged user/custom messages: sends after seal while activation
 is still pending retain their silent `None` shape but change nothing, and commit
 flushes the frozen messages exactly once. Accepted/live message routing after
 activation commit releases the candidate guard before its still-list-backed queue
-append. R3b/R3c own authoritative staged-message detach, flush, and delivery
-ordering; R4a later synchronizes live append/drain/close and must not reimplement
-that staged flush. R1 does not publish the queue sidecar early.
+append. R3b/R3c3 own authoritative staged-message detach, flush, and delivery
+ordering. R3c2 makes the existing send/drain paths consult a typed route before
+the sealed/pending branch: with no route, R1 silence remains exact; R3c3 installs
+the candidate route before replacement `session_start`, so its post-freeze sends
+queue—a delta unavailable to ordinary retained pending hosts. R4a later
+synchronizes live append/drain/close and must not reimplement that staged flush. R1 does not publish the queue sidecar early.
 Current activation still has
 no timeout—`extension_loader._drive_awaitable()` joins its private worker
 without one—and R1 added no timeout policy. R2 removed the pre-validation live
@@ -441,8 +451,9 @@ The R0 audit also found a reachable queue lost update: a cancelled
 `pipy-tool-call` worker may outlive its bounded join and use a retained activation
 API to append directly to a generation outbox while the session/RPC-session
 worker's `_CustomEntryRenderer.drain_extension_outboxes()` copies and clears the
-same list. R3 owns generation queue-sidecar values and R3b/R3c own the authoritative staged
-activation detach/flush/delivery sequence. R4a later converts accepted/live
+same list. R3 owns generation queue-sidecar values, R3c2 owns the installable
+send/drain routing seam, and R3b/R3c3 own the authoritative staged activation
+detach/flush/delivery sequence. R4a later converts accepted/live
 `_ActivationApi.send_user_message()` and `send_message()`/its alias plus the live
 drain/close paths so the session mutex serializes closed-check+append,
 detach/drain, and close; it does not repeat the staged flush. Accepted staged
@@ -487,7 +498,7 @@ firing an accepted replacement generation's `session_start` hook exactly once;
 a rejected replacement fires no retained-generation lifecycle hook. It emits the final reload
 diagnostic next, and the root footer policy runs only after that effect returns.
 The full R1–R6 sequence, including ordered R5a then R5b, remains mandatory before
-R7 can close this boundary; the remediation queue contains exactly 27 execution
+R7 can close this boundary; the remediation queue contains exactly 31 execution
 slices.
 
 ## Sessions, automation, and trust domains
@@ -809,8 +820,15 @@ C901-pinned file. The load-bearing summary is:
 R0 reconciled the bounded contract, R1 shipped candidate registration sealing,
 R2 shipped candidate retained-chrome/listener staging, R3a shipped detached
 immutable projection construction, and R3b shipped detached reload-effect and
-ordered-delivery definitions without changing a runtime caller or behavior. The
-next architecture action is **R3c — accept and publish one prepared reload**;
-ordinary product-parity selection remains blocked through R7. R3b requires no
-changelog entry.
+ordered-delivery definitions without changing a runtime caller or behavior. R3
+remains incomplete. The one-shot R3c plan was non-executable because it excluded
+the real `_ActivationApi` owner while requiring gate consultation there, and the
+provider catalog, coding session, and `NativeReplProviderState` selection/
+pending-default owner lacked the required detached prepare/non-fallible publish
+ports. Existing `NativeToolCapabilities` ports are consumed unchanged. It is
+replaced by R3c1 owner state, R3c2 behavior-neutral routing, then R3c3
+composition. The next architecture
+action is **R3c1 — detached reload owner state**; ordinary product-parity
+selection remains blocked through R7. This docs correction changes no behavior
+and requires no changelog entry.
 That is not a verdict that the broader program failed.
