@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R3b — build detached reload effects and ordered delivery**
+**Active/next slice:** **R3c — accept and publish one prepared reload**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -127,20 +127,24 @@ adapter are absent. Every arm remains until the appropriate R4 consumer moves
 and deletes its legacy source. R3a changes no product behavior and requires no
 changelog entry.
 
-R3b is a second behavior-neutral preparation slice. It owns one immutable
-`PreparedReloadEffects` value assembled/frozen once after detached mutable
-provider/catalog/fallback, coding/capability, temporary-legacy, presentation,
-and exact-chrome-input builders finish. It also defines the ordered-delivery
-gate/token and accepted frozen staged-delivery sequencer: reserve makes ordinary
-producer sends queue in the generation sidecar and blocks ordinary drain; the
-authoritative frozen staged batch delivers first; release/drain then admits
-queued candidate/live sends in order. Gate state changes use the session mutex,
-while every sink delivery remains unlocked. Accepted staged custom messages
-bypass `custom_outbox` and go directly to durable tree, render/diagnostic, and
-input-queue sinks. Unit barrier and sink-characterization tests pin these rules.
-No production startup/reload path or live producer/drain hook calls, installs,
-or consults the preparation/sequencer/gate definitions, no consumer source of
-truth changes, and no partial production orchestration lands.
+R3b is complete as a second behavior-neutral preparation slice. Its immutable
+`PreparedReloadEffects` value assembles/freezes once from 15 distinct static
+family types after the exact detached builders finish. Complete disposal runs in
+reverse and groups errors; build-failure rollback is best effort while preserving
+the primary error. Its uninstalled ordered-delivery reservation context makes
+`submit()` linearizable against reserve: already-admitted delivery finishes
+unlocked, later submits queue, and abandonment aborts/reset queued work. The
+sequencer sends every staged user in order before every staged custom in order,
+then drains FIFO unlocked. It groups ordinary callback failures; interrupts stop,
+reset, and propagate. Accepted staged customs bypass `custom_outbox` through
+direct durable-tree, render/diagnostic, and input-queue ports, using the same
+legacy routing helper as live delivery with all established aliases/precedence.
+Chrome prepare is never called and returns refusal or an inert typed token, not a
+callback. Failure, freeze, disposal, exception, deterministic barrier, direct-
+sink, and package-recursive AST inventories pin these rules. No production
+startup/reload path or live producer/drain hook calls, installs, or consults an
+R3b definition; no consumer source changes, no behavior changes, and no
+changelog entry applies.
 
 R3c then makes startup and reload use the same R3a builder/adapters, with an
 equivalence test, and installs R3b's prepared effects. Reload runs replacement

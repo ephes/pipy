@@ -33,7 +33,17 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Protocol, Self, TYPE_CHECKING, TextIO, TypedDict, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Protocol,
+    Self,
+    TextIO,
+    TypeAlias,
+    TypedDict,
+    cast,
+)
 
 from pipy_harness.native.agent import (
     AgentCancellationReason,
@@ -230,6 +240,29 @@ TURN_SETTLED = "settled"  # the provider turn finished on its own
 TURN_ABORTED = "aborted"  # Escape/Ctrl-C cancelled the turn
 TURN_STEERED = "steered"  # a steering message interrupted the turn
 TURN_LOCAL_COMMAND = "local_command"  # a /… or !… command interrupted the turn
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionChromePrepareInput:
+    """Exact detached R2 sink passed to the future chrome prepare phase."""
+
+    candidate: ExtensionChromeSink
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.candidate, ExtensionChromeSink):
+            raise TypeError("chrome prepare candidate must be an ExtensionChromeSink")
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionChromeCommitToken:
+    """Inert prepared data for R3c's non-fallible sink-pointer assignment."""
+
+    prepared: ExtensionChromePrepareInput
+
+
+ExtensionChromePreparePort: TypeAlias = Callable[
+    [ExtensionChromePrepareInput], ExtensionChromeCommitToken | None
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1307,6 +1340,63 @@ class _CustomEntryDiagnosticHost(Protocol):
     ) -> None: ...
 
 
+def _route_legacy_custom_message_input(
+    content: str,
+    options: Mapping[str, object],
+    *,
+    in_agent_turn: bool,
+    enqueue_next_turn: Callable[[ProductContent], None],
+    enqueue_steering: Callable[[ProductContent], None],
+    enqueue_follow_up: Callable[[ProductContent], None],
+    enqueue_prompt: Callable[[ProductContent], None],
+) -> None:
+    """Preserve established custom-message routing for live and accepted paths."""
+
+    routed = ProductContent(content)
+    deliver_as = options.get("deliverAs")
+    if deliver_as is None:
+        deliver_as = options.get("deliver_as")
+    if deliver_as == "nextTurn":
+        enqueue_next_turn(routed)
+    elif deliver_as == "steer":
+        enqueue_steering(routed)
+    elif deliver_as in {"followUp", "follow_up"}:
+        enqueue_follow_up(routed)
+    elif not in_agent_turn and (
+        options.get("triggerTurn") is True or options.get("trigger_turn") is True
+    ):
+        enqueue_prompt(routed)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AcceptedCustomMessageSinks:
+    """Direct accepted-message sinks; deliberately has no custom outbox."""
+
+    append_durable: Callable[[QueuedCustomMessage], object]
+    render_or_diagnose: Callable[[QueuedCustomMessage, object], None]
+    enqueue_next_turn: Callable[[ProductContent], None]
+    enqueue_steering: Callable[[ProductContent], None]
+    enqueue_follow_up: Callable[[ProductContent], None]
+    enqueue_prompt: Callable[[ProductContent], None]
+    in_agent_turn: Callable[[], bool]
+
+    def deliver(self, message: QueuedCustomMessage) -> None:
+        """Dispatch tree, optional render/diagnostic, then coding input."""
+
+        appended = self.append_durable(message)
+        if message.display:
+            self.render_or_diagnose(message, appended)
+        _route_legacy_custom_message_input(
+            message.content,
+            message.options,
+            in_agent_turn=self.in_agent_turn(),
+            enqueue_next_turn=self.enqueue_next_turn,
+            enqueue_steering=self.enqueue_steering,
+            enqueue_follow_up=self.enqueue_follow_up,
+            enqueue_prompt=self.enqueue_prompt,
+        )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _CustomEntryRenderer:
     """Render custom entries and drain extension outboxes into terminal state.
@@ -1513,19 +1603,15 @@ class _CustomEntryRenderer:
                     self.error_stream,
                     f"{custom_type}:\n{lines}" if lines else custom_type,
                 )
-        deliver_as = options.get("deliverAs")
-        if deliver_as is None:
-            deliver_as = options.get("deliver_as")
-        if deliver_as == "nextTurn":
-            self.coding_input_queue.enqueue_next_turn_context(ProductContent(content))
-        elif deliver_as == "steer":
-            self.coding_input_queue.enqueue_extension_steering(ProductContent(content))
-        elif deliver_as in {"followUp", "follow_up"}:
-            self.coding_input_queue.enqueue_extension_follow_up(ProductContent(content))
-        elif not self.ctl.extension_in_agent_turn and (
-            options.get("triggerTurn") is True or options.get("trigger_turn") is True
-        ):
-            self.coding_input_queue.enqueue_extension_prompt(ProductContent(content))
+        _route_legacy_custom_message_input(
+            content,
+            options,
+            in_agent_turn=self.ctl.extension_in_agent_turn,
+            enqueue_next_turn=self.coding_input_queue.enqueue_next_turn_context,
+            enqueue_steering=self.coding_input_queue.enqueue_extension_steering,
+            enqueue_follow_up=self.coding_input_queue.enqueue_extension_follow_up,
+            enqueue_prompt=self.coding_input_queue.enqueue_extension_prompt,
+        )
         return appended.id
 
     def drain_extension_outboxes(self) -> None:

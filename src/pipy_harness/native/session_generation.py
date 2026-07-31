@@ -12,11 +12,15 @@ concurrency contract.
 from __future__ import annotations
 
 import threading
+from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from types import MappingProxyType
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, NewType, TypeVar
+
+if TYPE_CHECKING:
+    from pipy_harness.native.tui import ExtensionChromePrepareInput
 
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_runtime import (
@@ -40,6 +44,7 @@ from pipy_harness.native.tools import ToolPort
 
 
 ProjectionStepObserver = Callable[[str], None]
+ReloadPreparationObserver = Callable[[str], None]
 ToolPortBuilder = Callable[[RegisteredTool, Mapping[str, object]], ToolPort]
 ToolCapabilityBuilder = Callable[[Mapping[str, ToolPort]], ToolCapabilityState]
 
@@ -52,6 +57,24 @@ PROJECTION_BUILD_STEPS = (
     "provider_contributions",
     "queue_handles",
     "chrome_handle",
+)
+
+PREPARED_RELOAD_BUILD_STEPS = (
+    "activation_inputs",
+    "projection",
+    "provider_catalog",
+    "provider_factory",
+    "provider_refresh",
+    "provider_fallback",
+    "coding_binding",
+    "coding_history",
+    "coding_usage",
+    "coding_compaction",
+    "unavailable_default",
+    "capability",
+    "temporary_legacy",
+    "presentation_persistence",
+    "chrome_prepare_input",
 )
 
 _T = TypeVar("_T")
@@ -351,6 +374,356 @@ def build_extension_projection(
         queues=queues,
         chrome=chrome,
     )
+
+
+ReloadFamilyPayload = tuple[object, ...]
+ActivationInputsValue = NewType("ActivationInputsValue", ReloadFamilyPayload)
+ProviderCatalogValue = NewType("ProviderCatalogValue", ReloadFamilyPayload)
+ProviderFactoryValue = NewType("ProviderFactoryValue", ReloadFamilyPayload)
+ProviderRefreshValue = NewType("ProviderRefreshValue", ReloadFamilyPayload)
+ProviderFallbackValue = NewType("ProviderFallbackValue", ReloadFamilyPayload)
+CodingBindingValue = NewType("CodingBindingValue", ReloadFamilyPayload)
+CodingHistoryValue = NewType("CodingHistoryValue", ReloadFamilyPayload)
+CodingUsageValue = NewType("CodingUsageValue", ReloadFamilyPayload)
+CodingCompactionValue = NewType("CodingCompactionValue", ReloadFamilyPayload)
+UnavailableDefaultValue = NewType("UnavailableDefaultValue", ReloadFamilyPayload)
+CapabilityValue = NewType("CapabilityValue", ReloadFamilyPayload)
+TemporaryLegacyValue = NewType("TemporaryLegacyValue", ReloadFamilyPayload)
+PresentationPersistenceValue = NewType(
+    "PresentationPersistenceValue", ReloadFamilyPayload
+)
+
+
+@dataclass(frozen=True, slots=True)
+class DetachedReloadEffect(Generic[_T]):
+    """One typed detached preparation and its refusal cleanup port."""
+
+    value: _T
+    dispose: Callable[[], None]
+
+    def __post_init__(self) -> None:
+        if not callable(self.dispose):
+            raise TypeError("detached reload disposer must be callable")
+
+
+ReloadEffectBuilder = Callable[[], DetachedReloadEffect[_T]]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ReloadEffectPreparationPorts:
+    """Family-distinct builders in the exact R3b preparation order."""
+
+    activation_inputs: ReloadEffectBuilder[ActivationInputsValue]
+    projection: ReloadEffectBuilder[ExtensionProjection]
+    provider_catalog: ReloadEffectBuilder[ProviderCatalogValue]
+    provider_factory: ReloadEffectBuilder[ProviderFactoryValue]
+    provider_refresh: ReloadEffectBuilder[ProviderRefreshValue]
+    provider_fallback: ReloadEffectBuilder[ProviderFallbackValue]
+    coding_binding: ReloadEffectBuilder[CodingBindingValue]
+    coding_history: ReloadEffectBuilder[CodingHistoryValue]
+    coding_usage: ReloadEffectBuilder[CodingUsageValue]
+    coding_compaction: ReloadEffectBuilder[CodingCompactionValue]
+    unavailable_default: ReloadEffectBuilder[UnavailableDefaultValue]
+    capability: ReloadEffectBuilder[CapabilityValue]
+    temporary_legacy: ReloadEffectBuilder[TemporaryLegacyValue]
+    presentation_persistence: ReloadEffectBuilder[PresentationPersistenceValue]
+    chrome_prepare_input: ReloadEffectBuilder["ExtensionChromePrepareInput"]
+
+    def __post_init__(self) -> None:
+        for name in PREPARED_RELOAD_BUILD_STEPS:
+            if not callable(getattr(self, name)):
+                raise TypeError(f"{name} reload preparation port must be callable")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PreparedReloadEffects:
+    """One frozen, family-typed assembly of unpublished reload effects."""
+
+    activation_inputs: DetachedReloadEffect[ActivationInputsValue]
+    projection: DetachedReloadEffect[ExtensionProjection]
+    provider_catalog: DetachedReloadEffect[ProviderCatalogValue]
+    provider_factory: DetachedReloadEffect[ProviderFactoryValue]
+    provider_refresh: DetachedReloadEffect[ProviderRefreshValue]
+    provider_fallback: DetachedReloadEffect[ProviderFallbackValue]
+    coding_binding: DetachedReloadEffect[CodingBindingValue]
+    coding_history: DetachedReloadEffect[CodingHistoryValue]
+    coding_usage: DetachedReloadEffect[CodingUsageValue]
+    coding_compaction: DetachedReloadEffect[CodingCompactionValue]
+    unavailable_default: DetachedReloadEffect[UnavailableDefaultValue]
+    capability: DetachedReloadEffect[CapabilityValue]
+    temporary_legacy: DetachedReloadEffect[TemporaryLegacyValue]
+    presentation_persistence: DetachedReloadEffect[PresentationPersistenceValue]
+    chrome_prepare_input: DetachedReloadEffect["ExtensionChromePrepareInput"]
+
+    def dispose(self) -> None:
+        """Attempt every disposer in reverse order, then report every failure."""
+
+        failures: list[BaseException] = []
+        for name in reversed(PREPARED_RELOAD_BUILD_STEPS):
+            try:
+                getattr(self, name).dispose()
+            except BaseException as error:  # complete cleanup, including interrupts
+                failures.append(error)
+        _raise_collected("detached reload disposal failures", failures)
+
+
+def _raise_collected(label: str, failures: list[BaseException]) -> None:
+    if not failures:
+        return
+    if len(failures) == 1:
+        raise failures[0]
+    exceptions = [error for error in failures if isinstance(error, Exception)]
+    if len(exceptions) == len(failures):
+        raise ExceptionGroup(label, exceptions)
+    raise BaseExceptionGroup(label, failures)
+
+
+def _dispose_completed_reload_effects(
+    completed: list[DetachedReloadEffect[Any]],
+) -> None:
+    """Best-effort rollback; cleanup errors never replace the builder failure."""
+
+    for effect in reversed(completed):
+        try:
+            effect.dispose()
+        except BaseException:
+            pass
+
+
+def build_prepared_reload_effects(
+    ports: ReloadEffectPreparationPorts,
+    *,
+    step_observer: ReloadPreparationObserver | None = None,
+) -> PreparedReloadEffects:
+    """Finish all builders before the sole assembly; never invoke chrome prepare.
+
+    On build failure, completed effects are disposed in reverse order and any
+    cleanup failures are suppressed so the original builder failure propagates.
+    """
+
+    if not isinstance(ports, ReloadEffectPreparationPorts):
+        raise TypeError("ports must be ReloadEffectPreparationPorts")
+    if step_observer is not None and not callable(step_observer):
+        raise TypeError("step_observer must be callable or None")
+    completed: list[DetachedReloadEffect[Any]] = []
+
+    def complete(
+        builder: ReloadEffectBuilder[_T], name: str
+    ) -> DetachedReloadEffect[_T]:
+        effect = builder()
+        if not isinstance(effect, DetachedReloadEffect):
+            raise TypeError(f"{name} must return DetachedReloadEffect")
+        completed.append(effect)
+        if step_observer is not None:
+            step_observer(name)
+        return effect
+
+    try:
+        activation_inputs = complete(ports.activation_inputs, "activation_inputs")
+        projection = complete(ports.projection, "projection")
+        provider_catalog = complete(ports.provider_catalog, "provider_catalog")
+        provider_factory = complete(ports.provider_factory, "provider_factory")
+        provider_refresh = complete(ports.provider_refresh, "provider_refresh")
+        provider_fallback = complete(ports.provider_fallback, "provider_fallback")
+        coding_binding = complete(ports.coding_binding, "coding_binding")
+        coding_history = complete(ports.coding_history, "coding_history")
+        coding_usage = complete(ports.coding_usage, "coding_usage")
+        coding_compaction = complete(ports.coding_compaction, "coding_compaction")
+        unavailable_default = complete(ports.unavailable_default, "unavailable_default")
+        capability = complete(ports.capability, "capability")
+        temporary_legacy = complete(ports.temporary_legacy, "temporary_legacy")
+        presentation_persistence = complete(
+            ports.presentation_persistence, "presentation_persistence"
+        )
+        chrome_prepare_input = complete(
+            ports.chrome_prepare_input, "chrome_prepare_input"
+        )
+        prepared = PreparedReloadEffects(
+            activation_inputs=activation_inputs,
+            projection=projection,
+            provider_catalog=provider_catalog,
+            provider_factory=provider_factory,
+            provider_refresh=provider_refresh,
+            provider_fallback=provider_fallback,
+            coding_binding=coding_binding,
+            coding_history=coding_history,
+            coding_usage=coding_usage,
+            coding_compaction=coding_compaction,
+            unavailable_default=unavailable_default,
+            capability=capability,
+            temporary_legacy=temporary_legacy,
+            presentation_persistence=presentation_persistence,
+            chrome_prepare_input=chrome_prepare_input,
+        )
+        if step_observer is not None:
+            step_observer("prepared_reload_effects")
+        return prepared
+    except BaseException:
+        _dispose_completed_reload_effects(completed)
+        raise
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenStagedDeliveryBatch:
+    """R1-frozen batch: all users in order, then all customs in order."""
+
+    user_messages: tuple[QueuedUserMessage, ...]
+    custom_messages: tuple[QueuedCustomMessage, ...]
+
+    @classmethod
+    def freeze(
+        cls,
+        user_messages: Iterable[QueuedUserMessage],
+        custom_messages: Iterable[QueuedCustomMessage],
+    ) -> "FrozenStagedDeliveryBatch":
+        return cls(
+            tuple(
+                replace(message, options=_freeze_mapping(message.options))
+                for message in user_messages
+            ),
+            tuple(_freeze_custom_message(message) for message in custom_messages),
+        )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class OrderedDeliveryToken:
+    """Single-use authority yielded only by a reservation context."""
+
+
+class OrderedDeliveryGate:
+    """Linearizable uninstalled staged-first delivery gate."""
+
+    __slots__ = (
+        "_active_direct",
+        "_condition",
+        "_draining",
+        "_mutex",
+        "_queued",
+        "_released",
+        "_reservation_pending",
+        "_token",
+    )
+
+    def __init__(self, mutex: threading.RLock) -> None:
+        if not isinstance(mutex, _RLOCK_TYPE):
+            raise TypeError("ordered delivery mutex must be an RLock")
+        self._mutex = mutex
+        self._condition = threading.Condition(mutex)
+        self._queued: deque[Callable[[], None]] = deque()
+        self._token: OrderedDeliveryToken | None = None
+        self._reservation_pending = False
+        self._released = False
+        self._draining = False
+        self._active_direct = 0
+
+    @contextmanager
+    def reserve(self) -> Iterator[OrderedDeliveryToken]:
+        """Reserve after admitted direct sends finish; abort on every exit."""
+
+        token = OrderedDeliveryToken()
+        with self._condition:
+            if self._token is not None:
+                raise RuntimeError("ordered delivery gate is already active")
+            self._token = token
+            self._reservation_pending = True
+            try:
+                while self._active_direct:
+                    self._condition.wait()
+            except BaseException:
+                if self._token is token:
+                    self._reset_locked()
+                raise
+            if self._token is not token:
+                raise RuntimeError("ordered delivery reservation was aborted")
+            self._reservation_pending = False
+        try:
+            yield token
+        finally:
+            self.abort(token, missing_ok=True)
+
+    def submit(self, delivery: Callable[[], None]) -> None:
+        """Atomically queue behind a reservation or deliver unlocked now."""
+
+        if not callable(delivery):
+            raise TypeError("delivery must be callable")
+        with self._condition:
+            if self._token is not None:
+                self._queued.append(delivery)
+                return
+            self._active_direct += 1
+        try:
+            delivery()
+        finally:
+            with self._condition:
+                self._active_direct -= 1
+                self._condition.notify_all()
+
+    def validate(self, token: OrderedDeliveryToken) -> None:
+        """Require token authority without changing reservation state."""
+
+        with self._condition:
+            self._validate_active_locked(token)
+
+    def release(self, token: OrderedDeliveryToken) -> None:
+        with self._condition:
+            self._validate_active_locked(token)
+            self._released = True
+
+    def drain(self, token: OrderedDeliveryToken) -> bool:
+        """Drain FIFO unlocked; aggregate Exceptions and abort on interrupts."""
+
+        with self._condition:
+            if self._token is not token:
+                raise RuntimeError("ordered delivery token is not active")
+            if not self._released or self._draining:
+                return False
+            self._draining = True
+        failures: list[BaseException] = []
+        try:
+            while True:
+                with self._condition:
+                    if self._token is not token:
+                        break
+                    if not self._queued:
+                        self._reset_locked()
+                        break
+                    delivery = self._queued.popleft()
+                try:
+                    delivery()
+                except Exception as error:
+                    failures.append(error)
+                except BaseException:
+                    self.abort(token, missing_ok=True)
+                    raise
+        finally:
+            with self._condition:
+                if self._token is token and self._draining:
+                    self._reset_locked()
+        _raise_collected("ordered delivery failures", failures)
+        return True
+
+    def abort(self, token: OrderedDeliveryToken, *, missing_ok: bool = False) -> bool:
+        """Abandon one reservation and discard every send queued behind it."""
+
+        with self._condition:
+            if self._token is not token:
+                if missing_ok:
+                    return False
+                raise RuntimeError("ordered delivery token is not active")
+            self._reset_locked()
+            return True
+
+    def _validate_active_locked(self, token: OrderedDeliveryToken) -> None:
+        if self._token is not token or self._reservation_pending or self._released:
+            raise RuntimeError("ordered delivery token is not active")
+
+    def _reset_locked(self) -> None:
+        self._queued.clear()
+        self._token = None
+        self._reservation_pending = False
+        self._released = False
+        self._draining = False
+        self._condition.notify_all()
 
 
 @dataclass(frozen=True, slots=True)

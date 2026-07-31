@@ -55,7 +55,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from pipy_harness.native.agent import (
     AgentEvent,
@@ -138,6 +138,11 @@ from pipy_harness.native.extension_types import (
 )
 from pipy_harness.native.extension_ui import _CollectingUi
 from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.session_generation import (
+    FrozenStagedDeliveryBatch,
+    OrderedDeliveryGate,
+    OrderedDeliveryToken,
+)
 
 if False:  # pragma: no cover - imported for type checkers only
     from pipy_harness.native.package_resources import PackageRoot
@@ -152,6 +157,49 @@ _BEFORE_AGENT_START_MAX_CHARS: int = 16 * 1024
 # Bound each `before_provider_request` transformed field so an extension
 # cannot create unbounded provider input.
 _PROVIDER_REQUEST_FIELD_MAX_CHARS: int = 128 * 1024
+
+
+def deliver_accepted_staged_batch(  # noqa: C901 - explicit independent cleanup arms
+    batch: FrozenStagedDeliveryBatch,
+    *,
+    gate: OrderedDeliveryGate,
+    token: OrderedDeliveryToken,
+    user_sink: Callable[[QueuedUserMessage], None],
+    custom_sink: Callable[[QueuedCustomMessage], None],
+) -> None:
+    """Deliver one frozen staged batch before releasing queued live sends.
+
+    R3b defines this sequencer but no production path calls it. Users retain
+    their order and all run before customs in their order (the established R1
+    flush shape). Every sink runs unlocked. Ordinary failures are all preserved;
+    interrupts stop delivery, abort queued work, and propagate.
+    """
+
+    failures: list[Exception] = []
+
+    def deliver(callback: Callable[[Any], None], value: object) -> None:
+        try:
+            callback(value)
+        except Exception as error:
+            failures.append(error)
+
+    try:
+        gate.validate(token)
+        for user_message in batch.user_messages:
+            deliver(user_sink, user_message)
+        for custom_message in batch.custom_messages:
+            deliver(custom_sink, custom_message)
+        gate.release(token)
+        try:
+            gate.drain(token)
+        except Exception as error:
+            failures.append(error)
+    finally:
+        gate.abort(token, missing_ok=True)
+    if len(failures) == 1:
+        raise failures[0]
+    if failures:
+        raise ExceptionGroup("accepted staged delivery failures", failures)
 
 
 def extension_event_hooks(

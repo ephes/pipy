@@ -222,9 +222,13 @@ from pipy_harness.native.export_distribution import (
 from pipy_harness.native.session_generation import (
     ExtensionChromeHandle,
     ExtensionProjection,
+    PreparedReloadEffects,
+    ReloadEffectPreparationPorts,
+    ReloadPreparationObserver,
     SessionExtensionGeneration,
     SessionGenerationRef,
     build_extension_projection,
+    build_prepared_reload_effects,
 )
 from pipy_harness.native.session_resume import (
     ResumeContext,
@@ -1381,6 +1385,16 @@ def _build_candidate_extension_projection(
         build_tool_capability=prepare_capability,
         chrome=chrome,
     )
+
+
+def _build_detached_reload_effects(
+    ports: ReloadEffectPreparationPorts,
+    *,
+    step_observer: ReloadPreparationObserver | None = None,
+) -> PreparedReloadEffects:
+    """Pure R3b adapter; production startup/reload intentionally never calls it."""
+
+    return build_prepared_reload_effects(ports, step_observer=step_observer)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

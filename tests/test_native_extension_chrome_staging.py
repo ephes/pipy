@@ -31,7 +31,30 @@ from pipy_harness.native.session_generation import (
     SessionGenerationRef,
 )
 from pipy_harness.native.tool_loop_session import _ReloadCommandEffects
-from pipy_harness.native.tui import ToolLoopTerminalUi, _LiveExtensionUiDriver
+from pipy_harness.native.tui import (
+    ExtensionChromeCommitToken,
+    ExtensionChromePrepareInput,
+    ExtensionChromePreparePort,
+    ToolLoopTerminalUi,
+    _LiveExtensionUiDriver,
+)
+
+
+def test_chrome_prepare_port_refuses_or_returns_only_inert_prepared_data() -> None:
+    sink = ExtensionChromeSink()
+    prepared_input = ExtensionChromePrepareInput(sink)
+    token = ExtensionChromeCommitToken(prepared_input)
+
+    refusing = cast(ExtensionChromePreparePort, lambda _value: None)
+    accepting: ExtensionChromePreparePort = ExtensionChromeCommitToken
+
+    assert prepared_input.candidate is sink
+    assert token.prepared is prepared_input
+    assert not hasattr(token, "commit")
+    assert not hasattr(token, "commit_callback")
+    assert refusing(prepared_input) is None
+    accepted = accepting(prepared_input)
+    assert accepted is not None and accepted.prepared is prepared_input
 
 
 class _FakeTerminalUi:

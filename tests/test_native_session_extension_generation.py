@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import ast
 import threading
-from collections.abc import Mapping, Sequence
-from dataclasses import fields, replace
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 import pytest
 
 from pipy_harness.extensions import ToolResult
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
-from pipy_harness.native.extension_hooks import _activate_workspace_extensions
+from pipy_harness.native.extension_hooks import (
+    _activate_workspace_extensions,
+    deliver_accepted_staged_batch,
+)
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
     ExtensionActivationBatch,
@@ -26,12 +29,32 @@ from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.package_resources import PackageResourceRoots
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session_generation import (
+    PREPARED_RELOAD_BUILD_STEPS,
     PROJECTION_BUILD_STEPS,
+    ActivationInputsValue,
+    CapabilityValue,
+    CodingBindingValue,
+    CodingCompactionValue,
+    CodingHistoryValue,
+    CodingUsageValue,
+    DetachedReloadEffect,
     ExtensionChromeHandle,
     ExtensionProjection,
+    FrozenStagedDeliveryBatch,
     GenerationQueueHandle,
+    OrderedDeliveryGate,
+    OrderedDeliveryToken,
+    PreparedReloadEffects,
+    PresentationPersistenceValue,
+    ProviderCatalogValue,
+    ProviderFactoryValue,
+    ProviderFallbackValue,
+    ProviderRefreshValue,
+    ReloadEffectPreparationPorts,
     SessionExtensionGeneration,
     SessionGenerationRef,
+    TemporaryLegacyValue,
+    UnavailableDefaultValue,
     build_extension_projection,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
@@ -43,10 +66,15 @@ from pipy_harness.native.tool_loop_session import (
     _ExtensionCustomEntryRunState,
     _RunControlState,
     _build_candidate_extension_projection,
+    _build_detached_reload_effects,
     _build_legacy_extension_tool_port,
     _build_projected_extension_tool_port,
 )
 from pipy_harness.native.tool_renderers import _extension_tool_renderer_map
+from pipy_harness.native.tui import (
+    AcceptedCustomMessageSinks,
+    ExtensionChromePrepareInput,
+)
 from pipy_harness.native.tools import (
     ToolContext,
     ToolPort,
@@ -1055,4 +1083,584 @@ def test_production_projection_and_port_adapter_callers_are_exactly_bounded() ->
                 ("class:NativeToolReplSession", "function:run"),
             ),
         ],
+    }
+
+
+_FamilyValue = TypeVar("_FamilyValue")
+
+
+def _reload_preparation_ports(  # noqa: C901 - all 15 typed families are explicit
+    tmp_path: Path,
+    *,
+    failed_step: str | None = None,
+    trace: list[str] | None = None,
+    disposed: list[str] | None = None,
+    disposal_failures: frozenset[str] = frozenset(),
+) -> tuple[Any, ...]:
+    observed = [] if trace is None else trace
+    cleaned = [] if disposed is None else disposed
+    payload_sources: dict[str, list[object]] = {
+        name: [name, {"source": name}]
+        for name in PREPARED_RELOAD_BUILD_STEPS
+        if name not in {"projection", "chrome_prepare_input"}
+    }
+    projection_source = _projection(_rich_runtime(tmp_path, "prepared-source"))
+    chrome_source = ExtensionChromePrepareInput(ExtensionChromeSink())
+
+    def finish(name: str, value: _FamilyValue) -> DetachedReloadEffect[_FamilyValue]:
+        observed.append(f"{name}:finish")
+
+        def dispose() -> None:
+            cleaned.append(name)
+            if name in disposal_failures:
+                raise RuntimeError(f"cleanup {name}")
+
+        return DetachedReloadEffect(value, dispose)
+
+    def payload_builder(
+        name: str, constructor: Callable[[tuple[object, ...]], _FamilyValue]
+    ) -> Callable[[], DetachedReloadEffect[_FamilyValue]]:
+        def build() -> DetachedReloadEffect[_FamilyValue]:
+            observed.append(f"{name}:start")
+            if name == failed_step:
+                raise RuntimeError(f"injected {name}")
+            return finish(name, constructor(tuple(payload_sources[name])))
+
+        return build
+
+    def projection_builder() -> DetachedReloadEffect[ExtensionProjection]:
+        observed.append("projection:start")
+        if failed_step == "projection":
+            raise RuntimeError("injected projection")
+        return finish("projection", replace(projection_source))
+
+    def chrome_builder() -> DetachedReloadEffect[ExtensionChromePrepareInput]:
+        observed.append("chrome_prepare_input:start")
+        if failed_step == "chrome_prepare_input":
+            raise RuntimeError("injected chrome_prepare_input")
+        return finish("chrome_prepare_input", replace(chrome_source))
+
+    constructors = (
+        ActivationInputsValue,
+        ProviderCatalogValue,
+        ProviderFactoryValue,
+        ProviderRefreshValue,
+        ProviderFallbackValue,
+        CodingBindingValue,
+        CodingHistoryValue,
+        CodingUsageValue,
+        CodingCompactionValue,
+        UnavailableDefaultValue,
+        CapabilityValue,
+        TemporaryLegacyValue,
+        PresentationPersistenceValue,
+    )
+    builders: dict[str, Any] = {
+        name: payload_builder(name, constructor)
+        for name, constructor in zip(payload_sources, constructors, strict=True)
+    }
+    builders.update(projection=projection_builder, chrome_prepare_input=chrome_builder)
+    return (
+        ReloadEffectPreparationPorts(**cast(Any, builders)),
+        payload_sources,
+        projection_source,
+        chrome_source,
+    )
+
+
+@pytest.mark.parametrize("failed_step", PREPARED_RELOAD_BUILD_STEPS)
+def test_each_detached_reload_preparation_failure_isolated_from_typed_sources(
+    failed_step: str, tmp_path: Path
+) -> None:
+    disposed: list[str] = []
+    ports, sources, projection_source, chrome_source = _reload_preparation_ports(
+        tmp_path,
+        failed_step=failed_step,
+        disposed=disposed,
+        disposal_failures=frozenset({"activation_inputs"}),
+    )
+    source_contents = {name: list(value) for name, value in sources.items()}
+    projection_before = replace(projection_source)
+    chrome_before = chrome_source.candidate.snapshot()
+
+    with pytest.raises(RuntimeError, match=f"injected {failed_step}"):
+        _build_detached_reload_effects(ports)
+
+    failed_index = PREPARED_RELOAD_BUILD_STEPS.index(failed_step)
+    assert disposed == list(reversed(PREPARED_RELOAD_BUILD_STEPS[:failed_index]))
+    assert sources == source_contents
+    assert projection_source == projection_before
+    assert chrome_source.candidate.snapshot() == chrome_before
+
+
+def test_mutable_reload_builders_finish_before_one_frozen_prepared_assembly(
+    tmp_path: Path,
+) -> None:
+    trace: list[str] = []
+    ports, sources, projection_source, chrome_source = _reload_preparation_ports(
+        tmp_path, trace=trace
+    )
+    prepared = _build_detached_reload_effects(
+        ports, step_observer=lambda name: trace.append(f"observed:{name}")
+    )
+
+    expected: list[str] = []
+    for name in PREPARED_RELOAD_BUILD_STEPS:
+        expected.extend((f"{name}:start", f"{name}:finish", f"observed:{name}"))
+    expected.append("observed:prepared_reload_effects")
+    assert trace == expected
+    assert isinstance(prepared, PreparedReloadEffects)
+    assert [field.name for field in fields(PreparedReloadEffects)] == [
+        *PREPARED_RELOAD_BUILD_STEPS
+    ]
+    with pytest.raises(FrozenInstanceError):
+        prepared.activation_inputs = cast(Any, None)  # type: ignore[misc]
+    for name, source_value in sources.items():
+        effect = cast(Any, getattr(prepared, name))
+        assert effect.value == tuple(source_value)
+        assert effect.value is not source_value
+    assert prepared.projection.value is not projection_source
+    assert prepared.chrome_prepare_input.value is not chrome_source
+    assert prepared.chrome_prepare_input.value.candidate is chrome_source.candidate
+
+
+def test_prepared_disposal_attempts_all_in_reverse_and_groups_errors(
+    tmp_path: Path,
+) -> None:
+    disposed: list[str] = []
+    ports, *_rest = _reload_preparation_ports(
+        tmp_path,
+        disposed=disposed,
+        disposal_failures=frozenset({"provider_factory", "capability"}),
+    )
+    prepared = _build_detached_reload_effects(ports)
+    with pytest.raises(ExceptionGroup) as raised:
+        prepared.dispose()
+    assert disposed == list(reversed(PREPARED_RELOAD_BUILD_STEPS))
+    assert [str(error) for error in raised.value.exceptions] == [
+        "cleanup capability",
+        "cleanup provider_factory",
+    ]
+
+
+def test_uninstalled_gate_flushes_all_users_then_customs_then_fifo_unlocked() -> None:
+    mutex = threading.RLock()
+    gate = OrderedDeliveryGate(mutex)
+    events: list[str] = []
+    foreign_errors: list[str] = []
+
+    def record_unlocked(label: str) -> None:
+        acquired = threading.Event()
+
+        def probe() -> None:
+            with mutex:
+                acquired.set()
+            if label == "user:user-1":
+                try:
+                    gate.drain(OrderedDeliveryToken())
+                except RuntimeError as error:
+                    foreign_errors.append(str(error))
+
+        worker = threading.Thread(target=probe)
+        worker.start()
+        worker.join(timeout=1.0)
+        assert acquired.is_set(), f"{label} ran under the session mutex"
+        events.append(label)
+
+    staged = FrozenStagedDeliveryBatch.freeze(
+        (QueuedUserMessage("user-1", {}), QueuedUserMessage("user-2", {})),
+        (
+            QueuedCustomMessage("status", "custom-1", True, None, {}),
+            QueuedCustomMessage("status", "custom-2", True, None, {}),
+        ),
+    )
+    with gate.reserve() as token:
+        gate.submit(lambda: record_unlocked("candidate-send"))
+        gate.submit(lambda: record_unlocked("live-send"))
+        assert gate.drain(token) is False
+        deliver_accepted_staged_batch(
+            staged,
+            gate=gate,
+            token=token,
+            user_sink=lambda message: record_unlocked(f"user:{message.content}"),
+            custom_sink=lambda message: record_unlocked(f"custom:{message.content}"),
+        )
+    assert ",".join(events) == (
+        "user:user-1,user:user-2,custom:custom-1,custom:custom-2,"
+        "candidate-send,live-send"
+    )
+    assert foreign_errors == ["ordered delivery token is not active"]
+    gate.submit(lambda: record_unlocked("idle-direct"))
+    assert events[-1] == "idle-direct"
+
+
+def test_direct_interrupt_preserves_pending_reservation_and_queued_send() -> None:
+    gate = OrderedDeliveryGate(threading.RLock())
+    direct_entered = threading.Event()
+    direct_release = threading.Event()
+    events: list[str] = []
+    interrupts: list[type[BaseException]] = []
+
+    def direct() -> None:
+        direct_entered.set()
+        assert direct_release.wait(2)
+        events.append("direct")
+        raise KeyboardInterrupt
+
+    def submit_direct() -> None:
+        try:
+            gate.submit(direct)
+        except BaseException as error:
+            interrupts.append(type(error))
+
+    submitter = threading.Thread(target=submit_direct)
+    submitter.start()
+    assert direct_entered.wait(2)
+
+    def reserve_and_drain() -> None:
+        with gate.reserve() as token:
+            events.append("reserved")
+            gate.release(token)
+            assert gate.drain(token)
+
+    reserver = threading.Thread(target=reserve_and_drain)
+    reserver.start()
+    for _attempt in range(1000):
+        with gate._mutex:  # noqa: SLF001 - deterministic admission barrier
+            pending = gate._reservation_pending  # noqa: SLF001
+        if pending:
+            break
+        threading.Event().wait(0.001)
+    else:
+        pytest.fail("reservation did not become pending")
+    gate.submit(lambda: events.append("queued"))
+    assert events == []
+    direct_release.set()
+    submitter.join(2)
+    reserver.join(2)
+    assert not submitter.is_alive() and not reserver.is_alive()
+    assert events == ["direct", "reserved", "queued"]
+    assert interrupts == [KeyboardInterrupt]
+
+
+def test_reservation_exception_and_explicit_abort_discard_queued_sends() -> None:
+    gate = OrderedDeliveryGate(threading.RLock())
+    events: list[str] = []
+    with pytest.raises(RuntimeError, match="before sequencer"):
+        with gate.reserve():
+            gate.submit(lambda: events.append("stranded"))
+            raise RuntimeError("before sequencer")
+    with gate.reserve() as token:
+        gate.submit(lambda: events.append("aborted"))
+        assert gate.abort(token)
+    gate.submit(lambda: events.append("later"))
+    assert events == ["later"]
+
+
+def _leaf_exception_messages(error: BaseException) -> list[str]:
+    if not isinstance(error, BaseExceptionGroup):
+        return [str(error)]
+    return sum((_leaf_exception_messages(item) for item in error.exceptions), [])
+
+
+def test_staged_and_queued_ordinary_failures_are_all_preserved() -> None:
+    gate = OrderedDeliveryGate(threading.RLock())
+    events: list[str] = []
+    batch = FrozenStagedDeliveryBatch.freeze(
+        (QueuedUserMessage("u1", {}), QueuedUserMessage("u2", {})),
+        (
+            QueuedCustomMessage("x", "c1", True, None, {}),
+            QueuedCustomMessage("x", "c2", True, None, {}),
+        ),
+    )
+
+    def fail(label: str) -> None:
+        events.append(label)
+        raise RuntimeError(label)
+
+    with gate.reserve() as token:
+        gate.submit(lambda: fail("q1"))
+        gate.submit(lambda: fail("q2"))
+        with pytest.raises(ExceptionGroup) as raised:
+            deliver_accepted_staged_batch(
+                batch,
+                gate=gate,
+                token=token,
+                user_sink=lambda message: fail(message.content),
+                custom_sink=lambda message: fail(message.content),
+            )
+    assert events == ["u1", "u2", "c1", "c2", "q1", "q2"]
+    assert _leaf_exception_messages(raised.value) == events
+    gate.submit(lambda: events.append("reset"))
+    assert events[-1] == "reset"
+
+
+def test_reserve_interrupt_preserves_successor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gate = OrderedDeliveryGate(threading.RLock())
+    successor: list[tuple[Any, OrderedDeliveryToken]] = []
+
+    def interrupt_wait() -> None:
+        gate._active_direct = 0  # noqa: SLF001 - synthetic direct send
+        gate.abort(cast(OrderedDeliveryToken, gate._token))  # noqa: SLF001
+        reservation = gate.reserve()
+        successor.append((reservation, reservation.__enter__()))
+        raise KeyboardInterrupt
+
+    gate._active_direct = 1  # noqa: SLF001 - force Condition.wait
+    monkeypatch.setattr(gate._condition, "wait", interrupt_wait)  # noqa: SLF001
+    with pytest.raises(KeyboardInterrupt), gate.reserve():
+        pytest.fail("interrupted reservation must not enter")
+    assert gate._token is successor[0][1]  # noqa: SLF001
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize("phase", ["staged", "queued"])
+def test_interrupt_stops_remaining_delivery_resets_and_propagates(
+    interrupt: type[BaseException], phase: str
+) -> None:
+    gate = OrderedDeliveryGate(threading.RLock())
+    events: list[str] = []
+    successor: list[tuple[Any, OrderedDeliveryToken]] = []
+    batch = FrozenStagedDeliveryBatch.freeze(
+        (QueuedUserMessage("u1", {}), QueuedUserMessage("u2", {})),
+        (QueuedCustomMessage("x", "c1", True, None, {}),),
+    )
+
+    def staged(message: QueuedUserMessage) -> None:
+        events.append(message.content)
+        if phase == "staged":
+            raise interrupt()
+
+    def queued(label: str) -> None:
+        events.append(label)
+        if label == "q1" and phase == "queued":
+            gate.abort(token)
+            reservation = gate.reserve()
+            successor.append((reservation, reservation.__enter__()))
+            raise interrupt()
+
+    with pytest.raises(interrupt):
+        with gate.reserve() as token:
+            gate.submit(lambda: queued("q1"))
+            gate.submit(lambda: queued("q2"))
+            deliver_accepted_staged_batch(
+                batch,
+                gate=gate,
+                token=token,
+                user_sink=staged,
+                custom_sink=lambda message: events.append(message.content),
+            )
+
+    assert events == (["u1"] if phase == "staged" else ["u1", "u2", "c1", "q1"])
+    if phase == "queued":
+        assert gate.abort(successor[0][1])
+        successor[0][0].__exit__(None, None, None)
+    gate.submit(lambda: events.append("later"))
+    assert events[-1] == "later"
+
+
+def test_stale_sequencer_preserves_released_successor_and_its_queue() -> None:
+    gate = OrderedDeliveryGate(threading.RLock())
+    events: list[str] = []
+    successor: list[tuple[Any, OrderedDeliveryToken]] = []
+
+    with gate.reserve() as stale_token:
+
+        def transfer_normally() -> None:
+            assert gate.abort(stale_token)
+            reservation = gate.reserve()
+            successor.append((reservation, reservation.__enter__()))
+            gate.submit(lambda: events.append("successor-queued"))
+
+        gate.submit(transfer_normally)
+        gate.release(stale_token)
+        assert gate.drain(stale_token)
+
+    gate.release(successor[0][1])
+    batch = FrozenStagedDeliveryBatch.freeze(
+        (QueuedUserMessage("staged-user", {}),),
+        (QueuedCustomMessage("x", "staged-custom", True, None, {}),),
+    )
+    with pytest.raises(RuntimeError, match="token is not active"):
+        deliver_accepted_staged_batch(
+            batch,
+            gate=gate,
+            token=stale_token,
+            user_sink=lambda message: events.append(message.content),
+            custom_sink=lambda message: events.append(message.content),
+        )
+    assert events == []
+    assert gate.drain(successor[0][1])
+    assert events == ["successor-queued"]
+
+
+@pytest.mark.parametrize(
+    ("options", "in_turn", "display", "route"),
+    (
+        ({"deliverAs": "nextTurn"}, False, True, "next"),
+        ({"deliver_as": "steer"}, False, True, "steer"),
+        ({"deliverAs": "followUp"}, False, True, "follow"),
+        ({"deliverAs": "follow_up"}, False, True, "follow"),
+        ({"triggerTurn": True}, False, False, "prompt"),
+        ({"trigger_turn": True}, False, True, "prompt"),
+        ({"triggerTurn": True}, True, True, None),
+        ({"deliverAs": "unknown", "triggerTurn": True}, False, True, "prompt"),
+        ({"deliverAs": "nextTurn", "triggerTurn": True}, False, True, "next"),
+        ({"deliverAs": "unknown", "deliver_as": "nextTurn"}, False, True, None),
+    ),
+)
+def test_accepted_custom_sink_matches_established_routing_and_sink_order(
+    options: Mapping[str, object], in_turn: bool, display: bool, route: str | None
+) -> None:
+    calls: list[str] = []
+
+    def append_durable(message: QueuedCustomMessage) -> object:
+        calls.append(f"tree:{message.content}")
+        return "entry"
+
+    callbacks: dict[str, Any] = {
+        "append_durable": append_durable,
+        "render_or_diagnose": lambda message, entry: calls.append(
+            f"render:{message.content}:{entry}"
+        ),
+        "enqueue_next_turn": lambda content: calls.append(f"next:{content.value}"),
+        "enqueue_steering": lambda content: calls.append(f"steer:{content.value}"),
+        "enqueue_follow_up": lambda content: calls.append(f"follow:{content.value}"),
+        "enqueue_prompt": lambda content: calls.append(f"prompt:{content.value}"),
+        "in_agent_turn": lambda: in_turn,
+    }
+    sinks = AcceptedCustomMessageSinks(**callbacks)
+    assert [field.name for field in fields(AcceptedCustomMessageSinks)] == list(
+        callbacks
+    )
+    assert all(getattr(sinks, name) is callback for name, callback in callbacks.items())
+
+    sinks.deliver(QueuedCustomMessage("note", "payload", display, None, options))
+
+    expected = ["tree:payload"]
+    if display:
+        expected.append("render:payload:entry")
+    if route is not None:
+        expected.append(f"{route}:payload")
+    assert calls == expected
+
+
+def test_r3b_call_inventory_is_complete_and_uninstalled_across_package() -> None:
+    names = {
+        "ReloadEffectPreparationPorts",
+        "PreparedReloadEffects",
+        "DetachedReloadEffect",
+        "FrozenStagedDeliveryBatch",
+        "OrderedDeliveryGate",
+        "OrderedDeliveryToken",
+        "AcceptedCustomMessageSinks",
+        "ExtensionChromePrepareInput",
+        "ExtensionChromeCommitToken",
+        "ExtensionChromePreparePort",
+        "ActivationInputsValue",
+        "ProviderCatalogValue",
+        "ProviderFactoryValue",
+        "ProviderRefreshValue",
+        "ProviderFallbackValue",
+        "CodingBindingValue",
+        "CodingHistoryValue",
+        "CodingUsageValue",
+        "CodingCompactionValue",
+        "UnavailableDefaultValue",
+        "CapabilityValue",
+        "TemporaryLegacyValue",
+        "PresentationPersistenceValue",
+        "build_prepared_reload_effects",
+        "_build_detached_reload_effects",
+        "deliver_accepted_staged_batch",
+        "_route_legacy_custom_message_input",
+    }
+    methods = set(
+        "freeze deliver dispose reserve submit validate release drain abort".split()
+    )
+    calls: dict[str, list[tuple[str, tuple[str, ...]]]] = {
+        name: [] for name in names | methods
+    }
+
+    def inventory(node: ast.AST, path: str, owners: tuple[str, ...] = ()) -> None:
+        if isinstance(node, ast.ClassDef):
+            owners += (f"class:{node.name}",)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            owners += (f"function:{node.name}",)
+        if isinstance(node, ast.Call):
+            name = (
+                node.func.id
+                if isinstance(node.func, ast.Name)
+                else node.func.attr
+                if isinstance(node.func, ast.Attribute)
+                else ""
+            )
+            if name in names:
+                calls[name].append((path, owners))
+            if isinstance(node.func, ast.Attribute) and name in methods:
+                calls[name].append((path, owners))
+        for child in ast.iter_child_nodes(node):
+            inventory(child, path, owners)
+
+    source_root = Path(__file__).parents[1] / "src/pipy_harness"
+    for path in source_root.rglob("*.py"):
+        relative = path.relative_to(source_root).as_posix()
+        inventory(ast.parse(path.read_text(encoding="utf-8")), relative)
+
+    nonempty = {name: owners for name, owners in calls.items() if owners}
+    assert {name: len(owners) for name, owners in nonempty.items()} == {
+        "PreparedReloadEffects": 1,
+        "OrderedDeliveryToken": 1,
+        "build_prepared_reload_effects": 1,
+        "_route_legacy_custom_message_input": 2,
+        "dispose": 5,
+        "validate": 1,
+        "release": 1,
+        "drain": 1,
+        "abort": 3,
+    }
+    actual = {
+        (name, path, owners)
+        for name, found in nonempty.items()
+        for path, owners in found
+    }
+    sg, hooks = "native/session_generation.py", "native/extension_hooks.py"
+    loop = "native/tool_loop_session.py"
+    sequencer = ("function:deliver_accepted_staged_batch",)
+    reserve = ("class:OrderedDeliveryGate", "function:reserve")
+    assert actual == {
+        ("PreparedReloadEffects", sg, ("function:build_prepared_reload_effects",)),
+        ("OrderedDeliveryToken", sg, reserve),
+        (
+            "build_prepared_reload_effects",
+            "native/tool_loop_session.py",
+            ("function:_build_detached_reload_effects",),
+        ),
+        (
+            "_route_legacy_custom_message_input",
+            "native/tui.py",
+            ("class:AcceptedCustomMessageSinks", "function:deliver"),
+        ),
+        (
+            "_route_legacy_custom_message_input",
+            "native/tui.py",
+            ("class:_CustomEntryRenderer", "function:extension_send_message"),
+        ),
+        (
+            "dispose",
+            "native/extension_runtime.py",
+            ("function:_dispose_activation_results",),
+        ),
+        ("dispose", loop, ("class:_ReloadCommandEffects", "function:execute")),
+        ("dispose", loop, ("class:NativeToolReplSession", "function:run")),
+        ("dispose", sg, ("class:PreparedReloadEffects", "function:dispose")),
+        ("dispose", sg, ("function:_dispose_completed_reload_effects",)),
+        ("validate", hooks, sequencer),
+        ("release", hooks, sequencer),
+        ("drain", hooks, sequencer),
+        ("abort", hooks, sequencer),
+        ("abort", sg, reserve),
+        ("abort", sg, ("class:OrderedDeliveryGate", "function:drain")),
     }

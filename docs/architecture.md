@@ -336,9 +336,23 @@ only inside that pure candidate builder, and the legacy helper has exactly those
 two live callers. Lifecycle/provider/TUI behavior and base ordering are
 unchanged. Every per-family equivalence arm against the legacy runtime or
 adapter remains until R4 moves that family's final consumer and deletes its
-source. R3b is the next detached preparation slice; R3c later installs these
-same R3a values. Production consumers still read `generation_ref.current` per
-access even though `snapshot()` exists. R1 now
+source. R3b now adds the frozen `PreparedReloadEffects` assembly after the exact
+ordered, family-distinct detached builders. Complete disposal attempts every
+family in reverse and groups failures; build rollback suppresses cleanup errors
+only to preserve the primary build failure. Its uninstalled gate reservation
+context marks admission pending under the session mutex, waits for an already-
+admitted unlocked `submit()` callback, queues later submits, and guarantees
+abort/reset on abandonment. The accepted R1-frozen sequencer sends all users in
+order before all customs in order, then drains FIFO unlocked. Ordinary callback
+failures are grouped; `KeyboardInterrupt`/`SystemExit` stop, abort queued work,
+and propagate. Accepted staged customs use direct durable-tree, render/
+diagnostic, and coding-input ports, never `custom_outbox`; their routing shares
+the live legacy helper and preserves all camel/snake aliases and precedence.
+Chrome prepare is uncalled and can return refusal or an inert token carrying the
+exact typed input, with no commit callback. Production startup/reload,
+activation sends, and the live custom-renderer drain do not call or consult any
+R3b definition; R3c must install these same R3a/R3b values. Production consumers still read
+`generation_ref.current` per access even though `snapshot()` exists. R1 now
 owns activation registration with one candidate-host guard over every staged
 registry/message, flag value/failure, `_activated`, and the one-way candidate
 open→sealed→committed→published/disposed transitions plus the accepted-catalog
@@ -793,9 +807,10 @@ C901-pinned file. The load-bearing summary is:
   observable bytes and offsets own sequencing.
 
 R0 reconciled the bounded contract, R1 shipped candidate registration sealing,
-R2 shipped candidate retained-chrome/listener staging, and R3a shipped detached
-immutable projection construction without changing a runtime caller or behavior.
-The next architecture action is **R3b — build detached reload effects and ordered
-delivery**; ordinary product-parity selection remains blocked through R7. R3a
-requires no changelog entry.
+R2 shipped candidate retained-chrome/listener staging, R3a shipped detached
+immutable projection construction, and R3b shipped detached reload-effect and
+ordered-delivery definitions without changing a runtime caller or behavior. The
+next architecture action is **R3c — accept and publish one prepared reload**;
+ordinary product-parity selection remains blocked through R7. R3b requires no
+changelog entry.
 That is not a verdict that the broader program failed.
