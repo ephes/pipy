@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R3c1b — usage accumulator reload owner**
+**Active/next slice:** **R3c1c — catalog/auth refresh reload owners**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -141,9 +141,10 @@ path for retained selection/default; REPL publication also never restores
 `thinking_level`. A concurrent accepted thinking change is therefore preserved,
 and this owner-state freshness does not change the later R5b/R6 generation-bound
 class-A scopes. `PreparedReloadEffects` uses concrete values for only those
-families and the existing `ToolCapabilityState`; `CodingCompactionValue`,
-`CodingUsageValue`, and `ProviderRefreshValue` remain opaque, with package-wide
-inventory proving all three are uninstalled. The concrete catalog/coding/REPL
+families and the existing `ToolCapabilityState`; at R3c1a shipment,
+`CodingCompactionValue`, `CodingUsageValue`, and `ProviderRefreshValue` were
+opaque and uninstalled. R3c1b has since made only usage concrete; compaction and
+provider refresh remain opaque and uninstalled. The concrete catalog/coding/REPL
 imports in `session_generation.py` are type-checking only. The executable
 synthetic-parent test proves only that `session_generation.py`'s own runtime
 dependency closure does not import the catalog/auth/coding/REPL owner stacks; it
@@ -157,7 +158,7 @@ production caller is installed. The exact source manifest remains
 remediation plan, transactional spec, and architecture docs are editable.
 Focused tests prove exact expected-token current/mismatch behavior, exact
 publisher shape, no production callers, the type-only imports within
-`session_generation.py`'s own runtime dependency closure, and the opaque
+`session_generation.py`'s own runtime dependency closure, and the then-opaque
 package-wide uninstalled inventory. They include those four
 modules plus the unchanged tool-capability, extension-provider, provider-catalog,
 and dynamic-provider-swap characterization suites; Mypy, `just check`, `just
@@ -165,30 +166,39 @@ docs-build`, exact manifest, 1,200 production+test changed lines, and 400 per
 source are gates. No changelog; commit
 `refactor: prepare local reload owner values`.
 
-**R3c1b — usage accumulator reload owner** is active/next and behavior-neutral.
-It adds an owner-local detached prepare/non-fallible publish contract so coding
-code never reads or writes `AgentUsageAccumulator` private fields, prepared
-holders do not alias later live mutation, refresh retains exact usage, and
-fallback publishes cleared/replacement usage semantics. That clearing applies
-only to usage: fallback preserves provider failure. No production caller is
-installed. Exact sources are `src/pipy_harness/native/agent/usage.py`,
-`src/pipy_harness/native/coding/state.py`, and
-`src/pipy_harness/native/session_generation.py`; exact editable tests are
-`tests/test_native_agent_usage.py`, `tests/test_native_coding_state.py`, and
-`tests/test_native_session_extension_generation.py`; only the same four planning
-docs are otherwise editable. Run those focused modules and relevant unchanged
-coding/provider characterization, Mypy on the three sources, `git diff --check`,
-`just check`, and `just docs-build`; enforce 1,200 production+test changed lines
-and 400 per source. No changelog; commit
-`refactor: prepare reload usage owner state`.
+**R3c1b — usage accumulator reload owner** is shipped and behavior-neutral.
+`AgentUsageAccumulator` owns an immutable detached refresh characterization and
+builds a fresh cleared fallback accumulator from the supplied prototype's
+pricing. The prepared fallback does not alias the caller's prototype.
+`CodingSessionState` re-enters the exact shared session `RLock` and publishes
+fallback by one pointer assignment; coding never accesses accumulator-private
+fields. Neither path compares high-churn live usage: refresh is an explicit
+no-op, while fallback uses an immutable identity token to refuse an intervening
+accumulator pointer swap before installing the owner-built accumulator. The
+token does not reference or retain the old accumulator. The check also
+revalidates that the reachable prepared replacement is still cleared. Ordinary
+counter absorption does not invalidate either path. The old accumulator and
+provider failure remain untouched. `PreparedReloadEffects.coding_usage` now
+carries concrete `AgentUsageReloadValue`, while compaction and provider refresh
+stay opaque. The coding annotations use the existing allowlisted usage-module
+dependency; widening the concrete-class import allowlist would require an out-
+of-manifest architecture-test edit. AST inventory proves the accumulator methods
+have only the uninstalled coding adapters as callers and those adapters have no
+production caller. Focused tests pin detachment, later-live usage retention,
+equal-binding owner-swap refusal, prepared-replacement drift refusal, pricing
+behavior, shared-lock use, exact no-op/assignment publisher shapes, complete
+slot coverage, total family checks, and preparation isolation. Exact
+sources/tests and the 1,200/400 gates matched the manifest. No user-visible
+behavior changed and no changelog applies.
 
-**R3c1c — catalog/auth refresh reload owners** follows R3c1b and is behavior-
-neutral. It adds owner-local detached preparation for the full `ModelCatalog`
-refresh and `AuthStore` reload performed by `ProviderCatalogState.refresh()`.
-All I/O and fallible construction finish before acceptance; only vetted
-non-fallible owner publication follows. The R3c1a extension-provider overlay
-primitive remains unchanged, and prepared holders do not alias later live
-mutation. No production caller is installed. Exact sources are
+**R3c1c — catalog/auth refresh reload owners** is active/next after shipped
+R3c1b and is behavior-neutral. It adds owner-local detached preparation for the
+full `ModelCatalog` refresh and `AuthStore` reload performed by
+`ProviderCatalogState.refresh()`. All I/O and fallible construction finish
+before acceptance; only vetted non-fallible owner publication follows. The
+R3c1a extension-provider overlay primitive remains unchanged, and prepared
+holders do not alias later live mutation. No production caller is installed.
+Exact sources are
 `src/pipy_harness/native/auth_store.py`,
 `src/pipy_harness/native/models_json.py`,
 `src/pipy_harness/native/catalog_state.py`, and
@@ -266,10 +276,11 @@ suppresses staged messages that `606a860` could expose. Its exact manifests,
 changelog target is the existing `### Fixed` bullet beginning “Extension reload
 no longer clears live retained TUI chrome before activation”.
 
-The mandatory order is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a. R4a later
-converts only live append/detach/drain/close synchronization and must not
-redefine R3b's token or staged sequence. R5a/R5b/R6 ownership and the class-A
-count of three are unchanged. Provenance is fixed: the R5a split brought the
+The shipped prefix is R3c1a → R3c1b; the mandatory remaining order is R3c1c →
+R3c2 → R3c3 → R4a. R4a later converts only live append/detach/drain/close
+synchronization and must not redefine R3b's token or staged sequence.
+R5a/R5b/R6 ownership and the class-A count of three are unchanged. Provenance
+is fixed: the R5a split brought the
 queue to 27 slices, the R3a/R3b/R3c split brought it to 29, the initial
 R3c1/R3c2/R3c3 split brought it to 31, and splitting R3c1 into R3c1a–R3c1c
 brings it to exactly 33. No ordinary cleanup, parity, lint, provider-test, or contributor

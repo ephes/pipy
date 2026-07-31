@@ -7,6 +7,7 @@ import threading
 from dataclasses import dataclass
 from math import isfinite
 
+import pipy_harness.native.agent.usage as agent_usage
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
@@ -438,6 +439,21 @@ class CodingSessionState:
             history=CodingReloadHistoryValue(()),
         )
 
+    def prepare_reload_usage_refresh(self) -> agent_usage.AgentUsageRefreshValue:
+        """Prepare exact retained usage through its accumulator owner."""
+
+        with self._state_lock:
+            return self._usage_accumulator.prepare_reload_value_refresh()
+
+    def prepare_reload_usage_fallback(
+        self, replacement_prototype: AgentUsageAccumulator
+    ) -> agent_usage.AgentUsageFallbackValue:
+        """Prepare an owner-built replacement from a cleared pricing prototype."""
+
+        accumulator = _require_usage_accumulator(replacement_prototype)
+        with self._state_lock:
+            return self._usage_accumulator.prepare_reload_value_fallback(accumulator)
+
     def reload_binding_matches_expected(
         self, binding: CodingReloadBindingValue
     ) -> bool:
@@ -463,6 +479,30 @@ class CodingSessionState:
         with self._state_lock:
             self._binding = binding.replacement
             self._messages = history.messages
+
+    def reload_usage_matches_expected(
+        self, value: agent_usage.AgentUsageReloadValue
+    ) -> bool:
+        """Check fallback owner identity and replacement clearedness, not counters."""
+
+        with self._state_lock:
+            return self._usage_accumulator.reload_value_matches_expected(value)
+
+    def publish_reload_usage_refresh(
+        self, value: agent_usage.AgentUsageRefreshValue
+    ) -> None:
+        """Retain live usage through its owner under the shared session mutex."""
+
+        with self._state_lock:
+            self._usage_accumulator.publish_reload_value_refresh(value)
+
+    def publish_reload_usage_fallback(
+        self, value: agent_usage.AgentUsageFallbackValue
+    ) -> None:
+        """Install the owner-built fallback accumulator under the shared mutex."""
+
+        with self._state_lock:
+            self._usage_accumulator = value.replacement
 
     def refresh_provider(self, provider: ProviderPort) -> None:
         """Replace a same-context provider port while retaining all state."""

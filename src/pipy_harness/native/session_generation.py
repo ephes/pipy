@@ -20,6 +20,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Generic, NewType, TypeVar
 
 if TYPE_CHECKING:
+    from pipy_harness.native.agent.usage import AgentUsageReloadValue
     from pipy_harness.native.catalog_state import ProviderCatalogReloadState
     from pipy_harness.native.coding.state import (
         CodingReloadBindingValue,
@@ -389,7 +390,6 @@ ReloadFamilyPayload = tuple[object, ...]
 ActivationInputsValue = NewType("ActivationInputsValue", ReloadFamilyPayload)
 ProviderFactoryValue = NewType("ProviderFactoryValue", ReloadFamilyPayload)
 ProviderRefreshValue = NewType("ProviderRefreshValue", ReloadFamilyPayload)
-CodingUsageValue = NewType("CodingUsageValue", ReloadFamilyPayload)
 CodingCompactionValue = NewType("CodingCompactionValue", ReloadFamilyPayload)
 TemporaryLegacyValue = NewType("TemporaryLegacyValue", ReloadFamilyPayload)
 PresentationPersistenceValue = NewType(
@@ -424,7 +424,7 @@ class ReloadEffectPreparationPorts:
     provider_fallback: ReloadEffectBuilder[ReplSelectionReloadValue]
     coding_binding: ReloadEffectBuilder[CodingReloadBindingValue]
     coding_history: ReloadEffectBuilder[CodingReloadHistoryValue]
-    coding_usage: ReloadEffectBuilder[CodingUsageValue]
+    coding_usage: ReloadEffectBuilder[AgentUsageReloadValue]
     coding_compaction: ReloadEffectBuilder[CodingCompactionValue]
     unavailable_default: ReloadEffectBuilder[ReplPendingDefaultReloadValue]
     capability: ReloadEffectBuilder[ToolCapabilityState]
@@ -450,7 +450,7 @@ class PreparedReloadEffects:
     provider_fallback: DetachedReloadEffect[ReplSelectionReloadValue]
     coding_binding: DetachedReloadEffect[CodingReloadBindingValue]
     coding_history: DetachedReloadEffect[CodingReloadHistoryValue]
-    coding_usage: DetachedReloadEffect[CodingUsageValue]
+    coding_usage: DetachedReloadEffect[AgentUsageReloadValue]
     coding_compaction: DetachedReloadEffect[CodingCompactionValue]
     unavailable_default: DetachedReloadEffect[ReplPendingDefaultReloadValue]
     capability: DetachedReloadEffect[ToolCapabilityState]

@@ -155,9 +155,10 @@ and `pending_default` while its caller briefly holds the shared session mutex;
 only replacements are caller-supplied, and R3c3 later compares and publishes in
 one uninterrupted mutex section. `snapshot_reload_state()` is absent and never
 existed in the committed baseline, so no REPL refresh snapshot/publish path
-exists for retained selection/default. `CodingCompactionValue`,
-`CodingUsageValue`, and `ProviderRefreshValue` remain opaque, and package-wide
-inventory proves them uninstalled. The concrete owner imports in
+exists for retained selection/default. At R3c1a shipment,
+`CodingCompactionValue`, `CodingUsageValue`, and `ProviderRefreshValue` were
+opaque and uninstalled. R3c1b has since made only usage concrete; compaction and
+provider refresh remain opaque and uninstalled. The concrete owner imports in
 `session_generation.py` are type-checking only. The executable synthetic-parent
 test proves only that `session_generation.py`'s own runtime dependency closure
 does not import the catalog/auth/coding/REPL owner stacks; it does not exercise
@@ -170,13 +171,26 @@ the same tuple identity instead of making a fresh list-to-tuple copy. This
 tradeoff enables alias-free, assignment-only prepared fallback history
 publication. Observable message order/content remain unchanged and no changelog
 applies, but this representation/performance aspect is not behavior-neutral
-without that qualification. **R3c1b** adds the usage-accumulator owner
-contract. **R3c1c** adds the full catalog/auth refresh owner contracts. **R3c2** retains the behavior-neutral
+without that qualification. **R3c1b** now ships the usage-accumulator owner
+contract: a frozen detached refresh characterization plus a frozen holder for
+one fresh owner-built fallback accumulator. Refresh publication is an explicit
+no-op that retains whatever usage is then live. Fallback ignores counter changes
+but carries an immutable expected-owner identity token, so an intervening
+accumulator swap refuses before publication without retaining the old
+accumulator. The same total check revalidates that the reachable prepared
+replacement is still cleared. A successful publication swaps in the detached
+cleared accumulator, preserves its pricing, and leaves the old accumulator and
+provider failure untouched. Shared-mutex coding adapters never reach
+accumulator-private fields. Their type annotations use the existing allowlisted
+usage-module dependency because the exact R3c1b manifest excludes an
+architecture allowlist change. **R3c1c** is active/next and adds the full
+catalog/auth refresh owner contracts. **R3c2** retains the behavior-neutral
 generation-message routing seam at the actual send and drain owners, with its
 default path exactly as shipped. **R3c3** remains the first user-visible effect
 boundary and composes the shipped R3a/R3b values through all four foundations.
-R3 remains incomplete; R3a, R3b, and R3c1a are shipped facts. This planning
-correction changes no code behavior and has no changelog entry.
+R3 remains incomplete; R3a, R3b, R3c1a, and R3c1b are shipped facts. Neither
+owner foundation has a production caller. This implementation changes no
+user-visible behavior and has no changelog entry.
 
 The accepted composition order remains: activation; the R3a builder;
 replacement `session_start` once against detached sinks; provider catalog,
@@ -693,7 +707,8 @@ record no production caller and no changelog entry. Commit:
 ### R3c1a — local reload owner values
 
 **Status:** shipped in the intended same commit as its code. No production
-caller was installed and no changelog applies. R3c1b is active/next.
+caller was installed and no changelog applies. R3c1b is shipped and R3c1c is
+active/next.
 
 **Kind:** observable-behavior-neutral local owner-state foundation with an
 internal history representation/performance tradeoff.
@@ -790,23 +805,45 @@ revision.
 
 ### R3c1b — usage accumulator reload owner
 
-**Status:** active/next.
+**Status:** shipped in the intended same change as its code. No production caller
+was installed, no user-visible behavior changed, and no changelog applies. R3c1c
+is active/next.
 
 **Kind:** behavior-neutral usage owner-state foundation.
 
-**Scope:** Add an owner-local detached prepare/non-fallible publish contract so
-coding code never reads or writes `AgentUsageAccumulator` private fields and a
-prepared holder cannot alias later live mutation. Refresh preparation retains
-exact usage; fallback preparation publishes the established cleared/replacement
-usage semantics without clearing provider failure. Align the `coding_usage`
-prepared family with the concrete owner value. No production caller, live mutation during preparation, gate
-routing, or consumer move is permitted.
+**Scope:** `AgentUsageAccumulator` now owns exact immutable refresh
+characterization and validation/detachment of a cleared fallback replacement.
+Refresh publication is an explicit no-op, so usage absorbed after preparation
+is retained rather than becoming a refusal or rollback. Fallback preparation
+requires a cleared prototype and copies its pricing into a fresh cleared
+accumulator held only by the frozen prepared value; later mutation of either the
+live accumulator or caller-supplied prototype cannot change that replacement.
+Neither path compares counters. Fallback also carries an immutable identity
+token from the accumulator current at preparation, so an intervening pointer
+swap is refused even if the binding compares equal. The token does not retain
+the old accumulator. That total check also revalidates the prepared
+replacement's cleared invariant immediately before publication.
+`CodingSessionState` re-enters the shared session `RLock` and publishes fallback
+by one pointer assignment, preserving both the old accumulator and provider
+failure. Coding never reads or writes accumulator-private fields. Its annotations
+use the existing allowlisted usage-module dependency because the exact manifest
+does not permit changing the architecture import allowlist.
+`PreparedReloadEffects.coding_usage` uses concrete
+`AgentUsageReloadValue`; `CodingCompactionValue` and `ProviderRefreshValue`
+remain opaque. No production caller, preparation-time live mutation, gate
+routing, or consumer move was added.
 
-**Acceptance:** focused characterization proves exact refresh retention and
-fallback cleared/replacement semantics, defensive detachment from later live
-mutation, no coding access to usage-owner private fields, and non-fallible
-assignment-only publication. Recursive source/AST inventory proves no production
-caller. Preparation failure/disposal leaves live identities and usage unchanged.
+**Acceptance:** focused characterization proves exact refresh retention,
+fallback pointer-replacement semantics, counter-change tolerance, equal-binding
+owner-swap refusal, prepared-replacement drift refusal, defensive detachment
+from later caller mutation, preserved replacement pricing, total rejection of
+unknown or corrupted prepared-family members, complete slot/value coverage, no
+coding access to usage-owner private fields, same-mutex adapters, the exact
+no-op refresh publisher, and the fallback publisher's exact non-fallible
+assignment-only body. Recursive source/AST inventory proves the owner methods
+are called only by the uninstalled coding adapters and those adapters have no
+production caller. Preparation and refusal leave live identities and usage
+unchanged; the usage value has no resource-specific disposal action.
 
 **Exact landing manifest/checks:** source edits are exactly
 `src/pipy_harness/native/agent/usage.py`,
@@ -827,7 +864,7 @@ editable path or limit breach requires plan revision.
 
 ### R3c1c — catalog/auth refresh reload owners
 
-**Status:** follows R3c1b.
+**Status:** active/next after shipped R3c1b.
 
 **Kind:** behavior-neutral catalog/auth owner-state foundation.
 

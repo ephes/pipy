@@ -27,6 +27,7 @@ from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
     AgentTokenPricing,
     AgentUsageAccumulator,
+    AgentUsageRefreshValue,
 )
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding.state import (
@@ -342,6 +343,186 @@ def test_reload_rebind_matches_live_transition_and_preserves_later_retained_stat
         live.compaction_dropped_group_count,
         live.provider_failure,
     )
+
+
+def test_reload_usage_refresh_retains_exact_usage_and_checks_owner_freshness() -> None:
+    accumulator = AgentUsageAccumulator(AgentTokenPricing(1.0, 2.0, 3.0))
+    state = _state(accumulator=accumulator)
+    state.absorb_usage(
+        AgentProviderUsageSample(
+            input_tokens=1_000_000,
+            output_tokens=500_000,
+            total_tokens=1_500_000,
+        )
+    )
+    before = state.usage_snapshot()
+
+    prepared = state.prepare_reload_usage_refresh()
+
+    assert type(prepared) is AgentUsageRefreshValue
+    assert state.reload_usage_matches_expected(prepared)
+    state.publish_reload_usage_refresh(prepared)
+    assert state.usage_snapshot() == before
+    state.absorb_usage(AgentProviderUsageSample(input_tokens=3, total_tokens=3))
+    assert state.reload_usage_matches_expected(prepared)
+    later = state.usage_snapshot()
+    state.publish_reload_usage_refresh(prepared)
+    assert state.usage_snapshot() == later
+
+
+def test_reload_usage_fallback_clears_usage_without_clearing_provider_failure() -> None:
+    accumulator = AgentUsageAccumulator(AgentTokenPricing(1.0, 2.0, 3.0))
+    state = _state(accumulator=accumulator)
+    state.absorb_usage(
+        AgentProviderUsageSample(
+            input_tokens=1_000_000,
+            output_tokens=500_000,
+            total_tokens=1_500_000,
+        )
+    )
+    failure = AgentFailure("ProviderFailure", ProductContent("safe failure"))
+    state.record_provider_failure(failure)
+    replacement_pricing = AgentTokenPricing(4.0, 5.0, 6.0)
+    supplied_replacement = AgentUsageAccumulator(replacement_pricing)
+    prepared = state.prepare_reload_usage_fallback(supplied_replacement)
+
+    assert state.reload_usage_matches_expected(prepared)
+    assert prepared.replacement is not supplied_replacement
+    assert state.usage_snapshot().usage.cost_usd == 2.0
+    supplied_replacement.absorb(
+        AgentProviderUsageSample(input_tokens=1_000_000, total_tokens=1_000_000)
+    )
+    state.absorb_usage(AgentProviderUsageSample(output_tokens=2, total_tokens=2))
+    assert state.reload_usage_matches_expected(prepared)
+    state.publish_reload_usage_fallback(prepared)
+
+    assert state._usage_accumulator is prepared.replacement
+    assert state._usage_accumulator is not accumulator
+    assert state.usage_snapshot() == CodingSessionUsageSnapshot(
+        usage=AgentUsage(), last_total_tokens=0, cache_hit_percent=None
+    )
+    assert state.provider_failure is failure
+    assert accumulator.agent_usage().output_tokens == 500_002
+    state.absorb_usage(
+        AgentProviderUsageSample(input_tokens=1_000_000, total_tokens=1_000_000)
+    )
+    assert state.usage.cost_usd == 4.0
+
+
+def test_reload_usage_fallback_matches_live_pointer_replacement_semantics() -> None:
+    pricing = AgentTokenPricing(2.0, 3.0, 4.0)
+    live_old = AgentUsageAccumulator()
+    prepared_old = AgentUsageAccumulator()
+    sample = AgentProviderUsageSample(
+        input_tokens=7,
+        output_tokens=5,
+        total_tokens=12,
+    )
+    live_old.absorb(sample)
+    prepared_old.absorb(sample)
+    live_state = _state(accumulator=live_old)
+    prepared_state = _state(accumulator=prepared_old)
+    live_value = live_state.prepare_reload_usage_fallback(
+        AgentUsageAccumulator(pricing)
+    )
+    prepared_value = prepared_state.prepare_reload_usage_fallback(
+        AgentUsageAccumulator(pricing)
+    )
+
+    live_state.rebind_provider(
+        live_state.provider,
+        provider_name="replacement",
+        model_id="replacement-model",
+        usage_accumulator=live_value.replacement,
+    )
+    prepared_state.publish_reload_usage_fallback(prepared_value)
+
+    assert live_state._usage_accumulator is live_value.replacement
+    assert prepared_state._usage_accumulator is prepared_value.replacement
+    assert live_state.usage_snapshot() == prepared_state.usage_snapshot()
+    assert live_old.agent_usage() == AgentUsage(input_tokens=7, output_tokens=5)
+    assert prepared_old.agent_usage() == AgentUsage(input_tokens=7, output_tokens=5)
+    live_state.absorb_usage(
+        AgentProviderUsageSample(input_tokens=1_000_000, total_tokens=1_000_000)
+    )
+    prepared_state.absorb_usage(
+        AgentProviderUsageSample(input_tokens=1_000_000, total_tokens=1_000_000)
+    )
+    assert live_state.usage_snapshot() == prepared_state.usage_snapshot()
+    assert live_state.usage.cost_usd == 2.0
+
+
+def test_reload_usage_preparation_does_not_mutate_live_owner_or_usage() -> None:
+    accumulator = AgentUsageAccumulator()
+    state = _state(accumulator=accumulator)
+    state.absorb_usage(AgentProviderUsageSample(input_tokens=5, total_tokens=5))
+    before = state.usage_snapshot()
+
+    owned = state._usage_accumulator
+    prepared = state.prepare_reload_usage_fallback(AgentUsageAccumulator())
+    assert state._usage_accumulator is owned
+    assert state.usage_snapshot() == before
+
+    state.absorb_usage(AgentProviderUsageSample(output_tokens=2, total_tokens=2))
+    assert state.reload_usage_matches_expected(prepared)
+    assert state.usage_snapshot() != before
+    assert accumulator.agent_usage() == state.usage
+    assert state.provider_failure is None
+
+
+def test_reload_usage_fallback_refuses_an_equal_binding_owner_swap() -> None:
+    state = _state(accumulator=AgentUsageAccumulator())
+    binding = state.prepare_reload_refresh(state.provider)
+    prepared = state.prepare_reload_usage_fallback(AgentUsageAccumulator())
+
+    state.rebind_provider(
+        state.provider,
+        provider_name=state.provider_name,
+        model_id=state.model_id,
+        usage_accumulator=AgentUsageAccumulator(),
+    )
+
+    assert state.reload_binding_matches_expected(binding)
+    assert not state.reload_usage_matches_expected(prepared)
+
+
+def test_coding_usage_owner_adapters_use_only_public_accumulator_methods() -> None:
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/coding/state.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    method_names = {
+        "prepare_reload_usage_refresh",
+        "prepare_reload_usage_fallback",
+        "reload_usage_matches_expected",
+        "publish_reload_usage_refresh",
+        "publish_reload_usage_fallback",
+    }
+    methods = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name in method_names
+    ]
+    assert {node.name for node in methods} == method_names
+    for method in methods:
+        assert not any(
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "_usage_accumulator"
+            and node.attr.startswith("_")
+            for node in ast.walk(method)
+        )
+        guards = [node for node in ast.walk(method) if isinstance(node, ast.With)]
+        assert len(guards) == 1
+        assert ast.unparse(guards[0].items[0].context_expr) == "self._state_lock"
+    fallback_publisher = next(
+        method for method in methods if method.name == "publish_reload_usage_fallback"
+    )
+    assert [type(node) for node in fallback_publisher.body] == [ast.Expr, ast.With]
+    guarded_body = cast(ast.With, fallback_publisher.body[1]).body
+    assert [type(node) for node in guarded_body] == [ast.Assign]
+    assignment = cast(ast.Assign, guarded_body[0])
+    assert ast.unparse(assignment.targets[0]) == "self._usage_accumulator"
+    assert ast.unparse(assignment.value) == "value.replacement"
+    assert not any(isinstance(node, ast.Call) for node in ast.walk(fallback_publisher))
 
 
 def test_refresh_and_unavailable_provider_transitions_retain_context() -> None:

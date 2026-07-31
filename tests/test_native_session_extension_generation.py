@@ -13,6 +13,12 @@ from typing import Any, TypeVar, cast, get_type_hints
 import pytest
 
 from pipy_harness.extensions import ToolResult
+from pipy_harness.native.agent.usage import (
+    AgentProviderUsageSample,
+    AgentUsageAccumulator,
+    AgentUsageRefreshValue,
+    AgentUsageReloadValue,
+)
 from pipy_harness.native.catalog_state import ProviderCatalogReloadState
 from pipy_harness.native.coding.state import (
     CodingReloadBindingValue,
@@ -40,7 +46,6 @@ from pipy_harness.native.session_generation import (
     PROJECTION_BUILD_STEPS,
     ActivationInputsValue,
     CodingCompactionValue,
-    CodingUsageValue,
     DetachedReloadEffect,
     ExtensionChromeHandle,
     ExtensionProjection,
@@ -1109,6 +1114,9 @@ def _reload_preparation_ports(  # noqa: C901 - all 15 typed families are explici
         for name in PREPARED_RELOAD_BUILD_STEPS
         if name not in {"projection", "chrome_prepare_input"}
     }
+    usage_source = AgentUsageAccumulator()
+    usage_source.absorb(AgentProviderUsageSample(input_tokens=7, total_tokens=7))
+    payload_sources["coding_usage"] = [usage_source]
     projection_source = _projection(_rich_runtime(tmp_path, "prepared-source"))
     chrome_source = ExtensionChromePrepareInput(ExtensionChromeSink())
 
@@ -1148,6 +1156,10 @@ def _reload_preparation_ports(  # noqa: C901 - all 15 typed families are explici
     def owner_value(value: tuple[object, ...]) -> Any:
         return value
 
+    def usage_value(value: tuple[object, ...]) -> AgentUsageReloadValue:
+        accumulator = cast(AgentUsageAccumulator, value[0])
+        return accumulator.prepare_reload_value_refresh()
+
     constructors = (
         ActivationInputsValue,
         owner_value,
@@ -1156,7 +1168,7 @@ def _reload_preparation_ports(  # noqa: C901 - all 15 typed families are explici
         owner_value,
         owner_value,
         owner_value,
-        CodingUsageValue,
+        usage_value,
         CodingCompactionValue,
         owner_value,
         owner_value,
@@ -1225,7 +1237,16 @@ def test_mutable_reload_builders_finish_before_one_frozen_prepared_assembly(
         prepared.activation_inputs = cast(Any, None)  # type: ignore[misc]
     for name, source_value in sources.items():
         effect = cast(Any, getattr(prepared, name))
-        assert effect.value == tuple(source_value)
+        if name == "coding_usage":
+            usage_value = cast(AgentUsageRefreshValue, effect.value)
+            usage_source = cast(AgentUsageAccumulator, source_value[0])
+            assert usage_value.retained.input_tokens == 7
+            usage_source.absorb(
+                AgentProviderUsageSample(input_tokens=5, total_tokens=5)
+            )
+            assert usage_value.retained.input_tokens == 7
+        else:
+            assert effect.value == tuple(source_value)
         assert effect.value is not source_value
     assert prepared.projection.value is not projection_source
     assert prepared.chrome_prepare_input.value is not chrome_source
@@ -1253,6 +1274,7 @@ def test_prepared_disposal_attempts_all_in_reverse_and_groups_errors(
 
 def test_prepared_reload_owner_families_use_concrete_owner_values() -> None:
     localns = {
+        "AgentUsageReloadValue": AgentUsageReloadValue,
         "CodingReloadBindingValue": CodingReloadBindingValue,
         "CodingReloadHistoryValue": CodingReloadHistoryValue,
         "ExtensionChromePrepareInput": ExtensionChromePrepareInput,
@@ -1267,6 +1289,7 @@ def test_prepared_reload_owner_families_use_concrete_owner_values() -> None:
         "provider_fallback": ReplSelectionReloadValue,
         "coding_binding": CodingReloadBindingValue,
         "coding_history": CodingReloadHistoryValue,
+        "coding_usage": AgentUsageReloadValue,
         "unavailable_default": ReplPendingDefaultReloadValue,
         "capability": ToolCapabilityState,
     }
@@ -1276,7 +1299,6 @@ def test_prepared_reload_owner_families_use_concrete_owner_values() -> None:
         assert value_type in cast(Any, prepared_hints[name]).__args__
     opaque = {
         "provider_refresh": ProviderRefreshValue,
-        "coding_usage": CodingUsageValue,
         "coding_compaction": CodingCompactionValue,
     }
     for name, value_type in opaque.items():
@@ -1341,6 +1363,11 @@ def test_r3c1_owner_apis_have_no_production_caller() -> None:
         "reload_binding_matches_expected": "native/coding/state.py",
         "publish_reload_refresh": "native/coding/state.py",
         "publish_reload_rebind": "native/coding/state.py",
+        "prepare_reload_usage_refresh": "native/coding/state.py",
+        "prepare_reload_usage_fallback": "native/coding/state.py",
+        "reload_usage_matches_expected": "native/coding/state.py",
+        "publish_reload_usage_refresh": "native/coding/state.py",
+        "publish_reload_usage_fallback": "native/coding/state.py",
         "prepare_reload_state": "native/repl_state.py",
         "reload_state_matches_expected": "native/repl_state.py",
         "publish_reload_state": "native/repl_state.py",
@@ -1351,6 +1378,8 @@ def test_r3c1_owner_apis_have_no_production_caller() -> None:
             ["self", "provider"],
             ["provider_name", "model_id"],
         ),
+        "prepare_reload_usage_refresh": (["self"], []),
+        "prepare_reload_usage_fallback": (["self", "replacement_prototype"], []),
         "prepare_reload_state": (
             ["self"],
             ["selection", "pending_default"],
@@ -1391,6 +1420,53 @@ def test_r3c1_owner_apis_have_no_production_caller() -> None:
         name: [expected_path] for name, expected_path in expected_definitions.items()
     }
     assert calls == []
+
+
+def test_usage_accumulator_reload_api_callers_are_exactly_coding_owner_adapters() -> (
+    None
+):
+    expected = {
+        "prepare_reload_value_refresh": "prepare_reload_usage_refresh",
+        "prepare_reload_value_fallback": "prepare_reload_usage_fallback",
+        "reload_value_matches_expected": "reload_usage_matches_expected",
+        "publish_reload_value_refresh": "publish_reload_usage_refresh",
+    }
+    definitions: dict[str, list[str]] = {name: [] for name in expected}
+    calls: dict[str, list[tuple[str, tuple[str, ...]]]] = {
+        name: [] for name in expected
+    }
+
+    def inventory(node: ast.AST, path: str, owners: tuple[str, ...] = ()) -> None:
+        if isinstance(node, ast.ClassDef):
+            owners += (f"class:{node.name}",)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            owners += (f"function:{node.name}",)
+            if node.name in definitions:
+                definitions[node.name].append(path)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in calls
+        ):
+            calls[node.func.attr].append((path, owners))
+        for child in ast.iter_child_nodes(node):
+            inventory(child, path, owners)
+
+    source_root = Path(__file__).parents[1] / "src/pipy_harness"
+    for path in sorted(source_root.rglob("*.py")):
+        relative = path.relative_to(source_root).as_posix()
+        inventory(ast.parse(path.read_text(encoding="utf-8")), relative)
+
+    assert definitions == {name: ["native/agent/usage.py"] for name in expected}
+    assert calls == {
+        name: [
+            (
+                "native/coding/state.py",
+                ("class:CodingSessionState", f"function:{adapter}"),
+            )
+        ]
+        for name, adapter in expected.items()
+    }
 
 
 def test_uninstalled_gate_flushes_all_users_then_customs_then_fifo_unlocked() -> None:
@@ -1712,7 +1788,6 @@ def test_r3b_call_inventory_is_complete_and_uninstalled_across_package() -> None
         "ActivationInputsValue",
         "ProviderFactoryValue",
         "ProviderRefreshValue",
-        "CodingUsageValue",
         "CodingCompactionValue",
         "TemporaryLegacyValue",
         "PresentationPersistenceValue",

@@ -380,11 +380,27 @@ prepared replacement selection/default values and never snapshots or republishes
 still owns the later generation-bound class-A thinking admission. This expected-
 state freshness is an R3c3 reload-acceptance check, not the R5b/R6 class-A API
 conversion; those scopes remain unchanged. R3c1a does not prepare or publish
-`ModelCatalog`/`AuthStore` refresh or the coding usage accumulator.
-`PreparedReloadEffects` uses concrete owner values only for the R3c1a-owned
-families and `NativeToolCapabilities`' existing `ToolCapabilityState`.
-`CodingCompactionValue`, `CodingUsageValue`, and `ProviderRefreshValue` remain
-opaque, and package-wide inventory proves all three are uninstalled. The
+`ModelCatalog`/`AuthStore` refresh or the coding usage accumulator. R3c1b now
+adds the latter through a frozen refresh characterization and a frozen holder
+for one owner-built, cleared replacement accumulator. `AgentUsageAccumulator`
+owns detachment and validation; `CodingSessionState` re-enters the exact shared
+session `RLock` for publication. Refresh publication is an explicit no-op,
+retaining usage absorbed after preparation. Fallback is independent of later
+counter changes, but its immutable identity token refuses an intervening
+accumulator pointer swap even when the binding remains equal. The token does not
+reference or retain the old accumulator. The same acceptance check revalidates
+that the reachable prepared replacement is still cleared.
+Publication swaps in the fresh detached accumulator, leaving the old
+accumulator and provider failure untouched. The replacement preserves the
+cleared prototype's pricing while later mutation of the caller's prototype
+cannot alter the prepared object. Slot/value coverage tests keep every immutable
+refresh field in the detached shape. `PreparedReloadEffects` therefore uses
+concrete owner values for the R3c1a families, existing `ToolCapabilityState`,
+and R3c1b's `AgentUsageReloadValue`. Coding annotations use the already
+allowlisted usage-module dependency rather than widening the concrete-class
+import allowlist, which is outside this slice's exact manifest.
+`CodingCompactionValue` and `ProviderRefreshValue` remain opaque and
+package-wide uninstalled. The
 catalog/coding/REPL owner imports in `session_generation.py` are under
 `TYPE_CHECKING` only. The executable synthetic-parent import test proves only
 that `session_generation.py`'s own runtime dependency closure does not import
@@ -412,8 +428,9 @@ prepared replacement fields changed by its corresponding live transition, and
 never restores retained history, compaction, provider-failure, or thinking
 values from preparation. A second guard, factory, callback, I/O, construction,
 diagnostic, persistence, disposal, or last-reference release is forbidden.
-R3c1b next adds the usage-accumulator owner contract, and R3c1c then adds full
-catalog/auth refresh owner contracts. R3c2 must add the behavior-neutral routing
+R3c1b's usage-accumulator owner contract is shipped without a production caller;
+R3c1c is active/next for full catalog/auth refresh owner contracts. R3c2 must add
+the behavior-neutral routing
 seam at the actual activation-send and renderer-drain owners; R3c3 then composes
 R3a/R3b through R3c1a–R3c1c and R3c2.
 Production consumers still read `generation_ref.current` per access even though
@@ -891,15 +908,18 @@ unchanged consumption of existing `NativeToolCapabilities` ports. Its
 nonfallible assignment-only publishers write replacement values only and never
 restore retained history, compaction, provider failure, or `thinking_level`.
 `snapshot_reload_state()` and a retained REPL refresh snapshot/publish path are
-absent and never existed in the committed baseline. `CodingCompactionValue`,
-`CodingUsageValue`, and `ProviderRefreshValue` remain opaque and package-wide
+absent and never existed in the committed baseline. At R3c1a shipment,
+`CodingCompactionValue`, `CodingUsageValue`, and `ProviderRefreshValue` were
+opaque and package-wide uninstalled. R3c1b has since made only usage concrete as
+`AgentUsageReloadValue`; compaction and provider refresh remain opaque and
 uninstalled. A synthetic-parent executable test proves only that
 `session_generation.py`'s own runtime dependency closure omits the catalog/auth/
 coding/REPL owner stacks; it does not prove real parent package `__init__`
 modules are bypassed. Recursive inventory proves no R3c1a production caller.
-Full usage accumulator and catalog/auth refresh owner ports remain R3c1b and
-R3c1c; R3c2 behavior-neutral routing and R3c3 composition follow. The next architecture
-action is **R3c1b — usage accumulator reload owner**; ordinary product-parity
-selection remains blocked through R7. This docs correction changes no behavior
-and requires no changelog entry.
+The full usage accumulator owner ports are shipped in R3c1b with no production
+caller; catalog/auth refresh remains R3c1c. R3c2 behavior-neutral routing and
+R3c3 composition follow. The next architecture action is **R3c1c — catalog/auth
+refresh reload owners**; ordinary product-parity selection remains blocked
+through R7. This docs correction changes no behavior and requires no changelog
+entry.
 That is not a verdict that the broader program failed.

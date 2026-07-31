@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Mapping
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, fields, replace
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -13,6 +15,10 @@ from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
     AgentTokenPricing,
     AgentUsageAccumulator,
+    AgentUsageAccumulatorValue,
+    AgentUsageFallbackValue,
+    AgentUsageRefreshValue,
+    AgentUsageReloadValue,
 )
 
 
@@ -250,6 +256,131 @@ def test_injected_token_pricing_accumulates_each_counter_cost() -> None:
 
     assert usage.cost_usd == 15.0
     assert usage.agent_usage().cost_usd == 15.0
+
+
+def test_reload_values_are_frozen_detached_and_preserve_exact_refresh_usage() -> None:
+    usage = AgentUsageAccumulator(pricing=_pricing())
+    usage.absorb(
+        _sample(
+            input_tokens=7,
+            output_tokens=3,
+            reasoning_tokens=2,
+            cached_tokens=5,
+            cache_write_tokens=1,
+            total_tokens=18,
+        )
+    )
+
+    prepared = usage.prepare_reload_value_refresh()
+
+    assert isinstance(prepared, AgentUsageReloadValue)
+    assert type(prepared) is AgentUsageRefreshValue
+    assert [field.name for field in fields(prepared)] == ["retained"]
+    assert type(prepared.retained) is AgentUsageAccumulatorValue
+    before = prepared.retained
+    usage.absorb(_sample(input_tokens=11, total_tokens=11))
+    assert prepared.retained is before
+    assert prepared.retained.input_tokens == 7
+    assert usage.reload_value_matches_expected(prepared)
+    usage.publish_reload_value_refresh(prepared)
+    assert usage.agent_usage().input_tokens == 18
+    with pytest.raises(FrozenInstanceError):
+        setattr(prepared.retained, "input_tokens", 99)
+
+
+def test_reload_fallback_detaches_exact_cleared_replacement() -> None:
+    live = AgentUsageAccumulator(pricing=_pricing())
+    live.absorb(_sample(input_tokens=4, output_tokens=2, total_tokens=6))
+    replacement_pricing = AgentTokenPricing(2.0, 3.0, 4.0)
+    replacement = AgentUsageAccumulator(replacement_pricing)
+
+    prepared = live.prepare_reload_value_fallback(replacement)
+    replacement.absorb(_sample(input_tokens=99, total_tokens=99))
+
+    assert type(prepared) is AgentUsageFallbackValue
+    assert type(prepared.expected_owner_token) is object
+    assert prepared.expected_owner_token is not live
+    assert prepared.replacement is not replacement
+    assert prepared.replacement.agent_usage() == AgentUsage()
+    assert prepared.replacement.last_total_tokens == 0
+    assert prepared.replacement.cache_hit_percent is None
+    assert live.reload_value_matches_expected(prepared)
+    assert not AgentUsageAccumulator().reload_value_matches_expected(prepared)
+    assert prepared.replacement.prepare_reload_value_refresh().retained.pricing is (
+        replacement_pricing
+    )
+    with pytest.raises(TypeError, match="expected_owner_token must be an exact object"):
+        AgentUsageFallbackValue(
+            expected_owner_token=live,
+            replacement=AgentUsageAccumulator(),
+        )
+
+
+def test_reload_fallback_rejects_noncleared_replacement_without_live_mutation() -> None:
+    live = AgentUsageAccumulator(pricing=_pricing())
+    live.absorb(_sample(input_tokens=4, total_tokens=4))
+    before = live.prepare_reload_value_refresh().retained
+    replacement = AgentUsageAccumulator()
+    replacement.absorb(_sample(output_tokens=1, total_tokens=1))
+
+    with pytest.raises(ValueError, match="replacement prototype usage must be cleared"):
+        live.prepare_reload_value_fallback(replacement)
+
+    assert live.prepare_reload_value_refresh().retained == before
+    assert live.agent_usage() == AgentUsage(input_tokens=4, cost_usd=0.000004)
+    assert live.last_total_tokens == 4
+
+
+def test_reload_fallback_check_refuses_a_mutated_prepared_replacement() -> None:
+    live = AgentUsageAccumulator()
+    prepared = live.prepare_reload_value_fallback(AgentUsageAccumulator())
+
+    prepared.replacement.absorb(_sample(input_tokens=1, total_tokens=1))
+
+    assert not live.reload_value_matches_expected(prepared)
+
+
+def test_reload_fallback_check_is_total_for_corrupted_replacement_state() -> None:
+    live = AgentUsageAccumulator()
+    prepared = live.prepare_reload_value_fallback(AgentUsageAccumulator())
+    prepared.replacement.cost_usd = cast(float, "corrupt")
+
+    assert not live.reload_value_matches_expected(prepared)
+
+
+def test_reload_refresh_publisher_is_an_exact_no_op() -> None:
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/agent/usage.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    refresh_publisher = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "publish_reload_value_refresh"
+    )
+    assert [type(node) for node in refresh_publisher.body] == [ast.Expr]
+    assert not any(
+        isinstance(node, (ast.Call, ast.Assign, ast.AnnAssign, ast.AugAssign))
+        for node in ast.walk(refresh_publisher)
+    )
+
+
+def test_reload_value_covers_every_accumulator_slot() -> None:
+    value_fields = {field.name for field in fields(AgentUsageAccumulatorValue)}
+    accumulator_fields = set(AgentUsageAccumulator.__slots__)
+
+    assert value_fields - {"pricing"} == accumulator_fields - {
+        "_pricing",
+        "_reload_identity",
+    }
+    assert "pricing" in value_fields
+    assert "_pricing" in accumulator_fields
+    assert "_reload_identity" in accumulator_fields
+
+
+def test_reload_expected_check_is_total_for_unknown_family_members() -> None:
+    usage = AgentUsageAccumulator()
+
+    assert not usage.reload_value_matches_expected(AgentUsageReloadValue())
 
 
 def test_run_accumulators_are_independent() -> None:
