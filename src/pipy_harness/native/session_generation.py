@@ -20,6 +20,15 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Generic, NewType, TypeVar
 
 if TYPE_CHECKING:
+    from pipy_harness.native.catalog_state import ProviderCatalogReloadState
+    from pipy_harness.native.coding.state import (
+        CodingReloadBindingValue,
+        CodingReloadHistoryValue,
+    )
+    from pipy_harness.native.repl_state import (
+        ReplPendingDefaultReloadValue,
+        ReplSelectionReloadValue,
+    )
     from pipy_harness.native.tui import ExtensionChromePrepareInput
 
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
@@ -378,16 +387,10 @@ def build_extension_projection(
 
 ReloadFamilyPayload = tuple[object, ...]
 ActivationInputsValue = NewType("ActivationInputsValue", ReloadFamilyPayload)
-ProviderCatalogValue = NewType("ProviderCatalogValue", ReloadFamilyPayload)
 ProviderFactoryValue = NewType("ProviderFactoryValue", ReloadFamilyPayload)
 ProviderRefreshValue = NewType("ProviderRefreshValue", ReloadFamilyPayload)
-ProviderFallbackValue = NewType("ProviderFallbackValue", ReloadFamilyPayload)
-CodingBindingValue = NewType("CodingBindingValue", ReloadFamilyPayload)
-CodingHistoryValue = NewType("CodingHistoryValue", ReloadFamilyPayload)
 CodingUsageValue = NewType("CodingUsageValue", ReloadFamilyPayload)
 CodingCompactionValue = NewType("CodingCompactionValue", ReloadFamilyPayload)
-UnavailableDefaultValue = NewType("UnavailableDefaultValue", ReloadFamilyPayload)
-CapabilityValue = NewType("CapabilityValue", ReloadFamilyPayload)
 TemporaryLegacyValue = NewType("TemporaryLegacyValue", ReloadFamilyPayload)
 PresentationPersistenceValue = NewType(
     "PresentationPersistenceValue", ReloadFamilyPayload
@@ -415,16 +418,16 @@ class ReloadEffectPreparationPorts:
 
     activation_inputs: ReloadEffectBuilder[ActivationInputsValue]
     projection: ReloadEffectBuilder[ExtensionProjection]
-    provider_catalog: ReloadEffectBuilder[ProviderCatalogValue]
+    provider_catalog: ReloadEffectBuilder[ProviderCatalogReloadState]
     provider_factory: ReloadEffectBuilder[ProviderFactoryValue]
     provider_refresh: ReloadEffectBuilder[ProviderRefreshValue]
-    provider_fallback: ReloadEffectBuilder[ProviderFallbackValue]
-    coding_binding: ReloadEffectBuilder[CodingBindingValue]
-    coding_history: ReloadEffectBuilder[CodingHistoryValue]
+    provider_fallback: ReloadEffectBuilder[ReplSelectionReloadValue]
+    coding_binding: ReloadEffectBuilder[CodingReloadBindingValue]
+    coding_history: ReloadEffectBuilder[CodingReloadHistoryValue]
     coding_usage: ReloadEffectBuilder[CodingUsageValue]
     coding_compaction: ReloadEffectBuilder[CodingCompactionValue]
-    unavailable_default: ReloadEffectBuilder[UnavailableDefaultValue]
-    capability: ReloadEffectBuilder[CapabilityValue]
+    unavailable_default: ReloadEffectBuilder[ReplPendingDefaultReloadValue]
+    capability: ReloadEffectBuilder[ToolCapabilityState]
     temporary_legacy: ReloadEffectBuilder[TemporaryLegacyValue]
     presentation_persistence: ReloadEffectBuilder[PresentationPersistenceValue]
     chrome_prepare_input: ReloadEffectBuilder["ExtensionChromePrepareInput"]
@@ -441,16 +444,16 @@ class PreparedReloadEffects:
 
     activation_inputs: DetachedReloadEffect[ActivationInputsValue]
     projection: DetachedReloadEffect[ExtensionProjection]
-    provider_catalog: DetachedReloadEffect[ProviderCatalogValue]
+    provider_catalog: DetachedReloadEffect[ProviderCatalogReloadState]
     provider_factory: DetachedReloadEffect[ProviderFactoryValue]
     provider_refresh: DetachedReloadEffect[ProviderRefreshValue]
-    provider_fallback: DetachedReloadEffect[ProviderFallbackValue]
-    coding_binding: DetachedReloadEffect[CodingBindingValue]
-    coding_history: DetachedReloadEffect[CodingHistoryValue]
+    provider_fallback: DetachedReloadEffect[ReplSelectionReloadValue]
+    coding_binding: DetachedReloadEffect[CodingReloadBindingValue]
+    coding_history: DetachedReloadEffect[CodingReloadHistoryValue]
     coding_usage: DetachedReloadEffect[CodingUsageValue]
     coding_compaction: DetachedReloadEffect[CodingCompactionValue]
-    unavailable_default: DetachedReloadEffect[UnavailableDefaultValue]
-    capability: DetachedReloadEffect[CapabilityValue]
+    unavailable_default: DetachedReloadEffect[ReplPendingDefaultReloadValue]
+    capability: DetachedReloadEffect[ToolCapabilityState]
     temporary_legacy: DetachedReloadEffect[TemporaryLegacyValue]
     presentation_persistence: DetachedReloadEffect[PresentationPersistenceValue]
     chrome_prepare_input: DetachedReloadEffect["ExtensionChromePrepareInput"]

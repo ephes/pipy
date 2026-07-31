@@ -351,13 +351,71 @@ the live legacy helper and preserves all camel/snake aliases and precedence.
 Chrome prepare is uncalled and can return refusal or an inert token carrying the
 exact typed input, with no commit callback. Production startup/reload,
 activation sends, and the live custom-renderer drain do not call or consult any
-R3b definition. R3c1 must add detached prepare/non-fallible publish APIs at the
-real provider-catalog, coding-session, and `NativeReplProviderState` selection/
-pending-default owners; it consumes/type-aligns `NativeToolCapabilities`'
-existing `ToolCapabilityState` prepare/publish APIs without editing that owner.
-R3c2 must add the behavior-neutral routing seam at the actual activation-send
-and renderer-drain owners; R3c3 then installs these same R3a/R3b values through
-those seams.
+R3b definition. R3c1a now adds detached prepare/non-fallible assignment
+publication for the extension-provider overlay only. Its live and detached
+provider-overlay maps use the same immutable `MappingProxyType` runtime shape.
+Coding prepared binding values carry the exact expected and replacement
+`CodingProviderBinding` values; coding refresh prepares and publishes binding
+only, while coding fallback prepares binding plus immutable empty replacement
+history. Neither path restores retained compaction or provider-failure values
+from a preparation snapshot, and refresh does not snapshot or republish history.
+This required an internal coding-history representation tradeoff: live
+`_messages` is now an immutable tuple, so append replaces the tuple in O(n) time
+rather than using a list's amortized O(1) append. When history is unchanged, the
+`messages` property and result snapshots may share that tuple's identity instead
+of making a fresh list-to-tuple copy. The immutable representation enables
+alias-free, assignment-only prepared fallback history publication. Observable
+message order and content are unchanged, so no changelog entry applies, but the
+representation and append-cost change are not behavior-neutral performance
+facts.
+
+`prepare_reload_state()` itself captures expected live `selection` and
+`pending_default` while its caller briefly holds the shared session mutex; only
+the replacement values are caller-supplied. R3c3 later performs the comparison
+and publication in one uninterrupted mutex section. `snapshot_reload_state()`
+is absent and never existed in the committed baseline, so there is no retained-
+selection/default refresh snapshot/publish path. The publisher writes only the
+prepared replacement selection/default values and never snapshots or republishes
+`thinking_level`, so a concurrent accepted thinking change remains live; R5b
+still owns the later generation-bound class-A thinking admission. This expected-
+state freshness is an R3c3 reload-acceptance check, not the R5b/R6 class-A API
+conversion; those scopes remain unchanged. R3c1a does not prepare or publish
+`ModelCatalog`/`AuthStore` refresh or the coding usage accumulator.
+`PreparedReloadEffects` uses concrete owner values only for the R3c1a-owned
+families and `NativeToolCapabilities`' existing `ToolCapabilityState`.
+`CodingCompactionValue`, `CodingUsageValue`, and `ProviderRefreshValue` remain
+opaque, and package-wide inventory proves all three are uninstalled. The
+catalog/coding/REPL owner imports in `session_generation.py` are under
+`TYPE_CHECKING` only. The executable synthetic-parent import test proves only
+that `session_generation.py`'s own runtime dependency closure does not import
+the catalog/auth/coding/REPL owner stacks; it neither executes nor proves that
+real parent package `__init__` modules are bypassed.
+
+The shared-lock identity is executable evidence, not an assumption:
+`tests/test_native_coding_state.py::test_coding_state_shares_the_session_mutex_when_bound`
+pins `CodingSessionState._state_lock` to the exact supplied session
+`threading.RLock`. In R3c3, while holding that mutex and immediately before
+irrevocable acceptance/publication, orchestration must call the coding and REPL
+owner current-state checks. Any expected binding, selection, or pending-default
+mismatch refuses the prepared candidate without invoking any publisher; R3c3
+unlocks before cleanup, disposal, or diagnostics. A successful check and all
+publication share one uninterrupted mutex section, so no owner mutation can land
+between them. The coding check and vetted publishers re-enter only that same
+lock; the REPL check and publisher and the provider-overlay publisher have no
+inner guard. The exact-shape/current-mismatch and recursive no-production-caller tests pin
+the token behavior and publisher bodies; the synthetic-parent import test pins
+only `session_generation.py`'s own runtime dependency closure. The package-wide
+uninstalled-inventory test pins the remaining opaque families. R3c3's general
+rule is that
+each vetted owner publisher is nonfallible and assignment-only, writes only the
+prepared replacement fields changed by its corresponding live transition, and
+never restores retained history, compaction, provider-failure, or thinking
+values from preparation. A second guard, factory, callback, I/O, construction,
+diagnostic, persistence, disposal, or last-reference release is forbidden.
+R3c1b next adds the usage-accumulator owner contract, and R3c1c then adds full
+catalog/auth refresh owner contracts. R3c2 must add the behavior-neutral routing
+seam at the actual activation-send and renderer-drain owners; R3c3 then composes
+R3a/R3b through R3c1a–R3c1c and R3c2.
 Production consumers still read `generation_ref.current` per access even though
 `snapshot()` exists. R1 now
 owns activation registration with one candidate-host guard over every staged
@@ -498,7 +556,7 @@ firing an accepted replacement generation's `session_start` hook exactly once;
 a rejected replacement fires no retained-generation lifecycle hook. It emits the final reload
 diagnostic next, and the root footer policy runs only after that effect returns.
 The full R1–R6 sequence, including ordered R5a then R5b, remains mandatory before
-R7 can close this boundary; the remediation queue contains exactly 31 execution
+R7 can close this boundary; the remediation queue contains exactly 33 execution
 slices.
 
 ## Sessions, automation, and trust domains
@@ -825,10 +883,23 @@ remains incomplete. The one-shot R3c plan was non-executable because it excluded
 the real `_ActivationApi` owner while requiring gate consultation there, and the
 provider catalog, coding session, and `NativeReplProviderState` selection/
 pending-default owner lacked the required detached prepare/non-fallible publish
-ports. Existing `NativeToolCapabilities` ports are consumed unchanged. It is
-replaced by R3c1 owner state, R3c2 behavior-neutral routing, then R3c3
-composition. The next architecture
-action is **R3c1 — detached reload owner state**; ordinary product-parity
+ports. The first exact R3c1 manifest then proved too broad. Its shipped R3c1a
+portion covers only extension-provider overlay assignment; exact expected/
+replacement coding binding and REPL selection/pending-default values; immutable
+empty fallback replacement history; concrete alignment for those families; and
+unchanged consumption of existing `NativeToolCapabilities` ports. Its
+nonfallible assignment-only publishers write replacement values only and never
+restore retained history, compaction, provider failure, or `thinking_level`.
+`snapshot_reload_state()` and a retained REPL refresh snapshot/publish path are
+absent and never existed in the committed baseline. `CodingCompactionValue`,
+`CodingUsageValue`, and `ProviderRefreshValue` remain opaque and package-wide
+uninstalled. A synthetic-parent executable test proves only that
+`session_generation.py`'s own runtime dependency closure omits the catalog/auth/
+coding/REPL owner stacks; it does not prove real parent package `__init__`
+modules are bypassed. Recursive inventory proves no R3c1a production caller.
+Full usage accumulator and catalog/auth refresh owner ports remain R3c1b and
+R3c1c; R3c2 behavior-neutral routing and R3c3 composition follow. The next architecture
+action is **R3c1b — usage accumulator reload owner**; ordinary product-parity
 selection remains blocked through R7. This docs correction changes no behavior
 and requires no changelog entry.
 That is not a verdict that the broader program failed.

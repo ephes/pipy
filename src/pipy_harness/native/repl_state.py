@@ -43,6 +43,28 @@ class NativeModelSelection:
         return f"{self.provider_name}/{self.model_id}"
 
 
+@dataclass(frozen=True, slots=True)
+class ReplSelectionReloadValue:
+    """Expected and replacement active selection for the reload path."""
+
+    expected: NativeModelSelection
+    replacement: NativeModelSelection
+
+
+@dataclass(frozen=True, slots=True)
+class ReplPendingDefaultReloadValue:
+    """Expected and replacement post-publication persistence payload."""
+
+    expected: NativeModelSelection | None
+    replacement: NativeModelSelection | None
+
+
+@dataclass(frozen=True, slots=True)
+class NativeReplProviderReloadState:
+    selection: ReplSelectionReloadValue
+    pending_default: ReplPendingDefaultReloadValue
+
+
 # Last-resort fake selection for the product REPL. The product REPL always
 # builds the tool-loop session, which requires a tool-capable provider, so the
 # fake fallback must advertise tool calls (``fake/fake-tools`` ->
@@ -367,6 +389,56 @@ class NativeReplProviderState:
         """The merged catalog owned by the runtime."""
 
         return self.model_runtime.catalog
+
+    def prepare_reload_state(
+        self,
+        *,
+        selection: NativeModelSelection,
+        pending_default: NativeModelSelection | None,
+    ) -> NativeReplProviderReloadState:
+        """Capture expected owner state and pair it with replacement values.
+
+        The caller must hold the shared session mutex for this brief pure
+        capture. This method performs no I/O, callback, or factory work.
+        """
+
+        if type(selection) is not NativeModelSelection:
+            raise TypeError("selection must be an exact NativeModelSelection")
+        if (
+            pending_default is not None
+            and type(pending_default) is not NativeModelSelection
+        ):
+            raise TypeError(
+                "pending_default must be an exact NativeModelSelection or None"
+            )
+        return NativeReplProviderReloadState(
+            selection=ReplSelectionReloadValue(self.selection, selection),
+            pending_default=ReplPendingDefaultReloadValue(
+                self.pending_default, pending_default
+            ),
+        )
+
+    def reload_state_matches_expected(
+        self,
+        selection: ReplSelectionReloadValue,
+        pending_default: ReplPendingDefaultReloadValue,
+    ) -> bool:
+        """Compare live state with expected values under the caller's session mutex."""
+
+        return (
+            self.selection == selection.expected
+            and self.pending_default == pending_default.expected
+        )
+
+    def publish_reload_state(
+        self,
+        selection: ReplSelectionReloadValue,
+        pending_default: ReplPendingDefaultReloadValue,
+    ) -> None:
+        """Publish prevalidated owner values by assignments only; never fails."""
+
+        self.selection = selection.replacement
+        self.pending_default = pending_default.replacement
 
     def current_selection(self) -> NativeModelSelection:
         return self.selection

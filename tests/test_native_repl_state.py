@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+from dataclasses import fields
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -17,6 +19,7 @@ from pipy_harness.native.repl_state import (
     AUTO_DEFAULT_PROVIDER_PRIORITY,
     ModelRuntime,
     NativeModelSelection,
+    NativeReplProviderReloadState,
     NativeReplProviderState,
     StaticNativeReplProviderState,
     UnavailableAfterReloadProvider,
@@ -242,6 +245,147 @@ class _StubProvider:
     name = "fake"
     model_id = "fake-native-bootstrap"
     supports_tool_calls = True
+
+
+def test_repl_reload_publication_preserves_thinking_changed_after_preparation(
+    tmp_path: Path,
+) -> None:
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+
+    catalog = ProviderCatalogState(
+        models_json_path=tmp_path / "models.json",
+        env={},
+        openai_codex_auth_path=tmp_path / "no-codex.json",
+    )
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "fake-native-bootstrap"),
+        model_runtime=ModelRuntime(catalog),
+        persist_defaults=False,
+        thinking_level="low",
+    )
+    live_selection = state.selection
+    live_pending_default = state.pending_default
+    replacement = NativeModelSelection("fake", "fake-tools")
+    prepared = state.prepare_reload_state(
+        selection=replacement,
+        pending_default=replacement,
+    )
+    assert isinstance(prepared, NativeReplProviderReloadState)
+    assert [field.name for field in fields(prepared.selection)] == [
+        "expected",
+        "replacement",
+    ]
+    assert [field.name for field in fields(prepared.pending_default)] == [
+        "expected",
+        "replacement",
+    ]
+    assert prepared.selection.expected is live_selection
+    assert prepared.pending_default.expected is live_pending_default
+    assert not hasattr(prepared.selection, "thinking_level")
+    assert state.reload_state_matches_expected(
+        prepared.selection, prepared.pending_default
+    )
+
+    state.thinking_level = "high"
+    assert state.reload_state_matches_expected(
+        prepared.selection, prepared.pending_default
+    )
+    state.publish_reload_state(prepared.selection, prepared.pending_default)
+
+    assert state.selection == replacement
+    assert state.thinking_level == "high"
+    assert state.pending_default == replacement
+
+
+def test_repl_reload_captured_owner_state_detects_later_mutations(
+    tmp_path: Path,
+) -> None:
+    from pipy_harness.native.catalog_state import ProviderCatalogState
+
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("fake", "before"),
+        model_runtime=ModelRuntime(
+            ProviderCatalogState(models_json_path=tmp_path / "models.json", env={})
+        ),
+        persist_defaults=False,
+        pending_default=NativeModelSelection("fake", "pending-before"),
+    )
+    live_selection = state.selection
+    live_pending_default = state.pending_default
+    prepared = state.prepare_reload_state(
+        selection=NativeModelSelection("fake", "after"),
+        pending_default=NativeModelSelection("fake", "after"),
+    )
+
+    assert prepared.selection.expected is live_selection
+    assert prepared.pending_default.expected is live_pending_default
+    assert state.reload_state_matches_expected(
+        prepared.selection, prepared.pending_default
+    )
+    state.selection = NativeModelSelection("fake", "intervening")
+    assert not state.reload_state_matches_expected(
+        prepared.selection, prepared.pending_default
+    )
+    state.selection = prepared.selection.expected
+    state.pending_default = NativeModelSelection("fake", "intervening-default")
+    assert not state.reload_state_matches_expected(
+        prepared.selection, prepared.pending_default
+    )
+
+
+def test_repl_reload_expected_check_has_no_inner_guard_or_writes() -> None:
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/repl_state.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    checker = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "reload_state_matches_expected"
+    )
+    assert not any(
+        isinstance(
+            node,
+            (
+                ast.With,
+                ast.AsyncWith,
+                ast.Assign,
+                ast.AnnAssign,
+                ast.AugAssign,
+                ast.NamedExpr,
+            ),
+        )
+        for node in ast.walk(checker)
+    )
+
+
+def test_repl_reload_publisher_ast_has_exact_assignments_and_no_calls() -> None:
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/repl_state.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    publisher = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "publish_reload_state"
+    )
+    assert not any(isinstance(node, ast.Call) for node in ast.walk(publisher))
+    assert not any(
+        isinstance(node, (ast.With, ast.AsyncWith, ast.AnnAssign, ast.AugAssign))
+        for node in ast.walk(publisher)
+    )
+    assert [type(node) for node in publisher.body] == [
+        ast.Expr,
+        ast.Assign,
+        ast.Assign,
+    ]
+    assignments = [node for node in publisher.body[1:] if isinstance(node, ast.Assign)]
+    assert all(len(node.targets) == 1 for node in assignments)
+    assert [ast.unparse(node.targets[0]) for node in assignments] == [
+        "self.selection",
+        "self.pending_default",
+    ]
+    assert [ast.unparse(node.value) for node in assignments] == [
+        "selection.replacement",
+        "pending_default.replacement",
+    ]
 
 
 def test_settings_overlay_lines_renders_active_and_single_static_option():

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import ast
 import threading
+from pathlib import Path
 
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, fields, replace
 from typing import cast
 
 import pytest
@@ -29,6 +31,8 @@ from pipy_harness.native.agent.usage import (
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding.state import (
     CodingProviderBinding,
+    CodingReloadBindingValue,
+    CodingReloadRebindState,
     CodingSessionResultSnapshot,
     CodingSessionState,
     CodingSessionUsageSnapshot,
@@ -131,6 +135,213 @@ def test_initial_state_uses_explicit_labels_and_detached_immutable_snapshot() ->
     assert snapshot.usage == AgentUsage()
     with pytest.raises(FrozenInstanceError):
         setattr(snapshot, "compaction_count", 1)
+
+
+def test_reload_refresh_publishes_only_binding_and_preserves_later_state() -> None:
+    message = _message("before")
+    later = _message("live-later")
+    failure = AgentFailure("ProviderFailure", ProductContent("safe failure"))
+    state = _state(messages=(message,))
+    replacement = _provider("replacement", "replacement-model")
+
+    expected = state.provider_binding
+    prepared = state.prepare_reload_refresh(replacement)
+    assert type(prepared) is CodingReloadBindingValue
+    assert [field.name for field in fields(prepared)] == ["expected", "replacement"]
+    assert prepared.expected is expected
+    assert state.reload_binding_matches_expected(prepared)
+
+    state.append_message(later)
+    state.apply_compaction(
+        (message, later), summary_suffix="\n\nsummary", dropped_group_count=2
+    )
+    state.record_provider_failure(failure)
+    state.publish_reload_refresh(prepared)
+
+    assert state.provider is replacement
+    assert state.messages == (message, later)
+    assert state.compaction_suffix == "\n\nsummary"
+    assert state.compaction_count == 1
+    assert state.compaction_dropped_group_count == 2
+    assert state.provider_failure is failure
+
+
+def test_reload_refresh_matches_live_transition_for_owned_binding() -> None:
+    original = _provider()
+    live = _state(provider=original, messages=(_message("live"),))
+    detached = _state(provider=original, messages=(_message("detached"),))
+    replacement = _provider("replacement", "replacement-model")
+
+    prepared = detached.prepare_reload_refresh(replacement)
+    assert detached.reload_binding_matches_expected(prepared)
+    live.refresh_provider(replacement)
+    detached.publish_reload_refresh(prepared)
+
+    assert detached.provider_binding == live.provider_binding
+
+
+@pytest.mark.parametrize(
+    ("method_name", "targets", "values"),
+    (
+        (
+            "publish_reload_refresh",
+            ["self._binding"],
+            ["binding.replacement"],
+        ),
+        (
+            "publish_reload_rebind",
+            ["self._binding", "self._messages"],
+            ["binding.replacement", "history.messages"],
+        ),
+    ),
+)
+def test_coding_reload_publishers_have_exact_assignments_under_sole_shared_lock(
+    method_name: str,
+    targets: list[str],
+    values: list[str],
+) -> None:
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/coding/state.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    publisher = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == method_name
+    )
+    assert not any(isinstance(node, ast.Call) for node in ast.walk(publisher))
+    assert not any(
+        isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr))
+        for node in ast.walk(publisher)
+    )
+    assert [type(node) for node in publisher.body] == [ast.Expr, ast.With]
+    guards = [
+        node
+        for node in ast.walk(publisher)
+        if isinstance(node, (ast.With, ast.AsyncWith))
+    ]
+    assert len(guards) == 1
+    guard = guards[0]
+    assert isinstance(guard, ast.With)
+    assert publisher.body[1] is guard
+    assert len(guard.items) == 1
+    assert ast.unparse(guard.items[0].context_expr) == "self._state_lock"
+    assert all(isinstance(node, ast.Assign) for node in guard.body)
+    assignments = cast(list[ast.Assign], guard.body)
+    assert all(len(node.targets) == 1 for node in assignments)
+    assert [ast.unparse(node.targets[0]) for node in assignments] == targets
+    assert [ast.unparse(node.value) for node in assignments] == values
+
+
+def test_reload_rebind_prepares_only_binding_and_immutable_empty_history() -> None:
+    message = _message()
+    state = _state(messages=(message,))
+    replacement = _provider("fallback", "fallback-model")
+
+    prepared = state.prepare_reload_rebind(
+        replacement,
+        provider_name="fallback",
+        model_id="fallback-model",
+    )
+
+    assert type(prepared) is CodingReloadRebindState
+    assert [field.name for field in fields(prepared)] == ["binding", "history"]
+    assert prepared.binding.expected.provider is state.provider
+    assert prepared.binding.replacement == CodingProviderBinding(
+        replacement, "fallback", "fallback-model"
+    )
+    assert type(prepared.history.messages) is tuple
+    assert prepared.history.messages == ()
+    assert state.reload_binding_matches_expected(prepared.binding)
+    assert state.messages == (message,)
+    assert state.provider is not replacement
+
+
+def test_reload_binding_expected_token_refuses_post_prepare_rebind() -> None:
+    state = _state()
+    prepared = state.prepare_reload_refresh(_provider("candidate", "candidate-model"))
+    intervening = _provider("intervening", "intervening-model")
+
+    state.rebind_provider(
+        intervening,
+        provider_name="intervening",
+        model_id="intervening-model",
+        usage_accumulator=AgentUsageAccumulator(),
+    )
+
+    assert not state.reload_binding_matches_expected(prepared)
+    if state.reload_binding_matches_expected(prepared):
+        state.publish_reload_refresh(prepared)
+    assert state.provider_binding == CodingProviderBinding(
+        intervening, "intervening", "intervening-model"
+    )
+
+
+def test_reload_binding_expected_check_is_read_only_under_shared_lock() -> None:
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/coding/state.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    checker = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "reload_binding_matches_expected"
+    )
+    guards = [node for node in ast.walk(checker) if isinstance(node, ast.With)]
+    assert len(guards) == 1
+    assert ast.unparse(guards[0].items[0].context_expr) == "self._state_lock"
+    assert not any(
+        isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr))
+        for node in ast.walk(checker)
+    )
+
+
+def test_reload_rebind_matches_live_transition_and_preserves_later_retained_state() -> (
+    None
+):
+    message = _message("prior history")
+    failure = AgentFailure("ProviderFailure", ProductContent("safe failure"))
+    original = _provider()
+    live = _state(provider=original, messages=(message,))
+    detached = _state(provider=original, messages=(message,))
+    replacement = _provider("fallback", "fallback-model")
+    prepared = detached.prepare_reload_rebind(
+        replacement,
+        provider_name="fallback",
+        model_id="fallback-model",
+    )
+    assert detached.reload_binding_matches_expected(prepared.binding)
+
+    for owner in (live, detached):
+        owner.apply_compaction(
+            (message,),
+            summary_suffix="\n\nsummary",
+            dropped_group_count=2,
+        )
+        owner.record_provider_failure(failure)
+    live.rebind_provider(
+        replacement,
+        provider_name="fallback",
+        model_id="fallback-model",
+        usage_accumulator=AgentUsageAccumulator(),
+    )
+    detached.publish_reload_rebind(
+        binding=prepared.binding,
+        history=prepared.history,
+    )
+
+    assert (
+        detached.provider_binding,
+        detached.messages,
+        detached.compaction_suffix,
+        detached.compaction_count,
+        detached.compaction_dropped_group_count,
+        detached.provider_failure,
+    ) == (
+        live.provider_binding,
+        live.messages,
+        live.compaction_suffix,
+        live.compaction_count,
+        live.compaction_dropped_group_count,
+        live.provider_failure,
+    )
 
 
 def test_refresh_and_unavailable_provider_transitions_retain_context() -> None:

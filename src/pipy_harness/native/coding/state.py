@@ -50,6 +50,28 @@ class CodingProviderBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class CodingReloadBindingValue:
+    expected: CodingProviderBinding
+    replacement: CodingProviderBinding
+
+
+@dataclass(frozen=True, slots=True)
+class CodingReloadHistoryValue:
+    messages: tuple[AgentMessage, ...]
+
+    def __post_init__(self) -> None:
+        require_exact_agent_messages(self.messages)
+
+
+@dataclass(frozen=True, slots=True)
+class CodingReloadRebindState:
+    """Detached binding and immutable replacement history for fallback."""
+
+    binding: CodingReloadBindingValue
+    history: CodingReloadHistoryValue
+
+
+@dataclass(frozen=True, slots=True)
 class CodingSessionUsageSnapshot:
     """Immutable presentation view of the session usage accumulator."""
 
@@ -202,7 +224,7 @@ class CodingSessionState:
             else _require_usage_accumulator(usage_accumulator)
         )
         require_exact_agent_messages(messages)
-        self._messages = list(messages)
+        self._messages = messages
         self._user_turn_count = 0
         self._tool_invocation_count = 0
         self._resource_invocation_count = 0
@@ -255,7 +277,7 @@ class CodingSessionState:
     @property
     def messages(self) -> tuple[AgentMessage, ...]:
         with self._state_lock:
-            return tuple(self._messages)
+            return self._messages
 
     @property
     def compaction_suffix(self) -> str:
@@ -361,7 +383,7 @@ class CodingSessionState:
         with self._state_lock:
             self._binding = binding
             self._usage_accumulator = accumulator
-            self._messages.clear()
+            self._messages = ()
             self._user_turn_count = 0
             self._tool_invocation_count = 0
             self._resource_invocation_count = 0
@@ -378,6 +400,69 @@ class CodingSessionState:
             self._compaction_count = 0
             self._compaction_dropped_group_count = 0
             self._provider_failure = None
+
+    def prepare_reload_refresh(
+        self, provider: ProviderPort
+    ) -> CodingReloadBindingValue:
+        """Prepare the expected and replacement same-context binding."""
+
+        _require_provider(provider)
+        with self._state_lock:
+            expected = self._binding
+            return CodingReloadBindingValue(
+                expected=expected,
+                replacement=CodingProviderBinding(
+                    provider,
+                    expected.provider_name,
+                    expected.model_id,
+                ),
+            )
+
+    def prepare_reload_rebind(
+        self,
+        provider: ProviderPort,
+        *,
+        provider_name: str,
+        model_id: str,
+    ) -> CodingReloadRebindState:
+        """Prepare fallback binding and immutable empty history off to the side."""
+
+        replacement = CodingProviderBinding(provider, provider_name, model_id)
+        with self._state_lock:
+            binding = CodingReloadBindingValue(
+                expected=self._binding,
+                replacement=replacement,
+            )
+        return CodingReloadRebindState(
+            binding=binding,
+            history=CodingReloadHistoryValue(()),
+        )
+
+    def reload_binding_matches_expected(
+        self, binding: CodingReloadBindingValue
+    ) -> bool:
+        """Report whether the prepared binding still matches live owner state."""
+
+        with self._state_lock:
+            return self._binding == binding.expected
+
+    def publish_reload_refresh(self, binding: CodingReloadBindingValue) -> None:
+        """Publish only the binding owned by a same-context refresh."""
+
+        with self._state_lock:
+            self._binding = binding.replacement
+
+    def publish_reload_rebind(
+        self,
+        *,
+        binding: CodingReloadBindingValue,
+        history: CodingReloadHistoryValue,
+    ) -> None:
+        """Publish only the binding and history owned by fallback rebind."""
+
+        with self._state_lock:
+            self._binding = binding.replacement
+            self._messages = history.messages
 
     def refresh_provider(self, provider: ProviderPort) -> None:
         """Replace a same-context provider port while retaining all state."""
@@ -420,34 +505,34 @@ class CodingSessionState:
         with self._state_lock:
             self._binding = binding
             self._usage_accumulator = accumulator
-            self._messages.clear()
+            self._messages = ()
 
     def append_message(self, message: AgentMessage) -> None:
         """Append the exact canonical message object to live history."""
 
         require_exact_agent_message(message, "message")
         with self._state_lock:
-            self._messages.append(message)
+            self._messages += (message,)
 
     def mirror_history(self, messages: tuple[AgentMessage, ...]) -> None:
         """Mirror an agent-loop history without changing compaction metadata."""
 
         require_exact_agent_messages(messages)
         with self._state_lock:
-            self._messages = list(messages)
+            self._messages = messages
 
     def clear_history(self) -> None:
         """Clear live history without changing compaction metadata."""
 
         with self._state_lock:
-            self._messages.clear()
+            self._messages = ()
 
     def rebuild_history(self, messages: tuple[AgentMessage, ...]) -> None:
         """Replace history from product persistence and clear its live suffix."""
 
         require_exact_agent_messages(messages)
         with self._state_lock:
-            self._messages = list(messages)
+            self._messages = messages
             self._compaction_suffix = ""
 
     def sync_tool_policy(self, state: AgentToolPolicyState) -> None:
@@ -548,7 +633,7 @@ class CodingSessionState:
         if dropped_group_count == 0:
             raise ValueError("dropped_group_count must be positive")
         with self._state_lock:
-            self._messages = list(messages)
+            self._messages = messages
             self._compaction_suffix = summary_suffix
             self._compaction_count += 1
             self._compaction_dropped_group_count += dropped_group_count
@@ -574,7 +659,7 @@ class CodingSessionState:
         return CodingSessionResultSnapshot(
             provider_name=self._binding.provider_name,
             model_id=self._binding.model_id,
-            messages=tuple(self._messages),
+            messages=self._messages,
             usage=self._usage_accumulator.agent_usage(),
             user_turn_count=self._user_turn_count,
             tool_invocation_count=self._tool_invocation_count,

@@ -15,6 +15,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from pipy_harness.native.auth_store import (
@@ -73,6 +74,56 @@ def _default_first(
     return (default_model, *(model for model in models if model != default_model))
 
 
+def _derive_extension_provider_overlay_maps(
+    providers: tuple[RegisteredProvider, ...],
+    unregistered: tuple[str, ...],
+) -> tuple[
+    MappingProxyType[str, RegisteredProvider],
+    MappingProxyType[str, RegisteredProvider],
+]:
+    """Purely derive immutable visible and OAuth provider overlay maps."""
+
+    hidden = {name.lower() for name in unregistered}
+    provider_map: dict[str, RegisteredProvider] = {}
+    for registered in providers:
+        name = registered.provider.name.lower()
+        if name not in hidden:
+            provider_map.setdefault(name, registered)
+    oauth_provider_map = {
+        name: registered
+        for name, registered in provider_map.items()
+        if registered.provider.oauth is not None
+    }
+    return MappingProxyType(provider_map), MappingProxyType(oauth_provider_map)
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCatalogReloadState:
+    """Detached extension-provider overlay ready for assignment publication.
+
+    This value covers only transient extension contributions layered over the
+    catalog. It does not prepare or refresh ``ModelCatalog``, ``models.json``,
+    ``AuthStore``, or built-in provider state.
+    """
+
+    providers: tuple[RegisteredProvider, ...]
+    unregistered: tuple[str, ...]
+    provider_map: Mapping[str, RegisteredProvider]
+    oauth_provider_map: Mapping[str, RegisteredProvider]
+
+    def __post_init__(self) -> None:
+        # Copied maps are owned by this value. The publisher transfers them
+        # wholesale; no mutable input container remains aliased.
+        object.__setattr__(self, "providers", tuple(self.providers))
+        object.__setattr__(self, "unregistered", tuple(self.unregistered))
+        object.__setattr__(
+            self, "provider_map", MappingProxyType(dict(self.provider_map))
+        )
+        object.__setattr__(
+            self, "oauth_provider_map", MappingProxyType(dict(self.oauth_provider_map))
+        )
+
+
 @dataclass
 class ProviderCatalogState:
     """Merged catalog + auth availability gate."""
@@ -84,12 +135,12 @@ class ProviderCatalogState:
     runtime_api_key: str | None = None
     extension_providers: tuple[RegisteredProvider, ...] = ()
     extension_unregistered_providers: tuple[str, ...] = ()
-    extension_oauth_provider_map: dict[str, RegisteredProvider] = field(
+    extension_oauth_provider_map: Mapping[str, RegisteredProvider] = field(
         init=False, default_factory=dict
     )
 
     catalog: ModelCatalog = field(init=False)
-    _extension_provider_map: dict[str, RegisteredProvider] = field(
+    _extension_provider_map: Mapping[str, RegisteredProvider] = field(
         init=False, default_factory=dict
     )
 
@@ -102,8 +153,7 @@ class ProviderCatalogState:
             models_json_path=self.models_json_path,
             extra_providers=self._extra_providers(),
         )
-        self._rebuild_extension_provider_map()
-        self._rebuild_extension_oauth_provider_map()
+        self._rebuild_extension_provider_overlay_maps()
         self._apply_oauth_modifiers()
 
     def _apply_oauth_modifiers(self) -> None:
@@ -170,8 +220,42 @@ class ProviderCatalogState:
         self.catalog.refresh()
         if self.auth_store is not None:
             self.auth_store.reload()
-        self._rebuild_extension_provider_map()
-        self._rebuild_extension_oauth_provider_map()
+        self._rebuild_extension_provider_overlay_maps()
+
+    def prepare_extension_provider_contributions(
+        self,
+        providers: tuple[RegisteredProvider, ...],
+        unregistered: tuple[str, ...],
+    ) -> ProviderCatalogReloadState:
+        """Prepare only the detached extension-provider overlay.
+
+        The live catalog, ``models.json`` state, and auth store are untouched.
+        """
+
+        detached_providers = tuple(providers)
+        detached_unregistered = tuple(unregistered)
+        provider_map, oauth_provider_map = _derive_extension_provider_overlay_maps(
+            detached_providers, detached_unregistered
+        )
+        return ProviderCatalogReloadState(
+            providers=detached_providers,
+            unregistered=detached_unregistered,
+            provider_map=provider_map,
+            oauth_provider_map=oauth_provider_map,
+        )
+
+    def publish_extension_provider_contributions(
+        self, prepared: ProviderCatalogReloadState
+    ) -> None:
+        """Publish only a prevalidated extension overlay by assignment.
+
+        Publication never invokes a provider factory or OAuth callback.
+        """
+
+        self.extension_providers = prepared.providers
+        self.extension_unregistered_providers = prepared.unregistered
+        self._extension_provider_map = prepared.provider_map
+        self.extension_oauth_provider_map = prepared.oauth_provider_map
 
     def set_extension_provider_contributions(
         self,
@@ -187,8 +271,7 @@ class ProviderCatalogState:
 
         self.extension_providers = tuple(providers)
         self.extension_unregistered_providers = tuple(unregistered)
-        self._rebuild_extension_provider_map()
-        self._rebuild_extension_oauth_provider_map()
+        self._rebuild_extension_provider_overlay_maps()
 
     def extension_provider_for(self, provider: str) -> RegisteredProvider | None:
         return self._extension_provider_map.get(provider.lower())
@@ -199,22 +282,12 @@ class ProviderCatalogState:
             return None
         return registered.provider.default_model or registered.provider.models[0]
 
-    def _rebuild_extension_provider_map(self) -> None:
-        hidden = {name.lower() for name in self.extension_unregistered_providers}
-        provider_map: dict[str, RegisteredProvider] = {}
-        for registered in self.extension_providers:
-            name = registered.provider.name
-            if name.lower() in hidden:
-                continue
-            provider_map.setdefault(name.lower(), registered)
+    def _rebuild_extension_provider_overlay_maps(self) -> None:
+        provider_map, oauth_provider_map = _derive_extension_provider_overlay_maps(
+            self.extension_providers, self.extension_unregistered_providers
+        )
         self._extension_provider_map = provider_map
-
-    def _rebuild_extension_oauth_provider_map(self) -> None:
-        self.extension_oauth_provider_map = {
-            name: registered
-            for name, registered in self._extension_provider_map.items()
-            if registered.provider.oauth is not None
-        }
+        self.extension_oauth_provider_map = oauth_provider_map
 
     def extension_oauth_provider_for(self, provider: str) -> RegisteredProvider | None:
         return self.extension_oauth_provider_map.get(provider.lower())

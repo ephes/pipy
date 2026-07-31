@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import ast
 import json
+from pathlib import Path
+from types import MappingProxyType
+
+import pytest
 
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import (
+    ProviderCatalogReloadState,
     ProviderCatalogState,
     format_list_models,
+)
+from pipy_harness.native.extension_types import (
+    ExtensionOAuthConfig,
+    ExtensionProvider,
+    RegisteredProvider,
 )
 
 
@@ -107,6 +118,124 @@ def test_stored_copilot_oauth_rewrites_base_url_via_modify_models(tmp_path):
     )
     row = state.find("github-copilot", "gpt-5.4")
     assert row is not None and row.base_url == "https://api.example.com"
+
+
+def test_detached_provider_overlay_has_no_container_alias_and_publishes_only_assignments(
+    tmp_path,
+):
+    state = _state(tmp_path)
+    calls: list[str] = []
+    registered = RegisteredProvider(
+        ExtensionProvider(
+            "detached", "m", ("m",), lambda _context: calls.append("factory")
+        ),
+        "test.py",
+    )
+    providers = [registered]
+    unregistered = ["hidden"]
+
+    prepared = state.prepare_extension_provider_contributions(  # type: ignore[arg-type]
+        providers,
+        unregistered,  # exercise defensive copies from mutable callers
+    )
+    providers.clear()
+    unregistered.append("detached")
+
+    assert isinstance(prepared, ProviderCatalogReloadState)
+    assert prepared.providers == (registered,)
+    assert prepared.unregistered == ("hidden",)
+    with pytest.raises(TypeError):
+        prepared.provider_map["other"] = registered  # type: ignore[index]
+    prior = state.extension_providers
+    state.publish_extension_provider_contributions(prepared)
+    assert prior == ()
+    assert state.extension_providers is prepared.providers
+    assert state.extension_provider_for("detached") is registered
+    assert calls == []
+
+
+def test_detached_publish_matches_live_extension_provider_overlay_rebuild(
+    tmp_path,
+) -> None:
+    calls: list[str] = []
+
+    def registered(name: str, *, oauth: bool = False) -> RegisteredProvider:
+        oauth_config = None
+        if oauth:
+            oauth_config = ExtensionOAuthConfig(
+                name=f"{name} OAuth",
+                login=lambda *args: calls.append(f"{name}:login"),
+                refresh_token=lambda *args: calls.append(f"{name}:refresh"),
+                get_api_key=lambda *args: calls.append(f"{name}:key"),
+            )
+        return RegisteredProvider(
+            ExtensionProvider(
+                name,
+                "m",
+                ("m",),
+                lambda _context: calls.append(f"{name}:factory"),
+                oauth_config,
+            ),
+            f"{name}.py",
+        )
+
+    hidden = registered("Hidden", oauth=True)
+    duplicate_first = registered("Duplicate")
+    duplicate_later = registered("duplicate", oauth=True)
+    oauth = registered("OAuth", oauth=True)
+    plain = registered("Plain")
+    providers = (hidden, duplicate_first, duplicate_later, oauth, plain)
+    unregistered = ("hIDdEn",)
+
+    live = _state(tmp_path / "live")
+    live.set_extension_provider_contributions(providers, unregistered)
+    detached = _state(tmp_path / "detached")
+    prepared = detached.prepare_extension_provider_contributions(
+        providers, unregistered
+    )
+    detached.publish_extension_provider_contributions(prepared)
+
+    live_maps = (
+        live._extension_provider_map,
+        live.extension_oauth_provider_map,
+    )
+    detached_maps = (
+        detached._extension_provider_map,
+        detached.extension_oauth_provider_map,
+    )
+    assert all(
+        type(value) is MappingProxyType for value in (*live_maps, *detached_maps)
+    )
+    assert tuple(map(dict, live_maps)) == tuple(map(dict, detached_maps))
+    assert live.extension_providers == detached.extension_providers == providers
+    assert live.extension_unregistered_providers == unregistered
+    assert detached.extension_unregistered_providers == unregistered
+    assert live.extension_provider_for("HIDDEN") is None
+    assert live.extension_provider_for("duplicate") is duplicate_first
+    assert live.extension_oauth_provider_for("duplicate") is None
+    assert live.extension_oauth_provider_for("OAUTH") is oauth
+    assert live.extension_oauth_provider_for("plain") is None
+    assert calls == []
+
+
+def test_overlay_publisher_has_exact_assignments_and_no_calls() -> None:
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/catalog_state.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    publisher = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "publish_extension_provider_contributions"
+    )
+    assignments = [node for node in publisher.body if isinstance(node, ast.Assign)]
+    assert [ast.unparse(target) for node in assignments for target in node.targets] == [
+        "self.extension_providers",
+        "self.extension_unregistered_providers",
+        "self._extension_provider_map",
+        "self.extension_oauth_provider_map",
+    ]
+    assert all(isinstance(node, (ast.Expr, ast.Assign)) for node in publisher.body)
+    assert not any(isinstance(node, ast.Call) for node in ast.walk(publisher))
 
 
 # ---- list-models rendering --------------------------------------------------

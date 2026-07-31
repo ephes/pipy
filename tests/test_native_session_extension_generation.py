@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar, cast, get_type_hints
 
 import pytest
 
 from pipy_harness.extensions import ToolResult
+from pipy_harness.native.catalog_state import ProviderCatalogReloadState
+from pipy_harness.native.coding.state import (
+    CodingReloadBindingValue,
+    CodingReloadHistoryValue,
+)
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
@@ -32,10 +39,7 @@ from pipy_harness.native.session_generation import (
     PREPARED_RELOAD_BUILD_STEPS,
     PROJECTION_BUILD_STEPS,
     ActivationInputsValue,
-    CapabilityValue,
-    CodingBindingValue,
     CodingCompactionValue,
-    CodingHistoryValue,
     CodingUsageValue,
     DetachedReloadEffect,
     ExtensionChromeHandle,
@@ -46,16 +50,17 @@ from pipy_harness.native.session_generation import (
     OrderedDeliveryToken,
     PreparedReloadEffects,
     PresentationPersistenceValue,
-    ProviderCatalogValue,
     ProviderFactoryValue,
-    ProviderFallbackValue,
     ProviderRefreshValue,
     ReloadEffectPreparationPorts,
     SessionExtensionGeneration,
     SessionGenerationRef,
     TemporaryLegacyValue,
-    UnavailableDefaultValue,
     build_extension_projection,
+)
+from pipy_harness.native.repl_state import (
+    ReplPendingDefaultReloadValue,
+    ReplSelectionReloadValue,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool_capabilities import (
@@ -1140,18 +1145,21 @@ def _reload_preparation_ports(  # noqa: C901 - all 15 typed families are explici
             raise RuntimeError("injected chrome_prepare_input")
         return finish("chrome_prepare_input", replace(chrome_source))
 
+    def owner_value(value: tuple[object, ...]) -> Any:
+        return value
+
     constructors = (
         ActivationInputsValue,
-        ProviderCatalogValue,
+        owner_value,
         ProviderFactoryValue,
         ProviderRefreshValue,
-        ProviderFallbackValue,
-        CodingBindingValue,
-        CodingHistoryValue,
+        owner_value,
+        owner_value,
+        owner_value,
         CodingUsageValue,
         CodingCompactionValue,
-        UnavailableDefaultValue,
-        CapabilityValue,
+        owner_value,
+        owner_value,
         TemporaryLegacyValue,
         PresentationPersistenceValue,
     )
@@ -1241,6 +1249,148 @@ def test_prepared_disposal_attempts_all_in_reverse_and_groups_errors(
         "cleanup capability",
         "cleanup provider_factory",
     ]
+
+
+def test_prepared_reload_owner_families_use_concrete_owner_values() -> None:
+    localns = {
+        "CodingReloadBindingValue": CodingReloadBindingValue,
+        "CodingReloadHistoryValue": CodingReloadHistoryValue,
+        "ExtensionChromePrepareInput": ExtensionChromePrepareInput,
+        "ProviderCatalogReloadState": ProviderCatalogReloadState,
+        "ReplPendingDefaultReloadValue": ReplPendingDefaultReloadValue,
+        "ReplSelectionReloadValue": ReplSelectionReloadValue,
+    }
+    port_hints = get_type_hints(ReloadEffectPreparationPorts, localns=localns)
+    prepared_hints = get_type_hints(PreparedReloadEffects, localns=localns)
+    expected = {
+        "provider_catalog": ProviderCatalogReloadState,
+        "provider_fallback": ReplSelectionReloadValue,
+        "coding_binding": CodingReloadBindingValue,
+        "coding_history": CodingReloadHistoryValue,
+        "unavailable_default": ReplPendingDefaultReloadValue,
+        "capability": ToolCapabilityState,
+    }
+    for name, value_type in expected.items():
+        port_args = cast(Any, port_hints[name]).__args__
+        assert value_type in cast(Any, port_args[-1]).__args__
+        assert value_type in cast(Any, prepared_hints[name]).__args__
+    opaque = {
+        "provider_refresh": ProviderRefreshValue,
+        "coding_usage": CodingUsageValue,
+        "coding_compaction": CodingCompactionValue,
+    }
+    for name, value_type in opaque.items():
+        port_args = cast(Any, port_hints[name]).__args__
+        assert value_type in cast(Any, port_args[-1]).__args__
+        assert value_type in cast(Any, prepared_hints[name]).__args__
+
+
+def test_session_generation_runtime_dependency_closure_excludes_owner_stacks() -> None:
+    """Prove the module's own closure with synthetic parents, not package init."""
+
+    package_root = Path(__file__).parents[1] / "src/pipy_harness"
+    native_root = package_root / "native"
+    script = f"""\
+import importlib
+import sys
+import types
+
+
+def namespace_package(name, path):
+    module = types.ModuleType(name)
+    module.__package__ = name
+    module.__path__ = [path]
+    sys.modules[name] = module
+    return module
+
+
+pipy_package = namespace_package("pipy_harness", {str(package_root)!r})
+native_package = namespace_package("pipy_harness.native", {str(native_root)!r})
+pipy_package.native = native_package
+
+importlib.import_module("pipy_harness.native.session_generation")
+forbidden = (
+    "pipy_harness.native.auth_store",
+    "pipy_harness.native.catalog_state",
+    "pipy_harness.native.coding",
+    "pipy_harness.native.repl_state",
+)
+loaded = sorted(
+    name
+    for name in sys.modules
+    if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden)
+)
+assert loaded == [], loaded
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_r3c1_owner_apis_have_no_production_caller() -> None:
+    expected_definitions = {
+        "prepare_extension_provider_contributions": "native/catalog_state.py",
+        "publish_extension_provider_contributions": "native/catalog_state.py",
+        "prepare_reload_refresh": "native/coding/state.py",
+        "prepare_reload_rebind": "native/coding/state.py",
+        "reload_binding_matches_expected": "native/coding/state.py",
+        "publish_reload_refresh": "native/coding/state.py",
+        "publish_reload_rebind": "native/coding/state.py",
+        "prepare_reload_state": "native/repl_state.py",
+        "reload_state_matches_expected": "native/repl_state.py",
+        "publish_reload_state": "native/repl_state.py",
+    }
+    expected_preparation_arity = {
+        "prepare_reload_refresh": (["self", "provider"], []),
+        "prepare_reload_rebind": (
+            ["self", "provider"],
+            ["provider_name", "model_id"],
+        ),
+        "prepare_reload_state": (
+            ["self"],
+            ["selection", "pending_default"],
+        ),
+    }
+    definitions: dict[str, list[str]] = {name: [] for name in expected_definitions}
+    calls: list[tuple[str, str]] = []
+    source_root = Path(__file__).parents[1] / "src/pipy_harness"
+    source_paths = sorted(source_root.rglob("*.py"))
+    assert source_paths
+    for path in source_paths:
+        relative = path.relative_to(source_root).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name in definitions:
+                    definitions[node.name].append(relative)
+                if node.name in expected_preparation_arity:
+                    positional = [arg.arg for arg in node.args.args]
+                    keyword_only = [arg.arg for arg in node.args.kwonlyargs]
+                    assert (positional, keyword_only) == expected_preparation_arity[
+                        node.name
+                    ]
+                    assert node.args.posonlyargs == []
+                    assert node.args.vararg is None
+                    assert node.args.kwarg is None
+                    assert node.args.defaults == []
+                    assert all(value is None for value in node.args.kw_defaults)
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in expected_definitions
+            ):
+                calls.append((relative, node.func.attr))
+    assert definitions
+    assert sum(map(len, definitions.values())) == len(expected_definitions)
+    assert definitions == {
+        name: [expected_path] for name, expected_path in expected_definitions.items()
+    }
+    assert calls == []
 
 
 def test_uninstalled_gate_flushes_all_users_then_customs_then_fifo_unlocked() -> None:
@@ -1560,16 +1710,10 @@ def test_r3b_call_inventory_is_complete_and_uninstalled_across_package() -> None
         "ExtensionChromeCommitToken",
         "ExtensionChromePreparePort",
         "ActivationInputsValue",
-        "ProviderCatalogValue",
         "ProviderFactoryValue",
         "ProviderRefreshValue",
-        "ProviderFallbackValue",
-        "CodingBindingValue",
-        "CodingHistoryValue",
         "CodingUsageValue",
         "CodingCompactionValue",
-        "UnavailableDefaultValue",
-        "CapabilityValue",
         "TemporaryLegacyValue",
         "PresentationPersistenceValue",
         "build_prepared_reload_effects",

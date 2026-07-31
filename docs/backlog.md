@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R3c1 — detached reload owner state**
+**Active/next slice:** **R3c1b — usage accumulator reload owner**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -102,44 +102,107 @@ families plus the uninstalled ordered-delivery gate and sequencer. Production
 startup/reload still neither calls, installs, publishes, snapshots, nor consumes
 either foundation.
 
-The former one-shot R3c contract is non-executable and is replaced by exactly
-three ordered slices. Its source manifest excluded `extension_runtime.py`, the
-real `_ActivationApi` send owner, while requiring those send paths to consult
-the gate. Separately, the shipped provider catalog, coding session, and provider-
-selection/pending-default owners do not expose every detached prepare value and
-non-fallible publish port required by `PreparedReloadEffects`.
+The former one-shot R3c contract was non-executable and was split around the
+real `_ActivationApi` send owner. Material review then proved the original exact
+R3c1 manifest could not also implement the coding usage-accumulator and full
+catalog/auth refresh owner seams. R3c1 is therefore replaced by R3c1a, R3c1b,
+and R3c1c before the retained R3c2 routing and R3c3 composition slices.
 `NativeReplProviderState` owns selection and pending-default state in
 `repl_state.py`; `_ProviderMutationEffects` currently orchestrates reload
 selection, fallback, and defaults. `NativeToolCapabilities` already ships the
-required `ToolCapabilityState` prepare/publish APIs. This docs-only correction
-changes no code behavior and has no changelog entry; private-field substitution,
+required `ToolCapabilityState` prepare/publish APIs. Private-field substitution,
 guard nesting, and list-subclass interception remain forbidden.
 
-**R3c1 — detached reload owner state** is active/next and behavior-neutral. It
-adds typed detached prepare/non-fallible publish values and APIs at the real
-provider catalog, coding session, and `NativeReplProviderState` selection/
-pending-default owner, then aligns `PreparedReloadEffects` with those values.
-It consumes/type-aligns `NativeToolCapabilities`' existing `ToolCapabilityState`
-APIs without editing that owner. It has no startup/reload caller, live mutation,
-provider factory invocation during publication, or gate routing.
-`_ProviderMutationEffects` may orchestrate only detached preparation through
-these APIs in R3c3, never pre-acceptance live mutation or rollback. Snapshot/no-
-alias, complete failure isolation/disposal, assignment-only publication, and
-recursive no-caller inventory are mandatory. Its exact source manifest is
+**R3c1a — local reload owner values** is shipped in the intended same commit as
+its code. Observable message order/content and reload behavior are unchanged,
+but the slice includes an internal coding-history representation/performance
+tradeoff rather than being unqualifiedly behavior-neutral. Live `_messages` is
+now an immutable tuple; append uses tuple replacement and is O(n) per append
+instead of amortized O(1). When history is unchanged, the `messages` property
+and result snapshots may share that same tuple identity rather than returning a
+fresh list-to-tuple copy. This immutable shape enables alias-free, assignment-
+only prepared fallback history publication. No changelog applies.
+
+R3c1a adds detached preparation and assignment-only publication for the
+extension-provider overlay, not `ModelCatalog` or `AuthStore` refresh. Both live
+and detached provider-overlay maps use the same immutable `MappingProxyType`
+runtime shape. Coding prepared binding values carry exact expected and
+replacement `CodingProviderBinding` values; coding refresh publishes binding
+only, while coding fallback publishes binding plus immutable empty replacement
+history exactly like live `rebind_provider()`. The publishers write replacement
+values only: refresh never republishes retained history, and neither coding path
+restores compaction or provider failure from a preparation snapshot.
+`prepare_reload_state()` itself captures expected live selection and
+`pending_default` while its caller briefly holds the shared session mutex; only
+replacement values are caller-supplied. R3c3 later compares and publishes in one
+uninterrupted mutex section. `snapshot_reload_state()` is absent and never
+existed in the committed baseline, so there is no REPL refresh snapshot/publish
+path for retained selection/default; REPL publication also never restores
+`thinking_level`. A concurrent accepted thinking change is therefore preserved,
+and this owner-state freshness does not change the later R5b/R6 generation-bound
+class-A scopes. `PreparedReloadEffects` uses concrete values for only those
+families and the existing `ToolCapabilityState`; `CodingCompactionValue`,
+`CodingUsageValue`, and `ProviderRefreshValue` remain opaque, with package-wide
+inventory proving all three are uninstalled. The concrete catalog/coding/REPL
+imports in `session_generation.py` are type-checking only. The executable
+synthetic-parent test proves only that `session_generation.py`'s own runtime
+dependency closure does not import the catalog/auth/coding/REPL owner stacks; it
+does not exercise or prove bypass of real parent package `__init__` modules. No
+production caller is installed. The exact source manifest remains
 `catalog_state.py`, `coding/state.py`, `repl_state.py`, and
-`session_generation.py`; its exact editable test manifest is
+`session_generation.py`; exact editable tests remain
 `tests/test_native_catalog_state.py`, `tests/test_native_coding_state.py`,
 `tests/test_native_repl_state.py`, and
-`tests/test_native_session_extension_generation.py`. Checks also run
-`tests/test_native_tool_capabilities.py`,
-`tests/test_native_extension_providers.py`,
-`tests/test_native_provider_catalog.py`, and
-`tests/test_native_dynamic_provider_swap.py`; `just check` is the full-suite
-gate. The production+test budget is 1,200
-changed lines and 400 per source. No changelog; commit
-`refactor: prepare detached reload owner state`.
+`tests/test_native_session_extension_generation.py`; only this backlog, the
+remediation plan, transactional spec, and architecture docs are editable.
+Focused tests prove exact expected-token current/mismatch behavior, exact
+publisher shape, no production callers, the type-only imports within
+`session_generation.py`'s own runtime dependency closure, and the opaque
+package-wide uninstalled inventory. They include those four
+modules plus the unchanged tool-capability, extension-provider, provider-catalog,
+and dynamic-provider-swap characterization suites; Mypy, `just check`, `just
+docs-build`, exact manifest, 1,200 production+test changed lines, and 400 per
+source are gates. No changelog; commit
+`refactor: prepare local reload owner values`.
 
-**R3c2 — installable generation message routing seam** is behavior-neutral on
+**R3c1b — usage accumulator reload owner** is active/next and behavior-neutral.
+It adds an owner-local detached prepare/non-fallible publish contract so coding
+code never reads or writes `AgentUsageAccumulator` private fields, prepared
+holders do not alias later live mutation, refresh retains exact usage, and
+fallback publishes cleared/replacement usage semantics. That clearing applies
+only to usage: fallback preserves provider failure. No production caller is
+installed. Exact sources are `src/pipy_harness/native/agent/usage.py`,
+`src/pipy_harness/native/coding/state.py`, and
+`src/pipy_harness/native/session_generation.py`; exact editable tests are
+`tests/test_native_agent_usage.py`, `tests/test_native_coding_state.py`, and
+`tests/test_native_session_extension_generation.py`; only the same four planning
+docs are otherwise editable. Run those focused modules and relevant unchanged
+coding/provider characterization, Mypy on the three sources, `git diff --check`,
+`just check`, and `just docs-build`; enforce 1,200 production+test changed lines
+and 400 per source. No changelog; commit
+`refactor: prepare reload usage owner state`.
+
+**R3c1c — catalog/auth refresh reload owners** follows R3c1b and is behavior-
+neutral. It adds owner-local detached preparation for the full `ModelCatalog`
+refresh and `AuthStore` reload performed by `ProviderCatalogState.refresh()`.
+All I/O and fallible construction finish before acceptance; only vetted
+non-fallible owner publication follows. The R3c1a extension-provider overlay
+primitive remains unchanged, and prepared holders do not alias later live
+mutation. No production caller is installed. Exact sources are
+`src/pipy_harness/native/auth_store.py`,
+`src/pipy_harness/native/models_json.py`,
+`src/pipy_harness/native/catalog_state.py`, and
+`src/pipy_harness/native/session_generation.py`; exact editable tests are
+`tests/test_native_auth_store.py`, `tests/test_native_models_json.py`,
+`tests/test_native_catalog_state.py`, and
+`tests/test_native_session_extension_generation.py`; only the same four planning
+docs are otherwise editable. Run those focused modules and relevant unchanged
+provider characterization, Mypy on the four sources, `git diff --check`,
+`just check`, and `just docs-build`; enforce 1,200 production+test changed lines
+and 400 per source. No changelog; commit
+`refactor: prepare reload catalog and auth state`.
+
+**R3c2 — installable generation message routing seam** follows R3c1c and is behavior-neutral on
 the default path. The actual `_ActivationApi` owner and generation queue sidecar
 provide one installable routing port consulted before the sealed/pending branch
 by user/custom send names and alias and by `_CustomEntryRenderer` drain/delivery.
@@ -159,19 +222,40 @@ manifest paths. The same 1,200/400 budgets apply. No changelog; commit
 `refactor: route extension messages through queue sidecars`.
 
 **R3c3 — accept and publish one prepared reload** retains the prior user-visible
-composition scope and consumes R3c1/R3c2. Its exact sequence is activation →
+composition scope and consumes R3c1a–R3c1c plus R3c2. Its exact sequence is activation →
 R3a builder → install candidate routing and run replacement `session_start` once
 → provider catalog/factory/refresh/fallback → coding/history/usage/compaction →
-unavailable/default/capability → one prepared freeze → chrome prepare as final
-acceptance → gate reserve/install plus assignment-only publication under the
-session mutex → unlock → frozen staged delivery → gate release/drain →
-presentation/persistence. Installed candidate routing queues post-freeze sends;
+unavailable/default/capability → one prepared freeze → chrome prepare as the
+final fallible preparation → take the session mutex and reserve the gate → call
+the coding and REPL owner current-state checks immediately before irrevocable
+acceptance/publication → on success, install and publish without unlocking →
+unlock → frozen staged delivery → gate release/drain → presentation/persistence.
+Any expected binding, selection, or pending-default mismatch refuses the
+prepared candidate without invoking a publisher, then unlocks before cleanup,
+disposal, or diagnostics. Installed candidate routing queues post-freeze sends;
 an ordinary uninstalled R1 sealed-pending host remains a silent no-op.
 
-Static lock instrumentation allows only gate state, prevalidated assignments,
-and retired-value pinning under the session mutex; candidate/chrome/paint guards
-and all callbacks, provider work, delivery, cleanup, I/O, and persistence remain
-outside. Candidate↔session, session→chrome, session→`mutation_io_lock`, and
+Static lock instrumentation permits only gate state, bounded expected-state
+comparisons/refusal, retired-value pinning, direct assignments, and calls to
+explicitly vetted non-fallible owner publishers under the session mutex. The
+successful owner checks and publication occupy one uninterrupted mutex section,
+so no owner mutation can land between them. Existing executable evidence
+`tests/test_native_coding_state.py::test_coding_state_shares_the_session_mutex_when_bound`
+pins `CodingSessionState._state_lock` to the exact supplied session
+`threading.RLock`, so its publisher may re-enter only that same RLock under the
+outer section and must never acquire a distinct coding/owner guard. The R3c1a
+provider-catalog overlay and `NativeReplProviderState` publishers have no inner
+guard and are called only while the shared session mutex is already held. The
+new coding, overlay, and REPL publisher-shape tests pin the exact assignment and
+guard/no-guard bodies. A vetted owner publisher is nonfallible and assignment-
+only, writes replacement values only for fields changed by the corresponding
+live transition, and never restores retained history, compaction, provider-
+failure, or thinking values from preparation. The expected-state checks are
+owner freshness for R3c3 acceptance, not the later generation-bound class-A API
+conversion; R5b/R6 stay unchanged. No second guard, factory, callback, I/O,
+construction, diagnostic, persistence, disposal, or last-reference release is
+permitted there. Candidate/chrome/paint guards and all callbacks,
+provider work, delivery, cleanup, I/O, and persistence remain outside. Candidate↔session, session→chrome, session→`mutation_io_lock`, and
 chrome→paint nesting are forbidden. Free-form undo logs, compensating live
 provider rollback, duplicate `session_start`, mutable prepared holders, and
 preserved destructive reconcile/repair hunks are forbidden. R3c3 retains exactly
@@ -182,20 +266,22 @@ suppresses staged messages that `606a860` could expose. Its exact manifests,
 changelog target is the existing `### Fixed` bullet beginning “Extension reload
 no longer clears live retained TUI chrome before activation”.
 
-The mandatory order is R3c1 → R3c2 → R3c3 → R4a. R4a later converts only live
-append/detach/drain/close synchronization and must not redefine R3b's token or
-staged sequence. R5a/R5b/R6 ownership and the class-A count of three are
-unchanged. Provenance is fixed: the R5a split brought the queue to 27 slices,
-the R3a/R3b/R3c split brought it to 29, and the R3c1/R3c2/R3c3 split brings it
-to exactly 31. No ordinary cleanup, parity, lint, provider-test, or contributor
+The mandatory order is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a. R4a later
+converts only live append/detach/drain/close synchronization and must not
+redefine R3b's token or staged sequence. R5a/R5b/R6 ownership and the class-A
+count of three are unchanged. Provenance is fixed: the R5a split brought the
+queue to 27 slices, the R3a/R3b/R3c split brought it to 29, the initial
+R3c1/R3c2/R3c3 split brought it to 31, and splitting R3c1 into R3c1a–R3c1c
+brings it to exactly 33. No ordinary cleanup, parity, lint, provider-test, or contributor
 work may start before R7 closes the transactional boundary or an independently
 reviewed formal reconciliation proves an alternative contract. The controlling
 boundary remains the
 [2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md); R0 alone
 does not clear it.
 
-The queue has exactly **31 numbered execution slices**: G0; fifteen R slices
-(R0, R1, R2, R3a, R3b, R3c1, R3c2, R3c3, R4a, R4b, R4c, R5a, R5b, R6, R7); D1;
+The queue has exactly **33 numbered execution slices**: G0; seventeen R slices
+(R0, R1, R2, R3a, R3b, R3c1a, R3c1b, R3c1c, R3c2, R3c3, R4a, R4b, R4c, R5a,
+R5b, R6, R7); D1;
 nine separately bounded lint/fix/enablement slices L1-L9; P1-P2; A1; T1; and C1. The plan's commit gate
 is universal rather than a final slice: every slice
 uses a fresh Pi implementer, focused and full checks, an update to the labeled
@@ -460,7 +546,7 @@ Progress:
   tool-capability publication, terminal refresh, publication-gate closure,
   post-gate lifecycle firing, and the final diagnostic order. The uncommitted
   R3 attempt sought to move replacement `session_start` before pointer
-  publication; the R3a/R3b/R3c1–R3c3 split leaves this shipped order unchanged until
+  publication; the R3a/R3b/R3c1a–R3c3 split leaves this shipped order unchanged until
   R3c3 owns the two documented candidate-effect visibility changes.
   `_ProviderMutationEffects` remains authoritative for reload provider refresh,
   fallback, unavailable binding, usage rebinding, and default-persistence
