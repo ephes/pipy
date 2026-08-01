@@ -24,7 +24,10 @@ from pipy_harness.native.coding.commands import (
     CodingCommandOutcomeKind,
 )
 from pipy_harness.native.extension_hooks import _ExtensionLifecycleAgentEventAdapter
-from pipy_harness.native.extension_runtime import _ExtensionCandidate
+from pipy_harness.native.extension_runtime import (
+    GenerationMessageRouting,
+    _ExtensionCandidate,
+)
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_generation import (
     SessionExtensionGeneration,
@@ -932,6 +935,7 @@ def _runtime() -> Any:
         flags=(),
         custom_messages=(),
         activation_hosts=(),
+        message_routing=GenerationMessageRouting([], []),
     )
 
 

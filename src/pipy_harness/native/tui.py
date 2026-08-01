@@ -158,6 +158,7 @@ from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
 )
+from pipy_harness.native.session_generation import SessionGenerationSnapshot
 from pipy_harness.native.session_tree import (
     CustomEntry as _CustomEntry,
 )
@@ -1411,6 +1412,16 @@ class _CustomEntryRenderer:
     terminal_ui: "ToolLoopTerminalUi | None"
     coding_input_queue: CodingInputQueue
     error_stream: TextIO
+    generation_snapshot: Callable[[], SessionGenerationSnapshot | None] | None = None
+
+    def _snapshot(self) -> SessionGenerationSnapshot | None:
+        provider = self.generation_snapshot
+        if provider is None:
+            return None
+        try:
+            return provider()
+        except Exception:
+            return None
 
     def render_extension_custom_message(
         self,
@@ -1584,13 +1595,18 @@ class _CustomEntryRenderer:
         options: Mapping[str, object],
         details: object | None = None,
     ) -> object:
-        appended = self.ctl.session_tree.append_custom_message(
-            custom_type,
-            content,
-            display=display,
-            details=details,
+        return self._deliver_custom_message(
+            QueuedCustomMessage(custom_type, content, display, details, options)
         )
-        if display:
+
+    def _deliver_custom_message(self, message: QueuedCustomMessage) -> object:
+        appended = self.ctl.session_tree.append_custom_message(
+            message.custom_type,
+            message.content,
+            display=message.display,
+            details=message.details,
+        )
+        if message.display:
             if self.terminal_ui is not None:
                 self.add_custom_message_entry_to_terminal(appended)
             else:
@@ -1601,11 +1617,13 @@ class _CustomEntryRenderer:
                 self.session._emit_diagnostic(
                     self.terminal_ui,
                     self.error_stream,
-                    f"{custom_type}:\n{lines}" if lines else custom_type,
+                    f"{message.custom_type}:\n{lines}"
+                    if lines
+                    else message.custom_type,
                 )
         _route_legacy_custom_message_input(
-            content,
-            options,
+            message.content,
+            message.options,
             in_agent_turn=self.ctl.extension_in_agent_turn,
             enqueue_next_turn=self.coding_input_queue.enqueue_next_turn_context,
             enqueue_steering=self.coding_input_queue.enqueue_extension_steering,
@@ -1615,22 +1633,35 @@ class _CustomEntryRenderer:
         return appended.id
 
     def drain_extension_outboxes(self) -> None:
-        """Move newly scheduled extension messages into session queues."""
+        """Move one coherent generation's scheduled messages into session queues."""
 
-        for message in drain_user_messages(self.ctl.extension_message_outbox):
+        snapshot = self._snapshot()
+        if snapshot is None:
+            self._drain_extension_outboxes_direct(
+                self.ctl.extension_message_outbox,
+                self.ctl.extension_custom_message_outbox,
+            )
+            return
+        runtime = snapshot.generation.runtime
+        if runtime.message_routing.route_drain(
+            lambda: self._drain_extension_outboxes_direct(
+                runtime.outbox, runtime.custom_outbox
+            )
+        ):
+            return
+        self._drain_extension_outboxes_direct(runtime.outbox, runtime.custom_outbox)
+
+    def _drain_extension_outboxes_direct(
+        self,
+        user_outbox: list[QueuedUserMessage],
+        custom_outbox: list[QueuedCustomMessage],
+    ) -> None:
+        for message in drain_user_messages(user_outbox):
             self.coding_input_queue.enqueue_extension_prompt(
                 ProductContent(message.content)
             )
-        for custom_message in drain_custom_messages(
-            self.ctl.extension_custom_message_outbox
-        ):
-            self.extension_send_message(
-                custom_message.custom_type,
-                custom_message.content,
-                custom_message.display,
-                custom_message.options,
-                custom_message.details,
-            )
+        for custom_message in drain_custom_messages(custom_outbox):
+            self._deliver_custom_message(custom_message)
 
 
 class _CustomOverlayHandle:

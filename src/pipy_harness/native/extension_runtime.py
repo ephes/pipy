@@ -40,15 +40,17 @@ from __future__ import annotations
 import inspect
 import json
 import threading
+from collections import deque
 from collections.abc import (
     Callable,
     Container,
     Iterable,
+    Iterator,
     Mapping,
     MutableMapping,
     Sequence,
 )
-from contextlib import AbstractContextManager, ExitStack
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -512,14 +514,23 @@ class ActivatedExtension:
         object.__setattr__(self, "hooks", MappingProxyType(dict(self.hooks)))
 
 
-@dataclass(slots=True)
 class ExtensionActivationBatch:
-    """One reusable extension activation pass and its shared live outboxes."""
-
-    activated: tuple[ActivatedExtension, ...]
-    message_outbox: list[QueuedUserMessage]
-    custom_message_outbox: list[QueuedCustomMessage]
-    pending: bool = False
+    def __init__(
+        self,
+        activated: tuple[ActivatedExtension, ...],
+        message_outbox: list[QueuedUserMessage],
+        custom_message_outbox: list[QueuedCustomMessage],
+        pending: bool = False,
+        message_routing: GenerationMessageRouting | None = None,
+    ) -> None:
+        self.activated, self.pending = activated, pending
+        self.message_outbox, self.custom_message_outbox = (
+            message_outbox,
+            custom_message_outbox,
+        )
+        self.message_routing = _routing_for_activation_batch(
+            activated, message_outbox, custom_message_outbox, supplied=message_routing
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -552,6 +563,19 @@ class _ExtensionRuntime:
     entry_renderers: dict[str, RegisteredEntryRenderer]
     custom_messages: tuple[QueuedCustomMessage, ...]
     activation_hosts: tuple["_ActivationApi", ...]
+    message_routing: GenerationMessageRouting
+
+    def __post_init__(self) -> None:
+        if (
+            self.message_routing.user_outbox is not self.outbox
+            or self.message_routing.custom_outbox is not self.custom_outbox
+        ):
+            raise ValueError("runtime routing must own its exact outboxes")
+        if any(
+            host.message_routing is not self.message_routing
+            for host in self.activation_hosts
+        ):
+            raise ValueError("runtime hosts must share its exact message routing")
 
 
 @dataclass(frozen=True, slots=True)
@@ -615,6 +639,217 @@ _RegistrationFamily: TypeAlias = Literal[
     "message_renderer",
     "entry_renderer",
 ]
+_MessageDelivery: TypeAlias = Callable[[], None]
+_DeliveryValue = TypeVar("_DeliveryValue")
+_RLOCK_TYPE = type(threading.RLock())
+
+
+class OrderedMessageDeliveryGate(Protocol):
+    def submit(self, delivery: _MessageDelivery) -> None: ...
+
+    def append_reserved(self, deliveries: deque[_MessageDelivery]) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationMessageReservation:
+    owner: "GenerationMessageRouting"
+    delivery: _MessageDelivery
+    forwarding: _MessageDelivery
+    allow_uninstalled_fallback: bool
+
+
+class GenerationMessageRouting:
+    def __init__(
+        self,
+        user_outbox: list[QueuedUserMessage],
+        custom_outbox: list[QueuedCustomMessage],
+        *,
+        mutex: threading.RLock | None = None,
+        boundary_observer: Callable[[str], None] | None = None,
+    ) -> None:
+        if type(user_outbox) is not list or type(custom_outbox) is not list:
+            raise TypeError("generation message outboxes must be exact lists")
+        if mutex is not None and not isinstance(mutex, _RLOCK_TYPE):
+            raise TypeError("generation message routing mutex must be an RLock")
+        self._user_outbox = user_outbox
+        self._custom_outbox = custom_outbox
+        self._mutex = mutex
+        self._boundary_observer = boundary_observer
+        self._state: Literal[
+            "uninstalled", "candidate", "releasing", "live", "retired"
+        ] = "uninstalled"
+        self._gate: OrderedMessageDeliveryGate | None = None
+        self._pending: deque[_MessageDelivery] | None = None
+
+    @property
+    def user_outbox(self) -> list[QueuedUserMessage]:
+        return self._user_outbox
+
+    @property
+    def custom_outbox(self) -> list[QueuedCustomMessage]:
+        return self._custom_outbox
+
+    @property
+    def mutex(self) -> threading.RLock | None:
+        return self._mutex
+
+    def _bind_session_mutex(self, mutex: threading.RLock) -> None:
+        if not isinstance(mutex, _RLOCK_TYPE):
+            raise TypeError("generation message routing mutex must be an RLock")
+        if self._mutex is None:
+            if self._state != "uninstalled":
+                raise RuntimeError("only an uninstalled route can receive its mutex")
+            self._mutex = mutex
+        elif self._mutex is not mutex:
+            raise ValueError("message routing must retain one exact session mutex")
+
+    def _observe(self, event: str) -> None:
+        if self._boundary_observer is not None:
+            self._boundary_observer(event)
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        mutex = self._mutex
+        if mutex is None:
+            raise RuntimeError("unbound routing has no session guard")
+        self._observe("routing_guard_enter")
+        try:
+            with mutex:
+                yield
+        finally:
+            self._observe("routing_guard_exit")
+
+    def _pending_fifo(self) -> deque[_MessageDelivery]:
+        pending = self._pending
+        if pending is None:
+            raise RuntimeError("candidate message route has no pending FIFO")
+        return pending
+
+    def accept(self, reservation: GenerationMessageReservation) -> None:
+        if reservation.owner is not self:
+            return
+        if self._mutex is None:
+            if reservation.allow_uninstalled_fallback:
+                self._observe("direct_fallback")
+                reservation.delivery()
+            return
+        direct = False
+        claim: tuple[OrderedMessageDeliveryGate, _MessageDelivery] | None = None
+        with self._locked():
+            if self._state == "uninstalled":
+                direct = reservation.allow_uninstalled_fallback
+            elif self._state in ("candidate", "releasing"):
+                self._pending_fifo().append(reservation.forwarding)
+            elif self._state == "live":
+                if self._gate is None:
+                    raise RuntimeError("live message route has no delivery gate")
+                claim = (self._gate, reservation.forwarding)
+        if direct:
+            self._observe("direct_fallback")
+            reservation.delivery()
+        elif claim is not None:
+            claim[0].submit(claim[1])
+
+    def _install_candidate_route(self, gate: OrderedMessageDeliveryGate) -> None:
+        if self._mutex is None:
+            raise ValueError("unbound direct routing cannot be installed")
+        pending: deque[_MessageDelivery] = deque()
+        with self._locked():
+            if self._state != "uninstalled":
+                raise RuntimeError("candidate message route is unavailable")
+            self._gate = gate
+            self._pending = pending
+            self._state = "candidate"
+
+    def release_pending(self) -> int:
+        if self._mutex is None:
+            return 0
+        with self._locked():
+            if self._state != "candidate":
+                return 0
+            gate = self._gate
+            if gate is None:
+                raise RuntimeError("candidate message route has no delivery gate")
+            prefix = self._pending_fifo()
+            self._pending = deque()
+            self._state = "releasing"
+        prefix_count = len(prefix)
+        try:
+            if prefix:
+                self._observe("detached_batch_submission")
+                gate.append_reserved(prefix)
+        except BaseException:
+            dropped: deque[_MessageDelivery] | None = None
+            with self._locked():
+                if self._state == "releasing":
+                    self._state = "retired"
+                    dropped, self._pending = self._pending, None
+                    self._gate = None
+            del dropped
+            raise
+        with self._locked():
+            if self._state != "releasing":
+                return prefix_count
+            tail = self._pending_fifo()
+            self._pending = None
+            try:
+                gate.append_reserved(tail)
+            except BaseException:
+                self._state = "retired"
+                self._gate = None
+                raise
+            self._state = "live"
+            return prefix_count + len(tail)
+
+    def retire(self) -> tuple[_MessageDelivery, ...]:
+        if self._mutex is None:
+            return ()
+        with self._locked():
+            if self._state in ("uninstalled", "retired"):
+                pending = None
+            else:
+                self._state = "retired"
+                pending, self._pending = self._pending, None
+                self._gate = None
+        return () if pending is None else tuple(pending)
+
+    def route_drain(self, delivery: _MessageDelivery) -> bool:
+        if self._mutex is None:
+            return False
+
+        def forwarding() -> None:
+            self._observe("ordered_forwarding")
+            delivery()
+
+        claim: tuple[OrderedMessageDeliveryGate, _MessageDelivery] | None = None
+        with self._locked():
+            handled = self._state != "uninstalled"
+            if self._state in ("candidate", "releasing"):
+                self._pending_fifo().append(forwarding)
+            elif self._state == "live":
+                if self._gate is None:
+                    raise RuntimeError("live message route has no delivery gate")
+                claim = (self._gate, forwarding)
+        if claim is not None:
+            claim[0].submit(claim[1])
+        return handled
+
+
+def _reserved_message_delivery(
+    owner: GenerationMessageRouting,
+    target: list[_DeliveryValue],
+    message: _DeliveryValue,
+) -> tuple[_MessageDelivery, _MessageDelivery]:
+    def deliver() -> None:
+        target.append(message)
+
+    def forward() -> None:
+        owner._observe("ordered_forwarding")
+        deliver()
+
+    return deliver, forward
+
+
 _RegistrationValue: TypeAlias = (
     RegisteredCommand
     | RegisteredShortcut
@@ -707,6 +942,33 @@ class _PendingActivation:
         if cleanup.failed == 0:
             self._host = None
         return cleanup
+
+
+def _routing_for_activation_batch(
+    activated: tuple[ActivatedExtension, ...],
+    outbox: list[QueuedUserMessage],
+    custom_outbox: list[QueuedCustomMessage],
+    *,
+    supplied: GenerationMessageRouting | None,
+    required: GenerationMessageRouting | None = None,
+) -> GenerationMessageRouting:
+    routing = supplied
+    for item in activated:
+        host = item._activation_host or (
+            item._pending_activation._host if item._pending_activation else None
+        )
+        if host is None:
+            continue
+        if routing is None:
+            routing = host.message_routing
+        elif host.message_routing is not routing:
+            raise ValueError("activation batch owner must match every host routing")
+    routing = routing or GenerationMessageRouting(outbox, custom_outbox)
+    if required is not None and routing is not required:
+        raise ValueError("activation batch must retain its message routing")
+    if routing.user_outbox is not outbox or routing.custom_outbox is not custom_outbox:
+        raise ValueError("activation batch routing must own its exact outboxes")
+    return routing
 
 
 _ACTIVATION_LIFECYCLE_TOKEN = object()
@@ -1506,9 +1768,11 @@ class _ActivationApi:
         taken_providers: frozenset[str] = frozenset(),
         taken_shortcuts: frozenset[str] = frozenset(),
         taken_flags: frozenset[str] = frozenset(),
+        message_routing: GenerationMessageRouting,
         taken_message_renderers: frozenset[str] = frozenset(),
         taken_entry_renderers: frozenset[str] = frozenset(),
         guard: AbstractContextManager[object] | None = None,
+        boundary_observer: Callable[[str], None] | None = None,
     ) -> None:
         self._extension_name = extension_name
         self._guard: AbstractContextManager[object] = (
@@ -1534,6 +1798,14 @@ class _ActivationApi:
         self._taken_entry_renderers = taken_entry_renderers
         self._outbox = outbox
         self._custom_outbox = custom_outbox
+        if (
+            message_routing.user_outbox is not outbox
+            or message_routing.custom_outbox is not custom_outbox
+        ):
+            raise ValueError("activation host routing must match its exact lists")
+        self._message_routing = message_routing
+        self._message_route_authority: object | None = None
+        self._boundary_observer = boundary_observer
         self._staged: dict[str, RegisteredCommand] = {}
         self._staged_shortcuts: dict[str, RegisteredShortcut] = {}
         self._staged_tools: dict[str, RegisteredTool] = {}
@@ -1553,6 +1825,21 @@ class _ActivationApi:
         self._staged_custom_messages: list[QueuedCustomMessage] = []
         self._frozen_activation: _FrozenActivation | None = None
         self._activated = False
+
+    @property
+    def message_routing(self) -> GenerationMessageRouting:
+        return self._message_routing
+
+    def _observe_boundary(self, event: str) -> None:
+        observer = self._boundary_observer
+        if observer is not None:
+            observer(event)
+
+    def _accept_message_route(self) -> None:
+        with self._guard:
+            if self._state != "sealed" or self._message_route_authority is not None:
+                raise ExtensionCapabilityError("extension activation is unavailable")
+            self._message_route_authority = object()
 
     _STATE_TRANSITIONS: Mapping[str, frozenset[str]] = MappingProxyType(
         {
@@ -1759,6 +2046,45 @@ class _ActivationApi:
         else:
             raise AssertionError(f"invalid normalized {family} registration")
 
+    def _reserve_message(
+        self,
+        message: QueuedUserMessage | QueuedCustomMessage,
+    ) -> GenerationMessageReservation | None:
+        self._observe_boundary("host_guard_enter")
+        with self._guard:
+            if self._state == "open":
+                if isinstance(message, QueuedUserMessage):
+                    self._staged_messages.append(message)
+                else:
+                    self._staged_custom_messages.append(message)
+                reservation = None
+            elif self._message_route_authority is not None and self._state in (
+                "sealed",
+                "committed",
+                "published",
+            ):
+                allow_fallback = (
+                    self._state in ("committed", "published") and self._activated
+                )
+                if isinstance(message, QueuedUserMessage):
+                    delivery, forwarding = _reserved_message_delivery(
+                        self._message_routing, self._outbox, message
+                    )
+                else:
+                    delivery, forwarding = _reserved_message_delivery(
+                        self._message_routing, self._custom_outbox, message
+                    )
+                reservation = GenerationMessageReservation(
+                    self._message_routing,
+                    delivery,
+                    forwarding,
+                    allow_fallback,
+                )
+            else:
+                reservation = None
+        self._observe_boundary("host_guard_exit")
+        return reservation
+
     def send_user_message(
         self,
         content: str,
@@ -1766,22 +2092,11 @@ class _ActivationApi:
     ) -> None:
         """Enqueue a deterministic user turn (drained by the session loop)."""
 
-        message = QueuedUserMessage(content=str(content), options=dict(options or {}))
-        target: list[QueuedUserMessage] | None = None
-        with self._guard:
-            if self._state == "open":
-                self._staged_messages.append(message)
-            elif self._state in ("committed", "published") and self._activated:
-                target = self._outbox
-            else:
-                # A sealed, still-pending send keeps its historical silent
-                # ``None`` shape but cannot alter the frozen activation.
-                return
-        # R4a will put the target append under the session mutex. Keeping it
-        # outside the candidate guard now establishes the required no-nesting
-        # handoff without changing the current list-backed queue semantics.
-        if target is not None:
-            target.append(message)
+        reservation = self._reserve_message(
+            QueuedUserMessage(content=str(content), options=dict(options or {}))
+        )
+        if reservation is not None:
+            reservation.owner.accept(reservation)
 
     def send_message(
         self,
@@ -1790,17 +2105,9 @@ class _ActivationApi:
     ) -> None:
         """Stage a custom session message until activation succeeds."""
 
-        queued = coerce_custom_message(message, options)
-        target: list[QueuedCustomMessage] | None = None
-        with self._guard:
-            if self._state == "open":
-                self._staged_custom_messages.append(queued)
-            elif self._state in ("committed", "published") and self._activated:
-                target = self._custom_outbox
-            else:
-                return
-        if target is not None:
-            target.append(queued)
+        reservation = self._reserve_message(coerce_custom_message(message, options))
+        if reservation is not None:
+            reservation.owner.accept(reservation)
 
     def sendMessage(
         self,
@@ -1825,8 +2132,7 @@ class _ActivationApi:
             self._activated = True
         # The one seal-time snapshot is authoritative. Sends racing after seal
         # are silent no-ops, so finalization flushes exactly these messages once.
-        # R4a still owns serialization of this flush with accepted/live runtime
-        # appends after activation commit.
+        self._observe_boundary("frozen_commit_flush")
         self._outbox.extend(snapshot.user_messages)
         return snapshot.custom_messages
 
@@ -2208,6 +2514,7 @@ class _ActivationApi:
         """Drop all staging/outbox reachability while ``_guard`` is held."""
 
         self._activated = False
+        self._message_route_authority = None
         self._reserved = frozenset()
         self._taken = frozenset()
         self._reserved_tools = frozenset()
@@ -2334,6 +2641,7 @@ def activate_extensions(
     reserved_tool_names: Sequence[str] = (),
     message_outbox: list[QueuedUserMessage] | None = None,
     custom_message_outbox: list[QueuedCustomMessage] | None = None,
+    message_routing: GenerationMessageRouting | None = None,
     diagnostic: Callable[[str], None] | None = None,
 ) -> list[ActivatedExtension]:
     """Activate the loadable descriptors, in order.
@@ -2355,6 +2663,7 @@ def activate_extensions(
         reserved_tool_names=reserved_tool_names,
         message_outbox=message_outbox,
         custom_message_outbox=custom_message_outbox,
+        message_routing=message_routing,
         diagnostic=diagnostic,
     )
     return list(batch.activated)
@@ -2433,6 +2742,7 @@ def activate_extension_batch(
     reserved_tool_names: Sequence[str] = (),
     message_outbox: list[QueuedUserMessage] | None = None,
     custom_message_outbox: list[QueuedCustomMessage] | None = None,
+    message_routing: GenerationMessageRouting | None = None,
     preloaded: ExtensionActivationBatch | None = None,
     pending: bool = False,
     diagnostic: Callable[[str], None] | None = None,
@@ -2456,6 +2766,14 @@ def activate_extension_batch(
         preloaded.custom_message_outbox
         if preloaded is not None
         else (custom_message_outbox if custom_message_outbox is not None else [])
+    )
+    retained_routing = preloaded.message_routing if preloaded is not None else None
+    routing = _routing_for_activation_batch(
+        preloaded.activated if preloaded is not None else (),
+        outbox,
+        custom_outbox,
+        supplied=message_routing or retained_routing,
+        required=retained_routing,
     )
     results: list[ActivatedExtension] = []
     preloaded_by_key = (
@@ -2500,6 +2818,7 @@ def activate_extension_batch(
                 taken=activation_taken,
                 outbox=outbox,
                 custom_outbox=custom_outbox,
+                message_routing=routing,
                 commit_activation=not pending,
                 diagnostic=diagnostic,
             )
@@ -2522,6 +2841,7 @@ def activate_extension_batch(
         message_outbox=outbox,
         custom_message_outbox=custom_outbox,
         pending=pending,
+        message_routing=routing,
     )
 
 
@@ -3316,6 +3636,7 @@ def _finalize_preloaded_extension(
             _pending_activation=None,
             _activation_host=api,
         )
+        api._accept_message_route()
         _ActivationApi._commit_activation(
             api,
             _lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN,
@@ -3415,6 +3736,7 @@ def _activate_one(
     taken: _TakenContributionState,
     outbox: list[QueuedUserMessage],
     custom_outbox: list[QueuedCustomMessage],
+    message_routing: GenerationMessageRouting,
     diagnostic: Callable[[str], None] | None,
     commit_activation: bool = True,
 ) -> tuple[ActivatedExtension, _TakenContributionState]:
@@ -3435,6 +3757,7 @@ def _activate_one(
         taken_entry_renderers=frozenset(taken.entry_renderers),
         outbox=outbox,
         custom_outbox=custom_outbox,
+        message_routing=message_routing,
     )
     ownership_transferred = False
     try:
@@ -3487,6 +3810,7 @@ def _activate_one(
             _activation_host=(api if commit_activation else None),
         )
         if commit_activation:
+            api._accept_message_route()
             _ActivationApi._commit_activation(
                 api,
                 _lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN,

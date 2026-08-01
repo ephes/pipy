@@ -7,7 +7,7 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 from typing import Any, TypeVar, cast, get_type_hints
 
 import pytest
@@ -25,6 +25,7 @@ from pipy_harness.native.catalog_state import (
     ProviderCatalogReloadState,
     ProviderCatalogState,
 )
+from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.state import (
     CodingReloadBindingValue,
     CodingReloadHistoryValue,
@@ -37,6 +38,7 @@ from pipy_harness.native.extension_hooks import (
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
     ExtensionActivationBatch,
+    GenerationMessageRouting,
     QueuedCustomMessage,
     QueuedUserMessage,
     _ExtensionRuntime,
@@ -54,6 +56,7 @@ from pipy_harness.native.session_generation import (
     DetachedReloadEffect,
     ExtensionChromeHandle,
     ExtensionProjection,
+    ExtensionQueueProjection,
     FrozenStagedDeliveryBatch,
     GenerationQueueHandle,
     OrderedDeliveryGate,
@@ -64,6 +67,7 @@ from pipy_harness.native.session_generation import (
     ReloadEffectPreparationPorts,
     SessionExtensionGeneration,
     SessionGenerationRef,
+    SessionGenerationSnapshot,
     TemporaryLegacyValue,
     build_extension_projection,
 )
@@ -88,6 +92,7 @@ from pipy_harness.native.tool_renderers import _extension_tool_renderer_map
 from pipy_harness.native.tui import (
     AcceptedCustomMessageSinks,
     ExtensionChromePrepareInput,
+    _CustomEntryRenderer,
 )
 from pipy_harness.native.tools import (
     ToolContext,
@@ -149,6 +154,7 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
     )
     first_outbox: list[QueuedUserMessage] = []
     first_custom_outbox: list[QueuedCustomMessage] = []
+    first_routing = GenerationMessageRouting(first_outbox, first_custom_outbox)
     activated = tuple(
         activate_extensions(
             discover_extensions(
@@ -159,6 +165,7 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
             ),
             message_outbox=first_outbox,
             custom_message_outbox=first_custom_outbox,
+            message_routing=first_routing,
         )
     )
     first_runtime = _runtime_from_batch(
@@ -336,7 +343,13 @@ def test_the_gate_stays_open_across_the_pointer_swap(tmp_path: Path) -> None:
     assert ref.snapshot().generation is second
 
 
-def _rich_runtime(tmp_path: Path, name: str) -> _ExtensionRuntime:
+def _rich_runtime(
+    tmp_path: Path,
+    name: str,
+    *,
+    mutex: threading.RLock | None = None,
+    boundary_observer: Callable[[str], None] | None = None,
+) -> _ExtensionRuntime:
     extension_dir = tmp_path / name / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     (extension_dir / "projection.py").write_text(
@@ -371,6 +384,12 @@ def _rich_runtime(tmp_path: Path, name: str) -> _ExtensionRuntime:
     root = tmp_path / name
     outbox: list[QueuedUserMessage] = []
     custom_outbox: list[QueuedCustomMessage] = []
+    message_routing = GenerationMessageRouting(
+        outbox,
+        custom_outbox,
+        mutex=mutex or threading.RLock(),
+        boundary_observer=boundary_observer,
+    )
     activated = tuple(
         activate_extensions(
             discover_extensions(
@@ -381,6 +400,7 @@ def _rich_runtime(tmp_path: Path, name: str) -> _ExtensionRuntime:
             ),
             message_outbox=outbox,
             custom_message_outbox=custom_outbox,
+            message_routing=message_routing,
         )
     )
     return _runtime_from_batch(
@@ -399,7 +419,10 @@ def _projection(
     step_observer: Any = None,
     flag_values: Mapping[str, object] | None = None,
 ) -> ExtensionProjection:
-    mutex = threading.RLock() if lock is None else lock
+    owner_mutex = runtime.message_routing.mutex
+    if owner_mutex is None:
+        raise AssertionError("projected test runtimes require an installable owner")
+    mutex = owner_mutex if lock is None else lock
     return build_test_projection(
         runtime,
         {"projection-mode": "candidate"} if flag_values is None else flag_values,
@@ -436,6 +459,7 @@ def test_every_runtime_contribution_field_has_an_exact_projection_disposition() 
         "session_before_tree_hooks": "hooks",
         "outbox": "queues",
         "custom_outbox": "queues",
+        "message_routing": "queues",
         "tools": "tools",
         "shortcuts": "commands",
         "flags": "runtime_flags",
@@ -584,19 +608,235 @@ def test_provider_projection_matches_legacy_catalog_inputs(tmp_path: Path) -> No
     assert projected.unregistered is not runtime.unregistered_providers
 
 
-def test_queue_projection_matches_legacy_outboxes_and_reference_mutex(
+def test_production_runtime_composes_exact_queue_owner_mutex_and_outboxes(
     tmp_path: Path,
 ) -> None:
-    runtime = _rich_runtime(tmp_path, "queues")
+    extension_dir = tmp_path / ".pipy/extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "routing.py").write_text("def activate(api):\n    pass\n")
+    runtime = _activate_workspace_extensions(
+        tmp_path,
+        _empty_resources(),
+        explicit_extension_paths=(extension_dir,),
+        include_default_extensions=False,
+    )
     lock = threading.RLock()
-    projected = _projection(runtime, lock=lock).queues
+    ref = SessionGenerationRef(SessionExtensionGeneration(runtime, {}), lock=lock)
+    projected = _projection(runtime).queues
+    owner = projected.message_routing
 
-    assert projected.user.storage is runtime.outbox
-    assert projected.custom.storage is runtime.custom_outbox
-    assert projected.user.mutex is lock
-    assert projected.custom.mutex is lock
+    assert ref.lock is projected.user.mutex is projected.custom.mutex is lock
+    assert owner.mutex is lock
+    assert ref.current.runtime.message_routing is owner is runtime.message_routing
+    assert owner is runtime.activation_hosts[0].message_routing
+    assert owner.user_outbox is projected.user.storage is runtime.outbox
+    assert owner.custom_outbox is projected.custom.storage is runtime.custom_outbox
     assert not hasattr(projected.user, "close")
     assert not hasattr(projected.custom, "drain")
+
+
+def test_uninstalled_retire_is_a_direct_fallback_noop_and_mismatches_refuse(
+    tmp_path: Path,
+) -> None:
+    runtime = _rich_runtime(tmp_path, "routing-identity")
+    runtime.outbox.clear()
+    runtime.custom_outbox.clear()
+    owner = runtime.message_routing
+    assert owner.retire() == owner.retire() == ()
+    runtime.activation_hosts[0].send_user_message("still-direct")
+    runtime.activation_hosts[0].send_message(
+        {"customType": "direct", "content": "still-custom"}
+    )
+    assert (
+        owner.route_drain(lambda: pytest.fail("uninstalled route handled drain"))
+        is False
+    )
+    assert [message.content for message in runtime.outbox] == ["still-direct"]
+    assert [message.content for message in runtime.custom_outbox] == ["still-custom"]
+    host = runtime.activation_hosts[0]
+    result = ActivatedExtension(
+        name="identity",
+        version="1",
+        path_label="identity.py",
+        status="activated",
+        reason=None,
+        commands=(),
+        diagnostic=None,
+        _activation_host=host,
+    )
+    batch = ExtensionActivationBatch(
+        activated=(result,),
+        message_outbox=runtime.outbox,
+        custom_message_outbox=runtime.custom_outbox,
+    )
+    assert batch.message_routing is runtime.message_routing is host.message_routing
+
+    foreign = GenerationMessageRouting([], [], mutex=runtime.message_routing.mutex)
+    with pytest.raises(ValueError, match="owner must match every host"):
+        ExtensionActivationBatch(
+            activated=(result,),
+            message_outbox=runtime.outbox,
+            custom_message_outbox=runtime.custom_outbox,
+            message_routing=foreign,
+        )
+    with pytest.raises(ValueError, match="runtime routing must own"):
+        replace(runtime, message_routing=foreign)
+    lock = threading.RLock()
+    with pytest.raises(ValueError, match="preserve exact queue storage"):
+        ExtensionQueueProjection(
+            GenerationQueueHandle(runtime.outbox, lock),
+            GenerationQueueHandle(runtime.custom_outbox, lock),
+            foreign,
+        )
+    with pytest.raises(ValueError, match="share the generation queue mutex"):
+        _projection(runtime).queues.install_candidate_route(
+            OrderedDeliveryGate(threading.RLock())
+        )
+
+
+class _FailingAppendGate(OrderedDeliveryGate):
+    def __init__(self, mutex: threading.RLock, phase: int | None) -> None:
+        super().__init__(mutex)
+        self.phase = phase
+        self.calls = 0
+        self.prefix_submitted = threading.Event()
+        self.continue_prefix = threading.Event()
+
+    def append_reserved(self, deliveries: Any) -> None:
+        self.calls += 1
+        if self.phase in (None, 2) and self.calls == 1:
+            super().append_reserved(deliveries)
+            self.prefix_submitted.set()
+            assert self.continue_prefix.wait(1)
+            return
+        if self.calls == self.phase:
+            raise RuntimeError(f"phase {self.phase} append failure")
+        super().append_reserved(deliveries)
+
+
+@pytest.mark.parametrize("phase", (None, 1, 2), ids=("success", "phase-1", "phase-2"))
+def test_release_is_two_batches_or_failure_terminalizes_without_successor_effect(
+    tmp_path: Path, phase: int | None
+) -> None:
+    mutex = threading.RLock()
+    runtime = _rich_runtime(tmp_path, f"release-{phase}", mutex=mutex)
+    runtime.outbox.clear()
+    queues = _projection(runtime).queues
+    gate = _FailingAppendGate(mutex, phase)
+    queues.install_candidate_route(gate)
+    host = runtime.activation_hosts[0]
+    host.send_user_message("prefix")
+    failures: list[BaseException] = []
+    released: list[int] = []
+
+    with gate.reserve() as token:
+
+        def release() -> None:
+            try:
+                released.append(queues.release_pending_route())
+            except BaseException as exc:  # deterministic injected invariant failure
+                failures.append(exc)
+
+        releaser = threading.Thread(target=release)
+        releaser.start()
+        if phase in (None, 2):
+            assert gate.prefix_submitted.wait(1)
+            host.send_user_message("tail")
+            gate.continue_prefix.set()
+        releaser.join(1)
+        assert not releaser.is_alive()
+        if phase is None:
+            assert failures == [] and released == [2] and gate.calls == 2
+            host.send_user_message("live")
+            gate.release(token)
+            assert gate.drain(token)
+            assert [message.content for message in runtime.outbox] == [
+                "prefix",
+                "tail",
+                "live",
+            ]
+            return
+        assert len(failures) == 1 and released == [] and gate.calls == phase
+        with mutex:
+            assert runtime.message_routing._state == "retired"
+            assert runtime.message_routing._pending is None
+            assert runtime.message_routing._gate is None
+
+        host.send_user_message("late-drop")
+        assert queues.release_pending_route() == 0
+        assert runtime.message_routing.route_drain(
+            lambda: pytest.fail("retired drain callback ran")
+        )
+        assert queues.retire_route() == queues.retire_route() == ()
+        assert mutex.acquire(timeout=1)
+        mutex.release()
+
+        successor = _activate_workspace_extensions(
+            tmp_path / f"successor-{phase}",
+            _empty_resources(),
+            include_default_extensions=False,
+        )
+        ref = SessionGenerationRef(SessionExtensionGeneration(runtime, {}), lock=mutex)
+        ref.publish(SessionExtensionGeneration(successor, {}))
+        host.send_user_message("post-publish-drop")
+        assert runtime.message_routing.route_drain(lambda: None)
+        assert runtime.message_routing.retire() == ()
+        gate.release(token)
+        assert gate.drain(token)
+
+    assert successor.outbox == successor.custom_outbox == []
+    assert [message.content for message in runtime.outbox] == (
+        ["prefix"] if phase == 2 else []
+    )
+
+
+def test_renderer_uses_one_snapshot_while_direct_custom_stays_unconditional(
+    tmp_path: Path,
+) -> None:
+    mutex = threading.RLock()
+    first = _rich_runtime(tmp_path, "renderer-first", mutex=mutex)
+    first.outbox[:] = [QueuedUserMessage("first", {})]
+    ref = SessionGenerationRef(SessionExtensionGeneration(first, {}), lock=mutex)
+    queues = _projection(first).queues
+    gate = OrderedDeliveryGate(mutex)
+    queues.install_candidate_route(gate)
+    snapshots: list[SessionGenerationSnapshot] = []
+
+    def snapshot() -> SessionGenerationSnapshot:
+        snapshots.append(ref.snapshot())
+        return snapshots[-1]
+
+    state = SimpleNamespace(
+        session_tree=SimpleNamespace(
+            append_custom_message=lambda *_args, **_kwargs: SimpleNamespace(id="entry")
+        ),
+        extension_renderer_map={},
+        extension_entry_renderer_map={},
+        extension_message_outbox=first.outbox,
+        extension_custom_message_outbox=first.custom_outbox,
+        extension_in_agent_turn=False,
+    )
+    renderer = _CustomEntryRenderer(
+        session=SimpleNamespace(_emit_diagnostic=lambda *_args: None),
+        ctl=state,
+        terminal_ui=None,
+        coding_input_queue=CodingInputQueue(),
+        error_stream=sys.stderr,
+        generation_snapshot=snapshot,
+    )
+
+    with gate.reserve() as token:
+        assert renderer.extension_send_message("direct", "direct", False, {}) == "entry"
+        renderer.drain_extension_outboxes()
+        assert queues.release_pending_route() == 1
+        gate.release(token)
+        assert gate.drain(token) and first.outbox == []
+    queues.retire_route()
+    assert renderer.extension_send_message("retired", "direct", False, {}) == "entry"
+    second = _rich_runtime(tmp_path, "renderer-second", mutex=mutex)
+    ref.publish(SessionExtensionGeneration(second, {}))
+    renderer.drain_extension_outboxes()
+    assert len(snapshots) == 2
 
 
 def test_chrome_projection_carries_the_exact_r2_handle(tmp_path: Path) -> None:
@@ -656,7 +896,8 @@ def test_production_projection_tool_port_matches_legacy_behavior_without_aliases
         ),
     )
     runtime = replace(runtime, tools=(registered,))
-    lock = threading.RLock()
+    lock = runtime.message_routing.mutex
+    assert lock is not None
     source_flags: dict[str, object] = {"projection-mode": "candidate"}
     notices: list[tuple[str, str]] = []
     active_calls: list[tuple[str, ...]] = []
@@ -781,7 +1022,9 @@ def test_each_projection_builder_failure_returns_no_candidate_and_changes_no_liv
     live_generation = SessionExtensionGeneration(
         live_runtime, {"projection-mode": "live"}
     )
-    ref = SessionGenerationRef(live_generation)
+    live_mutex = live_runtime.message_routing.mutex
+    assert live_mutex is not None
+    ref = SessionGenerationRef(live_generation, lock=live_mutex)
     before = ref.snapshot()
     live_flag_values = live_generation.flag_values
     before_flag_values = dict(live_flag_values)
@@ -807,7 +1050,9 @@ def test_each_projection_builder_failure_returns_no_candidate_and_changes_no_liv
     before_container_values = {
         name: value.copy() for name, value in legacy_container_refs.items()
     }
-    candidate_runtime = _rich_runtime(tmp_path, f"failure-{failed_step}")
+    candidate_runtime = _rich_runtime(
+        tmp_path, f"failure-{failed_step}", mutex=ref.lock
+    )
 
     def fail(name: str) -> None:
         if name == failed_step:
@@ -849,7 +1094,8 @@ def test_invalid_builder_results_fail_before_returning_a_projection(
     tmp_path: Path,
 ) -> None:
     runtime = _rich_runtime(tmp_path, "invalid-builder")
-    lock = threading.RLock()
+    lock = runtime.message_routing.mutex
+    assert lock is not None
 
     def port(registered: Any, flags: Mapping[str, object]) -> ToolPort:
         return _build_projected_extension_tool_port(
@@ -2003,6 +2249,174 @@ def test_accepted_custom_sink_matches_established_routing_and_sink_order(
     assert calls == expected
 
 
+def _base_name(node: ast.expr) -> str:
+    if isinstance(node, ast.Subscript):
+        return _base_name(node.value)
+    return node.id if isinstance(node, ast.Name) else getattr(node, "attr", "")
+
+
+def test_r3c2_forbids_registries_identity_discovery_and_list_magic() -> None:
+    root = Path(__file__).parents[1] / "src/pipy_harness/native"
+    texts = {
+        name: (root / name).read_text()
+        for name in (
+            "extension_runtime.py",
+            "session_generation.py",
+            "extension_hooks.py",
+            "tui.py",
+        )
+    }
+    combined = "".join(texts.values())
+    route = (
+        texts["extension_runtime.py"]
+        .split("class GenerationMessageRouting:", 1)[1]
+        .split("_RegistrationValue", 1)[0]
+    )
+    assert not any(
+        token in combined for token in ("WeakValueDictionary", "current_for")
+    )
+    assert not any(
+        token in route
+        for token in "id( _registry Condition .wait( __dict__ setattr(".split()
+    )
+    assert not any(
+        _base_name(base) == "list"
+        for text in texts.values()
+        for node in ast.walk(ast.parse(text))
+        if isinstance(node, ast.ClassDef)
+        for base in node.bases
+    )
+
+
+def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> None:
+    root = Path(__file__).parents[1] / "src/pipy_harness/native"
+    trees = {
+        path.relative_to(root).as_posix(): ast.parse(path.read_text())
+        for path in root.rglob("*.py")
+    }
+    watched = set(
+        "accept submit route_drain _bind_session_mutex _install_candidate_route install_candidate_route release_pending release_pending_route retire retire_route _accept_message_route _commit_activation".split()
+    )
+    constructors = set(
+        "GenerationMessageRouting SessionGenerationRef _CustomEntryRenderer".split()
+    )
+    entries = [(path, node) for path, tree in trees.items() for node in ast.walk(tree)]
+    calls = [
+        node.func.attr
+        for _, node in entries
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in watched
+    ]
+    references = [
+        node.attr
+        for _, node in entries
+        if isinstance(node, ast.Attribute)
+        and node.attr in watched
+        and isinstance(node.ctx, ast.Load)
+    ]
+    # Any bound alias or factory/wrapper forwarding adds a non-call reference.
+    assert sorted(references) == sorted(calls)
+    actual_calls = " ".join(f"{name}={calls.count(name)}" for name in sorted(watched))
+    assert actual_calls == (
+        "_accept_message_route=2 _bind_session_mutex=3 _commit_activation=2 "
+        "_install_candidate_route=1 accept=2 install_candidate_route=0 release_pending=1 "
+        "release_pending_route=0 retire=1 retire_route=0 route_drain=1 submit=2"
+    )
+    built = {
+        name: [
+            (path, node)
+            for path, node in entries
+            if isinstance(node, ast.Call) and _base_name(node.func) == name
+        ]
+        for name in constructors
+    }
+    assert not any(
+        isinstance(node, ast.alias)
+        and node.name in constructors
+        and node.asname is not None
+        or isinstance(node, (ast.Assign, ast.AnnAssign))
+        and node.value is not None
+        and _base_name(node.value) in constructors
+        or isinstance(node, ast.Call)
+        and any(
+            isinstance(value, ast.Name) and value.id in constructors
+            for argument in (*node.args, *(kw.value for kw in node.keywords))
+            for value in ast.walk(argument)
+        )
+        for _, node in entries
+    )
+    assert {name: len(found) for name, found in built.items()} == dict(
+        GenerationMessageRouting=2, SessionGenerationRef=1, _CustomEntryRenderer=1
+    )
+    ref_path, ref_call = built["SessionGenerationRef"][0]
+    assert ref_path == "tool_loop_session.py"
+    assert {kw.arg: ast.unparse(kw.value) for kw in ref_call.keywords}[
+        "lock"
+    ] == "session_state_lock"
+    path, renderer_call = built["_CustomEntryRenderer"][0]
+    assert (path, renderer_call.args) == ("tool_loop_session.py", [])
+    assert {kw.arg for kw in renderer_call.keywords} == set(
+        "session ctl terminal_ui coding_input_queue error_stream".split()
+    )
+    assert not any(
+        isinstance(node, ast.Attribute)
+        and node.attr == "generation_snapshot"
+        and isinstance(node.ctx, ast.Store)
+        or isinstance(node, ast.Call)
+        and _base_name(node.func) in {"setattr", "__setattr__", "replace"}
+        and "generation_snapshot" in ast.unparse(node)
+        for _, node in entries
+    )
+
+    def owner(file: str, name: str) -> ast.ClassDef:
+        return next(
+            node
+            for node in trees[file].body
+            if isinstance(node, ast.ClassDef) and node.name == name
+        )
+
+    release = next(
+        node
+        for node in owner("extension_runtime.py", "GenerationMessageRouting").body
+        if isinstance(node, ast.FunctionDef) and node.name == "release_pending"
+    )
+    assert not any(
+        isinstance(node, (ast.While, ast.Await, ast.Yield))
+        for node in ast.walk(release)
+    )
+    assert ast.unparse(release).count("append_reserved(") == 2
+    leaf = next(
+        node
+        for node in owner("session_generation.py", "OrderedDeliveryGate").body
+        if isinstance(node, ast.FunctionDef) and node.name == "append_reserved"
+    )
+    assert not any(
+        isinstance(node, (ast.For, ast.While, ast.Await, ast.Yield))
+        for node in ast.walk(leaf)
+    )
+    assert ast.unparse(leaf).count("self._queued.extend(deliveries)") == 1
+    direct = next(
+        node
+        for node in owner("tui.py", "_CustomEntryRenderer").body
+        if isinstance(node, ast.FunctionDef) and node.name == "extension_send_message"
+    )
+    assert "_snapshot" not in ast.unparse(direct)
+    api = owner("extension_runtime.py", "_ActivationApi")
+    assert [
+        method.name
+        for method in api.body
+        if isinstance(method, ast.FunctionDef)
+        if any(
+            isinstance(node, ast.Attribute)
+            and node.attr == "_message_route_authority"
+            and isinstance(node.ctx, ast.Store)
+            for node in ast.walk(method)
+        )
+    ] == ["__init__", "_accept_message_route", "_clear_terminal_storage_locked"]
+    assert "generation_ref.publish(" in ast.unparse(trees["tool_loop_session.py"])
+
+
 def test_r3b_call_inventory_is_complete_and_uninstalled_across_package() -> None:
     names = {
         "ReloadEffectPreparationPorts",
@@ -2025,9 +2439,7 @@ def test_r3b_call_inventory_is_complete_and_uninstalled_across_package() -> None
         "deliver_accepted_staged_batch",
         "_route_legacy_custom_message_input",
     }
-    methods = set(
-        "freeze deliver dispose reserve submit validate release drain abort".split()
-    )
+    methods = set("freeze deliver dispose reserve validate release drain abort".split())
     calls: dict[str, list[tuple[str, tuple[str, ...]]]] = {
         name: [] for name in names | methods
     }
@@ -2094,7 +2506,7 @@ def test_r3b_call_inventory_is_complete_and_uninstalled_across_package() -> None
         (
             "_route_legacy_custom_message_input",
             "native/tui.py",
-            ("class:_CustomEntryRenderer", "function:extension_send_message"),
+            ("class:_CustomEntryRenderer", "function:_deliver_custom_message"),
         ),
         (
             "dispose",

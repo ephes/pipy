@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_runtime import (
+    GenerationMessageRouting,
     HookHandler,
     RegisteredCommand,
     RegisteredEntryRenderer,
@@ -171,6 +172,30 @@ class ExtensionProviderProjection:
 class ExtensionQueueProjection:
     user: GenerationQueueHandle[QueuedUserMessage]
     custom: GenerationQueueHandle[QueuedCustomMessage]
+    message_routing: GenerationMessageRouting
+
+    def __post_init__(self) -> None:
+        if self.user.mutex is not self.custom.mutex:
+            raise ValueError("generation queue handles must share one mutex")
+        if (
+            self.message_routing.user_outbox is not self.user.storage
+            or self.message_routing.custom_outbox is not self.custom.storage
+        ):
+            raise ValueError("message routing must preserve exact queue storage")
+        self.message_routing._bind_session_mutex(self.user.mutex)
+
+    def install_candidate_route(self, gate: "OrderedDeliveryGate") -> None:
+        if not isinstance(gate, OrderedDeliveryGate):
+            raise TypeError("candidate route must be an OrderedDeliveryGate")
+        if gate.mutex is not self.user.mutex:
+            raise ValueError("candidate route must share the generation queue mutex")
+        self.message_routing._install_candidate_route(gate)
+
+    def release_pending_route(self) -> int:
+        return self.message_routing.release_pending()
+
+    def retire_route(self) -> tuple[Callable[[], None], ...]:
+        return self.message_routing.retire()
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,6 +399,7 @@ def build_extension_projection(
     queues = ExtensionQueueProjection(
         user=GenerationQueueHandle(runtime.outbox, queue_mutex),
         custom=GenerationQueueHandle(runtime.custom_outbox, queue_mutex),
+        message_routing=runtime.message_routing,
     )
 
     step("chrome_handle")
@@ -621,6 +647,23 @@ class OrderedDeliveryGate:
         self._draining = False
         self._active_direct = 0
 
+    @property
+    def mutex(self) -> threading.RLock:
+        return self._mutex
+
+    def append_reserved(self, deliveries: deque[Callable[[], None]]) -> None:
+        if type(deliveries) is not deque:
+            raise TypeError("reserved deliveries must be an exact deque")
+        with self._condition:
+            if (
+                self._token is None
+                or self._reservation_pending
+                or self._released
+                or self._draining
+            ):
+                raise RuntimeError("ordered delivery reservation is not appendable")
+            self._queued.extend(deliveries)
+
     @contextmanager
     def reserve(self) -> Iterator[OrderedDeliveryToken]:
         """Reserve after admitted direct sends finish; abort on every exit."""
@@ -790,6 +833,7 @@ class SessionGenerationRef:
         # and hands the same object to each of them. Accepting it here keeps
         # this reference one *user* of the boundary rather than its owner.
         self._lock = lock if lock is not None else threading.RLock()
+        generation.runtime.message_routing._bind_session_mutex(self._lock)
         self._generation = generation
         self._generation_id = 0
         self._publication_pending = False
@@ -840,6 +884,7 @@ class SessionGenerationRef:
         whole publication.
         """
 
+        generation.runtime.message_routing._bind_session_mutex(self._lock)
         with self._lock:
             retired = self._generation
             self._generation = generation

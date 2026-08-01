@@ -87,6 +87,7 @@ from pipy_harness.native.extension_runtime import (
     LIFECYCLE_EVENTS,
     ActivatedExtension,
     ExtensionActivationBatch,
+    GenerationMessageRouting,
     HookHandler,
     _CommandContext,
     _ExtensionRuntime,
@@ -275,21 +276,26 @@ def _activate_workspace_extensions(
                 ]
             outbox: list[QueuedUserMessage] = []
             custom_outbox: list[QueuedCustomMessage] = []
+            message_routing = GenerationMessageRouting(outbox, custom_outbox)
             activated = activate_extensions(
                 descriptors,
                 reserved_command_names=reserved,
                 reserved_tool_names=extension_reserved_tool_names(reserved_tool_names),
                 message_outbox=outbox,
                 custom_message_outbox=custom_outbox,
+                message_routing=message_routing,
                 diagnostic=diagnostic,
             )
         else:
             activated = list(activation_batch.activated)
             outbox = activation_batch.message_outbox
             custom_outbox = activation_batch.custom_message_outbox
+            message_routing = activation_batch.message_routing
             if activation_batch.pending:
                 raise ValueError("initial extension activation batch must be finalized")
-        return _compose_extension_runtime(activated, outbox, custom_outbox)
+        return _compose_extension_runtime(
+            activated, outbox, custom_outbox, message_routing
+        )
     except BaseException:
         # This boundary owns every supplied or newly activated candidate host
         # until the runtime ownership value is constructed.
@@ -304,6 +310,7 @@ def _compose_extension_runtime(
     activated: Sequence[ActivatedExtension],
     outbox: list[QueuedUserMessage],
     custom_outbox: list[QueuedCustomMessage],
+    message_routing: GenerationMessageRouting,
 ) -> _ExtensionRuntime:
     """Compose one candidate runtime without publishing its host ownership."""
 
@@ -378,6 +385,7 @@ def _compose_extension_runtime(
             if extension.status == "activated"
             if extension._activation_host is not None
         ),
+        message_routing=message_routing,
     )
 
 

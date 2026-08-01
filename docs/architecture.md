@@ -349,10 +349,147 @@ and propagate. Accepted staged customs use direct durable-tree, render/
 diagnostic, and coding-input ports, never `custom_outbox`; their routing shares
 the live legacy helper and preserves all camel/snake aliases and precedence.
 Chrome prepare is uncalled and can return refusal or an inert token carrying the
-exact typed input, with no commit callback. Production startup/reload,
-activation sends, and the live custom-renderer drain do not call or consult any
-R3b definition. R3c1a now adds detached prepare/non-fallible assignment
-publication for the extension-provider overlay only. Its live and detached
+exact typed input, with no commit callback. Production startup/reload does not
+install or invoke the R3b gate. R3c2 defines one explicit typed `GenerationMessageRouting` owner for
+one generation's exact user/custom lists. Top-level batch construction creates
+it once; hosts, batch, runtime, queue projection, and the eventual
+`SessionExtensionGeneration` receive that same strong owner. Production composition never leaves a permanent no-mutex owner: every
+production `SessionGenerationRef` construction explicitly supplies the live
+session `RLock`, and construction/pre-publication unconditionally binds the
+required typed `_ExtensionRuntime.message_routing` member.
+`ExtensionQueueProjection` idempotently binds the same uninstalled owner to its
+exact queue mutex; both paths retain that identity and reject a different later
+mutex. A still-unbound owner preserves direct R1
+fallback but cannot be installed; binding alone leaves lifecycle `uninstalled`
+and grants no routing or host authority. `_ActivationApi` validates the owner and exact
+lists without a tautological mutex parameter; `ExtensionQueueProjection`
+validates the owner/list/session-mutex triple. Valid recomposition of the same
+owner/list pair is idempotent and order-independent. Process-global
+registries (including weak or outbox-pair registries), outbox-object identity
+lookup, and rediscovery by rereading the outbox pair are forbidden.
+
+Each send uses two serial, non-nested sections. Under only the candidate-host
+guard it stages an open-host message, refuses an ineligible host, or creates an
+immutable `GenerationMessageReservation` only when that host holds separately
+granted accepted-after-seal authority; sealing itself does not grant that
+authority. Reservation creation binds the exact user/custom outbox target and
+the exact routing owner/generation authority needed for later delivery. Send
+and host disposal linearize under this guard: a reservation created first wins
+even if later disposal clears or rebinds host fields, while disposal first
+prevents every later reservation. After host unlock, route resolution uses only
+the immutable reservation. It never rereads the host's current outbox,
+lifecycle, or authority; no cross-guard reread is permitted.
+
+Every routing-owner mutable field—including lifecycle, attached gate/storage,
+and attached FIFO—is read or written only under the exact session mutex shared
+by `SessionGenerationRef` and the queue handles. The installed lifecycle is
+`candidate -> releasing -> live`, with retirement possible from any installed
+state. Acceptance in `candidate` or `releasing` appends only to the attached
+FIFO; live acceptance detaches an immutable claim with a strong reference to
+its exact generation-owned gate/storage. Retirement and publication are bounded
+constant-time, nonblocking state changes: while holding the mutex they may only
+mark retired, swap/detach owner and FIFO references, and publish pointers. They
+never wait, yield, sleep, perform I/O, call a callback or arbitrary sink, or
+temporarily unlock/relock to wait for an active claim or reservation. A claim
+that linearized before retirement may finish after unlock only against detached
+old-generation gate/storage; it cannot enqueue into, deliver into, publish to,
+or otherwise affect the successor. A claim that linearizes after retirement
+silently fails closed. This pre-retirement claim is the sole permitted delivery
+into detached retired-generation state; no post-retirement claim may enter it.
+
+The generation routing owner strongly owns its exact `OrderedDeliveryGate` and
+queue storage while attached. Held old snapshots, detached release batches,
+already-submitted gate callbacks, and in-flight pre-retirement claims each retain
+the old owner or an immutable handle to that exact old-generation state. It is
+reclaimable only after retirement has detached it from the live reference,
+attached pending work has been detached for post-unlock drop, and all such
+strong references are gone. Retirement does not transfer mutable-state
+ownership: the old `GenerationMessageRouting` remains the sole owner, and the
+same session mutex continues to guard retained route/gate/FIFO bookkeeping until
+reclamation. Detached claims and batches are immutable operation-local values;
+their claim-bound sink completion runs only after unlock and touches only
+detached old-generation storage. No registry, renderer root, or successor
+extends this lifetime.
+
+Candidate release is a bounded two-phase protocol with at most two finite FIFO
+batches and no retry loop:
+
+1. **Phase 1:** under the shared session mutex, validate `candidate`, atomically
+   transition `candidate -> releasing`, and detach the current finite FIFO
+   prefix while leaving an attached tail FIFO. Release the session mutex, then
+   submit the detached prefix in order through the exact named, vetted
+   `OrderedDeliveryGate`. Prefix submission runs outside both the session mutex
+   and candidate-host guard.
+2. While the owner is `releasing`, concurrent accepted reservations acquire the
+   session mutex and append only to the attached tail FIFO. They never submit
+   directly and cannot overtake the detached prefix.
+3. **Phase 2:** after prefix submission completes, reacquire the session mutex
+   exactly once. If the owner is still `releasing`, detach the then-current
+   finite tail FIFO, submit that tail through the exact same
+   `OrderedDeliveryGate` while holding the session mutex, and atomically flip
+   `releasing -> live` before releasing the mutex. New accepts block during this
+   bounded final handoff; after the live flip they use the live path, so none can
+   overtake the tail. The algorithm cannot starve under continuous sends.
+
+The phase-2 gate submission is an approved narrow exception to the general
+no-effects-under-session-mutex rule. `OrderedDeliveryGate.append_reserved()` is
+the vetted leaf that performs only bounded pure in-memory ordered append into
+detached/candidate generation storage. It performs no I/O, waits, yields, user/package callbacks,
+arbitrary sinks, rendering, or delivery callbacks, and never takes a candidate-
+host guard. All callbacks, arbitrary sinks, I/O, direct delivery, rendering,
+commit flush, prefix submission, ordered forwarding/delivery, and detached-value
+release remain unlocked; the candidate-host and session guards never nest.
+
+Retirement remains constant-time and nonblocking under the session mutex.
+Retirement of an `uninstalled` owner is a nonfallible exact no-op: it preserves
+that state, both list identities, and later direct R1 append/custom behavior.
+If retirement wins while phase-1 prefix submission is unlocked, it marks the
+owner `retired`, detaches and drops the attached tail, and returns without
+waiting. Phase 2 then observes `retired`, does not submit the dropped tail, does
+not flip live, and stops. The already-detached pre-retirement prefix may finish
+only against detached old-generation storage and cannot affect the newly
+published generation.
+
+An injected `append_reserved()` failure also fails closed deterministically.
+A phase-1 prefix failure reacquires the session mutex exactly once, terminalizes
+and detaches any still-attached releasing tail unless retirement already won,
+unlocks, drops detached references, and re-raises. A phase-2 tail failure
+terminalizes and detaches all attached owner state before its mutex context
+unlocks, then re-raises only after unlock. Both paths leave `retired` state with
+no attached gate/FIFO; later sends, drains, releases, and retirements are silent
+and nonraising and cannot affect a successor generation.
+
+R3c2 defines the typed optional `SessionGenerationSnapshot` provider seam for
+the custom renderer, but production leaves it unwired until R3c3 atomically
+publishes and installs it. When installed, each drain operation takes at most
+one coherent snapshot and resolves the owner from
+`snapshot.generation.runtime.message_routing`, never from separately reread
+outboxes. Durable direct custom tree/render/input delivery remains outside
+routing retirement and always calls `_deliver_custom_message()` directly with
+its existing R1 return value, unlocked. It does not consult routing in R3c2;
+only drain may perform the nonraising typed coherent routing side effect.
+Unavailable, uninstalled, mismatched, or retired routing therefore cannot
+suppress or alter direct delivery. When the provider/snapshot is unavailable,
+drain fallback remains direct and nonraising without pretending to consult
+installed routing state.
+
+`ExtensionQueueProjection.install_candidate_route()`, `release_pending_route()`,
+and `retire_route()` are the validated R3c3-facing lifecycle API. R3c2 supplies
+no production startup/reload installer, release-to-live transition, retirement,
+combined generation/route publication, or renderer-provider wiring. Its
+executable production inventory must cover every direct call and recognized
+state-write path that can grant/revoke host eligibility or install, release/
+publish, retire, or publish the routing owner—not merely calls named
+`install_candidate_route`. It records existing host-local eligibility lifecycle separately; that lifecycle
+is not routing install authority. The expected R3c2 production set for every
+routing-authority commit/install, release/publish, retire, and combined owner-publication
+entry is empty. The inventory recognizes positional and keyword construction,
+`**` expansion, aliases/factory forwarding, and post-construction provider
+mutation; it proves the renderer provider is production-unwired. R3c3 updates
+the same inventory when it installs and publishes the route. Deterministic
+explicit boundary instrumentation—not trace-line or list-subclass callbacks—
+proves the no-lock boundaries. R3c1a adds detached prepare/non-fallible assignment publication for the
+extension-provider overlay only. Its live and detached
 provider-overlay maps use the same immutable `MappingProxyType` runtime shape.
 Coding prepared binding values carry the exact expected and replacement
 `CodingProviderBinding` values; coding refresh prepares and publishes binding
@@ -519,12 +656,14 @@ no-production-caller inventory includes aggregate
 entry points as well as leaf APIs. The separate
 R3c1a overlay publication is unchanged. R3c3 must invoke that separate publisher,
 with a non-empty equivalence arm; full catalog/auth publication does not rebuild it.
-R3c2 must add
-the behavior-neutral routing
-seam at the actual activation-send and renderer-drain owners; R3c3 then composes
-R3a/R3b through R3c1a–R3c1c and R3c2.
-Production consumers still read `generation_ref.current` per access even though
-`snapshot()` exists. R1 now
+R3c2 supplies the typed routing seam at the actual activation-send and renderer-
+drain owners without a production installer; behavior-neutrality is limited to
+the ordinary uninstalled R1 path, while installed retirement races fail closed.
+It defines, but does not production-wire, the typed coherent renderer snapshot
+provider. R3c3 then composes R3a/R3b through R3c1a–R3c1c and R3c2 and atomically
+publishes/installs that renderer-visible generation/owner snapshot.
+All production consumers still read
+`generation_ref.current` per access even though `snapshot()` exists. R1 now
 owns activation registration with one candidate-host guard over every staged
 registry/message, flag value/failure, `_activated`, and the one-way candidate
 open→sealed→committed→published/disposed transitions plus the accepted-catalog
@@ -584,10 +723,25 @@ is still pending retain their silent `None` shape but change nothing, and commit
 flushes the frozen messages exactly once. Accepted/live message routing after
 activation commit releases the candidate guard before its still-list-backed queue
 append. R3b/R3c3 own authoritative staged-message detach, flush, and delivery
-ordering. R3c2 makes the existing send/drain paths consult a typed route before
-the sealed/pending branch: with no route, R1 silence remains exact; R3c3 installs
-the candidate route before replacement `session_start`, so its post-freeze sends
-queue—a delta unavailable to ordinary retained pending hosts. R4a later
+ordering. Shipped R3c2 makes send paths consult their explicitly supplied owner
+and defines the drain owner's typed snapshot-provider seam. Production leaves
+that provider unavailable until R3c3; unavailable/uninstalled drain routing
+stays R1-direct, never raises, and does not claim an installed-state
+consultation. Durable direct custom tree/render/input delivery always retains
+its R1 behavior regardless of unavailable, uninstalled, mismatched, or retired
+routing and does not consult routing; only typed coherent drain consultation may
+affect queue/drain side effects and is nonraising. An accepted post-seal send first claims host eligibility and binds
+its exact outbox target plus routing owner/generation authority under only the
+host guard, then after unlock the routing owner resolves installed versus
+retired state and accepts or silently drops that immutable claim under the exact
+session mutex without rereading host fields. Open staging stays
+ordinary; no ineligible host can claim a route, and no post-retirement claim can enter retired state. The only permitted
+exception is a pre-retirement-linearized claim finishing after unlock against
+its detached old-generation gate/storage, with no effect on the successor.
+R3c3 installs the candidate route before
+replacement `session_start`, then atomically publishes/installs the complete
+generation/owner pointer, so matching post-freeze sends queue while a retirement
+race loses nonraising—a delta unavailable to ordinary retained pending hosts. R4a later
 synchronizes live append/drain/close and must not reimplement that staged flush. R1 does not publish the queue sidecar early.
 Current activation still has
 no timeout—`extension_loader._drive_awaitable()` joins its private worker
@@ -1009,10 +1163,14 @@ coding/REPL owner stacks; it does not prove real parent package `__init__`
 modules are bypassed. Recursive inventory proves no R3c1a production caller.
 The full usage accumulator owner ports are shipped in R3c1b with no production
 caller; catalog/auth refresh now ships in R3c1c, also without a production
-caller. R3c2 behavior-neutral routing is active/next and R3c3 composition
-follows. The next architecture action is **R3c2 — installable generation
-message routing seam**; ordinary product-parity
-selection remains blocked
-through R7. This docs correction changes no behavior and requires no changelog
-entry.
+caller. R3c2's routing seam now ships: production send owners use their explicitly
+supplied generation owner, while the typed coherent renderer snapshot provider
+is defined but remains production-unwired. Unavailable fallback stays direct
+and nonraising. Durable direct custom tree/render/input delivery always retains
+R1 behavior even when routing is uninstalled or retired; only queue/drain side
+effects may consult routing. Installed activation-send publication races obey
+guarded acceptance/detach or nonraising drop. No registry discovery or startup/reload installer exists. The
+next architecture action is **R3c3 — accept and publish one prepared
+reload**; ordinary product-parity selection remains blocked through R7. This
+foundation changes no behavior and requires no changelog entry.
 That is not a verdict that the broader program failed.

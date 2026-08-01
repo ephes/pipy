@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 import threading
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from enum import Enum, StrEnum
 from pathlib import Path
@@ -34,6 +34,8 @@ from pipy_harness.native.coding.commands import (
 from pipy_harness.native.extension_loader import _run_awaitable
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
+    GenerationMessageRouting,
+    QueuedCustomMessage,
     QueuedUserMessage,
     _ACTIVATION_LIFECYCLE_TOKEN,
     _ActivationApi,
@@ -48,6 +50,9 @@ from pipy_harness.native.extension_runtime import (
 from pipy_harness.native.extension_types import _ActivationError
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.session_generation import (
+    ExtensionQueueProjection,
+    GenerationQueueHandle,
+    OrderedDeliveryGate,
     SessionExtensionGeneration,
     SessionGenerationRef,
 )
@@ -62,17 +67,36 @@ def _host(
     reserved: frozenset[str] = frozenset(),
     reserved_tools: frozenset[str] = frozenset(),
     taken_flags: frozenset[str] = frozenset(),
+    message_routing: GenerationMessageRouting | None = None,
+    boundary_observer: Callable[[str], None] | None = None,
 ) -> _ActivationApi:
+    user = [] if outbox is None else outbox
+    custom = [] if custom_outbox is None else custom_outbox
+    routing = message_routing or GenerationMessageRouting(user, custom)
     return _ActivationApi(
         "sealed-test",
         reserved=reserved,
         taken=frozenset(),
         reserved_tools=reserved_tools,
         taken_flags=taken_flags,
-        outbox=[] if outbox is None else outbox,
-        custom_outbox=[] if custom_outbox is None else custom_outbox,
+        outbox=user,
+        custom_outbox=custom,
         guard=guard,
+        message_routing=routing,
+        boundary_observer=boundary_observer,
     )
+
+
+def _install_candidate_route(
+    routing: GenerationMessageRouting, mutex: threading.RLock
+) -> OrderedDeliveryGate:
+    gate = OrderedDeliveryGate(mutex)
+    ExtensionQueueProjection(
+        GenerationQueueHandle(routing.user_outbox, mutex),
+        GenerationQueueHandle(routing.custom_outbox, mutex),
+        routing,
+    ).install_candidate_route(gate)
+    return gate
 
 
 def _tool(name: str = "tool") -> ExtensionTool:
@@ -584,6 +608,7 @@ def test_seal_snapshot_is_authoritative_for_late_user_and_custom_messages() -> N
     api.send_message({"customType": "frozen", "content": "frozen-custom"})
 
     snapshot = api._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    api._accept_message_route()
     api.send_user_message("late-user")
     api.send_message({"customType": "late", "content": "late-custom"})
 
@@ -887,9 +912,141 @@ class _FamilyLock(AbstractContextManager[object]):
         self._lock.release()
 
 
+def test_installed_route_is_per_host_and_refuses_ineligible_siblings() -> None:
+    outbox: list[QueuedUserMessage] = []
+    custom_outbox: list[QueuedCustomMessage] = []
+    mutex = threading.RLock()
+    routing = GenerationMessageRouting(outbox, custom_outbox, mutex=mutex)
+
+    def sibling() -> _ActivationApi:
+        return _host(
+            outbox=outbox,
+            custom_outbox=custom_outbox,
+            message_routing=routing,
+        )
+
+    (
+        open_host,
+        pending_host,
+        committed_host,
+        rejected_host,
+        disposed_host,
+        accepted_host,
+    ) = (sibling() for _ in range(6))
+    for host in (pending_host, committed_host, disposed_host, accepted_host):
+        host._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    committed_host._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    assert rejected_host._dispose() and disposed_host._dispose()
+    accepted_host._accept_message_route()
+
+    gate = _install_candidate_route(routing, mutex)
+    with gate.reserve() as token:
+        open_host.send_user_message("open-staged")
+        for refused in (pending_host, committed_host, rejected_host, disposed_host):
+            refused.send_user_message("refused")
+        accepted_host.send_user_message("accepted-user")
+        accepted_host.send_message({"customType": "named", "content": "accepted"})
+        accepted_host.sendMessage({"customType": "alias", "content": "alias"})
+        assert outbox == [] and custom_outbox == []
+        assert routing.release_pending() == 3
+        gate.release(token)
+        assert gate.drain(token)
+
+    open_snapshot = open_host._seal_and_freeze(
+        _lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN
+    )
+    assert [message.content for message in open_snapshot.user_messages] == [
+        "open-staged"
+    ]
+    assert [message.content for message in outbox] == ["accepted-user"]
+    assert [message.content for message in custom_outbox] == ["accepted", "alias"]
+
+
+@pytest.mark.parametrize("custom_message", (False, True))
+def test_reservation_precedes_disposal_and_retirement_drops_only_the_tail(
+    custom_message: bool,
+) -> None:
+    state = _LockFamilyState()
+    mutex = threading.RLock()
+    outbox: list[QueuedUserMessage] = []
+    custom: list[QueuedCustomMessage] = []
+    reservation_ready = threading.Event()
+    release_reservation = threading.Event()
+    submission_entered = threading.Event()
+    release_submission = threading.Event()
+
+    def boundary(event: str) -> None:
+        if event == "host_guard_exit" and not reservation_ready.is_set():
+            reservation_ready.set()
+            assert release_reservation.wait(1)
+        elif event == "detached_batch_submission":
+            assert state.active is None
+            submission_entered.set()
+            assert release_submission.wait(1)
+
+    routing = GenerationMessageRouting(
+        outbox, custom, mutex=mutex, boundary_observer=boundary
+    )
+    host = _host(
+        outbox=outbox,
+        custom_outbox=custom,
+        guard=_FamilyLock("candidate", state),
+        message_routing=routing,
+        boundary_observer=boundary,
+    )
+    host._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    host._accept_message_route()
+    host._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    send = (
+        (lambda: host.send_message({"customType": "bound", "content": "direct"}))
+        if custom_message
+        else (lambda: host.send_user_message("direct"))
+    )
+    sender = threading.Thread(target=send)
+    sender.start()
+    assert reservation_ready.wait(1)
+    assert host._dispose()
+    release_reservation.set()
+    sender.join(1)
+    send()
+    target = custom if custom_message else outbox
+    assert [message.content for message in target] == ["direct"]
+
+    successor = _host(
+        outbox=outbox,
+        custom_outbox=custom,
+        guard=_FamilyLock("candidate", state),
+        message_routing=routing,
+        boundary_observer=boundary,
+    )
+    successor._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    successor._accept_message_route()
+    successor._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    gate = _install_candidate_route(routing, mutex)
+    with gate.reserve() as token:
+        successor.send_user_message("detached-before-retire")
+        released: list[int] = []
+        releaser = threading.Thread(
+            target=lambda: released.append(routing.release_pending())
+        )
+        releaser.start()
+        assert submission_entered.wait(1)
+        successor.send_user_message("attached-drop")
+        assert len(routing.retire()) == 1
+        successor.send_user_message("retirement-first-drop")
+        release_submission.set()
+        releaser.join(1)
+        assert released == [1]
+        gate.release(token)
+        assert gate.drain(token)
+
+    assert [message.content for message in outbox][-1] == "detached-before-retire"
+
+
 def _empty_runtime(
     host: _ActivationApi, *additional_hosts: _ActivationApi
 ) -> _ExtensionRuntime:
+    message_routing = host.message_routing
     return _ExtensionRuntime(
         commands={},
         menu_names=(),
@@ -906,8 +1063,8 @@ def _empty_runtime(
         session_before_fork_hooks=(),
         session_before_compact_hooks=(),
         session_before_tree_hooks=(),
-        outbox=[],
-        custom_outbox=[],
+        outbox=message_routing.user_outbox,
+        custom_outbox=message_routing.custom_outbox,
         tools=(),
         shortcuts={},
         flags=(),
@@ -917,6 +1074,7 @@ def _empty_runtime(
         entry_renderers={},
         custom_messages=(),
         activation_hosts=(host, *additional_hosts),
+        message_routing=message_routing,
     )
 
 
@@ -924,19 +1082,26 @@ def test_candidate_and_session_guards_never_nest_and_callbacks_run_unlocked() ->
     state = _LockFamilyState()
     candidate_guard = _FamilyLock("candidate", state)
     session_lock = _FamilyLock("session", state)
+    session_mutex = threading.RLock()
+    flush_unlocked = threading.Event()
 
-    class _SessionAppendingList(list[QueuedUserMessage]):
-        def extend(self, values: Iterable[QueuedUserMessage]) -> None:
-            with session_lock:
-                super().extend(values)
+    def boundary(event: str) -> None:
+        if event == "frozen_commit_flush":
+            assert state.active is None
 
-    host = _host(outbox=_SessionAppendingList(), guard=candidate_guard)
+            def acquire() -> None:
+                with session_mutex:
+                    flush_unlocked.set()
+
+            probe = threading.Thread(target=acquire)
+            probe.start()
+            probe.join(1)
+            assert flush_unlocked.is_set()
+
+    host = _host(outbox=[], guard=candidate_guard, boundary_observer=boundary)
     runtime = _empty_runtime(host)
     generation = SessionExtensionGeneration(runtime=runtime, flag_values={})
-    ref = SessionGenerationRef(
-        generation,
-        lock=cast(threading.RLock, session_lock),
-    )
+    ref = SessionGenerationRef(generation, lock=session_mutex)
 
     with ref.publishing():
         assert state.active is None
@@ -945,7 +1110,7 @@ def test_candidate_and_session_guards_never_nest_and_callbacks_run_unlocked() ->
         snapshot = host._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
         assert not hasattr(snapshot, "activated")
         host._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
-        assert state.active is None
+        assert state.active is None and flush_unlocked.is_set()
         ref.publish(generation)
         assert state.active is None
         assert state.log[phase_start:] == [
@@ -953,10 +1118,6 @@ def test_candidate_and_session_guards_never_nest_and_callbacks_run_unlocked() ->
             "exit:candidate",
             "enter:candidate",
             "exit:candidate",
-            "enter:session",
-            "exit:session",
-            "enter:session",
-            "exit:session",
         ]
 
     publish_host = _host(guard=candidate_guard)
@@ -1052,13 +1213,16 @@ def test_activation_host_reader_inventory_has_one_meaning_per_field() -> None:
     assert readers(runtime_path, "_pending_activation") == {
         "_dispose_activation_results",
         "_finalize_preloaded_extension",
+        "_routing_for_activation_batch",
     }
     assert readers(runtime_path, "_activation_host") == {
         "_dispose_activation_results",
         "_finalize_provider_catalog_results",
+        "_routing_for_activation_batch",
     }
     assert readers(hooks_path, "_activation_host") == {"_compose_extension_runtime"}
     assert readers(runtime_path, "activation_hosts") == {
+        "__post_init__",
         "adopt",
         "dispose",
         "publish",
@@ -1436,6 +1600,7 @@ def test_provider_catalog_refusal_disposes_nonlive_hosts_and_skips_live_hosts() 
     live_outbox: list[QueuedUserMessage] = []
     published = _host(outbox=live_outbox)
     published._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    published._accept_message_route()
     published._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
     assert _ExtensionCandidate(_empty_runtime(published)).publish() is True
 
@@ -1642,7 +1807,12 @@ def test_candidate_publication_refuses_an_open_host_and_remains_disposable() -> 
     committed.register_flag(ExtensionFlag("first", "boolean", default=True))
     committed._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
     committed._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
-    open_host = _host()
+    routing = committed.message_routing
+    open_host = _host(
+        outbox=routing.user_outbox,
+        custom_outbox=routing.custom_outbox,
+        message_routing=routing,
+    )
     open_host.register_flag(ExtensionFlag("open", "boolean", default=True))
 
     candidate = _ExtensionCandidate(_empty_runtime(committed, open_host))
@@ -1663,11 +1833,17 @@ def test_mixed_corrupted_candidate_disposes_unpublished_siblings_only() -> None:
     live_outbox: list = []
     published = _host(outbox=live_outbox)
     published._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    published._accept_message_route()
     published._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
     published_runtime = _empty_runtime(published)
     assert _ExtensionCandidate(published_runtime).publish() is True
 
-    sibling = _host()
+    routing = published.message_routing
+    sibling = _host(
+        outbox=routing.user_outbox,
+        custom_outbox=routing.custom_outbox,
+        message_routing=routing,
+    )
     sibling.register_flag(ExtensionFlag("sibling", "boolean", default=True))
     sibling._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
     sibling._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
