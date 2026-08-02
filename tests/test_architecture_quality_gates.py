@@ -49,6 +49,27 @@ def test_formatter_gate_has_no_custom_repository_exclusions() -> None:
     assert not (REPO_ROOT / "ruff.toml").exists()
 
 
+def test_ruff_import_order_gate_selects_exact_i001() -> None:
+    config = tomllib.loads(_read("pyproject.toml"))
+    lint = config["tool"]["ruff"]["lint"]
+    extend_select = lint["extend-select"]
+    configured_selectors = lint.get("select", []) + extend_select
+    ignored_selectors = lint.get("ignore", []) + lint.get("extend-ignore", [])
+    for selectors in lint.get("per-file-ignores", {}).values():
+        ignored_selectors.extend(selectors)
+
+    assert "I001" in extend_select
+    assert {
+        selector
+        for selector in configured_selectors
+        if selector == "ALL" or selector.startswith("I")
+    } == {"I001"}
+    assert all(
+        selector != "ALL" and not "I001".startswith(selector)
+        for selector in ignored_selectors
+    )
+
+
 def test_readme_names_the_codex_websocket_dependency() -> None:
     readme = _read("README.md")
 
