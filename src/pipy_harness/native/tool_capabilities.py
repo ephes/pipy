@@ -142,6 +142,68 @@ class ToolCapabilityState:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class NativeToolCapabilitySnapshot:
+    """One provider turn's advertised and executable tool generation."""
+
+    owner: NativeToolCapabilities
+    state: ToolCapabilityState
+
+    def definitions(
+        self,
+        allowed_names: Sequence[str] | None = None,
+        /,
+    ) -> tuple[ToolDefinition, ...]:
+        return _definitions_for(self.state, allowed_names)
+
+    def execute(
+        self,
+        call: AgentToolCall,
+        *,
+        output_sink: Callable[[str], None] | None = None,
+        wait_for_interrupt: ToolInterruptWaiter | None = None,
+    ) -> ToolExecutionOutcome:
+        visible_before = tuple(
+            definition.name for definition in _definitions_for(self.state, None)
+        )
+        outcome = self.state.executor.execute(
+            call,
+            replace(self.owner._context, output_sink=output_sink),
+            wait_for_interrupt=wait_for_interrupt,
+        )
+        state_after = self.owner.state
+        visible_after = tuple(
+            definition.name for definition in _definitions_for(state_after, None)
+        )
+        if (
+            state_after.executor is self.state.executor
+            and call.tool_name in self.state.extension_registry
+            and not outcome.result.is_error
+            and set(visible_before).issubset(visible_after)
+        ):
+            before_names = set(visible_before)
+            added_tool_names = tuple(
+                name for name in visible_after if name not in before_names
+            )
+            if added_tool_names:
+                outcome = replace(
+                    outcome,
+                    result=replace(
+                        outcome.result,
+                        added_tool_names=added_tool_names,
+                    ),
+                )
+        return outcome
+
+    def error_result(
+        self,
+        call: AgentToolCall,
+        output_text: str,
+        /,
+    ) -> AgentToolResultMessage:
+        return self.state.executor.error_result(call, output_text)
+
+
 class NativeToolCapabilities:
     """Compose product tool registries, visibility policy, and execution.
 
@@ -265,12 +327,23 @@ class NativeToolCapabilities:
                 state = replace(state, active_tool_names=self._state.active_tool_names)
             self._state = state
 
+    def snapshot_for_projection(
+        self, projection_state: ToolCapabilityState
+    ) -> NativeToolCapabilitySnapshot:
+        """Bind one immutable live selection to its projected registry/executor."""
+
+        with self._state_lock:
+            state = self._state
+            if state.executor is not projection_state.executor:
+                raise RuntimeError("tool capability generation is incoherent")
+            return NativeToolCapabilitySnapshot(self, state)
+
     def definitions(
         self,
         allowed_names: Sequence[str] | None = None,
         /,
     ) -> tuple[ToolDefinition, ...]:
-        return _definitions_for(self.state, allowed_names)
+        return NativeToolCapabilitySnapshot(self, self.state).definitions(allowed_names)
 
     def execute(
         self,
@@ -279,45 +352,11 @@ class NativeToolCapabilities:
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
     ) -> ToolExecutionOutcome:
-        state = self.state
-        visible_before = tuple(
-            definition.name for definition in _definitions_for(state, None)
-        )
-        outcome = state.executor.execute(
+        return NativeToolCapabilitySnapshot(self, self.state).execute(
             call,
-            replace(self._context, output_sink=output_sink),
+            output_sink=output_sink,
             wait_for_interrupt=wait_for_interrupt,
         )
-        # Re-read deliberately: an extension tool may widen visibility through
-        # `set_active_tools` during its own call, and the model must be told.
-        # Only compare within one generation, though — a `/reload` that landed
-        # mid-call replaces the registry wholesale, and its differences are not
-        # this call's additions. The executor is the generation marker: it is
-        # built once per `ToolCapabilityState.build`, and a visibility-only
-        # change carries the same executor forward while a reload does not.
-        state_after = self.state
-        visible_after = tuple(
-            definition.name for definition in _definitions_for(state_after, None)
-        )
-        if (
-            state_after.executor is state.executor
-            and call.tool_name in state.extension_registry
-            and not outcome.result.is_error
-            and set(visible_before).issubset(visible_after)
-        ):
-            before_names = set(visible_before)
-            added_tool_names = tuple(
-                name for name in visible_after if name not in before_names
-            )
-            if added_tool_names:
-                outcome = replace(
-                    outcome,
-                    result=replace(
-                        outcome.result,
-                        added_tool_names=added_tool_names,
-                    ),
-                )
-        return outcome
 
     def error_result(
         self,
@@ -325,7 +364,9 @@ class NativeToolCapabilities:
         output_text: str,
         /,
     ) -> AgentToolResultMessage:
-        return self.state.executor.error_result(call, output_text)
+        return NativeToolCapabilitySnapshot(self, self.state).error_result(
+            call, output_text
+        )
 
 
 def _definitions_for(

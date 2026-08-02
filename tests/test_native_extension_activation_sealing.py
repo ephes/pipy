@@ -2225,9 +2225,44 @@ def test_reload_host_transfer_and_retired_slot_layout_are_static() -> None:
     assert section_source.count("owner.mark_retired_locked(route_retirement)") == 1
     assert "finalize_retirement" not in section_source
     assert source.count("route_retirement.finalize_retirement()") == 1
-    assert "retired: list[object | None] = [None] * 20" in source
-    assert source.count("retired[") == 20
-    assert all(f"retired[{index}]" in source for index in range(20))
+    assert "retired: list[object | None] = [None] * 19" in source
+    assert source.count("retired[") == 19
+    retained_inventory = (
+        "retired[0] = self.publish_locked(generation)",
+        "retired[1] = route_retirement.finalize_retirement()",
+        "retired[2] = catalog.extension_providers",
+        "retired[3] = catalog.extension_unregistered_providers",
+        "retired[4] = catalog._extension_provider_map",
+        "retired[5] = catalog.extension_oauth_provider_map",
+        "retired[6] = catalog.catalog.rows",
+        "retired[7] = catalog.catalog.error",
+        "retired[8] = catalog.catalog.provider_request_configs",
+        "retired[9] = catalog.catalog._config",
+        "retired[10] = auth_store._data",
+        "retired[11] = coding_state._binding",
+        "retired[12] = coding_state._messages",
+        "retired[13] = coding_state._usage_accumulator",
+        "retired[14] = provider_state.selection",
+        "retired[15] = provider_state.pending_default",
+        "retired[16] = tool_capabilities._state",
+        "retired[17], emitter._lifecycle_hooks = (emitter._lifecycle_hooks, hooks)",
+        "retired[18], emitter._lifecycle_flags = (emitter._lifecycle_flags, flags)",
+    )
+    assert all(source.count(item) == 1 for item in retained_inventory)
+    assert all(
+        item in section_source
+        for item in retained_inventory
+        if item != retained_inventory[1]
+    )
+    finalizer = next(
+        node for node in commit.body if ast.unparse(node) == retained_inventory[1]
+    )
+    release = next(node for node in commit.body if ast.unparse(node) == "del retired")
+    assert section.end_lineno is not None
+    assert finalizer.end_lineno is not None
+    assert (
+        section.end_lineno < finalizer.lineno <= finalizer.end_lineno < release.lineno
+    )
 
 
 def test_startup_installs_generation_reference_before_host_publication() -> None:

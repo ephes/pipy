@@ -101,6 +101,8 @@ from pipy_harness.native.agent.loop_policy import (
 )
 from pipy_harness.native.agent.tools import (
     ToolExecutionInterruption,
+    ToolExecutionOutcome,
+    ToolInterruptWaiter,
 )
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
@@ -276,6 +278,7 @@ from pipy_harness.native.extension_runtime import (
     ExtensionCapabilityError,
     ExtensionCodingSessionControl,
     ExtensionCommandDispatch,
+    ExtensionTool,
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
     HookHandler,
@@ -283,8 +286,6 @@ from pipy_harness.native.extension_runtime import (
     ExtensionActivationBatch,
     QueuedCustomMessage,
     QueuedUserMessage,
-    RegisteredEntryRenderer,
-    RegisteredMessageRenderer,
     RegisteredTool,
     ToolRenderDetailsWriter,
     _ExtensionCandidate,
@@ -363,12 +364,12 @@ from pipy_harness.native.tools import (
 )
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
+    NativeToolCapabilitySnapshot,
     ToolCapabilityState,
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_renderers import (
     _ToolLoopRenderer as _ToolLoopRenderer,
-    _extension_tool_renderer_map,
     _parse_tool_input,
 )
 from pipy_harness.native.agent_request import (
@@ -581,18 +582,10 @@ class _RunControlState:
     def extension_generation(self) -> SessionExtensionGeneration:
         """The live extension generation, read under the session mutex.
 
-        Every consumer keeps reading ``ctl.extension_generation`` exactly where
-        it did before; the difference is that the read now goes through the
-        session's one synchronization boundary instead of touching a bare
-        attribute a reload could be rewriting.
-
-        This is a per-access read, **not** the per-operation snapshot the
-        concurrency contract ultimately requires: an operation that reads it
-        twice would see two generations if a publication landed in between.
-        Today it cannot, because the only publisher is ``/reload`` on the
-        session thread. Converting consumers to
-        :meth:`SessionGenerationRef.snapshot` is a precondition of the slice
-        that lets a detached worker publish.
+        This is the per-access bridge retained for the pending R4c menu,
+        lifecycle, and chrome consumers. R4a/R4b operation families instead use
+        :meth:`SessionGenerationRef.snapshot` and never mix this bridge into a
+        converted operation.
         """
 
         return self.generation_ref.current
@@ -624,16 +617,6 @@ class _ExtensionCustomEntryRunState:
     @property
     def session_tree(self) -> NativeSessionTree:
         return self.ctl.session_tree
-
-    @property
-    def extension_renderer_map(self) -> Mapping[str, RegisteredMessageRenderer]:
-        return self.ctl.extension_generation.runtime.message_renderers
-
-    @property
-    def extension_entry_renderer_map(
-        self,
-    ) -> Mapping[str, RegisteredEntryRenderer]:
-        return self.ctl.extension_generation.runtime.entry_renderers
 
     @property
     def extension_message_outbox(self) -> list[QueuedUserMessage]:
@@ -1530,6 +1513,102 @@ class _TransferCommandEffects:
             self.diag(f"pipy: gist URL: {result.gist_url}")
 
 
+@dataclass(frozen=True, slots=True)
+class _ExecutionProjectionSnapshot:
+    generation_id: int
+    tools: NativeToolCapabilitySnapshot
+    renderers: Mapping[str, ExtensionTool]
+    tool_call_hooks: tuple[HookHandler, ...]
+    flags: Mapping[str, object]
+    provider: ProviderPort
+
+
+class _SessionExecutionProjections:
+    """Bind one provider turn to one published tool/renderer/provider view."""
+
+    __slots__ = ("_active", "_coding_state", "_generation_ref", "_tools")
+
+    def __init__(
+        self,
+        *,
+        generation_ref: SessionGenerationRef,
+        tool_capabilities: NativeToolCapabilities,
+        coding_state: CodingSessionState,
+    ) -> None:
+        self._generation_ref = generation_ref
+        self._tools = tool_capabilities
+        self._coding_state = coding_state
+        self._active: _ExecutionProjectionSnapshot | None = None
+
+    def _begin_provider_turn(self) -> _ExecutionProjectionSnapshot:
+        with self._generation_ref.lock:
+            snapshot = self._generation_ref.snapshot()
+            projection = snapshot.generation.projection
+            if projection is None:
+                raise RuntimeError("published extension generation has no projection")
+            active = _ExecutionProjectionSnapshot(
+                generation_id=snapshot.generation_id,
+                tools=self._tools.snapshot_for_projection(
+                    projection.tools.capability_state
+                ),
+                renderers=projection.renderers.tools,
+                tool_call_hooks=projection.hooks.tool_call,
+                flags=projection.runtime_flags.values,
+                provider=self._coding_state.provider,
+            )
+            self._active = active
+            return active
+
+    def _require_active(self) -> _ExecutionProjectionSnapshot:
+        if self._active is None:
+            raise RuntimeError("tool advertisement has not started a provider turn")
+        return self._active
+
+    def definitions(
+        self,
+        allowed_names: Sequence[str] | None = None,
+        /,
+    ) -> tuple[ToolDefinition, ...]:
+        return self._begin_provider_turn().tools.definitions(allowed_names)
+
+    def execute(
+        self,
+        call: AgentToolCall,
+        *,
+        output_sink: Callable[[str], None] | None = None,
+        wait_for_interrupt: ToolInterruptWaiter | None = None,
+    ) -> ToolExecutionOutcome:
+        return self._require_active().tools.execute(
+            call,
+            output_sink=output_sink,
+            wait_for_interrupt=wait_for_interrupt,
+        )
+
+    def error_result(
+        self,
+        call: AgentToolCall,
+        output_text: str,
+        /,
+    ) -> AgentToolResultMessage:
+        return self._require_active().tools.error_result(call, output_text)
+
+    def tool_renderers(
+        self, advertised_names: Sequence[str]
+    ) -> Mapping[str, ExtensionTool]:
+        renderers = self._require_active().renderers
+        return {name: renderers[name] for name in advertised_names if name in renderers}
+
+    @property
+    def provider(self) -> ProviderPort:
+        return self._require_active().provider
+
+    def tool_call_policy_inputs(
+        self,
+    ) -> tuple[tuple[HookHandler, ...], Mapping[str, object]]:
+        active = self._require_active()
+        return active.tool_call_hooks, active.flags
+
+
 def _build_projected_extension_tool_port(
     registered: RegisteredTool,
     *,
@@ -1541,29 +1620,6 @@ def _build_projected_extension_tool_port(
     project_trusted: bool,
 ) -> ToolPort:
     """Construct one detached projection port without touching live state."""
-
-    return _ExtensionToolPort(
-        registered,
-        has_ui=has_ui,
-        notify_sink=notify_sink,
-        set_active_tools_fn=set_active_tools,
-        flags=flags,
-        render_details_sink=render_details,
-        project_trusted=project_trusted,
-    )
-
-
-def _build_legacy_extension_tool_port(
-    registered: RegisteredTool,
-    *,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None],
-    set_active_tools: Callable[[Sequence[str]], bool],
-    flags: Mapping[str, object],
-    render_details: ToolRenderDetailsWriter,
-    project_trusted: bool,
-) -> ToolPort:
-    """Construct one live legacy port through the equivalence-source seam."""
 
     return _ExtensionToolPort(
         registered,
@@ -1590,7 +1646,7 @@ def _build_candidate_extension_projection(
     prepare_capability: Callable[[Mapping[str, ToolPort]], ToolCapabilityState],
     chrome: ExtensionChromeHandle | None,
 ) -> ExtensionProjection:
-    """Purely compose one detached candidate projection for later slices."""
+    """Purely compose one detached candidate projection for publication."""
 
     def build_tool_port(
         registered: RegisteredTool, frozen_flags: Mapping[str, object]
@@ -1864,7 +1920,6 @@ class _ReloadCommandEffects:
                         coding_state=self.provider_mutation.coding_state,
                         tool_capabilities=self.tool_capabilities,
                         expected_capability=expected_capability,
-                        renderer=self.renderer,
                         emitter=self.emitter,
                     )
                     if acceptance_failure is not None:
@@ -2326,15 +2381,20 @@ class _ProviderMutationEffects:
         state = self.session.provider_state
         if not isinstance(state, NativeReplProviderState):
             return
+        snapshot = self.ctl.generation_ref.snapshot()
+        projection = snapshot.generation.projection
+        if projection is None:
+            raise RuntimeError("published extension generation has no projection")
         runtime = state.model_runtime
         catalog_state = runtime.catalog
         if catalog_state.auth_store is None:
             return
         was_extension_selection = state.current_selection_uses_extension_provider()
         catalog_state.refresh()
+        providers = projection.providers
         catalog_state.set_extension_provider_contributions(
-            self.ctl.extension_generation.runtime.providers,
-            self.ctl.extension_generation.runtime.unregistered_providers,
+            providers.providers,
+            providers.unregistered,
         )
         selection_disappeared = not state.current_selection_supported() or (
             was_extension_selection
@@ -2520,7 +2580,7 @@ class _ReplLoopStep:
         base_system_prompt: str,
         image_reference_roots: tuple[Path, ...],
         prompt_history_store: PromptHistoryStore,
-        tool_capabilities: NativeToolCapabilities,
+        execution_projections: _SessionExecutionProjections,
         agent_tool_policy: NativeAgentToolPolicy,
         coding_input_queue: CodingInputQueue,
         command_effects: CodingCommandEffects,
@@ -2866,15 +2926,8 @@ class _ReplLoopStep:
                     active_input=loop_active_input,
                 ),
             )
-            live_tool_renderers = _extension_tool_renderer_map(
-                ctl.extension_generation.runtime.tools
-            )
             renderer.refresh_tool_renderers(
-                {
-                    name: live_tool_renderers[name]
-                    for name in snapshot.advertised_tool_names
-                    if name in live_tool_renderers
-                }
+                execution_projections.tool_renderers(snapshot.advertised_tool_names)
             )
             return AgentLoopRequestPreparation(coding_state.messages, snapshot)
 
@@ -2885,7 +2938,7 @@ class _ReplLoopStep:
         ) -> ProviderTurnOutcome:
             provider_request = materialize_provider_request(snapshot)
             provider_waiter = None
-            provider_for_turn: ProviderPort = coding_state.provider
+            provider_for_turn = execution_projections.provider
             if terminal_ui is not None:
                 provider_waiter = partial(_wait_for_provider_interrupt, terminal_ui)
             elif session.abort_event is not None:
@@ -3001,7 +3054,7 @@ class _ReplLoopStep:
             request_source=AgentLoopRequestSourceAdapter(_prepare_loop_request),
             provider_turn=AgentLoopProviderTurnAdapter(_complete_loop_provider_turn),
             status_policy=status_policy,
-            tool_capabilities=tool_capabilities,
+            tool_capabilities=execution_projections,
             tool_policy=agent_tool_policy,
             event_sink=emitter,
             usage_publisher=usage_publisher,
@@ -3121,6 +3174,7 @@ class _SessionCollaborators:
     session: NativeToolReplSession
     ctl: _RunControlState
     extension_operations: _SessionExtensionOperations
+    execution_projections: _SessionExecutionProjections
     coding_state: CodingSessionState
     product_session: CodingProductSessionCoordinator
     coding_input_queue: CodingInputQueue
@@ -3393,8 +3447,9 @@ class _SessionCollaborators:
     def apply_extension_tool_policy(
         self, call: AgentToolCall
     ) -> AgentToolPolicyDecision:
+        hooks, flags = self.execution_projections.tool_call_policy_inputs()
         tool_block = dispatch_tool_call_hooks(
-            self.ctl.extension_generation.runtime.tool_call_hooks,
+            hooks,
             tool_name=call.tool_name,
             tool_input=_parse_tool_input(call.arguments_json.value),
             cwd=str(self.cwd),
@@ -3404,7 +3459,7 @@ class _SessionCollaborators:
             model_runtime=self.provider_mutation.model_runtime_control(
                 allow_model=False
             ),
-            flags=self.ctl.extension_generation.flag_values,
+            flags=flags,
             project_trusted=self.settings.project_trusted,
         )
         if tool_block is None:
@@ -3463,6 +3518,63 @@ class _SessionCollaborators:
             ran=extension_dispatch.ran,
             error=extension_dispatch.error,
         )
+
+
+def _apply_startup_provider_projection(
+    *,
+    generation_ref: SessionGenerationRef,
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
+    coding_state: CodingSessionState,
+    error_stream: TextIO,
+) -> None:
+    """Apply one published startup provider projection and any required fallback."""
+
+    snapshot = generation_ref.snapshot()
+    projection = snapshot.generation.projection
+    if projection is None:
+        raise RuntimeError("published extension generation has no projection")
+    match provider_state:
+        case NativeReplProviderState():
+            catalog_state = provider_state.model_runtime.catalog
+            was_extension_selection = (
+                provider_state.current_selection_uses_extension_provider()
+            )
+            providers = projection.providers
+            catalog_state.set_extension_provider_contributions(
+                providers.providers,
+                providers.unregistered,
+            )
+            if not provider_state.current_selection_supported() or (
+                was_extension_selection
+                and not provider_state.current_selection_uses_extension_provider()
+            ):
+                fallback = provider_state.reset_to_first_available_model(
+                    require_tool_calls=True
+                )
+                if fallback is None:
+                    raise ValueError(
+                        "selected provider is unavailable after extension activation, "
+                        "and no available tool-capable fallback was found"
+                    )
+                fallback_provider = provider_state.current_provider()
+                coding_state.rebind_provider(
+                    fallback_provider,
+                    provider_name=fallback.provider_name,
+                    model_id=fallback.model_id,
+                    usage_accumulator=AgentUsageAccumulator(
+                        _pricing_for(fallback.provider_name, fallback.model_id)
+                    ),
+                )
+                print(
+                    "pipy: active model disappeared on startup; selected "
+                    f"{fallback.reference}.",
+                    file=error_stream,
+                )
+                # Post-commit: the fallback is bound, so persist it and report a
+                # failure without claiming the binding reverted.
+                startup_persistence_error = provider_state.flush_pending_default()
+                if startup_persistence_error is not None:
+                    print(startup_persistence_error, file=error_stream)
 
 
 @dataclass
@@ -3826,50 +3938,6 @@ class NativeToolReplSession:
             return self._fail_startup(
                 coding_state, "ExtensionFlagError", extension_flag_error
             )
-        match self.provider_state:
-            case NativeReplProviderState():
-                catalog_state = self.provider_state.model_runtime.catalog
-                was_extension_selection = (
-                    self.provider_state.current_selection_uses_extension_provider()
-                )
-                catalog_state.set_extension_provider_contributions(
-                    extension_runtime.providers,
-                    extension_runtime.unregistered_providers,
-                )
-                if not self.provider_state.current_selection_supported() or (
-                    was_extension_selection
-                    and not self.provider_state.current_selection_uses_extension_provider()
-                ):
-                    fallback = self.provider_state.reset_to_first_available_model(
-                        require_tool_calls=True
-                    )
-                    if fallback is None:
-                        raise ValueError(
-                            "selected provider is unavailable after extension "
-                            "activation, and no available tool-capable fallback "
-                            "was found"
-                        )
-                    fallback_provider = self.provider_state.current_provider()
-                    coding_state.rebind_provider(
-                        fallback_provider,
-                        provider_name=fallback.provider_name,
-                        model_id=fallback.model_id,
-                        usage_accumulator=AgentUsageAccumulator(
-                            _pricing_for(fallback.provider_name, fallback.model_id)
-                        ),
-                    )
-                    print(
-                        "pipy: active model disappeared on startup; selected "
-                        f"{fallback.reference}.",
-                        file=error_stream,
-                    )
-                    # Post-commit: the fallback is bound, so persist it and
-                    # report a failure without claiming the binding reverted.
-                    startup_persistence_error = (
-                        self.provider_state.flush_pending_default()
-                    )
-                    if startup_persistence_error is not None:
-                        print(startup_persistence_error, file=error_stream)
         extension_in_agent_turn = False
         # Set immediately before an accepted agent run starts and cleared only
         # when its extension-surface true-idle notification has fired. Keeping
@@ -3986,13 +4054,23 @@ class NativeToolReplSession:
         generation_ref = SessionGenerationRef(
             extension_generation, lock=session_state_lock
         )
+        _apply_startup_provider_projection(
+            generation_ref=generation_ref,
+            provider_state=self.provider_state,
+            coding_state=coding_state,
+            error_stream=error_stream,
+        )
         if not publish_candidate_ownership(candidate):
             startup_projection.queues.retire_route()
             message = "extension candidate ownership is unavailable"
             print(f"pipy: {message}", file=error_stream)
             return self._fail_startup(coding_state, "ExtensionActivationError", message)
         tool_capabilities.publish(startup_projection.tools.capability_state)
-        extension_tool_renderers = startup_projection.renderers.tools
+        execution_projections = _SessionExecutionProjections(
+            generation_ref=generation_ref,
+            tool_capabilities=tool_capabilities,
+            coding_state=coding_state,
+        )
         provider_turn_executor = ProviderTurnExecutor(
             cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
         )
@@ -4033,14 +4111,12 @@ class NativeToolReplSession:
         if terminal_ui is not None:
             renderer = _TuiToolLoopRenderer(
                 ui=terminal_ui,
-                tool_renderers=extension_tool_renderers,
                 render_details_sink=render_details.tui,
             )
         else:
             renderer = _ToolLoopRenderer(
                 output_stream=output_stream,
                 error_stream=error_stream,
-                tool_renderers=extension_tool_renderers,
                 render_details_sink=render_details.captured,
             )
         # `session_start` fires once the session is set up (reason "startup");
@@ -4211,9 +4287,10 @@ class NativeToolReplSession:
 
         # Custom-entry / custom-message rendering and the extension outbox drain
         # live in the module-level `_CustomEntryRenderer` handler (symmetric with
-        # `_ReplLoopStep`/`_BuiltinCommandInterpreter`). A narrow adapter reads
-        # renderer maps and outboxes through `ctl.extension_generation`, while the
-        # session tree and `extension_in_agent_turn` remain live run control. Its
+        # `_ReplLoopStep`/`_BuiltinCommandInterpreter`). Rendering uses one
+        # published projection snapshot; the narrow adapter retains live outboxes
+        # only for R4a's legacy/harness direct-drain fallback, while the session
+        # tree and `extension_in_agent_turn` remain live run control. Its
         # bound methods are passed wherever the deleted closures were consumed.
         custom_renderer = _CustomEntryRenderer(
             session=self,
@@ -4355,6 +4432,7 @@ class NativeToolReplSession:
             session=self,
             ctl=ctl,
             extension_operations=extension_operations,
+            execution_projections=execution_projections,
             coding_state=coding_state,
             product_session=product_session,
             coding_input_queue=coding_input_queue,
@@ -4471,7 +4549,7 @@ class NativeToolReplSession:
                 base_system_prompt=base_system_prompt,
                 image_reference_roots=image_reference_roots,
                 prompt_history_store=prompt_history_store,
-                tool_capabilities=tool_capabilities,
+                execution_projections=execution_projections,
                 agent_tool_policy=agent_tool_policy,
                 coding_input_queue=coding_input_queue,
                 command_effects=command_effects,

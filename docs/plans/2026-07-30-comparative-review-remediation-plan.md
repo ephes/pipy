@@ -323,31 +323,32 @@ slice below.
    status edit is implied for **every** slice even when its local docs/release
    disposition does not repeat `backlog`; do not rewrite the adjacent landing
    certification prose.
-2. Add characterization before changing behavior. Run the listed focused
-   checks, `git diff --check`, `just check`, and `just docs-build`. Run
+2. Add characterization before changing behavior. During implementation run
+   the listed focused checks, `git diff --check`, and `just docs-build`. Run
    `just test-pty-smoke` plus the relevant real-PTY module for reload, chrome,
    input, renderer, or terminal work. If `.pre-commit-config.yaml` appears,
-   also run `prek run --all-files`.
+   also run `prek run --all-files`. Use focused gates while the diff is moving;
+   the supervising root runs exactly one full `just check` after review and
+   before commit rather than every implementation or review iteration.
 3. State the docs and release-note disposition in the diff. User-visible
    behavior changes update the relevant user/parity docs and `CHANGELOG.md` in
    the same commit. Mechanical/test-policy/docs-only slices explicitly record
    that no release note applies.
-4. After gates pass, use a fresh independent Claude Code Opus context to review
-   the complete exact diff, with no raw-session input and no implementer
-   self-grading. Respect `AGENTS.md`: at most two valid rounds for docs-only
-   slices and at most three for code slices; stop at the first CLEAN round.
-   A shared-mutable-state correctness finding never grants an extra review
-   round automatically: if unresolved at the cap, it blocks commit and all
-   dependent work and forces contract/plan revision or a stop. Only explicit
-   operator authorization based on new, actionable, materially valuable
-   feedback may extend the review budget.
-5. Fix material findings, rerun all gates, and review the changed diff again.
-   A slice may proceed to commit only when the latest valid review has no
-   unresolved Critical, Warning, or other material blocker. If the review cap
-   is reached without that state, **do not commit**: revise this plan, re-split
-   the slice, or stop the program as appropriate, then report the blocker.
-   Where a slice's own acceptance requires `CLEAN`, only an explicit valid
-   `CLEAN` satisfies it.
+4. Routine implementation slices receive one fresh supervised Claude Sonnet
+   review of the complete exact diff, with no raw-session input, implementer
+   self-grading, or implementer-internal Claude invocation. After material
+   fixes, at most one fresh Sonnet re-review is allowed. Stop on `CLEAN` or when
+   the only remaining feedback is explicitly non-material suggestion-only
+   feedback. Reserve Opus for operator-directed escalation of unresolved
+   high-risk shared-state correctness or architecture findings; it is not the
+   routine universal gate.
+5. Fix material findings and rerun the focused gates before the one permitted
+   Sonnet re-review. A slice may proceed only when the latest valid review has
+   no unresolved Critical, Warning, or other material blocker. If that state is
+   not reached within the routine budget, **do not commit**: escalate qualifying
+   high-risk shared-state/architecture uncertainty to Opus when authorized, or
+   revise the plan or stop and report the blocker. After review is settled, the
+   supervising root runs the one full `just check`; a failure blocks commit.
 6. Only after step 5 permits landing, commit the unchanged, green, reviewed diff
    directly to `main` as exactly one commit. Do not amend, rebase, push, create
    a branch, or bundle the next slice.
@@ -1468,7 +1469,7 @@ clears live retained TUI chrome before activation” record both deltas. Commit:
 ### R4a — snapshot command/request operations and live outboxes
 
 **Status:** shipped in the intended same change as its code and documentation;
-R4b is active/next.
+R4c is active/next.
 
 **Kind:** user-visible concurrency correctness: coherent snapshots and no erased
 live queue append; retired-handle close does not add delivery semantics.
@@ -1548,6 +1549,9 @@ drain. Commit: `fix: snapshot extension dispatch and live queues`.
 
 ### R4b — snapshot tool, renderer, and provider projections
 
+**Status:** shipped in the intended same change as its code and documentation;
+R4c is active/next.
+
 **Kind:** concurrency behavior; intended external behavior is coherence only.
 
 **Scope:** Make tool advertisement/execution, renderer selection, and extension
@@ -1574,9 +1578,29 @@ with proof that its last legacy consumer moved and its legacy source was
 deleted, while every arm whose legacy source remains still passes; focused
 provider, tool, renderer, and real-PTY rendering suites pass.
 
-**Docs/release/commit:** architecture/spec table; no separate changelog entry
-because R4b adopts the coherent value already published by R3c3. Commit:
-`refactor: snapshot extension execution projections`.
+**Completion facts:** `_SessionExecutionProjections` takes one session-mutex
+snapshot per provider iteration and retains its projected tool registry/executor,
+tool-call hooks/flags, filtered tool-renderer map, and already-constructed coding
+provider. Tool execution and call/result rendering therefore keep the generation
+advertised to that provider request even if reload publishes while a cancelled
+worker finishes; the next provider iteration snapshots the successor. Custom
+message, custom entry, replay, redraw, and direct rendering operations likewise
+select one projected renderer map once. Startup and refusal-path provider
+contribution/refresh consumers now take the projected provider tuple from one
+generation snapshot; accepted reload remains R3c3-owned. Provider construction
+and execution remain outside the session mutex, and R0 provider selection and
+coding-state refresh/fallback rebinding are unchanged.
+
+The last consumers moved before deletion of `_build_legacy_extension_tool_port`,
+`_extension_tool_renderer_map`, direct runtime renderer/provider reads, and the
+separately published renderer map in `TemporaryLegacyValue`. Their tool,
+renderer, and provider R3a equivalence arms were then removed, with static
+inventory proving those sources and arms absent. Command/menu, lifecycle,
+runtime-flag, queue, and chrome arms remain for their owning slices.
+
+**Docs/release/commit:** architecture/spec table; explicitly no changelog entry
+because R4b adopts the coherent value already published by R3c3 without a new
+user-visible surface. Commit: `refactor: snapshot extension execution projections`.
 
 ### R4c — snapshot menu, lifecycle, and chrome from one generation
 

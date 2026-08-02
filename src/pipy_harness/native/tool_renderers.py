@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from collections.abc import Callable, Iterable, Mapping, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, TextIO, TypedDict
 
@@ -25,7 +25,6 @@ from pipy_harness.native.extension_runtime import (
 from pipy_harness.native.extension_types import (
     ChromeComponent,
     ExtensionTool,
-    RegisteredTool,
     ThemeColor,
     ToolRenderComponent,
     ToolRenderContext,
@@ -1081,17 +1080,6 @@ class _ToolLoopRenderer:
         if not self._enabled:
             return text
         return f"{code}{text}{self._ANSI_RESET}"
-
-
-def _extension_tool_renderer_map(
-    tools: Iterable[RegisteredTool],
-) -> dict[str, ExtensionTool]:
-    return {
-        registered.tool.name: registered.tool
-        for registered in tools
-        if registered.tool.render_call is not None
-        or registered.tool.render_result is not None
-    }
 
 
 def _plain_tool_call_header(call: AgentToolCall) -> str:

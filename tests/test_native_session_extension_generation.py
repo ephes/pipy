@@ -48,6 +48,7 @@ from pipy_harness.native.extension_runtime import (
     GenerationMessageRouting,
     QueuedCustomMessage,
     QueuedUserMessage,
+    RegisteredMessageRenderer,
     _ExtensionRuntime,
     activate_extensions,
     dispatch_extension_command,
@@ -100,10 +101,8 @@ from pipy_harness.native.tool_loop_session import (
     _RunControlState,
     _build_candidate_extension_projection,
     _build_detached_reload_effects,
-    _build_legacy_extension_tool_port,
     _build_projected_extension_tool_port,
 )
-from pipy_harness.native.tool_renderers import _extension_tool_renderer_map
 from pipy_harness.native.tui import (
     AcceptedCustomMessageSinks,
     ExtensionChromePrepareInput,
@@ -579,64 +578,6 @@ def test_lifecycle_request_hook_projection_matches_legacy_source(
     assert all(isinstance(handlers, tuple) for handlers in projected.lifecycle.values())
 
 
-def _legacy_tool_port(registered: Any, flags: Mapping[str, object]) -> ToolPort:
-    return _build_legacy_extension_tool_port(
-        registered,
-        has_ui=False,
-        notify_sink=lambda *_args: None,
-        set_active_tools=lambda _names: True,
-        flags=flags,
-        render_details={},
-        project_trusted=True,
-    )
-
-
-def test_tool_ports_and_capability_match_the_legacy_adapter(tmp_path: Path) -> None:
-    runtime = _rich_runtime(tmp_path, "tools")
-    projected = _projection(runtime).tools
-    source_flags = {"projection-mode": "candidate"}
-    legacy_ports = {
-        registered.tool.name: _legacy_tool_port(registered, source_flags)
-        for registered in runtime.tools
-    }
-    legacy_state = ToolCapabilityState.build(
-        {},
-        legacy_ports,
-        filter_options=ToolFilterOptions.empty(),
-        cancel_join_timeout_seconds=1.0,
-    )
-
-    assert projected.registered == runtime.tools
-    assert tuple(projected.ports) == tuple(legacy_state.extension_registry)
-    assert [port.definition for port in projected.ports.values()] == [
-        port.definition for port in legacy_state.extension_registry.values()
-    ]
-    assert (
-        projected.capability_state.active_tool_names == legacy_state.active_tool_names
-    )
-
-
-def test_renderer_projection_matches_every_legacy_renderer_map(tmp_path: Path) -> None:
-    runtime = _rich_runtime(tmp_path, "renderers")
-    projected = _projection(runtime).renderers
-
-    assert projected.tools == _extension_tool_renderer_map(runtime.tools)
-    assert projected.messages == runtime.message_renderers
-    assert projected.entries == runtime.entry_renderers
-    assert projected.messages is not runtime.message_renderers
-    assert projected.entries is not runtime.entry_renderers
-
-
-def test_provider_projection_matches_legacy_catalog_inputs(tmp_path: Path) -> None:
-    runtime = _rich_runtime(tmp_path, "providers")
-    projected = _projection(runtime).providers
-
-    assert projected.providers == runtime.providers
-    assert projected.unregistered == runtime.unregistered_providers
-    assert projected.providers is not runtime.providers
-    assert projected.unregistered is not runtime.unregistered_providers
-
-
 def test_production_runtime_composes_exact_queue_owner_mutex_and_outboxes(
     tmp_path: Path,
 ) -> None:
@@ -889,6 +830,69 @@ def test_renderer_uses_one_snapshot_while_direct_custom_stays_unconditional(
     assert second.outbox == []
 
 
+def test_custom_message_rendering_keeps_one_generation_snapshot(
+    tmp_path: Path,
+) -> None:
+    mutex = threading.RLock()
+    first = _rich_runtime(tmp_path, "custom-render-first", mutex=mutex)
+    second = _rich_runtime(tmp_path, "custom-render-second", mutex=mutex)
+
+    def generation(
+        runtime: _ExtensionRuntime, label: str
+    ) -> SessionExtensionGeneration:
+        projection = _projection(runtime)
+        renderer = RegisteredMessageRenderer(
+            "card", lambda _data: [label], f"{label}-extension"
+        )
+        projection = replace(
+            projection,
+            renderers=replace(
+                projection.renderers,
+                messages=MappingProxyType({"card": renderer}),
+            ),
+        )
+        return SessionExtensionGeneration(runtime, {}, projection)
+
+    old_generation = generation(first, "old")
+    new_generation = generation(second, "new")
+    ref = SessionGenerationRef(old_generation, lock=mutex)
+    snapshots: list[SessionGenerationSnapshot] = []
+
+    def snapshot() -> SessionGenerationSnapshot:
+        held = ref.snapshot()
+        snapshots.append(held)
+        if len(snapshots) == 1:
+            ref.publish(new_generation)
+        return held
+
+    new_projection = new_generation.projection
+    assert new_projection is not None
+    state = SimpleNamespace(
+        session_tree=SimpleNamespace(),
+        extension_renderer_map=new_projection.renderers.messages,
+        extension_entry_renderer_map=new_projection.renderers.entries,
+        extension_message_outbox=first.outbox,
+        extension_custom_message_outbox=first.custom_outbox,
+        extension_in_agent_turn=False,
+    )
+    renderer = _CustomEntryRenderer(
+        session=SimpleNamespace(_emit_diagnostic=lambda *_args: None),
+        ctl=state,
+        terminal_ui=None,
+        coding_input_queue=CodingInputQueue(),
+        error_stream=sys.stderr,
+        generation_snapshot=snapshot,
+    )
+
+    rendered = renderer.render_extension_custom_message(
+        "card", {}, width=80, expanded=False, stream=sys.stderr
+    )
+
+    assert rendered.lines == ("old",)
+    assert len(snapshots) == 1
+    assert ref.current is new_generation
+
+
 def test_cancelled_pipy_tool_call_writer_racing_drain_is_not_erased_or_locked(
     tmp_path: Path,
 ) -> None:
@@ -1032,7 +1036,7 @@ def test_chrome_projection_carries_the_exact_r2_handle(tmp_path: Path) -> None:
     ((True, False), (False, True)),
     ids=("ui-only", "trusted-headless"),
 )
-def test_production_projection_tool_port_matches_legacy_behavior_without_aliases(
+def test_production_projection_tool_port_is_detached_and_stable(
     tmp_path: Path, has_ui: bool, project_trusted: bool
 ) -> None:
     runtime = _rich_runtime(tmp_path, "composition-adapter")
@@ -1111,48 +1115,26 @@ def test_production_projection_tool_port_matches_legacy_behavior_without_aliases
         chrome=None,
     )
     projected_port = projected.tools.ports["projected_tool"]
-    legacy_port = _build_legacy_extension_tool_port(
-        registered,
-        has_ui=has_ui,
-        notify_sink=notify,
-        set_active_tools=set_active_tools,
-        flags=source_flags,
-        render_details=render_details,
-        project_trusted=project_trusted,
-    )
-
-    assert projected_port.definition == legacy_port.definition
     source_flags["projection-mode"] = "caller-mutated"
     context = ToolContext(workspace_root=tmp_path, stderr_sink=lambda _text: None)
-    outcomes: dict[str, list[tuple[str, bool]]] = {
-        "projected": [],
-        "legacy": [],
-    }
-    for side, port in (("projected", projected_port), ("legacy", legacy_port)):
-        for phase in ("mutate", "probe"):
-            result = port.invoke(
-                ToolRequest(
-                    make_tool_request_id(),
-                    "projected_tool",
-                    {"side": side, "phase": phase},
-                    provider_correlation_id=f"{side}-{phase}",
-                ),
-                context,
-            )
-            outcomes[side].append((result.output_text, result.is_error))
+    outcomes: list[tuple[str, bool]] = []
+    expected_invocations = [("projected", phase) for phase in ("mutate", "probe")]
+    for side, phase in expected_invocations:
+        result = projected_port.invoke(
+            ToolRequest(
+                make_tool_request_id(),
+                "projected_tool",
+                {"side": side, "phase": phase},
+                provider_correlation_id=f"{side}-{phase}",
+            ),
+            context,
+        )
+        outcomes.append((result.output_text, result.is_error))
 
     expected_output = (
         f"ui={has_ui};trusted={project_trusted};flag=candidate;active=False"
     )
-    assert outcomes == {
-        "projected": [(expected_output, False), (expected_output, False)],
-        "legacy": [(expected_output, False), (expected_output, False)],
-    }
-    expected_invocations = [
-        (side, phase)
-        for side in ("projected", "legacy")
-        for phase in ("mutate", "probe")
-    ]
+    assert outcomes == [(expected_output, False), (expected_output, False)]
     assert observations == [
         {
             "side": side,
@@ -1449,7 +1431,6 @@ def test_production_projection_and_port_adapter_callers_are_exactly_bounded() ->
         "build_extension_projection",
         "_build_candidate_extension_projection",
         "_build_projected_extension_tool_port",
-        "_build_legacy_extension_tool_port",
     }
     calls: dict[str, list[tuple[str, tuple[str, ...]]]] = {
         name: [] for name in target_names
@@ -1518,7 +1499,6 @@ def test_production_projection_and_port_adapter_callers_are_exactly_bounded() ->
                 ),
             )
         ],
-        "_build_legacy_extension_tool_port": [],
     }
 
 

@@ -425,6 +425,7 @@ def build_extension_projection(
                 registered.tool.name: registered.tool
                 for registered in runtime.tools
                 if registered.tool.render_call is not None
+                or registered.tool.render_result is not None
             }
         ),
         messages=_freeze_mapping(runtime.message_renderers),
@@ -685,7 +686,6 @@ def prepare_production_reload(
             )
     staged = FrozenStagedDeliveryBatch.freeze((), runtime.custom_messages)
     legacy_values = (
-        projection.renderers.tools,
         runtime.lifecycle_hooks,
         projection.runtime_flags.values,
     )
@@ -1070,8 +1070,9 @@ class SessionGenerationRef:
     def snapshot(self) -> SessionGenerationSnapshot:
         """Take one consistent view for the whole of an operation.
 
-        R4a command/request/session-gate dispatch and live outbox drain consume
-        this value once per operation. Other projection families move in R4b/R4c.
+        R4a command/request/session-gate/outbox operations and R4b
+        tool/renderer/provider operations consume this value once. R4c retains
+        the remaining menu/lifecycle/chrome families.
         """
 
         with self._lock:
@@ -1088,8 +1089,8 @@ class SessionGenerationRef:
 
         Publishing deliberately does **not** close the publication gate. A
         reload swaps this pointer partway through — before the provider
-        selection, tool visibility, and renderer projections derived from it
-        are republished — so clearing the gate here would reopen mutations for
+        selection and tool visibility derived from it are published — so
+        clearing the gate here would reopen mutations for
         the rest of the reload and let an accepted change be overwritten by the
         projections still to come. :meth:`publishing` owns the gate for the
         whole publication.
@@ -1121,7 +1122,6 @@ class SessionGenerationRef:
         coding_state: Any,
         tool_capabilities: NativeToolCapabilities,
         expected_capability: ToolCapabilityState,
-        renderer: Any,
         emitter: Any,
     ) -> str | None:
         if generation.projection is None:
@@ -1136,8 +1136,8 @@ class SessionGenerationRef:
         )
         binding, history = effects.coding_binding.value, effects.coding_history.value
         usage, capability = effects.coding_usage.value, effects.capability.value
-        renderers, hooks, flags = effects.temporary_legacy.value
-        retired: list[object | None] = [None] * 20  # Preallocate; release after unlock.
+        hooks, flags = effects.temporary_legacy.value
+        retired: list[object | None] = [None] * 19  # Preallocate; release after unlock.
         route_retirement = GenerationMessageRetirement()
         if not publish_candidate_ownership(candidate):
             return "extension candidate ownership is unavailable"
@@ -1197,9 +1197,8 @@ class SessionGenerationRef:
                 provider_state.publish_reload_state(fallback, unavailable)
             retired[16] = tool_capabilities._state
             tool_capabilities.publish(capability)
-            retired[17], renderer._tool_renderers = renderer._tool_renderers, renderers
-            retired[18], emitter._lifecycle_hooks = emitter._lifecycle_hooks, hooks
-            retired[19], emitter._lifecycle_flags = emitter._lifecycle_flags, flags
+            retired[17], emitter._lifecycle_hooks = emitter._lifecycle_hooks, hooks
+            retired[18], emitter._lifecycle_flags = emitter._lifecycle_flags, flags
         retired[1] = route_retirement.finalize_retirement()
         del retired
         return None

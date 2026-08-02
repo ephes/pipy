@@ -703,13 +703,21 @@ through R3c1a–R3c1c and R3c2 into the atomically published generation/owner
 snapshot; installed retirement races fail closed.
 R4a command, shortcut, input, before-agent, before-provider, tool-result, and
 session-gate operations now each take one `SessionGenerationRef.snapshot()` and
-use its immutable command/hook/flag projection throughout. Product startup
+use its immutable command/hook/flag projection throughout. R4b's
+`_SessionExecutionProjections` takes one snapshot per provider iteration and
+binds its projected tool registry/executor, tool-call hooks/flags, filtered tool
+renderer map, and current already-constructed coding provider. Tool execution
+and renderer pending state retain that old value across reload; the next
+iteration sees the successor. Custom message/entry render, append, direct-send,
+replay, and redraw operations each select one projected renderer map. Startup
+and refusal-path provider contribution/refresh consumers use projected tuples;
+R0 selection and coding refresh/fallback rebinding are unchanged, and provider
+construction/execution never runs under the session mutex. Product startup
 refuses a projection-less generation before candidate ownership transfer, and
 reload acceptance does the same before candidate-host publication or any active
 state change. Projection-less construction remains a low-level legacy/harness
-shape only and never triggers direct runtime fallback. Tool execution,
-renderer selection, provider contribution, menu/lifecycle, and chrome consumers
-remain bounded to R4b/R4c rather than rereading through this adapter. R1 now
+shape only and never triggers direct runtime fallback. Menu/lifecycle and chrome
+consumers remain bounded to R4c. R1 now
 owns activation registration with one candidate-host guard over every staged
 registry/message, flag value/failure, `_activated`, and the one-way candidate
 open→sealed→committed→published/disposed transitions plus the accepted-catalog
@@ -1176,11 +1184,13 @@ C901-pinned file. The load-bearing summary is:
   candidate activation host, R2 shipped rejected-candidate retained-chrome/
   listener staging and post-acceptance reconciliation, and R3a shipped only the
   detached immutable construction values and pure adapters, and R3c3 now installs
-  them. R4a has adopted one-snapshot command/request/session-gate operations and
-  synchronized live outbox append/drain/close, but mutation ports are not yet
+  them. R4a adopted one-snapshot command/request/session-gate operations and
+  synchronized live outbox append/drain/close; R4b adopted coherent tool,
+  renderer, and provider consumers and deleted only those legacy sources and
+  equivalence arms after their final consumer moved. Mutation ports are not yet
   generation-bound; a retained coding-session control can still race live
-  tree/input use and reorder durable JSONL; and tool execution, renderer,
-  lifecycle, provider, menu, and retained-chrome consumers remain for R4b/R4c.
+  tree/input use and reorder durable JSONL; and lifecycle, menu, and retained-
+  chrome consumers remain for R4c.
   Current activation has no
   timeout; R1's shipped seal/disposal is
   future-timeout-safe without selecting a timeout policy;
@@ -1237,8 +1247,14 @@ R1 behavior even when routing is uninstalled or retired; only queue/drain side
 effects may consult routing. Installed activation-send publication races obey
 guarded acceptance/detach or nonraising drop. No registry discovery or second renderer-visible pointer exists. R4a now ships
 coherent command/request/session-gate snapshots, request-local provider trust,
-and synchronized live queue append/detach/close. The next architecture action is
-**R4b — snapshot tool, renderer, and provider projections**; ordinary
-product-parity selection remains blocked through R7. R3c3's two documented
-deltas and R4a's live-message loss fix are recorded in the changelog.
+and synchronized live queue append/detach/close. R4b now ships one-snapshot tool
+advertisement/execution, tool/custom rendering, provider turns, and provider
+contribution/refresh consumers. The obsolete legacy tool-port builder,
+runtime-to-renderer mapper, direct runtime renderer/provider reads, separately
+published renderer map, and only their R3a equivalence arms are gone; all other
+arms remain. The next architecture action is **R4c — snapshot menu, lifecycle,
+and chrome from one generation**; ordinary product-parity selection remains
+blocked through R7. R3c3's two documented deltas and R4a's live-message loss fix
+are recorded in the changelog. R4b has no changelog entry because it adopts
+R3c3's already-published coherence without adding a user-visible surface.
 That is not a verdict that the broader program failed.

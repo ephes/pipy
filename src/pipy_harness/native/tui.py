@@ -1323,16 +1323,6 @@ class _CustomEntryRendererRunState(Protocol):
     def session_tree(self) -> NativeSessionTree: ...
 
     @property
-    def extension_renderer_map(
-        self,
-    ) -> Mapping[str, RegisteredMessageRenderer]: ...
-
-    @property
-    def extension_entry_renderer_map(
-        self,
-    ) -> Mapping[str, RegisteredEntryRenderer]: ...
-
-    @property
     def extension_message_outbox(self) -> list[QueuedUserMessage]: ...
 
     @property
@@ -1410,13 +1400,19 @@ class AcceptedCustomMessageSinks:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _CustomRendererProjectionSnapshot:
+    messages: Mapping[str, RegisteredMessageRenderer]
+    entries: Mapping[str, RegisteredEntryRenderer]
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _CustomEntryRenderer:
     """Render custom entries and drain extension outboxes into terminal state.
 
-    The run-state protocol deliberately exposes only live fields this adapter
-    reads. The composition root retains one mutable holder, so session-tree,
-    renderer-map, outbox, and agent-turn rebinds remain visible on every call.
+    Renderer operations take one published generation snapshot; the live-state
+    protocol retains only the session tree, agent-turn state, and R4a's
+    legacy/harness direct-drain outboxes.
     """
 
     session: _CustomEntryDiagnosticHost
@@ -1435,6 +1431,15 @@ class _CustomEntryRenderer:
         except Exception:
             return None
 
+    def _renderer_projection(self) -> _CustomRendererProjectionSnapshot:
+        snapshot = self._snapshot()
+        if snapshot is None or (projection := snapshot.generation.projection) is None:
+            raise RuntimeError("published extension generation has no projection")
+        return _CustomRendererProjectionSnapshot(
+            projection.renderers.messages,
+            projection.renderers.entries,
+        )
+
     def render_extension_custom_message(
         self,
         custom_type: str,
@@ -1443,6 +1448,7 @@ class _CustomEntryRenderer:
         width: int,
         expanded: bool,
         stream: TextIO,
+        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
     ) -> RenderedCustomEntry:
         # Local import: the render-theme machinery is only needed on the
         # rarely hit custom-entry path, so keep it off this module's hot
@@ -1452,7 +1458,7 @@ class _CustomEntryRenderer:
 
         style = chrome_style_for(stream)
         return render_extension_message(
-            self.ctl.extension_renderer_map,
+            (renderer_projection or self._renderer_projection()).messages,
             custom_type,
             data,
             width=width,
@@ -1467,27 +1473,34 @@ class _CustomEntryRenderer:
         width: int,
         expanded: bool,
         stream: TextIO,
+        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
     ) -> RenderedCustomEntry | None:
         from pipy_harness.native.chrome import chrome_style_for
         from pipy_harness.native.tool_renderers import build_tool_render_theme
 
         return render_extension_entry(
-            self.ctl.extension_entry_renderer_map,
+            (renderer_projection or self._renderer_projection()).entries,
             _custom_entry_renderer_payload(entry),
             width=width,
             expanded=expanded,
             theme=build_tool_render_theme(chrome_style_for(stream)),
         )
 
-    def add_rendered_custom_entry_to_terminal(self, entry: _CustomEntry) -> None:
+    def add_rendered_custom_entry_to_terminal(
+        self,
+        entry: _CustomEntry,
+        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
+    ) -> None:
         terminal_ui = self.terminal_ui
         if terminal_ui is None:
             return
+        renderers = renderer_projection or self._renderer_projection()
         rendered = self.render_extension_custom_entry(
             entry,
             width=terminal_ui._driver.size()[0],
             expanded=terminal_ui.tools_expanded,
             stream=terminal_ui.terminal_stream,
+            renderer_projection=renderers,
         )
         if rendered is None:
             return
@@ -1495,7 +1508,7 @@ class _CustomEntryRenderer:
             rendered.lines,
             custom_type=entry.custom_type,
             entry=_custom_entry_renderer_payload(entry),
-            renderers=self.ctl.extension_entry_renderer_map,
+            renderers=renderers.entries,
         )
 
     def render_custom_message_entry(
@@ -1505,8 +1518,10 @@ class _CustomEntryRenderer:
         width: int,
         expanded: bool,
         stream: TextIO,
+        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
     ) -> RenderedCustomEntry:
-        if entry.custom_type not in self.ctl.extension_renderer_map:
+        renderers = renderer_projection or self._renderer_projection()
+        if entry.custom_type not in renderers.messages:
             return RenderedCustomEntry(tuple(entry.content.splitlines() or [""]), False)
         return self.render_extension_custom_message(
             entry.custom_type,
@@ -1514,10 +1529,15 @@ class _CustomEntryRenderer:
             width=width,
             expanded=expanded,
             stream=stream,
+            renderer_projection=renderers,
         )
 
     def add_rendered_entry_to_terminal(
-        self, custom_type: str, rendered: RenderedCustomEntry, data: object | None
+        self,
+        custom_type: str,
+        rendered: RenderedCustomEntry,
+        data: object | None,
+        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
     ) -> None:
         terminal_ui = self.terminal_ui
         if terminal_ui is None:
@@ -1527,37 +1547,48 @@ class _CustomEntryRenderer:
                 rendered.lines,
                 custom_type=custom_type,
                 data=data,
-                renderers=self.ctl.extension_renderer_map,
+                renderers=(renderer_projection or self._renderer_projection()).messages,
             )
         else:
             terminal_ui.add_custom_entry(custom_type, rendered.lines)
 
-    def add_custom_message_entry_to_terminal(self, entry: _CustomMessageEntry) -> None:
+    def add_custom_message_entry_to_terminal(
+        self,
+        entry: _CustomMessageEntry,
+        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
+    ) -> None:
         terminal_ui = self.terminal_ui
         if terminal_ui is None or not entry.display:
             return
+        renderers = renderer_projection or self._renderer_projection()
         rendered = self.render_custom_message_entry(
             entry,
             width=terminal_ui._driver.size()[0],
             expanded=terminal_ui.tools_expanded,
             stream=terminal_ui.terminal_stream,
+            renderer_projection=renderers,
         )
         self.add_rendered_entry_to_terminal(
-            entry.custom_type, rendered, _custom_message_renderer_payload(entry)
+            entry.custom_type,
+            rendered,
+            _custom_message_renderer_payload(entry),
+            renderers,
         )
 
     def replay_custom_entries_to_terminal(self) -> None:
         if self.terminal_ui is not None:
+            renderers = self._renderer_projection()
             for entry in self.ctl.session_tree.get_branch():
                 if isinstance(entry, _CustomEntry):
-                    self.add_rendered_custom_entry_to_terminal(entry)
+                    self.add_rendered_custom_entry_to_terminal(entry, renderers)
                 elif isinstance(entry, _CustomMessageEntry) and entry.display:
-                    self.add_custom_message_entry_to_terminal(entry)
+                    self.add_custom_message_entry_to_terminal(entry, renderers)
 
     def redraw_custom_entries_for_active_branch(self) -> None:
         terminal_ui = self.terminal_ui
         if terminal_ui is None or not hasattr(terminal_ui, "redraw_custom_entries"):
             return
+        renderers = self._renderer_projection()
 
         def render_for_redraw(entry: _CustomEntry) -> RenderedCustomEntry | None:
             return self.render_extension_custom_entry(
@@ -1565,6 +1596,7 @@ class _CustomEntryRenderer:
                 width=terminal_ui._driver.size()[0],
                 expanded=terminal_ui.tools_expanded,
                 stream=terminal_ui.terminal_stream,
+                renderer_projection=renderers,
             )
 
         def render_message_for_redraw(
@@ -1575,6 +1607,7 @@ class _CustomEntryRenderer:
                 width=terminal_ui._driver.size()[0],
                 expanded=terminal_ui.tools_expanded,
                 stream=terminal_ui.terminal_stream,
+                renderer_projection=renderers,
             )
 
         terminal_ui.redraw_custom_entries(
@@ -1582,8 +1615,8 @@ class _CustomEntryRenderer:
                 self.ctl.session_tree.get_branch(),
                 render_for_redraw,
                 render_message_for_redraw,
-                render_metadata=self.ctl.extension_renderer_map,
-                entry_render_metadata=self.ctl.extension_entry_renderer_map,
+                render_metadata=renderers.messages,
+                entry_render_metadata=renderers.entries,
             )
         )
 
@@ -1594,9 +1627,12 @@ class _CustomEntryRenderer:
         if not is_valid_custom_entry_type(safe_type):
             raise ValueError("invalid custom entry type")
         safe_data = safe_custom_entry_data(data)
+        renderers = (
+            self._renderer_projection() if self.terminal_ui is not None else None
+        )
         appended = self.ctl.session_tree.append_custom(safe_type, safe_data)
         if self.terminal_ui is not None:
-            self.add_rendered_custom_entry_to_terminal(appended)
+            self.add_rendered_custom_entry_to_terminal(appended, renderers)
         return appended.id
 
     def extension_send_message(
@@ -1607,11 +1643,17 @@ class _CustomEntryRenderer:
         options: Mapping[str, object],
         details: object | None = None,
     ) -> object:
+        renderers = self._renderer_projection() if display else None
         return self._deliver_custom_message(
-            QueuedCustomMessage(custom_type, content, display, details, options)
+            QueuedCustomMessage(custom_type, content, display, details, options),
+            renderers,
         )
 
-    def _deliver_custom_message(self, message: QueuedCustomMessage) -> object:
+    def _deliver_custom_message(
+        self,
+        message: QueuedCustomMessage,
+        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
+    ) -> object:
         appended = self.ctl.session_tree.append_custom_message(
             message.custom_type,
             message.content,
@@ -1620,10 +1662,14 @@ class _CustomEntryRenderer:
         )
         if message.display:
             if self.terminal_ui is not None:
-                self.add_custom_message_entry_to_terminal(appended)
+                self.add_custom_message_entry_to_terminal(appended, renderer_projection)
             else:
                 rendered = self.render_custom_message_entry(
-                    appended, width=80, expanded=False, stream=self.error_stream
+                    appended,
+                    width=80,
+                    expanded=False,
+                    stream=self.error_stream,
+                    renderer_projection=renderer_projection,
                 )
                 lines = "\n".join(str(line) for line in rendered.lines)
                 self.session._emit_diagnostic(

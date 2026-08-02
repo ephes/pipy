@@ -8,18 +8,21 @@ import weakref
 from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 import pipy_harness.native.tool_loop_session as tool_loop_session
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
-from pipy_harness.native.agent import AgentUserMessage, ProductContent
+from pipy_harness.native.agent import AgentToolCall, AgentUserMessage, ProductContent
 from pipy_harness.native.agent.active_input import AgentActiveInput
+from pipy_harness.native.agent.usage import AgentUsageAccumulator
+from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.extension_hooks import _compose_extension_runtime
 from pipy_harness.native.extension_runtime import (
     ExtensionCodingSessionControl,
+    ExtensionTool,
     ExtensionModelRuntimeControl,
     GenerationMessageRouting,
     RegisteredCommand,
@@ -34,9 +37,21 @@ from pipy_harness.native.session_generation import (
 )
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.tool_capabilities import (
+    NativeToolCapabilities,
+    ToolCapabilityState,
+    ToolFilterOptions,
+)
 from pipy_harness.native.tool_loop_session import (
     _ProviderHeaderRequestSnapshot,
+    _SessionExecutionProjections,
     _SessionExtensionOperations,
+)
+from pipy_harness.native.tools import (
+    ToolContext,
+    ToolDefinition,
+    ToolExecutionResult,
+    ToolRequest,
 )
 from session_generation_test_support import build_test_projection
 
@@ -209,6 +224,125 @@ def test_r4a_dispatch_uses_one_old_or_new_published_snapshot(
     assert observations == expected
 
 
+class _GenerationTool:
+    def __init__(self, label: str) -> None:
+        self.label = label
+        self.calls = 0
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return ToolDefinition(
+            name="probe",
+            description=f"{self.label} generation",
+            input_schema={"type": "object", "additionalProperties": False},
+        )
+
+    def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        del context
+        self.calls += 1
+        return ToolExecutionResult(
+            tool_request_id=request.tool_request_id,
+            output_text=self.label,
+            provider_correlation_id=request.provider_correlation_id,
+        )
+
+
+def _execution_generation(
+    lock: threading.RLock,
+    label: str,
+    capability: ToolCapabilityState,
+    renderer: object,
+) -> SessionExtensionGeneration:
+    runtime = _runtime(lock)
+    projection = build_test_projection(runtime, {"generation": label}, queue_mutex=lock)
+    projection = replace(
+        projection,
+        tools=replace(
+            projection.tools,
+            ports=capability.extension_registry,
+            capability_state=capability,
+        ),
+        renderers=replace(
+            projection.renderers,
+            tools=MappingProxyType({"probe": cast(ExtensionTool, renderer)}),
+        ),
+    )
+    return SessionExtensionGeneration(runtime, {"generation": label}, projection)
+
+
+def test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation(
+    tmp_path: Path,
+) -> None:
+    lock = threading.RLock()
+    old_tool = _GenerationTool("old-tool")
+    new_tool = _GenerationTool("new-tool")
+    tool_capabilities = NativeToolCapabilities(
+        {},
+        {"probe": old_tool},
+        workspace_root=tmp_path,
+        reference_roots=(),
+        stderr_sink=lambda _text: None,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+        state_lock=lock,
+    )
+    old_capability = tool_capabilities.state
+    new_capability = ToolCapabilityState.build(
+        {},
+        {"probe": new_tool},
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+    )
+    old_renderer = object()
+    new_renderer = object()
+    old_generation = _execution_generation(lock, "old", old_capability, old_renderer)
+    new_generation = _execution_generation(lock, "new", new_capability, new_renderer)
+    generation_ref = SessionGenerationRef(old_generation, lock=lock)
+    old_provider = FakeNativeProvider(model_id="old-provider", supports_tool_calls=True)
+    new_provider = FakeNativeProvider(model_id="new-provider", supports_tool_calls=True)
+    coding_state = CodingSessionState(
+        provider=old_provider,
+        provider_name=old_provider.name,
+        model_id=old_provider.model_id,
+        usage_accumulator=AgentUsageAccumulator(),
+        state_lock=lock,
+    )
+    execution = _SessionExecutionProjections(
+        generation_ref=generation_ref,
+        tool_capabilities=tool_capabilities,
+        coding_state=coding_state,
+    )
+
+    assert [item.description for item in execution.definitions()] == [
+        "old-tool generation"
+    ]
+    assert execution.tool_renderers(("probe",)) == {"probe": old_renderer}
+    assert execution.provider is old_provider
+
+    with lock:
+        generation_ref.publish_locked(new_generation)
+        tool_capabilities.publish(new_capability)
+        coding_state.refresh_provider(new_provider)
+
+    call = AgentToolCall(
+        provider_correlation_id="provider-call",
+        tool_name="probe",
+        arguments_json=ProductContent("{}"),
+    )
+    assert execution.execute(call).result.content == ProductContent("old-tool")
+    assert execution.tool_renderers(("probe",)) == {"probe": old_renderer}
+    assert execution.provider is old_provider
+    assert (old_tool.calls, new_tool.calls) == (1, 0)
+
+    assert [item.description for item in execution.definitions()] == [
+        "new-tool generation"
+    ]
+    assert execution.tool_renderers(("probe",)) == {"probe": new_renderer}
+    assert execution.provider is new_provider
+    assert execution.execute(call).result.content == ProductContent("new-tool")
+    assert (old_tool.calls, new_tool.calls) == (1, 1)
+
+
 def test_provider_header_callback_is_request_local_across_switch_and_reload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -327,6 +461,71 @@ def test_all_production_generation_constructions_supply_projection() -> None:
         ("tool_loop_session.py", "projection"),
         ("tool_loop_session.py", "startup_projection"),
     ]
+
+
+def test_r4b_deletes_converted_legacy_sources_and_equivalence_arms() -> None:
+    root = Path(__file__).parents[1]
+    session_source = (root / "src/pipy_harness/native/session_generation.py").read_text(
+        encoding="utf-8"
+    )
+    loop_source = (root / "src/pipy_harness/native/tool_loop_session.py").read_text(
+        encoding="utf-8"
+    )
+    renderer_source = (root / "src/pipy_harness/native/tool_renderers.py").read_text(
+        encoding="utf-8"
+    )
+    projection_tests = ast.parse(
+        (root / "tests/test_native_session_extension_generation.py").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert "_build_legacy_extension_tool_port" not in loop_source
+    assert "_extension_tool_renderer_map" not in renderer_source
+    assert "renderer._tool_renderers" not in session_source
+    assert ".runtime.providers" not in loop_source
+    assert ".runtime.unregistered_providers" not in loop_source
+    assert ".runtime.message_renderers" not in loop_source
+    assert ".runtime.entry_renderers" not in loop_source
+    assert "extension_renderer_map" not in loop_source
+    assert "extension_entry_renderer_map" not in loop_source
+    removed_arms = {
+        "test_tool_ports_and_capability_match_the_legacy_adapter",
+        "test_renderer_projection_matches_every_legacy_renderer_map",
+        "test_provider_projection_matches_legacy_catalog_inputs",
+        "test_production_projection_tool_port_matches_legacy_behavior_without_aliases",
+    }
+    remaining_tests = {
+        node.name for node in projection_tests.body if isinstance(node, ast.FunctionDef)
+    }
+    assert removed_arms.isdisjoint(remaining_tests)
+    for retained in (
+        "test_runtime_flag_projection_matches_the_legacy_source",
+        "test_command_menu_description_shortcut_projection_matches_legacy_source",
+        "test_lifecycle_request_hook_projection_matches_legacy_source",
+    ):
+        assert retained in remaining_tests
+
+    loop_tree = ast.parse(loop_source)
+    execution_owner = next(
+        node
+        for node in loop_tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "_SessionExecutionProjections"
+    )
+    begin = next(
+        node
+        for node in execution_owner.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_begin_provider_turn"
+    )
+    calls = {
+        ast.unparse(node.func).rsplit(".", 1)[-1]
+        for node in ast.walk(begin)
+        if isinstance(node, ast.Call)
+    }
+    assert calls.isdisjoint(
+        {"build_provider", "current_provider", "try_build_extension_provider_port"}
+    )
 
 
 def test_r4a_production_source_has_no_direct_converted_family_dispatch_reads() -> None:

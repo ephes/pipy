@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R4b — snapshot tool, renderer, and provider projections**
+**Active/next slice:** **R4c — snapshot menu, lifecycle, and chrome from one generation**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -118,7 +118,18 @@ projection and never direct-fallback around an installed provider. The shipped R
 staged-first sequence, direct custom sinks, candidate preservation, and R3c3
 publication/release order are unchanged. Rejected or retired activation sends
 silently accumulate nothing, and a live append can no longer be erased by a
-concurrent drain. R4b is next.
+concurrent drain. R4b is complete: each provider iteration now holds one
+published tool registry/executor, tool-call hook/flag view, filtered renderer
+map, and already-constructed coding provider across reload, while custom
+message/entry rendering takes one renderer projection per operation. Startup and
+refusal-path provider contribution consumers use one generation snapshot; R0
+selection and coding refresh/fallback rebinding remain unchanged, and no
+provider is constructed under the session mutex. The obsolete legacy tool-port
+builder, runtime-to-renderer mapper, direct runtime renderer/provider reads,
+separately published renderer map, and only their tool/renderer/provider R3a
+equivalence arms are deleted with static proof; every other arm remains. No
+changelog entry applies because R4b consumes the coherence R3c3 already
+published. R4c is next.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -571,10 +582,11 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a; the
-mandatory remaining order begins with R4b. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b;
+the mandatory remaining order begins with R4c. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
-staged sequence.
+staged sequence; R4b then converted only tool/renderer/provider consumers and
+their proven legacy-source deletion.
 R5a/R5b/R6 ownership and the class-A count of three are unchanged. Provenance
 is fixed: the R5a split brought the
 queue to 27 slices, the R3a/R3b/R3c split brought it to 29, the initial
@@ -591,13 +603,14 @@ The queue has exactly **33 numbered execution slices**: G0; seventeen R slices
 R5b, R6, R7); D1;
 nine separately bounded lint/fix/enablement slices L1-L9; P1-P2; A1; T1; and C1. The plan's commit gate
 is universal rather than a final slice: every slice
-uses a fresh Pi implementer, focused and full checks, an update to the labeled
-**Active/next slice:** field, docs/release-note disposition, and fresh
-independent Opus review within `AGENTS.md` budgets. Shared-mutable-state
-correctness findings never grant extra rounds automatically: they remain
-commit and dependency blockers at the cap and force contract/plan revision or
-a stop. Only explicit operator authorization based on new, actionable, material
-feedback may extend a review budget. A permitted slice lands as exactly one
+uses a fresh Pi implementer, focused gates while the diff moves, one supervising-
+root `just check` after review and before commit, an update to the labeled
+**Active/next slice:** field, and a docs/release-note disposition. Routine
+implementation review is one fresh supervised Claude Sonnet pass plus at most
+one fresh Sonnet re-review after material fixes, with no implementer-internal
+Claude. Stop on `CLEAN` or explicitly non-material suggestion-only feedback.
+Opus is reserved for operator-directed escalation of unresolved high-risk
+shared-state or architecture findings. A permitted slice lands as exactly one
 commit on `main`.
 Release publication, mass native-module moves, broad Ruff rules, unproved
 provider-test migrations, and destructive shared-`.venv` hook reproduction are
