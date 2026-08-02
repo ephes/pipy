@@ -36,7 +36,11 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R7 — close the reload correctness boundary**
+**Active/next slice:** **D1 — make the documentation entry point reader-facing**
+
+R7 is represented as complete by this integration/reconciliation change. D1 is
+next but may begin only after R7's required independent review, supervising-root
+full `just check`, and commit gate succeeds.
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -164,7 +168,17 @@ assigned there. Stale, gated, terminal, or owner-mismatched candidates return
 construction and defaults I/O are unlocked from the session mutex; footer
 refresh and fail-soft default persistence run post-commit. Compaction and
 provider failure remain live, while model rebind still clears history and usage.
-R7 is next and owns only integration closeout and durable reconciliation.
+R7 is complete subject to its required review/commit gate: one compact product
+integration test composes a successful reload across real command, lifecycle/
+before-agent hook, flag, tool, and renderer owners, while the durable R0 matrix links
+existing rejection, unbounded-join abandonment, cancellation-straggler,
+teardown, and post-commit-failure evidence. All six assessment Actual gaps are
+closed or linked individually in the transactional spec and dated assessment.
+No timeout, cancellation policy, concurrency abstraction, product source, or
+production behavior was added. R0's sticky chrome, immediate UI/notification,
+queue-protocol, independent settings/resources, and fail-soft process/
+persistence narrowings remain explicit. R7 adds no changelog entry because R1–
+R6 already recorded every behavior change. D1 is next after the R7 gate commits.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -617,8 +631,8 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6;
-the mandatory remaining order begins with R7. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7;
+the mandatory remaining order begins with D1 after R7's review/commit gate. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
 their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome
@@ -627,12 +641,12 @@ R5a/R5b/R6 ownership and the class-A count of three are unchanged. Provenance
 is fixed: the R5a split brought the
 queue to 27 slices, the R3a/R3b/R3c split brought it to 29, the initial
 R3c1/R3c2/R3c3 split brought it to 31, and splitting R3c1 into R3c1a–R3c1c
-brings it to exactly 33. No ordinary cleanup, parity, lint, provider-test, or contributor
-work may start before R7 closes the transactional boundary or an independently
-reviewed formal reconciliation proves an alternative contract. The controlling
-boundary remains the
-[2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md); R0 alone
-does not clear it.
+brings it to exactly 33. R7's integration evidence and durable reconciliation now close the
+transactional boundary represented by the
+[2026-07-29 assessment](2026-07-29-architecture-quality-assessment.md), subject
+to the slice's required independent review, supervising-root full gate, and
+commit. D1 may not start before that commit; no unrelated cleanup, parity, lint,
+provider-test, or contributor work is bundled into this closeout.
 
 The queue has exactly **33 numbered execution slices**: G0; seventeen R slices
 (R0, R1, R2, R3a, R3b, R3c1a, R3c1b, R3c1c, R3c2, R3c3, R4a, R4b, R4c, R5a,
@@ -2163,9 +2177,9 @@ Progress:
   subsequent integration evidence, sole ledger Warning and fixes, and final
   complete cross-cutting CLEAN are recorded in the opening integration ledger.
   The architecture-quality program and final integration review are
-  closed/reconciled. The next queue item remains bounded transactional-reload
-  contract completion or formal reconciliation before ordinary product-parity
-  selection.
+  closed/reconciled. R7 now represents the bounded transactional-reload
+  correctness boundary as complete subject to its review/full-gate commit; D1's
+  reader-facing documentation entry point is the next queue item.
 
 ## Current State
 

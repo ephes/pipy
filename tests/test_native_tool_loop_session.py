@@ -30,6 +30,7 @@ from pipy_harness.native.agent import (
     AgentEvent,
     AgentRunCompleted,
     AgentRunOutcome,
+    AgentToolResultMessage,
     AgentTurnOutcome,
     AgentUsage,
     MessageCompleted,
@@ -2463,6 +2464,113 @@ def test_reload_fires_session_start_reload_for_new_extension_generation(
     ]
     assert "reload-session-start:reloaded" in error_stream.getvalue()
     assert provider._call_counter[0] == 0
+
+
+def test_successful_reload_publishes_one_coherent_generation_across_real_consumers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Command, hooks, flags, tools, and rendering agree after real reload."""
+
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    marker = tmp_path / "generation.txt"
+    evidence = tmp_path / "generation-evidence.txt"
+    marker.write_text("old", encoding="utf-8")
+    (extension_dir / "coherent.py").write_text(
+        "from pathlib import Path\n"
+        "from pipy_harness.extensions import (\n"
+        "    ExtensionFlag, ExtensionTool, ToolResult, lines_component,\n"
+        ")\n"
+        f"MARKER = Path({str(marker)!r})\n"
+        f"EVIDENCE = Path({str(evidence)!r})\n"
+        "GENERATION = MARKER.read_text(encoding='utf-8')\n"
+        "def record(family, flag):\n"
+        "    with EVIDENCE.open('a', encoding='utf-8') as handle:\n"
+        "        handle.write(f'{family}:{GENERATION}:{flag}\\n')\n"
+        "def activate(api):\n"
+        "    api.register_flag(ExtensionFlag(\n"
+        "        'generation', 'string', default=GENERATION,\n"
+        "    ))\n"
+        "    @api.on('session_start')\n"
+        "    def started(event, ctx):\n"
+        "        record(event.reason or '', ctx.flags['generation'])\n"
+        "    @api.on('before_agent_start')\n"
+        "    def before_agent(_event, ctx):\n"
+        "        record('before-agent', ctx.flags['generation'])\n"
+        "    def flip(_ctx, _args):\n"
+        "        MARKER.write_text('new', encoding='utf-8')\n"
+        "    api.register_command('flip-generation', 'flip generation', flip)\n"
+        "    def probe_command(ctx, _args):\n"
+        "        record('command', ctx.flags['generation'])\n"
+        "    api.register_command('probe-generation', 'probe generation', probe_command)\n"
+        "    def probe_tool(ctx, _params):\n"
+        "        flag = ctx.flags['generation']\n"
+        "        record('tool', flag)\n"
+        "        return ToolResult(\n"
+        "            content=f'tool:{GENERATION}:{flag}',\n"
+        "            details={'generation': GENERATION},\n"
+        "        )\n"
+        "    api.register_tool(ExtensionTool(\n"
+        "        name='generation_probe',\n"
+        "        description='generation-' + GENERATION,\n"
+        "        input_schema={'type': 'object', 'additionalProperties': False},\n"
+        "        handler=probe_tool,\n"
+        "        render_call=lambda _ctx: lines_component(['CALL:' + GENERATION]),\n"
+        "        render_result=lambda ctx: lines_component([\n"
+        "            'RESULT:' + GENERATION + ':' + ctx.details['generation'],\n"
+        "        ]),\n"
+        "    ))\n",
+        encoding="utf-8",
+    )
+    call = ProviderToolCall("generation-call", "generation_probe", "{}")
+    provider = FakeNativeProvider(
+        supports_tool_calls=True,
+        programmable_tool_calls=((call,), ()),
+        final_text="done",
+    )
+    requests: list[ProviderRequest] = []
+    complete = FakeNativeProvider.complete
+
+    def record_request(
+        owner: FakeNativeProvider, request: ProviderRequest, **kwargs: Any
+    ) -> Any:
+        requests.append(request)
+        return complete(owner, request, **kwargs)
+
+    monkeypatch.setattr(FakeNativeProvider, "complete", record_request)
+    errors = io.StringIO()
+    result = NativeToolReplSession(provider=provider, tool_registry={}).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO(
+            "/flip-generation\n/reload\n/probe-generation\nuse the tool\n/exit\n"
+        ),
+        output_stream=io.StringIO(),
+        error_stream=errors,
+    )
+
+    assert result.status is HarnessStatus.SUCCEEDED
+    assert evidence.read_text(encoding="utf-8").splitlines() == [
+        "startup:old:old",
+        "reload:new:new",
+        "command:new:new",
+        "before-agent:new:new",
+        "tool:new:new",
+    ]
+    assert len(requests) == 2
+    assert [(tool.name, tool.description) for tool in requests[0].available_tools] == [
+        ("generation_probe", "generation-new")
+    ]
+    tool_results = [
+        message
+        for message in requests[1].messages
+        if isinstance(message, AgentToolResultMessage)
+    ]
+    assert [message.content.value for message in tool_results] == ["tool:new:new"]
+    rendered = errors.getvalue()
+    assert "CALL:new" in rendered and "RESULT:new:new" in rendered
+    assert "CALL:old" not in rendered
+    assert "RESULT:old:" not in rendered and "RESULT:new:old" not in rendered
 
 
 class _TtyBuffer:

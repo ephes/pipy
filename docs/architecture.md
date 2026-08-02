@@ -68,9 +68,10 @@ diff is clean, both theme sources are `pi`, and pre-commit is absent. Slice 14
 stress evidence remains focused 20x, groups 10x, PTY smoke 5x, then the full
 check; the latest PTY smoke is 8/8.
 
-The architecture-quality program and final integration review are closed/reconciled. The explicit next
-architecture boundary is bounded transactional-reload contract completion or
-formal reconciliation before ordinary product-parity selection. The measured
+The architecture-quality program and final integration review are closed/reconciled. R7 now closes the
+bounded transactional-reload correctness boundary against the reconciled R0
+contract, subject to its required review/commit gate. **D1 — make the
+documentation entry point reader-facing** is the explicit next slice. The measured
 disposition and current comparison are in the
 [2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md);
 the [Backlog](backlog.md) owns the exact pointer and next queue. The package
@@ -916,9 +917,10 @@ R6 preserves that rule for model admission: a class-A mutation may be admitted
 after the first closes and before the second opens, so each independent commit
 rechecks the gate immediately before its in-memory assignments. A rejected replacement fires no
 retained-generation lifecycle hook. The effect emits the final reload diagnostic
-next, and the root footer policy runs only after that effect returns. The shipped full
-R1–R6 sequence, including ordered R5a then R5b, remains R7's mandatory
-acceptance basis before it can close this boundary; the remediation queue contains exactly 33 execution slices.
+next, and the root footer policy runs only after that effect returns. R7 has run
+the full R1–R6 acceptance basis, including ordered R5a then R5b, and represents
+this boundary as closed subject to its review/commit gate; the remediation queue
+contains exactly 33 execution slices and D1 is next.
 
 ## Sessions, automation, and trust domains
 
@@ -1206,25 +1208,27 @@ The program addressed ownership risks rather than cosmetic size. The
 classifies and proportionally justifies every residual, including every
 C901-pinned file. The load-bearing summary is:
 
-- the Slice 3 work is a useful generation/publication safety ratchet, but not
-  the complete reconciled transaction. R1 shipped the guarded sealed/disposed
-  candidate activation host, R2 shipped rejected-candidate retained-chrome/
-  listener staging and post-acceptance reconciliation, and R3a shipped only the
-  detached immutable construction values and pure adapters, and R3c3 now installs
-  them. R4a adopted one-snapshot command/request/session-gate operations and
-  synchronized live outbox append/drain/close; R4b adopted coherent tool,
-  renderer, and provider consumers and deleted only those legacy sources and
-  equivalence arms after their final consumer moved. R4c then adopted
-  menu/lifecycle/chrome snapshots, closed retired chrome handles, and removed
-  the final separately published flag/lifecycle contribution sources and
-  equivalence arms. R5a then serialized retained coding-session effects, active
-  tree and input-queue state, and durable JSONL order, and wired terminal
-  generation/outbox/chrome close. R5b made active-tool/thinking controls
-  generation-bound, and R6 completed atomic generation-bound `set_model`
-  preparation, commit, persistence, and presentation ordering.
-  Current activation has no
-  timeout; R1's shipped seal/disposal is
-  future-timeout-safe without selecting a timeout policy;
+- the transactional reload correctness boundary is closed against R0's
+  reconciled contract rather than the older ideal transaction. R1 shipped the
+  guarded sealed/disposed candidate activation host, R2 shipped rejected-
+  candidate retained-chrome/listener staging and post-acceptance
+  reconciliation, and R3/R4 published and adopted the immutable projection and
+  one-snapshot consumers. R5a serialized retained coding-session effects,
+  active tree/input state, durable JSONL order, and teardown; R5b made active-
+  tool/thinking controls generation-bound; and R6 completed atomic generation-
+  bound `set_model` preparation, commit, persistence, and presentation order.
+  R7's focused integration matrix now covers success, rejection, the existing
+  abandonment seam, cancellation stragglers, teardown, and post-commit failure.
+  The successful cross-owner characterization is
+  `test_successful_reload_publishes_one_coherent_generation_across_real_consumers`;
+  the complete executable ledger is in
+  `docs/specs/2026-07-25-transactional-extension-reload-rebuild.md`, under “R7
+  closeout reconciliation 2026-08-02”.
+  Current activation has no timeout, and R7 added none. R0's formal narrowings
+  also remain explicit: sticky status/working state is session-scoped;
+  dialogs/editor/overlay/theme and notifications are immediate; queue delivery
+  has no id/retry/compaction/capacity protocol; and independently published
+  settings/keybindings/resources intentionally survive extension rejection;
 - `_ReplLoopStep.step_once` remains the principal high-complexity,
   cross-boundary orchestrator with a wide collaborator list;
 - the harness/SDK one-shot compatibility runtime is an intentional
@@ -1287,10 +1291,14 @@ the final R3a equivalence arms. R5a now ships one reentrant coding-effect
 coordinator, guarded active-tree/input owners, durable append ordering, terminal
 refusal, and generation queue/chrome teardown. R5b now binds active-tool and
 thinking contexts to their generation and guards complete selection commits,
-including ordered durable thinking append. The next architecture action is
-**R7 — close the reload correctness boundary**; ordinary product-parity
-selection remains blocked until that closeout lands. R3c3's two documented deltas, R4a's live-
-message loss fix, and R4c's coherent publication/stale-chrome refusal are
-recorded in the changelog. R4b has no separate changelog entry because it adopts
-R3c3's already-published coherence without adding a user-visible surface.
-That is not a verdict that the broader program failed.
+including ordered durable thinking append. R6 ships three-phase atomic model
+mutation. R7 adds one compact successful-reload cross-owner integration test and
+the durable six-residual/scenario reconciliation; it adds no product behavior or
+mechanism. R7 is complete subject to the required independent review,
+supervising-root full `just check`, and commit gate. **D1 — make the
+documentation entry point reader-facing** is next and may begin only after that
+commit. R3c3's two documented deltas, R4a's live-message loss fix, and R4c's
+coherent publication/stale-chrome refusal are recorded in the changelog. R4b and
+R7 have no separate changelog entry because R4b adopts already-published
+coherence and R7 adds characterization/reconciliation only. That is not a
+verdict that the broader program failed.

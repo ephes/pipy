@@ -61,9 +61,11 @@ diff is clean, both theme sources are `pi`, and pre-commit is absent. Slice 14
 stress evidence remains focused 20x, groups 10x, PTY smoke 5x, then the full
 check; the latest PTY smoke is 8/8.
 
-The architecture-quality program and final integration review are closed/reconciled. The explicit next
-architecture boundary is bounded transactional-reload contract completion or
-formal reconciliation before ordinary product-parity selection.
+The architecture-quality program and final integration review are closed/reconciled. R7 now represents
+the bounded transactional-reload correctness boundary as complete, subject to
+its required review/commit gate. D1's reader-facing documentation entry point is
+the explicit next slice; ordinary product-parity selection is no longer blocked
+by an unimplemented reload residual once that gate commits.
 
 This is the durable closeout assessment for the
 [Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md).
@@ -287,6 +289,38 @@ staging, sealing, complete projection, operation snapshots, and generation-
 bound mutations are a bounded outstanding concurrency contract. That exception
 does not make the architecture program as a whole a failure.
 
+### R7 follow-up — 2026-08-02
+
+This follow-up supersedes only the outstanding status in the preceding R0 note;
+the dated residual table remains the point-in-time finding. R1–R6 shipped the
+bounded owners, and R7 ran the reconciled success, rejection, existing
+abandonment, cancellation-straggler, teardown, and post-commit-failure matrix.
+R7 adds one cross-owner successful-reload integration characterization and no
+product mechanism, timeout, cancellation policy, concurrency abstraction, or
+production behavior.
+
+All six Actual gap rows are now closed against executable evidence:
+
+| Original Actual gap | Shipped closure and executable link |
+| --- | --- |
+| Rejection can clear retained chrome. | R1–R2 stage candidate ownership/chrome and R4c binds retired/live chrome. `test_a_malformed_candidate_flag_retains_the_complete_prior_generation`, `test_invalid_flags_keep_live_title_widgets_and_listeners_without_candidate_paint`, and real-PTY `test_pty_invalid_reload_flags_retain_old_widget_title_and_listener` prove retained chrome/listeners and no candidate paint. |
+| Abandoned activation is not sealed/disposed. | R1's guarded one-way host state is exercised by `test_omitted_pending_activation_is_abandoned_exactly_once` and `test_abandoned_worker_cannot_add_any_late_staged_family`. Production activation still joins without a timeout; none was added. |
+| Projection families publish separately. | R3/R4 publish and consume one immutable `ExtensionProjection`. R7's `test_successful_reload_publishes_one_coherent_generation_across_real_consumers` composes real command, hook, flag, tool, and renderer consumers; `test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation`, `test_r4c_reload_menu_uses_one_published_command_projection`, and the successful chrome PTY path cover provider, menu/shortcut, and UI owners. |
+| Operations reread the current generation. | `test_r4a_dispatch_uses_one_old_or_new_published_snapshot`, `test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation`, `test_custom_message_rendering_keeps_one_generation_snapshot`, and `test_agent_event_adapter_snapshots_hooks_flags_and_chrome_context_once` prove one retained snapshot for each production operation family. |
+| Class-A mutation lacks generation-bound atomic admission. | R5b/R6 bind all three ports. `test_retained_operation_context_selection_controls_capture_generation`, `test_selection_mutations_refuse_without_any_effect`, `test_selection_call_admitted_before_gate_open_survives_publication`, and `test_model_mutation_refuses_when_admission_changes_during_preparation` cover stale, pending, terminal, and accepted-before-gate outcomes. |
+| `set_model` admission and mutation are split around fallible work/I/O. | R6's three phases are pinned by `test_model_mutation_refuses_when_admission_changes_during_preparation`, `test_prepared_model_never_overwrites_a_newer_same_generation_selection`, `test_model_provider_construction_failure_is_safe_and_non_mutating`, `test_successful_model_commit_preserves_rebind_contract_for_current_turn`, and `test_model_persistence_failure_is_post_commit_and_fail_soft`. Preparation and post-commit persistence/presentation are unlocked; commit admission and assignment are one guarded section. |
+
+The formal narrowings are unchanged rather than silently claimed as shipped:
+sticky status/working state stays session-scoped; dialogs/editor/overlay/tool-
+expansion/theme reflection remain immediate effects; queue delivery has no ids,
+retry, compaction, or capacity protocol; notifications remain immediate; and
+settings, keybindings, and resources publish independently and intentionally
+survive an extension rejection. The transactional spec's
+[R7 closeout reconciliation](specs/2026-07-25-transactional-extension-reload-rebuild.md#r7-closeout-reconciliation-2026-08-02)
+contains the complete scenario and residual evidence ledger. R7 is complete
+subject to its independent review, supervising-root full `just check`, and
+commit gate; only the committed gate authorizes D1.
+
 ### Every remaining C901-pinned file
 
 The directional ratchet has 34 findings in 13 pinned files. Each pin remains
@@ -333,9 +367,11 @@ construction remain invariants, not excuses to omit comparable Pi behavior.
 
 Disposition is unambiguous:
 
-1. complete or formally reconcile the bounded transactional reload contract;
-2. rerun focused concurrency/extension/TUI evidence and independently review it;
-3. then select exactly one product gap using the canonical
+1. R7 has completed the bounded transactional reload reconciliation and focused
+   evidence, subject to its required independent review/full-gate commit;
+2. D1 is the next queue item and restores a reader-facing documentation entry
+   point without reopening this assessment; and
+3. later product-gap selection uses the canonical
    [parity loop](parity-loop/skill-body.md), capability-first while preserving
    Pi command/flag fidelity where user-visible behavior specifies it.
 

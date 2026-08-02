@@ -1,7 +1,8 @@
 # Transactional extension reload — rebuild plan and concurrency contract
 
-Status: R0-reconciled completion contract; R1–R6 are shipped and R3/R4 are
-complete; R7 is active/next. The original
+Status: R0-reconciled completion contract; R1–R6 are shipped, R3/R4 are
+complete, and R7 closeout is complete subject to its required review/commit
+gate. The original
 Slice 3 text remains historical design evidence, while the
 2026-07-30 table below controls bounded R1–R7 completion.
 
@@ -139,7 +140,9 @@ validation and publication. R3c2 routing, R3c3 composition, R4a command/request/
 plus live queue synchronization, R4b tool/renderer/provider snapshot consumers,
 and R4c menu/lifecycle/chrome snapshot consumers are shipped; R5a ships the
 coding-effect coordinator and terminal teardown, R5b ships active-tool/thinking
-admission, R6 ships model admission, and R7 is active/next.
+admission, and R6 ships model admission. R7 adds the successful-reload
+cross-owner integration characterization and this durable reconciliation; it
+adds no product mechanism or behavior.
 The plan explicitly authorizes defining the typed coherent one-snapshot
 `_CustomEntryRenderer` provider seam in R3c2: a construction-time port that
 rediscovered mutable live outboxes could not be coherent across publication.
@@ -299,11 +302,12 @@ sub-labels R4a–R4c are parts of R4, so this remains an R1–R6 mapping.
 | Class-A mutation ports do not capture or validate `generation_id`. | **Landed through R6.** Every offered active-tool, thinking, and model callable captures its creating generation; denied mid-turn model callables retain their generation-bound `False` shape. Stale, gated, or terminal controls refuse. |
 | `set_model` checks the gate separately from provider construction, state mutation, and persistence. | **Landed in R6.** `_ProviderMutationEffects.extension_set_model()` performs initial generation/gate/terminal admission and expected-owner capture, prepares catalog/provider/coding values outside the session mutex, then atomically rechecks generation, gate, terminal, exact selection/default/thinking values, and coding-binding identity before non-fallible assignments. Presentation/default persistence follow after unlock. |
 
-The six residuals above are not narrowed and are now implemented through R6.
-Retained old chrome, sealed/disposed rejected or abandoned registration,
-coherent published projections, one snapshot per operation, generation-bound
-atomic class-A admission, and three-phase `set_model` remain mandatory R7
-integration contracts.
+The six residuals above are not narrowed and are implemented through R6.
+R7 closes their integration contract with the executable evidence in
+[R7 closeout reconciliation](#r7-closeout-reconciliation-2026-08-02): retained
+old chrome, sealed/disposed rejected or abandoned registration, coherent
+published projections, one snapshot per operation, generation-bound atomic
+class-A admission, and three-phase `set_model` all remain required behavior.
 
 ### Complete class-A inventory
 
@@ -398,7 +402,7 @@ reachability and no-lost-update/torn-read basis; these are the only narrowings.
 | C27 | `set_model` is fallible preparation outside the mutex, non-fallible selection/coding commit under it, then fail-soft presentation/default persistence. | **Landed in R6.** Deterministic barriers cover stale/gate/terminal changes during preparation, newer same-generation selection, construction failure, persistence failure, success, and retained-after-terminal refusal. The characterized tool-capability-refusal arm atomically retains only an explicit resolved thinking level plus the prior pending default; selection/coding state stay unchanged. Existing defaults tests retain first-write/fail-soft/atomic-file evidence. |
 | C28 | Process-global theme reflection and persisted defaults/trust are post-commit, not rollback participants. | **Landed policy, with settings-generation semantics narrowed by C16–C18.** `_refresh_presentation_and_persistence()` updates `PIPY_THEME` and implicit trust after current publication steps; model defaults flush after selection. R6 keeps persistence and presentation outside the mutex. No changelog applies to this R0 decision. |
 | C29 | Trusted extension import/activation external effects are outside pipy's in-process transaction. | **Landed policy.** `docs/extension-api.md` documents the trusted local-code boundary and activation already stages only pipy-owned contributions. R1 does not claim to undo extension filesystem/network/process effects. |
-| C30 | No rollback framework, revision-counter transaction, uninitialized concrete subclass, or manager hand-copy is introduced. | **Landed design constraint and required throughout R1–R7.** Existing settings epochs are local stale-candidate protection, not a distributed reload transaction. R1–R6 use only the named candidate/sink guards, the existing session mutex, and R5a's existing per-run `mutation_io_lock` promoted into the one coding-effect coordinator. |
+| C30 | No rollback framework, revision-counter transaction, uninitialized concrete subclass, or manager hand-copy is introduced. | **Landed design constraint and satisfied throughout R1–R7.** Existing settings epochs are local stale-candidate protection, not a distributed reload transaction. R1–R6 use only the named candidate/sink guards, the existing session mutex, and R5a's existing per-run `mutation_io_lock` promoted into the one coding-effect coordinator; R7 adds no mechanism. |
 
 ### Transactional boundary decisions and reachability proof
 
@@ -787,8 +791,9 @@ R4a, R4c, R5a, R5b, and R6 instrument their relevant edge/refusal boundary.
 
 ### Executable R1–R6 bounds
 
-These bounds support the exact 33-slice plan. The shipped prefix now ends at R6,
-and the mandatory remaining order begins with R7. “Named mechanisms” may list
+These bounds support the exact 33-slice plan. The shipped implementation prefix
+ends at R6, and R7's test/documentation closeout is complete subject to its
+gate; D1 is next outside these R1–R6 implementation bounds. “Named mechanisms” may list
 multiple owners only with the explicit order above; a hidden owner or reverse
 edge requires plan revision before code.
 
@@ -891,7 +896,7 @@ prevents a narrowed protocol from being mistaken for a required implementation.
 
 | Checklist scenario family | Disposition |
 | --- | --- |
-| Retained frozen projection; successful coherent commands/hooks/tools/providers/renderers/flags/shortcuts/UI; derived projection failure | **Landed through R4c**, closed in R7 integration. |
+| Retained frozen projection; successful coherent commands/hooks/tools/providers/renderers/flags/shortcuts/UI; derived projection failure | **Closed in R7.** `test_successful_reload_publishes_one_coherent_generation_across_real_consumers` composes a real successful reload across command, lifecycle/before-agent hook, flag, tool, and captured-renderer owners; the focused provider, menu/shortcut, chrome PTY, and derived-projection refusal tests listed below retain the other arms. |
 | Stale model and hook model controls; stale thinking; stale active tools; pending-publication refusal; accepted-before-gate survival | **Landed through R6.** Thinking/tools landed in R5b; model preparation barriers now prove stale/gated/terminal refusal, no overwrite of newer selection, and current-generation success. |
 | Concurrent retained coding-session control versus session/RPC tree/input use; durable JSONL order; accepted-before-terminal completion; terminal refusal | **Landed in R5a.** Every tree/input reader/writer and extension writer adapter uses the one coding-effect coordinator; no reachable lost update is treated as a trusted-extension effect. |
 | Late cancelled tool/provider result contributes no result/history/tree/event/stream output | **Landed** in `tests/test_native_agent_tool_executor.py` and `tests/test_native_agent_provider_turn.py`; R7 retains the integration arm. Explicit extension side effects use their class rules. |
@@ -912,9 +917,44 @@ prevents a narrowed protocol from being mistaken for a required implementation.
 | First defaults persistence and persistence failure/concurrent overwrite | **Landed through R6.** Existing store tests cover first/atomic writes; R6 proves file I/O is post-lock and failure leaves the committed live selection active. |
 | `before_agent_start` model changes affect the current turn | **Landed in R6.** The synchronous callable returns only after coding provider/labels are rebound, so the same accepted turn snapshots the replacement. |
 
-R7 runs the retained scenario matrix and records each required row as shipped or
-blocks closeout. It does not reopen any formally narrowed row without first
-revising this section and the remediation plan.
+### R7 closeout reconciliation 2026-08-02
+
+R7 ran the retained scenario matrix without adding a timeout, cancellation
+policy, product mechanism, concurrency abstraction, or production behavior.
+The only new executable characterization is the compact successful-reload
+cross-owner integration test; the other arms deliberately reuse the focused
+integration and deterministic barrier evidence shipped with R1–R6.
+
+| R0 matrix arm | Executable integration evidence |
+| --- | --- |
+| Success | `tests/test_native_tool_loop_session.py::test_successful_reload_publishes_one_coherent_generation_across_real_consumers`; `test_reload_rebinds_active_extension_provider_factory`; `test_pty_reload_session_start_hook_restores_chrome_live`; `test_r4c_reload_menu_uses_one_published_command_projection`. |
+| Rejection | `test_a_malformed_candidate_flag_retains_the_complete_prior_generation`; `test_invalid_flags_keep_live_title_widgets_and_listeners_without_candidate_paint`; real-PTY `test_pty_invalid_reload_flags_retain_old_widget_title_and_listener`; `test_reload_acceptance_failure_keeps_previous_generation`; derived-projection failure `tests/test_native_session_extension_generation.py::test_each_projection_builder_failure_returns_no_candidate_and_changes_no_live_state`. |
+| Existing abandonment seam | `test_omitted_pending_activation_is_abandoned_exactly_once` and `test_abandoned_worker_cannot_add_any_late_staged_family`; production still has an unbounded activation join and no timeout was selected. |
+| Cancellation stragglers | `test_cancelled_pipy_tool_call_writer_racing_drain_is_not_erased_or_locked`; `test_abandoned_invocation_cannot_emit_into_the_next_call`; `test_abandoned_worker_cannot_admit_late_text_or_reasoning`. |
+| Teardown | `test_shutdown_failure_still_closes_generation_queues_and_chrome_once`; `test_custom_message_owner_blocks_terminal_until_tree_then_input_finish`; `test_retained_model_callable_after_terminal_cannot_prepare_or_publish`. |
+| Post-commit failure | `test_post_acceptance_presentation_failure_leaves_candidate_chrome_live`; `test_post_publication_interrupt_finishes_live_candidate_chrome_once`; `test_model_persistence_failure_is_post_commit_and_fail_soft`. |
+
+The dated assessment's six Actual gaps close against this evidence:
+
+| Assessment residual | R7 executable closure |
+| --- | --- |
+| Retained chrome after rejection | The rejection arm above proves retained title, widgets, listeners, provider/editor identity, and no candidate paint in both captured and real-PTY product paths. |
+| Sealed and disposed abandoned registration | The abandonment arm proves one-shot loader disposal and deterministic refusal of every late class-D registration family and staged send. |
+| Coherent published projection | The new success integration test observes one `new` generation across real command, hook, flag, tool, and renderer consumers; `test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation`, the menu test, and the chrome PTY success test cover provider-iteration, menu/shortcut, and retained UI composition. |
+| One immutable generation snapshot per operation | `test_r4a_dispatch_uses_one_old_or_new_published_snapshot`, `test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation`, `test_custom_message_rendering_keeps_one_generation_snapshot`, and `test_agent_event_adapter_snapshots_hooks_flags_and_chrome_context_once` cover dispatch, provider/tool/renderer, custom-render, and lifecycle/chrome operations. |
+| Generation-bound atomic class-A mutation admission | `test_retained_operation_context_selection_controls_capture_generation`, `test_selection_mutations_refuse_without_any_effect`, `test_selection_call_admitted_before_gate_open_survives_publication`, and `test_model_mutation_refuses_when_admission_changes_during_preparation` cover all three class-A families under stale, gate, terminal, and accepted-before-gate interleavings. |
+| Three-phase atomic `set_model` | `test_model_mutation_refuses_when_admission_changes_during_preparation`, `test_prepared_model_never_overwrites_a_newer_same_generation_selection`, `test_model_provider_construction_failure_is_safe_and_non_mutating`, `test_successful_model_commit_preserves_rebind_contract_for_current_turn`, and `test_model_persistence_failure_is_post_commit_and_fail_soft` prove unlocked preparation, atomic guarded commit, and unlocked fail-soft persistence/presentation. |
+
+R7 does not relabel the older ideal clauses that R0 formally narrowed. C11
+keeps sticky status/working state session-scoped; C12 keeps dialogs, editor,
+overlay, tool-expansion, and process-theme effects immediate; C14 retains
+ordered live-only copy/detach delivery without ids/retry/compaction/capacity;
+C15 keeps notifications immediate; C16–C18 keep settings, keybindings, and
+resources independently published and intentionally live after extension
+rejection; and C28 keeps process reflection/persistence post-commit and
+fail-soft. All other scenario rows above are shipped. R7 is represented as
+complete subject to its required independent review, supervising-root full
+`just check`, and commit gate; only that committed gate authorizes D1.
 
 ## Why the first attempt was abandoned
 
