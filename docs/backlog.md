@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R5a — serialize coding-session effects and terminal teardown**
+**Active/next slice:** **R5b — bind active-tool and thinking mutations to a generation**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -136,8 +136,14 @@ then closes and snapshots it under only its sink guard; callbacks, disposal,
 paint, and last-reference release remain unlocked. Retired handles silently
 ignore stale writes. The separately stored generation flag map, temporary
 lifecycle/flag reload effect, direct runtime menu/lifecycle reads, and final R3a
-equivalence arms are deleted with static proof. R5a is next and alone wires the
-completed queue/chrome close paths into run finalization.
+equivalence arms are deleted with static proof. R5a is complete: one run-scoped
+coding-effect coordinator now serializes retained completion, custom-entry,
+name, label, and custom-message effects; active-tree and input-queue state share
+its reentrant lock; tree append preserves in-memory/JSONL order; and terminal
+finalization waits for accepted owners before detaching generation outboxes and
+closing chrome. Later effectful coding-session calls raise
+`ExtensionCapabilityError`, while read-only final-tree views remain available.
+R5b is next and alone adds generation-bound active-tool/thinking admission.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -590,8 +596,8 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c;
-the mandatory remaining order begins with R5a. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a;
+the mandatory remaining order begins with R5b. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
 their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome

@@ -67,6 +67,7 @@ from pipy_harness.native.chrome import (
     pipy_version_label,
 )
 from pipy_harness.native.coding import CodingInputQueue
+from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.command_registry import project_command_completions
 from pipy_harness.native.clipboard import ImageClipboardResult
 from pipy_harness.native.editor_completion import (
@@ -112,6 +113,7 @@ from pipy_harness.native.frame_renderer import (
     visible_len as render_visible_len,
 )
 from pipy_harness.native.extension_runtime import (
+    ExtensionCapabilityError,
     ExtensionTool,
     FooterData,
     QueuedCustomMessage,
@@ -1457,6 +1459,7 @@ class _CustomEntryRenderer:
     ctl: _CustomEntryRendererRunState
     terminal_ui: "ToolLoopTerminalUi | None"
     coding_input_queue: CodingInputQueue
+    coding_effects: CodingEffectCoordinator
     error_stream: TextIO
     generation_snapshot: Callable[[], SessionGenerationSnapshot | None] | None = None
 
@@ -1661,17 +1664,19 @@ class _CustomEntryRenderer:
     def extension_append_entry(
         self, custom_type: str, data: object | None = None
     ) -> object:
-        safe_type = str(custom_type).strip()
-        if not is_valid_custom_entry_type(safe_type):
-            raise ValueError("invalid custom entry type")
-        safe_data = safe_custom_entry_data(data)
-        renderers = (
-            self._renderer_projection() if self.terminal_ui is not None else None
-        )
-        appended = self.ctl.session_tree.append_custom(safe_type, safe_data)
-        if self.terminal_ui is not None:
-            self.add_rendered_custom_entry_to_terminal(appended, renderers)
-        return appended.id
+        with self._accepted_coding_effect():
+            safe_type = str(custom_type).strip()
+            if not is_valid_custom_entry_type(safe_type):
+                raise ValueError("invalid custom entry type")
+            safe_data = safe_custom_entry_data(data)
+            renderers = (
+                self._renderer_projection() if self.terminal_ui is not None else None
+            )
+            with self.coding_effects.lock:
+                appended = self.ctl.session_tree.append_custom(safe_type, safe_data)
+            if self.terminal_ui is not None:
+                self.add_rendered_custom_entry_to_terminal(appended, renderers)
+            return appended.id
 
     def extension_send_message(
         self,
@@ -1681,23 +1686,33 @@ class _CustomEntryRenderer:
         options: Mapping[str, object],
         details: object | None = None,
     ) -> object:
-        renderers = self._renderer_projection() if display else None
-        return self._deliver_custom_message(
-            QueuedCustomMessage(custom_type, content, display, details, options),
-            renderers,
-        )
+        with self._accepted_coding_effect():
+            renderers = self._renderer_projection() if display else None
+            return self._deliver_custom_message_effects(
+                QueuedCustomMessage(custom_type, content, display, details, options),
+                renderers,
+            )
 
     def _deliver_custom_message(
         self,
         message: QueuedCustomMessage,
         renderer_projection: _CustomRendererProjectionSnapshot | None = None,
     ) -> object:
-        appended = self.ctl.session_tree.append_custom_message(
-            message.custom_type,
-            message.content,
-            display=message.display,
-            details=message.details,
-        )
+        with self._accepted_coding_effect():
+            return self._deliver_custom_message_effects(message, renderer_projection)
+
+    def _deliver_custom_message_effects(
+        self,
+        message: QueuedCustomMessage,
+        renderer_projection: _CustomRendererProjectionSnapshot | None = None,
+    ) -> object:
+        with self.coding_effects.lock:
+            appended = self.ctl.session_tree.append_custom_message(
+                message.custom_type,
+                message.content,
+                display=message.display,
+                details=message.details,
+            )
         if message.display:
             if self.terminal_ui is not None:
                 self.add_custom_message_entry_to_terminal(appended, renderer_projection)
@@ -1727,6 +1742,13 @@ class _CustomEntryRenderer:
             enqueue_prompt=self.coding_input_queue.enqueue_extension_prompt,
         )
         return appended.id
+
+    @contextmanager
+    def _accepted_coding_effect(self) -> Iterator[None]:
+        with self.coding_effects.effect() as admitted:
+            if not admitted:
+                raise ExtensionCapabilityError("coding session is closed")
+            yield
 
     def drain_extension_outboxes(self) -> None:
         """Move one coherent generation's scheduled messages into session queues."""

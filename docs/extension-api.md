@@ -110,7 +110,8 @@ listener, autocomplete, editor-component, or hidden-thinking-label write through
 a retired handle is ignored with the same closed-sink return shape; an editor-
 component read returns `None`, and a terminal-input registration returns an inert
 disposer. Callbacks, disposal, paint, and final reference release happen after
-both guards. Terminal invocation of this completed close path remains R5a.
+both guards. Terminal run finalization now closes that exact generation handle
+and its outboxes before unlocked TUI disposal and paint.
 Autocomplete provider wrappers ship for live product-TUI command/
 shortcut contexts via `ctx.ui.add_autocomplete_provider` /
 `ctx.ui.addAutocompleteProvider`, using Pi-shaped `get_suggestions` /
@@ -168,7 +169,13 @@ live-session follow-on slices. Command/shortcut handlers also expose Pi-shaped s
 and entry-label changes through native session entries. The read-only
 `ctx.session_manager` / `ctx.sessionManager` view covers the active native
 session's cwd, dir/file/id, header, entries, labels, branch/tree, leaf, and
-session name without handing extensions the mutable `NativeSessionTree`. Per-run source-loading flags for extensions,
+session name without handing extensions the mutable `NativeSessionTree`.
+Completion, custom-entry, name, label, and custom-message effects are serialized
+for the complete call, including provider, durable-tree, render, and queued-input
+phases. Calls accepted before terminal close finish in order; later effectful
+calls raise `ExtensionCapabilityError` without provider, tree, render, or input
+effects. Read-only session-manager and session-name views remain available over
+the coherent final tree. Per-run source-loading flags for extensions,
 skills, prompt templates, and themes have landed. A first dynamic extension flag
 slice also ships for `pipy repl` tool-loop runs: extensions register
 boolean/string `ExtensionFlag` objects, matching unknown CLI tokens are parsed

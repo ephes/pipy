@@ -832,8 +832,9 @@ or retired generation. Publication captures the displaced handle under the
 session mutex, then releases it before the sidecar's guarded closed-check,
 snapshot, and detach; callbacks, disposal, paint, waiting, and last-reference
 release follow unlocked. Stale writes through that retired handle are therefore
-silent no-ops. R5a remains responsible for invoking the same completed close
-path at terminal run finalization.
+silent no-ops. R5a now invokes the same completed close path at terminal run
+finalization, after detaching the generation and outboxes under the named lock
+order and before unlocked disposal or paint.
 
 The R0 audit also found a reachable queue lost update: a cancelled
 `pipy-tool-call` worker may outlive its bounded join and use a retained activation
@@ -851,15 +852,14 @@ activation custom messages bypass `custom_outbox` and call
 the `ExtensionCodingSessionControl` custom-message target; the control is not a
 hidden outbox writer: completion calls the provider; append/name/label
 write the durable session tree; custom-message send writes that tree and may
-render/diagnose or enqueue `CodingInputQueue`. Those sinks have a live-run race,
-not merely terminal liveness: `NativeSessionTree` releases `_write_lock` before
-its durable `_write_entry()`, while `CodingInputQueue` has no guard and retained
-controls may run beside session/RPC readers and writers. R5a promotes the
-existing per-run `mutation_io_lock` plus a condition into one coding-effect
-coordinator whose exclusive/reentrant owner lease serializes retained effects,
-plus active-tree pointer access, every mutable tree/input owner method, durable
-order, and terminal teardown. Provider/render work runs unlocked; durable tree append alone holds the
-coordinator lock across I/O. A rejected or retired activation send silently
+render/diagnose or enqueue `CodingInputQueue`. R5a now promotes the existing per-run `mutation_io_lock` plus a condition into
+one coding-effect coordinator. Its exclusive/reentrant owner lease serializes
+retained completion, custom-entry, name, label, and custom-message effects while
+provider/render/callback work runs unlocked. The active-tree pointer, every
+mutable `NativeSessionTree` reader/writer, and every `CodingInputQueue`
+check/use/mutation share the coordinator's reentrant lock. Tree append alone
+holds it from id/parent selection through in-memory publication and durable
+`_write_entry()`, so memory and JSONL have one order. A rejected or retired activation send silently
 returns its existing `None` with no diagnostic or queue accumulation. The same
 fail-closed result applies if a private/stale host outbox no longer matches its
 constructor-validated routing owner: reservation is refused while only the host
@@ -1201,9 +1201,10 @@ C901-pinned file. The load-bearing summary is:
   equivalence arms after their final consumer moved. R4c then adopted
   menu/lifecycle/chrome snapshots, closed retired chrome handles, and removed
   the final separately published flag/lifecycle contribution sources and
-  equivalence arms. Mutation ports are not yet generation-bound, and a retained
-  coding-session control can still race live tree/input use and reorder durable
-  JSONL; R5a owns that next boundary and terminal close invocation.
+  equivalence arms. R5a then serialized retained coding-session effects, active
+  tree and input-queue state, and durable JSONL order, and wired terminal
+  generation/outbox/chrome close. Class-A mutation ports are not yet
+  generation-bound; R5b/R6 own that remaining admission work.
   Current activation has no
   timeout; R1's shipped seal/disposal is
   future-timeout-safe without selecting a timeout policy;
@@ -1267,9 +1268,11 @@ runtime-to-renderer mapper, direct runtime renderer/provider reads, separately
 published renderer map, and only their R3a equivalence arms are gone. R4c now
 also removes the separately stored generation flag map, temporary lifecycle/flag
 reload effect, mutable emitter copies, direct runtime menu/lifecycle reads, and
-the final R3a equivalence arms. The next architecture action is **R5a — serialize
-coding-session effects and terminal teardown**; ordinary product-parity
-selection remains blocked through R7. R3c3's two documented deltas, R4a's live-
+the final R3a equivalence arms. R5a now ships one reentrant coding-effect
+coordinator, guarded active-tree/input owners, durable append ordering, terminal
+refusal, and generation queue/chrome teardown. The next architecture action is
+**R5b — bind active-tool and thinking mutations to a generation**; ordinary
+product-parity selection remains blocked through R7. R3c3's two documented deltas, R4a's live-
 message loss fix, and R4c's coherent publication/stale-chrome refusal are
 recorded in the changelog. R4b has no separate changelog entry because it adopts
 R3c3's already-published coherence without adding a user-visible surface.

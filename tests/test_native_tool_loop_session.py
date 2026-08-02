@@ -4010,10 +4010,11 @@ def test_a_malformed_candidate_flag_retains_the_complete_prior_generation(
     assert live_api.get_flag("needs-value") == "x"
     assert rejected_api.get_flag("candidate-state") is None
 
+    # The retained generation served the command while the run was live, but
+    # terminal R5a teardown closes its exact outbox before run() returns.
     live_outbox_size = len(live_api._outbox)
     live_api.send_user_message("live-after-rejection")
-    assert len(live_api._outbox) == live_outbox_size + 1
-    assert live_api._outbox[-1].content == "live-after-rejection"
+    assert len(live_api._outbox) == live_outbox_size
 
     rejected_outbox_size = len(rejected_api._outbox)
     rejected_api.send_user_message("must-drop")

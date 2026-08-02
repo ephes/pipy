@@ -1002,6 +1002,7 @@ def test_run_loop_iterates_then_finalizes_in_order() -> None:
         fire_session_start=lambda: log.append("start"),
         fire_session_shutdown=lambda: log.append("shutdown"),
         consume_settle_pending=lambda: True,
+        close_extension_session=lambda: log.append("terminal"),
         clear_extension_chrome=lambda: log.append("clear"),
     )
 
@@ -1018,6 +1019,7 @@ def test_run_loop_iterates_then_finalizes_in_order() -> None:
         "finalize",
         "settled",
         "shutdown",
+        "terminal",
         "clear",
     ]
 
@@ -1062,11 +1064,12 @@ def test_run_loop_shutdown_clears_editor_when_extension_text_capture_throws() ->
         fire_session_start=lambda: log.append("start"),
         fire_session_shutdown=lambda: log.append("shutdown"),
         consume_settle_pending=lambda: False,
+        close_extension_session=lambda: log.append("terminal"),
         clear_extension_chrome=clear_chrome,
     )
 
     assert returned is result
-    assert log == ["start", "shutdown", "clear"]
+    assert log == ["start", "shutdown", "terminal", "clear"]
     assert disposed == ["editor"]
     assert ui.get_editor_component() is None
     assert ui.extension_widgets_above == {}
@@ -1085,13 +1088,14 @@ def test_run_loop_returns_a_terminate_failed_result_without_finalizing() -> None
         fire_session_start=lambda: log.append("start"),
         fire_session_shutdown=lambda: log.append("shutdown"),
         consume_settle_pending=lambda: True,
+        close_extension_session=lambda: log.append("terminal"),
         clear_extension_chrome=lambda: log.append("clear"),
     )
 
     # RETURN_RESULT carries the exact bounded projection the step already built;
     # the post-loop SUCCEEDED finalize is NOT run on this fatal exit path.
     assert returned is failed
-    assert log == ["start", "settled", "shutdown", "clear"]
+    assert log == ["start", "settled", "shutdown", "terminal", "clear"]
 
 
 def test_run_loop_rejects_a_non_signal_from_step_once() -> None:
@@ -1105,11 +1109,12 @@ def test_run_loop_rejects_a_non_signal_from_step_once() -> None:
             fire_session_start=lambda: log.append("start"),
             fire_session_shutdown=lambda: log.append("shutdown"),
             consume_settle_pending=lambda: True,
+            close_extension_session=lambda: log.append("terminal"),
             clear_extension_chrome=lambda: log.append("clear"),
         )
 
     # A malformed step still runs the finally-always shutdown/clear guarantee.
-    assert log == ["start", "settled", "shutdown", "clear"]
+    assert log == ["start", "settled", "shutdown", "terminal", "clear"]
 
 
 def test_run_loop_skips_settle_when_not_pending() -> None:
@@ -1122,13 +1127,14 @@ def test_run_loop_skips_settle_when_not_pending() -> None:
         fire_session_start=lambda: log.append("start"),
         fire_session_shutdown=lambda: log.append("shutdown"),
         consume_settle_pending=lambda: False,
+        close_extension_session=lambda: log.append("terminal"),
         clear_extension_chrome=lambda: log.append("clear"),
     )
 
     # A cleared true-idle flag means agent_settled must not fire, but shutdown
     # and chrome-clear still run.
     assert "settled" not in log
-    assert log == ["start", "shutdown", "clear"]
+    assert log == ["start", "shutdown", "terminal", "clear"]
 
 
 def test_run_loop_runs_finally_when_step_once_raises() -> None:
@@ -1145,11 +1151,12 @@ def test_run_loop_runs_finally_when_step_once_raises() -> None:
             fire_session_start=lambda: log.append("start"),
             fire_session_shutdown=lambda: log.append("shutdown"),
             consume_settle_pending=lambda: True,
+            close_extension_session=lambda: log.append("terminal"),
             clear_extension_chrome=lambda: log.append("clear"),
         )
 
     # The finally-always guarantee holds on the exception exit path too.
-    assert log == ["start", "settled", "shutdown", "clear"]
+    assert log == ["start", "settled", "shutdown", "terminal", "clear"]
 
 
 def test_run_loop_does_not_run_finally_when_session_start_raises() -> None:
@@ -1169,6 +1176,7 @@ def test_run_loop_does_not_run_finally_when_session_start_raises() -> None:
             fire_session_start=start,
             fire_session_shutdown=lambda: log.append("shutdown"),
             consume_settle_pending=lambda: False,
+            close_extension_session=lambda: log.append("terminal"),
             clear_extension_chrome=lambda: log.append("clear"),
         )
 
@@ -1199,6 +1207,7 @@ def test_run_loop_rejects_non_callable_ports() -> None:
             fire_session_start=noop,
             fire_session_shutdown=noop,
             consume_settle_pending=not_pending,
+            close_extension_session=noop,
             clear_extension_chrome=noop,
         )
     with pytest.raises(TypeError, match="finalize must be callable"):
@@ -1208,6 +1217,7 @@ def test_run_loop_rejects_non_callable_ports() -> None:
             fire_session_start=noop,
             fire_session_shutdown=noop,
             consume_settle_pending=not_pending,
+            close_extension_session=noop,
             clear_extension_chrome=noop,
         )
     with pytest.raises(TypeError, match="fire_session_start must be callable"):
@@ -1217,6 +1227,7 @@ def test_run_loop_rejects_non_callable_ports() -> None:
             fire_session_start=None,  # type: ignore[arg-type]
             fire_session_shutdown=noop,
             consume_settle_pending=not_pending,
+            close_extension_session=noop,
             clear_extension_chrome=noop,
         )
     with pytest.raises(TypeError, match="fire_session_shutdown must be callable"):
@@ -1226,6 +1237,7 @@ def test_run_loop_rejects_non_callable_ports() -> None:
             fire_session_start=noop,
             fire_session_shutdown=None,  # type: ignore[arg-type]
             consume_settle_pending=not_pending,
+            close_extension_session=noop,
             clear_extension_chrome=noop,
         )
     with pytest.raises(TypeError, match="consume_settle_pending must be callable"):
@@ -1235,6 +1247,17 @@ def test_run_loop_rejects_non_callable_ports() -> None:
             fire_session_start=noop,
             fire_session_shutdown=noop,
             consume_settle_pending=None,  # type: ignore[arg-type]
+            close_extension_session=noop,
+            clear_extension_chrome=noop,
+        )
+    with pytest.raises(TypeError, match="close_extension_session must be callable"):
+        controller.run_loop(
+            step_once=ok_step,
+            finalize=ok_finalize,
+            fire_session_start=noop,
+            fire_session_shutdown=noop,
+            consume_settle_pending=not_pending,
+            close_extension_session=None,  # type: ignore[arg-type]
             clear_extension_chrome=noop,
         )
     with pytest.raises(TypeError, match="clear_extension_chrome must be callable"):
@@ -1244,6 +1267,7 @@ def test_run_loop_rejects_non_callable_ports() -> None:
             fire_session_start=noop,
             fire_session_shutdown=noop,
             consume_settle_pending=not_pending,
+            close_extension_session=noop,
             clear_extension_chrome=None,  # type: ignore[arg-type]
         )
 

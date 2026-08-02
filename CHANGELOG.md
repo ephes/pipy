@@ -205,6 +205,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- Concurrent extension coding-session controls now serialize complete provider,
+  durable session-tree, custom-render, and queued-input effects. Native tree
+  id/parent selection, in-memory publication, labels/names, RPC snapshots, and
+  JSONL append order now share one guard, as do all coding-input check/use paths.
+  Terminal shutdown waits for effects accepted before close, then detaches the
+  live generation and closes its outboxes/chrome exactly once; later completion,
+  custom-entry, name, label, and custom-message calls raise
+  `ExtensionCapabilityError` without changing provider/session/input state,
+  while read-only final-tree views remain available.
 - A live extension message can no longer be erased when
   `api.send_user_message(...)` or `api.send_message(...)` races the session's
   outbox drain. Live append and detach now serialize; rejected or retired queue

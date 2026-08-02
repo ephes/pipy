@@ -41,7 +41,8 @@ from dataclasses import InitVar, dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, MutableMapping, Sequence
+from contextlib import contextmanager
 from typing import Any, ClassVar, Literal, TextIO, cast
 
 from pipy_harness.capture import sanitize_text
@@ -135,6 +136,7 @@ from pipy_harness.native.agent_runtime import (
 )
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding import CodingInputQueue
+from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.accepted_input import (
     CodingAcceptedInputPreparer,
     CodingSessionAcceptedInputRecorder,
@@ -281,6 +283,7 @@ from pipy_harness.native.extension_runtime import (
     ExtensionCapabilityError,
     ExtensionCodingSessionControl,
     ExtensionCommandDispatch,
+    GenerationMessageRetirement,
     ExtensionTool,
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
@@ -568,7 +571,8 @@ class _RunControlState:
     other closure through the shared instance.
     """
 
-    session_tree: NativeSessionTree
+    coding_effects: CodingEffectCoordinator
+    _session_tree: NativeSessionTree
     tree_filter_mode: str
     pending_prefill: str | None
     package_roots: PackageResourceRoots
@@ -580,6 +584,30 @@ class _RunControlState:
     # iteration;
     # the setup-scope changelog loop that reuses the name never seeds it here.
     line: str = ""
+
+    def __post_init__(self) -> None:
+        with self.coding_effects.lock:
+            self._session_tree.bind_mutation_lock(self.coding_effects.lock)
+
+    @property
+    def session_tree(self) -> NativeSessionTree:
+        with self.coding_effects.lock:
+            return self._session_tree
+
+    @session_tree.setter
+    def session_tree(self, tree: NativeSessionTree) -> None:
+        if not isinstance(tree, NativeSessionTree):
+            raise TypeError("session_tree must be a NativeSessionTree")
+        with self.coding_effects.lock:
+            tree.bind_mutation_lock(self.coding_effects.lock)
+            self._session_tree = tree
+
+    @contextmanager
+    def session_tree_section(self) -> Iterator[NativeSessionTree]:
+        """Keep active-pointer selection and guarded tree work in one section."""
+
+        with self.coding_effects.lock:
+            yield self._session_tree
 
     @property
     def extension_generation(self) -> SessionExtensionGeneration:
@@ -3205,6 +3233,39 @@ class _ReplLoopStep:
             return True
         return False
 
+    def close_extension_session(
+        self,
+        *,
+        coding_effects: CodingEffectCoordinator,
+        generation_ref: SessionGenerationRef,
+    ) -> None:
+        """Close effect admission and detach terminal generation sidecars."""
+
+        queue_retirement = GenerationMessageRetirement()
+        generation: SessionExtensionGeneration | None = None
+        chrome: ExtensionChromeHandle | None = None
+        with coding_effects.terminal_section() as first_close:
+            if first_close:
+                with generation_ref.lock:
+                    generation, chrome = generation_ref.detach_terminal_locked(
+                        queue_retirement
+                    )
+        if not first_close:
+            return
+
+        retained: tuple[object, ...] = ()
+        queue_error: BaseException | None = None
+        try:
+            retained = queue_retirement.finalize_retirement()
+        except BaseException as error:
+            queue_error = error
+        chrome_retirement, chrome_close_error = (
+            chrome.close_nonraising() if chrome is not None else (None, None)
+        )
+        chrome_finalize_error = _finish_chrome_retirement(chrome_retirement)
+        del retained, generation
+        _raise_first((queue_error, chrome_close_error, chrome_finalize_error))
+
     def clear_extension_chrome(self, *, terminal_ui: ToolLoopTerminalUi | None) -> None:
         if terminal_ui is not None:
             terminal_ui.clear_extension_chrome()
@@ -3249,6 +3310,7 @@ class _SessionCollaborators:
     coding_state: CodingSessionState
     product_session: CodingProductSessionCoordinator
     coding_input_queue: CodingInputQueue
+    coding_effects: CodingEffectCoordinator
     terminal_ui: ToolLoopTerminalUi | None
     settings: SettingsManager
     cwd: Path
@@ -3262,13 +3324,22 @@ class _SessionCollaborators:
         self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
 
     def extension_set_session_name(self, name: str | None) -> object:
-        return self.ctl.session_tree.append_session_info(name)
+        with self.coding_effects.effect() as admitted:
+            if not admitted:
+                raise ExtensionCapabilityError("coding session is closed")
+            with self.ctl.session_tree_section() as tree:
+                return tree.append_session_info(name)
 
     def extension_get_session_name(self) -> str | None:
-        return self.ctl.session_tree.name
+        with self.ctl.session_tree_section() as tree:
+            return tree.name
 
     def extension_set_label(self, entry_id: str, label: str | None) -> object:
-        return self.ctl.session_tree.append_label_change(entry_id, label)
+        with self.coding_effects.effect() as admitted:
+            if not admitted:
+                raise ExtensionCapabilityError("coding session is closed")
+            with self.ctl.session_tree_section() as tree:
+                return tree.append_label_change(entry_id, label)
 
     def coding_session_control(self) -> ExtensionCodingSessionControl:
         """Bundle the coding-session host collaborators + live snapshot.
@@ -3440,21 +3511,24 @@ class _SessionCollaborators:
         return False
 
     def extension_complete(self, system_prompt: str, user_text: str) -> str:
-        request = ProviderRequest(
-            system_prompt=str(system_prompt)[:_EXTENSION_COMPLETE_MAX_CHARS],
-            user_prompt=str(user_text)[:_EXTENSION_COMPLETE_MAX_CHARS],
-            provider_name=self.coding_state.provider_name,
-            model_id=self.coding_state.model_id,
-            cwd=self.cwd,
-            available_tools=(),
-            provider_header_callback=self.active_provider_header_callback(),
-        )
-        result = self.coding_state.provider.complete(request)
-        if result.status != HarnessStatus.SUCCEEDED:
-            raise ExtensionCapabilityError(
-                f"completion failed ({result.error_type or result.status})"
+        with self.coding_effects.effect() as admitted:
+            if not admitted:
+                raise ExtensionCapabilityError("coding session is closed")
+            request = ProviderRequest(
+                system_prompt=str(system_prompt)[:_EXTENSION_COMPLETE_MAX_CHARS],
+                user_prompt=str(user_text)[:_EXTENSION_COMPLETE_MAX_CHARS],
+                provider_name=self.coding_state.provider_name,
+                model_id=self.coding_state.model_id,
+                cwd=self.cwd,
+                available_tools=(),
+                provider_header_callback=self.active_provider_header_callback(),
             )
-        return result.final_text or ""
+            result = self.coding_state.provider.complete(request)
+            if result.status != HarnessStatus.SUCCEEDED:
+                raise ExtensionCapabilityError(
+                    f"completion failed ({result.error_type or result.status})"
+                )
+            return result.final_text or ""
 
     def extension_custom_driver(self, factory: Any, options: Any = None) -> object:
         # Only an interactive terminal can take over the screen; a
@@ -3940,6 +4014,7 @@ class NativeToolReplSession:
         # leaving it on a private one would give the run two boundaries, which
         # serialize nothing against each other.
         session_state_lock = threading.RLock()
+        coding_effects = CodingEffectCoordinator()
         keybindings = self.keybindings_manager or KeybindingsManager.create(
             state_lock=session_state_lock
         )
@@ -4218,7 +4293,8 @@ class NativeToolReplSession:
         # composition-root closures reassign ``ctl.<attr>`` where they previously
         # rebound the run-scope ``nonlocal`` names.
         ctl = _RunControlState(
-            session_tree=session_tree,
+            coding_effects=coding_effects,
+            _session_tree=session_tree,
             tree_filter_mode="default",
             pending_prefill=None,
             package_roots=package_roots,
@@ -4350,6 +4426,7 @@ class NativeToolReplSession:
                 for port in (input_queued_input_port, terminal_queued_input_port)
                 if port is not None
             ),
+            mutation_lock=coding_effects.lock,
             pending_local_command_source=take_pending_local_command,
             seeds=(
                 ProductContent(message) for message in self.initial_messages if message
@@ -4373,6 +4450,7 @@ class NativeToolReplSession:
             ctl=_ExtensionCustomEntryRunState(ctl=ctl),
             terminal_ui=terminal_ui,
             coding_input_queue=coding_input_queue,
+            coding_effects=coding_effects,
             error_stream=error_stream,
             generation_snapshot=ctl.generation_ref.snapshot,
         )
@@ -4497,7 +4575,7 @@ class NativeToolReplSession:
             refresh_footer_text=footer.refresh_footer_text,
             extension_notify=_extension_notify,
             extension_ui_driver=extension_ui_driver,
-            mutation_io_lock=threading.RLock(),
+            mutation_io_lock=coding_effects.lock,
         )
 
         # The residual run-loop collaborators (diagnostics, session-name setters,
@@ -4515,6 +4593,7 @@ class NativeToolReplSession:
             coding_state=coding_state,
             product_session=product_session,
             coding_input_queue=coding_input_queue,
+            coding_effects=coding_effects,
             terminal_ui=terminal_ui,
             settings=settings,
             cwd=cwd,
@@ -4597,8 +4676,9 @@ class NativeToolReplSession:
         # `finalize` port (the post-loop `SUCCEEDED` projection), and
         # `RETURN_RESULT` returns the terminate `FAILED` projection the step
         # already built — guaranteeing the once-only true-idle settle, the
-        # `session_shutdown` fire, and the extension-chrome clear on EVERY exit
-        # path (normal return, fatal return, or a propagated exception). One
+        # `session_shutdown` fire, terminal generation/outbox close, and the
+        # extension-chrome clear on EVERY exit path (normal return, fatal return,
+        # or a propagated exception). One
         # iteration's body, the run transition, and every UI/provider/persistence
         # effect live in `_ReplLoopStep.step_once` (a module-level composition-root
         # handler, symmetric with `_BuiltinCommandInterpreter`); it performs one
@@ -4665,6 +4745,11 @@ class NativeToolReplSession:
             ),
             consume_settle_pending=partial(
                 repl_loop_step.consume_settle_pending, ctl=ctl
+            ),
+            close_extension_session=partial(
+                repl_loop_step.close_extension_session,
+                coding_effects=coding_effects,
+                generation_ref=ctl.generation_ref,
             ),
             clear_extension_chrome=partial(
                 repl_loop_step.clear_extension_chrome, terminal_ui=terminal_ui

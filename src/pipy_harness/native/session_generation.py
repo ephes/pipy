@@ -1052,7 +1052,7 @@ class SessionGenerationRef:
         # this reference one *user* of the boundary rather than its owner.
         self._lock = lock if lock is not None else threading.RLock()
         generation.runtime.message_routing._bind_session_mutex(self._lock)
-        self._generation = generation
+        self._generation: SessionExtensionGeneration | None = generation
         self._generation_id = 0
         self._publication_pending = False
 
@@ -1067,7 +1067,10 @@ class SessionGenerationRef:
         """The live generation. Prefer :meth:`snapshot` inside an operation."""
 
         with self._lock:
-            return self._generation
+            generation = self._generation
+            if generation is None:
+                raise RuntimeError("extension generation is unavailable")
+            return generation
 
     def snapshot(self) -> SessionGenerationSnapshot:
         """Take one consistent view for the whole of an operation.
@@ -1077,7 +1080,10 @@ class SessionGenerationRef:
         """
 
         with self._lock:
-            return SessionGenerationSnapshot(self._generation, self._generation_id)
+            generation = self._generation
+            if generation is None:
+                raise RuntimeError("extension generation is unavailable")
+            return SessionGenerationSnapshot(generation, self._generation_id)
 
     def publish(
         self, generation: SessionExtensionGeneration
@@ -1123,9 +1129,25 @@ class SessionGenerationRef:
         if generation.projection is None:
             raise ValueError("extension generation projection is unavailable")
         retired = self._generation
+        if retired is None:
+            raise RuntimeError("extension generation is unavailable")
         self._generation = generation
         self._generation_id += 1
         return retired
+
+    def detach_terminal_locked(
+        self, retirement: GenerationMessageRetirement
+    ) -> tuple[SessionExtensionGeneration | None, ExtensionChromeHandle | None]:
+        """Invalidate the live pointer and detach its outboxes under the mutex."""
+
+        generation = self._generation
+        if generation is None:
+            return None, None
+        self._generation = None
+        self._generation_id += 1
+        self._publication_pending = False
+        generation.runtime.message_routing.mark_retired_locked(retirement)
+        return generation, self._chrome_handle(generation)
 
     def accept_prepared_reload(
         self,
@@ -1156,7 +1178,10 @@ class SessionGenerationRef:
         if not publish_candidate_ownership(candidate):
             return "extension candidate ownership is unavailable", None
         with self._lock:
-            owner = self._generation.runtime.message_routing
+            live_generation = self._generation
+            if live_generation is None:
+                return "extension generation is unavailable", None
+            owner = live_generation.runtime.message_routing
             auth_store = None if catalog is None else catalog.auth_store
             matches = (
                 tool_capabilities._state is expected_capability

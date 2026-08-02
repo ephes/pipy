@@ -32,11 +32,12 @@ import re
 import stat
 import threading
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path
-from typing import Any, ClassVar, TypeVar
+from typing import Any, ClassVar, Concatenate, ParamSpec, TypeVar, cast
 
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
@@ -781,6 +782,24 @@ def _load_file_entries(path: Path) -> tuple[SessionHeader | None, list[SessionEn
     return header, entries
 
 
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+_RLOCK_TYPE = type(threading.RLock())
+
+
+def _guarded_tree_api(
+    method: Callable[Concatenate["NativeSessionTree", _P], _R],
+) -> Callable[Concatenate["NativeSessionTree", _P], _R]:
+    """Take the tree's one mutation/I/O-order lock for an entire operation."""
+
+    @wraps(method)
+    def guarded(self: "NativeSessionTree", *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with self._write_lock:
+            return method(self, *args, **kwargs)
+
+    return cast(Callable[Concatenate["NativeSessionTree", _P], _R], guarded)
+
+
 @dataclass
 class NativeSessionTree:
     """In-memory manager for one native product session file."""
@@ -794,11 +813,11 @@ class NativeSessionTree:
     label_timestamps_by_id: dict[str, str] = field(default_factory=dict)
     leaf_id: str | None = None
     _name: str | None = None
-    # Serializes the two-step entry/leaf mutation (append entry, then advance
-    # leaf) against snapshot reads, so a concurrent worker-thread append can
-    # never expose a partial state (entries ahead of leaf, or a leaf absent from
-    # the entries snapshot). Read paths capture a coherent pair under this lock.
-    _write_lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
+    # The active run injects its coding-effect coordinator lock. The reentrant
+    # default keeps detached/open/fork construction safe before publication.
+    _write_lock: threading.RLock = field(
+        default_factory=threading.RLock, repr=False, compare=False
+    )
 
     MAX_NAME_LENGTH: ClassVar[int] = 200
 
@@ -913,15 +932,32 @@ class NativeSessionTree:
             new_entry = new_tree._clone_entry_onto_leaf(entry, id_map=id_map)
             id_map[entry.id] = new_entry.id
         for old_id, new_id in id_map.items():
-            label = source.labels_by_id.get(old_id)
+            label = source.get_label(old_id)
             if label:
                 new_tree.append_label_change(new_id, label)
-        if source._name:
-            new_tree.append_session_info(source._name)
+        source_name = source.name
+        if source_name:
+            new_tree.append_session_info(source_name)
         return new_tree
+
+    def bind_mutation_lock(self, lock: threading.RLock) -> None:
+        """Adopt the run's exact coordinator lock before becoming active."""
+
+        if not isinstance(lock, _RLOCK_TYPE):
+            raise TypeError("session-tree mutation lock must be an RLock")
+        previous = self._write_lock
+        with lock:
+            with previous:
+                self._write_lock = lock
+
+    @property
+    @_guarded_tree_api
+    def mutation_lock(self) -> threading.RLock:
+        return self._write_lock
 
     # -- internal load ------------------------------------------------------
 
+    @_guarded_tree_api
     def _load_entries(self, entries: Iterable[SessionEntry]) -> None:
         for entry in entries:
             self.entries.append(entry)
@@ -939,6 +975,7 @@ class NativeSessionTree:
 
     # -- file IO ------------------------------------------------------------
 
+    @_guarded_tree_api
     def _write_header(self) -> None:
         if not self.persist or self.path is None:
             return
@@ -950,6 +987,7 @@ class NativeSessionTree:
         except OSError:
             pass
 
+    @_guarded_tree_api
     def _write_entry(self, entry: SessionEntry) -> None:
         if not self.persist or self.path is None:
             return
@@ -958,20 +996,23 @@ class NativeSessionTree:
 
     # -- append -------------------------------------------------------------
 
+    @_guarded_tree_api
     def _append_entry(self, entry: _SessionEntryT) -> _SessionEntryT:
-        with self._write_lock:
-            self.entries.append(entry)
-            self.by_id[entry.id] = entry
-            self.leaf_id = entry.id
+        self.entries.append(entry)
+        self.by_id[entry.id] = entry
+        self.leaf_id = entry.id
         self._write_entry(entry)
         return entry
 
+    @_guarded_tree_api
     def _next_id(self) -> str:
         return _new_entry_id(self.by_id)
 
+    @_guarded_tree_api
     def append_message(self, message: AgentMessage) -> MessageEntry:
         return self._append_stored_message(message)
 
+    @_guarded_tree_api
     def _append_stored_message(self, message: _StoredMessage) -> MessageEntry:
         entry = MessageEntry(
             id=self._next_id(),
@@ -981,6 +1022,7 @@ class NativeSessionTree:
         )
         return self._append_entry(entry)
 
+    @_guarded_tree_api
     def append_model_change(self, provider: str, model_id: str) -> ModelChangeEntry:
         entry = ModelChangeEntry(
             id=self._next_id(),
@@ -991,6 +1033,7 @@ class NativeSessionTree:
         )
         return self._append_entry(entry)
 
+    @_guarded_tree_api
     def append_thinking_level_change(
         self, thinking_level: str
     ) -> ThinkingLevelChangeEntry:
@@ -1010,6 +1053,7 @@ class NativeSessionTree:
         )
         return self._append_entry(entry)
 
+    @_guarded_tree_api
     def append_compaction(
         self, *, summary: str, first_kept_entry_id: str, tokens_before: int
     ) -> CompactionEntry:
@@ -1023,6 +1067,7 @@ class NativeSessionTree:
         )
         return self._append_entry(entry)
 
+    @_guarded_tree_api
     def append_custom(self, custom_type: str, data: Any = None) -> CustomEntry:
         entry = CustomEntry(
             id=self._next_id(),
@@ -1033,6 +1078,7 @@ class NativeSessionTree:
         )
         return self._append_entry(entry)
 
+    @_guarded_tree_api
     def append_custom_message(
         self,
         custom_type: str,
@@ -1052,6 +1098,7 @@ class NativeSessionTree:
         )
         return self._append_entry(entry)
 
+    @_guarded_tree_api
     def append_session_info(self, name: str | None) -> SessionInfoEntry:
         cleaned = None if name is None else name.strip()[: self.MAX_NAME_LENGTH]
         entry = SessionInfoEntry(
@@ -1064,6 +1111,7 @@ class NativeSessionTree:
         self._name = cleaned or None
         return appended
 
+    @_guarded_tree_api
     def append_label_change(self, target_id: str, label: str | None) -> LabelEntry:
         if target_id not in self.by_id:
             raise KeyError(f"entry {target_id} not found")
@@ -1083,6 +1131,7 @@ class NativeSessionTree:
             self.label_timestamps_by_id.pop(target_id, None)
         return appended
 
+    @_guarded_tree_api
     def _clone_entry_onto_leaf(
         self, entry: SessionEntry, *, id_map: dict[str, str] | None = None
     ) -> SessionEntry:
@@ -1133,20 +1182,23 @@ class NativeSessionTree:
 
     # -- navigation ---------------------------------------------------------
 
+    @_guarded_tree_api
     def branch(self, branch_from_id: str) -> None:
         if branch_from_id not in self.by_id:
             raise KeyError(f"entry {branch_from_id} not found")
-        with self._write_lock:
-            self.leaf_id = branch_from_id
+        self.leaf_id = branch_from_id
 
+    @_guarded_tree_api
     def reset_leaf(self) -> None:
         self.leaf_id = None
 
+    @_guarded_tree_api
     def set_leaf(self, leaf_id: str | None) -> None:
         if leaf_id is not None and leaf_id not in self.by_id:
             raise KeyError(f"entry {leaf_id} not found")
         self.leaf_id = leaf_id
 
+    @_guarded_tree_api
     def branch_with_summary(
         self, branch_from_id: str | None, summary: str
     ) -> BranchSummaryEntry:
@@ -1164,38 +1216,49 @@ class NativeSessionTree:
 
     # -- queries ------------------------------------------------------------
 
+    @_guarded_tree_api
     def get_leaf_id(self) -> str | None:
         return self.leaf_id
 
+    @_guarded_tree_api
     def get_leaf_entry(self) -> SessionEntry | None:
         return self.by_id.get(self.leaf_id) if self.leaf_id else None
 
+    @_guarded_tree_api
     def get_entry(self, entry_id: str) -> SessionEntry | None:
         return self.by_id.get(entry_id)
 
+    @_guarded_tree_api
     def get_entries(self) -> list[SessionEntry]:
         return list(self.entries)
 
+    @_guarded_tree_api
     def get_header(self) -> SessionHeader:
         return self.header
 
+    @_guarded_tree_api
     def get_children(self, parent_id: str | None) -> list[SessionEntry]:
         return [e for e in self.entries if e.parent_id == parent_id]
 
+    @_guarded_tree_api
     def get_label(self, entry_id: str) -> str | None:
         return self.labels_by_id.get(entry_id)
 
+    @_guarded_tree_api
     def get_label_timestamp(self, entry_id: str) -> str | None:
         return self.label_timestamps_by_id.get(entry_id)
 
     @property
+    @_guarded_tree_api
     def name(self) -> str | None:
         return self._name
 
     @property
+    @_guarded_tree_api
     def session_id(self) -> str:
         return self.header.id
 
+    @_guarded_tree_api
     def get_branch(self, from_id: str | None = None) -> list[SessionEntry]:
         path: list[SessionEntry] = []
         start_id = from_id if from_id is not None else self.leaf_id
@@ -1205,12 +1268,15 @@ class NativeSessionTree:
             current = self.by_id.get(current.parent_id) if current.parent_id else None
         return path
 
+    @_guarded_tree_api
     def build_context(self) -> SessionContext:
         return build_context(self.entries, self.leaf_id, self.by_id)
 
+    @_guarded_tree_api
     def get_tree(self) -> list[SessionTreeNode]:
         return build_tree_nodes(self.entries)
 
+    @_guarded_tree_api
     def snapshot_entries_and_leaf(self) -> tuple[list[SessionEntry], str | None]:
         """Capture a coherent (entries, leaf) pair under the write lock.
 
@@ -1218,8 +1284,7 @@ class NativeSessionTree:
         it, matching Pi's atomic synchronous ``getEntries()``/``getLeafId()``
         read. Callers build/serialize the tree from this copy outside the lock.
         """
-        with self._write_lock:
-            return list(self.entries), self.leaf_id
+        return list(self.entries), self.leaf_id
 
 
 def build_tree_nodes(entries: Iterable[SessionEntry]) -> list[SessionTreeNode]:

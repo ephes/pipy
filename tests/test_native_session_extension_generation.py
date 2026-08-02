@@ -30,6 +30,11 @@ from pipy_harness.native.catalog_state import (
     ProviderCatalogState,
 )
 from pipy_harness.native.coding import CodingInputQueue
+from pipy_harness.native.coding.session_controller import (
+    CodingSessionController,
+    LoopStepSignal,
+)
+from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.state import (
     CodingReloadBindingValue,
     CodingReloadHistoryValue,
@@ -37,6 +42,7 @@ from pipy_harness.native.coding.state import (
 )
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_types import ProviderContext
+from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
     deliver_accepted_staged_batch,
@@ -97,6 +103,7 @@ from pipy_harness.native.tool_capabilities import (
 )
 from pipy_harness.native.tool_loop_session import (
     _ExtensionCustomEntryRunState,
+    _ReplLoopStep,
     _RunControlState,
     _build_candidate_extension_projection,
     _build_detached_reload_effects,
@@ -189,8 +196,10 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
     )
     first_flags: dict[str, object] = {"mode": "first"}
     first_generation = SessionExtensionGeneration(first_runtime)
+    coding_effects = CodingEffectCoordinator()
     ctl = _RunControlState(
-        session_tree=NativeSessionTree.create(tmp_path, persist=False),
+        coding_effects=coding_effects,
+        _session_tree=NativeSessionTree.create(tmp_path, persist=False),
         tree_filter_mode="default",
         pending_prefill=None,
         package_roots=PackageResourceRoots.empty(),
@@ -725,11 +734,13 @@ def test_renderer_uses_one_snapshot_while_direct_custom_stays_unconditional(
         extension_custom_message_outbox=first.custom_outbox,
         extension_in_agent_turn=False,
     )
+    coding_effects = CodingEffectCoordinator()
     renderer = _CustomEntryRenderer(
         session=SimpleNamespace(_emit_diagnostic=lambda *_args: None),
         ctl=state,
         terminal_ui=None,
-        coding_input_queue=CodingInputQueue(),
+        coding_input_queue=CodingInputQueue(mutation_lock=coding_effects.lock),
+        coding_effects=coding_effects,
         error_stream=sys.stderr,
         generation_snapshot=snapshot,
     )
@@ -801,11 +812,13 @@ def test_custom_message_rendering_keeps_one_generation_snapshot(
         extension_custom_message_outbox=first.custom_outbox,
         extension_in_agent_turn=False,
     )
+    coding_effects = CodingEffectCoordinator()
     renderer = _CustomEntryRenderer(
         session=SimpleNamespace(_emit_diagnostic=lambda *_args: None),
         ctl=state,
         terminal_ui=None,
-        coding_input_queue=CodingInputQueue(),
+        coding_input_queue=CodingInputQueue(mutation_lock=coding_effects.lock),
+        coding_effects=coding_effects,
         error_stream=sys.stderr,
         generation_snapshot=snapshot,
     )
@@ -861,6 +874,7 @@ def test_cancelled_pipy_tool_call_writer_racing_drain_is_not_erased_or_locked(
         ctl=state,
         terminal_ui=None,
         coding_input_queue=cast(Any, BlockingInputQueue()),
+        coding_effects=CodingEffectCoordinator(),
         error_stream=sys.stderr,
         generation_snapshot=ref.snapshot,
     )
@@ -884,6 +898,78 @@ def test_cancelled_pipy_tool_call_writer_racing_drain_is_not_erased_or_locked(
     renderer.drain_extension_outboxes()
     assert delivered == ["before-drain", "racing-writer"]
     assert runtime.outbox == []
+
+
+def test_shutdown_failure_still_closes_generation_queues_and_chrome_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mutex = threading.RLock()
+    coding_effects = CodingEffectCoordinator()
+    runtime = _rich_runtime(tmp_path, "terminal-close", mutex=mutex)
+    projection = _projection(runtime)
+    gate = OrderedDeliveryGate(mutex)
+    projection.queues.install_candidate_route(gate)
+    with gate.reserve() as token:
+        assert projection.queues.release_pending_route() == 0
+        gate.release(token)
+        assert gate.drain(token)
+    runtime.outbox.append(QueuedUserMessage("pending", {}))
+    runtime.custom_outbox.append(QueuedCustomMessage("x", "pending", False, None, {}))
+    queue_close_calls: list[str] = []
+    original_finalize = GenerationMessageRetirement.finalize_retirement
+
+    def count_queue_close(
+        retirement: GenerationMessageRetirement,
+    ) -> tuple[object, ...]:
+        queue_close_calls.append("close")
+        return original_finalize(retirement)
+
+    monkeypatch.setattr(
+        GenerationMessageRetirement, "finalize_retirement", count_queue_close
+    )
+    chrome_close_calls: list[str] = []
+
+    class CountingSink(ExtensionChromeSink):
+        def mark_closed(self) -> Any:
+            chrome_close_calls.append("close")
+            return super().mark_closed()
+
+    projection = replace(projection, chrome=ExtensionChromeHandle(CountingSink()))
+    ref = SessionGenerationRef(
+        SessionExtensionGeneration(runtime, projection), lock=mutex
+    )
+    controller = CodingSessionController(
+        input_queue=CodingInputQueue(),
+        coding_state=CodingSessionState(
+            provider=FakeNativeProvider(), provider_name="fake", model_id="fake"
+        ),
+        emitter=cast(Any, None),
+    )
+
+    def shutdown() -> None:
+        raise RuntimeError("shutdown failed")
+
+    close = lambda: _ReplLoopStep().close_extension_session(  # noqa: E731
+        coding_effects=coding_effects,
+        generation_ref=ref,
+    )
+    with pytest.raises(RuntimeError, match="shutdown failed"):
+        controller.run_loop(
+            step_once=LoopStepSignal.break_loop,
+            finalize=lambda: cast(Any, None),
+            fire_session_start=lambda: None,
+            fire_session_shutdown=shutdown,
+            consume_settle_pending=lambda: False,
+            close_extension_session=close,
+            clear_extension_chrome=lambda: None,
+        )
+    close()  # Idempotent revisit must not re-close either detached sidecar.
+
+    assert runtime.outbox == [] and runtime.custom_outbox == []
+    assert queue_close_calls == ["close"] and chrome_close_calls == ["close"]
+    with pytest.raises(RuntimeError, match="generation is unavailable"):
+        ref.snapshot()
 
 
 def test_live_private_outbox_mismatch_and_retirement_refuse_every_send_name(
@@ -2501,8 +2587,8 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
     actual_calls = " ".join(f"{name}={calls.count(name)}" for name in sorted(watched))
     assert actual_calls == (
         "_accept_message_route=2 _bind_session_mutex=3 _commit_activation=2 "
-        "_install_candidate_route=1 accept=2 finalize_retirement=2 "
-        "install_candidate_route=2 mark_retired_locked=2 release_pending=1 "
+        "_install_candidate_route=1 accept=2 finalize_retirement=3 "
+        "install_candidate_route=2 mark_retired_locked=3 release_pending=1 "
         "release_pending_route=0 retire=1 retire_route=2 "
         "route_drain=1 submit=2"
     )
@@ -2540,7 +2626,7 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
     path, renderer_call = built["_CustomEntryRenderer"][0]
     assert (path, renderer_call.args) == ("tool_loop_session.py", [])
     assert {kw.arg for kw in renderer_call.keywords} == set(
-        "session ctl terminal_ui coding_input_queue error_stream generation_snapshot".split()
+        "session ctl terminal_ui coding_input_queue coding_effects error_stream generation_snapshot".split()
     )
     assert not any(
         isinstance(node, ast.Attribute)
@@ -2684,7 +2770,10 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         (
             "_route_legacy_custom_message_input",
             "native/tui.py",
-            ("class:_CustomEntryRenderer", "function:_deliver_custom_message"),
+            (
+                "class:_CustomEntryRenderer",
+                "function:_deliver_custom_message_effects",
+            ),
         ),
         (
             "dispose",

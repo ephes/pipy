@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import threading
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import wraps
+from typing import Concatenate, ParamSpec, TypeVar, cast
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.runtime_ports import (
@@ -78,6 +81,24 @@ _TYPED_QUEUE_SOURCES = frozenset(
 )
 
 
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+_RLOCK_TYPE = type(threading.RLock())
+
+
+def _guarded_queue_api(
+    method: Callable[Concatenate["CodingInputQueue", _P], _R],
+) -> Callable[Concatenate["CodingInputQueue", _P], _R]:
+    """Take the queue's one mutation lock for a complete API operation."""
+
+    @wraps(method)
+    def guarded(self: "CodingInputQueue", *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with self._mutation_lock:
+            return method(self, *args, **kwargs)
+
+    return cast(Callable[Concatenate["CodingInputQueue", _P], _R], guarded)
+
+
 class _AgentLoopQueuedInputPort:
     """Narrow port offered to an active reusable agent loop."""
 
@@ -99,6 +120,7 @@ class CodingInputQueue:
         "_extension_prompts",
         "_extension_steering",
         "_external_inputs",
+        "_mutation_lock",
         "_next_turn_context",
         "_pending_local_command",
         "_pending_local_command_source",
@@ -112,9 +134,13 @@ class CodingInputQueue:
         self,
         *,
         external_inputs: Iterable[AgentQueuedInputPort] = (),
+        mutation_lock: threading.RLock | None = None,
         pending_local_command_source: Callable[[], ProductContent | None] | None = None,
         seeds: Iterable[ProductContent] = (),
     ) -> None:
+        self._mutation_lock = mutation_lock or threading.RLock()
+        if not isinstance(self._mutation_lock, _RLOCK_TYPE):
+            raise TypeError("mutation_lock must be an RLock")
         self._external_inputs = tuple(external_inputs)
         if not all(
             isinstance(source, AgentQueuedInputPort) for source in self._external_inputs
@@ -141,15 +167,18 @@ class CodingInputQueue:
             self.enqueue_seed(seed)
 
     @property
+    @_guarded_queue_api
     def agent_loop_port(self) -> AgentQueuedInputPort:
         """Return the stable queue port used by the active agent loop."""
 
         return self._agent_loop_port
 
     @property
+    @_guarded_queue_api
     def has_pending_local_command(self) -> bool:
         return self._pending_local_command is not None
 
+    @_guarded_queue_api
     def defer_local_command(self, content: ProductContent) -> None:
         """Give a local command precedence without consuming queued prompts."""
 
@@ -158,6 +187,7 @@ class CodingInputQueue:
             raise RuntimeError("a local command is already pending")
         self._pending_local_command = content
 
+    @_guarded_queue_api
     def retain_agent_input(self, queued_input: AgentQueuedInput | None) -> None:
         """Append one whole agent-loop handoff for later separate runs, FIFO."""
 
@@ -166,30 +196,36 @@ class CodingInputQueue:
         _require_queued_input(queued_input, "queued_input")
         self._retained_agent_inputs.append(queued_input)
 
+    @_guarded_queue_api
     def enqueue_seed(self, content: ProductContent) -> None:
         _require_content(content, "content")
         self._seeds.append(content)
 
+    @_guarded_queue_api
     def enqueue_extension_steering(self, content: ProductContent) -> None:
         self._extension_steering.append(
             _new_queued_input(content, AgentQueuedInputKind.STEERING)
         )
 
+    @_guarded_queue_api
     def enqueue_extension_follow_up(self, content: ProductContent) -> None:
         self._extension_follow_ups.append(
             _new_queued_input(content, AgentQueuedInputKind.FOLLOW_UP)
         )
 
+    @_guarded_queue_api
     def enqueue_extension_prompt(self, content: ProductContent) -> None:
         _require_content(content, "content")
         self._extension_prompts.append(content)
 
+    @_guarded_queue_api
     def enqueue_next_turn_context(self, content: ProductContent) -> None:
         """Attach extension context once to the next provider-visible prompt."""
 
         _require_content(content, "content")
         self._next_turn_context.append(content)
 
+    @_guarded_queue_api
     def take_next(self) -> CodingInputSelection | None:
         """Take one input using exact product priority and one-shot clearing.
 
@@ -238,6 +274,7 @@ class CodingInputQueue:
             )
         return None
 
+    @_guarded_queue_api
     def take_next_for_agent_loop(self) -> AgentQueuedInput | None:
         """Take one active-run continuation without overtaking local policy."""
 
@@ -257,6 +294,7 @@ class CodingInputQueue:
             return self._extension_follow_ups.popleft()
         return None
 
+    @_guarded_queue_api
     def classify_external_wake(
         self,
         source: AgentQueuedInputPort,
@@ -302,6 +340,7 @@ class CodingInputQueue:
         self._pending_local_command = None
         return CodingInputSelection(content, CodingInputSource.LOCAL_COMMAND)
 
+    @_guarded_queue_api
     def clear_extension_inputs(self) -> None:
         """Clear session-bound extension delivery without touching other owners."""
 
@@ -310,6 +349,7 @@ class CodingInputQueue:
         self._extension_prompts.clear()
         self._next_turn_context.clear()
 
+    @_guarded_queue_api
     def take_next_turn_context(self) -> tuple[ProductContent, ...]:
         """Take request-only extension context for the next accepted run."""
 
@@ -317,6 +357,7 @@ class CodingInputQueue:
         self._next_turn_context.clear()
         return context
 
+    @_guarded_queue_api
     def _take_external_once(self) -> AgentQueuedInput | None:
         retained = self._retained_external_input
         if retained is not None:
@@ -333,6 +374,7 @@ class CodingInputQueue:
             return polled_input
         return None
 
+    @_guarded_queue_api
     def _poll_pending_local_command(self) -> None:
         if (
             self._pending_local_command is not None
@@ -344,6 +386,7 @@ class CodingInputQueue:
             _require_content(content, "pending local command")
             self._pending_local_command = content
 
+    @_guarded_queue_api
     def _retain_external_input(
         self,
         source: AgentQueuedInputPort,
@@ -353,11 +396,13 @@ class CodingInputQueue:
             raise RuntimeError("an external wake input is already retained")
         self._retained_external_input = (source, queued_input)
 
+    @_guarded_queue_api
     def _retain_fresh_line(self, line: str) -> None:
         if self._retained_fresh_input is not None:
             raise RuntimeError("a fresh wake input is already retained")
         self._retained_fresh_input = ProductContent(line)
 
+    @_guarded_queue_api
     def _require_no_retained_wake_input(self) -> None:
         if self._retained_external_input is not None:
             raise RuntimeError("an external wake input is already retained")

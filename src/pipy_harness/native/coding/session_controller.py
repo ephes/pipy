@@ -8,8 +8,9 @@ runs the ``while True`` skeleton itself — calling the injected per-iteration
 (``CONTINUE`` re-enters the loop, ``BREAK`` finalizes the post-loop
 ``SUCCEEDED`` projection through the injected ``finalize`` port, ``RETURN_RESULT``
 returns the terminate ``FAILED`` projection the step selected) — and guarantees
-the once-only true-idle settle, the ``session_shutdown`` fire, and the
-extension-chrome clear on every exit path (normal, fatal, or exception). Within
+the once-only true-idle settle, the ``session_shutdown`` fire, terminal
+extension-session close, and extension-chrome clear on every exit path (normal,
+fatal, or exception). Within
 each step it owns input selection and the true-idle (``agent_settled``)
 boundary. A single
 :meth:`CodingSessionController.select_next_step`
@@ -327,6 +328,7 @@ class CodingSessionController:
         fire_session_start: Callable[[], None],
         fire_session_shutdown: Callable[[], None],
         consume_settle_pending: Callable[[], bool],
+        close_extension_session: Callable[[], None],
         clear_extension_chrome: Callable[[], None],
     ) -> NativeToolReplResult:
         """Own the ``while True`` skeleton and the start/shutdown lifecycle.
@@ -341,8 +343,8 @@ class CodingSessionController:
         :class:`NativeToolReplResult` the step already built (the terminate
         ``FAILED`` projection). On every exit path (normal return, fatal return,
         or a propagated exception) it guarantees the once-only true-idle settle,
-        the ``session_shutdown`` fire, and the extension-chrome clear — in that
-        order.
+        the ``session_shutdown`` fire, terminal extension-session close, and the
+        extension-chrome clear — in that order.
 
         Every effect is performed through an injected port so the controller
         never touches the terminal, renderer, ``repl_input``, extensions,
@@ -353,8 +355,9 @@ class CodingSessionController:
         ``fire_session_shutdown`` fire the composition root's lifecycle emitter,
         ``consume_settle_pending`` reads-and-resets the run's armed true-idle flag
         (the controller fires the once-only ``agent_settled`` through its own
-        settled emitter when it returns ``True``), and ``clear_extension_chrome``
-        clears any live TUI chrome.
+        settled emitter when it returns ``True``), ``close_extension_session``
+        closes coding-effect admission and generation sidecars, and
+        ``clear_extension_chrome`` clears any live TUI chrome.
         """
 
         _require_run_loop_ports(
@@ -363,14 +366,15 @@ class CodingSessionController:
             fire_session_start=fire_session_start,
             fire_session_shutdown=fire_session_shutdown,
             consume_settle_pending=consume_settle_pending,
+            close_extension_session=close_extension_session,
             clear_extension_chrome=clear_extension_chrome,
         )
 
         # ``session_start`` fires once the session is set up (reason "startup"),
         # outside the try so a setup-fire failure does not run the shutdown
         # bookend for a session that never started; ``session_shutdown`` fires
-        # from the finally below so it — like the true-idle settle and the
-        # chrome clear — runs on EVERY exit path.
+        # from the finally below before terminal sidecar and chrome close, which
+        # still run on EVERY exit path.
         fire_session_start()
         try:
             while True:
@@ -384,10 +388,15 @@ class CodingSessionController:
                     return finalize()
                 # CONTINUE: the step handled the iteration; re-enter the loop.
         finally:
-            if consume_settle_pending():
-                self._emitter.agent_settled()
-            fire_session_shutdown()
-            clear_extension_chrome()
+            try:
+                if consume_settle_pending():
+                    self._emitter.agent_settled()
+                fire_session_shutdown()
+            finally:
+                try:
+                    close_extension_session()
+                finally:
+                    clear_extension_chrome()
 
     def select_next_step(
         self,
@@ -607,6 +616,7 @@ def _require_run_loop_ports(
     fire_session_start: Callable[[], None],
     fire_session_shutdown: Callable[[], None],
     consume_settle_pending: Callable[[], bool],
+    close_extension_session: Callable[[], None],
     clear_extension_chrome: Callable[[], None],
 ) -> None:
     """Validate lifecycle ports in the original fail-fast order."""
@@ -621,6 +631,8 @@ def _require_run_loop_ports(
         raise TypeError("fire_session_shutdown must be callable")
     if not callable(consume_settle_pending):
         raise TypeError("consume_settle_pending must be callable")
+    if not callable(close_extension_session):
+        raise TypeError("close_extension_session must be callable")
     if not callable(clear_extension_chrome):
         raise TypeError("clear_extension_chrome must be callable")
 
