@@ -49,7 +49,7 @@ def test_formatter_gate_has_no_custom_repository_exclusions() -> None:
     assert not (REPO_ROOT / "ruff.toml").exists()
 
 
-def test_ruff_import_order_gate_selects_exact_i001() -> None:
+def test_ruff_quality_gates_select_only_the_exact_ratchet_rules() -> None:
     config = tomllib.loads(_read("pyproject.toml"))
     lint = config["tool"]["ruff"]["lint"]
     extend_select = lint["extend-select"]
@@ -58,15 +58,30 @@ def test_ruff_import_order_gate_selects_exact_i001() -> None:
     for selectors in lint.get("per-file-ignores", {}).values():
         ignored_selectors.extend(selectors)
 
-    assert "I001" in extend_select
-    assert {
-        selector
-        for selector in configured_selectors
-        if selector == "ALL" or selector.startswith("I")
-    } == {"I001"}
+    assert extend_select == ["C901", "I001", "UP035", "B008"]
+    assert configured_selectors == extend_select
+    assert {"ALL", "I", "I002", "UP", "UP036", "B", "B009"}.isdisjoint(
+        configured_selectors
+    )
+    for category, exact_selector in (
+        ("I", "I001"),
+        ("UP", "UP035"),
+        ("B", "B008"),
+    ):
+        assert {
+            selector
+            for selector in configured_selectors
+            if selector == "ALL" or selector.startswith(category)
+        } == {exact_selector}
+
+    protected_selectors = ("I001", "UP035", "B008")
     assert all(
-        selector != "ALL" and not "I001".startswith(selector)
-        for selector in ignored_selectors
+        ignored_selector != "ALL"
+        and all(
+            not protected_selector.startswith(ignored_selector)
+            for protected_selector in protected_selectors
+        )
+        for ignored_selector in ignored_selectors
     )
 
 
