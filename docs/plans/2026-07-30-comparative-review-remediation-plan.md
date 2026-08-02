@@ -196,11 +196,10 @@ authorized plan-boundary revision: R3c2 defines the seam because the prior
 construction-time port could not execute coherently across publication; R3c3,
 not R3c2, wires it in production. R4a retains only later live append/detach/
 drain/close conversion.
-**R3c3** is active/next and remains the first production installer and
-user-visible effect boundary, composing the shipped R3a/R3b values through all
-four foundations. R3 remains incomplete; R3a, R3b, and R3c1a–R3c2 are shipped
-facts. No startup or reload path installs the candidate route in R3c2, so
-ordinary current behavior remains R1 and no changelog applies; installed
+**R3c3** now ships as the first production installer and user-visible effect
+boundary, composing the shipped R3a/R3b values through all four foundations. R3
+is complete; R3a, R3b, and R3c1a–R3c3 are shipped facts. For the historical R3c2 shipment, no startup or reload path installed the candidate route, so
+ordinary behavior remained R1 and no changelog applied; installed
 activation-send/drain publication races are nevertheless specified by R3c2's
 guarded acceptance/detach or nonraising-drop rule rather than claimed behavior-
 neutral. Direct custom delivery is never in that drop rule.
@@ -210,24 +209,32 @@ session mutex:** complete every fallible I/O operation, callback, construction,
 immutable detachment, and deep replacement/shadow self-consistency validation. Before
 any callback, capture both exact owner tokens plus only the detached catalog
 preparation inputs: OAuth modifiers and detached extra/registered providers;
-auth capture returns only its owner token. Complete the R3b gate reservation
-before entering the publication critical section; reservation is not publication
-or retirement and the caller must not already hold the session mutex. **B,
-immediately before acceptance while holding the mutex:** perform only constant-
-time, allocation-free owner identity/token comparisons. Every supported
+auth capture returns only its owner token. Catalog-backed providers receive only
+resolved scalar/copied credential, header, and routing values; extension
+factories receive only `ProviderContext`, so no prepared binding retains the
+shadow catalog/auth owners. Complete the R3b gate reservation with no caller-held
+session mutex, then publish candidate-host ownership while still unlocked. Every
+candidate guard is released before **B, the sole session-mutex section:** acquire
+that mutex once and perform only constant-time, allocation-free owner identity/
+token comparisons before the first session publication write. Every supported
 `ModelCatalog` and `AuthStore` owner mutation must rotate or replace its token.
 An inverse AST inventory checks writes through known/current typed or aliased
 production owner references and forbids writes to owned fields outside the
 declaring owner classes. Prepared-
 replacement drift validation is not repeated in this section because each
 detached value is exclusively owned between phase-A validation and publication.
-A mismatch refuses without invoking a publisher and unlocks before cleanup,
-disposal, or diagnostics. **C, after acceptance while the mutex remains held:**
-publication is assignment-only or calls only explicitly vetted non-fallible
-owner publishers. A match proceeds without unlocking, so no owner mutation can
-land between the token checks and publication. This owner-state freshness is
-not the later
-R5b/R6 generation-bound class-A API conversion; those scopes remain unchanged.
+A mismatch invokes no publisher and unlocks before caller cleanup or diagnostics.
+Because host publication is terminal, caller cleanup retires its route and closes
+its chrome rather than disposing it; class-D calls remain closed and retained
+sends drop, making the published-but-unowned host inert without double disposal.
+**C, after acceptance while the same mutex acquisition remains held:** publication
+is assignment-only or calls only explicitly vetted non-fallible owner publishers.
+A match proceeds without unlocking, so no owner mutation can land between the
+token checks and publication. Candidate and session guards never nest. This owner-
+state freshness is not the later R5b/R6 generation-bound class-A API conversion:
+those slices must use the current generation id plus each publication-gate
+section, and must not treat terminal host prepublication as live generation
+acceptance.
 Existing executable evidence
 `tests/test_native_coding_state.py::test_coding_state_shares_the_session_mutex_when_bound`
 pins `CodingSessionState._state_lock` to the exact supplied session
@@ -239,22 +246,35 @@ coding, overlay, and REPL publisher-shape tests pin those exact bodies. Every
 vetted owner publisher assigns only fields changed by its corresponding live
 transition; retained live fields are never restored from a preparation
 snapshot. No second guard, factory, callback, I/O, construction, diagnostic,
-persistence, disposal, or last-reference release is permitted there. After
-unlock, frozen staged delivery and the bounded two-phase candidate release run;
-only phase 2's vetted pure in-memory `OrderedDeliveryGate` tail append may occur
-under the session mutex. The gate then releases/drains queued replacement and
-racing live sends, and only then presentation/persistence runs. Gate release is
-fail-soft and finally-protected. No provider factory, callback, arbitrary sink
+persistence, disposal, or last-reference release is permitted there. After the
+session mutex unlocks, but before the first publication gate closes, frozen
+staged delivery and the bounded two-phase candidate release run; only phase 2's
+vetted pure in-memory `OrderedDeliveryGate` tail append may occur under the
+session mutex. The gate then releases/drains queued replacement and racing live
+sends while `publication_pending` remains true. Those delivery/drain paths may
+invoke extension-visible sinks; only afterward does the publication gate close,
+and only then does presentation/persistence run. Gate release is fail-soft and
+finally-protected. No provider factory, callback, arbitrary sink
 or direct delivery, paint, persistence, I/O, diagnostic, disposer, or last-
 reference release runs under the session mutex.
 
-R3c3 retains exactly two documented deltas from `606a860`: replacement
-`session_start` precedes accepted staged custom-message visibility, and any
-pre-acceptance lifecycle/provider/chrome refusal suppresses staged messages that
-`606a860` could expose. Preserved post-freeze replacement sends are part of the
-first delta and remain distinct from R1's sealed-pending silent no-op. R4a and
-later own no leftover preparation, publication, gate definition, or staged
-sequencing.
+R3c3 retains exactly two documented deltas from `606a860`. First, replacement
+`session_start` runs before acceptance and before accepted staged custom-message
+visibility. A reload refused after that hook may therefore already have emitted
+non-staged, non-chrome lifecycle effects such as `notify`; the candidate chrome
+is discarded and its staged messages are suppressed. That refusal consequence
+is part of the first ordering delta, not a third delta. Second, any pre-
+acceptance lifecycle/provider/chrome refusal suppresses staged messages that
+`606a860` could expose. Preserved post-freeze replacement sends are also part of
+the first delta and remain distinct from R1's sealed-pending silent no-op.
+`ReloadPreparationRefused`, including an absent auth owner, follows the same
+ordinary rejection branch as other refusal: a second publication-gate section
+calls retained provider/catalog refresh and unknown-tool-filter diagnostics. An
+absent auth owner makes that refresh return before mutation; assigning an
+explicit `AuthStore` through the supported public owner surface lets a later
+reload prepare normally, while no candidate publishes without owner coherence.
+R4a and later own no leftover preparation, publication, gate definition, or
+staged sequencing.
 
 ## Program invariants
 
@@ -1240,7 +1260,7 @@ breach requires plan revision.
 
 ### R3c3 — accept and publish one prepared reload
 
-**Status:** active/next after shipped R3c2.
+**Status:** shipped in the intended same change as this code and documentation.
 
 **Kind:** user-visible transactional reload ordering and correctness.
 
@@ -1249,9 +1269,12 @@ consume R3c1a–R3c1c owner APIs plus the R3c2 routing seam. R3c2 has no product
 startup/reload route installer or renderer-provider wiring: until this slice,
 the renderer provider is unavailable in production and preserves direct/default
 behavior without consulting installed routing state.
-R3c3 must publish/install the complete `SessionExtensionGeneration`—including
-its one routing owner and typed renderer snapshot provider—through the existing
-`SessionGenerationRef` pointer operation under the session mutex. A second
+R3c3 publishes/installs the complete `SessionExtensionGeneration`—including its
+one routing owner and typed renderer snapshot provider—through the existing
+`SessionGenerationRef` pointer operation. Candidate-host ownership publishes
+unlocked first; one later uninterrupted session-mutex acquisition checks every
+expected owner before its first write, then commits every session publication
+write without unlocking. A second
 renderer-visible pointer or later owner/outbox rebind is forbidden. The
 publication/retirement section is bounded constant-time and nonblocking: it
 marks the old owner retired, swaps out its attached pending FIFO for post-unlock
@@ -1267,23 +1290,31 @@ catalog/factory/refresh/fallback preparation → coding/history/usage/compaction
 preparation → unavailable/default/capability preparation → exact owner-token and
 detached preparation-input capture plus deep replacement/shadow validation → one
 prepared freeze → chrome prepare as the final fallible preparation → complete
-the R3b gate reservation before the publication critical section → take the
-session mutex and make only constant-time, allocation-free owner identity/token
-comparisons immediately before irrevocable acceptance → on a match, perform only
-constant-time route retirement/pointer publication plus generation/chrome-token/
-temporary-legacy assignments and call only explicitly vetted non-fallible owner
-publishers without unlocking → unlock → frozen staged delivery → release phase 1
+the R3b gate reservation with no caller-held session mutex → publish candidate-
+host ownership unlocked → acquire the session mutex once and make only constant-
+time, allocation-free owner identity/token comparisons before the first session
+write → on a match, perform only constant-time route retirement/pointer
+publication plus generation/chrome-token/temporary-legacy assignments and call
+only explicitly vetted non-fallible owner publishers without unlocking → unlock
+→ frozen staged delivery → release phase 1
 transitions `candidate -> releasing`, detaches the finite prefix under the mutex,
 and submits it through the exact `OrderedDeliveryGate` unlocked → release phase
 2 reacquires the mutex exactly once, submits the finite attached tail through
 that same vetted gate under the mutex if still `releasing`, and flips `releasing
--> live` before unlock → gate release/drain → presentation/persistence. No other
-R4 consumer moves.
+-> live` before unlock → gate release/drain → presentation/persistence. The
+first `generation_ref.publishing()` section begins before derived owner
+preparation and remains open through accepted staged delivery, both release
+phases, and gate drain. Its post-commit delivery/drain paths may invoke extension-
+visible sinks while `publication_pending` is true; each `unlock` above refers to
+the session mutex, not that outer gate. No other R4 consumer moves.
 
-Any expected binding, selection, pending-default, catalog, or auth mismatch
-refuses the prepared candidate without invoking a publisher. The mismatch path
-records the refusal under the mutex but releases it before cleanup, disposal, or
-diagnostics; all old live identities remain unchanged. `AuthStore` and
+Any expected binding, selection, pending-default, catalog, auth, or capability
+mismatch invokes no publisher. The mismatch returns from the sole mutex section
+before caller cleanup or diagnostics, with all newer live identities unchanged.
+Because candidate-host publication is already terminal, caller cleanup retires
+its installed route and closes candidate chrome instead of disposing the host;
+class-D calls stay closed and retained sends silently drop, so the published-but-
+unowned host is externally inert and cleanup cannot double-dispose it. `AuthStore` and
 `ModelCatalog` remain confined to the session thread, and the session mutex
 serializes reload with every other session-owned mutation. Phase B and phase C
 run without yielding or unlocking. Consumed values fail phase B; duplicate
@@ -1294,8 +1325,10 @@ roll it back.
 R3c3's explicitly installed candidate route queues replacement-`session_start`
 post-freeze sends; by contrast, an ordinary R1 sealed-pending host with no route
 silently does nothing. These checks provide owner-state freshness only; they are
-not the later R5b/R6 generation-bound class-A API conversion, whose scope is
-unchanged. Existing executable evidence
+not the later R5b/R6 generation-bound class-A API conversion. Those slices must
+check the current generation id and each publication-gate section independently:
+unlocked host prepublication is not generation acceptance, and a class-A call may
+be admitted after refusal cleanup before the separate retained-refresh gate. Existing executable evidence
 `tests/test_native_coding_state.py::test_coding_state_shares_the_session_mutex_when_bound`
 pins `CodingSessionState._state_lock` to the exact supplied session
 `threading.RLock`; its publisher may re-enter only that same RLock under the
@@ -1308,7 +1341,11 @@ shared RLock. No publisher restores retained history, compaction, provider-
 failure, or thinking values from preparation. No second guard, provider factory,
 callback, chrome materialize/paint, sink delivery, persistence, I/O,
 construction, diagnostic, disposer, or last-reference release runs under the
-mutex. `KeyboardInterrupt`/`SystemExit`
+mutex. Catalog-backed providers are constructed from resolved scalar/copied
+credential, header, and routing values; extension factories receive only
+`ProviderContext`. Neither accepted binding retains a shadow `ModelCatalog` or
+`AuthStore`, and later owner rotation affects matching/future construction rather
+than mutating the accepted provider. `KeyboardInterrupt`/`SystemExit`
 after acceptance cannot undo publication or strand the gate. Free-form undo
 logs, compensating live provider rollback, duplicate `session_start`, mutable
 prepared holders, and preservation of destructive reconcile/repair hunks are
@@ -1356,17 +1393,63 @@ failure paths.
 `tests/test_native_extension_activation_sealing.py`,
 `tests/test_native_extension_chrome_staging.py`,
 `tests/test_native_session_extension_generation.py`, and
-`tests/test_native_tool_loop_session.py`; docs are `docs/architecture.md`, the
-transactional spec, `docs/backlog.md`, `docs/extension-api.md`, and
-`CHANGELOG.md`. Run those four tests, the provider catalog/dynamic-swap tests,
+`tests/test_native_tool_loop_session.py`; docs are this controlling plan,
+`docs/architecture.md`, the transactional spec, `docs/backlog.md`,
+`docs/extension-api.md`, and `CHANGELOG.md`. Run those four tests, the provider catalog/dynamic-swap tests,
 Mypy on the four source modules, PTY smoke plus chrome/custom-UI PTY tests,
-`git diff --check`, `just check`, and `just docs-build`. Production plus tests
-may change at most 1,200 added-plus-deleted lines and no source file more than
-400; any extra path, limit breach, or third observable delta requires plan
-revision.
+`git diff --check`, `just check`, and `just docs-build`. R3c3's reviewed
+correctness repair may change at most 1,650 production-plus-test added/deleted
+lines and no source file more than 425. This narrow exception replaces the
+original 1,200/400 R3c3 budget only: Opus review found that meeting the original
+limit required formatting suppression in the highest-risk publication path,
+and four fresh-Pi compaction attempts either increased the diff or removed
+material regression coverage. At the first-amendment review, the readable diff initially
+measured 1,353 production/test changed lines with a 418-line maximum source;
+those figures supported the prior 1,400/425 authorization. The round-10 baseline
+at that first amendment used exactly 1,400 production/test changed lines with a
+424-line maximum source. Six independently material Opus findings required
+executable coverage in release aggregation, `models.json` shadow/publish,
+retired-slot AST, and candidate lifecycle override. Two independent fail-closed
+fresh-Pi repair attempts proved that a total at or below 1,400 forced material
+coverage loss: round 11 could meet 1,400 only by deleting material
+startup/provider coverage; round 12 peaked at 1,551 and could reach only roughly
+1,442 by weakening the required combined staged-sink-plus-release-failure test.
+The prior 1,500 cap was a bounded 100-line increase below the uncompacted
+1,551 draft, so consolidation remained required while complete tests could fit.
+The round-13 patch used exactly 1,500 production/test changed lines with a
+424-line maximum source. At this second amendment, the valid round-14 worktree
+baseline uses exactly 1,499 production/test changed lines and reaches the hard
+425-line per-source cap, leaving 151 total lines of headroom under the formal
+1,650 cap. `src/pipy_harness/native/tool_loop_session.py` is already at 425/425,
+so round-15 changes there must be net-neutral or reverting. Coverage may not be
+deleted to fit `tool_loop_session.py`. Additive implementation and coverage must instead use
+`src/pipy_harness/native/session_generation.py`, currently at 339 changed lines
+with 86 lines of source headroom, `src/pipy_harness/native/extension_hooks.py`,
+`src/pipy_harness/native/tui.py`, or the existing test paths. This allocation is
+planning guidance within the unchanged manifest, not a scope change.
 
-**Docs/release/commit:** architecture, spec, backlog, extension API, and the
-existing `CHANGELOG.md` `### Fixed` bullet beginning “Extension reload no longer
+A fresh independent Opus round 14 left seven material findings open, requiring
+Critical atomic validate/publish/commit repair, provider-instance owner binding,
+startup cleanup, reload-refusal/retained-refresh repair, documentation and
+chrome repair, and executable concurrency and `BaseException` unwind coverage.
+The observed complete round-14 repair draft was specifically 1,585
+production/test changed lines. The formal 1,650 cap is 65 lines above that known
+complete draft. Those extra 65 lines are a bounded allowance for the newly
+reviewed Critical atomicity, provider-owner, cleanup, refusal, documentation,
+and chrome fixes plus their executable tests, without another coverage-deleting
+squeeze. This amendment marks no finding fixed and changes neither the 425
+per-source cap, exact 14-path manifest/scope, behavior or ordering beyond the
+already-open reviewed findings, nor any future-slice budget. Round 15 resolves
+all seven: atomic host-prepublish/check/commit order; terminal refusal route/chrome
+cleanup; detached provider ownership; local startup body-outcome cleanup;
+`ReloadPreparationRefused` re-entry into retained refresh and unknown-filter
+diagnostics (with absent auth returning before mutation and later explicit owner
+restoration re-enabling preparation); and live candidate-chrome `BaseException`
+unwind. Any further path, limit breach, or third observable
+delta requires another plan revision.
+
+**Docs/release/commit:** this plan, architecture, spec, backlog, extension API,
+and the existing `CHANGELOG.md` `### Fixed` bullet beginning “Extension reload no longer
 clears live retained TUI chrome before activation” record both deltas. Commit:
 `fix: publish accepted reload effects`.
 

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import ast
+import gc
+import inspect
 import subprocess
 import sys
+import weakref
 import threading
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import FrozenInstanceError, fields, replace
 from pathlib import Path
@@ -29,8 +33,10 @@ from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.state import (
     CodingReloadBindingValue,
     CodingReloadHistoryValue,
+    CodingSessionState,
 )
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
+from pipy_harness.native.extension_types import ProviderContext
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
     deliver_accepted_staged_batch,
@@ -70,8 +76,16 @@ from pipy_harness.native.session_generation import (
     SessionGenerationSnapshot,
     TemporaryLegacyValue,
     build_extension_projection,
+    prepare_provider_reload_values,
+)
+from pipy_harness.native.provider_construction import (
+    build_provider,
+    try_build_extension_provider_port,
 )
 from pipy_harness.native.repl_state import (
+    ModelRuntime,
+    NativeModelSelection,
+    NativeReplProviderState,
     ReplPendingDefaultReloadValue,
     ReplSelectionReloadValue,
 )
@@ -436,8 +450,9 @@ def test_live_generation_shape_and_reference_remain_the_legacy_value() -> None:
     assert [field.name for field in fields(SessionExtensionGeneration)] == [
         "runtime",
         "flag_values",
+        "projection",
+        "chrome_token",
     ]
-    assert not hasattr(SessionExtensionGeneration, "projection")
 
 
 def test_every_runtime_contribution_field_has_an_exact_projection_disposition() -> None:
@@ -1313,8 +1328,17 @@ def test_production_projection_and_port_adapter_callers_are_exactly_bounded() ->
         relative_path = path.relative_to(src_root).as_posix()
         CallInventory(relative_path).visit(ast.parse(path.read_text(encoding="utf-8")))
 
+    loop_path = "pipy_harness/native/tool_loop_session.py"
+    reload_owner = (
+        "class:_ReloadCommandEffects",
+        "function:_reload_extension_generation",
+    )
+    startup_owner = ("class:NativeToolReplSession", "function:run")
     assert calls == {
-        "_build_candidate_extension_projection": [],
+        "_build_candidate_extension_projection": [
+            (loop_path, reload_owner),
+            (loop_path, startup_owner),
+        ],
         "build_extension_projection": [
             (
                 "pipy_harness/native/tool_loop_session.py",
@@ -1330,19 +1354,7 @@ def test_production_projection_and_port_adapter_callers_are_exactly_bounded() ->
                 ),
             )
         ],
-        "_build_legacy_extension_tool_port": [
-            (
-                "pipy_harness/native/tool_loop_session.py",
-                (
-                    "class:_ReloadCommandEffects",
-                    "function:_publish_tool_and_lifecycle_projections",
-                ),
-            ),
-            (
-                "pipy_harness/native/tool_loop_session.py",
-                ("class:NativeToolReplSession", "function:run"),
-            ),
-        ],
+        "_build_legacy_extension_tool_port": [],
     }
 
 
@@ -1515,6 +1527,76 @@ def test_mutable_reload_builders_finish_before_one_frozen_prepared_assembly(
     assert prepared.chrome_prepare_input.value.candidate is chrome_source.candidate
 
 
+def test_provider_construction_inventory_excludes_catalog_and_auth_owners() -> None:
+    assert list(inspect.signature(build_provider).parameters) == [
+        "resolved",
+        "spec",
+        "thinking_level",
+        "options",
+        "http_client",
+    ]
+    assert list(inspect.signature(try_build_extension_provider_port).parameters) == [
+        "registered",
+        "model_id",
+    ]
+    assert [field.name for field in fields(ProviderContext)] == [
+        "provider_name",
+        "default_model",
+        "model_id",
+    ]
+
+
+def test_builtin_models_json_disappearance_is_shadow_only_and_publishable(
+    tmp_path: Path,
+) -> None:
+    models = tmp_path / "models.json"
+    models.write_text(
+        '{"providers":{"temporary":{"baseUrl":"https://example.invalid/v1","apiKey":"key","api":"openai-completions","models":[{"id":"active"}]}}}',
+        encoding="utf-8",
+    )
+    catalog = ProviderCatalogState(
+        models, AuthStore(path=tmp_path / "auth.json"), {"OPENAI_API_KEY": "x"}
+    )
+    selection = NativeModelSelection("temporary", "active")
+    state = NativeReplProviderState(
+        selection, ModelRuntime(catalog), persist_defaults=False
+    )
+    coding = CodingSessionState(
+        provider=state.current_provider(),
+        provider_name=selection.provider_name,
+        model_id=selection.model_id,
+    )
+    live_rows, live_binding = catalog.catalog.rows, coding.provider_binding
+    models.unlink()
+    _, refresh, shadow, binding, _, _, strategy, diagnostic = (
+        prepare_provider_reload_values(
+            state,
+            coding,
+            _projection(_rich_runtime(tmp_path, "models-shadow")),
+            unavailable_provider=lambda _message: pytest.fail("fallback must exist"),
+            usage_prototype=lambda _selection: AgentUsageAccumulator(),
+            empty_history=CodingReloadHistoryValue(()),
+        )
+    )
+    assert catalog.catalog.rows is live_rows and coding.provider_binding is live_binding
+    assert state.selection is selection and state.pending_default is None
+    assert strategy == "fallback" and shadow.selection != selection
+    ref = shadow.selection.reference
+    assert diagnostic == f"pipy: active model disappeared on reload; selected {ref}."
+    shadow_catalog = weakref.ref(shadow.model_runtime.catalog.catalog)
+    shadow_auth = weakref.ref(cast(AuthStore, shadow.model_runtime.catalog.auth_store))
+    accepted_provider = binding.replacement.provider
+    assert catalog.catalog_auth_refresh_matches_expected(refresh)
+    catalog.publish_catalog_auth_refresh(refresh)
+    cast(AuthStore, catalog.auth_store).set("rotated", {"type": "api_key", "key": "x"})
+    catalog.catalog.refresh()
+    del shadow
+    gc.collect()
+    assert shadow_catalog() is shadow_auth() is None
+    assert binding.replacement.provider is accepted_provider
+    assert catalog.find("temporary", "active") is None
+
+
 def test_prepared_disposal_attempts_all_in_reverse_and_groups_errors(
     tmp_path: Path,
 ) -> None:
@@ -1615,7 +1697,7 @@ assert loaded == [], loaded
     assert completed.returncode == 0, completed.stderr
 
 
-def test_r3c1_owner_apis_have_no_production_caller() -> None:
+def test_r3c1_owner_apis_are_installed_only_by_session_generation() -> None:
     expected_definitions = {
         "prepare_extension_provider_contributions": "native/catalog_state.py",
         "publish_extension_provider_contributions": "native/catalog_state.py",
@@ -1632,6 +1714,7 @@ def test_r3c1_owner_apis_have_no_production_caller() -> None:
         "prepare_reload_state": "native/repl_state.py",
         "reload_state_matches_expected": "native/repl_state.py",
         "publish_reload_state": "native/repl_state.py",
+        "publish_catalog_auth_refresh": "native/catalog_state.py",
     }
     expected_preparation_arity = {
         "prepare_reload_refresh": (["self", "provider"], []),
@@ -1647,7 +1730,7 @@ def test_r3c1_owner_apis_have_no_production_caller() -> None:
         ),
     }
     definitions: dict[str, list[str]] = {name: [] for name in expected_definitions}
-    calls: list[tuple[str, str]] = []
+    calls: dict[str, list[Any]] = {name: [] for name in expected_definitions}
     source_root = Path(__file__).parents[1] / "src/pipy_harness"
     source_paths = sorted(source_root.rglob("*.py"))
     assert source_paths
@@ -1674,16 +1757,34 @@ def test_r3c1_owner_apis_have_no_production_caller() -> None:
                 and isinstance(node.func, ast.Attribute)
                 and node.func.attr in expected_definitions
             ):
-                calls.append((relative, node.func.attr))
+                owners = tuple(
+                    f"{type(owner).__name__.removesuffix('Def').lower()}:{owner.name}"
+                    for owner in ast.walk(tree)
+                    if isinstance(owner, (ast.ClassDef, ast.FunctionDef))
+                    and owner.lineno <= node.lineno <= (owner.end_lineno or -1)
+                )
+                calls[node.func.attr].append((relative, owners))
     assert definitions
     assert sum(map(len, definitions.values())) == len(expected_definitions)
     assert definitions == {
         name: [expected_path] for name, expected_path in expected_definitions.items()
     }
-    assert calls == []
+    sg = "native/session_generation.py"
+    acceptance = (sg, ("class:SessionGenerationRef", "function:accept_prepared_reload"))
+    preparation = (sg, ("function:prepare_provider_reload_values",))
+    expected_calls = {
+        name: [preparation if name.startswith("prepare_") else acceptance]
+        for name in expected_definitions
+    }
+    production = (sg, ("function:prepare_production_reload",))
+    shadow = (sg, ("function:build_provider_reload_shadow",))
+    expected_calls["prepare_reload_state"] = [production]
+    expected_calls["publish_extension_provider_contributions"] = [shadow, acceptance]
+    expected_calls["publish_catalog_auth_refresh"] = [shadow, acceptance]
+    assert calls == expected_calls
 
 
-def test_catalog_auth_api_is_uninstalled_and_phase_b_is_comparison_only() -> None:
+def test_catalog_auth_api_is_installed_and_phase_b_is_comparison_only() -> None:
     root = Path(__file__).parents[1] / "src/pipy_harness"
     api_groups = (
         (
@@ -1741,9 +1842,14 @@ def test_catalog_auth_api_is_uninstalled_and_phase_b_is_comparison_only() -> Non
         name: [path for path, _ in found] for name, found in definitions.items()
     } == {name: [path] for name, path in owner_apis.items()}
     assert {name for name, paths in calls.items() if not paths} == set(
-        "prepare_reload_data prepare_catalog_reload prepare_catalog_auth_refresh "
-        "catalog_auth_refresh_matches_expected publish_catalog_auth_refresh".split()
+        "prepare_reload_data prepare_catalog_reload".split()
     )
+    installed = "prepare_catalog_auth_refresh catalog_auth_refresh_matches_expected publish_catalog_auth_refresh".split()
+    assert {name: calls[name] for name in installed} == {
+        name: ["native/session_generation.py"]
+        * (2 if name == "publish_catalog_auth_refresh" else 1)
+        for name in installed
+    }
     for name, targets in publisher_targets.items():
         publisher = definitions[name][0][1]
         assert [
@@ -2090,9 +2196,12 @@ def test_staged_and_queued_ordinary_failures_are_all_preserved() -> None:
                 token=token,
                 user_sink=lambda message: fail(message.content),
                 custom_sink=lambda message: fail(message.content),
+                release_route=lambda: fail("route-release"),
             )
-    assert events == ["u1", "u2", "c1", "c2", "q1", "q2"]
-    assert _leaf_exception_messages(raised.value) == events
+    expected = ["u1", "u2", "c1", "c2", "route-release", "q1", "q2"]
+    assert events == expected
+    assert _leaf_exception_messages(raised.value) == expected
+    assert events.count("route-release") == 1
     gate.submit(lambda: events.append("reset"))
     assert events[-1] == "reset"
 
@@ -2119,10 +2228,17 @@ def test_reserve_interrupt_preserves_successor(
 
 @pytest.mark.parametrize("interrupt", [KeyboardInterrupt, SystemExit])
 @pytest.mark.parametrize("phase", ["staged", "queued"])
-def test_interrupt_stops_remaining_delivery_resets_and_propagates(
-    interrupt: type[BaseException], phase: str
+def test_interrupt_stops_delivery_and_release_failure_preserves_original(
+    interrupt: type[BaseException], phase: str, tmp_path: Path
 ) -> None:
-    gate = OrderedDeliveryGate(threading.RLock())
+    mutex = threading.RLock()
+    runtime = _rich_runtime(tmp_path, f"interrupt-{phase}", mutex=mutex)
+    runtime.outbox.clear()
+    queues = _projection(runtime).queues
+    gate = OrderedDeliveryGate(mutex)
+    if phase == "staged":
+        gate = _FailingAppendGate(mutex, 1)
+        queues.install_candidate_route(gate)
     events: list[str] = []
     successor: list[tuple[Any, OrderedDeliveryToken]] = []
     batch = FrozenStagedDeliveryBatch.freeze(
@@ -2153,6 +2269,9 @@ def test_interrupt_stops_remaining_delivery_resets_and_propagates(
                 token=token,
                 user_sink=staged,
                 custom_sink=lambda message: events.append(message.content),
+                release_route=queues.release_pending_route
+                if phase == "staged"
+                else None,
             )
 
     assert events == (["u1"] if phase == "staged" else ["u1", "u2", "c1", "q1"])
@@ -2315,13 +2434,12 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
         and node.attr in watched
         and isinstance(node.ctx, ast.Load)
     ]
-    # Any bound alias or factory/wrapper forwarding adds a non-call reference.
-    assert sorted(references) == sorted(calls)
+    assert Counter(references) - Counter(calls) == Counter({"release_pending_route": 2})
     actual_calls = " ".join(f"{name}={calls.count(name)}" for name in sorted(watched))
     assert actual_calls == (
         "_accept_message_route=2 _bind_session_mutex=3 _commit_activation=2 "
-        "_install_candidate_route=1 accept=2 install_candidate_route=0 release_pending=1 "
-        "release_pending_route=0 retire=1 retire_route=0 route_drain=1 submit=2"
+        "_install_candidate_route=1 accept=2 install_candidate_route=2 release_pending=1 "
+        "release_pending_route=0 retire=2 retire_route=3 route_drain=1 submit=2"
     )
     built = {
         name: [
@@ -2357,7 +2475,7 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
     path, renderer_call = built["_CustomEntryRenderer"][0]
     assert (path, renderer_call.args) == ("tool_loop_session.py", [])
     assert {kw.arg for kw in renderer_call.keywords} == set(
-        "session ctl terminal_ui coding_input_queue error_stream".split()
+        "session ctl terminal_ui coding_input_queue error_stream generation_snapshot".split()
     )
     assert not any(
         isinstance(node, ast.Attribute)
@@ -2417,7 +2535,7 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
     assert "generation_ref.publish(" in ast.unparse(trees["tool_loop_session.py"])
 
 
-def test_r3b_call_inventory_is_complete_and_uninstalled_across_package() -> None:
+def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
     names = {
         "ReloadEffectPreparationPorts",
         "PreparedReloadEffects",
@@ -2470,24 +2588,20 @@ def test_r3b_call_inventory_is_complete_and_uninstalled_across_package() -> None
         inventory(ast.parse(path.read_text(encoding="utf-8")), relative)
 
     nonempty = {name: owners for name, owners in calls.items() if owners}
-    assert {name: len(owners) for name, owners in nonempty.items()} == {
-        "PreparedReloadEffects": 1,
-        "OrderedDeliveryToken": 1,
-        "build_prepared_reload_effects": 1,
-        "_route_legacy_custom_message_input": 2,
-        "dispose": 5,
-        "validate": 1,
-        "release": 1,
-        "drain": 1,
-        "abort": 3,
-    }
     actual = {
         (name, path, owners)
         for name, found in nonempty.items()
         for path, owners in found
     }
+    assert sum(map(len, nonempty.values())) == len(actual)
     sg, hooks = "native/session_generation.py", "native/extension_hooks.py"
     loop = "native/tool_loop_session.py"
+    reload_owner = "class:_ReloadCommandEffects"
+    reload_generation = (reload_owner, "function:_reload_extension_generation")
+    startup = ("class:NativeToolReplSession", "function:run")
+    startup_guard = ("function:balance_startup_candidate", "function:guarded")
+    chrome_prepare = ("class:_LiveExtensionUiDriver", "function:prepare_candidate")
+    prepare = ("function:prepare_production_reload",)
     sequencer = ("function:deliver_accepted_staged_batch",)
     reserve = ("class:OrderedDeliveryGate", "function:reserve")
     assert actual == {
@@ -2514,13 +2628,27 @@ def test_r3b_call_inventory_is_complete_and_uninstalled_across_package() -> None
             ("function:_dispose_activation_results",),
         ),
         ("dispose", loop, ("class:_ReloadCommandEffects", "function:execute")),
-        ("dispose", loop, ("class:NativeToolReplSession", "function:run")),
+        ("dispose", loop, reload_generation),
+        ("dispose", sg, startup_guard),
         ("dispose", sg, ("class:PreparedReloadEffects", "function:dispose")),
         ("dispose", sg, ("function:_dispose_completed_reload_effects",)),
         ("validate", hooks, sequencer),
         ("release", hooks, sequencer),
         ("drain", hooks, sequencer),
-        ("abort", hooks, sequencer),
         ("abort", sg, reserve),
-        ("abort", sg, ("class:OrderedDeliveryGate", "function:drain")),
+        *{
+            (name, sg, prepare)
+            for name in "ActivationInputsValue ProviderFactoryValue CodingCompactionValue "
+            "TemporaryLegacyValue PresentationPersistenceValue ReloadEffectPreparationPorts "
+            "build_prepared_reload_effects freeze".split()
+        },
+        ("ExtensionChromePrepareInput", loop, reload_generation),
+        ("ExtensionChromeCommitToken", loop, reload_generation),
+        ("ExtensionChromeCommitToken", "native/tui.py", chrome_prepare),
+        *{
+            (name, loop, owner)
+            for name in "OrderedDeliveryGate deliver_accepted_staged_batch reserve".split()
+            for owner in (reload_generation, startup)
+        },
+        ("freeze", loop, startup),
     }

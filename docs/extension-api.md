@@ -80,8 +80,30 @@ retired listener disposer propagate after that transfer without closing the
 new live sink. Once a
 rejected candidate sink closes, late setters/registrations silently return
 `None`, and `on_terminal_input()` returns an inert disposer, with no diagnostic.
-This does not yet claim that a handle from a retired *live* generation is bound
-to that old generation (R4c) or that terminal teardown invokes closure (R5a).
+R3c3 now installs one complete startup/reload generation, including its routing
+owner and renderer snapshot provider. On reload, replacement `session_start`
+runs exactly once against the candidate sink before acceptance and before any
+accepted staged custom message becomes visible. If lifecycle, provider/catalog,
+or final chrome preparation then refuses the reload, the candidate may
+already have emitted non-staged, non-chrome lifecycle effects such as
+`ctx.notify()`. Its candidate chrome is discarded and its staged messages are
+suppressed. This refusal behavior is part of the existing `session_start`-
+before-acceptance ordering delta, not a third delta. Accepted frozen messages
+are delivered before the candidate route's two-phase release and gate drain.
+On reload the publication gate remains closed to class-A mutation throughout
+that delivery/release/drain sequence, even though the session mutex is normally
+unlocked; custom-message rendering and other extension-visible sinks may
+therefore observe `publication_pending` until drain completes. Candidate host
+ownership publishes outside the session mutex; one subsequent uninterrupted
+mutex section checks every expected live owner before any session publication
+write and commits all writes only on a match. If an owner rotated in
+between, pipy keeps the newer live generation, retires the terminal candidate
+route, and closes candidate chrome. The published-but-unowned activation API is
+therefore inert: contribution registration remains closed and retained sends
+silently drop, with no double cleanup. Direct `ctx.send_message()` delivery
+remains independent of routing. This does not yet synchronize later accepted/live queue append versus drain
+(R4a), bind a retired *live* chrome handle to its old generation (R4c), or invoke
+terminal closure (R5a).
 Autocomplete provider wrappers ship for live product-TUI command/
 shortcut contexts via `ctx.ui.add_autocomplete_provider` /
 `ctx.ui.addAutocompleteProvider`, using Pi-shaped `get_suggestions` /
@@ -786,9 +808,20 @@ before. The declarative API-backed provider config
 (`baseUrl`/`api`/`apiKey-or-oauth`) and passing shared credentials into arbitrary
 provider factories remain deferred.
 
-Provider extensions must not receive existing auth stores wholesale. They should
-either read their own environment variables or use the bounded OAuth login
-capability with explicit provider labels.
+Provider extensions must not receive existing auth stores wholesale. Their
+factory receives only `ProviderContext(provider_name, default_model, model_id)`;
+it never receives the live or reload-shadow catalog/auth owners. Built-in
+catalog-backed provider instances are likewise self-contained from resolved
+scalar and copied credential/header/routing values. A reload-time auth/catalog
+rotation can refuse the prepared candidate and affects future construction, but
+cannot retarget an already accepted provider instance. If settings reload leaves
+no auth owner, extension reload refuses without partial publication and still
+runs the ordinary retained-provider/unknown-tool-filter refusal path; the
+retained refresh returns before mutation. Restoring an explicit `AuthStore`
+through the supported owner surface lets a later reload prepare normally, but
+pipy never accepts a candidate while that owner is absent. Provider extensions
+should either read their own environment variables or use the bounded OAuth
+login capability with explicit provider labels.
 
 Mirroring Pi, the provider surface supports both registration and
 `unregister_provider(name)`. Registered providers contribute temporary per-run
@@ -1482,12 +1515,16 @@ and the live `scripts/tmux_answer_verify.sh`.
     interactive TTY because lifecycle hooks now receive the live UI driver.
     `/reload` stages a fresh retained-chrome/listener sink while activation and
     flag validation remain fallible. Rejection closes that sink without paint,
-    preserves the prior live chrome, and does not re-fire its `session_start`.
-    Acceptance commits the extension generation first, then fires the
-    replacement's `session_start` exactly once with `reason="reload"`
-    against the detached candidate and reconciles it (so removal clears old
-    chrome only after acceptance). Chrome that hook sets is staged rather than
-    painted early, then renders through the accepted sink. Registrations omitted
+    preserves the prior live chrome, and does not re-fire the retained
+    generation's `session_start`. R3c3 installs candidate routing and invokes the
+    replacement's `session_start` exactly once with `reason="reload"` against the
+    detached candidate before semantic acceptance. A later refusal may retain
+    immediate non-staged, non-chrome effects such as `ctx.notify()`, but closes
+    the candidate sink without paint and suppresses its staged messages. On
+    acceptance, candidate chrome reconciles only after publication, so removal
+    clears old chrome only after acceptance. Chrome that hook sets is staged
+    rather than painted early, then renders through the accepted sink.
+    Registrations omitted
     by the replacement hook are cleared; custom-editor text is preserved in the
     built-in editor.
     The working indicator **does** animate: custom `frames` cycle through pipy's

@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R3c3 — accept and publish one prepared reload**
+**Active/next slice:** **R4a — snapshot command/request operations and live outboxes**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -96,11 +96,11 @@ retained `session_start`; accepted replacements fire once after activation-host
 commit, and delivery, paint, callbacks, disposal, and session-mutex acquisition
 remain outside its guards.
 
-R3 is **not complete**. R3a and R3b remain shipped, behavior-neutral facts:
-R3a builds detached immutable projections, and R3b defines frozen prepared-effect
-families plus the uninstalled ordered-delivery gate and sequencer. Production
-startup/reload still neither calls, installs, publishes, snapshots, nor consumes
-either foundation.
+R3 is complete through shipped R3c3. Startup and reload now build and install
+R3a projections, while reload consumes the R3b prepared-effect/gate sequence,
+R3c1 owner APIs, and R3c2 routing/snapshot seam in one accepted publication.
+R4a is next and owns later live append/detach/drain synchronization and command/
+request snapshot adoption.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -134,7 +134,7 @@ values only: refresh never republishes retained history, and neither coding path
 restores compaction or provider failure from a preparation snapshot.
 `prepare_reload_state()` itself captures expected live selection and
 `pending_default` while its caller briefly holds the shared session mutex; only
-replacement values are caller-supplied. R3c3 later compares and publishes in one
+replacement values are caller-supplied. R3c3 now compares and publishes in one
 uninterrupted mutex section. `snapshot_reload_state()` is absent and never
 existed in the committed baseline, so there is no REPL refresh snapshot/publish
 path for retained selection/default; REPL publication also never restores
@@ -196,12 +196,12 @@ slot coverage, total family checks, and preparation isolation. Exact
 sources/tests and the 1,200/400 gates matched the manifest. No user-visible
 behavior changed and no changelog applies.
 
-**R3c1c — catalog/auth refresh reload owners** is shipped and behavior-neutral.
-No production caller was installed and no changelog applies. `AuthStore` and
+**R3c1c — catalog/auth refresh reload owners** shipped first as a behavior-neutral
+foundation without a caller; R3c3 now invokes it. No separate changelog applies. `AuthStore` and
 `ModelCatalog` are synchronous, single-session-thread-confined owners, not
 thread-safe shared objects. Every current production read and write, OAuth flow,
-provider registration, refresh, and future R3c3 check and publication runs on
-that one session thread. No background thread, executor, `to_thread`, callback
+provider registration, refresh, and R3c3 check/publication runs on that one
+session thread. No background thread, executor, `to_thread`, callback
 on another thread, or parallel writer may call either owner. Copy-on-write owner
 updates therefore have no concurrent lost-update window. A future cross-thread
 production path requires a named guard acquired by every reader and writer to
@@ -263,7 +263,7 @@ auth-specific; catalog compat/config list/tuple handling is validation
 canonicalization. Frozen validation values remain separate from detached
 publication replacements until both are cleared after successful publication.
 The separate R3c1a extension-provider overlay publication remains distinct.
-R3c3 must invoke it explicitly, with a non-empty overlay equivalence arm; full
+R3c3 now invokes it explicitly, with a non-empty overlay equivalence arm; full
 catalog/auth publication does not rebuild the overlay.
 `ModelDefinition.cost` and `NativeModelSpec.cost` are immutable
 `NativeModelCost`; partial override cost mappings must be copied and frozen.
@@ -416,13 +416,14 @@ manifest was `extension_runtime.py`, `session_generation.py`,
 manifest paths. The same 1,200/400 budgets apply. No changelog; commit
 `refactor: route extension messages through queue sidecars`.
 
-**R3c3 — accept and publish one prepared reload** retains the prior user-visible
+**R3c3 — accept and publish one prepared reload: SHIPPED.** This slice retains the prior user-visible
 composition scope and consumes R3c1a–R3c1c plus R3c2. It is the first production
-startup/reload installer. Under the session mutex it atomically publishes/installs the complete
-`SessionExtensionGeneration`, routing owner, and renderer snapshot provider
-through `SessionGenerationRef`; no separately published renderer/owner/outbox
-pointer exists. Until then, the provider seam is unavailable in production and
-fallback stays direct/default. The publication/retirement critical section is
+startup/reload installer. It publishes candidate-host ownership unlocked, then
+under one uninterrupted session-mutex acquisition checks all expected owners
+before atomically publishing/installing the complete `SessionExtensionGeneration`,
+routing owner, renderer snapshot provider, and prepared owner effects through
+`SessionGenerationRef`; no separately published renderer/owner/outbox pointer
+exists. The publication/retirement critical section is
 bounded constant-time and nonblocking: it marks the old owner retired, swaps out
 its attached pending FIFO for post-unlock drop, detaches the old owner, and
 publishes the new pointer. It never waits, yields, sleeps, performs I/O, invokes
@@ -436,21 +437,27 @@ replacement `session_start` once → provider catalog/factory/refresh/fallback �
 coding/history/usage/compaction → unavailable/default/capability → exact owner-
 token and detached preparation-input capture plus deep replacement/shadow
 validation → one prepared freeze → chrome prepare as the final fallible
-preparation → complete the R3b gate reservation before the publication critical
-section, with no caller-held session mutex → take the session mutex and perform
-only constant-time, allocation-free identity/token comparisons immediately
-before acceptance → on success perform only constant-time route retirement/
-pointer publication and vetted nonfallible owner assignments without unlocking
-→ unlock → frozen staged delivery → release phase 1 transitions `candidate ->
+preparation → complete the R3b gate reservation with no caller-held session
+mutex → publish candidate-host ownership unlocked → acquire the session mutex
+once and perform only constant-time, allocation-free identity/token comparisons
+before the first session write → on success perform only constant-time route
+retirement/pointer publication and vetted nonfallible owner assignments without
+unlocking → unlock → frozen staged delivery → release phase 1 transitions `candidate ->
 releasing`, detaches the finite prefix under the mutex, and submits it through
 the exact `OrderedDeliveryGate` unlocked → release phase 2 reacquires the mutex
 exactly once, submits the finite attached tail through that same vetted gate
 under the mutex if still `releasing`, and flips `releasing -> live` before
-unlock → gate release/drain → presentation/persistence. Any expected binding,
-selection, or pending-default mismatch refuses the prepared candidate without
-invoking a publisher, then unlocks before cleanup, disposal, or diagnostics.
-Installed candidate/releasing routing queues post-freeze sends; an ordinary
-uninstalled R1 sealed-pending host remains a silent no-op.
+unlock → gate release/drain → presentation/persistence. The first
+`generation_ref.publishing()` section remains open through accepted staged
+sinks, both route-release phases, and drain; those paths may run extension-
+visible code while `publication_pending` is true, and each `unlock` above means
+the session mutex only. Any expected binding, selection, or pending-default
+mismatch invokes no publisher and unlocks before caller cleanup. Because host publication is then terminal, cleanup retires the
+candidate route and closes candidate chrome instead of disposing it; retained
+sends drop, class-D calls stay closed, and the newer live generation/owners stay
+untouched. Candidate and session guards never nest. Installed candidate/releasing
+routing queues post-freeze sends; an ordinary uninstalled R1 sealed-pending host
+remains a silent no-op.
 
 Static lock instrumentation permits constant-time gate/routing mark/swap/detach
 state, bounded allocation-free identity/token comparisons and refusal, retired/
@@ -477,22 +484,76 @@ only, writes replacement values only for fields changed by the corresponding
 live transition, and never restores retained history, compaction, provider-
 failure, or thinking values from preparation. The expected-state checks are
 owner freshness for R3c3 acceptance, not the later generation-bound class-A API
-conversion; R5b/R6 stay unchanged. No second guard, factory, callback, I/O,
+conversion. R5b/R6 must use the current generation id and each publication-gate
+section; unlocked host prepublication is not generation acceptance, and the gap
+between refusal cleanup and the ordinary retained-refresh gate remains an
+independent admission interval. No second guard, factory, callback, I/O,
 construction, diagnostic, persistence, disposal, or last-reference release is
 permitted there. Candidate/chrome/paint guards and all callbacks,
 provider work, delivery, cleanup, I/O, and persistence remain outside. Candidate↔session, session→chrome, session→`mutation_io_lock`, and
 chrome→paint nesting are forbidden. Free-form undo logs, compensating live
 provider rollback, duplicate `session_start`, mutable prepared holders, and
 preserved destructive reconcile/repair hunks are forbidden. R3c3 retains exactly
-two documented deltas: replacement `session_start` precedes accepted staged
-custom-message visibility, and pre-acceptance lifecycle/provider/chrome refusal
-suppresses staged messages that `606a860` could expose. Its exact manifests,
-1,200/400 limits, and commit `fix: publish accepted reload effects` remain. The
-changelog target is the existing `### Fixed` bullet beginning “Extension reload
-no longer clears live retained TUI chrome before activation”.
+two documented deltas. First, replacement `session_start` runs before acceptance
+and accepted staged custom-message visibility, so a later refusal can retain
+already-emitted non-staged, non-chrome lifecycle effects such as `notify` while
+candidate chrome is discarded and staged messages are suppressed; that is part
+of the first ordering delta, not a third delta. Second, pre-acceptance lifecycle/
+provider/chrome refusal suppresses staged messages that `606a860` could expose.
+Its exact manifest now includes the controlling remediation plan. The reviewed
+correctness repair has a one-slice 1,650-production/test-line and 425-per-source
+budget: Opus found the original 1,200/400 limit forced formatting suppression in
+the publication path, while four fresh-Pi compaction attempts increased churn or
+weakened regression coverage. At the first-amendment review the readable diff initially
+measured 1,353 production/test lines with a 418-line maximum source. The round-10
+baseline at that first amendment used exactly 1,400 such lines with a 424-line
+maximum source. Six independently material Opus findings required executable
+coverage in release aggregation, `models.json` shadow/publish, retired-slot AST,
+and candidate lifecycle override. Two independent fail-closed fresh-Pi repair
+attempts proved that a total at or below 1,400 forced material coverage loss:
+round 11 could meet 1,400 only by deleting material startup/provider coverage;
+round 12 peaked at 1,551 and could reach only roughly 1,442 by weakening the
+required combined staged-sink-plus-release-failure test. The prior 1,500 cap was
+a bounded 100-line increase below that uncompacted draft, so consolidation
+remained required while complete tests could fit. The round-13 patch used
+exactly 1,500 production/test changed lines with a 424-line maximum source. At
+this second amendment, the valid round-14 worktree baseline uses exactly 1,499
+such lines and reaches the hard 425-line per-source cap, leaving 151 total lines
+of headroom under the formal 1,650 cap.
+`src/pipy_harness/native/tool_loop_session.py` is already at 425/425, so round-15
+changes there must be net-neutral or reverting. Coverage may not be deleted to
+fit `tool_loop_session.py`. Additive implementation and coverage must instead use
+`src/pipy_harness/native/session_generation.py`, currently at 339 changed lines
+with 86 lines of source headroom, `src/pipy_harness/native/extension_hooks.py`,
+`src/pipy_harness/native/tui.py`, or the existing test paths. This allocation is
+planning guidance within the unchanged manifest, not a scope change.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2; the mandatory remaining
-order is R3c3 → R4a. R4a later converts only live append/detach/drain/close
+A fresh independent Opus round 14 left seven material findings open, requiring
+Critical atomic validate/publish/commit repair, provider-instance owner binding,
+startup cleanup, reload-refusal/retained-refresh repair, documentation and
+chrome repair, and executable concurrency and `BaseException` unwind coverage.
+The observed complete round-14 repair draft was specifically 1,585
+production/test changed lines. The formal 1,650 cap is 65 lines above that known
+complete draft. Those extra 65 lines are a bounded allowance for the newly
+reviewed Critical atomicity, provider-owner, cleanup, refusal, documentation,
+and chrome fixes plus their executable tests, without another coverage-deleting
+squeeze. This amendment marks no finding fixed and changes neither the 425
+per-source cap, exact 14-path manifest/scope, behavior or ordering beyond the
+already-open reviewed findings, nor any future-slice budget. Round 15 resolves
+them by removing the check/publish gap, proving terminal refusal cleanup and
+provider-instance detachment, using local startup body outcome, routing auth-owner
+refusal through retained refresh/unknown-filter diagnostics, and covering live-
+chrome `BaseException` unwind. Catalog-backed providers retain only resolved
+credential/header/routing values and extension factories receive only
+`ProviderContext`; auth/catalog rotation affects owner checks and future builds,
+not an accepted provider instance. The commit remains
+`fix: publish accepted reload effects`,
+and the changelog target is the existing
+`### Fixed` bullet beginning “Extension reload no longer clears live retained
+TUI chrome before activation”.
+
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3; the mandatory
+remaining order begins with R4a. R4a later converts only live append/detach/drain/close
 synchronization and must not redefine R3b's token or staged sequence.
 R5a/R5b/R6 ownership and the class-A count of three are unchanged. Provenance
 is fixed: the R5a split brought the

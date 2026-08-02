@@ -332,6 +332,18 @@ class _LiveExtensionUiDriver:
 
         return ExtensionChromeSink()
 
+    def startup_chrome_sink(self) -> ExtensionChromeSink:
+        return self._active_sink
+
+    def prepare_candidate(
+        self, prepared: ExtensionChromePrepareInput
+    ) -> ExtensionChromeCommitToken | None:
+        candidate = prepared.candidate
+        with candidate._guard:  # noqa: SLF001 - exact R2 sidecar owner check
+            if candidate._closed:  # noqa: SLF001 - refusal precedes publication
+                return None
+        return ExtensionChromeCommitToken(prepared)
+
     def candidate_driver(
         self, candidate: ExtensionChromeSink
     ) -> "_CandidateExtensionUiDriver":

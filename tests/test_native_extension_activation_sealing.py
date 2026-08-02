@@ -4,6 +4,7 @@ import ast
 import threading
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
+from dataclasses import replace
 from enum import Enum, StrEnum
 from pathlib import Path
 from types import MappingProxyType, SimpleNamespace
@@ -55,6 +56,10 @@ from pipy_harness.native.session_generation import (
     OrderedDeliveryGate,
     SessionExtensionGeneration,
     SessionGenerationRef,
+)
+from pipy_harness.native.tool_capabilities import (
+    NativeToolCapabilities,
+    ToolFilterOptions,
 )
 from pipy_harness.native.tool_loop_session import _ReloadCommandEffects
 
@@ -1043,6 +1048,26 @@ def test_reservation_precedes_disposal_and_retirement_drops_only_the_tail(
     assert [message.content for message in outbox][-1] == "detached-before-retire"
 
 
+def _reload_owners(ref: SessionGenerationRef, emitter: Any = None):
+    capabilities = NativeToolCapabilities(
+        {},
+        {},
+        workspace_root=Path.cwd(),
+        reference_roots=(),
+        stderr_sink=lambda _text: None,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=1.0,
+        state_lock=ref.lock,
+    )
+    mutation = SimpleNamespace(coding_state=None)
+    mutation.extension_notify = lambda *_args: None
+    mutation.extension_set_active_tools = lambda _names: True
+    lifecycle = emitter or SimpleNamespace(_lifecycle_hooks={}, _lifecycle_flags={})
+    if emitter is None:
+        lifecycle.fire_candidate_session_start = lambda *_args, **_kwargs: None
+    return capabilities, mutation, lifecycle, SimpleNamespace(_tool_renderers={})
+
+
 def _empty_runtime(
     host: _ActivationApi, *additional_hosts: _ActivationApi
 ) -> _ExtensionRuntime:
@@ -1301,7 +1326,7 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
 
     assert constructions == {
         ("tool_loop_session.py", "_ReloadCommandEffects.execute", 0),
-        ("tool_loop_session.py", "NativeToolReplSession.run", 1),
+        ("session_generation.py", "guarded", 0),
     }
     assert candidate_calls == {
         ("tool_loop_session.py", "_ReloadCommandEffects.execute", "dispose"),
@@ -1310,13 +1335,9 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
             "_ReloadCommandEffects._reload_extension_generation",
             "adopt",
         ),
-        (
-            "tool_loop_session.py",
-            "_ReloadCommandEffects._commit_extension_generation",
-            "publish",
-        ),
-        ("tool_loop_session.py", "NativeToolReplSession.run", "publish"),
-        ("tool_loop_session.py", "NativeToolReplSession.run", "dispose"),
+        ("session_generation.py", "publish_candidate_ownership", "publish"),
+        ("session_generation.py", "guarded", "dispose"),
+        ("tool_loop_session.py", "NativeToolReplSession.run", "adopt"),
     }
     assert activation_calls == {
         (
@@ -1430,8 +1451,8 @@ def test_activation_producer_and_cleanup_reporting_inventories() -> None:
         ("native/extension_runtime.py", "_dispose_activation_host_with_diagnostic"),
         ("native/extension_runtime.py", "activate_extension_batch"),
         ("native/extension_runtime.py", "adopt"),
+        ("native/session_generation.py", "guarded"),
         ("native/tool_loop_session.py", "execute"),
-        ("native/tool_loop_session.py", "run"),
     }
     assert catalog_finalizers == {
         (
@@ -1866,8 +1887,21 @@ def test_mixed_corrupted_candidate_disposes_unpublished_siblings_only() -> None:
         sibling.register_command("late", "late", lambda *_args: None)
 
 
-def test_reload_publication_ownership_failure_keeps_previous_generation(
+OWNERSHIP_FAILURE = "pipy: extension candidate ownership is unavailable"
+
+
+@pytest.mark.parametrize(
+    ("failure", "diagnostic"),
+    (
+        ("expected-owner-mismatch", "pipy: prepared reload owner state changed"),
+        ("publish-returned-false", OWNERSHIP_FAILURE),
+        ("publish-raised", OWNERSHIP_FAILURE),
+    ),
+)
+def test_reload_acceptance_failure_keeps_previous_generation(
     monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    diagnostic: str,
 ) -> None:
     import pipy_harness.native.tool_loop_session as tool_loop_session
     from pipy_harness.native.resource_loading import RuntimeResourceOptions
@@ -1880,11 +1914,10 @@ def test_reload_publication_ownership_failure_keeps_previous_generation(
     live_generation = SessionExtensionGeneration(live_runtime, {})
     ref = SessionGenerationRef(live_generation)
 
-    disposed_host = _host()
-    disposed_host._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
-    disposed_host._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
-    disposed_host._dispose()
-    rejected_runtime = _empty_runtime(disposed_host)
+    candidate_host = _host()
+    candidate_host._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    candidate_host._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
+    rejected_runtime = _empty_runtime(candidate_host)
     monkeypatch.setattr(
         tool_loop_session,
         "_activate_workspace_extensions",
@@ -1896,6 +1929,13 @@ def test_reload_publication_ownership_failure_keeps_previous_generation(
         extension_generation=live_generation,
         workspace_resources=object(),
     )
+    capabilities, mutation, emitter, renderer = _reload_owners(ref)
+    retained_renderers = {"old": object()}
+    retained_hooks: dict[str, Any] = {}
+    retained_flags: dict[str, Any] = {}
+    renderer._tool_renderers = retained_renderers
+    emitter._lifecycle_hooks, emitter._lifecycle_flags = retained_hooks, retained_flags
+    before = ref.snapshot()
     effects = _ReloadCommandEffects(
         session=cast(Any, SimpleNamespace(tool_registry={})),
         ctl=cast(Any, ctl),
@@ -1908,29 +1948,60 @@ def test_reload_publication_ownership_failure_keeps_previous_generation(
         ),
         keybindings=cast(Any, None),
         terminal_ui=None,
-        renderer=cast(Any, None),
+        renderer=renderer,
         error_stream=cast(Any, None),
-        emitter=cast(Any, None),
-        provider_mutation=cast(Any, None),
+        emitter=emitter,
+        provider_mutation=mutation,
         cwd=Path("."),
         resource_options=RuntimeResourceOptions(no_extensions=True),
-        tool_capabilities=cast(Any, None),
+        tool_capabilities=capabilities,
         diag=diagnostics.append,
         redraw_custom_entries_for_active_branch=lambda: None,
         extension_send_message=lambda *_args: None,
         extension_render_details=cast(Any, lambda *_args: None),
     )
     candidate = _ExtensionCandidate()
+    newer_capability = None
+    if failure == "expected-owner-mismatch":
+        publish = _ExtensionCandidate.publish
+        newer_capability = capabilities.prepare_extensions({})
 
+        def publish_then_mutate_expected_owner(lifetime: _ExtensionCandidate) -> bool:
+            published = publish(lifetime)
+            with ref.lock:
+                capabilities._state = newer_capability
+            return published
+
+        monkeypatch.setattr(
+            _ExtensionCandidate, "publish", publish_then_mutate_expected_owner
+        )
+    elif failure == "publish-returned-false":
+        monkeypatch.setattr(_ExtensionCandidate, "publish", lambda _candidate: False)
+    else:
+
+        def raise_publish(_candidate: _ExtensionCandidate) -> bool:
+            raise RuntimeError("injected candidate publication failure")
+
+        monkeypatch.setattr(_ExtensionCandidate, "publish", raise_publish)
     effects._reload_extension_generation(candidate)
 
-    assert diagnostics == [
-        "pipy: extension candidate ownership is unavailable",
-        "pipy: keeping the previous extensions.",
-    ]
+    assert diagnostics == [diagnostic, "pipy: keeping the previous extensions."]
     assert ctl.extension_generation is live_generation
-    assert ref.current is live_generation
-    assert candidate.dispose().disposed == 0
+    assert ref.current is before.generation and ref.snapshot().generation_id == 0
+    assert renderer._tool_renderers is retained_renderers
+    assert emitter._lifecycle_hooks is retained_hooks
+    assert emitter._lifecycle_flags is retained_flags
+    if failure == "expected-owner-mismatch":
+        assert capabilities._state is newer_capability
+        assert candidate_host._state == "published"
+        assert rejected_runtime.message_routing._state == "retired"
+        candidate_host.send_user_message("published-but-unowned-drop")
+        assert rejected_runtime.outbox == []
+        assert candidate.dispose() == _ActivationCleanup()
+    else:
+        assert candidate_host._state == "committed"
+        assert candidate.dispose().disposed == 1
+        assert candidate_host._state == "disposed"
     assert live_host.get_flag("missing") is None
 
 
@@ -1956,6 +2027,7 @@ def test_reload_failure_before_semantic_commit_disposes_candidate(
     )
     live = SessionExtensionGeneration(_empty_runtime(_host()), {})
     ref = SessionGenerationRef(live)
+    capabilities, mutation, emitter, renderer = _reload_owners(ref)
     effects = _ReloadCommandEffects(
         session=cast(Any, SimpleNamespace(tool_registry={})),
         ctl=cast(
@@ -1972,13 +2044,13 @@ def test_reload_failure_before_semantic_commit_disposes_candidate(
         ),
         keybindings=cast(Any, None),
         terminal_ui=None,
-        renderer=cast(Any, None),
+        renderer=renderer,
         error_stream=cast(Any, None),
-        emitter=cast(Any, None),
-        provider_mutation=cast(Any, None),
+        emitter=emitter,
+        provider_mutation=mutation,
         cwd=Path("."),
         resource_options=RuntimeResourceOptions(no_extensions=True),
-        tool_capabilities=cast(Any, None),
+        tool_capabilities=capabilities,
         diag=lambda _message: None,
         redraw_custom_entries_for_active_branch=lambda: None,
         extension_send_message=lambda *_args: None,
@@ -1994,7 +2066,7 @@ def test_reload_failure_before_semantic_commit_disposes_candidate(
     assert host._state == "disposed"
 
 
-def test_reload_post_commit_failure_keeps_published_host_on_installed_generation(
+def test_reload_interrupt_releases_route_and_preserves_base_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import pipy_harness.native.tool_loop_session as tool_loop_session
@@ -2021,15 +2093,20 @@ def test_reload_post_commit_failure_keeps_published_host_on_installed_generation
     host = _host()
     host._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
     host._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
-    runtime = _empty_runtime(host)
+    runtime = replace(
+        _empty_runtime(host),
+        custom_messages=(QueuedCustomMessage("interrupt", "now", True, None, {}),),
+    )
     monkeypatch.setattr(
         tool_loop_session,
         "_activate_workspace_extensions",
         lambda *_args, **_kwargs: runtime,
     )
 
-    def fail_after_commit(_flags: object) -> None:
-        raise RuntimeError("post-commit projection failed")
+    capabilities, mutation, emitter, renderer = _reload_owners(ref)
+
+    def interrupt_message(*_args: object) -> None:
+        raise KeyboardInterrupt("post-commit delivery interrupted")
 
     effects = _ReloadCommandEffects(
         session=cast(Any, SimpleNamespace(tool_registry={})),
@@ -2040,68 +2117,80 @@ def test_reload_post_commit_failure_keeps_published_host_on_installed_generation
         ),
         keybindings=cast(Any, None),
         terminal_ui=None,
-        renderer=cast(Any, None),
+        renderer=renderer,
         error_stream=cast(Any, None),
-        emitter=cast(Any, SimpleNamespace(set_flags=fail_after_commit)),
-        provider_mutation=cast(Any, None),
+        emitter=emitter,
+        provider_mutation=mutation,
         cwd=Path("."),
         resource_options=RuntimeResourceOptions(no_extensions=True),
-        tool_capabilities=cast(Any, None),
+        tool_capabilities=capabilities,
         diag=lambda _message: None,
         redraw_custom_entries_for_active_branch=lambda: None,
-        extension_send_message=lambda *_args: None,
+        extension_send_message=interrupt_message,
         extension_render_details=cast(Any, lambda *_args: None),
     )
     candidate = _ExtensionCandidate()
 
-    with pytest.raises(RuntimeError, match="post-commit projection failed"):
+    with pytest.raises(KeyboardInterrupt, match="post-commit delivery interrupted"):
         effects._reload_extension_generation(candidate)
 
     installed = ref.current
     assert installed.runtime is runtime
+    routing = runtime.message_routing
+    assert routing._state == "live" and routing._pending is None
     assert host._state == "published"
     assert candidate.dispose().disposed == 0
 
 
-def test_reload_host_transfer_precedes_only_the_generation_installation() -> None:
-    path = Path(tool_loop_session.__file__ or "")
+def test_reload_host_transfer_and_retired_slot_layout_are_static() -> None:
+    path = Path(__file__).parents[1] / "src/pipy_harness/native/session_generation.py"
     syntax = ast.parse(path.read_text(encoding="utf-8"))
     owner = next(
         node
         for node in syntax.body
-        if isinstance(node, ast.ClassDef) and node.name == "_ReloadCommandEffects"
+        if isinstance(node, ast.ClassDef) and node.name == "SessionGenerationRef"
     )
     commit = next(
         node
         for node in owner.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "_commit_extension_generation"
+        if isinstance(node, ast.FunctionDef) and node.name == "accept_prepared_reload"
     )
     host_publications = [
         node
         for node in ast.walk(commit)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "candidate"
-        and node.func.attr == "publish"
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "publish_candidate_ownership"
     ]
     generation_installations = [
         node
         for node in ast.walk(commit)
-        if isinstance(node, ast.Assign)
-        and any(
-            isinstance(target, ast.Attribute) and target.attr == "extension_generation"
-            for target in node.targets
-        )
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "publish_locked"
     ]
-
-    assert len(host_publications) == 1
-    assert len(generation_installations) == 1
-    installation = generation_installations[0]
-    assert isinstance(installation.value, ast.Name)
-    assert installation.value.id == "generation"
-    assert host_publications[0].lineno < installation.lineno
+    assert len(host_publications) == len(generation_installations) == 1
+    source = ast.unparse(commit)
+    session_sections = [
+        node
+        for node in ast.walk(commit)
+        if isinstance(node, ast.With)
+        and ast.unparse(node.items[0].context_expr) == "self._lock"
+    ]
+    assert len(session_sections) == 1
+    section = session_sections[0]
+    assert host_publications[0].lineno < section.lineno
+    assert (
+        "if not matches:\n            return 'prepared reload owner state changed'"
+        in source
+    )
+    assert source.index("if not matches:") < source.index(
+        "retired[0] = self.publish_locked(generation)"
+    )
+    assert "_boundary_observer" not in source
+    assert "retired: list[object | None] = [None] * 20" in source
+    assert source.count("retired[") == 20
+    assert all(f"retired[{index}]" in source for index in range(20))
 
 
 def test_startup_installs_generation_reference_before_host_publication() -> None:
@@ -2130,10 +2219,8 @@ def test_startup_installs_generation_reference_before_host_publication() -> None
         node
         for node in ast.walk(run)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "candidate"
-        and node.func.attr == "publish"
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "publish_candidate_ownership"
     ]
 
     assert len(assignments) == 1

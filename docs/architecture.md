@@ -174,12 +174,23 @@ and authentication mutation ordering, while preserving live-terminal versus
 captured-stream presentation. Native session export, import, and share execute
 through `_TransferCommandEffects`; import replaces the live tree and then uses
 the session collaborator's authoritative history/input rebuild seam. `/reload`
-executes through `_ReloadCommandEffects`, whose explicit phases preserve the
-publication gate around configuration/package/resource recomposition,
-extension generation activation/publication, provider refresh, tool-capability
-publication, and terminal refresh. Provider fallback and unavailable binding
-remain methods on `_ProviderMutationEffects`, rather than a second reload-only
-mutation path. `_BuiltinCommandInterpreter` now contains only the closed
+executes through `_ReloadCommandEffects`. Configuration/package/resource
+recomposition, candidate activation and flag parsing, candidate-route
+installation, and replacement `session_start` precede its first publication section; that
+section covers derived live-owner preparation, checking, and publication, then
+remains open after the session mutex unlocks through accepted staged delivery,
+two-phase route release, and gate drain. Those post-commit paths may invoke
+extension-visible sinks while `publication_pending` is true. Refusal instead
+uses a separate second publication section for retained provider refresh and
+unknown-tool filtering. Presentation, persistence, and terminal refresh remain
+outside both sections. Every candidate refusal, including an absent post-
+settings-reload auth owner, enters that ordinary refusal path; the absent-owner
+refresh returns before mutation. Restoring an explicit `AuthStore` through the
+supported public assignment allows a later reload to prepare and accept again;
+no candidate publishes while the required owner is absent. Provider fallback
+and unavailable binding remain methods on
+`_ProviderMutationEffects`, rather than a second reload-only mutation path.
+`_BuiltinCommandInterpreter` now contains only the closed
 four-family routing plus the closed footer policy.
 
 `native/session.py` owns the explicitly named
@@ -286,9 +297,9 @@ that rejection. Candidate chrome requests use a closed guarded sink and are
 reconciled only after semantic acceptance. R3a now provides a detached,
 immutable projection construction value for every applicable extension
 contribution family. R1's mutable `activation_hosts` ownership state machines
-are explicitly excluded. No production startup/reload path constructs,
-installs, publishes, snapshots, or consumes the projection. Coherent publication
-remains outstanding. The
+are explicitly excluded. Shipped R3c3 constructs the projection at startup and
+reload, installs its routing owner, and publishes the complete generation
+through the one session reference. The
 controlling R0 decisions and per-clause evidence are in
 the transactional spec's
 [R0 current reconciliation](specs/2026-07-25-transactional-extension-reload-rebuild.md#r0-current-reconciliation-2026-07-30).
@@ -311,8 +322,8 @@ callers may retain an injected manager, so the narrowing relies on manager-local
 synchronization, not on claiming that no external manager surface exists. R3
 therefore builds no settings/resource projection and R4a consumes none.
 
-`SessionExtensionGeneration` deliberately remains the live runtime-plus-mutable-
-flags value. Beside it, R3a's standalone `ExtensionProjection` builder copies
+`SessionExtensionGeneration` now carries the live runtime and flags together
+with R3a's installed `ExtensionProjection` and inert chrome token. The builder copies
 and freezes runtime/flags, command/menu/description/shortcut, lifecycle/request
 hooks, tool ports and candidate capability state, renderer maps, provider
 contributions, queue handles, and the exact R2 chrome handle. Mapping families
@@ -326,14 +337,17 @@ mutex identity before construction and failure injection cannot reach a live
 reference or adapter. R1's mutable activation-host ownership state, settings,
 keybindings, resources, and a settings adapter are absent.
 
-The only `tool_loop_session.py` additions are construction-only projected,
-legacy-port, and candidate-composition adapters. The two existing live startup
-and reload port-construction sites now call the legacy helper with their exact
-prior arguments; this makes it the real equivalence source without changing
-behavior or order. Recursive source/AST inventory proves the candidate builder
-has no production caller, the direct builder and projected adapter are reached
-only inside that pure candidate builder, and the legacy helper has exactly those
-two live callers. Lifecycle/provider/TUI behavior and base ordering are
+`tool_loop_session.py` now contains the projected, legacy-port, and candidate-
+composition adapters plus the production startup/reload orchestration that
+installs routes, fires candidate lifecycle, prepares and accepts a generation,
+and delivers its staged batch. On reload the first publication gate remains
+open after the session commit unlocks, through accepted staged delivery, the
+two-phase route release, and gate drain; those paths may invoke extension-visible
+sinks while `publication_pending` is true. Startup and reload call the same
+projected candidate builder; the legacy helper has no production caller. Recursive
+inventory proves the presence of both production construction paths and retains
+every family equivalence arm until its R4 consumer migration. Outside R3c3's two
+documented deltas, lifecycle/provider/TUI behavior and base ordering are
 unchanged. Every per-family equivalence arm against the legacy runtime or
 adapter remains until R4 moves that family's final consumer and deletes its
 source. R3b now adds the frozen `PreparedReloadEffects` assembly after the exact
@@ -348,9 +362,10 @@ failures are grouped; `KeyboardInterrupt`/`SystemExit` stop, abort queued work,
 and propagate. Accepted staged customs use direct durable-tree, render/
 diagnostic, and coding-input ports, never `custom_outbox`; their routing shares
 the live legacy helper and preserves all camel/snake aliases and precedence.
-Chrome prepare is uncalled and can return refusal or an inert token carrying the
-exact typed input, with no commit callback. Production startup/reload does not
-install or invoke the R3b gate. R3c2 defines one explicit typed `GenerationMessageRouting` owner for
+Chrome prepare is reload's final fallible preparation and returns refusal or an
+inert token carrying the exact typed input, with no commit callback. Startup and
+reload install the R3b gate; frozen staged delivery precedes two-phase route
+release and gate drain. R3c2 defines one explicit typed `GenerationMessageRouting` owner for
 one generation's exact user/custom lists. Top-level batch construction creates
 it once; hosts, batch, runtime, queue projection, and the eventual
 `SessionExtensionGeneration` receive that same strong owner. Production composition never leaves a permanent no-mutex owner: every
@@ -460,8 +475,8 @@ no attached gate/FIFO; later sends, drains, releases, and retirements are silent
 and nonraising and cannot affect a successor generation.
 
 R3c2 defines the typed optional `SessionGenerationSnapshot` provider seam for
-the custom renderer, but production leaves it unwired until R3c3 atomically
-publishes and installs it. When installed, each drain operation takes at most
+the custom renderer, and R3c3 wires the one renderer directly to
+`SessionGenerationRef.snapshot`. When installed, each drain operation takes at most
 one coherent snapshot and resolves the owner from
 `snapshot.generation.runtime.message_routing`, never from separately reread
 outboxes. Durable direct custom tree/render/input delivery remains outside
@@ -474,19 +489,17 @@ drain fallback remains direct and nonraising without pretending to consult
 installed routing state.
 
 `ExtensionQueueProjection.install_candidate_route()`, `release_pending_route()`,
-and `retire_route()` are the validated R3c3-facing lifecycle API. R3c2 supplies
-no production startup/reload installer, release-to-live transition, retirement,
-combined generation/route publication, or renderer-provider wiring. Its
+and `retire_route()` are the validated lifecycle API. R3c3 supplies the
+production startup/reload install, release, retirement, combined publication,
+and renderer-provider wiring. Its
 executable production inventory must cover every direct call and recognized
 state-write path that can grant/revoke host eligibility or install, release/
 publish, retire, or publish the routing owner—not merely calls named
 `install_candidate_route`. It records existing host-local eligibility lifecycle separately; that lifecycle
-is not routing install authority. The expected R3c2 production set for every
-routing-authority commit/install, release/publish, retire, and combined owner-publication
-entry is empty. The inventory recognizes positional and keyword construction,
-`**` expansion, aliases/factory forwarding, and post-construction provider
-mutation; it proves the renderer provider is production-unwired. R3c3 updates
-the same inventory when it installs and publishes the route. Deterministic
+is not routing install authority. The inventory recognizes startup/reload
+install, two-phase release, refusal/interrupt retirement, combined owner
+publication, direct state writes, aliases/factory forwarding, and exact renderer
+snapshot-provider wiring; no unlisted route-authority path is permitted. Deterministic
 explicit boundary instrumentation—not trace-line or list-subclass callbacks—
 proves the no-lock boundaries. R3c1a adds detached prepare/non-fallible assignment publication for the
 extension-provider overlay only. Its live and detached
@@ -508,7 +521,7 @@ facts.
 
 `prepare_reload_state()` itself captures expected live `selection` and
 `pending_default` while its caller briefly holds the shared session mutex; only
-the replacement values are caller-supplied. R3c3 later performs the comparison
+the replacement values are caller-supplied. R3c3 now performs the comparison
 and publication in one uninterrupted mutex section. `snapshot_reload_state()`
 is absent and never existed in the committed baseline, so there is no retained-
 selection/default refresh snapshot/publish path. The publisher writes only the
@@ -547,13 +560,18 @@ real parent package `__init__` modules are bypassed.
 The shared-lock identity is executable evidence, not an assumption:
 `tests/test_native_coding_state.py::test_coding_state_shares_the_session_mutex_when_bound`
 pins `CodingSessionState._state_lock` to the exact supplied session
-`threading.RLock`. In R3c3, while holding that mutex and immediately before
-irrevocable acceptance/publication, orchestration must call the coding and REPL
-owner current-state checks. Any expected binding, selection, or pending-default
-mismatch refuses the prepared candidate without invoking any publisher; R3c3
-unlocks before cleanup, disposal, or diagnostics. A successful check and all
-publication share one uninterrupted mutex section without yielding or unlocking,
-so no session-owned mutation can land between them. Consumed values fail phase B;
+`threading.RLock`. R3c3 completes the gate reservation and publishes candidate-
+host ownership while unlocked; every candidate guard is released before it
+acquires the session mutex once. That one uninterrupted section calls the coding
+and REPL owner checks before its first publication write and, on a match, performs
+all session publication writes without yielding or unlocking. No session-owned
+mutation can land between check and commit. Any expected binding, selection, or
+pending-default mismatch invokes no publisher and unlocks before caller cleanup,
+disposal, or diagnostics. Because host publication is terminal, mismatch cleanup
+retires its route and closes its chrome rather than trying to dispose it: class-D
+calls stay closed, retained sends drop, candidate chrome cannot paint, and the
+newer live generation/owners remain untouched. Candidate and session guards never
+nest in either order. Consumed values fail phase B;
 duplicate publication is a non-destructive consumed-state no-op. R3c3 owns the
 one successful match and aggregate-publish call. The coding check and vetted publishers
 re-enter only that same
@@ -568,12 +586,12 @@ prepared replacement fields changed by its corresponding live transition, and
 never restores retained history, compaction, provider-failure, or thinking
 values from preparation. A second guard, factory, callback, I/O, construction,
 diagnostic, persistence, disposal, or last-reference release is forbidden.
-R3c1b's usage-accumulator owner contract is shipped without a production
-caller. R3c1c now ships the revised three-phase contract without a production
-caller. `AuthStore` and `ModelCatalog` are synchronous,
+R3c1b's usage-accumulator and R3c1c's revised three-phase owner contracts shipped
+first without a caller; R3c3 now invokes them in production reload. `AuthStore`
+and `ModelCatalog` are synchronous,
 single-session-thread-confined owners, not thread-safe shared objects. Every
 current production read and write, OAuth flow, provider registration, refresh,
-and future R3c3 check and publication runs on that one session thread. No
+and R3c3 check/publication runs on that one session thread. No
 background thread, executor, `to_thread`, callback on another thread, or parallel
 writer may call either owner. Their copy-on-write updates therefore have no
 concurrent lost-update window. A future cross-thread production path requires a
@@ -594,9 +612,16 @@ owner-local. Recursive detachment accepts immutable mapping proxies and
 rebuilds them as detached ordinary containers before existing preparation and
 validation. OAuth model-modifier callbacks are pure catalog-row transforms and
 must not mutate `AuthStore` or any other owner. The built-in bound modifier
-captures credential data but no `AuthStore` capability. The adversarial callback
-characterization is token-rotation refusal, not auth snapshotting: a reentrant
-callback mutation rotates the affected token, and phase B refuses the candidate.
+captures credential data but no `AuthStore` capability. Provider instances are
+also self-contained: catalog-backed adapters receive only resolved scalar/copied
+credential, header, and routing values; extension factories receive only the
+three-field `ProviderContext`. Neither branch receives or retains the copied
+shadow `ModelCatalog` or `AuthStore`. Auth/catalog rotation invalidates owner
+matching and affects future construction, not an already accepted provider
+snapshot; signature inventory and weak-reference rotation tests pin that rule.
+The adversarial callback characterization is token-rotation refusal, not auth
+snapshotting: a reentrant callback mutation rotates the affected token, and phase
+B refuses the candidate.
 R3c3/operator retry is meaningful only after that violating mutation source
 stops. **B, immediately before acceptance under the session mutex:** perform
 only bounded constant-time, allocation-free owner identity/token comparisons by
@@ -628,7 +653,9 @@ constructor `None` is normalized exactly once in `__post_init__`; public
 reassignment to another `AuthStore` is honored. Reassignment to `None` after
 construction stays `None`: auth-dependent reads fail closed and invariant paths
 raise without constructing an owner, consulting ambient credentials, or mutating
-live state. Successful catalog refresh rotates owner identity after final rows
+live state. Assigning an explicit `AuthStore` later restores the owner and lets a
+subsequent reload prepare normally; candidate acceptance never bypasses owner
+coherence. Successful catalog refresh rotates owner identity after final rows
 assignment as well as early enough to invalidate a failed refresh.
 Owner-lifetime path/config inputs and direct public catalog result containers are
 immutable by contract after construction/publication: only the
@@ -654,14 +681,13 @@ no-production-caller inventory includes aggregate
 `prepare_catalog_auth_refresh()`, `validate_prepared_catalog_auth_refresh()`,
 `catalog_auth_refresh_matches_expected()`, and `publish_catalog_auth_refresh()`
 entry points as well as leaf APIs. The separate
-R3c1a overlay publication is unchanged. R3c3 must invoke that separate publisher,
-with a non-empty equivalence arm; full catalog/auth publication does not rebuild it.
-R3c2 supplies the typed routing seam at the actual activation-send and renderer-
-drain owners without a production installer; behavior-neutrality is limited to
-the ordinary uninstalled R1 path, while installed retirement races fail closed.
-It defines, but does not production-wire, the typed coherent renderer snapshot
-provider. R3c3 then composes R3a/R3b through R3c1a–R3c1c and R3c2 and atomically
-publishes/installs that renderer-visible generation/owner snapshot.
+R3c1a overlay publisher remains distinct and R3c3 invokes it with the non-empty
+equivalence arm; full catalog/auth publication does not rebuild it. R3c2 shipped
+the typed routing seam at the actual activation-send and renderer-drain owners
+with behavior-neutrality limited to its ordinary uninstalled R1 path. R3c3 now
+production-wires the coherent renderer snapshot provider and composes R3a/R3b
+through R3c1a–R3c1c and R3c2 into the atomically published generation/owner
+snapshot; installed retirement races fail closed.
 All production consumers still read
 `generation_ref.current` per access even though `snapshot()` exists. R1 now
 owns activation registration with one candidate-host guard over every staged
@@ -694,11 +720,13 @@ hosts still dispose and clear flags. Recursive inventory covers activation
 producers, cleanup/finalization-reporting seams, and each production startup/
 reload caller; pending pre-trust batches finalize or
 abandon their one-shot host holders. Reload builds
-the exact `SessionExtensionGeneration` first, then ownership transfer is followed
-only by the generation reference's non-fallible pointer publication; later
-projection failures therefore leave the published host on the installed live
-generation rather than orphaning it. Startup likewise constructs its generation
-reference before transferring host ownership. Retained late
+the exact `SessionExtensionGeneration` first, publishes host ownership unlocked,
+then takes one uninterrupted session-mutex section for all expected-owner checks
+and non-fallible generation/effect writes. A mismatch after host publication
+leaves that terminal host intentionally unowned but inert after caller route and
+chrome cleanup; a match leaves it on the installed live generation. Startup
+likewise constructs its generation reference before transferring host ownership.
+Retained late
 class-D `register_*`, `unregister_provider`, and direct/decorator `on` calls
 raise `ExtensionCapabilityError`; accepted `str` subclasses (including
 `StrEnum`, default-stringifying `(str, Enum)` values, and subclasses overriding
@@ -724,10 +752,9 @@ flushes the frozen messages exactly once. Accepted/live message routing after
 activation commit releases the candidate guard before its still-list-backed queue
 append. R3b/R3c3 own authoritative staged-message detach, flush, and delivery
 ordering. Shipped R3c2 makes send paths consult their explicitly supplied owner
-and defines the drain owner's typed snapshot-provider seam. Production leaves
-that provider unavailable until R3c3; unavailable/uninstalled drain routing
-stays R1-direct, never raises, and does not claim an installed-state
-consultation. Durable direct custom tree/render/input delivery always retains
+and defines the drain owner's typed snapshot-provider seam; R3c3 now wires its
+sole production provider. Unavailable/uninstalled drain routing stays R1-direct,
+never raises, and does not claim an installed-state consultation. Durable direct custom tree/render/input delivery always retains
 its R1 behavior regardless of unavailable, uninstalled, mismatched, or retired
 routing and does not consult routing; only typed coherent drain consultation may
 affect queue/drain side effects and is nonraising. An accepted post-seal send first claims host eligibility and binds
@@ -798,27 +825,40 @@ being erased; its future changelog entry must describe that loss fix without
 claiming retired handles become deliverable. It does not invent ids, retry
 cursors, deduplication, or queue-capacity semantics.
 
-While reload republishes current derived projections the reference opens a
-publication gate. `set_active_tools` and `set_thinking_level` take the session
-mutex across their gate check and assignment, but none of the exactly three
-class-A families (`set_active_tools`, `set_thinking_level`, `set_model`) captures
-a generation id. `set_model` also performs provider construction and persistence
-outside an atomic admission/commit shape. R5a's terminal path closes admission
-and condition-waits (releasing the lock) for effects accepted before close, then refuses later effectful coding-session
-calls with `ExtensionCapabilityError`; once quiescent it takes
-`mutation_io_lock → session mutex` only for terminal generation/outbox state and
-never holds the session mutex across provider or filesystem I/O. R5b owns generation-bound active-tool/thinking
-admission and makes stale or terminal calls return `False`. R6 owns terminal
-`set_model` refusal plus three-phase model preparation, in-memory commit, and fail-soft
+Reload uses two separate `generation_ref.publishing()` sections rather than one
+gate around the whole operation. Configuration/package/resource recomposition,
+candidate activation and flag parsing, candidate-route installation, and
+replacement `session_start` all run outside and before the first section. That
+first section covers derived live-owner preparation, checking, and publication,
+then stays open through accepted staged-message sinks, two-phase route release,
+and gate drain. The session mutex is released around those effects except for
+the vetted phase-2 tail append, but `publication_pending` remains true until the
+drain finishes. `set_active_tools` and `set_thinking_level` take the session
+mutex across their
+gate check and assignment, but none of the exactly three class-A families
+(`set_active_tools`, `set_thinking_level`, `set_model`) captures a generation id.
+`set_model` also performs provider construction and persistence outside an
+atomic admission/commit shape. R5a's terminal path closes admission and
+condition-waits (releasing the lock) for effects accepted before close, then
+refuses later effectful coding-session calls with `ExtensionCapabilityError`;
+once quiescent it takes `mutation_io_lock → session mutex` only for terminal
+generation/outbox state and never holds the session mutex across provider or
+filesystem I/O. R5b owns generation-bound active-tool/thinking admission and
+makes stale or terminal calls return `False`. R6 owns terminal `set_model`
+refusal plus three-phase model preparation, in-memory commit, and fail-soft
 persistence. Model defaults are queued during selection and written only after
 the selection is live; a persistence failure is reported without claiming the
-selection reverted. The reload effect owner closes the publication gate before
-firing an accepted replacement generation's `session_start` hook exactly once;
-a rejected replacement fires no retained-generation lifecycle hook. It emits the final reload
-diagnostic next, and the root footer policy runs only after that effect returns.
-The full R1–R6 sequence, including ordered R5a then R5b, remains mandatory before
-R7 can close this boundary; the remediation queue contains exactly 33 execution
-slices.
+selection reverted. On refusal, `_ReloadCommandEffects.execute()` opens a
+separate second publishing section around retained provider refresh and unknown-
+tool-filter diagnostics. Presentation, persistence, and terminal refresh run
+outside both sections. R5b/R6 must not treat the sections as continuous: a
+class-A mutation may be admitted after the first closes and before the second
+opens, so each refusal-path value must be sampled only after the second section
+opens unless a later slice joins the sections. A rejected replacement fires no
+retained-generation lifecycle hook. The effect emits the final reload diagnostic
+next, and the root footer policy runs only after that effect returns. The full
+R1–R6 sequence, including ordered R5a then R5b, remains mandatory before R7 can
+close this boundary; the remediation queue contains exactly 33 execution slices.
 
 ## Sessions, automation, and trust domains
 
@@ -1163,14 +1203,14 @@ coding/REPL owner stacks; it does not prove real parent package `__init__`
 modules are bypassed. Recursive inventory proves no R3c1a production caller.
 The full usage accumulator owner ports are shipped in R3c1b with no production
 caller; catalog/auth refresh now ships in R3c1c, also without a production
-caller. R3c2's routing seam now ships: production send owners use their explicitly
-supplied generation owner, while the typed coherent renderer snapshot provider
-is defined but remains production-unwired. Unavailable fallback stays direct
-and nonraising. Durable direct custom tree/render/input delivery always retains
+caller. R3c2's routing seam and R3c3's production composition now ship: startup/reload
+install one projection/routing owner, reload performs one owner-checked aggregate
+publication, and the renderer receives the exact generation snapshot provider.
+Unavailable fallback stays direct and nonraising. Durable direct custom tree/render/input delivery always retains
 R1 behavior even when routing is uninstalled or retired; only queue/drain side
 effects may consult routing. Installed activation-send publication races obey
-guarded acceptance/detach or nonraising drop. No registry discovery or startup/reload installer exists. The
-next architecture action is **R3c3 — accept and publish one prepared
-reload**; ordinary product-parity selection remains blocked through R7. This
-foundation changes no behavior and requires no changelog entry.
+guarded acceptance/detach or nonraising drop. No registry discovery or second renderer-visible pointer exists. The next
+architecture action is **R4a — snapshot command/request operations and live
+outboxes**; ordinary product-parity selection remains blocked through R7.
+R3c3's two documented deltas are recorded in the changelog.
 That is not a verdict that the broader program failed.

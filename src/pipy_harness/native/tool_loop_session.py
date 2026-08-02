@@ -42,11 +42,12 @@ from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
-from typing import Any, ClassVar, TextIO
+from typing import Any, ClassVar, TextIO, cast
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
 import pipy_harness.native.agent.history as _agent_history
+import pipy_harness.native.agent.usage as _agent_usage
 import pipy_harness.native.chrome as _chrome
 import pipy_harness.native.tool_renderers as _tool_renderers
 from pipy_harness.native.clipboard import (
@@ -170,6 +171,7 @@ from pipy_harness.native.coding.session_controller import (
     _CallableCodingCommandEffects,
 )
 from pipy_harness.native.coding.state import (
+    CodingReloadHistoryValue,
     CodingSessionState,
     CodingSessionUsageSnapshot,
 )
@@ -222,13 +224,20 @@ from pipy_harness.native.export_distribution import (
 from pipy_harness.native.session_generation import (
     ExtensionChromeHandle,
     ExtensionProjection,
+    balance_startup_candidate,
+    FrozenStagedDeliveryBatch,
+    OrderedDeliveryGate,
     PreparedReloadEffects,
     ReloadEffectPreparationPorts,
+    ReloadPreparationRefused,
     ReloadPreparationObserver,
     SessionExtensionGeneration,
     SessionGenerationRef,
     build_extension_projection,
     build_prepared_reload_effects,
+    prepare_production_reload,
+    publish_candidate_ownership,
+    with_tool_capability,
 )
 from pipy_harness.native.session_resume import (
     ResumeContext,
@@ -311,6 +320,8 @@ from pipy_harness.native.themes import (
     select_theme,
 )
 from pipy_harness.native.tui import (
+    ExtensionChromeCommitToken,
+    ExtensionChromePrepareInput,
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
     HOTKEY_MODEL_CYCLE_NEXT,
     HOTKEY_MODEL_CYCLE_PREV,
@@ -1432,26 +1443,19 @@ class _ReloadCommandEffects:
         # only after the gate's session-mutex handoff has closed. Publication
         # empties it, so this cleanup can never dispose the live generation.
         candidate = _ExtensionCandidate()
-        chrome_candidate: ExtensionChromeSink | None = None
-        chrome_candidate_owned = False
         try:
-            with self.ctl.generation_ref.publishing():
-                self._reload_configuration_and_resources()
-                replacement_accepted, chrome_candidate = (
-                    self._reload_extension_generation(candidate)
-                )
-                chrome_candidate_owned = chrome_candidate is not None
-                self.provider_mutation.refresh_provider_after_reload()
-                self._publish_tool_and_lifecycle_projections()
-                saved_implicit_trust = self._refresh_presentation_and_persistence()
-            # Transfer sink ownership before entering any post-acceptance work.
-            # The finisher guarantees close-or-live even if lifecycle/attach fails.
-            chrome_candidate_owned = False
-            chrome_diagnostic = self._finish_candidate_chrome(
-                chrome_candidate, replacement_accepted=replacement_accepted
-            )
-            if chrome_diagnostic is not None:
-                self.diag(chrome_diagnostic)
+            self._reload_configuration_and_resources()
+            replacement_accepted = False
+            try:
+                replacement_accepted, _ = self._reload_extension_generation(candidate)
+            except ReloadPreparationRefused as error:
+                self.diag(f"pipy: {error}")
+                self.diag("pipy: keeping the previous extensions.")
+            if not replacement_accepted:
+                with self.ctl.generation_ref.publishing():
+                    self.provider_mutation.refresh_provider_after_reload()
+                    self._diagnose_unknown_tool_filters()
+            saved_implicit_trust = self._refresh_presentation_and_persistence()
             self.diag(
                 (
                     "pipy: reloaded settings, keybindings, and resources; "
@@ -1461,8 +1465,6 @@ class _ReloadCommandEffects:
                 )
             )
         finally:
-            if chrome_candidate is not None and chrome_candidate_owned:
-                chrome_candidate.close()
             _report_activation_cleanup(candidate.dispose(), self.diag)
 
     def _finish_candidate_chrome(
@@ -1471,24 +1473,12 @@ class _ReloadCommandEffects:
         *,
         replacement_accepted: bool,
     ) -> str | None:
-        """Fire only an accepted replacement and guarantee close-or-live."""
-
         if not replacement_accepted:
             return None
         if self.extension_ui_driver is None or chrome_candidate is None:
-            # Headless reloads have no retained TUI owner to reconcile, but the
-            # accepted replacement keeps the lifecycle event it historically saw.
-            self.emitter.fire_lifecycle(EVENT_SESSION_START, reason="reload")
             return None
         owned = True
         try:
-            self.emitter.fire_lifecycle(
-                EVENT_SESSION_START,
-                reason="reload",
-                ui_driver_override=self.extension_ui_driver.candidate_driver(
-                    chrome_candidate
-                ),
-            )
             acceptance = self.extension_ui_driver.accept_candidate(chrome_candidate)
             if not acceptance.accepted:
                 if not acceptance.candidate_closed:
@@ -1543,7 +1533,9 @@ class _ReloadCommandEffects:
             if self.extension_ui_driver is not None
             else None
         )
-        chrome_transferred = False
+        projection: ExtensionProjection | None = None
+        prepared: PreparedReloadEffects | None = None
+        published = False
         try:
             reloaded_extension_runtime = _activate_workspace_extensions(
                 self.cwd,
@@ -1569,73 +1561,138 @@ class _ReloadCommandEffects:
                 self.diag(f"pipy: {reloaded_flag_error}")
                 self.diag("pipy: keeping the previous extensions.")
                 return False, None
-            candidate_generation = SessionExtensionGeneration(
-                runtime=reloaded_extension_runtime,
-                flag_values=reloaded_flag_values,
-            )
-            if not self._commit_extension_generation(candidate, candidate_generation):
-                self.diag("pipy: extension candidate ownership is unavailable")
-                self.diag("pipy: keeping the previous extensions.")
-                return False, None
-            self.emitter.set_flags(candidate_generation.flag_values)
-            for custom_message in reloaded_extension_runtime.custom_messages:
-                self.extension_send_message(
-                    custom_message.custom_type,
-                    custom_message.content,
-                    custom_message.display,
-                    custom_message.options,
-                    custom_message.details,
-                )
-            chrome_transferred = True
-            return True, chrome_candidate
-        finally:
-            if chrome_candidate is not None and not chrome_transferred:
-                chrome_candidate.close()
-
-    def _commit_extension_generation(
-        self,
-        candidate: _ExtensionCandidate,
-        generation: SessionExtensionGeneration,
-    ) -> bool:
-        """Publish ownership immediately before the non-fallible pointer swap."""
-
-        try:
-            ownership_published = candidate.publish()
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - reject a corrupted candidate
-            return False
-        if not ownership_published:
-            return False
-        # SessionGenerationRef.publish is a pointer assignment under the session
-        # mutex and is non-fallible by contract. No callback, projection, or I/O
-        # remains between host transfer and making this exact generation live.
-        self.ctl.extension_generation = generation
-        return True
-
-    def _publish_tool_and_lifecycle_projections(self) -> None:
-        runtime = self.ctl.extension_generation.runtime
-        self.renderer.refresh_tool_renderers(
-            _extension_tool_renderer_map(runtime.tools)
-        )
-        reloaded_tool_registry: dict[str, ToolPort] = {}
-        for registered_tool in runtime.tools:
-            port = _build_legacy_extension_tool_port(
-                registered_tool,
+            projection = _build_candidate_extension_projection(
+                reloaded_extension_runtime,
+                reloaded_flag_values,
+                queue_mutex=self.ctl.generation_ref.lock,
+                reference_mutex=self.ctl.generation_ref.lock,
                 has_ui=self.terminal_ui is not None,
                 notify_sink=self.provider_mutation.extension_notify,
                 set_active_tools=self.provider_mutation.extension_set_active_tools,
-                flags=self.ctl.extension_generation.flag_values,
                 render_details=self.extension_render_details,
                 project_trusted=self.settings.project_trusted,
+                prepare_capability=self.tool_capabilities.prepare_extensions,
+                chrome=(
+                    ExtensionChromeHandle(chrome_candidate)
+                    if chrome_candidate is not None
+                    else None
+                ),
             )
-            reloaded_tool_registry[port.definition.name] = port
-        self.tool_capabilities.publish(
-            self.tool_capabilities.prepare_extensions(reloaded_tool_registry)
-        )
-        self._diagnose_unknown_tool_filters()
-        self.emitter.set_lifecycle_hooks(runtime.lifecycle_hooks)
-        self.emitter.set_flags(self.ctl.extension_generation.flag_values)
+            gate = OrderedDeliveryGate(self.ctl.generation_ref.lock)
+            projection.queues.install_candidate_route(gate)
+            self.emitter.fire_candidate_session_start(
+                reloaded_extension_runtime.lifecycle_hooks,
+                reloaded_flag_values,
+                ui_driver=(
+                    self.extension_ui_driver.candidate_driver(chrome_candidate)
+                    if self.extension_ui_driver is not None
+                    and chrome_candidate is not None
+                    else None
+                ),
+            )
+            with self.ctl.generation_ref.publishing():
+                with self.ctl.generation_ref.lock:
+                    expected_capability = self.tool_capabilities._state
+                capability = self.tool_capabilities.prepare_extensions(
+                    projection.tools.ports
+                )
+                projection = with_tool_capability(projection, capability)
+                provider_state = getattr(self.session, "provider_state", None)
+                if not isinstance(provider_state, NativeReplProviderState):
+                    provider_state = None
+                coding = self.provider_mutation.coding_state
+                chrome_sink = chrome_candidate or ExtensionChromeSink()
+                prepared = prepare_production_reload(
+                    reloaded_extension_runtime,
+                    projection,
+                    ExtensionChromePrepareInput(chrome_sink),
+                    state=provider_state,
+                    coding=coding,
+                    lock=self.ctl.generation_ref.lock,
+                    unavailable_provider=lambda message: UnavailableAfterReloadProvider(
+                        coding.provider_name,
+                        coding.model_id,
+                        message,
+                    ),
+                    usage_prototype=lambda item: _agent_usage.AgentUsageAccumulator(
+                        _pricing_for(item.provider_name, item.model_id)
+                    ),
+                    empty_history=CodingReloadHistoryValue(()),
+                    capability=capability,
+                )
+                if chrome_candidate is None:
+                    chrome_sink.close()
+                chrome_input = prepared.chrome_prepare_input.value
+                if (driver := self.extension_ui_driver) is not None:
+                    chrome_token = driver.prepare_candidate(chrome_input)
+                else:
+                    chrome_token = ExtensionChromeCommitToken(chrome_input)
+                if chrome_token is None:
+                    self.diag("pipy: extension chrome candidate is unavailable")
+                    self.diag("pipy: keeping the previous extensions.")
+                    return False, None
+                generation = SessionExtensionGeneration(
+                    reloaded_extension_runtime,
+                    reloaded_flag_values,
+                    projection,
+                    chrome_token,
+                )
+                with gate.reserve() as token:
+                    acceptance_failure = self.ctl.generation_ref.accept_prepared_reload(
+                        generation,
+                        prepared,
+                        candidate=candidate,
+                        provider_state=provider_state,
+                        coding_state=self.provider_mutation.coding_state,
+                        tool_capabilities=self.tool_capabilities,
+                        expected_capability=expected_capability,
+                        renderer=self.renderer,
+                        emitter=self.emitter,
+                    )
+                    if acceptance_failure is not None:
+                        self.diag(f"pipy: {acceptance_failure}")
+                        self.diag("pipy: keeping the previous extensions.")
+                        return False, None
+                    published = True
+                    _extension_hooks.deliver_accepted_staged_batch(
+                        cast(
+                            FrozenStagedDeliveryBatch,
+                            prepared.activation_inputs.value[0],
+                        ),
+                        gate=gate,
+                        token=token,
+                        user_sink=lambda _message: None,
+                        custom_sink=partial(
+                            _extension_hooks.deliver_staged_custom,
+                            self.extension_send_message,
+                        ),
+                        release_route=projection.queues.release_pending_route,
+                    )
+            diagnostic, persist_default = prepared.presentation_persistence.value
+            if diagnostic is not None:
+                self.diag(cast(str, diagnostic))
+            if persist_default and provider_state is not None:
+                if (error := provider_state.flush_pending_default()) is not None:
+                    self.diag(error)
+            self._diagnose_unknown_tool_filters()
+            return True, chrome_candidate
+        finally:
+            try:
+                if published:
+                    if (
+                        chrome_diagnostic := self._finish_candidate_chrome(
+                            chrome_candidate, replacement_accepted=True
+                        )
+                    ) is not None:
+                        self.diag(chrome_diagnostic)
+                else:
+                    if projection is not None:
+                        projection.queues.retire_route()
+                    if chrome_candidate is not None:
+                        chrome_candidate.close()
+            finally:
+                if prepared is not None:
+                    prepared.dispose()
 
     def _diagnose_unknown_tool_filters(self) -> None:
         unknown_filter_names = self.tool_capabilities.unknown_filter_names
@@ -2051,9 +2108,9 @@ class _ProviderMutationEffects:
         if not isinstance(state, NativeReplProviderState):
             return
         runtime = state.model_runtime
-        if runtime is None:
-            return
         catalog_state = runtime.catalog
+        if catalog_state.auth_store is None:
+            return
         was_extension_selection = state.current_selection_uses_extension_provider()
         catalog_state.refresh()
         catalog_state.set_extension_provider_contributions(
@@ -3500,8 +3557,24 @@ class NativeToolReplSession:
                 diagnostic(f"pipy: {second_exc}")
                 return None
 
+    def _fail_startup(
+        self, coding_state: CodingSessionState, error_type: str, message: str
+    ) -> NativeToolReplResult:
+        return NativeToolReplResult(
+            status=HarnessStatus.FAILED,
+            exit_code=2,
+            started_at=(now := datetime.now(UTC)),
+            ended_at=now,
+            provider_name=coding_state.provider_name,
+            model_id=coding_state.model_id,
+            error_type=error_type,
+            error_message=message,
+        )
+
+    @balance_startup_candidate
     def run(
         self,
+        candidate: _ExtensionCandidate,
         *,
         workspace_root: Path | None = None,
         input_stream: TextIO,
@@ -3598,68 +3671,28 @@ class NativeToolReplSession:
                 None, error_stream, message
             ),
         )
-        candidate = _ExtensionCandidate(extension_runtime)
-        try:
-            extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
-                extension_runtime.flags,
-                tuple(resource_options.extension_flag_tokens),
+        candidate.adopt(
+            extension_runtime,
+            partial(self._emit_diagnostic, None, error_stream),
+        )
+        extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
+            extension_runtime.flags,
+            tuple(resource_options.extension_flag_tokens),
+        )
+        if extension_flag_error is not None:
+            print(f"pipy: {extension_flag_error}", file=error_stream)
+            return self._fail_startup(
+                coding_state, "ExtensionFlagError", extension_flag_error
             )
-            if extension_flag_error is not None:
-                print(f"pipy: {extension_flag_error}", file=error_stream)
-                now = datetime.now(UTC)
-                return NativeToolReplResult(
-                    status=HarnessStatus.FAILED,
-                    exit_code=2,
-                    started_at=now,
-                    ended_at=now,
-                    provider_name=coding_state.provider_name,
-                    model_id=coding_state.model_id,
-                    error_type="ExtensionFlagError",
-                    error_message=extension_flag_error,
-                )
-            generation_ref = SessionGenerationRef(
-                SessionExtensionGeneration(
-                    runtime=extension_runtime,
-                    flag_values=extension_flag_values,
-                ),
-                lock=session_state_lock,
-            )
-            try:
-                ownership_published = candidate.publish()
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:  # noqa: BLE001 - reject a corrupted candidate
-                ownership_published = False
-            if not ownership_published:
-                message = "extension candidate ownership is unavailable"
-                print(f"pipy: {message}", file=error_stream)
-                now = datetime.now(UTC)
-                return NativeToolReplResult(
-                    status=HarnessStatus.FAILED,
-                    exit_code=2,
-                    started_at=now,
-                    ended_at=now,
-                    provider_name=coding_state.provider_name,
-                    model_id=coding_state.model_id,
-                    error_type="ExtensionActivationError",
-                    error_message=message,
-                )
-        finally:
-            _report_activation_cleanup(
-                candidate.dispose(),
-                lambda message: self._emit_diagnostic(None, error_stream, message),
-            )
-        extension_generation = generation_ref.current
-        if isinstance(self.provider_state, NativeReplProviderState):
-            runtime = self.provider_state.model_runtime
-            if runtime is not None:
-                catalog_state = runtime.catalog
+        match self.provider_state:
+            case NativeReplProviderState():
+                catalog_state = self.provider_state.model_runtime.catalog
                 was_extension_selection = (
                     self.provider_state.current_selection_uses_extension_provider()
                 )
                 catalog_state.set_extension_provider_contributions(
-                    extension_generation.runtime.providers,
-                    extension_generation.runtime.unregistered_providers,
+                    extension_runtime.providers,
+                    extension_runtime.unregistered_providers,
                 )
                 if not self.provider_state.current_selection_supported() or (
                     was_extension_selection
@@ -3708,9 +3741,9 @@ class NativeToolReplSession:
             resources=workspace_resources,
             autocomplete_max_visible=settings.get_autocomplete_max_visible(),
             keybindings_manager=keybindings,
-            extension_menu_names=extension_generation.runtime.menu_names,
-            extension_descriptions=extension_generation.runtime.descriptions,
-            extension_shortcut_keys=frozenset(extension_generation.runtime.shortcuts),
+            extension_menu_names=extension_runtime.menu_names,
+            extension_descriptions=extension_runtime.descriptions,
+            extension_shortcut_keys=frozenset(extension_runtime.shortcuts),
             include_workspace_defaults=settings.project_trusted,
         )
         if (
@@ -3732,7 +3765,7 @@ class NativeToolReplSession:
                 if (normalized := normalize_shortcut_key(key))
             }
             shadowed_keys = sorted(
-                editor_keys.intersection(extension_generation.runtime.shortcuts)
+                editor_keys.intersection(extension_runtime.shortcuts)
             )
             for key in shadowed_keys:
                 print(
@@ -3763,26 +3796,9 @@ class NativeToolReplSession:
         render_details = _tool_renderers._extension_render_details_sinks(
             terminal_ui is not None
         )
-        extension_tool_renderers = _extension_tool_renderer_map(
-            extension_generation.runtime.tools
-        )
-        extension_tool_registry: dict[str, ToolPort] = {}
-        for _registered_tool in extension_generation.runtime.tools:
-            _port = _build_legacy_extension_tool_port(
-                _registered_tool,
-                has_ui=terminal_ui is not None,
-                notify_sink=_extension_notify,
-                set_active_tools=lambda names: (
-                    provider_mutation.extension_set_active_tools(names)
-                ),
-                flags=extension_generation.flag_values,
-                render_details=render_details.writer,
-                project_trusted=settings.project_trusted,
-            )
-            extension_tool_registry[_port.definition.name] = _port
         tool_capabilities = NativeToolCapabilities(
             self.tool_registry,
-            extension_tool_registry,
+            {},
             workspace_root=cwd,
             reference_roots=self.reference_roots,
             stderr_sink=_stderr_sink,
@@ -3795,6 +3811,39 @@ class NativeToolReplSession:
             # separate locks would not do.
             state_lock=session_state_lock,
         )
+        startup_projection = _build_candidate_extension_projection(
+            extension_runtime,
+            extension_flag_values,
+            queue_mutex=session_state_lock,
+            reference_mutex=session_state_lock,
+            has_ui=terminal_ui is not None,
+            notify_sink=_extension_notify,
+            set_active_tools=lambda n: provider_mutation.extension_set_active_tools(n),
+            render_details=render_details.writer,
+            project_trusted=settings.project_trusted,
+            prepare_capability=tool_capabilities.prepare_extensions,
+            chrome=(
+                ExtensionChromeHandle(extension_ui_driver.startup_chrome_sink())
+                if extension_ui_driver is not None
+                else None
+            ),
+        )
+        startup_gate = OrderedDeliveryGate(session_state_lock)
+        startup_projection.queues.install_candidate_route(startup_gate)
+        staged = FrozenStagedDeliveryBatch.freeze((), extension_runtime.custom_messages)
+        extension_generation = SessionExtensionGeneration(
+            extension_runtime, extension_flag_values, startup_projection
+        )
+        generation_ref = SessionGenerationRef(
+            extension_generation, lock=session_state_lock
+        )
+        if not publish_candidate_ownership(candidate):
+            startup_projection.queues.retire_route()
+            message = "extension candidate ownership is unavailable"
+            print(f"pipy: {message}", file=error_stream)
+            return self._fail_startup(coding_state, "ExtensionActivationError", message)
+        tool_capabilities.publish(startup_projection.tools.capability_state)
+        extension_tool_renderers = startup_projection.renderers.tools
         provider_turn_executor = ProviderTurnExecutor(
             cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
         )
@@ -4023,15 +4072,19 @@ class NativeToolReplSession:
             terminal_ui=terminal_ui,
             coding_input_queue=coding_input_queue,
             error_stream=error_stream,
+            generation_snapshot=ctl.generation_ref.snapshot,
         )
-
-        for custom_message in ctl.extension_generation.runtime.custom_messages:
-            custom_renderer.extension_send_message(
-                custom_message.custom_type,
-                custom_message.content,
-                custom_message.display,
-                custom_message.options,
-                custom_message.details,
+        with startup_gate.reserve() as startup_token:
+            _extension_hooks.deliver_accepted_staged_batch(
+                staged,
+                gate=startup_gate,
+                token=startup_token,
+                user_sink=lambda _message: None,
+                custom_sink=partial(
+                    _extension_hooks.deliver_staged_custom,
+                    custom_renderer.extension_send_message,
+                ),
+                release_route=startup_projection.queues.release_pending_route,
             )
 
         repl_input = (

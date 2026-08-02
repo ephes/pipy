@@ -1,23 +1,22 @@
 """Session-owned extension generations and detached candidate projections.
 
-The live :class:`SessionExtensionGeneration` remains the runtime-plus-flags
-value consumed by production.  R3a adds a separate immutable construction value
-for later transactional reload slices; no startup or reload path installs or
-reads that projection yet.
-
 See ``docs/specs/2026-07-25-transactional-extension-reload-rebuild.md`` for the
 concurrency contract.
 """
 
 from __future__ import annotations
 
+import inspect
 import threading
+import typing
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
+from copy import copy
 from dataclasses import dataclass, replace
+from functools import partial, wraps
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Generic, NewType, TypeVar
+from typing import TYPE_CHECKING, Any, Concatenate, Generic, NewType, ParamSpec, TypeVar
 
 if TYPE_CHECKING:
     from pipy_harness.native.agent.usage import AgentUsageReloadValue
@@ -30,10 +29,12 @@ if TYPE_CHECKING:
         CodingReloadHistoryValue,
     )
     from pipy_harness.native.repl_state import (
+        NativeReplProviderState,
         ReplPendingDefaultReloadValue,
         ReplSelectionReloadValue,
     )
     from pipy_harness.native.tui import ExtensionChromePrepareInput
+    from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_runtime import (
@@ -44,7 +45,9 @@ from pipy_harness.native.extension_runtime import (
     RegisteredMessageRenderer,
     RegisteredShortcut,
     RegisteredTool,
+    _ExtensionCandidate,
     _ExtensionRuntime,
+    _report_activation_cleanup,
 )
 from pipy_harness.native.extension_types import (
     ExtensionTool,
@@ -94,7 +97,46 @@ PREPARED_RELOAD_BUILD_STEPS = (
 _T = TypeVar("_T")
 _K = TypeVar("_K")
 _V = TypeVar("_V")
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
 _RLOCK_TYPE = type(threading.RLock())
+
+
+class ReloadPreparationRefused(RuntimeError):
+    """A detached reload cannot safely reach semantic acceptance."""
+
+
+def balance_startup_candidate(
+    function: Callable[Concatenate[Any, _ExtensionCandidate, _P], _R],
+) -> Callable[Concatenate[Any, _P], _R]:
+    signature = inspect.signature(function)
+
+    @wraps(function)
+    def guarded(session: Any, /, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        candidate = _ExtensionCandidate()
+        bound = signature.bind(session, candidate, *args, **kwargs)
+        bound.apply_defaults()
+        sink = partial(session._emit_diagnostic, None, bound.arguments["error_stream"])
+        body_succeeded = False
+        try:
+            result = function(session, candidate, *args, **kwargs)
+            body_succeeded = True
+            return result
+        finally:
+            try:
+                _report_activation_cleanup(candidate.dispose(), sink)
+            except BaseException as error:
+                if body_succeeded:
+                    raise
+                try:
+                    sink(f"pipy: cleanup report failed: {type(error).__name__}.")
+                except BaseException:
+                    pass
+
+    parameters = list(signature.parameters.values())
+    parameters.pop(1)
+    setattr(guarded, "__signature__", signature.replace(parameters=parameters))
+    return guarded
 
 
 @dataclass(frozen=True, slots=True)
@@ -509,6 +551,172 @@ def _raise_collected(label: str, failures: list[BaseException]) -> None:
     raise BaseExceptionGroup(label, failures)
 
 
+def with_tool_capability(
+    projection: ExtensionProjection,
+    value: ToolCapabilityState,
+) -> ExtensionProjection:
+    return replace(projection, tools=replace(projection.tools, capability_state=value))
+
+
+def build_provider_reload_shadow(
+    state: NativeReplProviderState,
+    refresh: ProviderCatalogRefreshValue,
+    overlay: ProviderCatalogReloadState,
+) -> NativeReplProviderState:
+    live = state.model_runtime.catalog
+    live_auth = live.auth_store
+    if live_auth is None:
+        raise ReloadPreparationRefused("provider auth store is unavailable")
+    catalog_state = copy(live)
+    catalog = catalog_state.catalog = copy(live.catalog)
+    auth = catalog_state.auth_store = copy(live_auth)
+    shadow_refresh = copy(refresh)
+    shadow_refresh.expected_catalog_owner = catalog
+    shadow_refresh.expected_auth_owner = auth
+    shadow_refresh.catalog = copy(refresh.catalog)
+    catalog_token = catalog.capture_catalog_reload_expected()["owner_token"]
+    shadow_refresh.catalog.expected_owner_token = catalog_token
+    shadow_refresh.catalog.replacement_owner_token = object()
+    shadow_refresh.auth = copy(refresh.auth)
+    shadow_refresh.auth.expected_owner_token = auth.capture_reload_expected()
+    shadow_refresh.auth.replacement_owner_token = object()
+    catalog_state.publish_catalog_auth_refresh(shadow_refresh)
+    catalog_state.publish_extension_provider_contributions(overlay)
+    return replace(state, model_runtime=type(state.model_runtime)(catalog_state))
+
+
+def prepare_provider_reload_values(
+    state: NativeReplProviderState,
+    coding: Any,
+    projection: ExtensionProjection,
+    *,
+    unavailable_provider: Callable[[str], Any],
+    usage_prototype: Callable[[Any], Any],
+    empty_history: Any,
+) -> tuple[Any, Any, Any, Any, Any, Any, str, str | None]:
+    catalog = state.model_runtime.catalog
+    if catalog.auth_store is None:
+        raise ReloadPreparationRefused("provider auth store is unavailable")
+    overlay = catalog.prepare_extension_provider_contributions(
+        projection.providers.providers, projection.providers.unregistered
+    )
+    refresh = catalog.prepare_catalog_auth_refresh()
+    shadow = build_provider_reload_shadow(state, refresh, overlay)
+    was_extension = state.current_selection_uses_extension_provider()
+    supported = shadow.current_selection_supported()
+    is_extension = shadow.current_selection_uses_extension_provider()
+    disappeared = not supported or (was_extension and not is_extension)
+    capability_loss, strategy = False, "none"
+    diagnostic, provider = None, coding.provider
+    if not disappeared and is_extension:
+        provider = shadow.current_provider()
+        capability_loss = not getattr(provider, "supports_tool_calls", False)
+        strategy = "refresh"
+    if disappeared or capability_loss:
+        fallback = shadow.reset_to_first_available_model(require_tool_calls=True)
+        if fallback is None:
+            strategy = "unavailable"
+            provider = unavailable_provider(
+                "no available tool-capable fallback was found"
+            )
+            diagnostic = "pipy: no available tool-capable fallback was found."
+        else:
+            strategy, provider = "fallback", shadow.current_provider()
+            reason = (
+                "active model disappeared on reload"
+                if disappeared
+                else "active model no longer supports tool calls after reload"
+            )
+            diagnostic = f"pipy: {reason}; selected {fallback.reference}."
+    if strategy == "fallback":
+        rebind = coding.prepare_reload_rebind(
+            provider,
+            provider_name=shadow.selection.provider_name,
+            model_id=shadow.selection.model_id,
+        )
+        binding, history = rebind.binding, rebind.history
+        usage = coding.prepare_reload_usage_fallback(usage_prototype(shadow.selection))
+    else:
+        replacement = (
+            provider if strategy in ("refresh", "unavailable") else coding.provider
+        )
+        binding = coding.prepare_reload_refresh(replacement)
+        history = empty_history
+        usage = coding.prepare_reload_usage_refresh()
+    return overlay, refresh, shadow, binding, history, usage, strategy, diagnostic
+
+
+def prepare_production_reload(
+    runtime: _ExtensionRuntime,
+    projection: ExtensionProjection,
+    chrome_prepare_input: ExtensionChromePrepareInput,
+    *,
+    state: NativeReplProviderState | None,
+    coding: Any,
+    lock: threading.RLock,
+    unavailable_provider: Callable[[str], Any],
+    usage_prototype: Callable[[Any], Any],
+    empty_history: Any,
+    capability: ToolCapabilityState,
+) -> PreparedReloadEffects:
+    overlay = refresh = binding = history = usage = repl = typing.cast(Any, ())
+    strategy, diagnostic = "none", None
+    if state is not None:
+        catalog = state.model_runtime.catalog
+        expected_overlay = (
+            catalog.extension_providers,
+            catalog.extension_unregistered_providers,
+            catalog._extension_provider_map,
+            catalog.extension_oauth_provider_map,
+        )
+        values = prepare_provider_reload_values(
+            state,
+            coding,
+            projection,
+            unavailable_provider=unavailable_provider,
+            usage_prototype=usage_prototype,
+            empty_history=empty_history,
+        )
+        overlay, refresh, shadow, binding, history, usage, strategy, diagnostic = values
+        with lock:
+            repl = state.prepare_reload_state(
+                selection=shadow.selection,
+                pending_default=shadow.pending_default,
+            )
+    staged = FrozenStagedDeliveryBatch.freeze((), runtime.custom_messages)
+    legacy_values = (
+        projection.renderers.tools,
+        runtime.lifecycle_hooks,
+        projection.runtime_flags.values,
+    )
+    legacy = TemporaryLegacyValue(tuple(map(dict, legacy_values)))
+    factory_value = (strategy, *expected_overlay) if state is not None else (strategy,)
+    factory = ProviderFactoryValue(factory_value)
+    fallback = repl.selection if state is not None else repl
+    unavailable = repl.pending_default if state is not None else repl
+    presentation = PresentationPersistenceValue((diagnostic, strategy == "fallback"))
+    effect = partial(DetachedReloadEffect, dispose=lambda: None)
+    return build_prepared_reload_effects(
+        ReloadEffectPreparationPorts(
+            activation_inputs=lambda: effect(ActivationInputsValue((staged,))),
+            projection=lambda: effect(projection),
+            provider_catalog=lambda: effect(overlay),
+            provider_factory=lambda: effect(factory),
+            provider_refresh=lambda: effect(refresh),
+            provider_fallback=lambda: effect(fallback),
+            coding_binding=lambda: effect(binding),
+            coding_history=lambda: effect(history),
+            coding_usage=lambda: effect(usage),
+            coding_compaction=lambda: effect(CodingCompactionValue(())),
+            unavailable_default=lambda: effect(unavailable),
+            capability=lambda: effect(capability),
+            temporary_legacy=lambda: effect(legacy),
+            presentation_persistence=lambda: effect(presentation),
+            chrome_prepare_input=lambda: effect(chrome_prepare_input),
+        )
+    )
+
+
 def _dispose_completed_reload_effects(
     completed: list[DetachedReloadEffect[Any]],
 ) -> None:
@@ -740,9 +948,6 @@ class OrderedDeliveryGate:
                     delivery()
                 except Exception as error:
                     failures.append(error)
-                except BaseException:
-                    self.abort(token, missing_ok=True)
-                    raise
         finally:
             with self._condition:
                 if self._token is token and self._draining:
@@ -786,6 +991,17 @@ class SessionExtensionGeneration:
 
     runtime: _ExtensionRuntime
     flag_values: dict[str, object]
+    projection: ExtensionProjection | None = None
+    chrome_token: object | None = None
+
+
+def publish_candidate_ownership(candidate: _ExtensionCandidate) -> bool:
+    try:
+        return bool(candidate.publish())
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:
+        return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -886,10 +1102,108 @@ class SessionGenerationRef:
 
         generation.runtime.message_routing._bind_session_mutex(self._lock)
         with self._lock:
-            retired = self._generation
-            self._generation = generation
-            self._generation_id += 1
+            return self.publish_locked(generation)
+
+    def publish_locked(
+        self, generation: SessionExtensionGeneration
+    ) -> SessionExtensionGeneration:
+        retired = self._generation
+        self._generation = generation
+        self._generation_id += 1
         return retired
+
+    def accept_prepared_reload(
+        self,
+        generation: SessionExtensionGeneration,
+        effects: PreparedReloadEffects,
+        *,
+        candidate: _ExtensionCandidate,
+        provider_state: NativeReplProviderState | None,
+        coding_state: Any,
+        tool_capabilities: NativeToolCapabilities,
+        expected_capability: ToolCapabilityState,
+        renderer: Any,
+        emitter: Any,
+    ) -> str | None:
+        strategy = (factory := effects.provider_factory.value)[0]
+        catalog = provider_state.model_runtime.catalog if provider_state else None
+        overlay = effects.provider_catalog.value
+        refresh = effects.provider_refresh.value
+        fallback, unavailable = (
+            effects.provider_fallback.value,
+            effects.unavailable_default.value,
+        )
+        binding, history = effects.coding_binding.value, effects.coding_history.value
+        usage, capability = effects.coding_usage.value, effects.capability.value
+        renderers, hooks, flags = effects.temporary_legacy.value
+        retired: list[object | None] = [None] * 20  # Preallocate; release after unlock.
+        if not publish_candidate_ownership(candidate):
+            return "extension candidate ownership is unavailable"
+        with self._lock:
+            owner = (old := self._generation).runtime.message_routing
+            auth_store = None if catalog is None else catalog.auth_store
+            matches = (
+                tool_capabilities._state is expected_capability
+                and generation.runtime.message_routing.mutex is self._lock
+                and owner.mutex is self._lock
+                and owner._state in ("uninstalled", "live", "retired")
+            )
+            if provider_state is not None and catalog is not None:
+                if auth_store is None:
+                    return "prepared reload owner state changed"
+                matches = (
+                    matches
+                    and catalog.extension_providers is factory[1]
+                    and catalog.extension_unregistered_providers is factory[2]
+                    and catalog._extension_provider_map is factory[3]
+                    and catalog.extension_oauth_provider_map is factory[4]
+                    and catalog.catalog_auth_refresh_matches_expected(refresh)
+                    and provider_state.reload_state_matches_expected(
+                        fallback, unavailable
+                    )
+                    and coding_state.reload_binding_matches_expected(binding)
+                    and coding_state.reload_usage_matches_expected(usage)
+                )
+            if not matches:
+                return "prepared reload owner state changed"
+            if auth_store is not None:
+                retired[10] = auth_store._data
+            retired[0] = self.publish_locked(generation)
+            retired[1] = (
+                old.projection.queues.retire_route()
+                if old.projection is not None
+                else owner.retire()
+            )
+            if provider_state is not None and catalog is not None:
+                retired[2] = catalog.extension_providers
+                retired[3] = catalog.extension_unregistered_providers
+                retired[4] = catalog._extension_provider_map
+                retired[5] = catalog.extension_oauth_provider_map
+                retired[6] = catalog.catalog.rows
+                retired[7] = catalog.catalog.error
+                retired[8] = catalog.catalog.provider_request_configs
+                retired[9] = catalog.catalog._config
+                retired[11] = coding_state._binding
+                retired[12] = coding_state._messages
+                retired[13] = coding_state._usage_accumulator
+                retired[14] = provider_state.selection
+                retired[15] = provider_state.pending_default
+                catalog.publish_extension_provider_contributions(overlay)
+                catalog.publish_catalog_auth_refresh(refresh)
+                if strategy == "fallback":
+                    coding_state.publish_reload_rebind(binding=binding, history=history)
+                    coding_state.publish_reload_usage_fallback(usage)
+                else:
+                    coding_state.publish_reload_refresh(binding)
+                    coding_state.publish_reload_usage_refresh(usage)
+                provider_state.publish_reload_state(fallback, unavailable)
+            retired[16] = tool_capabilities._state
+            tool_capabilities.publish(capability)
+            retired[17], renderer._tool_renderers = renderer._tool_renderers, renderers
+            retired[18], emitter._lifecycle_hooks = emitter._lifecycle_hooks, hooks
+            retired[19], emitter._lifecycle_flags = emitter._lifecycle_flags, flags
+        del retired
+        return None
 
     @property
     def publication_pending(self) -> bool:

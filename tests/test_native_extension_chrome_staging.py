@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import threading
 from contextlib import AbstractContextManager
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from collections.abc import Callable
@@ -25,15 +26,17 @@ from pipy_harness.native.coding.commands import (
 )
 from pipy_harness.native.extension_hooks import _ExtensionLifecycleAgentEventAdapter
 from pipy_harness.native.extension_runtime import (
-    GenerationMessageRouting,
     _ExtensionCandidate,
+    _ExtensionRuntime,
 )
+from pipy_harness.native.extension_types import QueuedCustomMessage
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_generation import (
     SessionExtensionGeneration,
     SessionGenerationRef,
 )
 from pipy_harness.native.tool_loop_session import _ReloadCommandEffects
+import test_native_extension_activation_sealing as transactional
 from pipy_harness.native.tui import (
     ExtensionChromeCommitToken,
     ExtensionChromePrepareInput,
@@ -73,7 +76,10 @@ class _FakeTerminalUi:
         *,
         retirement_scope: Callable[[], AbstractContextManager[None]],
     ) -> dict[int, object]:
-        assert self.semantic_committed
+        semantic_committed = self.semantic_committed
+        if callable(semantic_committed):
+            semantic_committed = semantic_committed()
+        assert semantic_committed
         self.retirement_scopes.append(retirement_scope)
         self.calls.append(("reconcile", snapshot))
         self.reconciles.append(snapshot)
@@ -915,28 +921,18 @@ class _Ctl:
         self.generation_ref = SessionGenerationRef(generation)
         self.workspace_resources = object()
         self.package_roots = SimpleNamespace(extensions=())
-        self._ui = ui
-        self.before_commit: Callable[[], None] | None = None
+        if not ui.semantic_committed:
+            ref = self.generation_ref
+            ui.semantic_committed = cast(Any, lambda: ref.current is not generation)
 
     @property
     def extension_generation(self) -> SessionExtensionGeneration:
         return self.generation_ref.current
 
-    @extension_generation.setter
-    def extension_generation(self, generation: SessionExtensionGeneration) -> None:
-        if self.before_commit is not None:
-            self.before_commit()
-        self.generation_ref.publish(generation)
-        self._ui.semantic_committed = True
 
-
-def _runtime() -> Any:
-    return SimpleNamespace(
-        flags=(),
-        custom_messages=(),
-        activation_hosts=(),
-        message_routing=GenerationMessageRouting([], []),
-    )
+def _runtime() -> _ExtensionRuntime:
+    runtime = transactional._empty_runtime(transactional._host())
+    return replace(runtime, activation_hosts=())
 
 
 def _effects(
@@ -947,6 +943,9 @@ def _effects(
 ) -> tuple[_ReloadCommandEffects, _Ctl]:
     live = SessionExtensionGeneration(_runtime(), {})
     ctl = _Ctl(live, ui)
+    capabilities, mutation, emitter, renderer = transactional._reload_owners(
+        ctl.generation_ref
+    )
     effects = _ReloadCommandEffects(
         session=cast(Any, SimpleNamespace(tool_registry={})),
         ctl=cast(Any, ctl),
@@ -959,16 +958,16 @@ def _effects(
         ),
         keybindings=cast(Any, None),
         terminal_ui=cast(Any, ui),
-        renderer=cast(Any, None),
+        renderer=renderer,
         error_stream=cast(Any, None),
-        emitter=cast(Any, SimpleNamespace(set_flags=lambda _flags: None)),
-        provider_mutation=cast(Any, None),
+        emitter=emitter,
+        provider_mutation=mutation,
         cwd=Path("."),
         resource_options=RuntimeResourceOptions(
             no_extensions=True,
             extension_flag_tokens=tokens,
         ),
-        tool_capabilities=cast(Any, None),
+        tool_capabilities=capabilities,
         diag=lambda _message: None,
         redraw_custom_entries_for_active_branch=lambda: None,
         extension_send_message=lambda *_args: None,
@@ -1044,7 +1043,7 @@ def test_injected_activation_failure_keeps_live_chrome_and_disposes_candidate_si
     assert candidate_sink.snapshot() == ExtensionChromeSnapshot()
 
 
-def test_post_commit_projection_failure_closes_only_detached_candidate(
+def test_post_acceptance_presentation_failure_leaves_candidate_chrome_live(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ui = _FakeTerminalUi()
@@ -1058,11 +1057,6 @@ def test_post_commit_projection_failure_closes_only_detached_candidate(
         lambda *_args, **_kwargs: _runtime(),
     )
     effects, _ctl = _effects(ui=ui, driver=driver)
-    object.__setattr__(
-        effects,
-        "provider_mutation",
-        SimpleNamespace(refresh_provider_after_reload=lambda: None),
-    )
     monkeypatch.setattr(
         _ReloadCommandEffects,
         "_reload_configuration_and_resources",
@@ -1074,7 +1068,7 @@ def test_post_commit_projection_failure_closes_only_detached_candidate(
 
     monkeypatch.setattr(
         _ReloadCommandEffects,
-        "_publish_tool_and_lifecycle_projections",
+        "_refresh_presentation_and_persistence",
         fail_projection,
     )
     outcome = CodingCommandOutcome(
@@ -1086,10 +1080,80 @@ def test_post_commit_projection_failure_closes_only_detached_candidate(
     with pytest.raises(RuntimeError, match="post-commit projection failure"):
         effects.execute(outcome)
 
-    assert sink.snapshot() == ExtensionChromeSnapshot()
+    assert driver.owns_sink(sink)
+    assert [snapshot.title for snapshot in ui.reconciles] == [None]
     before = len(ui.calls)
-    driver.set_title("old-still-live")
-    assert ui.calls[before:] == [("title", "old-still-live")]
+    driver.set_title("candidate-still-live")
+    assert ui.calls[before:] == [("title", "candidate-still-live")]
+
+
+def test_post_publication_interrupt_finishes_live_candidate_chrome_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ui = _FakeTerminalUi()
+    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    driver.set_title("old")
+    sink = _CountingCloseSink()
+    sink.set_title("candidate")
+    monkeypatch.setattr(driver, "new_candidate_sink", lambda: sink)
+    runtime = replace(
+        _runtime(),
+        custom_messages=(QueuedCustomMessage("interrupt", "now", True, None, {}),),
+    )
+    monkeypatch.setattr(
+        tool_loop_session,
+        "_activate_workspace_extensions",
+        lambda *_args, **_kwargs: runtime,
+    )
+    effects, ctl = _effects(ui=ui, driver=driver)
+
+    def interrupt(*_args: object) -> None:
+        raise KeyboardInterrupt("post-publication delivery interrupt")
+
+    object.__setattr__(effects, "extension_send_message", interrupt)
+    candidate = _ExtensionCandidate()
+    with pytest.raises(KeyboardInterrupt, match="post-publication delivery interrupt"):
+        effects._reload_extension_generation(candidate)
+
+    assert ctl.extension_generation.runtime is runtime
+    assert runtime.message_routing._state == "live"  # noqa: SLF001
+    assert driver.owns_sink(sink) and sink.close_calls == 0
+    assert [snapshot.title for snapshot in ui.reconciles] == ["candidate"]
+    driver.set_title("candidate-still-live")
+    assert sink.snapshot().title == "candidate-still-live"
+    assert candidate.dispose().disposed == 0
+
+
+def test_candidate_session_start_uses_only_supplied_lifecycle_projection() -> None:
+    candidate: list[object] = []
+    retained_driver, candidate_driver = object(), object()
+
+    def candidate_hook(event, ctx):
+        candidate.append(
+            (event.name, event.reason, dict(ctx.flags), getattr(ctx.ui, "_ui_driver"))
+        )
+
+    retained_hooks = {"session_start": (lambda *_args: pytest.fail("retained"),)}
+    retained_flags = {"owner": "retained"}
+    emitter = _ExtensionLifecycleAgentEventAdapter(
+        cast(Any, SimpleNamespace(emit=pytest.fail)),
+        lifecycle_hooks=cast(Any, retained_hooks),
+        cwd="/candidate",
+        has_ui=True,
+        ui_driver=cast(Any, retained_driver),
+        flags=retained_flags,
+    )
+    emitter.fire_candidate_session_start(
+        {"session_start": (candidate_hook,)},
+        {"owner": "candidate"},
+        ui_driver=cast(Any, candidate_driver),
+    )
+    assert candidate == [
+        ("session_start", "reload", {"owner": "candidate"}, candidate_driver)
+    ]
+    assert emitter._lifecycle_hooks is retained_hooks  # noqa: SLF001
+    assert emitter._lifecycle_flags == retained_flags  # noqa: SLF001
+    assert emitter._lifecycle_ui_driver is retained_driver  # noqa: SLF001
 
 
 def test_production_reload_stages_real_session_start_chrome_until_acceptance(
@@ -1113,21 +1177,30 @@ def test_production_reload_stages_real_session_start_chrome_until_acceptance(
     ctl = _Ctl(live, ui)
     ctl.workspace_resources = SimpleNamespace(custom_command_slash_names=lambda: ())
     commits = 0
+    original_accept = SessionGenerationRef.accept_prepared_reload
 
-    def old_writer_at_commit() -> None:
+    def accept_with_old_write(ref, *args, **kwargs):
         nonlocal commits
         commits += 1
+        previous = ref.current
         driver.set_title(f"OLD_WRITER_{commits}")
+        ui.semantic_committed = lambda: ref.current is not previous
+        return original_accept(ref, *args, **kwargs)
 
-    ctl.before_commit = old_writer_at_commit
+    monkeypatch.setattr(
+        SessionGenerationRef, "accept_prepared_reload", accept_with_old_write
+    )
     emitter = _ExtensionLifecycleAgentEventAdapter(
-        cast(Any, SimpleNamespace(emit=lambda _event: None)),
+        cast(Any, SimpleNamespace(emit=pytest.fail)),
         lifecycle_hooks={},
         cwd=str(tmp_path),
         has_ui=True,
         ui_driver=driver,
     )
     diagnostics: list[str] = []
+    capabilities, mutation, emitter, renderer = transactional._reload_owners(
+        ctl.generation_ref, emitter
+    )
     effects = _ReloadCommandEffects(
         session=cast(Any, SimpleNamespace(tool_registry={})),
         ctl=cast(Any, ctl),
@@ -1140,15 +1213,13 @@ def test_production_reload_stages_real_session_start_chrome_until_acceptance(
         ),
         keybindings=cast(Any, None),
         terminal_ui=cast(Any, ui),
-        renderer=cast(Any, None),
+        renderer=renderer,
         error_stream=cast(Any, None),
         emitter=emitter,
-        provider_mutation=cast(
-            Any, SimpleNamespace(refresh_provider_after_reload=lambda: None)
-        ),
+        provider_mutation=mutation,
         cwd=tmp_path,
         resource_options=RuntimeResourceOptions(),
-        tool_capabilities=cast(Any, None),
+        tool_capabilities=capabilities,
         diag=diagnostics.append,
         redraw_custom_entries_for_active_branch=lambda: None,
         extension_send_message=lambda *_args: None,
@@ -1162,16 +1233,6 @@ def test_production_reload_stages_real_session_start_chrome_until_acceptance(
         lambda _self: None,
     )
 
-    def publish_candidate(self: _ReloadCommandEffects) -> None:
-        generation = self.ctl.extension_generation
-        self.emitter.set_lifecycle_hooks(generation.runtime.lifecycle_hooks)
-        self.emitter.set_flags(generation.flag_values)
-
-    monkeypatch.setattr(
-        _ReloadCommandEffects,
-        "_publish_tool_and_lifecycle_projections",
-        publish_candidate,
-    )
     monkeypatch.setattr(
         _ReloadCommandEffects,
         "_refresh_presentation_and_persistence",
@@ -1244,8 +1305,6 @@ def test_successful_removal_reconciles_empty_chrome_once_after_acceptance(
     assert replacement_accepted
     assert candidate_sink is not None
     assert ctl.extension_generation is not live
-    assert ui.reconciles == []
-    accepted = driver.accept_candidate(candidate_sink)
-    assert accepted.accepted
+    assert driver.owns_sink(candidate_sink)
     assert ui.reconciles == [ExtensionChromeSnapshot()]
     assert [kind for kind, _value in ui.calls].count("reconcile") == 1

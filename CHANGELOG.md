@@ -211,18 +211,31 @@ entries oldest-first, and a version bump shows the new entries at startup.
   terminal-input listeners, autocomplete providers, editor component, and
   hidden-thinking label; rejected candidate chrome never paints and no longer
   re-fires the retained generation's `session_start`, which previously appended
-  duplicate registrations and rebuilt its editor. A successful reload rebuilds
-  retained chrome from exactly one replacement-generation `session_start` after
-  commit; registrations it does not rebuild
+  duplicate registrations and rebuilt its editor. A reload now invokes exactly
+  one replacement-generation `session_start` against the candidate before
+  acceptance and before accepted staged custom messages become visible, then
+  publishes the prepared generation. The publication gate remains active through
+  accepted staged delivery, two-phase route release, and gate drain—even while
+  those paths invoke extension-visible sinks after the session commit unlocks—
+  before chrome reconciliation. If lifecycle,
+  provider/catalog, or final chrome preparation then refuses the reload,
+  non-staged, non-chrome lifecycle effects such as `notify` may already have
+  occurred; candidate chrome is discarded and all candidate staged messages
+  that the earlier reload path could expose are suppressed. This is part of the
+  `session_start`-before-acceptance ordering change, not another behavior delta.
+  Registrations it does not rebuild
   (including autocomplete, a custom editor, and the hidden-thinking label) are
   cleared, while custom-editor text returns to the built-in editor. Late
   retained writes to a rejected candidate's closed sink are ignored with their
   prior `None` return shape, while `on_terminal_input()` returns an inert
-  disposer. Concurrent retained writes now cross acceptance through a short
-  effect-free ownership handoff, and interrupts from retired listener disposal
-  propagate only after the replacement is explicitly live, without double
-  close. Retired-live handle binding and terminal teardown remain separate
-  follow-ons.
+  disposer. Concurrent owner rotation during candidate-host publication now
+  refuses before any generation/provider/tool/renderer write, preserving the
+  newer live state while retiring the terminal candidate route and closing its
+  chrome. Concurrent retained writes still cross accepted chrome reconciliation
+  through a short effect-free ownership handoff; post-publication interrupts
+  propagate after that reconciliation leaves the replacement explicitly live,
+  without double close. Retired-live handle binding and terminal teardown remain
+  separate follow-ons.
 - Extension activation APIs retained after successful activation or candidate
   rejection can no longer appear to register commands, shortcuts, hooks, tools,
   providers, flags, or renderers into dead candidate state. Late contribution

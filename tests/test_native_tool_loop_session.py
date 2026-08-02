@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import builtins
 import io
+import inspect
 import json
 import threading
 from collections.abc import Mapping
@@ -68,6 +69,7 @@ from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
 )
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
@@ -337,8 +339,8 @@ def _assert_usage_trace_order(
 def _run_session(
     *,
     tool_calls_script: tuple[tuple[ProviderToolCall, ...], ...],
-    tool_registry: Mapping[str, ToolPort] | None,
-    user_inputs: tuple[str, ...],
+    tool_registry: Mapping[str, ToolPort] | None = None,
+    user_inputs: tuple[str, ...] = ("/exit",),
     tmp_path: Path,
     tool_budget: int = 10,
 ) -> tuple[NativeToolReplResult, str, str]:
@@ -777,9 +779,15 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         for node in reload_owner.body
         if isinstance(node, ast.FunctionDef) and node.name == "execute"
     )
+    reload_generation = next(
+        node
+        for node in reload_owner.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_reload_extension_generation"
+    )
     publication_lifetime = next(
         node
-        for node in reload_execute.body
+        for node in reload_generation.body
         if isinstance(node, ast.Try)
         and any(isinstance(statement, ast.With) for statement in node.body)
     )
@@ -804,27 +812,28 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
     assert ctl.attr == "ctl"
     assert isinstance(ctl.value, ast.Name)
     assert ctl.value.id == "self"
-    phase_calls = [
-        node
+    publication_calls = sorted(
+        (node.lineno, node.col_offset, ast.unparse(node.func))
         for statement in publishing.body
         for node in ast.walk(statement)
         if isinstance(node, ast.Call)
-    ]
-    assert len(phase_calls) == 5
-    assert all(isinstance(call.func, ast.Attribute) for call in phase_calls)
-    phase_names = [
-        call.func.attr for call in phase_calls if isinstance(call.func, ast.Attribute)
-    ]
-    assert phase_names == [
-        "_reload_configuration_and_resources",
-        "_reload_extension_generation",
-        "refresh_provider_after_reload",
-        "_publish_tool_and_lifecycle_projections",
-        "_refresh_presentation_and_persistence",
-    ]
+    )
+    assert [name for _, _, name in publication_calls] == (
+        "self.tool_capabilities.prepare_extensions with_tool_capability getattr "
+        "isinstance ExtensionChromeSink prepare_production_reload "
+        "ExtensionChromePrepareInput UnavailableAfterReloadProvider "
+        "_agent_usage.AgentUsageAccumulator _pricing_for CodingReloadHistoryValue "
+        "chrome_sink.close driver.prepare_candidate ExtensionChromeCommitToken "
+        "self.diag self.diag SessionExtensionGeneration gate.reserve "
+        "self.ctl.generation_ref.accept_prepared_reload self.diag self.diag "
+        "_extension_hooks.deliver_accepted_staged_batch cast partial"
+    ).split()
+    execution_lifetime = next(
+        node for node in reload_execute.body if isinstance(node, ast.Try)
+    )
     disposal_call = next(
         node
-        for statement in publication_lifetime.finalbody
+        for statement in execution_lifetime.finalbody
         for node in ast.walk(statement)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
@@ -839,60 +848,53 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "_finish_candidate_chrome"
     )
+    reload_with_chrome_finish_call = next(
+        node
+        for node in ast.walk(execution_lifetime)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_reload_extension_generation"
+    )
     final_diagnostic = next(
         node
-        for node in ast.walk(publication_lifetime)
+        for node in ast.walk(execution_lifetime)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "diag"
-        and node.lineno > finish_chrome_call.lineno
+        and node.lineno > reload_with_chrome_finish_call.lineno
     )
     publishing_end = publishing.end_lineno
     assert publishing_end is not None
     assert publishing_end < finish_chrome_call.lineno
-    assert finish_chrome_call.lineno < final_diagnostic.lineno
+    assert reload_with_chrome_finish_call.lineno < final_diagnostic.lineno
     assert final_diagnostic.lineno < disposal_call.lineno
     reload_methods = {
         node.name: node
         for node in reload_owner.body
         if isinstance(node, ast.FunctionDef)
     }
-    finish_chrome = reload_methods["_finish_candidate_chrome"]
-    lifecycle_calls = [
+    (staged_call,) = (
         node
-        for node in ast.walk(finish_chrome)
+        for node in ast.walk(reload_generation)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "fire_lifecycle"
-    ]
-    assert len(lifecycle_calls) == 2
-    assert all(
-        isinstance(call.args[0], ast.Name)
-        and call.args[0].id == "EVENT_SESSION_START"
-        and any(
-            keyword.arg == "reason"
-            and isinstance(keyword.value, ast.Constant)
-            and keyword.value.value == "reload"
-            for keyword in call.keywords
-        )
-        for call in lifecycle_calls
+        and node.func.attr == "fire_candidate_session_start"
     )
+    assert len(staged_call.args) == 2
+    assert any(keyword.arg == "ui_driver" for keyword in staged_call.keywords)
     accept_call = next(
         node
-        for node in ast.walk(finish_chrome)
+        for node in ast.walk(reload_generation)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "accept_candidate"
+        and node.func.attr == "accept_prepared_reload"
     )
-    staged_call = next(call for call in lifecycle_calls if len(call.keywords) == 2)
     assert staged_call.lineno < accept_call.lineno
     reload_method_line_budgets = {
         "execute": 44,
         "_finish_candidate_chrome": 43,
         "_reload_configuration_and_resources": 32,
-        "_reload_extension_generation": 56,
-        "_commit_extension_generation": 26,
-        "_publish_tool_and_lifecycle_projections": 30,
+        "_reload_extension_generation": 182,
         "_diagnose_unknown_tool_filters": 12,
         "_refresh_presentation_and_persistence": 40,
     }
@@ -1878,8 +1880,12 @@ def _scoped_models_state(tmp_path, seen):
     )
 
 
-def test_scoped_models_show_set_clear_and_cycle(tmp_path, monkeypatch):
+def test_scoped_models_show_set_clear_and_reload_auth_owner_recovery(
+    tmp_path, monkeypatch
+):
+    import pipy_harness.native.tool_loop_session as loop
     from pipy_harness.native.settings import SettingsManager
+    from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 
     monkeypatch.setenv("PIPY_NATIVE_DEFAULTS_PATH", str(tmp_path / "nd.json"))
     (tmp_path / "cfg").mkdir()
@@ -1894,6 +1900,41 @@ def test_scoped_models_show_set_clear_and_cycle(tmp_path, monkeypatch):
     session = NativeToolReplSession(
         provider=provider, provider_state=state, settings_manager=manager
     )
+    catalog = state.model_runtime.catalog
+    auth_store = catalog.auth_store
+    before = (state.selection, session.provider_port, catalog.catalog.rows)
+    reloads = refreshes = 0
+    refresh = loop._ProviderMutationEffects.refresh_provider_after_reload
+    reload_configuration = (
+        loop._ReloadCommandEffects._reload_configuration_and_resources
+    )
+
+    def drop_then_restore_auth(effects):
+        nonlocal reloads
+        reload_configuration(effects)
+        reloads += 1
+        catalog.auth_store = None if reloads == 1 else auth_store
+
+    def record_refresh(owner):
+        nonlocal refreshes
+        rows = catalog.catalog.rows
+        refresh(owner)
+        assert catalog.catalog.rows is rows
+        refreshes += 1
+
+    monkeypatch.setattr(
+        loop._ReloadCommandEffects,
+        "_reload_configuration_and_resources",
+        drop_then_restore_auth,
+    )
+    monkeypatch.setattr(
+        loop._ProviderMutationEffects, "refresh_provider_after_reload", record_refresh
+    )
+    monkeypatch.setattr(
+        NativeToolCapabilities,
+        "unknown_filter_names",
+        property(lambda _owner: ("refusal-only",) if refreshes else ()),
+    )
     error_stream = io.StringIO()
     session.run(
         workspace_root=tmp_path,
@@ -1902,6 +1943,8 @@ def test_scoped_models_show_set_clear_and_cycle(tmp_path, monkeypatch):
             "/scoped-models openai/*\n"
             "/scoped-models\n"
             "/scoped-models clear\n"
+            "/reload\n"
+            "/reload\n"
             "/exit\n"
         ),
         output_stream=io.StringIO(),
@@ -1914,6 +1957,12 @@ def test_scoped_models_show_set_clear_and_cycle(tmp_path, monkeypatch):
     # Persisted to the settings file (set then cleared -> empty list on disk).
     on_disk = json.loads(settings_path.read_text(encoding="utf-8"))
     assert on_disk.get("enabledModels") == []
+    assert "provider auth store is unavailable" in out
+    assert out.count("keeping the previous extensions") == 1
+    assert "unknown tool name(s): refusal-only" in out
+    assert (reloads, refreshes) == (2, 1)
+    assert catalog.auth_store is auth_store and catalog.catalog.rows is not before[2]
+    assert state.selection is before[0] and session.provider_port is before[1]
     # /scoped-models view/set/clear ran no provider turn.
     assert seen == []
 
@@ -2691,9 +2740,15 @@ def test_reload_rebinds_active_extension_provider_factory(tmp_path):
     ]
 
 
-def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("reject_candidate", [False, True])
+def test_reload_tool_capability_fallback_refreshes_accepted_or_retained_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reject_candidate: bool
 ) -> None:
+    if not reject_candidate:
+        monkeypatch.setattr(
+            "pipy_harness.native.tool_loop_session._ProviderMutationEffects.refresh_provider_after_reload",
+            lambda _effects: pytest.fail("accepted reload used legacy refresh"),
+        )
     constructed, pricing_lookups = _capture_usage_construction(monkeypatch)
     marker = tmp_path / "tool-capability.txt"
     marker.write_text("enabled", encoding="utf-8")
@@ -2702,7 +2757,7 @@ def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator
     (extension_dir / "capability_provider.py").write_text(
         "from datetime import datetime, timezone\n"
         "from pathlib import Path\n"
-        "from pipy_harness.extensions import ExtensionProvider\n"
+        "from pipy_harness.extensions import ExtensionFlag, ExtensionProvider\n"
         "from pipy_harness.models import HarnessStatus\n"
         "from pipy_harness.native.models import ProviderResult\n"
         f"MARKER = Path({str(marker)!r})\n"
@@ -2726,6 +2781,9 @@ def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator
         "    MARKER.write_text('disabled', encoding='utf-8')\n"
         "def activate(api):\n"
         "    api.register_command('disable-provider-tools', 'disable tools', _disable)\n"
+        f"    if {reject_candidate!r}:\n"
+        "        name = 'needs-value' if MARKER.read_text() == 'enabled' else 'candidate-state'\n"
+        "        api.register_flag(ExtensionFlag(name, 'string'))\n"
         "    api.register_provider(ExtensionProvider(name='capabilityext',\n"
         "        default_model='active', models=('active',), factory=lambda ctx: _Port()))\n"
         "    api.register_provider(ExtensionProvider(name='fallbackext',\n"
@@ -2749,6 +2807,10 @@ def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator
     session = NativeToolReplSession(
         provider=state.current_provider(), provider_state=state
     )
+    if reject_candidate:
+        session.resource_options = RuntimeResourceOptions(
+            extension_flag_tokens=("--needs-value=x",)
+        )
     error_stream = io.StringIO()
 
     result = session.run(
@@ -2761,6 +2823,8 @@ def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator
     assert result.status is HarnessStatus.SUCCEEDED
     assert state.current_selection().reference != "capabilityext/active"
     assert "no longer supports tool calls after reload" in error_stream.getvalue()
+    kept_previous = "keeping the previous extensions" in error_stream.getvalue()
+    assert kept_previous is reject_candidate
     assert [
         (provider_name, model_id) for provider_name, model_id, _ in pricing_lookups
     ] == [
@@ -2770,8 +2834,7 @@ def test_reload_tool_capability_fallback_constructs_a_distinct_usage_accumulator
             state.current_selection().model_id,
         ),
     ]
-    assert len(constructed) == 2
-    assert constructed[0] is not constructed[1]
+    assert len(constructed) == 1 + reject_candidate
 
 
 def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
@@ -2850,8 +2913,7 @@ def test_reload_falls_back_when_shadowing_extension_provider_is_removed(
             state.current_selection().model_id,
         ),
     ]
-    assert len(constructed) == 2
-    assert constructed[0] is not constructed[1]
+    assert len(constructed) == 1
 
 
 def test_reload_fail_closes_removed_extension_provider_when_no_fallback(
@@ -3956,6 +4018,55 @@ def test_a_malformed_candidate_flag_retains_the_complete_prior_generation(
     assert len(rejected_api._outbox) == rejected_outbox_size
     with pytest.raises(ExtensionCapabilityError):
         rejected_api.register_command("too-late", "late", lambda _ctx, _args: None)
+
+
+def test_startup_signature_and_failure_candidate_balance_is_exact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pipy_harness.native.session_generation as generation
+    import pipy_harness.native.tool_loop_session as loop
+    from pipy_harness.native.extension_runtime import _ExtensionCandidate
+
+    signature = inspect.signature(NativeToolReplSession.run)
+    assert "candidate" not in signature.parameters
+    assert signature.return_annotation == "NativeToolReplResult"
+    source = inspect.getsource(NativeToolReplSession.run)
+    assert source.count("SessionExtensionGeneration(") == 1
+    monkeypatch.setattr(_ExtensionCandidate, "publish", lambda _candidate: False)
+    result = _run_session(tmp_path=tmp_path, tool_calls_script=())[0]
+    assert (result.status, result.exit_code) == (HarnessStatus.FAILED, 2)
+    assert result.error_type == "ExtensionActivationError"
+    assert result.error_message == "extension candidate ownership is unavailable"
+    extension_dir = tmp_path / ".pipy" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (extension_dir / "startup.py").write_text("def activate(api):\n    pass\n")
+    reports = []
+
+    def fail_report(cleanup, sink):
+        reports.append((cleanup, sink))
+        raise KeyboardInterrupt("report failed")
+
+    monkeypatch.setattr(generation, "_report_activation_cleanup", fail_report)
+    build_projection = loop._build_candidate_extension_projection
+
+    def fail_projection(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("injected startup projection failure")
+
+    monkeypatch.setattr(loop, "_build_candidate_extension_projection", fail_projection)
+    with pytest.raises(RuntimeError, match="startup projection failure"):
+        _run_session(tmp_path=tmp_path, tool_calls_script=())
+    cleanup, sink = reports[0]
+    assert len(reports) == cleanup.disposed == 1
+    assert "cleanup report failed: KeyboardInterrupt" in sink.args[-1].getvalue()
+    monkeypatch.setattr(loop, "_build_candidate_extension_projection", build_projection)
+    with pytest.raises(KeyboardInterrupt, match="report failed"):
+        _run_session(tmp_path=tmp_path, tool_calls_script=())
+    try:
+        raise LookupError("call inside an unrelated except")
+    except LookupError:
+        with pytest.raises(KeyboardInterrupt, match="report failed"):
+            _run_session(tmp_path=tmp_path, tool_calls_script=())
 
 
 def test_a_malformed_startup_flag_disposes_the_unpublished_candidate(

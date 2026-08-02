@@ -79,6 +79,7 @@ from pipy_harness.native.extension_runtime import (
     EVENT_SESSION_BEFORE_FORK,
     EVENT_SESSION_BEFORE_SWITCH,
     EVENT_SESSION_BEFORE_TREE,
+    EVENT_SESSION_START,
     EVENT_TOOL_CALL,
     EVENT_TOOL_RESULT,
     EVENT_TURN_END,
@@ -160,6 +161,18 @@ _BEFORE_AGENT_START_MAX_CHARS: int = 16 * 1024
 _PROVIDER_REQUEST_FIELD_MAX_CHARS: int = 128 * 1024
 
 
+def deliver_staged_custom(
+    sink: Callable[..., object], message: QueuedCustomMessage
+) -> None:
+    sink(
+        message.custom_type,
+        message.content,
+        message.display,
+        message.options,
+        message.details,
+    )
+
+
 def deliver_accepted_staged_batch(  # noqa: C901 - explicit independent cleanup arms
     batch: FrozenStagedDeliveryBatch,
     *,
@@ -167,10 +180,11 @@ def deliver_accepted_staged_batch(  # noqa: C901 - explicit independent cleanup 
     token: OrderedDeliveryToken,
     user_sink: Callable[[QueuedUserMessage], None],
     custom_sink: Callable[[QueuedCustomMessage], None],
+    release_route: Callable[[], object] | None = None,
 ) -> None:
     """Deliver one frozen staged batch before releasing queued live sends.
 
-    R3b defines this sequencer but no production path calls it. Users retain
+    R3b defines this sequencer; startup and accepted reload now call it. Users retain
     their order and all run before customs in their order (the established R1
     flush shape). Every sink runs unlocked. Ordinary failures are all preserved;
     interrupts stop delivery, abort queued work, and propagate.
@@ -184,19 +198,31 @@ def deliver_accepted_staged_batch(  # noqa: C901 - explicit independent cleanup 
         except Exception as error:
             failures.append(error)
 
+    route_release_attempted = False
     try:
         gate.validate(token)
         for user_message in batch.user_messages:
             deliver(user_sink, user_message)
         for custom_message in batch.custom_messages:
             deliver(custom_sink, custom_message)
+        if release_route is not None:
+            route_release_attempted = True
+            try:
+                release_route()
+            except Exception as error:
+                failures.append(error)
         gate.release(token)
         try:
             gate.drain(token)
         except Exception as error:
             failures.append(error)
-    finally:
-        gate.abort(token, missing_ok=True)
+    except BaseException:
+        if release_route is not None and not route_release_attempted:
+            try:
+                release_route()
+            except BaseException:
+                pass
+        raise
     if len(failures) == 1:
         raise failures[0]
     if failures:
@@ -648,14 +674,33 @@ class _ExtensionLifecycleAgentEventAdapter:
     def set_flags(self, flags: Mapping[str, object]) -> None:
         self._lifecycle_flags = dict(flags)
 
+    def fire_candidate_session_start(
+        self,
+        hooks: Mapping[str, tuple[HookHandler, ...]],
+        flags: Mapping[str, object],
+        *,
+        ui_driver: ExtensionUiDriver | None,
+    ) -> None:
+        self.fire_lifecycle(
+            EVENT_SESSION_START,
+            reason="reload",
+            ui_driver_override=ui_driver,
+            hooks_override=hooks,
+            flags_override=flags,
+        )
+
     def fire_lifecycle(
         self,
         name: str,
         *,
         reason: str | None = None,
         ui_driver_override: ExtensionUiDriver | None = None,
+        hooks_override: Mapping[str, tuple[HookHandler, ...]] | None = None,
+        flags_override: Mapping[str, object] | None = None,
     ) -> None:
-        hooks = self._lifecycle_hooks.get(name)
+        hooks = (
+            self._lifecycle_hooks if hooks_override is None else hooks_override
+        ).get(name)
         if not hooks:
             return
         dispatch_lifecycle_hooks(
@@ -669,7 +714,7 @@ class _ExtensionLifecycleAgentEventAdapter:
                 if ui_driver_override is not None
                 else self._lifecycle_ui_driver
             ),
-            flags=self._lifecycle_flags,
+            flags=self._lifecycle_flags if flags_override is None else flags_override,
             project_trusted=self._lifecycle_project_trusted,
         )
 
