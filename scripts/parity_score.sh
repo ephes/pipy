@@ -44,7 +44,7 @@ check A10 "azure-openai"             small  "test -f src/pipy_harness/native/pro
 check A11 "cloudflare"               small  "test -f src/pipy_harness/native/providers/cloudflare.py"
 
 echo
-echo "── Tools (B1–B9) ───────────────────────────────────"
+echo "── Agent tools + output bounding (B1–B9) ───────────"
 check B1  "read"        small  "test -f src/pipy_harness/native/tools/read.py"
 check B2  "ls"          small  "test -f src/pipy_harness/native/tools/ls.py"
 check B3  "grep"        small  "test -f src/pipy_harness/native/tools/grep.py"
@@ -58,7 +58,10 @@ check B6  "edit"        small  "test -f src/pipy_harness/native/tools/edit.py"
 # command substitution is refused. A dormant unregistered helper cannot pass.
 check B7  "bash"        big    "uv run python scripts/parity_checks/bash_behavior.py"
 check B8  "edit-diff"   small  "test -f src/pipy_harness/native/tools/edit_diff.py"
-check B9  "truncate"    small  "test -f src/pipy_harness/native/tools/truncate.py"
+# Pi keeps output truncation internal rather than advertising another agent
+# tool. Exercise pipy's independent read, bash, and provider-visible result
+# bounds instead of checking for a model-facing helper module.
+check B9  "output bounds" small  "uv run pytest -q tests/test_native_tools_read.py::test_read_tool_truncates_to_byte_limit tests/test_bash_tool.py::test_bounds_large_output tests/test_native_tools_base.py::test_tool_execution_result_rejects_oversized_output"
 
 echo
 echo "── Core subsystems (C1–C15) ────────────────────────"

@@ -249,8 +249,9 @@ trust before saved/default/UI fallback; project extensions remain gated.
 | `--no-builtin-tools`, `-nbt` | Disable built-in tools but keep extension/custom tools enabled |
 | `--no-tools`, `-nt` | Disable all tools |
 
-Built-in tools include `read`, `bash`, `edit`, `write`, `grep`, `find`, and
-`ls`.
+Built-in tools include `read`, `ls`, `grep`, `find`, `write`, `edit`,
+`edit_diff`, and `bash`. Read excerpts, shell output, and provider-visible tool
+results are bounded automatically.
 
 ### Resource options
 

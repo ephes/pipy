@@ -369,9 +369,10 @@ touches `pipy-session` records).
 `pipy` and `pipy repl` start the interactive native shell with default slug
 `native-repl`. There is one product REPL: the bounded model-driven tool loop.
 The model drives `read`, `ls`, `grep`, `find`, `write`, `edit`, `edit_diff`,
-`truncate`, and `bash`. `--tool-budget` (default 50, max 200) caps invocations
-per user turn. Filesystem tools refuse generated, `.git`, symlink-escaped, and
-oversized targets.
+and `bash`. `--tool-budget` (default 50, max 200) caps invocations per user
+turn. Filesystem tools refuse generated, `.git`, symlink-escaped, and oversized
+targets. Read excerpts, shell output, and provider-visible tool results retain
+independent automatic output bounds.
 
 `bash` is a real shell, matching Pi: a prompt like "run the tests" lets the
 model run an arbitrary command in the workspace (e.g. `just test`, `uv run

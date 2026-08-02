@@ -865,7 +865,6 @@ NATIVE_TOOL_LOOP_SYSTEM_PROMPT: str = (
     "- grep: literal-string search across files\n"
     "- find: glob-pattern path search\n"
     "- write/edit/edit_diff: workspace mutations (workspace-only)\n"
-    "- truncate: shrink a prior tool result\n"
     "- bash: run a shell command in the workspace. This is a real shell — "
     "pipes, redirection, command substitution, and any executable on PATH are "
     "allowed. Use it to run tests, builds, git, and other commands; combined "

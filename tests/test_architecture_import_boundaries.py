@@ -199,7 +199,6 @@ _CONCRETE_TOOL_MODULES = (
     "pipy_harness.native.tools.grep",
     "pipy_harness.native.tools.ls",
     "pipy_harness.native.tools.read",
-    "pipy_harness.native.tools.truncate",
     "pipy_harness.native.tools.write",
 )
 

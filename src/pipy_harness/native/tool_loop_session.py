@@ -497,7 +497,6 @@ def production_tool_registry() -> dict[str, ToolPort]:
     from pipy_harness.native.tools.grep import GrepTool
     from pipy_harness.native.tools.ls import LsTool
     from pipy_harness.native.tools.read import ReadTool
-    from pipy_harness.native.tools.truncate import TruncateTool
     from pipy_harness.native.tools.write import WriteTool
 
     return {
@@ -508,7 +507,6 @@ def production_tool_registry() -> dict[str, ToolPort]:
         "write": WriteTool(),
         "edit": EditTool(),
         "edit_diff": EditDiffTool(),
-        "truncate": TruncateTool(),
         "bash": BashTool(),
     }
 

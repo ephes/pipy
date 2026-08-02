@@ -124,12 +124,11 @@ Additionally, pipy ships `openrouter` (not in pi-mono); it is counted as
 includes hermetic unit tests against a stub HTTP transport, and is wired into
 `pipy run --native-provider <name>` in `cli.py`.
 
-### B. Tools (9 features)
+### B. Agent tools and output bounding (9 features)
 
-Source of truth: every `.ts` file under
-`~/src/pi-mono/packages/coding-agent/src/core/tools/` that defines a tool
-(excluding shared helpers: `file-mutation-queue.ts`, `output-accumulator.ts`,
-`path-utils.ts`, `render-utils.ts`, `tool-definition-wrapper.ts`, `index.ts`).
+Source of truth: Pi's model-visible tool inventory plus the internal output
+bounding applied before large tool results reach the model. Shared
+implementation helpers are not themselves agent-visible tools.
 
 | # | Feature | pipy status | Verify command |
 | - | ------- | ----------- | -------------- |
@@ -141,11 +140,12 @@ Source of truth: every `.ts` file under
 | B6 | edit | ✅ | `test -f src/pipy_harness/native/tools/edit.py` |
 | B7 | bash | ✅ | `uv run python scripts/parity_checks/bash_behavior.py` |
 | B8 | edit-diff | ✅ | `test -f src/pipy_harness/native/tools/edit_diff.py` |
-| B9 | truncate | ✅ | `test -f src/pipy_harness/native/tools/truncate.py` |
+| B9 | automatic output bounding | ✅ | Focused read/bash/provider-output bound tests; see `scripts/parity_score.sh`. |
 
-**Per-tool acceptance:** module exposes a class implementing `ToolPort` and
-gets registered in `production_tool_registry` (where appropriate for the model
-loop). Hermetic tests covering happy-path + at least two failure cases.
+**Per-tool acceptance:** model-visible tool modules expose a class implementing
+`ToolPort` and are registered in `production_tool_registry`. B9 instead verifies
+internal automatic bounds; it is not a model-visible schema. Hermetic tests
+cover happy paths and failures.
 
 ### C. Core subsystems (14 features)
 

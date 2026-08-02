@@ -1007,8 +1007,6 @@ class _ToolLoopRenderer:
                 (" ", plain),
                 (str(data.get("path", "")), plain),
             ]
-        if tool_name == "truncate":
-            return [("truncate", bold)]
         preview = self._argument_preview(arguments_json)
         return [(f"{tool_name}({preview})", bold)]
 
@@ -1048,8 +1046,6 @@ class _ToolLoopRenderer:
         }
         if tool_name in path_defaults:
             return f"{tool_name} {data.get('path', path_defaults[tool_name])}"
-        if tool_name == "truncate":
-            return "truncate"
         preview = self._argument_preview(arguments_json)
         return f"{tool_name}({preview})"
 

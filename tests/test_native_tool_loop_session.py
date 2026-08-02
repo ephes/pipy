@@ -70,6 +70,7 @@ from pipy_harness.native.repl_state import (
     NativeReplProviderState,
 )
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.session import NATIVE_TOOL_LOOP_SYSTEM_PROMPT
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
@@ -1167,10 +1168,9 @@ def test_product_pricing_lookup_is_injected_into_session_and_run_usage(
 # --------------------- production registry holds model tools ----------------
 
 
-def test_production_tool_registry_registers_real_bash():
+def test_production_tool_inventories_exclude_removed_truncate_tool() -> None:
     registry = production_tool_registry()
-
-    expected = {
+    expected = (
         "read",
         "ls",
         "grep",
@@ -1178,13 +1178,42 @@ def test_production_tool_registry_registers_real_bash():
         "write",
         "edit",
         "edit_diff",
-        "truncate",
         "bash",
-    }
-    assert set(registry.keys()) == expected
-    assert "bash" in registry
-    for name in registry:
-        assert registry[name].definition.name == name
+    )
+
+    assert tuple(registry) == expected
+    assert extension_reserved_tool_names() == expected
+    assert "truncate" not in NATIVE_TOOL_LOOP_SYSTEM_PROMPT
+    for name, tool in registry.items():
+        assert tool.definition.name == name
+
+
+def test_production_request_does_not_advertise_or_dispatch_truncate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
+    provider = _UsageScriptProvider(
+        (
+            (None, (_make_call("truncate", '{"text":"already seen"}'),)),
+            (None, ()),
+        )
+    )
+    result = NativeToolReplSession(
+        provider=provider,
+        tool_registry=production_tool_registry(),
+    ).run(
+        workspace_root=tmp_path,
+        input_stream=io.StringIO("try removed tool\n"),
+        output_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+    )
+
+    assert len(provider.requests) == 2
+    assert all(
+        "truncate" not in {tool.name for tool in request.available_tools}
+        for request in provider.requests
+    )
+    assert result.tool_invocation_count == 0
 
 
 # ------------------------- provider capability gate ------------------------

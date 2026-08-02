@@ -62,7 +62,6 @@ def extension_reserved_tool_names(
         "write",
         "edit",
         "edit_diff",
-        "truncate",
         "bash",
     ]
     for name in extra_tool_names:
