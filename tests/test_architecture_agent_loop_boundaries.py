@@ -14,6 +14,7 @@ LOOP_MODULE = "pipy_harness.native.agent.loop"
 LOOP_PATH = SOURCE_ROOT / "pipy_harness/native/agent/loop.py"
 TOOL_LOOP_SESSION_PATH = SOURCE_ROOT / "pipy_harness/native/tool_loop_session.py"
 AGENT_RUN_PATH = SOURCE_ROOT / "pipy_harness/native/coding/agent_run.py"
+STATUS_EFFECTS_PATH = SOURCE_ROOT / "pipy_harness/native/coding/status_effects.py"
 ONE_SHOT_RUNTIME_PATH = SOURCE_ROOT / "pipy_harness/native/session.py"
 RPC_PATH = SOURCE_ROOT / "pipy_harness/native/automation/rpc.py"
 
@@ -341,6 +342,76 @@ def test_run_coordinator_assembles_agent_loop_without_inline_policy_cycle() -> N
         and node.func.id == "AgentLoop"
         for node in ast.walk(coordinator_tree)
     )
+
+
+def test_repl_step_delegates_the_complete_status_family_to_one_owner() -> None:
+    tree = ast.parse(
+        TOOL_LOOP_SESSION_PATH.read_text(encoding="utf-8"),
+        filename=str(TOOL_LOOP_SESSION_PATH),
+    )
+    repl_step = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "_ReplLoopStep"
+    )
+    step_once = next(
+        node
+        for node in repl_step.body
+        if isinstance(node, ast.FunctionDef) and node.name == "step_once"
+    )
+    former_callbacks = {
+        "_agent_loop_entered",
+        "_agent_input_accepted",
+        "_provider_result_observed",
+        "_agent_cancellation_observed",
+        "_sync_tool_policy_counters",
+        "_agent_provider_succeeded",
+        "_agent_provider_failed",
+        "_agent_no_tool_assistant",
+        "_agent_malformed_fatal",
+    }
+    nested_functions = {
+        node.name
+        for node in ast.walk(step_once)
+        if isinstance(node, ast.FunctionDef) and node is not step_once
+    }
+    assert nested_functions.isdisjoint(former_callbacks)
+    assert not any(
+        isinstance(node, ast.FunctionDef) and node.name == "_sync_tool_policy_counters"
+        for node in ast.walk(tree)
+    )
+
+    owner_calls = [
+        node
+        for node in ast.walk(step_once)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "CodingAgentTurnStatusEffects"
+    ]
+    assert len(owner_calls) == 1
+    assert {keyword.arg for keyword in owner_calls[0].keywords} == {
+        "state",
+        "presentation",
+    }
+    coordinator_call = next(
+        node
+        for node in ast.walk(step_once)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "CodingAgentRunCoordinator"
+    )
+    status_policy = next(
+        keyword.value
+        for keyword in coordinator_call.keywords
+        if keyword.arg == "status_policy"
+    )
+    assert isinstance(status_policy, ast.Name)
+    assert status_policy.id == "status_effects"
+
+    status_source = STATUS_EFFECTS_PATH.read_text(encoding="utf-8")
+    assert "pipy_harness.native.tui" not in status_source
+    assert "pipy_harness.native.extension" not in status_source
+    assert "pipy_harness.native.providers" not in status_source
 
 
 def test_one_shot_compatibility_runtime_reuses_canonical_provider_execution() -> None:

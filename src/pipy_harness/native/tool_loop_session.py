@@ -54,7 +54,6 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
-    AgentCancellationReason,
     AgentEventSink,
     AgentFailure,
     AgentMessage,
@@ -74,7 +73,6 @@ from pipy_harness.native.agent.loop import (
 from pipy_harness.native.agent.loop_policy import (
     MAX_AGENT_TOOL_BUDGET,
     AgentProviderRequestPolicyInput,
-    AgentProviderStatusDecision,
     AgentToolPolicyDecision,
     AgentToolPolicyState,
 )
@@ -158,7 +156,6 @@ from pipy_harness.native.coding.accepted_input import (
 from pipy_harness.native.coding.agent_run import (
     AgentLoopProviderTurnAdapter,
     AgentLoopRequestSourceAdapter,
-    AgentLoopStatusPolicyAdapter,
     CodingAgentRunCoordinator,
 )
 from pipy_harness.native.coding.commands import (
@@ -196,6 +193,7 @@ from pipy_harness.native.coding.state import (
     CodingSessionState,
     CodingSessionUsageSnapshot,
 )
+from pipy_harness.native.coding.status_effects import CodingAgentTurnStatusEffects
 from pipy_harness.native.export_distribution import (
     NativeExportError,
     ShareCancelled,
@@ -263,10 +261,7 @@ from pipy_harness.native.image_attachment import (
     resolve_image_attachments,
 )
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
-from pipy_harness.native.models import (
-    ProviderRequest,
-    ProviderResult,
-)
+from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.package_runtime import (
     PackageResourceRoots,
     compose_package_runtime,
@@ -2724,6 +2719,65 @@ class _ProviderMutationEffects:
         )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _AgentTurnStatusStateAdapter:
+    """Bind agent-turn status state ports at the product composition root."""
+
+    ctl: _RunControlState
+    coding_state: CodingSessionState
+    prompt_history_store: PromptHistoryStore
+    prompt_for_recall: str | None
+
+    def mark_run_entered(self) -> None:
+        self.ctl.extension_in_agent_turn = True
+
+    def record_input_accepted(self) -> None:
+        self.coding_state.record_input_accepted()
+
+    def record_prompt_recall(self, prompt: str, /) -> None:
+        self.prompt_history_store.record(prompt)
+
+    def sync_tool_policy(self, state: AgentToolPolicyState, /) -> None:
+        self.coding_state.sync_tool_policy(state)
+
+    def clear_provider_failure(self) -> None:
+        self.coding_state.clear_provider_failure()
+
+    def record_provider_failure(self, failure: AgentFailure, /) -> None:
+        self.coding_state.record_provider_failure(failure)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _AgentTurnStatusPresentationAdapter:
+    """Bind status presentation ports without leaking the concrete UI inward."""
+
+    session: "NativeToolReplSession"
+    terminal_ui: ToolLoopTerminalUi | None
+    error_stream: TextIO
+    refresh_legacy_footer_with_usage: Callable[[], None]
+
+    def has_pending_input(self) -> bool:
+        return self.terminal_ui is not None and self.terminal_ui.has_pending_messages()
+
+    def promote_pending_input(self) -> None:
+        if self.terminal_ui is not None:
+            self.terminal_ui.promote_pending_to_drain()
+
+    def restore_pending_input(self) -> None:
+        if self.terminal_ui is not None:
+            self.terminal_ui.restore_pending_to_editor()
+
+    def emit_diagnostic(self, message: str, /) -> None:
+        self.session._emit_diagnostic(
+            self.terminal_ui,
+            self.error_stream,
+            message,
+        )
+
+    def refresh_usage_footer(self) -> None:
+        self.refresh_legacy_footer_with_usage()
+
+
 class _ReplLoopStep:
     """Composition-root handler that owns one REPL loop iteration and the
     loop's lifecycle bookends.
@@ -2788,7 +2842,6 @@ class _ReplLoopStep:
         ],
         _extension_custom_driver: Callable[..., object],
         _extension_notify: Callable[[str, str], None],
-        _sync_tool_policy_counters: Callable[[AgentToolPolicyState], None],
         coding_session_control: Callable[[], ExtensionCodingSessionControl],
     ) -> LoopStepSignal:
         # Per-action built-in control-state reassignments (session tree, tree
@@ -3150,89 +3203,22 @@ class _ReplLoopStep:
                 waiter=provider_waiter,
             )
 
-        def _agent_loop_entered() -> None:
-            ctl.extension_in_agent_turn = True
-
-        def _agent_input_accepted() -> None:
-            coding_state.record_input_accepted()
-            # Only genuine literal prompts enter the local recall store.
-            if resource_provider_text is None:
-                prompt_history_store.record(user_input)
-
-        def _provider_result_observed(result: ProviderResult) -> None:
-            del result
-            if terminal_ui is not None and terminal_ui.has_pending_messages():
-                terminal_ui.promote_pending_to_drain()
-
-        def _agent_provider_succeeded(
-            status: AgentProviderStatusDecision,
-            tool_state: AgentToolPolicyState,
-        ) -> None:
-            del status
-            del tool_state
-            coding_state.clear_provider_failure()
-
-        def _agent_cancellation_observed(
-            reason: AgentCancellationReason,
-        ) -> None:
-            if terminal_ui is None:
-                return
-            if reason is AgentCancellationReason.OPERATOR_ABORT:
-                terminal_ui.restore_pending_to_editor()
-            elif reason in (
-                AgentCancellationReason.STEERING,
-                AgentCancellationReason.LOCAL_COMMAND,
-            ):
-                terminal_ui.promote_pending_to_drain()
-
-        def _agent_provider_failed(
-            status: AgentProviderStatusDecision,
-            tool_state: AgentToolPolicyState,
-        ) -> None:
-            failure = status.failure
-            assert failure is not None
-            del tool_state
-            coding_state.record_provider_failure(failure)
-            suffix = (
-                f" (response_status={status.response_status})"
-                if status.response_status is not None
-                else ""
-            )
-            session._emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                "pipy: provider failure during turn: "
-                f"{failure.error_type}: {failure.message.value}{suffix}",
-            )
-            refresh_legacy_footer_with_usage()
-
-        def _agent_no_tool_assistant(
-            tool_state: AgentToolPolicyState,
-        ) -> None:
-            del tool_state
-            refresh_legacy_footer_with_usage()
-
-        def _agent_malformed_fatal(
-            failure: AgentFailure,
-            tool_state: AgentToolPolicyState,
-        ) -> None:
-            del tool_state
-            session._emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                f"pipy: tool-loop ended after {failure.message.value}",
-            )
-
-        status_policy = AgentLoopStatusPolicyAdapter(
-            run_entered=_agent_loop_entered,
-            input_accepted=_agent_input_accepted,
-            provider_result_observed=_provider_result_observed,
-            provider_cancellation_observed=(_agent_cancellation_observed),
-            tool_policy_state_changed=_sync_tool_policy_counters,
-            provider_succeeded=_agent_provider_succeeded,
-            provider_failed=_agent_provider_failed,
-            no_tool_assistant=_agent_no_tool_assistant,
-            malformed_fatal=_agent_malformed_fatal,
+        status_effects = CodingAgentTurnStatusEffects(
+            state=_AgentTurnStatusStateAdapter(
+                ctl=ctl,
+                coding_state=coding_state,
+                prompt_history_store=prompt_history_store,
+                # Only genuine literal prompts enter the local recall store.
+                prompt_for_recall=(
+                    user_input if resource_provider_text is None else None
+                ),
+            ),
+            presentation=_AgentTurnStatusPresentationAdapter(
+                session=session,
+                terminal_ui=terminal_ui,
+                error_stream=error_stream,
+                refresh_legacy_footer_with_usage=(refresh_legacy_footer_with_usage),
+            ),
         )
         tool_waiter = (
             None
@@ -3242,7 +3228,7 @@ class _ReplLoopStep:
         run_coordinator = CodingAgentRunCoordinator(
             request_source=AgentLoopRequestSourceAdapter(_prepare_loop_request),
             provider_turn=AgentLoopProviderTurnAdapter(_complete_loop_provider_turn),
-            status_policy=status_policy,
+            status_policy=status_effects,
             tool_capabilities=execution_projections,
             tool_policy=agent_tool_policy,
             event_sink=emitter,
@@ -4418,9 +4404,6 @@ class NativeToolReplSession:
         )
         product_session.rebuild_active_history()
 
-        def _sync_tool_policy_counters(state: AgentToolPolicyState) -> None:
-            coding_state.sync_tool_policy(state)
-
         # Native session-tree command state. ``ctl.pending_prefill`` carries text
         # from a ``/tree`` user-message selection back into the next prompt
         # (rehydrated editor in the live TUI). ``ctl.tree_filter_mode`` is the
@@ -4819,7 +4802,6 @@ class NativeToolReplSession:
                 _active_provider_header_callback=collaborators.active_provider_header_callback,
                 _extension_custom_driver=collaborators.extension_custom_driver,
                 _extension_notify=_extension_notify,
-                _sync_tool_policy_counters=_sync_tool_policy_counters,
                 coding_session_control=collaborators.coding_session_control,
             ),
             finalize=partial(

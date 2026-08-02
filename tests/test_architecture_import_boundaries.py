@@ -475,6 +475,27 @@ _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS = frozenset(
     }
 )
 
+_CODING_STATUS_EFFECTS_FORBIDDEN_IMPORTS = _CODING_AGENT_RUN_FORBIDDEN_IMPORTS
+
+_CODING_STATUS_EFFECTS_ALLOWED_DIRECT_IMPORTS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "typing",
+        "typing.Protocol",
+        "pipy_harness.native.agent.loop_policy",
+        "pipy_harness.native.agent.loop_policy.AgentProviderStatusDecision",
+        "pipy_harness.native.agent.loop_policy.AgentToolPolicyState",
+        "pipy_harness.native.agent.results",
+        "pipy_harness.native.agent.results.AgentCancellationReason",
+        "pipy_harness.native.agent.results.AgentFailure",
+        "pipy_harness.native.models",
+        "pipy_harness.native.models.ProviderResult",
+    }
+)
+
 # Accepted-input preparation depends on the same forbidden categories as the
 # agent-run collaborators: canonical native.agent contracts plus the injected
 # coding state/input queue only, never composition, UI/terminal, extensions,
@@ -911,6 +932,17 @@ ARCHITECTURE_RULES = (
             "UI/terminal, extensions, concrete providers/tools, persistence "
             "coordination, automation/RPC, the SDK, capture, or the metadata-only "
             "workflow archive"
+        ),
+    ),
+    BoundaryRule(
+        source_package="pipy_harness.native.coding.status_effects",
+        forbidden_imports=_CODING_STATUS_EFFECTS_FORBIDDEN_IMPORTS,
+        reason=(
+            "the agent-turn status owner may depend only on canonical agent "
+            "values and narrow injected state/presentation ports, never "
+            "provider transport, concrete UI/terminal, extension activation "
+            "or packages, persistence implementations, automation/RPC, the "
+            "SDK, capture, or the metadata-only workflow archive"
         ),
     ),
     BoundaryRule(
@@ -2489,6 +2521,22 @@ def test_coding_agent_run_direct_imports_match_explicit_allowlist() -> None:
     assert {reference.module for reference in references} == (
         _CODING_AGENT_RUN_ALLOWED_DIRECT_IMPORTS
     ), "remove stale allowances when the agent-run adapters drop imports"
+
+
+def test_coding_status_effects_direct_imports_match_explicit_allowlist() -> None:
+    status_effects_path = (
+        SOURCE_ROOT / "pipy_harness" / "native" / "coding" / "status_effects.py"
+    )
+    references = _import_references(SOURCE_ROOT, status_effects_path)
+
+    assert not _unallowlisted_direct_imports(
+        SOURCE_ROOT,
+        status_effects_path,
+        allowed_imports=_CODING_STATUS_EFFECTS_ALLOWED_DIRECT_IMPORTS,
+    ), "agent-turn status effects gained a dependency outside their allowlist"
+    assert {reference.module for reference in references} == (
+        _CODING_STATUS_EFFECTS_ALLOWED_DIRECT_IMPORTS
+    ), "remove stale allowances when agent-turn status effects drop imports"
 
 
 @pytest.mark.parametrize(

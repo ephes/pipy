@@ -12,9 +12,10 @@ Historical architecture-quality measurements, review evidence, and migration
 disposition are preserved in the
 [2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md).
 
-The bounded transactional-reload correctness boundary is complete. **D1 — make
-the documentation entry point reader-facing** is also complete, and **L1 —
-normalize source import order** is the explicit next slice. The
+The bounded transactional-reload correctness boundary is complete. The
+comparative-review remediation queue is complete through **A1 — extract the
+agent-turn status effect family**, and **T1 — share only the proven provider
+test contract** is the explicit next slice. The
 [Backlog](backlog.md) owns the exact pointer and next queue. The package
 metadata's native coding-agent description matches this architecture and stays
 unchanged; version/distribution identity, license/URLs, and wheel verification
@@ -89,6 +90,9 @@ canonical package does not import them back.
   counters, compaction state, and provider-failure state;
 - `accepted_input.py` prepares one accepted prompt and request-only context;
 - `agent_run.py` assembles and invokes the canonical loop;
+- `status_effects.py` owns the run-entry, input-accepted, result, cancellation,
+  tool-policy, provider-settlement, no-tool, and malformed-fatal status family
+  behind narrow state and presentation ports;
 - `commands.py` and `command_registry.py` own the closed command vocabulary,
   classification, metadata, and dispatch outcomes;
 - `product_session.py` coordinates state-first private-session transitions; and
@@ -134,6 +138,17 @@ and unavailable binding remain methods on
 `_ProviderMutationEffects`, rather than a second reload-only mutation path.
 `_BuiltinCommandInterpreter` now contains only the closed
 four-family routing plus the closed footer policy.
+
+`_ReplLoopStep.step_once` remains the product composition point for accepted-
+input preparation, provider-turn construction, local input dispatch, and run
+coordination. It no longer defines the agent-turn status callbacks. Instead it
+constructs one `CodingAgentTurnStatusEffects` collaborator using private frozen
+adapters over only the required run/coding/prompt-recall state and presentation
+operations. The owner imports canonical status values but no provider
+transport, extension activation/package implementation, or concrete TUI type.
+Its synchronous callback bodies preserve the established state-before-recall,
+failure-before-diagnostic-before-footer, result/cancellation pending-input, and
+no-tool footer order in captured and live-terminal modes.
 
 `native/session.py` owns the explicitly named
 `NativeHarnessCompatibilityRuntime` used only by `pipy run` and the narrow
@@ -861,7 +876,7 @@ retained-generation lifecycle hook. The effect emits the final reload diagnostic
 next, and the root footer policy runs only after that effect returns. R7 has run
 the full R1–R6 acceptance basis, including ordered R5a then R5b, and represents
 this boundary as closed. The remediation queue contains exactly 33 execution
-slices; D1 is complete and L1 is next.
+slices; A1 is complete and T1 is next.
 
 ## Sessions, automation, and trust domains
 
@@ -1169,8 +1184,10 @@ C901-pinned file. The load-bearing summary is:
   dialogs/editor/overlay/theme and notifications are immediate; queue delivery
   has no id/retry/compaction/capacity protocol; and independently published
   settings/keybindings/resources intentionally survive extension rejection;
-- `_ReplLoopStep.step_once` remains the principal high-complexity,
-  cross-boundary orchestrator with a wide collaborator list;
+- `_ReplLoopStep.step_once` retains accepted-input preparation, provider-turn
+  construction, local input dispatch, and run coordination with a wide
+  collaborator list; its cohesive agent-turn status family now has the typed
+  `CodingAgentTurnStatusEffects` owner described above;
 - the harness/SDK one-shot compatibility runtime is an intentional
   metadata-fixture difference, with canonical provider execution and executable
   non-equivalence tests;
@@ -1234,9 +1251,9 @@ thinking contexts to their generation and guards complete selection commits,
 including ordered durable thinking append. R6 ships three-phase atomic model
 mutation. R7 adds one compact successful-reload cross-owner integration test and
 the durable six-residual/scenario reconciliation; it adds no product behavior or
-mechanism. R7 is complete. **D1 — make the documentation entry point
-reader-facing** is also complete, and **L1 — normalize source import order** is
-next. R3c3's two documented deltas, R4a's live-message loss fix, and R4c's
+mechanism. R7 is complete, as are D1, L1–L9, P1–P2, and A1. **T1 — share only
+the proven provider test contract** is next. R3c3's two documented deltas,
+R4a's live-message loss fix, and R4c's
 coherent publication/stale-chrome refusal are recorded in the changelog. R4b and
 R7 have no separate changelog entry because R4b adopts already-published
 coherence and R7 adds characterization/reconciliation only. That is not a
