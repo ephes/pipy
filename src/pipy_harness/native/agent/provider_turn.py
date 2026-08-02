@@ -48,6 +48,9 @@ class ProviderTurnDeltaPolicy:
             raise TypeError("ProviderTurnDeltaPolicy.reasoning must be an exact bool")
 
 
+_DEFAULT_PROVIDER_TURN_DELTA_POLICY: ProviderTurnDeltaPolicy = ProviderTurnDeltaPolicy()
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderTurnOutcome:
     """Exactly one completed provider result or typed cancellation reason."""
@@ -275,7 +278,7 @@ class ProviderTurnExecutor:
         *,
         turn_index: int,
         waiter: ProviderTurnWaiter | None = None,
-        delta_policy: ProviderTurnDeltaPolicy = ProviderTurnDeltaPolicy(),
+        delta_policy: ProviderTurnDeltaPolicy = _DEFAULT_PROVIDER_TURN_DELTA_POLICY,
     ) -> ProviderTurnOutcome:
         """Complete one turn synchronously or through the supplied wait policy."""
 

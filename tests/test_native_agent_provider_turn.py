@@ -145,6 +145,24 @@ def test_provider_turn_executor_rejects_invalid_numeric_timeout(
         ProviderTurnExecutor(cancel_join_timeout_seconds=timeout)
 
 
+class _DerivedProviderTurnDeltaPolicy(ProviderTurnDeltaPolicy):
+    pass
+
+
+def _record_delta_policies(
+    executor: ProviderTurnExecutor, monkeypatch: pytest.MonkeyPatch
+) -> list[ProviderTurnDeltaPolicy]:
+    delta_policies: list[ProviderTurnDeltaPolicy] = []
+    delta_sinks = executor._delta_sinks
+
+    def record_delta_sinks(*args, **kwargs):
+        delta_policies.append(cast(ProviderTurnDeltaPolicy, args[2]))
+        return delta_sinks(*args, **kwargs)
+
+    monkeypatch.setattr(executor, "_delta_sinks", record_delta_sinks)
+    return delta_policies
+
+
 @dataclass(slots=True)
 class _SynchronousProvider:
     supports_tool_calls: bool = True
@@ -207,6 +225,14 @@ def test_complete_validates_inputs_before_invoking_provider(tmp_path: Path) -> N
             turn_index=0,
             delta_policy=cast(ProviderTurnDeltaPolicy, object()),
         )
+    with pytest.raises(TypeError, match="delta_policy must be an exact"):
+        executor.complete(
+            provider,
+            request,
+            sink,
+            turn_index=0,
+            delta_policy=_DerivedProviderTurnDeltaPolicy(),
+        )
 
     assert provider.order == []
     assert sink.events == []
@@ -238,6 +264,60 @@ def test_synchronous_turn_emits_exact_canonical_deltas_with_backpressure(
     ]
 
 
+def test_default_delta_policy_reuses_one_value_for_real_turn_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executor = ProviderTurnExecutor()
+    delta_policies = _record_delta_policies(executor, monkeypatch)
+    synchronous_provider = _SynchronousProvider()
+    synchronous_sink = _CollectingSink()
+    synchronous_outcome = executor.complete(
+        synchronous_provider,
+        _request(tmp_path),
+        synchronous_sink,
+        turn_index=9,
+    )
+    interruptible_provider = _SynchronousProvider()
+    interruptible_sink = _CollectingSink()
+
+    def settle(
+        done_event: threading.Event, cancel_event: threading.Event
+    ) -> ProviderTurnInterruption:
+        assert done_event.wait(timeout=2)
+        assert not cancel_event.is_set()
+        return ProviderTurnInterruption.SETTLED
+
+    interruptible_outcome = executor.complete(
+        interruptible_provider,
+        _request(tmp_path),
+        interruptible_sink,
+        turn_index=10,
+        waiter=settle,
+    )
+
+    assert len(delta_policies) == 2
+    default_policy = delta_policies[0]
+    assert type(default_policy) is ProviderTurnDeltaPolicy
+    assert (default_policy.text, default_policy.reasoning) == (True, True)
+    assert delta_policies[1] is default_policy
+    assert synchronous_outcome.result is not None
+    assert synchronous_outcome.result.final_text == "complete"
+    assert synchronous_outcome.cancellation_reason is None
+    assert synchronous_sink.events == [
+        AssistantTextDelta(9, ProductContent("text-1")),
+        AssistantReasoningDelta(9, ProductContent("reasoning-1")),
+        AssistantTextDelta(9, ProductContent("text-2")),
+    ]
+    assert interruptible_outcome.result is not None
+    assert interruptible_outcome.result.final_text == "complete"
+    assert interruptible_outcome.cancellation_reason is None
+    assert interruptible_sink.events == [
+        AssistantTextDelta(10, ProductContent("text-1")),
+        AssistantReasoningDelta(10, ProductContent("reasoning-1")),
+        AssistantTextDelta(10, ProductContent("text-2")),
+    ]
+
+
 @dataclass(slots=True)
 class _SelectiveDeltaProvider:
     supports_tool_calls: bool = False
@@ -263,28 +343,34 @@ class _SelectiveDeltaProvider:
 
 
 def test_delta_policy_preserves_text_only_and_fully_buffered_provider_contracts(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    executor = ProviderTurnExecutor()
+    delta_policies = _record_delta_policies(executor, monkeypatch)
+    text_policy = ProviderTurnDeltaPolicy(text=True, reasoning=False)
     text_provider = _SelectiveDeltaProvider()
     text_sink = _CollectingSink()
-    ProviderTurnExecutor().complete(
+    executor.complete(
         text_provider,
         _request(tmp_path),
         text_sink,
         turn_index=2,
-        delta_policy=ProviderTurnDeltaPolicy(text=True, reasoning=False),
+        delta_policy=text_policy,
     )
 
+    buffered_policy = ProviderTurnDeltaPolicy(text=False, reasoning=False)
     buffered_provider = _SelectiveDeltaProvider()
     buffered_sink = _CollectingSink()
-    ProviderTurnExecutor().complete(
+    executor.complete(
         buffered_provider,
         _request(tmp_path),
         buffered_sink,
         turn_index=3,
-        delta_policy=ProviderTurnDeltaPolicy(text=False, reasoning=False),
+        delta_policy=buffered_policy,
     )
 
+    assert delta_policies[0] is text_policy
+    assert delta_policies[1] is buffered_policy
     assert text_provider.sink_presence == (True, False)
     assert text_sink.events == [AssistantTextDelta(2, ProductContent("text"))]
     assert buffered_provider.sink_presence == (False, False)

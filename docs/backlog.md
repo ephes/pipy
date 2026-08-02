@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **L5 — make the frozen policy default explicit**
+**Active/next slice:** **L6 — enable modern-import and safe-default gates**
 
 D1 is complete: it restored a concise reader-facing index, replaced the copied
 architecture-quality ledger in the living architecture overview with a link to
@@ -58,7 +58,12 @@ mechanical `typing` to `collections.abc` import-source moves across 18 paths,
 and the later remediation-introduced `typing.ContextManager` finding was
 narrowly migrated to `contextlib.AbstractContextManager` plus its annotation
 name. The repository-wide `UP035` count is 19 to 0. L4 changed no behavior or
-rule configuration and requires no changelog entry. L5 is next.
+rule configuration and requires no changelog entry. L5 is complete: the frozen
+provider-turn delta policy now has one explicit typed immutable module default,
+with focused characterization preserving its exact all-enabled value, identity,
+exact-type validation, explicit overrides, and synchronous and interruptible
+provider-turn output/event behavior. L5 changed no behavior or rule
+configuration and requires no changelog entry. L6 is next.
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -196,8 +201,8 @@ No timeout, cancellation policy, concurrency abstraction, product source, or
 production behavior was added. R0's sticky chrome, immediate UI/notification,
 queue-protocol, independent settings/resources, and fail-soft process/
 persistence narrowings remain explicit. R7 adds no changelog entry because R1–
-R6 already recorded every behavior change. D1 and L1–L4 are complete as
-recorded above, and L5 is next.
+R6 already recorded every behavior change. D1 and L1–L5 are complete as
+recorded above, and L6 is next.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -650,8 +655,8 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1 → L1 → L2 → L3 → L4;
-the mandatory remaining order begins with L5. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1 → L1 → L2 → L3 → L4 → L5;
+the mandatory remaining order begins with L6. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
 their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome
