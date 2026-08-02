@@ -194,7 +194,6 @@ _AGENT_HISTORY_FORBIDDEN_IMPORTS = (
 _CONCRETE_TOOL_MODULES = (
     "pipy_harness.native.tools.bash",
     "pipy_harness.native.tools.edit",
-    "pipy_harness.native.tools.edit_diff",
     "pipy_harness.native.tools.find",
     "pipy_harness.native.tools.grep",
     "pipy_harness.native.tools.ls",

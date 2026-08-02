@@ -162,7 +162,7 @@ def test_session_storage_matches_approval_sandbox_archive_boundary():
     assert "`just-check` label mapped internally to `just check`" in compact_storage
     assert "The now-removed proposal-only REPL boundary" in compact_storage
     assert "`/propose-file`, `/apply-proposal`" in compact_storage
-    assert "model-driven `write` / `edit` / `edit_diff` tools" in compact_storage
+    assert "model-driven `write` / `edit` tools" in compact_storage
     assert "`propose_file_repl`" in compact_storage
     assert "metadata-only `native.patch.proposal.recorded` event" in compact_storage
     assert "applied no edits itself" in compact_storage

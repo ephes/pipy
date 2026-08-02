@@ -126,9 +126,10 @@ includes hermetic unit tests against a stub HTTP transport, and is wired into
 
 ### B. Agent tools and output bounding (9 features)
 
-Source of truth: Pi's model-visible tool inventory plus the internal output
-bounding applied before large tool results reach the model. Shared
-implementation helpers are not themselves agent-visible tools.
+Source of truth: Pi's exact ordered model-visible tool inventory (`read`, `ls`,
+`grep`, `find`, `write`, `edit`, `bash`) plus the internal output bounding
+applied before large tool results reach the model. Shared implementation helpers
+are not themselves agent-visible tools.
 
 | # | Feature | pipy status | Verify command |
 | - | ------- | ----------- | -------------- |
@@ -139,13 +140,14 @@ implementation helpers are not themselves agent-visible tools.
 | B5 | write | ✅ | `test -f src/pipy_harness/native/tools/write.py` |
 | B6 | edit | ✅ | `test -f src/pipy_harness/native/tools/edit.py` |
 | B7 | bash | ✅ | `uv run python scripts/parity_checks/bash_behavior.py` |
-| B8 | edit-diff | ✅ | `test -f src/pipy_harness/native/tools/edit_diff.py` |
+| B8 | exact seven-tool manifest/order; no second edit path | ✅ | `uv run pytest -q tests/test_native_tool_loop_session.py::test_production_tool_inventories_match_exact_pi_manifest` |
 | B9 | automatic output bounding | ✅ | Focused read/bash/provider-output bound tests; see `scripts/parity_score.sh`. |
 
-**Per-tool acceptance:** model-visible tool modules expose a class implementing
-`ToolPort` and are registered in `production_tool_registry`. B9 instead verifies
-internal automatic bounds; it is not a model-visible schema. Hermetic tests
-cover happy paths and failures.
+**Per-tool acceptance:** B1-B7 expose classes implementing `ToolPort` and are
+registered in `production_tool_registry`. B8 freezes the exact model-visible
+set and order after removal of the former pipy-only unified-diff edit path. B9
+verifies internal automatic bounds; it is not a model-visible schema. Hermetic
+tests cover happy paths and failures.
 
 ### C. Core subsystems (14 features)
 
@@ -374,8 +376,8 @@ These pipy invariants are **NOT relaxed** by the parity push:
   text, tool payloads, file contents, diffs, or auth material to the
   pipy session archive.
 - **`.git` default-deny** stays enforced for the read-only and mutation file
-  tools (`read`/`ls`/`grep`/`find`/`write`/`edit`/`edit_diff`); the `bash` real
-  shell is the deliberate exception, matching Pi.
+  tools (`read`/`ls`/`grep`/`find`/`write`/`edit`); the `bash` real shell is the
+  deliberate exception, matching Pi.
 - **Symlink resolution** stays enforced for the file tools.
 - **No new third-party schema validators.** Use `validate_arguments` from
   `tools/base.py`.

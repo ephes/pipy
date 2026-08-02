@@ -108,6 +108,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Removed
 
+- The pipy-only model-visible `edit_diff` tool and its unified-diff
+  implementation have been removed outright, with no alias, compatibility
+  dispatch, or deprecation shim. `edit` is now the sole edit tool, matching
+  Pi's seven-tool product manifest while retaining its existing path and trust
+  policy.
 - The pipy-only model-visible `truncate` tool has been removed outright, with
   no alias, compatibility path, or deprecation shim. Read excerpts, `bash`
   output, provider-visible tool results, and rendered previews retain their

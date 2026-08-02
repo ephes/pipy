@@ -57,7 +57,11 @@ check B6  "edit"        small  "test -f src/pipy_harness/native/tools/edit.py"
 # shell metacharacters, so containment happens at resolution time), and
 # command substitution is refused. A dormant unregistered helper cannot pass.
 check B7  "bash"        big    "uv run python scripts/parity_checks/bash_behavior.py"
-check B8  "edit-diff"   small  "test -f src/pipy_harness/native/tools/edit_diff.py"
+# Preserve the historical 49-row denominator while turning the former
+# edit-diff row into the durable parity criterion: the production registry,
+# provider schema names, prompt inventory, and extension reservations must all
+# expose exactly Pi's seven tools in provider-visible order.
+check B8  "7-tool manifest" small  "uv run pytest -q tests/test_native_tool_loop_session.py::test_production_tool_inventories_match_exact_pi_manifest"
 # Pi keeps output truncation internal rather than advertising another agent
 # tool. Exercise pipy's independent read, bash, and provider-visible result
 # bounds instead of checking for a model-facing helper module.

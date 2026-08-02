@@ -1168,7 +1168,7 @@ def test_product_pricing_lookup_is_injected_into_session_and_run_usage(
 # --------------------- production registry holds model tools ----------------
 
 
-def test_production_tool_inventories_exclude_removed_truncate_tool() -> None:
+def test_production_tool_inventories_match_exact_pi_manifest() -> None:
     registry = production_tool_registry()
     expected = (
         "read",
@@ -1177,24 +1177,33 @@ def test_production_tool_inventories_exclude_removed_truncate_tool() -> None:
         "find",
         "write",
         "edit",
-        "edit_diff",
         "bash",
+    )
+    prompt_tool_section = NATIVE_TOOL_LOOP_SYSTEM_PROMPT.split(
+        "Available tools:\n", maxsplit=1
+    )[1].split("\n\n", maxsplit=1)[0]
+    prompt_names = tuple(
+        name
+        for line in prompt_tool_section.splitlines()
+        for name in line.removeprefix("- ").split(":", maxsplit=1)[0].split("/")
     )
 
     assert tuple(registry) == expected
+    assert tuple(tool.definition.name for tool in registry.values()) == expected
     assert extension_reserved_tool_names() == expected
+    assert prompt_names == expected
+    assert "edit_diff" not in NATIVE_TOOL_LOOP_SYSTEM_PROMPT
     assert "truncate" not in NATIVE_TOOL_LOOP_SYSTEM_PROMPT
-    for name, tool in registry.items():
-        assert tool.definition.name == name
 
 
-def test_production_request_does_not_advertise_or_dispatch_truncate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("removed_name", ["truncate", "edit_diff"])
+def test_production_request_does_not_advertise_or_dispatch_removed_tool(
+    removed_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     provider = _UsageScriptProvider(
         (
-            (None, (_make_call("truncate", '{"text":"already seen"}'),)),
+            (None, (_make_call(removed_name, "{}"),)),
             (None, ()),
         )
     )
@@ -1210,7 +1219,7 @@ def test_production_request_does_not_advertise_or_dispatch_truncate(
 
     assert len(provider.requests) == 2
     assert all(
-        "truncate" not in {tool.name for tool in request.available_tools}
+        removed_name not in {tool.name for tool in request.available_tools}
         for request in provider.requests
     )
     assert result.tool_invocation_count == 0

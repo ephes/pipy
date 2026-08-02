@@ -705,9 +705,9 @@ memory only and excludes raw excerpt text from the archive.
 
 The now-removed proposal-only REPL boundary (`/propose-file`, `/apply-proposal`)
 was part of the deleted no-tool REPL. The model now edits files through the
-model-driven `write` / `edit` / `edit_diff` tools instead. When that boundary
-existed it recorded a metadata-only `native.patch.proposal.recorded` event,
-labeled its provider turn `propose_file_repl`, applied no edits itself, and kept
-raw patch text out of provider lifecycle payloads. The model-driven mutation
-tools (`write` / `edit` / `edit_diff`) do apply edits, but share that archive
-boundary: their raw diffs and payloads never enter provider lifecycle payloads.
+model-driven `write` / `edit` tools instead. When that boundary existed it
+recorded a metadata-only `native.patch.proposal.recorded` event, labeled its
+provider turn `propose_file_repl`, applied no edits itself, and kept raw patch
+text out of provider lifecycle payloads. The model-driven mutation tools
+(`write` / `edit`) do apply edits, but share that archive boundary: their raw
+diffs and payloads never enter provider lifecycle payloads.

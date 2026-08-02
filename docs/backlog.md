@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **P2 — remove the second agent-visible edit path**
+**Active/next slice:** **A1 — extract the agent-turn status effect family**
 
 D1 is complete: it restored a concise reader-facing index, replaced the copied
 architecture-quality ledger in the living architecture overview with a link to
@@ -95,7 +95,12 @@ pipy-only agent-visible `truncate` tool, its module, schema, special rendering,
 prompt/catalog inventory entries, and tool-specific tests are removed without
 an alias or deprecation shim. Independent automatic read, bash, and
 provider-visible output bounds remain covered, and the removal is recorded in
-the changelog. P2 is next.
+the changelog. P2 is complete: the pipy-only model-visible `edit_diff` tool,
+unified-diff implementation, schema, registry/prompt/catalog/render entries,
+and tool-only tests are removed outright without an alias or compatibility
+dispatch. The production manifest is now exactly `read`, `ls`, `grep`, `find`,
+`write`, `edit`, `bash` in that order; `edit` retains the existing path and
+trust policy as the sole edit tool. A1 is next.
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -233,8 +238,8 @@ No timeout, cancellation policy, concurrency abstraction, product source, or
 production behavior was added. R0's sticky chrome, immediate UI/notification,
 queue-protocol, independent settings/resources, and fail-soft process/
 persistence narrowings remain explicit. R7 adds no changelog entry because R1–
-R6 already recorded every behavior change. D1, L1–L9, and P1 are complete as
-recorded above, and P2 is next.
+R6 already recorded every behavior change. D1, L1–L9, P1, and P2 are complete
+as recorded above, and A1 is next.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -687,8 +692,8 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1 → L1 → L2 → L3 → L4 → L5 → L6 → L7 → L8 → L9 → P1;
-the mandatory remaining order begins with P2. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1 → L1 → L2 → L3 → L4 → L5 → L6 → L7 → L8 → L9 → P1 → P2;
+the mandatory remaining order begins with A1. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
 their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome
@@ -3255,11 +3260,13 @@ module is live.
    is killed when it elapses), streams combined output live, and returns a
    bounded tail. Only metadata (counters, labels) is archived. B7 is a green
    behavior check. Refs: `03:F6`.
-9. ~~Remove the pipy-only `truncate` implementation from the model-visible
-   registry.~~ **Done (P1):** the registry, prompt/catalog inventories, special
-   render policy, module, and tool-specific tests are removed outright. Read,
+9. ~~Remove the pipy-only `truncate` and second `edit_diff` paths from the
+   model-visible registry.~~ **Done (P1/P2):** both modules, schemas, special
+   render policy, prompt/catalog inventory entries, and tool-specific tests are
+   removed outright. The exact ordered manifest is now `read`, `ls`, `grep`,
+   `find`, `write`, `edit`, `bash`; `edit` is the sole edit path, while read,
    bash, and provider-visible outputs retain independent automatic bounds.
-   Refs: `03:F5`.
+   Refs: `03:F5`, `03:F15`.
 10. Remove the archive-side parallel tool family
     (`read_only_tool.NativeExplicitFileExcerptTool`,
     `patch_apply.NativePatchApplyTool`,

@@ -7,9 +7,9 @@ slice 3 provider extension (`ProviderPort.supports_tool_calls`,
 `ProviderToolCall`, `ProviderResult.tool_calls`) into a real turn loop.
 
 The session is the product REPL behind `pipy repl --agent pipy-native`. It runs
-the production tool registry (`read`, `ls`, `grep`, `find`, `write`, `edit`,
-`bash`, ...); tests may inject a `_FixtureTool` through the registry argument to
-verify loop behavior in isolation.
+the exact production tool registry (`read`, `ls`, `grep`, `find`, `write`,
+`edit`, `bash`); tests may inject a `_FixtureTool` through the registry
+argument to verify loop behavior in isolation.
 
 Invariants pinned by the focused tests:
 
@@ -492,7 +492,6 @@ def production_tool_registry() -> dict[str, ToolPort]:
 
     from pipy_harness.native.tools.bash import BashTool
     from pipy_harness.native.tools.edit import EditTool
-    from pipy_harness.native.tools.edit_diff import EditDiffTool
     from pipy_harness.native.tools.find import FindTool
     from pipy_harness.native.tools.grep import GrepTool
     from pipy_harness.native.tools.ls import LsTool
@@ -506,7 +505,6 @@ def production_tool_registry() -> dict[str, ToolPort]:
         "find": FindTool(),
         "write": WriteTool(),
         "edit": EditTool(),
-        "edit_diff": EditDiffTool(),
         "bash": BashTool(),
     }
 

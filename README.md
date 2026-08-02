@@ -368,8 +368,8 @@ touches `pipy-session` records).
 
 `pipy` and `pipy repl` start the interactive native shell with default slug
 `native-repl`. There is one product REPL: the bounded model-driven tool loop.
-The model drives `read`, `ls`, `grep`, `find`, `write`, `edit`, `edit_diff`,
-and `bash`. `--tool-budget` (default 50, max 200) caps invocations per user
+The model drives `read`, `ls`, `grep`, `find`, `write`, `edit`, and `bash`.
+`--tool-budget` (default 50, max 200) caps invocations per user
 turn. Filesystem tools refuse generated, `.git`, symlink-escaped, and oversized
 targets. Read excerpts, shell output, and provider-visible tool results retain
 independent automatic output bounds.
@@ -451,8 +451,8 @@ A `.pipy/commands/<name>.md` custom command and each discovered prompt template
 also appear as their own `/<name>` command (see "Runtime resources" below).
 
 The model reads and edits files through the model-visible `read`, `ls`, `grep`,
-`find`, `write`, `edit`, `edit_diff`, and `bash` tools rather than dedicated
-slash commands. Workspace context (`AGENTS.md`, `AGENTS.MD`, `pipy.md`, or
+`find`, `write`, `edit`, and `bash` tools rather than dedicated slash commands.
+Workspace context (`AGENTS.md`, `AGENTS.MD`, `pipy.md`, or
 `PIPY.md` from ancestors plus the global pipy config root) is discovered and
 composed into the native bootstrap system prompt across the real providers,
 bounded by 64 KiB per file and 256 KiB total.

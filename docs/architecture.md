@@ -1104,8 +1104,7 @@ the authoritative runtime-checkable contracts from `extension_types`.
 Provider catalog construction continues to use the authoritative
 `ProviderConfig`, `AuthStatus`, request, result, stream/reasoning, and
 cancellation types. Dynamically decoded tool integers still reject `bool`
-before `int` narrowing, and edit-diff's atomic writer continues to accept the
-already-resolved `Path`. Export/distribution keeps its private generic-keyed
+before `int` narrowing. Export/distribution keeps its private generic-keyed
 mapping redaction path; the public `redact_export_value(Any) -> Any` boundary is
 intentionally dynamic. These are enduring ownership and validation contracts,
 not exceptions to the complete strict source frontier.

@@ -270,8 +270,8 @@ class ToolContext:
 
     `reference_roots` is a tuple of additional absolute directories that
     read-only tools (`read`, `ls`, `grep`, `find`) may resolve absolute
-    paths against. Mutation tools (`write`, `edit`, `edit_diff`) ignore
-    this tuple and remain workspace-only. Reference roots reuse the
+    paths against. Mutation tools (`write`, `edit`) ignore this tuple and
+    remain workspace-only. Reference roots reuse the
     workspace `.git`/symlink/secret-content defenses; they are read-only
     inspection roots, not additional write surfaces.
 

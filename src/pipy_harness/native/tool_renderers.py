@@ -1001,7 +1001,7 @@ class _ToolLoopRenderer:
                 (" ", plain),
                 (str(data.get("path", ".")), plain),
             ]
-        if tool_name in {"write", "edit", "edit_diff"}:
+        if tool_name in {"write", "edit"}:
             return [
                 (tool_name, bold),
                 (" ", plain),
@@ -1042,7 +1042,6 @@ class _ToolLoopRenderer:
             "ls": ".",
             "write": "",
             "edit": "",
-            "edit_diff": "",
         }
         if tool_name in path_defaults:
             return f"{tool_name} {data.get('path', path_defaults[tool_name])}"
