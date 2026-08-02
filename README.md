@@ -12,6 +12,8 @@ product runtime backends.
 New users should start with [`docs/quickstart.md`](docs/quickstart.md) and
 [`docs/usage.md`](docs/usage.md). For the design rationale, runtime diagrams,
 archive layout, and parity status, start at [`docs/index.md`](docs/index.md).
+Contributors should follow [`CONTRIBUTING.md`](CONTRIBUTING.md) for clean-checkout
+setup, architecture boundaries, validation, review, and privacy expectations.
 
 ## Install And Update
 

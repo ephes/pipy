@@ -36,7 +36,9 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **C1 — add a human contributor path**
+**Program status:** **Complete.** C1 added the human contributor path and closed
+the comparative-review remediation queue. The 33-slice refactoring program is
+complete, and there is no next numbered slice in this program.
 
 D1 is complete: it restored a concise reader-facing index, replaced the copied
 architecture-quality ledger in the living architecture overview with a link to
@@ -120,7 +122,11 @@ comparison identifies one remaining near-verbatim six-scenario pair: Google
 Generative AI and Google Vertex (twelve bodies, or six paired clones). The other
 24 bodies across four provider files share names only and are not counted as
 equivalent contracts; Azure remains a Responses adapter. T1 changes
-only tests and this backlog, so no changelog entry applies. C1 is next.
+only tests and this backlog, so no changelog entry applies. C1 is complete: it
+added the root human contribution workflow and linked it from the README. C1 is
+docs/process only, so no changelog entry applies. With C1 complete, all 33
+numbered execution slices are complete and there is no next numbered slice in
+this program.
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -262,7 +268,9 @@ R6 already recorded every behavior change. D1, L1–L9, P1, and P2 are complete
 as recorded above. A1 is also complete as the behavior-preserving typed status-
 effect ownership extraction described above. T1 is complete as the test-only,
 two-provider contract refactor and factual remaining-clone recount described
-above, and C1 is next.
+above. C1 is complete as the docs/process-only human contributor path, with no
+changelog entry. The 33-slice program is complete and has no next numbered
+slice.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -715,8 +723,10 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1 → L1 → L2 → L3 → L4 → L5 → L6 → L7 → L8 → L9 → P1 → P2 → A1 → T1;
-the mandatory remaining order begins with C1. R4a converted only live
+The final shipped suffix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b
+→ R4c → R5a → R5b → R6 → R7 → D1 → L1 → L2 → L3 → L4 → L5 → L6 → L7 →
+L8 → L9 → P1 → P2 → A1 → T1 → C1. No mandatory numbered order remains; the
+program is complete. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
 their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome
@@ -731,15 +741,16 @@ transactional boundary represented by the
 also complete; no unrelated cleanup, parity, lint, provider-test, or contributor
 work is bundled into either closeout.
 
-The queue has exactly **33 numbered execution slices**: G0; seventeen R slices
+The completed queue has exactly **33 numbered execution slices**: G0; seventeen R slices
 (R0, R1, R2, R3a, R3b, R3c1a, R3c1b, R3c1c, R3c2, R3c3, R4a, R4b, R4c, R5a,
 R5b, R6, R7); D1;
-nine separately bounded lint/fix/enablement slices L1-L9; P1-P2; A1; T1; and C1. The plan's commit gate
-is universal rather than a final slice: every slice
-uses a fresh Pi implementer, focused gates while the diff moves, one supervising-
-root `just check` after review and before commit, an update to the labeled
-**Active/next slice:** field, and a docs/release-note disposition. Routine
-implementation review is one fresh supervised Claude Sonnet pass plus at most
+nine separately bounded lint/fix/enablement slices L1-L9; P1-P2; A1; T1; and C1.
+There is no next numbered slice. The plan's commit gate was universal rather
+than a final slice: every slice used a fresh Pi implementer, focused gates while
+the diff moved, one supervising-root `just check` after review and before
+commit, an update to the then-current slice-status field, and a docs/release-note
+disposition. Routine implementation review was one fresh supervised Claude
+Sonnet pass plus at most
 one fresh Sonnet re-review after material fixes, with no implementer-internal
 Claude. Stop on `CLEAN` or explicitly non-material suggestion-only feedback.
 Opus is reserved for operator-directed escalation of unresolved high-risk
