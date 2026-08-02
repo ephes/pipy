@@ -15,9 +15,9 @@ from pipy_harness.models import (
 from pipy_harness.native.session_resume import (
     ResumeContext,
     build_session_lineage,
+    resume_session_from_archive,
 )
 from pipy_session import append_event, finalize_session, init_session
-from pipy_harness.native.session_resume import resume_session_from_archive
 
 
 def test_validate_branch_label_accepts_safe_labels() -> None:

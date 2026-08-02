@@ -17,7 +17,6 @@ from pipy_harness.native.read_only_tool import (
     resolve_tool_path,
 )
 
-
 # ----------------------------- path resolver ------------------------------
 
 

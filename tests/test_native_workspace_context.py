@@ -24,8 +24,8 @@ from pipy_harness.native.workspace_context import (
     PIPY_CONFIG_HOME_ENV,
     TOTAL_BYTE_CAP_MARKER_PATH_LABEL,
     TOTAL_BYTE_CAP_NOTICE,
-    WorkspaceInstructionDiscovery,
     XDG_CONFIG_HOME_ENV,
+    WorkspaceInstructionDiscovery,
     discover_workspace_instructions,
     resolve_global_instruction_root,
 )

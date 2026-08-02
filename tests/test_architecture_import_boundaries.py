@@ -17,14 +17,13 @@ coupling.
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
-from pathlib import Path
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPO_ROOT / "src"

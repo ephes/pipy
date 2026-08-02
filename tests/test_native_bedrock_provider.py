@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native import ProviderRequest
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolCall,
@@ -18,7 +19,6 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
-from pipy_harness.native import ProviderRequest
 from pipy_harness.native.providers.bedrock import (
     AmazonBedrockProvider,
     BedrockHTTPStatusError,

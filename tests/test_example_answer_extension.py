@@ -13,6 +13,7 @@ import io
 from pathlib import Path
 from typing import TextIO, cast
 
+from pipy_harness.native.agent import AgentAssistantMessage, ProductContent
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
     dispatch_extension_command,
@@ -21,7 +22,6 @@ from pipy_harness.native.extension_runtime import (
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.tui import ToolLoopTerminalUi
-from pipy_harness.native.agent import AgentAssistantMessage, ProductContent
 
 _EXAMPLE = (
     Path(__file__).resolve().parents[1]

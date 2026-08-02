@@ -11,14 +11,15 @@ from types import MappingProxyType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from session_generation_test_support import build_test_projection
 
 import pipy_harness.native.tool_loop_session as tool_loop_session
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.agent import AgentToolCall, AgentUserMessage, ProductContent
 from pipy_harness.native.agent.active_input import AgentActiveInput
+from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.state import CodingSessionState
-from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_hooks import (
     _compose_extension_runtime,
@@ -26,14 +27,16 @@ from pipy_harness.native.extension_hooks import (
 )
 from pipy_harness.native.extension_runtime import (
     ExtensionCodingSessionControl,
-    ExtensionTool,
     ExtensionModelRuntimeControl,
+    ExtensionTool,
     GenerationMessageRouting,
     RegisteredCommand,
     RegisteredShortcut,
     _ExtensionRuntime,
 )
 from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session_generation import (
     ExtensionChromeHandle,
     SessionExtensionGeneration,
@@ -41,8 +44,6 @@ from pipy_harness.native.session_generation import (
     SessionGenerationSnapshot,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
-from pipy_harness.native.resource_loading import RuntimeResourceOptions
-from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
@@ -62,7 +63,6 @@ from pipy_harness.native.tools import (
     ToolExecutionResult,
     ToolRequest,
 )
-from session_generation_test_support import build_test_projection
 
 
 def _runtime(lock: threading.RLock) -> _ExtensionRuntime:

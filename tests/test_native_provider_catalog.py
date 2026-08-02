@@ -13,7 +13,6 @@ from pipy_harness.native.provider_registry import (
     SUPPORTED_NATIVE_PROVIDERS,
 )
 
-
 # Providers pipy implements with a real adapter (the A-rows). ``fake`` is the
 # deterministic bootstrap; ``ds4`` is reframed as a models.json custom provider
 # and is intentionally NOT a built-in row.

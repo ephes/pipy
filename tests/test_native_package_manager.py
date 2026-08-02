@@ -9,13 +9,13 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native.package_manager import (
-    cached_git_source_path,
-    git_cache_path,
     PackageSettingsError,
     PackageSourceError,
+    cached_git_source_path,
     canonical_local_source,
     configure_resource_filter,
     format_package_listing,
+    git_cache_path,
     install_package,
     install_package_source,
     is_local_path_source,

@@ -36,10 +36,10 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputKind,
 )
 from pipy_harness.native.auth_store import AuthStore
-from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.automation.jsonl import JsonlLineBuffer
 from pipy_harness.native.automation.rpc import NativeRpcServer, _PromptChannel
+from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.fake import AutomationFakeProvider
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
@@ -1014,13 +1014,13 @@ def test_encode_session_tree_is_byte_identical_to_json_dumps(tmp_path: Path) -> 
     # Pi's SessionTreeNode field order (entry, children, label?, labelTimestamp?),
     # with the same compact/ensure_ascii options as serialize_json_line. Proven
     # on a shallow labelled+branched tree where json.dumps is safe.
-    from pipy_harness.native.session_tree import _entry_to_json, build_tree_nodes
-    from pipy_harness.native.automation.rpc import _encode_session_tree
     from pipy_harness.native.agent import (
         AgentAssistantMessage,
         AgentUserMessage,
         ProductContent,
     )
+    from pipy_harness.native.automation.rpc import _encode_session_tree
+    from pipy_harness.native.session_tree import _entry_to_json, build_tree_nodes
 
     tree = NativeSessionTree.create(tmp_path, persist=False)
     root = tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))

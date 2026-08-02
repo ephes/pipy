@@ -30,7 +30,6 @@ from pipy_harness.native.tools import (
 )
 from pipy_harness.native.tools.base import materialize_tool_input_schema
 
-
 SIMPLE_OBJECT_SCHEMA = {
     "type": "object",
     "properties": {

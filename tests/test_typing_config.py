@@ -5,7 +5,6 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-
 _STRICT_OVERRIDE_MODULES = (
     "pipy_harness.*",
     "pipy_session.*",

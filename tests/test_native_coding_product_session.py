@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
 from collections.abc import Iterator
+from dataclasses import FrozenInstanceError
 from typing import Callable, cast
 
 import pytest

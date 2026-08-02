@@ -24,7 +24,6 @@ from pipy_harness.native import (
     NativeToolStatus,
 )
 
-
 ROOT = Path(__file__).parents[1]
 
 

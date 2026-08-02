@@ -54,18 +54,18 @@ from pipy_harness.native.agent.tools import (
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import (
+    PROVIDER_TOOL_INTENT_METADATA_KEY,
     NativeRunInput,
     NativeToolRequest,
     NativeToolResult,
-    PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
 )
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.session import (
-    NativeHarnessCompatibilityRuntime,
     SYSTEM_PROMPT_ID,
     SYSTEM_PROMPT_VERSION,
+    NativeHarnessCompatibilityRuntime,
     _CompatibilityRuntimeInvariantError,
     _HarnessCompatibilityProvider,
 )

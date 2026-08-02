@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TextIO, cast
 
 from pipy_harness.native.session_tree_commands import SessionListEntry
-from pipy_harness.native.tui import ToolLoopTerminalUi, _PICKER_CONTINUE
+from pipy_harness.native.tui import _PICKER_CONTINUE, ToolLoopTerminalUi
 
 
 class _TtyBuffer:

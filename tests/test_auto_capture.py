@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import io
+import json
 import sys
 from datetime import UTC, datetime
 
@@ -19,7 +19,6 @@ from pipy_session import (
 )
 from pipy_session.auto_capture import _redacted_argv, run_wrapped_agent
 from pipy_session.cli import main
-
 
 FIXED_NOW = datetime(2026, 4, 30, 13, 30, 0, tzinfo=UTC)
 

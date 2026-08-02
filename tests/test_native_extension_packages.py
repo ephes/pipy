@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pipy_harness.native.package_resources import PackageRoot
 from pipy_harness.native.extensions import (
     REASON_DUPLICATE_NAME,
     discover_extensions,
 )
+from pipy_harness.native.package_resources import PackageRoot
 
 
 def _empty_env() -> dict[str, str]:

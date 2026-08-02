@@ -15,8 +15,8 @@ import io
 import subprocess
 import termios
 import tty
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from typing import TextIO, cast
 
 import pytest
@@ -30,8 +30,8 @@ from pipy_harness.native.extension_runtime import (
     dispatch_extension_command,
 )
 from pipy_harness.native.terminal_driver import TerminalDriver
-from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.tui import (
+    ToolLoopTerminalUi,
     _ExtensionConfirmComponent,
     _ExtensionEditorComponent,
     _ExtensionInputComponent,

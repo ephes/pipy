@@ -6,18 +6,6 @@ from types import SimpleNamespace
 import pytest
 
 from pipy_harness.cli import _build_extension_activation_batch
-from pipy_harness.native.extension_runtime import (
-    LifecycleEvent,
-    REASON_RESERVED_TOOL,
-    activate_extension_batch,
-    activate_extensions,
-    drain_user_messages,
-    dispatch_extension_command,
-    dispatch_extension_shortcut,
-    extension_command_map,
-    extension_shortcuts,
-    make_extension_context,
-)
 from pipy_harness.native.extension_hooks import (
     dispatch_before_provider_request_hooks,
     dispatch_input_hooks,
@@ -25,6 +13,18 @@ from pipy_harness.native.extension_hooks import (
     dispatch_project_trust_hooks,
     dispatch_session_before_hooks,
     dispatch_tool_call_hooks,
+)
+from pipy_harness.native.extension_runtime import (
+    REASON_RESERVED_TOOL,
+    LifecycleEvent,
+    activate_extension_batch,
+    activate_extensions,
+    dispatch_extension_command,
+    dispatch_extension_shortcut,
+    drain_user_messages,
+    extension_command_map,
+    extension_shortcuts,
+    make_extension_context,
 )
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.resource_loading import RuntimeResourceOptions

@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import ast
 import builtins
-import io
 import inspect
+import io
 import json
 import threading
 from collections.abc import Mapping
@@ -26,6 +26,15 @@ import pytest
 
 from pipy_harness.extensions import ExtensionCapabilityError
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native import (
+    FakeNativeProvider,
+    NativeToolReplResult,
+    NativeToolReplSession,
+    ProviderRequest,
+    ProviderResult,
+    ProviderToolCall,
+    production_tool_registry,
+)
 from pipy_harness.native.agent import (
     AgentEvent,
     AgentRunCompleted,
@@ -43,27 +52,17 @@ from pipy_harness.native.agent.history import (
     AgentHistoryCompaction,
     _agent_history_summary,
 )
-from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
 from pipy_harness.native.agent.loop_policy import MAX_AGENT_TOOL_BUDGET
+from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
 from pipy_harness.native.agent.usage import AgentTokenPricing, AgentUsageAccumulator
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
-from pipy_harness.native import (
-    FakeNativeProvider,
-    NativeToolReplResult,
-    NativeToolReplSession,
-    ProviderRequest,
-    ProviderResult,
-    ProviderToolCall,
-    production_tool_registry,
-)
 from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
     extension_reserved_tool_names,
     load_extension_provider_contributions,
 )
-from pipy_harness.native.tool_loop_session import _wait_for_provider_interrupt
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_state import (
     ModelRuntime,
@@ -74,19 +73,20 @@ from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
-from pipy_harness.native.tui import (
-    TURN_ABORTED,
-    TURN_LOCAL_COMMAND,
-    TURN_SETTLED,
-    TURN_STEERED,
-    ToolLoopTerminalUi,
-)
+from pipy_harness.native.tool_loop_session import _wait_for_provider_interrupt
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
     ToolExecutionResult,
     ToolPort,
     ToolRequest,
+)
+from pipy_harness.native.tui import (
+    TURN_ABORTED,
+    TURN_LOCAL_COMMAND,
+    TURN_SETTLED,
+    TURN_STEERED,
+    ToolLoopTerminalUi,
 )
 
 

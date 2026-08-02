@@ -25,22 +25,21 @@ from pipy_harness.native.agent import (
     ProductContent,
     RunCancelled,
 )
-from pipy_harness.native.ui import RenderingAgentEventAdapter
+from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.clipboard import ClipboardResult
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.project_trust import (
     ProjectTrustEntry,
     ProjectTrustStore,
     get_project_trust_options,
 )
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.repl_state import (
     NativeModelOption,
     NativeModelSelection,
     NativeReplProviderState,
 )
 from pipy_harness.native.settings import SettingsManager
-from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import (
     HOTKEY_MODEL_SELECT,
@@ -50,6 +49,7 @@ from pipy_harness.native.tui import (
     _visible_len_allow_sgr,
     run_project_trust_selector,
 )
+from pipy_harness.native.ui import RenderingAgentEventAdapter
 
 
 class _FixedProviderReplState(NativeReplProviderState):

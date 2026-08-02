@@ -41,7 +41,6 @@ from pipy_harness.native.workspace_context import (
 )
 from pipy_harness.runner import HarnessRunner
 
-
 _LEAK_MARKER = "NEVER_RECORD_THIS_INSTRUCTION_BODY"
 _AGENTS_MD = (
     "# Workspace Instructions\n"

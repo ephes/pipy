@@ -10,12 +10,12 @@ from pipy_harness.extensions import (
 )
 from pipy_harness.native.agent import AgentToolCall, ProductContent
 from pipy_harness.native.extension_runtime import _ExtensionToolPort
+from pipy_harness.native.tool_renderers import _extension_render_details_sinks
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolRequest,
     make_tool_request_id,
 )
-from pipy_harness.native.tool_renderers import _extension_render_details_sinks
 from pipy_harness.native.tui import ToolLoopTerminalUi, _TuiToolLoopRenderer
 
 

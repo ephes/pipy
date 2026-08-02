@@ -75,13 +75,13 @@ from pipy_harness.native.catalog import (
     default_model_per_provider,
 )
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
+from pipy_harness.native.ds4 import DS4_DEFAULT_BASE_URL, ds4_preset_dict
 from pipy_harness.native.extension_runtime import (
     RegisteredProvider,
     activate_extensions,
     extension_providers,
 )
 from pipy_harness.native.extensions import discover_extensions
-from pipy_harness.native.ds4 import DS4_DEFAULT_BASE_URL, ds4_preset_dict
 from pipy_harness.native.model_resolver import (
     find_exact_model_reference,
     parse_model_pattern,
@@ -93,16 +93,6 @@ from pipy_harness.native.models_json import (
     ModelDefinition,
     ProviderConfig,
 )
-from pipy_harness.native.providers.openai_completions import JsonResponse
-from pipy_harness.native.provider_construction import (
-    build_provider,
-    resolve_construction,
-)
-from pipy_harness.native.repl_state import (
-    ModelRuntime,
-    NativeModelSelection,
-    NativeReplProviderState,
-)
 from pipy_harness.native.oauth_providers import (
     AnthropicOAuthProvider,
     GitHubCopilotOAuthProvider,
@@ -110,9 +100,18 @@ from pipy_harness.native.oauth_providers import (
     copilot_base_url_from_token,
     get_oauth_provider_ids,
 )
+from pipy_harness.native.provider_construction import (
+    build_provider,
+    resolve_construction,
+)
+from pipy_harness.native.providers.openai_completions import JsonResponse
+from pipy_harness.native.repl_state import (
+    ModelRuntime,
+    NativeModelSelection,
+    NativeReplProviderState,
+)
 from pipy_harness.native.routing import model_request_routing
 from pipy_harness.native.thinking import map_thinking_level, validate_thinking_level
-
 
 IMPLEMENTED_PROVIDERS = (
     "anthropic",

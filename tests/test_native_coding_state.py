@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import ast
 import threading
-from pathlib import Path
-
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError, fields, replace
+from pathlib import Path
 from typing import cast
 
 import pytest

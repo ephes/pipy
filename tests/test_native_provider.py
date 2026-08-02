@@ -4,14 +4,13 @@ from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
-    FakeNativeProvider,
     PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
     PROVIDER_TOOL_INTENT_METADATA_KEY,
     PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
+    FakeNativeProvider,
     ProviderRequest,
 )
-
 
 PROVIDER_MODULES = (
     "openai_codex_provider.py",

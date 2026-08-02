@@ -9,14 +9,13 @@ content leaks into the metadata-first archive.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import pytest
-
-from collections.abc import Mapping
 
 from pipy_harness.adapters import PipyNativeToolReplAdapter
 from pipy_harness.capture import CapturePolicy

@@ -4,27 +4,29 @@ import gc
 import io
 import threading
 import weakref
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from collections.abc import Callable
 from typing import Any, cast
 
 import pytest
+import test_native_extension_activation_sealing as transactional
+from session_generation_test_support import build_test_projection
 
 import pipy_harness.native.tool_loop_session as tool_loop_session
-from pipy_harness.native.extension_chrome_state import (
-    ExtensionChromeAttachResult,
-    ExtensionChromeEvent,
-    ExtensionChromeSink,
-    ExtensionChromeSnapshot,
-)
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
     CodingCommandFooterPolicy,
     CodingCommandOutcome,
     CodingCommandOutcomeKind,
+)
+from pipy_harness.native.extension_chrome_state import (
+    ExtensionChromeAttachResult,
+    ExtensionChromeEvent,
+    ExtensionChromeSink,
+    ExtensionChromeSnapshot,
 )
 from pipy_harness.native.extension_hooks import _ExtensionLifecycleAgentEventAdapter
 from pipy_harness.native.extension_runtime import (
@@ -38,8 +40,6 @@ from pipy_harness.native.session_generation import (
     SessionGenerationRef,
 )
 from pipy_harness.native.tool_loop_session import _ReloadCommandEffects
-import test_native_extension_activation_sealing as transactional
-from session_generation_test_support import build_test_projection
 from pipy_harness.native.tui import (
     ExtensionChromeCommitToken,
     ExtensionChromePrepareInput,

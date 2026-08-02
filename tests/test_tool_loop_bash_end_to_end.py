@@ -18,13 +18,13 @@ from pathlib import Path
 from typing import Any
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.coding.result import NativeToolReplResult
 from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
 )
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.coding.result import NativeToolReplResult
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     production_tool_registry,

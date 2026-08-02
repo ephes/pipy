@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TextIO, cast
 
 import pytest
+from pty_sync import wait_for_input_ready_after
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import NativeToolReplSession
@@ -25,7 +26,6 @@ from pipy_harness.native.models import ProviderResult
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import ToolLoopTerminalUi
-from pty_sync import wait_for_input_ready_after
 
 
 def _spawn_live_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:

@@ -22,13 +22,13 @@ from pathlib import Path
 
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.openai_codex_provider import OpenAICodexResponsesProvider
+from pipy_harness.native.provider_construction import ConstructionOptions
 from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
 from pipy_harness.native.providers.openai_completions import (
     OpenAIChatCompletionsProvider,
 )
-from pipy_harness.native.fake import FakeNativeProvider
-from pipy_harness.native.provider_construction import ConstructionOptions
 from pipy_harness.native.repl_state import ModelRuntime, NativeModelSelection
 from pipy_harness.native.retry import RetryPolicy
 

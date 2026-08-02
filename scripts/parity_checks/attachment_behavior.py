@@ -26,9 +26,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.providers.anthropic_messages import AnthropicResponseParseError
 from pipy_harness.native.providers.anthropic_messages_wire import messages_payload
-from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64

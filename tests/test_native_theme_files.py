@@ -15,13 +15,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from pipy_harness.native.package_resources import PackageRoot
-from pipy_harness.native.themes import DEFAULT_PALETTE, DEFAULT_THEME_NAME
 from pipy_harness.native.theme_files import (
     ThemeRegistry,
     build_theme_registry,
     discover_package_themes,
     load_theme_file,
 )
+from pipy_harness.native.themes import DEFAULT_PALETTE, DEFAULT_THEME_NAME
 
 
 def _write(path: Path, body: str) -> Path:

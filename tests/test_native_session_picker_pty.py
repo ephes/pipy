@@ -19,10 +19,10 @@ from pathlib import Path
 from typing import TextIO, cast
 
 import pytest
+from pty_sync import wait_for_input_ready_after, wait_for_output
 
 from pipy_harness.native.session_tree_commands import SessionListEntry
 from pipy_harness.native.tui import ToolLoopTerminalUi
-from pty_sync import wait_for_input_ready_after, wait_for_output
 
 
 def _spawn_live_drainer(fd: int) -> tuple[threading.Thread, list[bytes]]:

@@ -1,5 +1,6 @@
 import io
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -12,7 +13,6 @@ from pipy_harness.native.tui import (
     _LiveExtensionUiDriver,
     _TuiToolLoopRenderer,
 )
-from pathlib import Path
 
 
 def _ui():

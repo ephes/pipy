@@ -9,7 +9,6 @@ from pipy_harness.native.coding.commands import (
     CodingCommandOutcomeKind,
 )
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

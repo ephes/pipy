@@ -29,7 +29,6 @@ from pipy_harness.native.tools import (
     ToolRequest,
 )
 
-
 _INPUT_SCHEMA = {
     "type": "object",
     "properties": {"text": {"type": "string", "maxLength": 128}},

@@ -5,8 +5,8 @@ import gc
 import inspect
 import subprocess
 import sys
-import weakref
 import threading
+import weakref
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import FrozenInstanceError, fields, replace
@@ -15,6 +15,7 @@ from types import MappingProxyType, SimpleNamespace
 from typing import Any, TypeVar, cast, get_type_hints
 
 import pytest
+from session_generation_test_support import build_test_projection
 
 from pipy_harness.extensions import ToolResult
 from pipy_harness.native.agent.usage import (
@@ -30,19 +31,17 @@ from pipy_harness.native.catalog_state import (
     ProviderCatalogState,
 )
 from pipy_harness.native.coding import CodingInputQueue
+from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.session_controller import (
     CodingSessionController,
     LoopStepSignal,
 )
-from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.state import (
     CodingReloadBindingValue,
     CodingReloadHistoryValue,
     CodingSessionState,
 )
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
-from pipy_harness.native.extension_types import ProviderContext
-from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
     deliver_accepted_staged_batch,
@@ -59,8 +58,21 @@ from pipy_harness.native.extension_runtime import (
     activate_extensions,
     dispatch_extension_command,
 )
+from pipy_harness.native.extension_types import ProviderContext
 from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.package_resources import PackageResourceRoots
+from pipy_harness.native.provider_construction import (
+    build_provider,
+    try_build_extension_provider_port,
+)
+from pipy_harness.native.repl_state import (
+    ModelRuntime,
+    NativeModelSelection,
+    NativeReplProviderState,
+    ReplPendingDefaultReloadValue,
+    ReplSelectionReloadValue,
+)
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session_generation import (
     PREPARED_RELOAD_BUILD_STEPS,
@@ -85,34 +97,18 @@ from pipy_harness.native.session_generation import (
     build_extension_projection,
     prepare_provider_reload_values,
 )
-from pipy_harness.native.provider_construction import (
-    build_provider,
-    try_build_extension_provider_port,
-)
-from pipy_harness.native.repl_state import (
-    ModelRuntime,
-    NativeModelSelection,
-    NativeReplProviderState,
-    ReplPendingDefaultReloadValue,
-    ReplSelectionReloadValue,
-)
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool_capabilities import (
     ToolCapabilityState,
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_loop_session import (
-    _ExtensionCustomEntryRunState,
-    _ReplLoopStep,
-    _RunControlState,
     _build_candidate_extension_projection,
     _build_detached_reload_effects,
     _build_projected_extension_tool_port,
-)
-from pipy_harness.native.tui import (
-    AcceptedCustomMessageSinks,
-    ExtensionChromePrepareInput,
-    _CustomEntryRenderer,
+    _ExtensionCustomEntryRunState,
+    _ReplLoopStep,
+    _RunControlState,
 )
 from pipy_harness.native.tools import (
     ToolContext,
@@ -120,7 +116,11 @@ from pipy_harness.native.tools import (
     ToolRequest,
     make_tool_request_id,
 )
-from session_generation_test_support import build_test_projection
+from pipy_harness.native.tui import (
+    AcceptedCustomMessageSinks,
+    ExtensionChromePrepareInput,
+    _CustomEntryRenderer,
+)
 
 
 def _empty_resources() -> WorkspaceResources:

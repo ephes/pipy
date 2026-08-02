@@ -42,7 +42,6 @@ from pipy_harness.native.agent import (
     UsageUpdated,
 )
 
-
 EXPECTED_PUBLIC_EXPORTS = [
     "AGENT_TOOL_REQUEST_ID_PREFIX",
     "AgentAssistantMessage",

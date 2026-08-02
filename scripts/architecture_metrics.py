@@ -6,11 +6,10 @@ from __future__ import annotations
 import argparse
 import ast
 import json
-from pathlib import Path
 import re
 import subprocess
+from pathlib import Path
 from typing import TypeAlias
-
 
 JsonValue: TypeAlias = (
     None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]

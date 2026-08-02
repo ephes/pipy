@@ -13,16 +13,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.extension_runtime import (
-    activate_extensions,
-    make_extension_context,
-)
 from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
     extension_event_hooks,
 )
 from pipy_harness.native.extension_runtime import (
     LifecycleEvent,
+    activate_extensions,
+    make_extension_context,
 )
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.models import ProviderRequest, ProviderResult

@@ -657,17 +657,17 @@ class _FakeUiDriver:
 
 
 def test_non_lifecycle_dispatchers_can_paint_live_ui_driver(tmp_path: Path) -> None:
-    from pipy_harness.native.extension_runtime import (
-        BeforeAgentStartResult,
-        InputTransform,
-        ToolBlock,
-        ToolResultTransform,
-    )
     from pipy_harness.native.extension_hooks import (
         dispatch_before_agent_start_hooks,
         dispatch_input_hooks,
         dispatch_tool_call_hooks,
         dispatch_tool_result_hooks,
+    )
+    from pipy_harness.native.extension_runtime import (
+        BeforeAgentStartResult,
+        InputTransform,
+        ToolBlock,
+        ToolResultTransform,
     )
 
     driver = _FakeUiDriver()

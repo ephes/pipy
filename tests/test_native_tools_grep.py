@@ -13,7 +13,7 @@ from pipy_harness.native.tools import (
     ToolRequest,
     make_tool_request_id,
 )
-from pipy_harness.native.tools.grep import GrepTool, TRUNCATION_MARKER
+from pipy_harness.native.tools.grep import TRUNCATION_MARKER, GrepTool
 
 
 def _make_request(arguments: dict[str, object]) -> ToolRequest:

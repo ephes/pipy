@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TextIO, cast
 
 import pytest
+from pty_sync import wait_for_input_ready_after
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
@@ -30,7 +31,6 @@ from pipy_harness.native.tool_loop_session import (
     _tool_loop_command_names,
 )
 from pipy_harness.native.tui import ToolLoopTerminalUi
-from pty_sync import wait_for_input_ready_after
 
 
 @dataclass

@@ -19,12 +19,12 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.adapters.native import PipyNativeToolReplAdapter
-from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.automation.run_modes import (
     resolve_app_mode,
     run_json_mode,
     run_print_mode,
 )
+from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.session_tree import NativeSessionTree
 
 

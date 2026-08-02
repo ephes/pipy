@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterable
 import json
-from pathlib import Path
 import subprocess
 import sys
-
+from collections.abc import Iterable
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = REPO_ROOT / "src"

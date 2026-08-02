@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import os
 
-import pytest
-
 import pty_sync
+import pytest
 from pty_sync import (
     BRACKETED_PASTE_READY,
     input_ready_count,
-    wait_for_input_ready,
     wait_for_fd_input_ready_after,
     wait_for_fd_output,
+    wait_for_input_ready,
     wait_for_input_ready_after,
     wait_for_input_ready_count,
     wait_for_output_after,

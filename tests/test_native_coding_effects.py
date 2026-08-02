@@ -11,15 +11,16 @@ from types import SimpleNamespace
 from typing import Any, ContextManager, cast
 
 import pytest
+from session_generation_test_support import build_test_projection
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentUserMessage, ProductContent
 from pipy_harness.native.agent.usage import AgentProviderUsageSample
+from pipy_harness.native.auth_store import AuthStore
+from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.state import CodingSessionState
-from pipy_harness.native.auth_store import AuthStore
-from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.extension_hooks import (
     _compose_extension_runtime,
     dispatch_before_agent_start_hooks,
@@ -64,8 +65,6 @@ from pipy_harness.native.tui import (
     _CustomEntryRenderer,
     _CustomRendererProjectionSnapshot,
 )
-from session_generation_test_support import build_test_projection
-
 
 _RLOCK_BASE = type(threading.RLock())
 

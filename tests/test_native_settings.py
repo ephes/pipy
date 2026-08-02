@@ -26,7 +26,6 @@ from pipy_harness.native.settings import (
     timeout_ms_to_seconds,
 )
 
-
 # --- deep_merge_settings: one-level shallow merge ---------------------------
 
 

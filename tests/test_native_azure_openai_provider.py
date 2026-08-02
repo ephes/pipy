@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native import ProviderRequest
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentToolCall,
@@ -17,7 +18,6 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
-from pipy_harness.native import ProviderRequest
 from pipy_harness.native.providers.azure_openai_responses import (
     AzureOpenAIHTTPStatusError,
     AzureOpenAIResponsesProvider,

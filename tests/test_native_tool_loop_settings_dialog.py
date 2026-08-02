@@ -19,8 +19,7 @@ from typing import TextIO, cast
 import pytest
 
 from pipy_harness.adapters import PipyNativeToolReplAdapter
-from pipy_harness.models import HarnessStatus
-from pipy_harness.models import RunRequest
+from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import NativeToolReplSession
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.auth_store import AuthStore
@@ -49,7 +48,6 @@ from pipy_harness.native.tui import (
     ToolLoopTerminalUi,
 )
 from pipy_harness.runner import HarnessRunner
-
 
 _SETTINGS_BODY_MARKER = "PIPY_PRIVATE_SETTINGS_MARKER_58a7f4d2"
 _PROMPT_HISTORY_MARKER = "PIPY_PRIVATE_PROMPT_HISTORY_MARKER_9c12e6b5"

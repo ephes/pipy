@@ -16,7 +16,6 @@ from pipy_harness.native.auth_store import (
     resolve_request_auth,
 )
 
-
 # ---- resolve_config_value (literal / env-name / !command) ------------------
 
 

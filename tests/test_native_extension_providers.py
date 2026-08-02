@@ -16,23 +16,25 @@ from typing import cast
 import pytest
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.auth_store import AuthStore
+from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
+from pipy_harness.native.extension_provider_catalog import (
+    extension_reserved_command_names,
+    extension_reserved_tool_names,
+    load_extension_provider_contributions,
+)
 from pipy_harness.native.extension_runtime import (
     activate_extensions,
     extension_oauth_providers,
     extension_providers,
     extension_unregistered_providers,
 )
+from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.provider_construction import (
     build_extension_provider_port,
     try_build_extension_provider_port,
-)
-from pipy_harness.native.auth_store import AuthStore
-from pipy_harness.native.extensions import discover_extensions
-from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
-from pipy_harness.native.extension_provider_catalog import (
-    extension_reserved_command_names,
-    extension_reserved_tool_names,
-    load_extension_provider_contributions,
 )
 from pipy_harness.native.repl_state import (
     ModelRuntime,
@@ -40,8 +42,6 @@ from pipy_harness.native.repl_state import (
     NativeReplProviderState,
     default_selection_for,
 )
-from pipy_harness.native.models import ProviderRequest
-from pipy_harness.native.provider import ProviderPort
 
 
 def _make_workspace(tmp_path: Path) -> Path:

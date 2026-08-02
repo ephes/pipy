@@ -32,7 +32,6 @@ from pipy_harness.native.tools import (
     ToolRequest,
 )
 
-
 _SCHEMA = {
     "type": "object",
     "properties": {"text": {"type": "string"}},
@@ -621,8 +620,8 @@ def test_configured_filters_still_re_derive_visibility_on_publication(
 def test_capability_state_normalizes_registries_built_from_plain_dicts() -> None:
     """The immutability invariant belongs to the type, not just to `build`."""
 
-    from pipy_harness.native.tool_capabilities import ToolCapabilityState
     from pipy_harness.native.agent.tools import ToolExecutor
+    from pipy_harness.native.tool_capabilities import ToolCapabilityState
 
     registry: dict[str, ToolPort] = {"tool": _RecordingTool("tool")}
     state = ToolCapabilityState(

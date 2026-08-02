@@ -33,7 +33,6 @@ from pipy_harness.native.tools import (
 )
 from pipy_harness.runner import HarnessRunner
 
-
 _PRIVATE_PROMPT = "PIPY_PRIVATE_PROMPT_6f2b6d6f"
 _PRIVATE_MODEL_OUTPUT = "PIPY_PRIVATE_MODEL_OUTPUT_895ef3f1"
 _PRIVATE_TOOL_ARGUMENT = "PIPY_PRIVATE_TOOL_ARGUMENT_4e5660f7"

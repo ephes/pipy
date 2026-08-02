@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import base64
 import io
-from typing import cast, TextIO
+from typing import TextIO, cast
 
 from pipy_harness.native.clipboard import ClipboardResult, copy_to_clipboard
 

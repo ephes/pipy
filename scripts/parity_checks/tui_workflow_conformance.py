@@ -68,12 +68,12 @@ from pipy_harness.models import CapturePolicy, HarnessStatus, RunRequest  # noqa
 from pipy_harness.native import (  # noqa: E402
     NativeToolReplSession,
 )
-from pipy_harness.native.cancellation import ProviderCancelledError  # noqa: E402
-from pipy_harness.native.clipboard import ImageClipboardResult  # noqa: E402
 from pipy_harness.native.agent import (  # noqa: E402
     AgentAssistantMessage,
     AgentUserMessage,
 )
+from pipy_harness.native.cancellation import ProviderCancelledError  # noqa: E402
+from pipy_harness.native.clipboard import ImageClipboardResult  # noqa: E402
 from pipy_harness.native.models import ProviderRequest, ProviderResult  # noqa: E402
 from pipy_harness.native.provider import ProviderPort  # noqa: E402
 from pipy_harness.native.repl_state import (  # noqa: E402

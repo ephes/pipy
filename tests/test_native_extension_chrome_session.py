@@ -33,7 +33,6 @@ from pipy_harness.native.tool_loop_session import (
 )
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
-
 # Sets a widget + title on session_start. In a captured-stream run there is no
 # live ui_driver, so this never reaches the screen/archive (the no-leak case).
 # Over a real PTY the live driver is wired into lifecycle dispatch, so the same

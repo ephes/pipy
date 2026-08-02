@@ -11,6 +11,7 @@ from types import MappingProxyType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from session_generation_test_support import build_test_projection
 
 from pipy_harness.extensions import (
     ExtensionCapabilityError,
@@ -34,11 +35,11 @@ from pipy_harness.native.coding.commands import (
 )
 from pipy_harness.native.extension_loader import _run_awaitable
 from pipy_harness.native.extension_runtime import (
+    _ACTIVATION_LIFECYCLE_TOKEN,
     ActivatedExtension,
     GenerationMessageRouting,
     QueuedCustomMessage,
     QueuedUserMessage,
-    _ACTIVATION_LIFECYCLE_TOKEN,
     _ActivationApi,
     _ActivationCleanup,
     _ContributionNames,
@@ -62,7 +63,6 @@ from pipy_harness.native.tool_capabilities import (
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_loop_session import _ReloadCommandEffects
-from session_generation_test_support import build_test_projection
 
 
 def _host(

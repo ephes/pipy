@@ -10,7 +10,6 @@ from typing import cast
 
 import pytest
 
-from pipy_harness.status import HarnessStatus
 from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import (
@@ -70,7 +69,7 @@ from pipy_harness.native.agent.tools import (
 from pipy_harness.native.agent.usage import AgentTokenPricing
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.tools.base import ToolDefinition
-
+from pipy_harness.status import HarnessStatus
 
 _TOOL = ToolDefinition(
     name="fixture",

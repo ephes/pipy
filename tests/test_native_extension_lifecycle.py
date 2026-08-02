@@ -31,15 +31,15 @@ from pipy_harness.native.agent import (
     TurnCompleted,
     TurnStarted,
 )
-from pipy_harness.native.extension_runtime import (
-    ExtensionUiDriver,
-    LifecycleEvent,
-    activate_extensions,
-)
 from pipy_harness.native.extension_hooks import (
     _ExtensionLifecycleAgentEventAdapter,
     dispatch_lifecycle_hooks,
     extension_event_hooks,
+)
+from pipy_harness.native.extension_runtime import (
+    ExtensionUiDriver,
+    LifecycleEvent,
+    activate_extensions,
 )
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall

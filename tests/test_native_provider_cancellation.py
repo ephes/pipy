@@ -19,14 +19,14 @@ from typing import Any, cast
 
 import pytest
 
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.http import (
     JsonResponse,
     open_url_cancellable,
     urlopen_read_cancellable,
 )
-from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
-from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
 
 
 class _HangingHTTPServer:

@@ -32,7 +32,6 @@ from pipy_harness.native import (
 )
 from pipy_harness.native.provider import ProviderPort
 
-
 # ----------------------------- ProviderToolCall ----------------------------
 
 

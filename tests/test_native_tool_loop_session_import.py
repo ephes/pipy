@@ -41,7 +41,6 @@ from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.runner import HarnessRunner
 
-
 _TRANSCRIPT_MARKER = "PIPY_PRIVATE_IMPORT_TRANSCRIPT_f41e909b"
 _PATH_MARKER = "PIPY_PRIVATE_IMPORT_PATH_72f05e1a"
 

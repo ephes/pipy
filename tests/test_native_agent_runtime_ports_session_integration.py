@@ -11,7 +11,6 @@ from typing import TextIO, cast
 
 import pytest
 
-from pipy_harness.status import HarnessStatus
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentEvent,
@@ -37,17 +36,17 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputKind,
     AgentUsagePublication,
 )
-from pipy_harness.native.agent_adapters import AppendProductMessage
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
 )
+from pipy_harness.native.agent_adapters import AppendProductMessage
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
-from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
 from pipy_harness.native.coding import (
     CodingInputQueue,
     CodingInputSelection,
     CodingInputSource,
 )
+from pipy_harness.native.coding.state import CodingSessionUsageSnapshot
 from pipy_harness.native.models import (
     ProviderRequest,
     ProviderResult,
@@ -62,6 +61,7 @@ from pipy_harness.native.tools import (
     ToolExecutionResult,
     ToolRequest,
 )
+from pipy_harness.status import HarnessStatus
 
 
 @dataclass(slots=True)

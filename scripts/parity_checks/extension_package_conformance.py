@@ -50,12 +50,14 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pipy_harness.models import HarnessStatus
 from pipy_harness.cli import (
     _resource_options_from_args,
     build_parser,
+)
+from pipy_harness.cli import (
     main as cli_main,
 )
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult, themes
 from pipy_harness.native.extensions import discover_extensions, safe_extension_metadata
 from pipy_harness.native.package_manager import (

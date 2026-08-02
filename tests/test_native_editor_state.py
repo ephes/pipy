@@ -8,7 +8,6 @@ from pipy_harness.native.editor_state import (
     QueuedInput,
 )
 
-
 _COMMANDS = ("/hotkeys", "/model", "/settings")
 
 

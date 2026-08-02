@@ -188,8 +188,8 @@ def test_message_render_component_is_tool_render_component_alias():
 def test_custom_message_renderer_payload_fields():
     from datetime import UTC, datetime
 
-    from pipy_harness.native.session_tree import CustomMessageEntry
     from pipy_harness.native.extension_runtime import _custom_message_renderer_payload
+    from pipy_harness.native.session_tree import CustomMessageEntry
 
     entry = CustomMessageEntry(
         "1",
@@ -212,9 +212,11 @@ def test_custom_message_renderer_payload_fields():
 def test_custom_entry_redraw_rows_renders_custom_messages():
     from datetime import UTC, datetime
 
-    from pipy_harness.native.extension_runtime import RenderedCustomEntry
+    from pipy_harness.native.extension_runtime import (
+        RenderedCustomEntry,
+        _custom_entry_redraw_rows,
+    )
     from pipy_harness.native.session_tree import CustomEntry, CustomMessageEntry
-    from pipy_harness.native.extension_runtime import _custom_entry_redraw_rows
 
     now = datetime.now(UTC)
     rows = _custom_entry_redraw_rows(
@@ -238,9 +240,11 @@ def test_custom_entry_redraw_rows_renders_custom_messages():
 def test_custom_entry_redraw_rows_custom_message_falls_back_to_content():
     from datetime import UTC, datetime
 
-    from pipy_harness.native.extension_runtime import RenderedCustomEntry
+    from pipy_harness.native.extension_runtime import (
+        RenderedCustomEntry,
+        _custom_entry_redraw_rows,
+    )
     from pipy_harness.native.session_tree import CustomMessageEntry
-    from pipy_harness.native.extension_runtime import _custom_entry_redraw_rows
 
     now = datetime.now(UTC)
     rows = _custom_entry_redraw_rows(
@@ -317,9 +321,11 @@ def test_tui_redraw_custom_entries_replaces_previous_branch(tmp_path):
 def test_custom_entry_redraw_rows_dispatches_branch_entries():
     from datetime import UTC, datetime
 
-    from pipy_harness.native.extension_runtime import RenderedCustomEntry
+    from pipy_harness.native.extension_runtime import (
+        RenderedCustomEntry,
+        _custom_entry_redraw_rows,
+    )
     from pipy_harness.native.session_tree import CustomEntry, CustomMessageEntry
-    from pipy_harness.native.extension_runtime import _custom_entry_redraw_rows
 
     called = []
 
@@ -352,11 +358,11 @@ def test_redraw_rows_with_metadata_keep_resume_rerender_state(tmp_path):
     from io import StringIO
     from typing import TextIO, cast
 
-    from pipy_harness.native.session_tree import CustomMessageEntry
     from pipy_harness.native.extension_runtime import (
         _custom_entry_redraw_rows,
         _custom_message_renderer_payload,
     )
+    from pipy_harness.native.session_tree import CustomMessageEntry
     from pipy_harness.native.tui import ToolLoopTerminalUi
 
     def render(data, ctx):

@@ -32,7 +32,6 @@ from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.runner import HarnessRunner
 
-
 _CONTENT_MARKER = "PIPY_PRIVATE_EXPORT_CONTENT_41d8e37a"
 _ALT_CONTENT_MARKER = "PIPY_PRIVATE_EXPORT_ALTERNATE_9a72c05b"
 _PATH_MARKER = "PIPY_PRIVATE_EXPORT_PATH_c43f167e"

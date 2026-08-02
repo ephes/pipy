@@ -19,8 +19,6 @@ from typing import Any, Iterable
 import pytest
 
 from pipy_harness.adapters.native import PipyNativeToolReplAdapter
-from pipy_harness.native.automation.rpc import NativeRpcServer
-from pipy_harness.native.automation.run_modes import run_json_mode
 from pipy_harness.native.agent import (
     AgentEvent,
     AssistantTextDelta,
@@ -28,6 +26,8 @@ from pipy_harness.native.agent import (
     ProductContent,
     SteeringConsumed,
 )
+from pipy_harness.native.automation.rpc import NativeRpcServer
+from pipy_harness.native.automation.run_modes import run_json_mode
 from pipy_harness.native.fake import AutomationFakeProvider, FakeNativeProvider
 from pipy_harness.native.models import ProviderToolCall
 from pipy_harness.native.session_tree import NativeSessionTree

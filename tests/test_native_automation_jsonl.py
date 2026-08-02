@@ -13,9 +13,8 @@ from __future__ import annotations
 
 import io
 import json
-import threading
-
 import math
+import threading
 
 import pytest
 

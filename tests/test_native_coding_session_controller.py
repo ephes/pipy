@@ -24,7 +24,7 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputKind,
 )
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
-from pipy_harness.native.coding.input_queue import CodingInputQueue
+from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
     CodingCommandOutcome,
@@ -35,6 +35,7 @@ from pipy_harness.native.coding.commands import (
     ResourceDispatchKind,
     ResourceDispatchResolution,
 )
+from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.result import NativeToolReplResult
 from pipy_harness.native.coding.session_controller import (
     CodingLoopStep,
@@ -46,7 +47,6 @@ from pipy_harness.native.coding.session_controller import (
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
 

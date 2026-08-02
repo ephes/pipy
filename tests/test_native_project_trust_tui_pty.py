@@ -14,9 +14,7 @@ import time
 from pathlib import Path
 
 import pytest
-
 from pty_sync import wait_for_fd_input_ready_after, wait_for_fd_output
-
 
 _CHILD = r"""
 import sys

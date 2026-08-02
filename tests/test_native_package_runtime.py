@@ -10,8 +10,8 @@ registry makes a package theme selectable.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest

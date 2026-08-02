@@ -10,7 +10,6 @@ import pytest
 from pipy_harness.native.editor_state import CompletionItem
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
-
 _EDITOR_WRITABLE_PROJECTIONS = (
     ("input_text", "text", "owner text", "assigned text"),
     ("input_cursor", "cursor", 3, 2),

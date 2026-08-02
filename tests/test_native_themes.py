@@ -18,8 +18,8 @@ from pipy_harness.cli import _apply_settings_theme_env
 from pipy_harness.native.chrome import ChromeStyle, chrome_style_for
 from pipy_harness.native.themes import (
     DEFAULT_THEME_NAME,
-    NativeThemeStore,
     THEME_ENV_VAR,
+    NativeThemeStore,
     available_theme_names,
     resolve_active_theme_name,
     resolve_palette,

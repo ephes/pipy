@@ -24,12 +24,12 @@ from pathlib import Path
 from typing import TextIO, cast
 
 import pytest
+from pty_sync import wait_for_input_ready_after
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tui import ToolLoopTerminalUi
-from pty_sync import wait_for_input_ready_after
 
 # A 2-arg `(entry, ctx)` durable-entry renderer takes the rich styled path: it
 # themes a known body sentinel via ctx.theme.fg. The

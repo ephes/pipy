@@ -21,7 +21,6 @@ import pipy_harness.native.extensions as extension_discovery
 import pipy_harness.native.provider as provider
 import pipy_harness.native.provider_construction as provider_construction
 
-
 _PUBLIC_EXTENSION_NAMES = (
     "PipyExtensionAPI",
     "CommandContext",

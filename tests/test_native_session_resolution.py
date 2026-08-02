@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from pipy_harness.native.agent import AgentUserMessage, ProductContent
 from pipy_harness.native.session_tree import (
     NativeSessionTree,
@@ -20,7 +22,6 @@ from pipy_harness.native.session_tree_commands import (
     resolve_session_ref,
     resolve_startup_session,
 )
-import pytest
 
 
 def _make(cwd: Path, sessions_root: Path) -> NativeSessionTree:

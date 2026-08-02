@@ -23,7 +23,6 @@ from pipy_session.catalog import (
 )
 from pipy_session.cli import main
 
-
 FIXED_NOW = datetime(2026, 4, 30, 13, 30, 0, tzinfo=UTC)
 
 

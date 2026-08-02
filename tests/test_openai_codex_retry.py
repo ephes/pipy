@@ -23,6 +23,14 @@ from typing import Any
 import pytest
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolCall,
+    AgentToolResultMessage,
+    ProductContent,
+)
+from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
+from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     OpenAICodexCredentials,
@@ -32,14 +40,6 @@ from pipy_harness.native.openai_codex_provider import (
     SseResponse,
     UrllibSseHTTPClient,
 )
-from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
-from pipy_harness.native.agent import (
-    AgentAssistantMessage,
-    AgentToolCall,
-    AgentToolResultMessage,
-    ProductContent,
-)
-from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.retry import RetryPolicy
 from pipy_harness.native.tools.base import ToolDefinition
 

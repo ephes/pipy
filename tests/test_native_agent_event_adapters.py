@@ -40,19 +40,18 @@ from pipy_harness.native.agent import (
     TurnStarted,
     UsageUpdated,
 )
-from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
-from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.agent_adapters import (
     AppendProductMessage,
     NativeProductSessionActionSink,
     ProductSessionEventProjection,
     SdkAgentEventAdapter,
     SynchronousAgentEventComposite,
-    WorkflowArchiveAgentEventAdapter,
     WorkflowAgentEventCounts,
+    WorkflowArchiveAgentEventAdapter,
 )
+from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
+from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.ui import RenderingAgentEventAdapter
-
 
 _PRIVATE_ARGUMENTS = "PIPY_PRIVATE_ADAPTER_ARGUMENTS_2835"
 

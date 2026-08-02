@@ -8,8 +8,8 @@ session, while subcommands and the root-only flags stay reachable.
 import pytest
 
 from pipy_harness.cli import (
-    KNOWN_SUBCOMMANDS,
     _TOP_LEVEL_ONLY_FLAGS,
+    KNOWN_SUBCOMMANDS,
     build_parser,
     route_argv,
 )

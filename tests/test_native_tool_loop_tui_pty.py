@@ -15,27 +15,35 @@ input (here `/copy`) must be sent only after the turn's answer is on screen.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
-import stat
 import pty
 import select
+import stat
 import threading
 import time
-import errno
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TextIO, cast
 
 import pytest
+from pty_sync import (
+    input_ready_count,
+    output_bytes,
+    wait_for_input_ready_after,
+    wait_for_input_ready_count,
+    wait_for_output,
+    wait_for_output_after,
+)
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.agent import AgentAssistantMessage, AgentToolResultMessage
 from pipy_harness.native.clipboard import ClipboardResult
-from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.models import ProviderResult, ProviderToolCall
+from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl_state import (
     ModelRuntime,
@@ -45,14 +53,6 @@ from pipy_harness.native.repl_state import (
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import ToolLoopTerminalUi
-from pty_sync import (
-    input_ready_count,
-    output_bytes,
-    wait_for_input_ready_after,
-    wait_for_input_ready_count,
-    wait_for_output,
-    wait_for_output_after,
-)
 
 _RETAINED_PTY_STREAMS: list[object] = []
 _ABANDONED_PTY_FDS: list[int] = []
@@ -2016,8 +2016,8 @@ class _TreeMarkProvider:
     ):
         from datetime import UTC, datetime
 
-        from pipy_harness.native.models import ProviderResult
         from pipy_harness.native.agent import AgentUserMessage
+        from pipy_harness.native.models import ProviderResult
 
         del reasoning_sink
         self._n += 1
@@ -2116,8 +2116,8 @@ def test_pty_tree_selector_rehydrates_user_message_into_editor(
 
     # The native file now holds a sibling branch: beta's parent has two child
     # user messages with content 'beta'.
-    from pipy_harness.native.session_tree import MessageEntry
     from pipy_harness.native.agent import AgentUserMessage
+    from pipy_harness.native.session_tree import MessageEntry
 
     assert tree.path is not None
     reopened = NativeSessionTree.open(tree.path)

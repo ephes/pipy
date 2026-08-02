@@ -21,12 +21,12 @@ from pipy_harness.native.agent import (
     AgentUserMessage,
     ProductContent,
 )
+from pipy_harness.native.extension_hooks import dispatch_input_hooks
 from pipy_harness.native.extension_runtime import (
     ExtensionCapabilityError,
     RegisteredCommand,
     dispatch_extension_command,
 )
-from pipy_harness.native.extension_hooks import dispatch_input_hooks
 from pipy_harness.native.extension_types import (
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,

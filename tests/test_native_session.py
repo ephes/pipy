@@ -13,11 +13,15 @@ import pytest
 from pipy_harness.adapters.native import PipyNativeAdapter
 from pipy_harness.models import HarnessStatus, RunRequest
 from pipy_harness.native import (
-    FakeNativeProvider,
-    FakeNoOpNativeTool,
     NATIVE_PATCH_APPLY_RECORDED_EVENT,
     NATIVE_PATCH_PROPOSAL_RECORDED_EVENT,
     NATIVE_VERIFICATION_RECORDED_EVENT,
+    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
+    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
+    PROVIDER_TOOL_INTENT_METADATA_KEY,
+    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
+    FakeNativeProvider,
+    FakeNoOpNativeTool,
     NativeConversationState,
     NativePatchApplyApprovalDecision,
     NativePatchApplyGateDecision,
@@ -25,11 +29,11 @@ from pipy_harness.native import (
     NativePatchApplyOperationRequest,
     NativePatchApplyRequest,
     NativeRunInput,
-    NativeToolRequestIdentity,
-    NativeToolRequest,
     NativeToolObservation,
     NativeToolObservationReason,
     NativeToolObservationStatus,
+    NativeToolRequest,
+    NativeToolRequestIdentity,
     NativeToolResult,
     NativeToolStatus,
     NativeTurnMetadata,
@@ -40,10 +44,6 @@ from pipy_harness.native import (
     NativeVerificationReason,
     NativeVerificationRequest,
     NativeVerificationResult,
-    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
-    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
-    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
-    PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
 )
@@ -59,9 +59,9 @@ from pipy_harness.native.agent import (
     UsageUpdated,
 )
 from pipy_harness.native.session import (
-    NativeHarnessCompatibilityRuntime,
     SYSTEM_PROMPT_ID,
     SYSTEM_PROMPT_VERSION,
+    NativeHarnessCompatibilityRuntime,
 )
 from pipy_harness.runner import HarnessRunner
 from pipy_session import verify_session_archive

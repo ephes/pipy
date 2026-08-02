@@ -17,13 +17,13 @@ import pytest
 from pipy_harness.native import ProviderRequest
 from pipy_harness.native.auth_store import AuthStore, ProviderAuthRequestConfig
 from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
-from pipy_harness.native.providers.openai_completions import (
-    JsonResponse,
-    OpenAIChatCompletionsProvider,
-)
 from pipy_harness.native.provider_construction import (
     build_provider,
     resolve_construction,
+)
+from pipy_harness.native.providers.openai_completions import (
+    JsonResponse,
+    OpenAIChatCompletionsProvider,
 )
 
 
@@ -1982,8 +1982,8 @@ def test_codex_built_by_boundary_before_auth_gate(tmp_path):
 
 
 def test_tier3_boundary_constructs_bedrock_from_catalog(tmp_path):
-    from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
     from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
     from pipy_harness.native.repl_state import (
         ModelRuntime,
         NativeModelSelection,

@@ -10,7 +10,6 @@ from typing import cast
 import pytest
 
 from pipy_harness.native.agent import loop_policy as loop_policy_module
-from pipy_harness.status import HarnessStatus
 from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.loop_policy import (
@@ -46,6 +45,7 @@ from pipy_harness.native.agent.tools import (
 from pipy_harness.native.image_attachment import ProviderImageAttachment
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.status import HarnessStatus
 
 
 class _IntSubclass(int):

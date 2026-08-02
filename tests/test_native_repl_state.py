@@ -15,10 +15,11 @@ from pipy_harness.native.catalog import (
     NativeModelSpec,
     build_builtin_catalog,
 )
+from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.repl_state import (
-    NativeDefaultsStore,
     AUTO_DEFAULT_PROVIDER_PRIORITY,
     ModelRuntime,
+    NativeDefaultsStore,
     NativeModelSelection,
     NativeReplProviderReloadState,
     NativeReplProviderState,
@@ -29,7 +30,6 @@ from pipy_harness.native.repl_state import (
     resolve_cli_selection,
     settings_overlay_lines,
 )
-from pipy_harness.native.models import ProviderRequest
 
 
 def _builtin_rows():
@@ -621,9 +621,9 @@ def test_current_provider_constructs_fake_bootstrap(tmp_path):
 
 
 def test_current_provider_constructs_anthropic_from_catalog(tmp_path):
-    from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
     from pipy_harness.native.auth_store import AuthStore
     from pipy_harness.native.catalog_state import ProviderCatalogState
+    from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
     from pipy_harness.native.repl_state import (
         NativeModelSelection,
         NativeReplProviderState,

@@ -40,8 +40,8 @@ from pipy_harness.native.export_distribution import (
     self_update_plan,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
-from pipy_session.recorder import append_event, finalize_session, init_session
 from pipy_session.export import export_session
+from pipy_session.recorder import append_event, finalize_session, init_session
 
 
 @dataclass(frozen=True, slots=True)

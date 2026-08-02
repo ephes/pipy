@@ -12,17 +12,17 @@ import io
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pipy_harness.models import HarnessStatus
 from pipy_harness.adapters.native import PipyNativeToolReplAdapter
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native import (
     FakeNativeProvider,
     NativeToolReplSession,
     ProviderRequest,
     ProviderResult,
 )
+from pipy_harness.native.automation.run_modes import run_print_mode
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.provider import StreamChunkSink
-from pipy_harness.native.automation.run_modes import run_print_mode
 
 
 def test_provider_failure_keeps_repl_alive_with_visible_diagnostic(

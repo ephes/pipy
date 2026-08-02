@@ -8,6 +8,8 @@ the ported `answer` extension's Q&A overlay. No provider turn runs.
 
 from __future__ import annotations
 
+import errno
+import fcntl
 import os
 import pty
 import select
@@ -16,16 +18,14 @@ import sys
 import termios
 import threading
 import time
-import errno
 from pathlib import Path
 from typing import TextIO, cast
 
-import fcntl
 import pytest
+from pty_sync import wait_for_input_ready, wait_for_input_ready_after
 
 from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.tui import ToolLoopTerminalUi
-from pty_sync import wait_for_input_ready, wait_for_input_ready_after
 
 _DETACHED_PTY_STREAMS: list[object] = []
 _ABANDONED_PTY_FDS: list[int] = []

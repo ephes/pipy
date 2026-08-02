@@ -10,6 +10,7 @@ import pytest
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.events import AgentEvent, UsageUpdated
+from pipy_harness.native.agent.results import AgentUsage
 from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInput,
     AgentQueuedInputKind,
@@ -17,7 +18,6 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentUsagePublication,
     AgentUsagePublisher,
 )
-from pipy_harness.native.agent.results import AgentUsage
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
     AgentUsageAccumulator,

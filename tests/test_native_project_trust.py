@@ -8,7 +8,17 @@ from pathlib import Path
 
 import pytest
 
+from pipy_harness.cli import (
+    KNOWN_SUBCOMMANDS,
+    _resolve_runtime_project_trust,
+    _resolve_runtime_project_trust_startup,
+    build_parser,
+    main,
+    route_argv,
+)
+from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.project_trust import (
     PROTECTED_PROJECT_ENTRIES,
     ProjectTrustError,
@@ -23,16 +33,6 @@ from pipy_harness.native.project_trust import (
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
-from pipy_harness.native.package_runtime import compose_package_runtime
-from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
-from pipy_harness.cli import (
-    KNOWN_SUBCOMMANDS,
-    _resolve_runtime_project_trust,
-    _resolve_runtime_project_trust_startup,
-    build_parser,
-    main,
-    route_argv,
-)
 
 
 def _write_json(path: Path, body: object) -> None:
