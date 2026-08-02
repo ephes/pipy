@@ -12,13 +12,13 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import AgentUserMessage
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.models import (
+    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
+    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
+    PROVIDER_TOOL_INTENT_METADATA_KEY,
+    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     NativeToolRequest,
     NativeToolResult,
     NativeToolStatus,
-    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
-    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
-    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
-    PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,

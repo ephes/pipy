@@ -13,7 +13,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
-
 # Editing is intentionally operation-granular: one typed character, delete,
 # kill-to-start, or whole bracketed paste is one undo step. Bound both stacks so
 # one long input line cannot retain unbounded copies of prompt text.

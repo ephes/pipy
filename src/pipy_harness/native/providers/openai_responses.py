@@ -7,21 +7,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native._provider_helpers import (
-    utc_now,
     failed_provider_result,
     serialize_tool_for_responses,
+    utc_now,
 )
+from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.deferred_tools import split_deferred_tools
 from pipy_harness.native.http import (
     ApiErrorField,
-    JsonResponse as JsonResponse,
     JsonHTTPClient,
     ProviderHTTPError,
     UrllibJsonHTTPClient,
 )
-from pipy_harness.models import HarnessStatus
-from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.deferred_tools import split_deferred_tools
+from pipy_harness.native.http import (
+    JsonResponse as JsonResponse,
+)
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.providers.openai_responses_wire import (

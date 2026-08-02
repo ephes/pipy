@@ -1,5 +1,6 @@
 """Native pipy runtime bootstrap."""
 
+from pipy_harness.native.coding.result import NativeToolReplResult
 from pipy_harness.native.conversation import (
     NATIVE_TURN_METADATA_KEYS,
     NATIVE_TURN_PAYLOAD_KEYS,
@@ -29,6 +30,10 @@ from pipy_harness.native.models import (
     NATIVE_TOOL_OBSERVATION_STORAGE_KEYS,
     NATIVE_VERIFICATION_RECORDED_EVENT,
     NATIVE_VERIFICATION_STORAGE_KEYS,
+    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
+    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
+    PROVIDER_TOOL_INTENT_METADATA_KEY,
+    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     NativePatchApplyOperation,
     NativePatchApplyOperationRequest,
     NativePatchApplyRequest,
@@ -36,11 +41,11 @@ from pipy_harness.native.models import (
     NativePatchProposalOperation,
     NativePatchProposalReason,
     NativePatchProposalStatus,
-    NativeRunInput,
-    NativeRunOutput,
     NativeReadOnlyToolLimits,
     NativeReadOnlyToolRequest,
     NativeReadOnlyToolRequestKind,
+    NativeRunInput,
+    NativeRunOutput,
     NativeToolApprovalMode,
     NativeToolApprovalPolicy,
     NativeToolIntent,
@@ -55,10 +60,6 @@ from pipy_harness.native.models import (
     NativeToolStatus,
     NativeVerificationCommand,
     NativeVerificationRequest,
-    PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
-    PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
-    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
-    PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
     ProviderToolCall,
@@ -73,15 +74,6 @@ from pipy_harness.native.openai_codex_provider import (
     default_openai_codex_auth_path,
     parse_authorization_input,
 )
-from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
-from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
-from pipy_harness.native.providers.ds4 import Ds4ChatCompletionsProvider
-from pipy_harness.native.providers.google_generative_ai import (
-    GoogleGenerativeAIProvider,
-)
-from pipy_harness.native.providers.mistral import MistralProvider
-from pipy_harness.native.providers.openai_responses import OpenAIResponsesProvider
-from pipy_harness.native.providers.openrouter import OpenRouterChatCompletionsProvider
 from pipy_harness.native.patch_apply import (
     NativePatchApplyApprovalDecision,
     NativePatchApplyGateDecision,
@@ -98,6 +90,15 @@ from pipy_harness.native.provider_registry import (
     NATIVE_PROVIDER_REGISTRY,
     NativeProviderSpec,
 )
+from pipy_harness.native.providers.anthropic_messages import AnthropicProvider
+from pipy_harness.native.providers.bedrock import AmazonBedrockProvider
+from pipy_harness.native.providers.ds4 import Ds4ChatCompletionsProvider
+from pipy_harness.native.providers.google_generative_ai import (
+    GoogleGenerativeAIProvider,
+)
+from pipy_harness.native.providers.mistral import MistralProvider
+from pipy_harness.native.providers.openai_responses import OpenAIResponsesProvider
+from pipy_harness.native.providers.openrouter import OpenRouterChatCompletionsProvider
 from pipy_harness.native.read_only_tool import (
     NativeExplicitFileExcerptReason,
     NativeExplicitFileExcerptResult,
@@ -106,6 +107,11 @@ from pipy_harness.native.read_only_tool import (
     NativeInMemoryFileExcerpt,
     NativeReadOnlyApprovalDecision,
     NativeReadOnlyGateDecision,
+)
+from pipy_harness.native.repl_input import (
+    SUPPORTED_REPL_INPUT_RUNTIMES,
+    ReplInputUnavailableError,
+    validate_native_repl_input_runtime,
 )
 from pipy_harness.native.repl_state import (
     AUTO_DEFAULT_PROVIDER_PRIORITY,
@@ -121,14 +127,8 @@ from pipy_harness.native.repl_state import (
     default_native_defaults_path,
     default_selection_for,
 )
-from pipy_harness.native.repl_input import (
-    SUPPORTED_REPL_INPUT_RUNTIMES,
-    ReplInputUnavailableError,
-    validate_native_repl_input_runtime,
-)
 from pipy_harness.native.session import NativeHarnessCompatibilityRuntime
 from pipy_harness.native.tool import ToolPort
-from pipy_harness.native.coding.result import NativeToolReplResult
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     production_tool_registry,
@@ -136,6 +136,13 @@ from pipy_harness.native.tool_loop_session import (
 from pipy_harness.native.usage import (
     NORMALIZED_PROVIDER_USAGE_KEYS,
     normalize_provider_usage,
+)
+from pipy_harness.native.verification import (
+    NativeVerificationApprovalDecision,
+    NativeVerificationGateDecision,
+    NativeVerificationReason,
+    NativeVerificationResult,
+    NativeVerificationTool,
 )
 from pipy_harness.native.workspace_context import (
     DEFAULT_PER_FILE_BYTE_CAP,
@@ -147,18 +154,11 @@ from pipy_harness.native.workspace_context import (
     PIPY_CONFIG_HOME_ENV,
     TOTAL_BYTE_CAP_MARKER_PATH_LABEL,
     TOTAL_BYTE_CAP_NOTICE,
+    XDG_CONFIG_HOME_ENV,
     WorkspaceInstructionDiscovery,
     WorkspaceInstructionFile,
-    XDG_CONFIG_HOME_ENV,
     discover_workspace_instructions,
     resolve_global_instruction_root,
-)
-from pipy_harness.native.verification import (
-    NativeVerificationApprovalDecision,
-    NativeVerificationGateDecision,
-    NativeVerificationReason,
-    NativeVerificationResult,
-    NativeVerificationTool,
 )
 
 __all__ = [

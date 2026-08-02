@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from pipy_harness.native.catalog import THINKING_LEVELS, NativeModelSpec
 
-
 # Standard levels passed through for a reasoning model that declares no explicit
 # thinking_level_map. xhigh and max are intentionally excluded: each is only
 # available when a model maps it (Pi's models.ts).

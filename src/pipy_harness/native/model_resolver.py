@@ -26,7 +26,6 @@ from pipy_harness.native.catalog import (
     default_model_per_provider,
 )
 
-
 _DATE_SUFFIX = re.compile(r"-\d{8}$")
 
 # Glob-translation cache. Unlike stdlib ``fnmatch``, ``*`` and ``?`` here do NOT

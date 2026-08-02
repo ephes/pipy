@@ -5,18 +5,18 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-from pipy_harness.native.http import JsonHTTPClient
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.http import JsonHTTPClient
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-from pipy_harness.native.providers.openai_completions import (
-    OpenAIChatCompletionsProvider,
-    openai_completions_http_client,
-)
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.provider_registry import (
     DS4_API_KEY_ENV,
     DS4_BASE_URL_ENV,
     DS4_DEFAULT_BASE_URL,
+)
+from pipy_harness.native.providers.openai_completions import (
+    OpenAIChatCompletionsProvider,
+    openai_completions_http_client,
 )
 
 

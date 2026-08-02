@@ -66,10 +66,10 @@ from pipy_harness.native.chrome import (
     discover_loaded_resource_names,
     pipy_version_label,
 )
-from pipy_harness.native.coding import CodingInputQueue
-from pipy_harness.native.coding.effects import CodingEffectCoordinator
-from pipy_harness.native.coding.command_registry import project_command_completions
 from pipy_harness.native.clipboard import ImageClipboardResult
+from pipy_harness.native.coding import CodingInputQueue
+from pipy_harness.native.coding.command_registry import project_command_completions
+from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.editor_completion import (
     at_candidates,
     extract_at_token,
@@ -89,28 +89,6 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeSink,
     ExtensionChromeSnapshot,
     ExtensionChromeState,
-)
-from pipy_harness.native.frame_renderer import (
-    ChromeSnapshot,
-    FrameBlock,
-    FrameLine as _FrameLine,
-    FrameSnapshot,
-    InputSnapshot,
-    PaintState,
-    ResolvedCustomEditorLine as _ResolvedCustomEditorLine,
-    block_lines as render_block_lines,
-    build_paint_plan,
-    clip_custom_text as _clip_custom_overlay_text,
-    clip_text as render_clip_text,
-    display_input_text as render_display_input_text,
-    input_index as render_input_index,
-    input_lines as render_input_lines,
-    pad_text as render_pad_text,
-    render_full_frame,
-    render_live_region,
-    sanitize_custom_text as _sanitize_custom_overlay_text,
-    style_line as render_styled_line,
-    visible_len as render_visible_len,
 )
 from pipy_harness.native.extension_runtime import (
     ExtensionCapabilityError,
@@ -133,28 +111,75 @@ from pipy_harness.native.extension_runtime import (
     render_extension_message,
     safe_custom_entry_data,
 )
+from pipy_harness.native.frame_renderer import (
+    ChromeSnapshot,
+    FrameBlock,
+    FrameSnapshot,
+    InputSnapshot,
+    PaintState,
+    build_paint_plan,
+    render_full_frame,
+    render_live_region,
+)
+from pipy_harness.native.frame_renderer import (
+    FrameLine as _FrameLine,
+)
+from pipy_harness.native.frame_renderer import (
+    ResolvedCustomEditorLine as _ResolvedCustomEditorLine,
+)
+from pipy_harness.native.frame_renderer import (
+    block_lines as render_block_lines,
+)
+from pipy_harness.native.frame_renderer import (
+    clip_custom_text as _clip_custom_overlay_text,
+)
+from pipy_harness.native.frame_renderer import (
+    clip_text as render_clip_text,
+)
+from pipy_harness.native.frame_renderer import (
+    display_input_text as render_display_input_text,
+)
+from pipy_harness.native.frame_renderer import (
+    input_index as render_input_index,
+)
+from pipy_harness.native.frame_renderer import (
+    input_lines as render_input_lines,
+)
+from pipy_harness.native.frame_renderer import (
+    pad_text as render_pad_text,
+)
+from pipy_harness.native.frame_renderer import (
+    sanitize_custom_text as _sanitize_custom_overlay_text,
+)
+from pipy_harness.native.frame_renderer import (
+    style_line as render_styled_line,
+)
+from pipy_harness.native.frame_renderer import (
+    visible_len as render_visible_len,
+)
 from pipy_harness.native.keybindings import (
     DEFAULT_KEYBINDINGS,
     KeybindingsManager,
 )
 from pipy_harness.native.overlay_state import (
     ModelSelectorOption as ModelSelectorOption,
+)
+from pipy_harness.native.overlay_state import (
     OverlayState,
-    ScopedModelRow as ScopedModelRow,
     SettingsOverlayKind,
+)
+from pipy_harness.native.overlay_state import (
+    ScopedModelRow as ScopedModelRow,
+)
+from pipy_harness.native.overlay_state import (
     SettingsRow as SettingsRow,
+)
+from pipy_harness.native.overlay_state import (
     TreeSelectorRow as TreeSelectorRow,
 )
 from pipy_harness.native.project_trust import (
     ProjectTrustEntry,
     ProjectTrustOption,
-)
-from pipy_harness.native.tool_renderers import (
-    _ToolLoopRenderer,
-    _parse_tool_input,
-    _plain_tool_call_header,
-    build_tool_render_theme,
-    render_chrome_component,
 )
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl_input import (
@@ -175,11 +200,18 @@ from pipy_harness.native.session_tree_commands import (
     sanitize_label_text,
 )
 from pipy_harness.native.terminal_driver import (
-    TerminalDriver,
     _RESIZE_POLL_SECONDS,
     _TITLE_MAX_CHARS,
+    TerminalDriver,
 )
 from pipy_harness.native.themes import NativeThemeStore, select_theme
+from pipy_harness.native.tool_renderers import (
+    _parse_tool_input,
+    _plain_tool_call_header,
+    _ToolLoopRenderer,
+    build_tool_render_theme,
+    render_chrome_component,
+)
 
 if TYPE_CHECKING:
     from pipy_harness.native.extension_types import (
@@ -6960,12 +6992,12 @@ class _TuiToolLoopRenderer:
         # rarely-hit custom-renderer branch, so it is imported here rather than
         # at module top to keep this module's import-time dependency surface
         # focused on the loop's hot path.
+        from pipy_harness.extensions import ToolRenderContext
         from pipy_harness.native.chrome import chrome_style_for
         from pipy_harness.native.tool_renderers import (
             build_tool_render_theme,
             render_tool_phase,
         )
-        from pipy_harness.extensions import ToolRenderContext
 
         style = chrome_style_for(self._ui.terminal_stream)
         typed_details = details if isinstance(details, Mapping) else None

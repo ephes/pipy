@@ -69,6 +69,10 @@ from pipy_harness.native.agent import (
     TurnStarted,
 )
 from pipy_harness.native.extension_loader import _drive_awaitable
+from pipy_harness.native.extension_provider_catalog import (
+    extension_reserved_command_names,
+    extension_reserved_tool_names,
+)
 from pipy_harness.native.extension_runtime import (
     EVENT_AGENT_END,
     EVENT_AGENT_SETTLED,
@@ -94,8 +98,8 @@ from pipy_harness.native.extension_runtime import (
     GenerationMessageRouting,
     HookHandler,
     _CommandContext,
-    _ExtensionRuntime,
     _dispose_activation_results,
+    _ExtensionRuntime,
     _report_activation_cleanup,
     activate_extensions,
     extension_command_map,
@@ -107,10 +111,6 @@ from pipy_harness.native.extension_runtime import (
     extension_tools,
     extension_unregistered_providers,
 )
-from pipy_harness.native.extension_provider_catalog import (
-    extension_reserved_command_names,
-    extension_reserved_tool_names,
-)
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,
     BeforeAgentStartResult,
@@ -119,6 +119,7 @@ from pipy_harness.native.extension_types import (
     ExtensionCodingSessionControl,
     ExtensionMode,
     ExtensionModelRuntimeControl,
+    ExtensionUiDriver,
     InputEvent,
     InputTransform,
     LifecycleEvent,
@@ -127,6 +128,8 @@ from pipy_harness.native.extension_types import (
     ProjectTrustEvent,
     ProjectTrustHandlerError,
     ProviderRequestTransform,
+    QueuedCustomMessage,
+    QueuedUserMessage,
     SessionBeforeEvent,
     SessionDecision,
     ToolBlock,
@@ -136,9 +139,6 @@ from pipy_harness.native.extension_types import (
     UserBashDecision,
     UserBashDispatch,
     UserBashEvent,
-    ExtensionUiDriver,
-    QueuedCustomMessage,
-    QueuedUserMessage,
     _safe_diagnostic,
 )
 from pipy_harness.native.extension_ui import _CollectingUi

@@ -23,13 +23,17 @@ from pipy_harness.native.openai_codex_provider import (
     OpenAICodexAuthManager,
     default_openai_codex_auth_path,
 )
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 from pipy_harness.native.provider_construction import ConstructionOptions
 from pipy_harness.native.provider_registry import (
     DEFAULT_NATIVE_MODELS as DEFAULT_NATIVE_MODELS,
+)
+from pipy_harness.native.provider_registry import (
     SUPPORTED_NATIVE_PROVIDERS as SUPPORTED_NATIVE_PROVIDERS,
+)
+from pipy_harness.native.provider_registry import (
     native_provider_available,
 )
-from pipy_harness.native.provider import ProviderPort, StreamChunkSink
 
 
 @dataclass(frozen=True, slots=True)

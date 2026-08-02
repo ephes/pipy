@@ -45,11 +45,11 @@ from pipy_harness.native.package_manager import (
     canonical_local_source,
     parse_git_source,
 )
-from pipy_harness.native.settings import resolve_config_home
 from pipy_harness.native.settings import (
     PACKAGE_ENTRY_SCOPE_KEY,
     SCOPE_GLOBAL,
     SCOPE_PROJECT,
+    resolve_config_home,
 )
 
 #: Manifest filename a package may use to declare its resource dirs.

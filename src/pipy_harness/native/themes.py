@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import os
 import stat
-from collections.abc import MutableMapping, Mapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING

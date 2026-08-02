@@ -12,22 +12,21 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+from pipy_harness.adapters.base import AgentPort
+from pipy_harness.capture import (
+    WorkspaceDisplay,
+    sanitize_metadata,
+    sanitize_path,
+    sanitize_text,
+    workspace_display,
+)
+from pipy_harness.models import AdapterResult, HarnessStatus, RunRequest, RunResult
 from pipy_session.recorder import (
     SessionRecord,
     append_event,
     finalize_session,
     init_session,
 )
-
-from pipy_harness.adapters.base import AgentPort
-from pipy_harness.capture import (
-    WorkspaceDisplay,
-    sanitize_path,
-    sanitize_metadata,
-    sanitize_text,
-    workspace_display,
-)
-from pipy_harness.models import AdapterResult, HarnessStatus, RunRequest, RunResult
 
 HARNESS_PROTOCOL_VERSION = 1
 _SAFE_USAGE_COUNTERS = {

@@ -27,10 +27,25 @@ from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 from pipy_harness.capture import sanitize_text
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native._provider_helpers import (
     failed_provider_result,
     serialize_tool_for_responses,
     utc_now,
+)
+from pipy_harness.native.agent import (
+    AgentAssistantMessage,
+    AgentToolResultMessage,
+    AgentUserMessage,
+)
+from pipy_harness.native.cancellation import (
+    CancelToken,
+    ProviderCancelledError,
+    _safe_close,
+)
+from pipy_harness.native.deferred_tools import (
+    responses_tool_search_items,
+    split_deferred_tools,
 )
 from pipy_harness.native.http import (
     ProviderHTTPError,
@@ -40,21 +55,6 @@ from pipy_harness.native.http import (
     open_url_cancellable,
     transport_exception_retryable,
 )
-from pipy_harness.native.cancellation import (
-    CancelToken,
-    ProviderCancelledError,
-    _safe_close,
-)
-from pipy_harness.native.agent import (
-    AgentAssistantMessage,
-    AgentToolResultMessage,
-    AgentUserMessage,
-)
-from pipy_harness.native.deferred_tools import (
-    responses_tool_search_items,
-    split_deferred_tools,
-)
-from pipy_harness.models import HarnessStatus
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
 from pipy_harness.native.retry import (

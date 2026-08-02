@@ -19,7 +19,6 @@ from pipy_harness.native.session_tree_commands import (
     build_session_picker_rows,
 )
 
-
 OverlayKind = Literal[
     "model",
     "settings",

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-import inspect
 from typing import TYPE_CHECKING, cast
 
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput

@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from hashlib import sha256
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 

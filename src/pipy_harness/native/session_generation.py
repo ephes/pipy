@@ -33,8 +33,8 @@ if TYPE_CHECKING:
         ReplPendingDefaultReloadValue,
         ReplSelectionReloadValue,
     )
-    from pipy_harness.native.tui import ExtensionChromePrepareInput
     from pipy_harness.native.tool_capabilities import NativeToolCapabilities
+    from pipy_harness.native.tui import ExtensionChromePrepareInput
 
 from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeRetirement,
@@ -62,7 +62,6 @@ from pipy_harness.native.extension_types import (
 )
 from pipy_harness.native.tool_capabilities import ToolCapabilityState
 from pipy_harness.native.tools import ToolPort
-
 
 ProjectionStepObserver = Callable[[str], None]
 ReloadPreparationObserver = Callable[[str], None]

@@ -24,6 +24,19 @@ one-shot completion.
 
 from __future__ import annotations
 
+from pipy_harness.native.extension_hooks import (
+    dispatch_before_agent_start_hooks,
+    dispatch_before_provider_headers_hooks,
+    dispatch_before_provider_request_hooks,
+    dispatch_input_hooks,
+    dispatch_lifecycle_hooks,
+    dispatch_session_before_hooks,
+    dispatch_tool_call_hooks,
+    dispatch_tool_result_hooks,
+    dispatch_user_bash_hooks,
+    extension_event_hooks,
+    extension_tool_call_hooks,
+)
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
     AssistantMessageView,
@@ -42,8 +55,8 @@ from pipy_harness.native.extension_runtime import (
     SessionTreeNodeView,
     activate_extensions,
     coerce_custom_message,
-    dispatch_extension_shortcut,
     dispatch_extension_command,
+    dispatch_extension_shortcut,
     drain_custom_messages,
     drain_user_messages,
     extension_command_map,
@@ -59,19 +72,6 @@ from pipy_harness.native.extension_runtime import (
     render_extension_message,
     safe_activation_metadata,
     safe_custom_entry_data,
-)
-from pipy_harness.native.extension_hooks import (
-    dispatch_before_agent_start_hooks,
-    dispatch_before_provider_headers_hooks,
-    dispatch_before_provider_request_hooks,
-    dispatch_input_hooks,
-    dispatch_lifecycle_hooks,
-    dispatch_session_before_hooks,
-    dispatch_tool_call_hooks,
-    dispatch_tool_result_hooks,
-    dispatch_user_bash_hooks,
-    extension_event_hooks,
-    extension_tool_call_hooks,
 )
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,

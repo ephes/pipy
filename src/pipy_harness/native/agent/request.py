@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-import sys
 
 from pipy_harness.native.agent.content import ProductContent
 from pipy_harness.native.agent.messages import (

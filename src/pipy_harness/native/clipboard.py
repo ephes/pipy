@@ -19,7 +19,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import IO, TextIO
 
-
 # OSC 52 payloads are bounded by terminal/multiplexer buffers; keep the base64
 # body well under the common ~100 KB ceiling so passthrough stays reliable.
 _OSC52_MAX_BYTES = 74_000

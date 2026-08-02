@@ -8,7 +8,6 @@ from typing import Any, cast
 
 from pipy_harness.native.editor_state import CompletionItem, CompletionMode
 
-
 _MISSING_PROVIDER_METHOD = object()
 
 

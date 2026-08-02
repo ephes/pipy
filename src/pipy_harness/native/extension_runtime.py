@@ -68,42 +68,7 @@ from pipy_harness.native.extension_loader import (
     _import_entry_module,
     _run_awaitable,
 )
-from pipy_harness.native.extension_ui import (
-    _CUSTOM_RENDER_MAX_CHARS,
-    _CollectingUi as _CollectingUi,
-    coerce_tool_render_lines as coerce_tool_render_lines,
-    lines_component as lines_component,
-)
-from pipy_harness.native.extensions import ExtensionDescriptor
 from pipy_harness.native.extension_types import (
-    BeforeAgentStartEvent as BeforeAgentStartEvent,
-    BeforeAgentStartResult as BeforeAgentStartResult,
-    BeforeProviderHeadersEvent as BeforeProviderHeadersEvent,
-    BeforeProviderRequestEvent as BeforeProviderRequestEvent,
-    ChromeComponent as ChromeComponent,
-    CompletionFn as CompletionFn,
-    CustomComponent as CustomComponent,
-    CustomComponentDriver,
-    CustomComponentFactory as CustomComponentFactory,
-    EntryRenderContext as EntryRenderContext,
-    ExtensionCodingSessionControl as ExtensionCodingSessionControl,
-    ExtensionFlag as ExtensionFlag,
-    ExtensionModelRuntimeControl as ExtensionModelRuntimeControl,
-    ExtensionOAuthConfig as ExtensionOAuthConfig,
-    ExtensionProvider as ExtensionProvider,
-    ExtensionTool as ExtensionTool,
-    ExtensionUi as ExtensionUi,
-    ExtensionUiDriver as ExtensionUiDriver,
-    FooterData as FooterData,
-    InputEvent as InputEvent,
-    InputTransform as InputTransform,
-    LifecycleEvent as LifecycleEvent,
-    MessageRenderComponent as MessageRenderComponent,
-    MessageRenderContext as MessageRenderContext,
-    ProviderContext as ProviderContext,
-    ProviderRequestTransform as ProviderRequestTransform,
-    QueuedCustomMessage as QueuedCustomMessage,
-    QueuedUserMessage as QueuedUserMessage,
     REASON_ACTIVATION_ERROR,
     REASON_DUPLICATE_COMMAND,
     REASON_DUPLICATE_ENTRY_RENDERER,
@@ -123,33 +88,174 @@ from pipy_harness.native.extension_types import (
     REASON_NO_ACTIVATE,
     REASON_RESERVED_COMMAND,
     REASON_RESERVED_SHORTCUT,
-    REASON_RESERVED_TOOL as REASON_RESERVED_TOOL,
-    RESERVED_SHORTCUT_KEYS as RESERVED_SHORTCUT_KEYS,
-    RegisteredFlag as RegisteredFlag,
-    RegisteredProvider as RegisteredProvider,
-    RegisteredTool as RegisteredTool,
-    RenderedCustomEntry as RenderedCustomEntry,
-    SessionBeforeEvent as SessionBeforeEvent,
-    SessionDecision as SessionDecision,
-    ThemeColor as ThemeColor,
-    ToolBlock as ToolBlock,
-    ToolCallEvent as ToolCallEvent,
-    ToolRenderComponent as ToolRenderComponent,
-    ToolRenderContext as ToolRenderContext,
-    ToolRenderTheme as ToolRenderTheme,
-    ToolResult as ToolResult,
-    ToolResultEvent as ToolResultEvent,
-    ToolResultTransform as ToolResultTransform,
-    UserBashDecision as UserBashDecision,
-    UserBashDispatch as UserBashDispatch,
-    UserBashEvent as UserBashEvent,
-    WidgetPlacement as WidgetPlacement,
+    CustomComponentDriver,
     _ActivationError,
     _is_valid_command_name,
     _safe_diagnostic,
+)
+from pipy_harness.native.extension_types import (
+    REASON_RESERVED_TOOL as REASON_RESERVED_TOOL,
+)
+from pipy_harness.native.extension_types import (
+    RESERVED_SHORTCUT_KEYS as RESERVED_SHORTCUT_KEYS,
+)
+from pipy_harness.native.extension_types import (
+    BeforeAgentStartEvent as BeforeAgentStartEvent,
+)
+from pipy_harness.native.extension_types import (
+    BeforeAgentStartResult as BeforeAgentStartResult,
+)
+from pipy_harness.native.extension_types import (
+    BeforeProviderHeadersEvent as BeforeProviderHeadersEvent,
+)
+from pipy_harness.native.extension_types import (
+    BeforeProviderRequestEvent as BeforeProviderRequestEvent,
+)
+from pipy_harness.native.extension_types import (
+    ChromeComponent as ChromeComponent,
+)
+from pipy_harness.native.extension_types import (
+    CompletionFn as CompletionFn,
+)
+from pipy_harness.native.extension_types import (
+    CustomComponent as CustomComponent,
+)
+from pipy_harness.native.extension_types import (
+    CustomComponentFactory as CustomComponentFactory,
+)
+from pipy_harness.native.extension_types import (
+    EntryRenderContext as EntryRenderContext,
+)
+from pipy_harness.native.extension_types import (
+    ExtensionCodingSessionControl as ExtensionCodingSessionControl,
+)
+from pipy_harness.native.extension_types import (
+    ExtensionFlag as ExtensionFlag,
+)
+from pipy_harness.native.extension_types import (
+    ExtensionModelRuntimeControl as ExtensionModelRuntimeControl,
+)
+from pipy_harness.native.extension_types import (
+    ExtensionOAuthConfig as ExtensionOAuthConfig,
+)
+from pipy_harness.native.extension_types import (
+    ExtensionProvider as ExtensionProvider,
+)
+from pipy_harness.native.extension_types import (
+    ExtensionTool as ExtensionTool,
+)
+from pipy_harness.native.extension_types import (
+    ExtensionUi as ExtensionUi,
+)
+from pipy_harness.native.extension_types import (
+    ExtensionUiDriver as ExtensionUiDriver,
+)
+from pipy_harness.native.extension_types import (
+    FooterData as FooterData,
+)
+from pipy_harness.native.extension_types import (
+    InputEvent as InputEvent,
+)
+from pipy_harness.native.extension_types import (
+    InputTransform as InputTransform,
+)
+from pipy_harness.native.extension_types import (
+    LifecycleEvent as LifecycleEvent,
+)
+from pipy_harness.native.extension_types import (
+    MessageRenderComponent as MessageRenderComponent,
+)
+from pipy_harness.native.extension_types import (
+    MessageRenderContext as MessageRenderContext,
+)
+from pipy_harness.native.extension_types import (
+    ProviderContext as ProviderContext,
+)
+from pipy_harness.native.extension_types import (
+    ProviderRequestTransform as ProviderRequestTransform,
+)
+from pipy_harness.native.extension_types import (
+    QueuedCustomMessage as QueuedCustomMessage,
+)
+from pipy_harness.native.extension_types import (
+    QueuedUserMessage as QueuedUserMessage,
+)
+from pipy_harness.native.extension_types import (
+    RegisteredFlag as RegisteredFlag,
+)
+from pipy_harness.native.extension_types import (
+    RegisteredProvider as RegisteredProvider,
+)
+from pipy_harness.native.extension_types import (
+    RegisteredTool as RegisteredTool,
+)
+from pipy_harness.native.extension_types import (
+    RenderedCustomEntry as RenderedCustomEntry,
+)
+from pipy_harness.native.extension_types import (
+    SessionBeforeEvent as SessionBeforeEvent,
+)
+from pipy_harness.native.extension_types import (
+    SessionDecision as SessionDecision,
+)
+from pipy_harness.native.extension_types import (
+    ThemeColor as ThemeColor,
+)
+from pipy_harness.native.extension_types import (
+    ToolBlock as ToolBlock,
+)
+from pipy_harness.native.extension_types import (
+    ToolCallEvent as ToolCallEvent,
+)
+from pipy_harness.native.extension_types import (
+    ToolRenderComponent as ToolRenderComponent,
+)
+from pipy_harness.native.extension_types import (
+    ToolRenderContext as ToolRenderContext,
+)
+from pipy_harness.native.extension_types import (
+    ToolRenderTheme as ToolRenderTheme,
+)
+from pipy_harness.native.extension_types import (
+    ToolResult as ToolResult,
+)
+from pipy_harness.native.extension_types import (
+    ToolResultEvent as ToolResultEvent,
+)
+from pipy_harness.native.extension_types import (
+    ToolResultTransform as ToolResultTransform,
+)
+from pipy_harness.native.extension_types import (
+    UserBashDecision as UserBashDecision,
+)
+from pipy_harness.native.extension_types import (
+    UserBashDispatch as UserBashDispatch,
+)
+from pipy_harness.native.extension_types import (
+    UserBashEvent as UserBashEvent,
+)
+from pipy_harness.native.extension_types import (
+    WidgetPlacement as WidgetPlacement,
+)
+from pipy_harness.native.extension_types import (
     is_valid_custom_entry_type as is_valid_custom_entry_type,
+)
+from pipy_harness.native.extension_types import (
     normalize_shortcut_key as normalize_shortcut_key,
 )
+from pipy_harness.native.extension_ui import (
+    _CUSTOM_RENDER_MAX_CHARS,
+)
+from pipy_harness.native.extension_ui import (
+    _CollectingUi as _CollectingUi,
+)
+from pipy_harness.native.extension_ui import (
+    coerce_tool_render_lines as coerce_tool_render_lines,
+)
+from pipy_harness.native.extension_ui import (
+    lines_component as lines_component,
+)
+from pipy_harness.native.extensions import ExtensionDescriptor
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,
@@ -160,7 +266,11 @@ from pipy_harness.native.tools.base import (
 if False:  # pragma: no cover - imported for type checkers only
     from pipy_harness.native.session_tree import (
         CustomEntry as _CustomEntry,
+    )
+    from pipy_harness.native.session_tree import (
         CustomMessageEntry as _CustomMessageEntry,
+    )
+    from pipy_harness.native.session_tree import (
         NativeSessionTree,
         SessionEntry,
         SessionHeader,

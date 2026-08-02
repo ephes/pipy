@@ -9,38 +9,38 @@ from typing import TextIO
 
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import CapturePolicy
-from pipy_harness.native.automation.events import AutomationEventSink
-from pipy_harness.native.agent import AgentEventSink
 from pipy_harness.models import AdapterResult, PreparedRun, RunRequest
-from pipy_harness.native.fake import FakeNoOpNativeTool
+from pipy_harness.native.agent import AgentEventSink
+from pipy_harness.native.automation.events import AutomationEventSink
 from pipy_harness.native.extension_runtime import ExtensionActivationBatch
+from pipy_harness.native.fake import FakeNoOpNativeTool
 from pipy_harness.native.models import NativeRunInput
-from pipy_harness.native.provider import ProviderPort, StreamChunkSink
-from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.package_runtime import compose_package_runtime
+from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
+from pipy_harness.native.repl_state import NativeModelSelection, NativeReplProviderState
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.resources import WorkspaceResources
-from pipy_harness.native.settings import SettingsManager, resolve_config_home
-from pipy_harness.native.skills import SkillFile, compose_skills_system_block
-from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
-from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_AUTO
 from pipy_harness.native.session import (
     NATIVE_TOOL_LOOP_SYSTEM_PROMPT,
-    NativeHarnessCompatibilityRuntime,
     SYSTEM_PROMPT_ID,
     SYSTEM_PROMPT_VERSION,
+    NativeHarnessCompatibilityRuntime,
 )
 from pipy_harness.native.session_resume import (
     ResumeContext,
     compose_resume_system_block,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.settings import SettingsManager, resolve_config_home
+from pipy_harness.native.skills import SkillFile, compose_skills_system_block
+from pipy_harness.native.system_prompt_inputs import resolve_system_prompt
 from pipy_harness.native.tool import ToolPort
+from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
     production_tool_registry,
 )
-from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
 from pipy_harness.native.workspace_context import (
     WorkspaceInstructionLoader,

@@ -7,28 +7,30 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native._provider_helpers import (
-    utc_now,
     failed_provider_result,
     serialize_tool_for_anthropic,
+    utc_now,
 )
+from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.deferred_tools import split_deferred_tools
 from pipy_harness.native.http import (
     ApiErrorField,
-    JsonResponse as JsonResponse,
     JsonHTTPClient,
     ProviderHTTPError,
     UrllibJsonHTTPClient,
 )
-from pipy_harness.models import HarnessStatus
-from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.deferred_tools import split_deferred_tools
+from pipy_harness.native.http import (
+    JsonResponse as JsonResponse,
+)
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import StreamChunkSink, apply_provider_headers
-from pipy_harness.native.tools.base import ToolDefinition
 from pipy_harness.native.providers.anthropic_messages_wire import (
     messages_payload,
     parse_response,
 )
+from pipy_harness.native.tools.base import ToolDefinition
 
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_DEFAULT_MAX_TOKENS = 4096

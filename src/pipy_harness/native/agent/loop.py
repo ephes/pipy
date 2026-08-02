@@ -9,7 +9,6 @@ from enum import StrEnum
 from math import isfinite
 from typing import Protocol, runtime_checkable
 
-from pipy_harness.status import HarnessStatus
 from pipy_harness.native.agent._validation import require_bool
 from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.content import ProductContent
@@ -81,6 +80,7 @@ from pipy_harness.native.agent.usage import (
 )
 from pipy_harness.native.models import ProviderResult, ProviderToolCall
 from pipy_harness.native.tools.base import ToolDefinition
+from pipy_harness.status import HarnessStatus
 
 
 @dataclass(frozen=True, slots=True)

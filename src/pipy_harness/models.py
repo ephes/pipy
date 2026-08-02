@@ -7,13 +7,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
 
-from pipy_session.recorder import SessionRecord
-
 from pipy_harness.capture import CapturePolicy
 
 # Same-name alias intentionally marks the established public export for Mypy.
 from pipy_harness.status import HarnessStatus as HarnessStatus
-
+from pipy_session.recorder import SessionRecord
 
 RESUME_RELATIONSHIP_RESUME = "resume"
 RESUME_RELATIONSHIP_BRANCH = "branch"

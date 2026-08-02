@@ -31,6 +31,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pipy_harness.native.package_resources import PackageResourceRoots
 
+from pipy_harness.native._resource_files import (
+    CLI_PATH_LABEL_PREFIX,
+    safe_resource_metadata,
+)
+from pipy_harness.native.coding.command_registry import builtin_command_names
 from pipy_harness.native.custom_commands import (
     CustomSlashCommand,
     discover_workspace_custom_commands,
@@ -48,11 +53,6 @@ from pipy_harness.native.skills import (
     discover_workspace_skills,
     find_skill_by_name,
 )
-from pipy_harness.native._resource_files import (
-    CLI_PATH_LABEL_PREFIX,
-    safe_resource_metadata,
-)
-from pipy_harness.native.coding.command_registry import builtin_command_names
 
 SKILL_RESOURCE_COMMAND = "/skill"
 

@@ -28,7 +28,6 @@ from typing import Protocol, runtime_checkable
 
 from pipy_harness.native.catalog import NativeModelSpec
 
-
 Clock = Callable[[], int]
 
 

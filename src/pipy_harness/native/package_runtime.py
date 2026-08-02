@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 
 from pipy_harness.native.package_resources import (
     PackageResourceRoots as PackageResourceRoots,
+)
+from pipy_harness.native.package_resources import (
     resolve_package_roots,
 )
 from pipy_harness.native.theme_files import build_theme_registry

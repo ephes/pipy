@@ -23,8 +23,10 @@ from pipy_harness.native.auth_store import (
     AuthStore,
     AuthStoreReloadValue,
     ProviderAuthRequestConfig,
-    provider_available as _auth_provider_available,
     provider_auth_status,
+)
+from pipy_harness.native.auth_store import (
+    provider_available as _auth_provider_available,
 )
 from pipy_harness.native.catalog import NativeModelSpec
 from pipy_harness.native.extension_types import RegisteredProvider

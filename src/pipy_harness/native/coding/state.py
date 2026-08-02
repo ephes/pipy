@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import threading
-
 from dataclasses import dataclass
 from math import isfinite
 
 import pipy_harness.native.agent.usage as agent_usage
+from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
+from pipy_harness.native.agent.loop_policy import (
+    MAX_AGENT_TOOL_BUDGET,
+    AgentToolPolicyState,
+)
 from pipy_harness.native.agent.messages import (
     AgentAssistantMessage,
     AgentMessage,
@@ -15,19 +20,12 @@ from pipy_harness.native.agent.messages import (
     AgentToolResultMessage,
     AgentUserMessage,
 )
-from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.identity import AGENT_TOOL_REQUEST_ID_PREFIX
-from pipy_harness.native.agent.loop_policy import (
-    MAX_AGENT_TOOL_BUDGET,
-    AgentToolPolicyState,
-)
 from pipy_harness.native.agent.results import AgentFailure, AgentUsage
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
     AgentUsageAccumulator,
 )
 from pipy_harness.native.provider import ProviderPort
-
 
 _EXACT_AGENT_MESSAGE_TYPES = (
     AgentUserMessage,

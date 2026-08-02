@@ -29,7 +29,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 
-
 CommandRunner = Callable[[str], str | None]
 OAuthTokenResolver = Callable[[str, Mapping[str, object]], str | None]
 

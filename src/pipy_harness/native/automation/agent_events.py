@@ -40,7 +40,6 @@ from pipy_harness.native.automation.serialize import (
     serialize_message,
 )
 
-
 PiAutomationEvent = dict[str, object]
 
 

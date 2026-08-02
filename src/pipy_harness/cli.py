@@ -21,6 +21,7 @@ from pipy_harness.models import (
 )
 from pipy_harness.native import (
     DEFAULT_NATIVE_MODELS,
+    SUPPORTED_REPL_INPUT_RUNTIMES,
     NativeDefaultsStore,
     NativeModelSelection,
     NativeReplProviderState,
@@ -28,42 +29,31 @@ from pipy_harness.native import (
     OpenAICodexProviderError,
     ProviderPort,
     ReplInputUnavailableError,
-    SUPPORTED_REPL_INPUT_RUNTIMES,
     default_native_defaults_path,
     default_openai_codex_auth_path,
     default_selection_for,
     production_tool_registry,
     validate_native_repl_input_runtime,
 )
-from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.agent.loop_policy import MAX_AGENT_TOOL_BUDGET
-from pipy_harness.native.provider_registry import (
-    native_provider_spec,
-)
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
-from pipy_harness.native.prompt_history import PromptHistoryStore
-from pipy_harness.native.resource_loading import RuntimeResourceOptions
-from pipy_harness.native.tools import ToolPort
-from pipy_harness.native.tool_capabilities import ToolFilterOptions
-from pipy_harness.native.package_runtime import compose_package_runtime
-from pipy_harness.native.session_tree_commands import StartupSessionAborted
-from pipy_harness.native.repl_state import ModelRuntime
-from pipy_harness.native.provider_construction import ConstructionOptions
 from pipy_harness.native.export_distribution import (
     NativeExportError,
     export_from_file,
 )
 from pipy_harness.native.extension_runtime import ExtensionActivationBatch
-from pipy_harness.native.version_check import (
-    PIPY_OFFLINE_ENV,
-    PIPY_SKIP_VERSION_CHECK_ENV,
-    compare_versions,
-    fetch_latest_pipy_version,
-    pipy_version,
-    self_update_plan,
+from pipy_harness.native.package_runtime import compose_package_runtime
+from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.provider_construction import ConstructionOptions
+from pipy_harness.native.provider_registry import (
+    native_provider_spec,
 )
+from pipy_harness.native.repl_state import ModelRuntime
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.session_tree_commands import StartupSessionAborted
 from pipy_harness.native.settings import (
     SettingsManager,
     local_state_base_defaults,
@@ -71,9 +61,19 @@ from pipy_harness.native.settings import (
     timeout_ms_to_seconds,
 )
 from pipy_harness.native.themes import (
-    NativeThemeStore,
     THEME_ENV_VAR,
+    NativeThemeStore,
     resolve_active_theme_name,
+)
+from pipy_harness.native.tool_capabilities import ToolFilterOptions
+from pipy_harness.native.tools import ToolPort
+from pipy_harness.native.version_check import (
+    PIPY_OFFLINE_ENV,
+    PIPY_SKIP_VERSION_CHECK_ENV,
+    compare_versions,
+    fetch_latest_pipy_version,
+    pipy_version,
+    self_update_plan,
 )
 from pipy_harness.native.workspace_context import (
     default_workspace_instruction_loader,

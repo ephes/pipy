@@ -37,43 +37,21 @@ from __future__ import annotations
 import os
 import tempfile
 import threading
+from collections.abc import Callable, Iterator, Mapping, MutableMapping, Sequence
+from contextlib import contextmanager
 from dataclasses import InitVar, dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from collections.abc import Callable, Iterator, Mapping, MutableMapping, Sequence
-from contextlib import contextmanager
 from typing import Any, ClassVar, Literal, TextIO, cast
 
-from pipy_harness.capture import sanitize_text
-from pipy_harness.models import HarnessStatus
 import pipy_harness.native.agent.history as _agent_history
 import pipy_harness.native.agent.usage as _agent_usage
 import pipy_harness.native.chrome as _chrome
 import pipy_harness.native.tool_renderers as _tool_renderers
-from pipy_harness.native.clipboard import (
-    ClipboardResult,
-    ImageClipboardResult,
-    copy_to_clipboard,
-    read_clipboard_image,
-)
-from pipy_harness.native.chrome import (
-    BottomStatusFields,
-    _ChromeFooterEffects,
-    chrome_width,
-    format_bottom_status_line,
-    print_bottom_status_block,
-    print_input_separator,
-    print_startup_chrome,
-)
-from pipy_harness.native.models import (
-    ProviderRequest,
-    ProviderResult,
-)
-from pipy_harness.native.automation.events import (
-    AutomationEventSink,
-)
-from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
+from pipy_harness.capture import sanitize_text
+from pipy_harness.models import HarnessStatus
+from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentCancellationReason,
@@ -100,11 +78,6 @@ from pipy_harness.native.agent.loop_policy import (
     AgentToolPolicyDecision,
     AgentToolPolicyState,
 )
-from pipy_harness.native.agent.tools import (
-    ToolExecutionInterruption,
-    ToolExecutionOutcome,
-    ToolInterruptWaiter,
-)
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
     ProviderTurnInterruption,
@@ -119,6 +92,11 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputKind,
     AgentQueuedInputPort,
 )
+from pipy_harness.native.agent.tools import (
+    ToolExecutionInterruption,
+    ToolExecutionOutcome,
+    ToolInterruptWaiter,
+)
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
     AgentTokenPricing,
@@ -126,17 +104,53 @@ from pipy_harness.native.agent.usage import (
 )
 from pipy_harness.native.agent_adapters import (
     NativeProductSessionActionSink as NativeProductSessionActionSink,
+)
+from pipy_harness.native.agent_adapters import (
     ProductSessionEventProjection,
     SynchronousAgentEventComposite,
     WorkflowArchiveAgentEventAdapter,
 )
+from pipy_harness.native.agent_loop_policy import (
+    NativeAgentProviderRequestPolicy,
+    NativeAgentToolPolicy,
+    materialize_provider_request,
+)
+from pipy_harness.native.agent_request import (
+    NativeProviderRequestHookContext,
+    prepare_provider_request,
+)
 from pipy_harness.native.agent_runtime import (
     NativeAgentQueuedInputPort as NativeAgentQueuedInputPort,
+)
+from pipy_harness.native.agent_runtime import (
     NativeAgentUsagePublisher as NativeAgentUsagePublisher,
 )
+from pipy_harness.native.automation.agent_events import AutomationAgentEventAdapter
+from pipy_harness.native.automation.events import (
+    AutomationEventSink,
+)
 from pipy_harness.native.cancellation import CancelToken
+from pipy_harness.native.changelog import (
+    changelog_startup,
+    read_changelog_entries,
+    render_changelog,
+)
+from pipy_harness.native.chrome import (
+    BottomStatusFields,
+    _ChromeFooterEffects,
+    chrome_width,
+    format_bottom_status_line,
+    print_bottom_status_block,
+    print_input_separator,
+    print_startup_chrome,
+)
+from pipy_harness.native.clipboard import (
+    ClipboardResult,
+    ImageClipboardResult,
+    copy_to_clipboard,
+    read_clipboard_image,
+)
 from pipy_harness.native.coding import CodingInputQueue
-from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.accepted_input import (
     CodingAcceptedInputPreparer,
     CodingSessionAcceptedInputRecorder,
@@ -157,6 +171,7 @@ from pipy_harness.native.coding.commands import (
     ResourceDispatchKind,
     ResourceDispatchResolution,
 )
+from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.product_session import (
     CodingProductSessionCallbacks,
     CodingProductSessionCompaction,
@@ -181,6 +196,89 @@ from pipy_harness.native.coding.state import (
     CodingSessionState,
     CodingSessionUsageSnapshot,
 )
+from pipy_harness.native.export_distribution import (
+    NativeExportError,
+    ShareCancelled,
+    ShareResult,
+    default_html_export_path,
+    export_native_branch_to_jsonl,
+    export_native_session_to_html,
+    parse_command_path_argument,
+    resolve_github_token,
+    share_native_session,
+)
+from pipy_harness.native.export_distribution import (
+    import_native_session_jsonl as import_native_session_jsonl,
+)
+from pipy_harness.native.extension_chrome_state import (
+    ExtensionChromeRetirement,
+    ExtensionChromeSink,
+)
+from pipy_harness.native.extension_hooks import (
+    _activate_workspace_extensions,
+    dispatch_before_agent_start_hooks,
+    dispatch_before_provider_headers_hooks,
+    dispatch_input_hooks,
+    dispatch_tool_call_hooks,
+    dispatch_tool_result_hooks,
+    dispatch_user_bash_hooks,
+)
+from pipy_harness.native.extension_hooks import (
+    dispatch_session_before_hooks as dispatch_session_before_hooks,
+)
+from pipy_harness.native.extension_runtime import (
+    EVENT_SESSION_SHUTDOWN,
+    EVENT_SESSION_START,
+    BeforeAgentStartResult,
+    ExtensionActivationBatch,
+    ExtensionCapabilityError,
+    ExtensionCodingSessionControl,
+    ExtensionCommandDispatch,
+    ExtensionModelRuntimeControl,
+    ExtensionTool,
+    ExtensionUiDriver,
+    GenerationMessageRetirement,
+    HookHandler,
+    QueuedCustomMessage,
+    QueuedUserMessage,
+    RegisteredTool,
+    SessionDecision,
+    ToolRenderDetailsWriter,
+    _ExtensionCandidate,
+    _ExtensionRuntime,
+    _ExtensionToolPort,
+    _report_activation_cleanup,
+    dispatch_extension_command,
+    dispatch_extension_shortcut,
+    normalize_shortcut_key,
+    parse_extension_flag_tokens,
+)
+from pipy_harness.native.extension_types import CustomComponentDriver
+from pipy_harness.native.file_references import (
+    FileReferenceResolution,
+    resolve_file_references,
+)
+from pipy_harness.native.image_attachment import (
+    ImageAttachmentResolution,
+    resolve_image_attachments,
+)
+from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
+from pipy_harness.native.models import (
+    ProviderRequest,
+    ProviderResult,
+)
+from pipy_harness.native.package_runtime import (
+    PackageResourceRoots,
+    compose_package_runtime,
+)
+from pipy_harness.native.project_trust import (
+    DefaultProjectTrust,
+    ProjectTrustError,
+    ProjectTrustStore,
+    get_project_trust_options,
+    has_trust_requiring_project_resources,
+)
+from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
@@ -191,55 +289,32 @@ from pipy_harness.native.repl_input import (
 from pipy_harness.native.repl_state import (
     NativeModelMutationState,
     NativeModelSelection,
-    PreparedNativeModelMutation,
-    UnavailableAfterReloadProvider,
     NativeReplProviderState,
+    PreparedNativeModelMutation,
     StaticNativeReplProviderState,
+    UnavailableAfterReloadProvider,
     normalize_repl_fake_selection,
     settings_overlay_lines,
 )
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
-from pipy_harness.native.changelog import (
-    changelog_startup,
-    read_changelog_entries,
-    render_changelog,
-)
-from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
-from pipy_harness.native.prompt_history import PromptHistoryStore
-from pipy_harness.native.project_trust import (
-    DefaultProjectTrust,
-    ProjectTrustError,
-    ProjectTrustStore,
-    get_project_trust_options,
-    has_trust_requiring_project_resources,
+from pipy_harness.native.resources import (
+    DISPATCH_LIST,
+    WorkspaceResources,
+    dispatch_resource_command,
 )
 from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
-from pipy_harness.native.settings import SettingsManager
-from pipy_harness.native.version_check import pipy_version
-from pipy_harness.native.export_distribution import (
-    NativeExportError,
-    ShareCancelled,
-    ShareResult,
-    default_html_export_path,
-    export_native_branch_to_jsonl,
-    export_native_session_to_html,
-    import_native_session_jsonl as import_native_session_jsonl,
-    parse_command_path_argument,
-    resolve_github_token,
-    share_native_session,
-)
 from pipy_harness.native.session_generation import (
     ExtensionChromeHandle,
     ExtensionProjection,
-    balance_startup_candidate,
     FrozenStagedDeliveryBatch,
     OrderedDeliveryGate,
     PreparedReloadEffects,
     ReloadEffectPreparationPorts,
-    ReloadPreparationRefused,
     ReloadPreparationObserver,
+    ReloadPreparationRefused,
     SessionExtensionGeneration,
     SessionGenerationRef,
+    balance_startup_candidate,
     build_extension_projection,
     build_prepared_reload_effects,
     prepare_production_reload,
@@ -275,101 +350,12 @@ from pipy_harness.native.session_tree_commands import (
     sanitize_label_text,
     visible_tree_entries,
 )
-from pipy_harness.native.extension_chrome_state import (
-    ExtensionChromeRetirement,
-    ExtensionChromeSink,
-)
-from pipy_harness.native.extension_runtime import (
-    EVENT_SESSION_SHUTDOWN,
-    EVENT_SESSION_START,
-    BeforeAgentStartResult,
-    ExtensionCapabilityError,
-    ExtensionCodingSessionControl,
-    ExtensionCommandDispatch,
-    GenerationMessageRetirement,
-    ExtensionTool,
-    ExtensionModelRuntimeControl,
-    ExtensionUiDriver,
-    HookHandler,
-    SessionDecision,
-    ExtensionActivationBatch,
-    QueuedCustomMessage,
-    QueuedUserMessage,
-    RegisteredTool,
-    ToolRenderDetailsWriter,
-    _ExtensionCandidate,
-    _ExtensionRuntime,
-    _ExtensionToolPort,
-    _report_activation_cleanup,
-    dispatch_extension_command,
-    dispatch_extension_shortcut,
-    normalize_shortcut_key,
-    parse_extension_flag_tokens,
-)
-from pipy_harness.native.extension_types import CustomComponentDriver
-from pipy_harness.native import extension_hooks as _extension_hooks
-from pipy_harness.native.extension_hooks import (
-    _activate_workspace_extensions,
-    dispatch_before_agent_start_hooks,
-    dispatch_before_provider_headers_hooks,
-    dispatch_input_hooks,
-    dispatch_session_before_hooks as dispatch_session_before_hooks,
-    dispatch_tool_call_hooks,
-    dispatch_tool_result_hooks,
-    dispatch_user_bash_hooks,
-)
-from pipy_harness.native.package_runtime import (
-    PackageResourceRoots,
-    compose_package_runtime,
-)
-from pipy_harness.native.resources import (
-    DISPATCH_LIST,
-    WorkspaceResources,
-    dispatch_resource_command,
-)
+from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.themes import (
     NativeThemeStore,
     available_theme_names,
     resolve_active_theme_name,
     select_theme,
-)
-from pipy_harness.native.tui import (
-    ExtensionChromeCommitToken,
-    ExtensionChromePrepareInput,
-    HOTKEY_EXTENSION_SHORTCUT_PREFIX,
-    HOTKEY_MODEL_CYCLE_NEXT,
-    HOTKEY_MODEL_CYCLE_PREV,
-    HOTKEY_MODEL_SELECT,
-    HOTKEY_THINKING_CYCLE,
-    HOTKEY_TOGGLE_THINKING,
-    HOTKEY_TOGGLE_TOOLS,
-    TURN_ABORTED as TURN_ABORTED,
-    TURN_LOCAL_COMMAND,
-    TURN_SETTLED,
-    TURN_STEERED,
-    ModelSelectorOption,
-    ScopedModelRow,
-    SettingsRow,
-    TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
-    ToolLoopTerminalUi,
-    _CustomEntryRenderer,
-    _LiveExtensionUiDriver,
-    _TuiToolLoopRenderer,
-    run_project_trust_selector,
-)
-from pipy_harness.native.ui import RenderingAgentEventAdapter
-from pipy_harness.native.tools.bash import LocalShellResult, run_local_command
-from pipy_harness.native.file_references import (
-    FileReferenceResolution,
-    resolve_file_references,
-)
-from pipy_harness.native.image_attachment import (
-    ImageAttachmentResolution,
-    resolve_image_attachments,
-)
-from pipy_harness.native.tools import (
-    ToolDefinition,
-    ToolPort,
 )
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
@@ -378,18 +364,44 @@ from pipy_harness.native.tool_capabilities import (
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_renderers import (
-    _ToolLoopRenderer as _ToolLoopRenderer,
     _parse_tool_input,
 )
-from pipy_harness.native.agent_request import (
-    NativeProviderRequestHookContext,
-    prepare_provider_request,
+from pipy_harness.native.tool_renderers import (
+    _ToolLoopRenderer as _ToolLoopRenderer,
 )
-from pipy_harness.native.agent_loop_policy import (
-    NativeAgentProviderRequestPolicy,
-    NativeAgentToolPolicy,
-    materialize_provider_request,
+from pipy_harness.native.tools import (
+    ToolDefinition,
+    ToolPort,
 )
+from pipy_harness.native.tools.bash import LocalShellResult, run_local_command
+from pipy_harness.native.tui import (
+    HOTKEY_EXTENSION_SHORTCUT_PREFIX,
+    HOTKEY_MODEL_CYCLE_NEXT,
+    HOTKEY_MODEL_CYCLE_PREV,
+    HOTKEY_MODEL_SELECT,
+    HOTKEY_THINKING_CYCLE,
+    HOTKEY_TOGGLE_THINKING,
+    HOTKEY_TOGGLE_TOOLS,
+    TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
+    TURN_LOCAL_COMMAND,
+    TURN_SETTLED,
+    TURN_STEERED,
+    ExtensionChromeCommitToken,
+    ExtensionChromePrepareInput,
+    ModelSelectorOption,
+    ScopedModelRow,
+    SettingsRow,
+    ToolLoopTerminalUi,
+    _CustomEntryRenderer,
+    _LiveExtensionUiDriver,
+    _TuiToolLoopRenderer,
+    run_project_trust_selector,
+)
+from pipy_harness.native.tui import (
+    TURN_ABORTED as TURN_ABORTED,
+)
+from pipy_harness.native.ui import RenderingAgentEventAdapter
+from pipy_harness.native.version_check import pipy_version
 
 
 def _wait_for_tool_interrupt(

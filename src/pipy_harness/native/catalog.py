@@ -18,7 +18,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # The six-value thinking vocabulary used by the CLI surface (Pi's args.ts),
 # which includes "off" alongside packages/ai/src/types.ts ThinkingLevel.
 THINKING_LEVELS: tuple[str, ...] = (

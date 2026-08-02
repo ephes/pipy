@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from pipy_harness.native.catalog import NativeModelCost, NativeModelSpec
 
-
 # Default per-provider base URLs. Pi's catalog rows always carry a baseUrl, and
 # the models.json custom-model parser skips a row whose baseUrl cannot be
 # resolved (Pi: ``if (!baseUrl) continue``), so every built-in provider must

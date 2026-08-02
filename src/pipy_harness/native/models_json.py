@@ -22,13 +22,15 @@ from copy import deepcopy
 from dataclasses import (
     dataclass,
     field,
-    fields as dataclass_fields,
     is_dataclass,
     replace,
 )
+from dataclasses import (
+    fields as dataclass_fields,
+)
 from pathlib import Path
 from types import MappingProxyType
-from typing import TypeVar, TypedDict, cast
+from typing import TypedDict, TypeVar, cast
 
 from pipy_harness.native._resource_files import resolve_global_resource_root
 from pipy_harness.native.catalog import (
@@ -37,7 +39,6 @@ from pipy_harness.native.catalog import (
     NativeModelSpec,
     build_builtin_catalog,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Comment / trailing-comma stripping (matches Pi's stripJsonComments regex)

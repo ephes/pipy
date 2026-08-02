@@ -31,17 +31,17 @@ from typing import Any, BinaryIO, Callable, TextIO
 
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest
+from pipy_harness.native.agent.content import ProductContent
+from pipy_harness.native.agent.runtime_ports import (
+    AgentQueuedInput,
+    AgentQueuedInputKind,
+)
 from pipy_harness.native.automation.jsonl import (
     JsonlLineBuffer,
     JsonlWriter,
     loads_strict,
 )
 from pipy_harness.native.automation.serialize import serialize_message
-from pipy_harness.native.agent.content import ProductContent
-from pipy_harness.native.agent.runtime_ports import (
-    AgentQueuedInput,
-    AgentQueuedInputKind,
-)
 from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.command_sandbox import (
     CommandPolicy,

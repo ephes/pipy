@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import ClassVar
 
 from pipy_harness.native.read_only_tool import (
+    ResolvedToolPath,
     _is_ignored_or_generated,
     _resolved_relative_label,
-    ResolvedToolPath,
     resolve_tool_path,
 )
 from pipy_harness.native.tools.base import (

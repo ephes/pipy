@@ -6,7 +6,6 @@ from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-
 DS4_BASE_URL_ENV = "PIPY_DS4_BASE_URL"
 DS4_API_KEY_ENV = "PIPY_DS4_API_KEY"
 DS4_DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1"

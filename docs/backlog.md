@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **L1 — normalize source import order**
+**Active/next slice:** **L2 — normalize every non-source Python import block**
 
 D1 is complete: it restored a concise reader-facing index, replaced the copied
 architecture-quality ledger in the living architecture overview with a link to
@@ -44,7 +44,9 @@ the dated assessment, and removed Architecture Quality Assessment, Architecture
 Migration, and Backlog from the site navigation. Removing those navigation
 entries does not claim that the documents are unpublished; site search inclusion
 remains a separate deferred decision. D1 changed docs/config only, so no
-changelog entry applies. L1 is next.
+changelog entry applies. L1 is complete: Ruff fixed exactly 64 `I001` findings
+across 61 source paths, and the source diff is import-order-only. L1 changed no
+behavior or rule configuration and requires no changelog entry. L2 is next.
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -182,8 +184,8 @@ No timeout, cancellation policy, concurrency abstraction, product source, or
 production behavior was added. R0's sticky chrome, immediate UI/notification,
 queue-protocol, independent settings/resources, and fail-soft process/
 persistence narrowings remain explicit. R7 adds no changelog entry because R1–
-R6 already recorded every behavior change. D1 is complete as recorded above,
-and L1 is next.
+R6 already recorded every behavior change. D1 and L1 are complete as recorded
+above, and L2 is next.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -636,8 +638,8 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1;
-the mandatory remaining order begins with L1. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1 → L1;
+the mandatory remaining order begins with L2. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
 their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome

@@ -9,6 +9,7 @@ from typing import Callable, Mapping
 
 from pipy_harness.adapters.base import EventSink
 from pipy_harness.capture import sanitize_metadata, sanitize_text
+from pipy_harness.models import HarnessStatus
 from pipy_harness.native._provider_helpers import utc_now
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
@@ -40,7 +41,6 @@ from pipy_harness.native.agent_adapters import (
     SynchronousAgentEventComposite,
     WorkflowArchiveAgentEventAdapter,
 )
-from pipy_harness.models import HarnessStatus
 from pipy_harness.native.cancellation import CancelToken, ProviderCancelledError
 from pipy_harness.native.conversation import (
     NativeConversationState,
@@ -58,14 +58,16 @@ from pipy_harness.native.models import (
     NATIVE_VERIFICATION_RECORDED_EVENT,
     PROVIDER_PATCH_PROPOSAL_METADATA_KEY,
     PROVIDER_READ_ONLY_TOOL_FIXTURE_METADATA_KEY,
+    PROVIDER_TOOL_INTENT_METADATA_KEY,
+    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
     NativePatchApplyRequest,
     NativePatchProposal,
     NativePatchProposalOperation,
     NativePatchProposalReason,
     NativePatchProposalStatus,
-    NativeRunInput,
     NativeReadOnlyToolRequest,
     NativeReadOnlyToolRequestKind,
+    NativeRunInput,
     NativeRunOutput,
     NativeToolApprovalMode,
     NativeToolApprovalPolicy,
@@ -76,12 +78,10 @@ from pipy_harness.native.models import (
     NativeToolRequest,
     NativeToolRequestIdentity,
     NativeToolResult,
-    NativeToolSandboxPolicy,
     NativeToolSandboxMode,
+    NativeToolSandboxPolicy,
     NativeToolStatus,
     NativeVerificationRequest,
-    PROVIDER_TOOL_OBSERVATION_FIXTURE_METADATA_KEY,
-    PROVIDER_TOOL_INTENT_METADATA_KEY,
     ProviderRequest,
     ProviderResult,
 )
@@ -102,12 +102,6 @@ from pipy_harness.native.read_only_tool import (
 )
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.usage import normalize_provider_usage
-from pipy_harness.native.workspace_context import (
-    WorkspaceInstructionLoader,
-    compose_system_prompt,
-    empty_workspace_instruction_loader,
-    workspace_instruction_safe_metadata,
-)
 from pipy_harness.native.verification import (
     NativeVerificationApprovalDecision,
     NativeVerificationGateDecision,
@@ -115,6 +109,12 @@ from pipy_harness.native.verification import (
     NativeVerificationResult,
     NativeVerificationTool,
     safe_verification_command_label,
+)
+from pipy_harness.native.workspace_context import (
+    WorkspaceInstructionLoader,
+    compose_system_prompt,
+    empty_workspace_instruction_loader,
+    workspace_instruction_safe_metadata,
 )
 
 SYSTEM_PROMPT_ID = "pipy-native-bootstrap"

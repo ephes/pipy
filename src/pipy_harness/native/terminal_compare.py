@@ -9,7 +9,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-
 _FINDING_KEYS = ("prompt", "expected_output", "working", "status", "cwd")
 
 

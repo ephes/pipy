@@ -8,7 +8,6 @@ from typing import Protocol, runtime_checkable
 from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 
-
 StreamChunkSink = Callable[[str], None]
 """Synchronous text chunk sink used by the Streaming Output Parity Track.
 

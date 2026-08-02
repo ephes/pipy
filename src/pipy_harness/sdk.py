@@ -46,7 +46,6 @@ from pipy_harness.native.workspace_context import (
 )
 from pipy_harness.runner import HarnessRunner
 
-
 __all__ = [
     "CapturePolicy",
     "DEFAULT_NATIVE_AGENT",

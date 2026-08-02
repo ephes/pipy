@@ -21,8 +21,8 @@ from typing import ClassVar
 
 from pipy_harness.native.read_only_tool import (
     _CONTROL_CHARS,
-    _is_ignored_or_generated,
     ResolvedToolPath,
+    _is_ignored_or_generated,
     has_secret_shaped_content,
     resolve_tool_path,
 )

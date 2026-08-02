@@ -7,7 +7,6 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
-from pipy_harness.status import HarnessStatus
 from pipy_harness.native.agent._validation import (
     require_bool,
     require_non_negative_int,
@@ -32,7 +31,7 @@ from pipy_harness.native.agent.tools import (
     ToolExecutionOutcome,
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult
-
+from pipy_harness.status import HarnessStatus
 
 MAX_AGENT_TOOL_BUDGET = 200
 

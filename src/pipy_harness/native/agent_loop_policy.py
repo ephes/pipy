@@ -12,8 +12,8 @@ from pipy_harness.native.agent.loop_policy import (
     validate_agent_tool_policy_decision,
 )
 from pipy_harness.native.agent.messages import AgentToolCall, AgentToolResultMessage
-from pipy_harness.native.agent.request import AgentProviderRequestSnapshot
 from pipy_harness.native.agent.request import (
+    AgentProviderRequestSnapshot,
     validate_product_content,
     validate_provider_request_snapshot,
 )
