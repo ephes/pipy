@@ -102,6 +102,43 @@ class ExtensionChromeAttachResult:
         return self.attached
 
 
+@dataclass(slots=True)
+class ExtensionChromeRetirement:
+    """Detached cleanup from one sink-local close critical section."""
+
+    sink: "ExtensionChromeSink"
+    snapshot: ExtensionChromeSnapshot
+    disposers: tuple[Callable[[], None], ...]
+    retained: tuple[object, ...]
+    finalized: bool = False
+
+    def finalize(self) -> None:
+        """Run disposal and release detached values with no guard held."""
+
+        if self.finalized:
+            return
+        self.finalized = True
+        for disposer in self.disposers:
+            try:
+                disposer()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException:
+                continue
+        with self.sink._guard:  # noqa: SLF001 - exact sink-local idle owner
+            while self.sink._inflight:  # noqa: SLF001
+                self.sink._idle.wait()  # noqa: SLF001
+        self.disposers = ()
+        self.retained = ()
+
+    def finalize_nonraising(self) -> BaseException | None:
+        try:
+            self.finalize()
+        except BaseException as error:
+            return error
+        return None
+
+
 class ExtensionChromeSink:
     """Guarded retained chrome/listener requests owned by one candidate.
 
@@ -131,6 +168,30 @@ class ExtensionChromeSink:
         self._autocomplete_providers: list[object] = []
         self._editor_component: object | None = None
         self._hidden_thinking_label: str | None = None
+
+    @classmethod
+    def from_snapshot(cls, snapshot: ExtensionChromeSnapshot) -> "ExtensionChromeSink":
+        """Create a detached owner for a rollback repaint without reopening its sink."""
+
+        sink = cls()
+        with sink._guard:
+            sink._widgets = {
+                key: (content, placement)
+                for key, content, placement in snapshot.widgets
+            }
+            sink._header = snapshot.header
+            sink._footer = snapshot.footer
+            sink._title = snapshot.title
+            sink._indicator_frames = snapshot.indicator_frames
+            sink._indicator_interval_ms = snapshot.indicator_interval_ms
+            sink._terminal_input_listeners = dict(snapshot.terminal_input_listeners)
+            sink._terminal_input_next_id = (
+                max(sink._terminal_input_listeners, default=-1) + 1
+            )
+            sink._autocomplete_providers = list(snapshot.autocomplete_providers)
+            sink._editor_component = snapshot.editor_component
+            sink._hidden_thinking_label = snapshot.hidden_thinking_label
+        return sink
 
     def snapshot(self) -> ExtensionChromeSnapshot:
         with self._guard:
@@ -406,17 +467,32 @@ class ExtensionChromeSink:
 
         return dispose
 
-    def close(self) -> None:
-        """Close once, detach desired values, then dispose outside the guard."""
+    def mark_closed(self) -> ExtensionChromeRetirement | None:
+        """Atomically close and detach cleanup under only the sink-local guard."""
 
         with self._guard:
             if self._closed:
-                return
+                return None
             self._closed = True
-            retained = self._snapshot_locked()
+            snapshot = self._snapshot_locked()
             disposers = tuple(self._terminal_input_disposers.values())
+            retained = (
+                self._delivery,
+                self._pending_deliveries,
+                self._widgets,
+                self._header,
+                self._footer,
+                self._title,
+                self._indicator_frames,
+                self._indicator_interval_ms,
+                self._terminal_input_listeners,
+                self._terminal_input_disposers,
+                self._autocomplete_providers,
+                self._editor_component,
+                self._hidden_thinking_label,
+            )
             self._delivery = None
-            self._pending_deliveries.clear()
+            self._pending_deliveries = []
             self._widgets = {}
             self._header = None
             self._footer = None
@@ -428,18 +504,14 @@ class ExtensionChromeSink:
             self._autocomplete_providers = []
             self._editor_component = None
             self._hidden_thinking_label = None
-        for disposer in disposers:
-            try:
-                disposer()
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:
-                continue
-        with self._guard:
-            while self._inflight:
-                self._idle.wait()
-        # Do not release retained extension objects until no sink guard is held.
-        _ = retained
+        return ExtensionChromeRetirement(self, snapshot, disposers, retained)
+
+    def close(self) -> None:
+        """Close once, then dispose and release after the sink guard."""
+
+        retirement = self.mark_closed()
+        if retirement is not None:
+            retirement.finalize()
 
 
 @dataclass(slots=True)

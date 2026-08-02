@@ -1065,7 +1065,7 @@ def _reload_owners(ref: SessionGenerationRef, emitter: Any = None):
     mutation = SimpleNamespace(coding_state=None)
     mutation.extension_notify = lambda *_args: None
     mutation.extension_set_active_tools = lambda _names: True
-    lifecycle = emitter or SimpleNamespace(_lifecycle_hooks={}, _lifecycle_flags={})
+    lifecycle = emitter or SimpleNamespace()
     if emitter is None:
         lifecycle.fire_candidate_session_start = lambda *_args, **_kwargs: None
     return capabilities, mutation, lifecycle, SimpleNamespace(_tool_renderers={})
@@ -1130,7 +1130,6 @@ def test_candidate_and_session_guards_never_nest_and_callbacks_run_unlocked() ->
     runtime = _empty_runtime(host)
     generation = SessionExtensionGeneration(
         runtime,
-        {},
         build_test_projection(runtime, {}, queue_mutex=session_mutex),
     )
     ref = SessionGenerationRef(generation, lock=session_mutex)
@@ -1925,7 +1924,6 @@ def test_reload_acceptance_failure_keeps_previous_generation(
     lock = threading.RLock()
     live_generation = SessionExtensionGeneration(
         live_runtime,
-        {},
         build_test_projection(live_runtime, {}, queue_mutex=lock),
     )
     ref = SessionGenerationRef(live_generation, lock=lock)
@@ -1947,10 +1945,7 @@ def test_reload_acceptance_failure_keeps_previous_generation(
     )
     capabilities, mutation, emitter, renderer = _reload_owners(ref)
     retained_renderers = {"old": object()}
-    retained_hooks: dict[str, Any] = {}
-    retained_flags: dict[str, Any] = {}
     renderer._tool_renderers = retained_renderers
-    emitter._lifecycle_hooks, emitter._lifecycle_flags = retained_hooks, retained_flags
     before = ref.snapshot()
     effects = _ReloadCommandEffects(
         session=cast(Any, SimpleNamespace(tool_registry={})),
@@ -1995,8 +1990,8 @@ def test_reload_acceptance_failure_keeps_previous_generation(
         monkeypatch.setattr(
             tool_loop_session,
             "SessionExtensionGeneration",
-            lambda runtime, flags, _projection, chrome: SessionExtensionGeneration(
-                runtime, flags, None, chrome
+            lambda runtime, _projection, chrome: SessionExtensionGeneration(
+                runtime, None, chrome
             ),
         )
         monkeypatch.setattr(
@@ -2018,8 +2013,6 @@ def test_reload_acceptance_failure_keeps_previous_generation(
     assert ctl.extension_generation is live_generation
     assert ref.current is before.generation and ref.snapshot().generation_id == 0
     assert renderer._tool_renderers is retained_renderers
-    assert emitter._lifecycle_hooks is retained_hooks
-    assert emitter._lifecycle_flags is retained_flags
     if failure == "expected-owner-mismatch":
         assert capabilities._state is newer_capability
         assert candidate_host._state == "published"
@@ -2054,7 +2047,7 @@ def test_reload_failure_before_semantic_commit_disposes_candidate(
         "SessionExtensionGeneration",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("build failed")),
     )
-    live = SessionExtensionGeneration(_empty_runtime(_host()), {})
+    live = SessionExtensionGeneration(_empty_runtime(_host()))
     ref = SessionGenerationRef(live)
     capabilities, mutation, emitter, renderer = _reload_owners(ref)
     effects = _ReloadCommandEffects(
@@ -2101,7 +2094,7 @@ def test_reload_interrupt_releases_route_and_preserves_base_exception(
     import pipy_harness.native.tool_loop_session as tool_loop_session
     from pipy_harness.native.resource_loading import RuntimeResourceOptions
 
-    live = SessionExtensionGeneration(_empty_runtime(_host()), {})
+    live = SessionExtensionGeneration(_empty_runtime(_host()))
     ref = SessionGenerationRef(live)
 
     class _Ctl:
@@ -2212,12 +2205,10 @@ def test_reload_host_transfer_and_retired_slot_layout_are_static() -> None:
     assert source.index("if generation.projection is None:") < source.index(
         "publish_candidate_ownership(candidate)"
     )
-    assert (
-        "if not matches:\n            return 'prepared reload owner state changed'"
-        in source
-    )
+    assert "if not matches:" in source
+    assert "return ('prepared reload owner state changed', None)" in source
     assert source.index("if not matches:") < source.index(
-        "retired[0] = self.publish_locked(generation)"
+        "retired_generation = self.publish_locked(generation)"
     )
     assert "_boundary_observer" not in source
     section_source = ast.unparse(section)
@@ -2225,10 +2216,10 @@ def test_reload_host_transfer_and_retired_slot_layout_are_static() -> None:
     assert section_source.count("owner.mark_retired_locked(route_retirement)") == 1
     assert "finalize_retirement" not in section_source
     assert source.count("route_retirement.finalize_retirement()") == 1
-    assert "retired: list[object | None] = [None] * 19" in source
-    assert source.count("retired[") == 19
+    assert "retired: list[object | None] = [None] * 17" in source
+    assert source.count("retired[") == 17
     retained_inventory = (
-        "retired[0] = self.publish_locked(generation)",
+        "retired[0] = retired_generation",
         "retired[1] = route_retirement.finalize_retirement()",
         "retired[2] = catalog.extension_providers",
         "retired[3] = catalog.extension_unregistered_providers",
@@ -2245,8 +2236,6 @@ def test_reload_host_transfer_and_retired_slot_layout_are_static() -> None:
         "retired[14] = provider_state.selection",
         "retired[15] = provider_state.pending_default",
         "retired[16] = tool_capabilities._state",
-        "retired[17], emitter._lifecycle_hooks = (emitter._lifecycle_hooks, hooks)",
-        "retired[18], emitter._lifecycle_flags = (emitter._lifecycle_flags, flags)",
     )
     assert all(source.count(item) == 1 for item in retained_inventory)
     assert all(
@@ -2254,6 +2243,7 @@ def test_reload_host_transfer_and_retired_slot_layout_are_static() -> None:
         for item in retained_inventory
         if item != retained_inventory[1]
     )
+    assert "retired_chrome.close()" not in source
     finalizer = next(
         node for node in commit.body if ast.unparse(node) == retained_inventory[1]
     )
@@ -2415,9 +2405,7 @@ def test_reload_exception_disposes_candidate_only_after_the_gate_closes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     live_host = _host()
-    ref = SessionGenerationRef(
-        SessionExtensionGeneration(_empty_runtime(live_host), {})
-    )
+    ref = SessionGenerationRef(SessionExtensionGeneration(_empty_runtime(live_host)))
     candidate_host = _host()
     candidate_host.register_flag(ExtensionFlag("candidate", "boolean", default=True))
     candidate_host._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)

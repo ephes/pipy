@@ -101,9 +101,16 @@ between, pipy keeps the newer live generation, retires the terminal candidate
 route, and closes candidate chrome. The published-but-unowned activation API is
 therefore inert: contribution registration remains closed and retained sends
 silently drop, with no double cleanup. Direct `ctx.send_message()` delivery
-remains independent of routing. This does not yet synchronize later accepted/live queue append versus drain
-(R4a), bind a retired *live* chrome handle to its old generation (R4c), or invoke
-terminal closure (R5a).
+remains independent of routing. R4a now synchronizes later accepted/live queue
+append versus drain. R4c binds every ordinary retained-chrome read/write to the
+exact `SessionGenerationSnapshot` that created its context: publication captures
+the displaced handle under the session mutex, then closes and snapshots it under
+only that handle's sink-local guard. A late widget/header/footer/title/indicator,
+listener, autocomplete, editor-component, or hidden-thinking-label write through
+a retired handle is ignored with the same closed-sink return shape; an editor-
+component read returns `None`, and a terminal-input registration returns an inert
+disposer. Callbacks, disposal, paint, and final reference release happen after
+both guards. Terminal invocation of this completed close path remains R5a.
 Autocomplete provider wrappers ship for live product-TUI command/
 shortcut contexts via `ctx.ui.add_autocomplete_provider` /
 `ctx.ui.addAutocompleteProvider`, using Pi-shaped `get_suggestions` /

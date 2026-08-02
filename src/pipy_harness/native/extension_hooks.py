@@ -55,7 +55,10 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+if TYPE_CHECKING:
+    from pipy_harness.native.session_generation import SessionGenerationSnapshot
 
 from pipy_harness.native.agent import (
     AgentEvent,
@@ -636,21 +639,19 @@ class _ExtensionLifecycleAgentEventAdapter:
         self,
         immediate_sink: AgentEventSink,
         *,
-        lifecycle_hooks: dict[str, tuple[HookHandler, ...]],
+        generation_snapshot: Callable[[], "SessionGenerationSnapshot"],
         cwd: str,
         has_ui: bool,
         notify_sink: Callable[[str, str], None] | None = None,
         ui_driver: ExtensionUiDriver | None = None,
-        flags: Mapping[str, object] | None = None,
         project_trusted: bool = False,
     ) -> None:
         self._immediate_sink = immediate_sink
-        self._lifecycle_hooks = lifecycle_hooks
+        self._generation_snapshot = generation_snapshot
         self._lifecycle_cwd = cwd
         self._lifecycle_has_ui = has_ui
         self._lifecycle_notify_sink = notify_sink
         self._lifecycle_ui_driver = ui_driver
-        self._lifecycle_flags = dict(flags or {})
         self._lifecycle_project_trusted = bool(project_trusted)
 
     def emit(self, event: AgentEvent) -> None:
@@ -666,14 +667,6 @@ class _ExtensionLifecycleAgentEventAdapter:
         elif isinstance(event, TurnCompleted):
             self.fire_lifecycle(EVENT_TURN_END)
 
-    def set_lifecycle_hooks(
-        self, lifecycle_hooks: dict[str, tuple[HookHandler, ...]]
-    ) -> None:
-        self._lifecycle_hooks = lifecycle_hooks
-
-    def set_flags(self, flags: Mapping[str, object]) -> None:
-        self._lifecycle_flags = dict(flags)
-
     def fire_candidate_session_start(
         self,
         hooks: Mapping[str, tuple[HookHandler, ...]],
@@ -681,40 +674,48 @@ class _ExtensionLifecycleAgentEventAdapter:
         *,
         ui_driver: ExtensionUiDriver | None,
     ) -> None:
-        self.fire_lifecycle(
-            EVENT_SESSION_START,
-            reason="reload",
-            ui_driver_override=ui_driver,
-            hooks_override=hooks,
-            flags_override=flags,
+        self._dispatch_lifecycle(
+            hooks.get(EVENT_SESSION_START),
+            LifecycleEvent(name=EVENT_SESSION_START, reason="reload"),
+            ui_driver=ui_driver,
+            flags=flags,
         )
 
-    def fire_lifecycle(
+    def fire_lifecycle(self, name: str, *, reason: str | None = None) -> None:
+        snapshot = self._generation_snapshot()
+        projection = snapshot.generation.projection
+        if projection is None:
+            raise RuntimeError("published extension generation has no projection")
+        ui_driver = self._lifecycle_ui_driver
+        chrome = projection.chrome
+        bind = getattr(ui_driver, "generation_driver", None)
+        if chrome is not None and callable(bind):
+            ui_driver = bind(chrome.sink)
+        self._dispatch_lifecycle(
+            projection.hooks.lifecycle.get(name),
+            LifecycleEvent(name=name, reason=reason),
+            ui_driver=ui_driver,
+            flags=projection.runtime_flags.values,
+        )
+
+    def _dispatch_lifecycle(
         self,
-        name: str,
+        hooks: Sequence[HookHandler] | None,
+        event: LifecycleEvent,
         *,
-        reason: str | None = None,
-        ui_driver_override: ExtensionUiDriver | None = None,
-        hooks_override: Mapping[str, tuple[HookHandler, ...]] | None = None,
-        flags_override: Mapping[str, object] | None = None,
+        ui_driver: ExtensionUiDriver | None,
+        flags: Mapping[str, object],
     ) -> None:
-        hooks = (
-            self._lifecycle_hooks if hooks_override is None else hooks_override
-        ).get(name)
         if not hooks:
             return
         dispatch_lifecycle_hooks(
             hooks,
-            LifecycleEvent(name=name, reason=reason),
+            event,
             cwd=self._lifecycle_cwd,
             has_ui=self._lifecycle_has_ui,
             notify_sink=self._lifecycle_notify_sink,
-            ui_driver=(
-                ui_driver_override
-                if ui_driver_override is not None
-                else self._lifecycle_ui_driver
-            ),
-            flags=self._lifecycle_flags if flags_override is None else flags_override,
+            ui_driver=ui_driver,
+            flags=flags,
             project_trusted=self._lifecycle_project_trusted,
         )
 

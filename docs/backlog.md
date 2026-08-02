@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R4c — snapshot menu, lifecycle, and chrome from one generation**
+**Active/next slice:** **R5a — serialize coding-session effects and terminal teardown**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -127,9 +127,17 @@ selection and coding refresh/fallback rebinding remain unchanged, and no
 provider is constructed under the session mutex. The obsolete legacy tool-port
 builder, runtime-to-renderer mapper, direct runtime renderer/provider reads,
 separately published renderer map, and only their tool/renderer/provider R3a
-equivalence arms are deleted with static proof; every other arm remains. No
-changelog entry applies because R4b consumes the coherence R3c3 already
-published. R4c is next.
+equivalence arms are deleted with static proof. No changelog entry applies
+because R4b consumes the coherence R3c3 already published. R4c is complete:
+startup/reload menus, ordinary lifecycle hooks, user-bash and tool-call hook UI,
+and all retained chrome operations now use one generation snapshot. Reload
+captures the displaced generation's exact chrome handle under the session mutex,
+then closes and snapshots it under only its sink guard; callbacks, disposal,
+paint, and last-reference release remain unlocked. Retired handles silently
+ignore stale writes. The separately stored generation flag map, temporary
+lifecycle/flag reload effect, direct runtime menu/lifecycle reads, and final R3a
+equivalence arms are deleted with static proof. R5a is next and alone wires the
+completed queue/chrome close paths into run finalization.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -582,11 +590,12 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b;
-the mandatory remaining order begins with R4c. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c;
+the mandatory remaining order begins with R5a. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
-their proven legacy-source deletion.
+their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome
+consumer conversion and final legacy-source deletion.
 R5a/R5b/R6 ownership and the class-A count of three are unchanged. Provenance
 is fixed: the R5a split brought the
 queue to 27 slices, the R3a/R3b/R3c split brought it to 29, the initial

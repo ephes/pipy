@@ -7,7 +7,7 @@ import threading
 import weakref
 from dataclasses import replace
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -19,6 +19,7 @@ from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
+from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_hooks import _compose_extension_runtime
 from pipy_harness.native.extension_runtime import (
     ExtensionCodingSessionControl,
@@ -31,11 +32,14 @@ from pipy_harness.native.extension_runtime import (
 )
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.session_generation import (
+    ExtensionChromeHandle,
     SessionExtensionGeneration,
     SessionGenerationRef,
     SessionGenerationSnapshot,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
+from pipy_harness.native.resource_loading import RuntimeResourceOptions
+from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
@@ -44,6 +48,7 @@ from pipy_harness.native.tool_capabilities import (
 )
 from pipy_harness.native.tool_loop_session import (
     _ProviderHeaderRequestSnapshot,
+    _ReloadCommandEffects,
     _SessionExecutionProjections,
     _SessionExtensionOperations,
 )
@@ -98,15 +103,15 @@ def _generation(
             commands=MappingProxyType(
                 {"probe": RegisteredCommand("probe", "probe", command, label)}
             ),
+            menu_names=(f"/{label}",),
+            descriptions=MappingProxyType({f"/{label}": f"{label} description"}),
             shortcuts=MappingProxyType(
                 {"ctrl-k": RegisteredShortcut("ctrl-k", command, label)}
             ),
         ),
         hooks=replace(projection.hooks, **hook_values),
     )
-    return SessionExtensionGeneration(
-        runtime, {"generation": f"legacy-{label}"}, projection
-    )
+    return SessionExtensionGeneration(runtime, projection)
 
 
 class _PublishingSnapshotRef(SessionGenerationRef):
@@ -224,6 +229,129 @@ def test_r4a_dispatch_uses_one_old_or_new_published_snapshot(
     assert observations == expected
 
 
+def test_r4c_operation_routes_retained_chrome_to_its_snapshotted_generation(
+    tmp_path: Path,
+) -> None:
+    observations: list[tuple[str, str]] = []
+    lock = threading.RLock()
+    old = _generation(lock, "old", observations)
+    new = _generation(lock, "new", observations)
+    old_sink, new_sink = ExtensionChromeSink(), ExtensionChromeSink()
+    assert old.projection is not None and new.projection is not None
+    old = replace(
+        old,
+        projection=replace(old.projection, chrome=ExtensionChromeHandle(old_sink)),
+    )
+    new = replace(
+        new,
+        projection=replace(new.projection, chrome=ExtensionChromeHandle(new_sink)),
+    )
+    routed: dict[ExtensionChromeSink, object] = {
+        old_sink: "old-chrome",
+        new_sink: "new-chrome",
+    }
+
+    class UiRouter:
+        def generation_driver(self, sink: ExtensionChromeSink) -> object:
+            return routed[sink]
+
+    seen: list[object] = []
+
+    def command(ctx: Any, _args: str) -> None:
+        seen.append(getattr(ctx.ui, "_ui_driver"))  # noqa: SLF001
+
+    old_projection = old.projection
+    assert old_projection is not None
+    old = replace(
+        old,
+        projection=replace(
+            old_projection,
+            commands=replace(
+                old_projection.commands,
+                commands=MappingProxyType(
+                    {"probe": RegisteredCommand("probe", "probe", command, "old")}
+                ),
+            ),
+        ),
+    )
+    generation_ref = _PublishingSnapshotRef(old, new, lock)
+    operations = _SessionExtensionOperations(
+        generation_ref=generation_ref,
+        cwd=str(tmp_path),
+        has_ui=True,
+        notify_sink=None,
+        ui_driver=cast(Any, UiRouter()),
+        project_trusted=True,
+    )
+
+    operations.dispatch_command(
+        "/probe",
+        coding_session=ExtensionCodingSessionControl(),
+        ui_custom_driver=None,
+        model_runtime=ExtensionModelRuntimeControl(),
+    )
+
+    assert generation_ref.snapshot_calls == 1
+    assert generation_ref.current is new
+    assert seen == ["old-chrome"]
+
+
+def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -> None:
+    observations: list[tuple[str, str]] = []
+    lock = threading.RLock()
+    old = _generation(lock, "old", observations)
+    new = _generation(lock, "new", observations)
+    generation_ref = _PublishingSnapshotRef(old, new, lock)
+
+    class LegacyCtl:
+        workspace_resources = WorkspaceResources((), (), (), False, False, False)
+
+        def __init__(self) -> None:
+            self.reads = 0
+            self.generation_ref = generation_ref
+
+        @property
+        def extension_generation(self) -> SessionExtensionGeneration:
+            self.reads += 1
+            if self.reads == 2:
+                generation_ref.publish(new)
+            return generation_ref.current
+
+    terminal_ui = SimpleNamespace()
+    effect = SimpleNamespace(
+        settings=SimpleNamespace(
+            get_theme=lambda: None,
+            get_autocomplete_max_visible=lambda: 5,
+            load_errors=lambda: {},
+            get_quiet_startup=lambda: True,
+            project_trusted=True,
+        ),
+        terminal_ui=terminal_ui,
+        ctl=LegacyCtl(),
+        redraw_custom_entries_for_active_branch=lambda: None,
+        session=SimpleNamespace(
+            verbose_startup=False,
+            _maybe_save_implicit_trust_after_reload=lambda **_kwargs: False,
+        ),
+        error_stream=io.StringIO(),
+        cwd=tmp_path,
+        resource_options=RuntimeResourceOptions(),
+    )
+
+    assert (
+        _ReloadCommandEffects._refresh_presentation_and_persistence(  # noqa: SLF001
+            cast(Any, effect)
+        )
+        is False
+    )
+
+    assert "/old" in terminal_ui.command_names
+    assert "/new" not in terminal_ui.command_names
+    assert terminal_ui.command_descriptions["/old"] == "old description"
+    assert terminal_ui.extension_shortcut_keys == frozenset({"ctrl-k"})
+    assert generation_ref.snapshot_calls == 1
+
+
 class _GenerationTool:
     def __init__(self, label: str) -> None:
         self.label = label
@@ -267,7 +395,7 @@ def _execution_generation(
             tools=MappingProxyType({"probe": cast(ExtensionTool, renderer)}),
         ),
     )
-    return SessionExtensionGeneration(runtime, {"generation": label}, projection)
+    return SessionExtensionGeneration(runtime, projection)
 
 
 def test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation(
@@ -311,6 +439,7 @@ def test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation(
         generation_ref=generation_ref,
         tool_capabilities=tool_capabilities,
         coding_state=coding_state,
+        ui_driver=None,
     )
 
     assert [item.description for item in execution.definitions()] == [
@@ -451,7 +580,7 @@ def test_r4a_writer_drain_and_staged_delivery_inventory_is_complete() -> None:
 def test_all_production_generation_constructions_supply_projection() -> None:
     root = Path(__file__).parents[1] / "src/pipy_harness/native"
     constructions = sorted(
-        (path.relative_to(root).as_posix(), ast.unparse(call.args[2]))
+        (path.relative_to(root).as_posix(), ast.unparse(call.args[1]))
         for path in root.rglob("*.py")
         for call in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(call, ast.Call)
@@ -463,7 +592,7 @@ def test_all_production_generation_constructions_supply_projection() -> None:
     ]
 
 
-def test_r4b_deletes_converted_legacy_sources_and_equivalence_arms() -> None:
+def test_r4c_deletes_all_converted_legacy_sources_and_equivalence_arms() -> None:
     root = Path(__file__).parents[1]
     session_source = (root / "src/pipy_harness/native/session_generation.py").read_text(
         encoding="utf-8"
@@ -472,6 +601,9 @@ def test_r4b_deletes_converted_legacy_sources_and_equivalence_arms() -> None:
         encoding="utf-8"
     )
     renderer_source = (root / "src/pipy_harness/native/tool_renderers.py").read_text(
+        encoding="utf-8"
+    )
+    hooks_source = (root / "src/pipy_harness/native/extension_hooks.py").read_text(
         encoding="utf-8"
     )
     projection_tests = ast.parse(
@@ -489,22 +621,29 @@ def test_r4b_deletes_converted_legacy_sources_and_equivalence_arms() -> None:
     assert ".runtime.entry_renderers" not in loop_source
     assert "extension_renderer_map" not in loop_source
     assert "extension_entry_renderer_map" not in loop_source
+    assert "TemporaryLegacyValue" not in session_source
+    assert "temporary_legacy" not in session_source
+    assert "flag_values: dict" not in session_source
+    assert "._lifecycle_hooks" not in hooks_source
+    assert "._lifecycle_flags" not in hooks_source
+    for (
+        field
+    ) in "menu_names descriptions shortcuts lifecycle_hooks user_bash_hooks".split():
+        assert f"extension_generation.runtime.{field}" not in loop_source
+        assert f"ctl.extension_generation.runtime.{field}" not in loop_source
     removed_arms = {
         "test_tool_ports_and_capability_match_the_legacy_adapter",
         "test_renderer_projection_matches_every_legacy_renderer_map",
         "test_provider_projection_matches_legacy_catalog_inputs",
         "test_production_projection_tool_port_matches_legacy_behavior_without_aliases",
+        "test_runtime_flag_projection_matches_the_legacy_source",
+        "test_command_menu_description_shortcut_projection_matches_legacy_source",
+        "test_lifecycle_request_hook_projection_matches_legacy_source",
     }
     remaining_tests = {
         node.name for node in projection_tests.body if isinstance(node, ast.FunctionDef)
     }
     assert removed_arms.isdisjoint(remaining_tests)
-    for retained in (
-        "test_runtime_flag_projection_matches_the_legacy_source",
-        "test_command_menu_description_shortcut_projection_matches_legacy_source",
-        "test_lifecycle_request_hook_projection_matches_legacy_source",
-    ):
-        assert retained in remaining_tests
 
     loop_tree = ast.parse(loop_source)
     execution_owner = next(
@@ -548,4 +687,4 @@ def test_r4a_production_source_has_no_direct_converted_family_dispatch_reads() -
     assert all(
         f"extension_generation.runtime.{field}" not in source for field in fields
     )
-    assert source.count("extension_generation.runtime.shortcuts") == 1
+    assert "extension_generation.runtime.shortcuts" not in source

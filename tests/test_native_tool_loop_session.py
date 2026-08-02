@@ -826,7 +826,9 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         "chrome_sink.close driver.prepare_candidate ExtensionChromeCommitToken "
         "self.diag self.diag SessionExtensionGeneration gate.reserve "
         "self.ctl.generation_ref.accept_prepared_reload self.diag self.diag "
-        "_extension_hooks.deliver_accepted_staged_batch cast partial"
+        "retired_chrome.close_nonraising "
+        "_extension_hooks.deliver_accepted_staged_batch cast partial "
+        "_finish_chrome_retirement _raise_first"
     ).split()
     execution_lifetime = next(
         node for node in reload_execute.body if isinstance(node, ast.Try)

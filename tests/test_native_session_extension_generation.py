@@ -76,7 +76,6 @@ from pipy_harness.native.session_generation import (
     SessionExtensionGeneration,
     SessionGenerationRef,
     SessionGenerationSnapshot,
-    TemporaryLegacyValue,
     build_extension_projection,
     prepare_provider_reload_values,
 )
@@ -189,7 +188,7 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
         custom_message_outbox=first_custom_outbox,
     )
     first_flags: dict[str, object] = {"mode": "first"}
-    first_generation = SessionExtensionGeneration(first_runtime, first_flags)
+    first_generation = SessionExtensionGeneration(first_runtime)
     ctl = _RunControlState(
         session_tree=NativeSessionTree.create(tmp_path, persist=False),
         tree_filter_mode="default",
@@ -204,7 +203,6 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
 
     assert first_generation.runtime.outbox is first_outbox
     assert first_generation.runtime.custom_outbox is first_custom_outbox
-    assert first_generation.flag_values is first_flags
     assert adapter.extension_message_outbox is first_outbox
     assert adapter.extension_custom_message_outbox is first_custom_outbox
 
@@ -213,7 +211,7 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
         first_generation.runtime.commands,
         cwd=str(tmp_path),
         has_ui=False,
-        flags=first_generation.flag_values,
+        flags=first_flags,
     )
     assert dispatched is not None and dispatched.ran
     assert [message.content for message in adapter.extension_message_outbox] == [
@@ -229,7 +227,6 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
     )
     ctl.extension_generation = SessionExtensionGeneration(
         second_runtime,
-        {},
         build_test_projection(second_runtime, {}, queue_mutex=ctl.generation_ref.lock),
     )
 
@@ -241,7 +238,7 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
         first_generation.runtime.commands,
         cwd=str(tmp_path),
         has_ui=False,
-        flags=first_generation.flag_values,
+        flags=first_flags,
     )
     assert stale_dispatch is not None and stale_dispatch.ran
     assert adapter.extension_message_outbox == []
@@ -260,7 +257,7 @@ def _generation(
         if mutex is None
         else build_test_projection(runtime, {"mode": label}, queue_mutex=mutex)
     )
-    return SessionExtensionGeneration(runtime, {"mode": label}, projection)
+    return SessionExtensionGeneration(runtime, projection)
 
 
 def test_generation_ref_publishes_projected_and_refuses_projectionless_values(
@@ -295,7 +292,7 @@ def test_a_snapshot_does_not_follow_a_later_publication(tmp_path: Path) -> None:
     ref.publish(_generation(tmp_path, "second", ref.lock))
 
     assert held.generation is first
-    assert held.generation.flag_values == {"mode": "first"}
+    assert held.generation.projection is None
     assert ref.snapshot().generation is not first
 
 
@@ -459,10 +456,9 @@ def _projection(
     )
 
 
-def test_live_generation_shape_and_reference_remain_the_legacy_value() -> None:
+def test_live_generation_has_no_separately_published_flag_source() -> None:
     assert [field.name for field in fields(SessionExtensionGeneration)] == [
         "runtime",
-        "flag_values",
         "projection",
         "chrome_token",
     ]
@@ -511,73 +507,6 @@ def test_every_runtime_contribution_field_has_an_exact_projection_disposition() 
     }
 
 
-def test_runtime_flag_projection_matches_the_legacy_source(tmp_path: Path) -> None:
-    runtime = _rich_runtime(tmp_path, "runtime-flags")
-    caller_values: dict[str, object] = {"projection-mode": "candidate"}
-    nested_option: dict[str, object] = {"nested": "caller-owned"}
-    details: dict[str, object] = {"opaque": "caller-owned"}
-    caller_options: dict[str, object] = {"payload": nested_option}
-    source_message = replace(
-        runtime.custom_messages[0], options=caller_options, details=details
-    )
-    runtime = replace(runtime, custom_messages=(source_message,))
-
-    projected = _projection(runtime, flag_values=caller_values).runtime_flags
-    projected_message = projected.custom_messages[0]
-
-    assert projected.flags == runtime.flags
-    assert projected.values == {"projection-mode": "candidate"}
-    assert projected.values is not caller_values
-    assert projected.custom_messages == runtime.custom_messages
-    assert projected.custom_messages is not runtime.custom_messages
-    assert isinstance(projected_message.options, MappingProxyType)
-    assert projected_message.options is not caller_options
-    assert projected_message.options["payload"] is nested_option
-    assert projected_message.details is details
-
-    caller_values["projection-mode"] = "caller-mutated"
-    caller_options["late"] = "caller-mutated"
-    assert projected.values == {"projection-mode": "candidate"}
-    assert "late" not in projected_message.options
-
-
-def test_command_menu_description_shortcut_projection_matches_legacy_source(
-    tmp_path: Path,
-) -> None:
-    runtime = _rich_runtime(tmp_path, "commands")
-    projected = _projection(runtime).commands
-
-    assert projected.commands == runtime.commands
-    assert projected.menu_names == runtime.menu_names
-    assert projected.descriptions == runtime.descriptions
-    assert projected.shortcuts == runtime.shortcuts
-    assert projected.commands is not runtime.commands
-    assert projected.descriptions is not runtime.descriptions
-    assert projected.shortcuts is not runtime.shortcuts
-
-
-def test_lifecycle_request_hook_projection_matches_legacy_source(
-    tmp_path: Path,
-) -> None:
-    runtime = _rich_runtime(tmp_path, "hooks")
-    projected = _projection(runtime).hooks
-
-    assert projected.tool_call == runtime.tool_call_hooks
-    assert projected.lifecycle == runtime.lifecycle_hooks
-    assert projected.input == runtime.input_hooks
-    assert projected.before_agent_start == runtime.before_agent_start_hooks
-    assert projected.tool_result == runtime.tool_result_hooks
-    assert projected.user_bash == runtime.user_bash_hooks
-    assert projected.before_provider_headers == runtime.before_provider_headers_hooks
-    assert projected.before_provider_request == runtime.before_provider_request_hooks
-    assert projected.session_before_switch == runtime.session_before_switch_hooks
-    assert projected.session_before_fork == runtime.session_before_fork_hooks
-    assert projected.session_before_compact == runtime.session_before_compact_hooks
-    assert projected.session_before_tree == runtime.session_before_tree_hooks
-    assert projected.lifecycle is not runtime.lifecycle_hooks
-    assert all(isinstance(handlers, tuple) for handlers in projected.lifecycle.values())
-
-
 def test_production_runtime_composes_exact_queue_owner_mutex_and_outboxes(
     tmp_path: Path,
 ) -> None:
@@ -591,7 +520,7 @@ def test_production_runtime_composes_exact_queue_owner_mutex_and_outboxes(
         include_default_extensions=False,
     )
     lock = threading.RLock()
-    ref = SessionGenerationRef(SessionExtensionGeneration(runtime, {}), lock=lock)
+    ref = SessionGenerationRef(SessionExtensionGeneration(runtime), lock=lock)
     projected = _projection(runtime).queues
     owner = projected.message_routing
 
@@ -748,11 +677,10 @@ def test_release_is_two_batches_or_failure_terminalizes_without_successor_effect
             _empty_resources(),
             include_default_extensions=False,
         )
-        ref = SessionGenerationRef(SessionExtensionGeneration(runtime, {}), lock=mutex)
+        ref = SessionGenerationRef(SessionExtensionGeneration(runtime), lock=mutex)
         ref.publish(
             SessionExtensionGeneration(
                 successor,
-                {},
                 build_test_projection(successor, {}, queue_mutex=mutex),
             )
         )
@@ -776,7 +704,7 @@ def test_renderer_uses_one_snapshot_while_direct_custom_stays_unconditional(
     first.outbox[:] = [QueuedUserMessage("first", {})]
     projection = _projection(first)
     ref = SessionGenerationRef(
-        SessionExtensionGeneration(first, {}, projection), lock=mutex
+        SessionExtensionGeneration(first, projection), lock=mutex
     )
     queues = projection.queues
     gate = OrderedDeliveryGate(mutex)
@@ -816,9 +744,7 @@ def test_renderer_uses_one_snapshot_while_direct_custom_stays_unconditional(
     assert renderer.extension_send_message("retired", "direct", False, {}) == "entry"
     second = _rich_runtime(tmp_path, "renderer-second", mutex=mutex)
     second.outbox.append(QueuedUserMessage("legacy", {}))
-    projectionless = SessionGenerationSnapshot(
-        SessionExtensionGeneration(second, {}), 1
-    )
+    projectionless = SessionGenerationSnapshot(SessionExtensionGeneration(second), 1)
     with pytest.raises(RuntimeError, match="has no projection"):
         replace(
             renderer, generation_snapshot=lambda: projectionless
@@ -851,7 +777,7 @@ def test_custom_message_rendering_keeps_one_generation_snapshot(
                 messages=MappingProxyType({"card": renderer}),
             ),
         )
-        return SessionExtensionGeneration(runtime, {}, projection)
+        return SessionExtensionGeneration(runtime, projection)
 
     old_generation = generation(first, "old")
     new_generation = generation(second, "new")
@@ -909,7 +835,7 @@ def test_cancelled_pipy_tool_call_writer_racing_drain_is_not_erased_or_locked(
         assert gate.drain(token)
     runtime.outbox.append(QueuedUserMessage("before-drain", {}))
     ref = SessionGenerationRef(
-        SessionExtensionGeneration(runtime, {}, projection), lock=mutex
+        SessionExtensionGeneration(runtime, projection), lock=mutex
     )
     sink_entered = threading.Event()
     release_sink = threading.Event()
@@ -1180,15 +1106,11 @@ def test_each_projection_builder_failure_returns_no_candidate_and_changes_no_liv
     tmp_path: Path, failed_step: str
 ) -> None:
     live_runtime = _rich_runtime(tmp_path, "failure-live")
-    live_generation = SessionExtensionGeneration(
-        live_runtime, {"projection-mode": "live"}
-    )
+    live_generation = SessionExtensionGeneration(live_runtime)
     live_mutex = live_runtime.message_routing.mutex
     assert live_mutex is not None
     ref = SessionGenerationRef(live_generation, lock=live_mutex)
     before = ref.snapshot()
-    live_flag_values = live_generation.flag_values
-    before_flag_values = dict(live_flag_values)
     legacy_runtime_field_refs = {
         field.name: getattr(live_runtime, field.name)
         for field in fields(_ExtensionRuntime)
@@ -1227,8 +1149,6 @@ def test_each_projection_builder_failure_returns_no_candidate_and_changes_no_liv
     assert after.generation is live_generation
     assert after.generation_id == before.generation_id
     assert after.generation.runtime is live_runtime
-    assert live_generation.flag_values is live_flag_values
-    assert live_generation.flag_values == before_flag_values
     for name, legacy_adapter_or_container in legacy_runtime_field_refs.items():
         assert getattr(live_runtime, name) is legacy_adapter_or_container
     for name, before_contents in before_container_values.items():
@@ -1588,7 +1508,6 @@ def _reload_preparation_ports(  # noqa: C901 - fixture exercises all 15 families
         CodingCompactionValue,
         owner_value,
         owner_value,
-        TemporaryLegacyValue,
         PresentationPersistenceValue,
     )
     builders: dict[str, Any] = {
@@ -2696,7 +2615,6 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         "ActivationInputsValue",
         "ProviderFactoryValue",
         "CodingCompactionValue",
-        "TemporaryLegacyValue",
         "PresentationPersistenceValue",
         "build_prepared_reload_effects",
         "_build_detached_reload_effects",
@@ -2785,7 +2703,7 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         *{
             (name, sg, prepare)
             for name in "ActivationInputsValue ProviderFactoryValue CodingCompactionValue "
-            "TemporaryLegacyValue PresentationPersistenceValue ReloadEffectPreparationPorts "
+            "PresentationPersistenceValue ReloadEffectPreparationPorts "
             "build_prepared_reload_effects freeze".split()
         },
         ("ExtensionChromePrepareInput", loop, reload_generation),

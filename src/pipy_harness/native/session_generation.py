@@ -36,7 +36,10 @@ if TYPE_CHECKING:
     from pipy_harness.native.tui import ExtensionChromePrepareInput
     from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 
-from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
+from pipy_harness.native.extension_chrome_state import (
+    ExtensionChromeRetirement,
+    ExtensionChromeSink,
+)
 from pipy_harness.native.extension_runtime import (
     GenerationMessageRetirement,
     GenerationMessageRouting,
@@ -90,7 +93,6 @@ PREPARED_RELOAD_BUILD_STEPS = (
     "coding_compaction",
     "unavailable_default",
     "capability",
-    "temporary_legacy",
     "presentation_persistence",
     "chrome_prepare_input",
 )
@@ -249,6 +251,19 @@ class ExtensionChromeHandle:
     def __post_init__(self) -> None:
         if not isinstance(self.sink, ExtensionChromeSink):
             raise TypeError("chrome sink must be an ExtensionChromeSink")
+
+    def close(self) -> ExtensionChromeRetirement | None:
+        """Close admission and detach cleanup under only this sink's guard."""
+
+        return self.sink.mark_closed()
+
+    def close_nonraising(
+        self,
+    ) -> tuple[ExtensionChromeRetirement | None, BaseException | None]:
+        try:
+            return self.close(), None
+        except BaseException as error:
+            return None, error
 
 
 @dataclass(frozen=True, slots=True)
@@ -462,7 +477,6 @@ ReloadFamilyPayload = tuple[object, ...]
 ActivationInputsValue = NewType("ActivationInputsValue", ReloadFamilyPayload)
 ProviderFactoryValue = NewType("ProviderFactoryValue", ReloadFamilyPayload)
 CodingCompactionValue = NewType("CodingCompactionValue", ReloadFamilyPayload)
-TemporaryLegacyValue = NewType("TemporaryLegacyValue", ReloadFamilyPayload)
 PresentationPersistenceValue = NewType(
     "PresentationPersistenceValue", ReloadFamilyPayload
 )
@@ -499,7 +513,6 @@ class ReloadEffectPreparationPorts:
     coding_compaction: ReloadEffectBuilder[CodingCompactionValue]
     unavailable_default: ReloadEffectBuilder[ReplPendingDefaultReloadValue]
     capability: ReloadEffectBuilder[ToolCapabilityState]
-    temporary_legacy: ReloadEffectBuilder[TemporaryLegacyValue]
     presentation_persistence: ReloadEffectBuilder[PresentationPersistenceValue]
     chrome_prepare_input: ReloadEffectBuilder["ExtensionChromePrepareInput"]
 
@@ -525,7 +538,6 @@ class PreparedReloadEffects:
     coding_compaction: DetachedReloadEffect[CodingCompactionValue]
     unavailable_default: DetachedReloadEffect[ReplPendingDefaultReloadValue]
     capability: DetachedReloadEffect[ToolCapabilityState]
-    temporary_legacy: DetachedReloadEffect[TemporaryLegacyValue]
     presentation_persistence: DetachedReloadEffect[PresentationPersistenceValue]
     chrome_prepare_input: DetachedReloadEffect["ExtensionChromePrepareInput"]
 
@@ -685,11 +697,6 @@ def prepare_production_reload(
                 pending_default=shadow.pending_default,
             )
     staged = FrozenStagedDeliveryBatch.freeze((), runtime.custom_messages)
-    legacy_values = (
-        runtime.lifecycle_hooks,
-        projection.runtime_flags.values,
-    )
-    legacy = TemporaryLegacyValue(tuple(map(dict, legacy_values)))
     factory_value = (strategy, *expected_overlay) if state is not None else (strategy,)
     factory = ProviderFactoryValue(factory_value)
     fallback = repl.selection if state is not None else repl
@@ -710,7 +717,6 @@ def prepare_production_reload(
             coding_compaction=lambda: effect(CodingCompactionValue(())),
             unavailable_default=lambda: effect(unavailable),
             capability=lambda: effect(capability),
-            temporary_legacy=lambda: effect(legacy),
             presentation_persistence=lambda: effect(presentation),
             chrome_prepare_input=lambda: effect(chrome_prepare_input),
         )
@@ -770,7 +776,6 @@ def build_prepared_reload_effects(
         coding_compaction = complete(ports.coding_compaction, "coding_compaction")
         unavailable_default = complete(ports.unavailable_default, "unavailable_default")
         capability = complete(ports.capability, "capability")
-        temporary_legacy = complete(ports.temporary_legacy, "temporary_legacy")
         presentation_persistence = complete(
             ports.presentation_persistence, "presentation_persistence"
         )
@@ -790,7 +795,6 @@ def build_prepared_reload_effects(
             coding_compaction=coding_compaction,
             unavailable_default=unavailable_default,
             capability=capability,
-            temporary_legacy=temporary_legacy,
             presentation_persistence=presentation_persistence,
             chrome_prepare_input=chrome_prepare_input,
         )
@@ -983,14 +987,12 @@ class OrderedDeliveryGate:
 class SessionExtensionGeneration:
     """Canonical live extension state for one session generation.
 
-    The activated runtime owns every registered contribution and the outbox
-    lists extensions retain after activation. Parsed flag values belong beside
-    that runtime because every command, hook, provider, tool, renderer, and UI
-    dispatch must observe flags from the same live generation.
+    The activated runtime owns activation lifetime and the retained outbox list
+    identities. Every production contribution consumer, including parsed flags,
+    reads only the installed projection so one operation cannot mix generations.
     """
 
     runtime: _ExtensionRuntime
-    flag_values: dict[str, object]
     projection: ExtensionProjection | None = None
     chrome_token: object | None = None
 
@@ -1070,9 +1072,8 @@ class SessionGenerationRef:
     def snapshot(self) -> SessionGenerationSnapshot:
         """Take one consistent view for the whole of an operation.
 
-        R4a command/request/session-gate/outbox operations and R4b
-        tool/renderer/provider operations consume this value once. R4c retains
-        the remaining menu/lifecycle/chrome families.
+        R4a-R4c command, request, queue, execution, menu, lifecycle, and chrome
+        operations consume this value once.
         """
 
         with self._lock:
@@ -1100,7 +1101,21 @@ class SessionGenerationRef:
             raise ValueError("extension generation projection is unavailable")
         generation.runtime.message_routing._bind_session_mutex(self._lock)
         with self._lock:
-            return self.publish_locked(generation)
+            retired = self.publish_locked(generation)
+            retired_chrome = self._chrome_handle(retired)
+        chrome_retirement = (
+            retired_chrome.close() if retired_chrome is not None else None
+        )
+        if chrome_retirement is not None:
+            chrome_retirement.finalize()
+        return retired
+
+    @staticmethod
+    def _chrome_handle(
+        generation: SessionExtensionGeneration,
+    ) -> ExtensionChromeHandle | None:
+        projection = generation.projection
+        return None if projection is None else projection.chrome
 
     def publish_locked(
         self, generation: SessionExtensionGeneration
@@ -1122,10 +1137,9 @@ class SessionGenerationRef:
         coding_state: Any,
         tool_capabilities: NativeToolCapabilities,
         expected_capability: ToolCapabilityState,
-        emitter: Any,
-    ) -> str | None:
+    ) -> tuple[str | None, ExtensionChromeHandle | None]:
         if generation.projection is None:
-            return "extension generation projection is unavailable"
+            return "extension generation projection is unavailable", None
         strategy = (factory := effects.provider_factory.value)[0]
         catalog = provider_state.model_runtime.catalog if provider_state else None
         overlay = effects.provider_catalog.value
@@ -1136,11 +1150,11 @@ class SessionGenerationRef:
         )
         binding, history = effects.coding_binding.value, effects.coding_history.value
         usage, capability = effects.coding_usage.value, effects.capability.value
-        hooks, flags = effects.temporary_legacy.value
-        retired: list[object | None] = [None] * 19  # Preallocate; release after unlock.
+        retired: list[object | None] = [None] * 17  # Preallocate; release after unlock.
         route_retirement = GenerationMessageRetirement()
+        retired_chrome: ExtensionChromeHandle | None = None
         if not publish_candidate_ownership(candidate):
-            return "extension candidate ownership is unavailable"
+            return "extension candidate ownership is unavailable", None
         with self._lock:
             owner = self._generation.runtime.message_routing
             auth_store = None if catalog is None else catalog.auth_store
@@ -1152,7 +1166,7 @@ class SessionGenerationRef:
             )
             if provider_state is not None and catalog is not None:
                 if auth_store is None:
-                    return "prepared reload owner state changed"
+                    return "prepared reload owner state changed", None
                 matches = (
                     matches
                     and catalog.extension_providers is factory[1]
@@ -1167,10 +1181,12 @@ class SessionGenerationRef:
                     and coding_state.reload_usage_matches_expected(usage)
                 )
             if not matches:
-                return "prepared reload owner state changed"
+                return "prepared reload owner state changed", None
             if auth_store is not None:
                 retired[10] = auth_store._data
-            retired[0] = self.publish_locked(generation)
+            retired_generation = self.publish_locked(generation)
+            retired[0] = retired_generation
+            retired_chrome = self._chrome_handle(retired_generation)
             owner.mark_retired_locked(route_retirement)
             if provider_state is not None and catalog is not None:
                 retired[2] = catalog.extension_providers
@@ -1197,11 +1213,9 @@ class SessionGenerationRef:
                 provider_state.publish_reload_state(fallback, unavailable)
             retired[16] = tool_capabilities._state
             tool_capabilities.publish(capability)
-            retired[17], emitter._lifecycle_hooks = emitter._lifecycle_hooks, hooks
-            retired[18], emitter._lifecycle_flags = emitter._lifecycle_flags, flags
         retired[1] = route_retirement.finalize_retirement()
         del retired
-        return None
+        return None, retired_chrome
 
     @property
     def publication_pending(self) -> bool:

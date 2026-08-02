@@ -1469,7 +1469,7 @@ clears live retained TUI chrome before activation” record both deltas. Commit:
 ### R4a — snapshot command/request operations and live outboxes
 
 **Status:** shipped in the intended same change as its code and documentation;
-R4c is active/next.
+R5a is active/next after shipped R4c.
 
 **Kind:** user-visible concurrency correctness: coherent snapshots and no erased
 live queue append; retired-handle close does not add delivery semantics.
@@ -1550,7 +1550,7 @@ drain. Commit: `fix: snapshot extension dispatch and live queues`.
 ### R4b — snapshot tool, renderer, and provider projections
 
 **Status:** shipped in the intended same change as its code and documentation;
-R4c is active/next.
+R5a is active/next after shipped R4c.
 
 **Kind:** concurrency behavior; intended external behavior is coherence only.
 
@@ -1604,6 +1604,9 @@ user-visible surface. Commit: `refactor: snapshot extension execution projection
 
 ### R4c — snapshot menu, lifecycle, and chrome from one generation
 
+**Status:** shipped in the intended same change as its code and documentation;
+R5a is active/next.
+
 **Kind:** concurrency behavior; intended external behavior is atomic coherence.
 
 **Scope:** Convert menu/descriptions/shortcuts, ordinary lifecycle emitter
@@ -1633,6 +1636,20 @@ rejected reload PTY behavior remains correct. Only the final remaining R3a
 equivalence arms are removed here, each after this slice proves its last legacy
 consumer moved and its corresponding legacy projection source was deleted;
 arms already removed with proven R4a/R4b family deletions are not recreated.
+
+**Completion facts:** menu/descriptions/shortcut presentation, ordinary
+lifecycle emission, user-bash inputs, tool-call UI context, and retained chrome
+reads/writes now originate from one `SessionGenerationSnapshot`. The displaced
+chrome handle is captured while the session mutex pins the old generation; only
+after unlock does its sink-local close atomically refuse writes and detach a
+snapshot/cleanup receipt. Delivery, callbacks, paint, disposal, waits, and last-
+reference release run after both guards. R3c3 acceptance, candidate chrome
+prepare/reconciliation, provider work, semantic publication, presentation, and
+persistence are unchanged, and R5a alone invokes terminal closure. The separate
+`SessionExtensionGeneration.flag_values`, `TemporaryLegacyValue` lifecycle/flag
+family, mutable emitter copies, direct runtime menu/lifecycle reads, and final
+runtime-flag/menu/lifecycle R3a equivalence arms are deleted; prior R4a/R4b arms
+remain absent.
 
 **Docs/release/commit:** architecture/spec table and the already-established
 closed-chrome API note; extend the same `CHANGELOG.md` `### Fixed` bullet

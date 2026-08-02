@@ -270,7 +270,10 @@ from pipy_harness.native.session_tree_commands import (
     sanitize_label_text,
     visible_tree_entries,
 )
-from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
+from pipy_harness.native.extension_chrome_state import (
+    ExtensionChromeRetirement,
+    ExtensionChromeSink,
+)
 from pipy_harness.native.extension_runtime import (
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
@@ -672,12 +675,19 @@ class _SessionExtensionOperations:
     ui_driver: ExtensionUiDriver | None
     project_trusted: bool
 
-    def _projection(self) -> ExtensionProjection:
+    def _projection(
+        self,
+    ) -> tuple[ExtensionProjection, ExtensionUiDriver | None]:
         snapshot = self.generation_ref.snapshot()
         projection = snapshot.generation.projection
         if projection is None:
             raise RuntimeError("published extension generation has no projection")
-        return projection
+        ui_driver = self.ui_driver
+        chrome = projection.chrome
+        bind = getattr(ui_driver, "generation_driver", None)
+        if chrome is not None and callable(bind):
+            ui_driver = bind(chrome.sink)
+        return projection, ui_driver
 
     def dispatch_command(
         self,
@@ -687,7 +697,7 @@ class _SessionExtensionOperations:
         ui_custom_driver: CustomComponentDriver | None,
         model_runtime: ExtensionModelRuntimeControl,
     ) -> ExtensionCommandDispatch | None:
-        projection = self._projection()
+        projection, ui_driver = self._projection()
         return dispatch_extension_command(
             command_text,
             projection.commands.commands,
@@ -696,7 +706,7 @@ class _SessionExtensionOperations:
             coding_session=coding_session,
             notify_sink=self.notify_sink,
             ui_custom_driver=ui_custom_driver,
-            ui_driver=self.ui_driver,
+            ui_driver=ui_driver,
             model_runtime=model_runtime,
             flags=projection.runtime_flags.values,
             project_trusted=self.project_trusted,
@@ -710,7 +720,7 @@ class _SessionExtensionOperations:
         ui_custom_driver: CustomComponentDriver | None,
         model_runtime: ExtensionModelRuntimeControl,
     ) -> ExtensionCommandDispatch | None:
-        projection = self._projection()
+        projection, ui_driver = self._projection()
         return dispatch_extension_shortcut(
             key,
             projection.commands.shortcuts,
@@ -719,7 +729,7 @@ class _SessionExtensionOperations:
             coding_session=coding_session,
             notify_sink=self.notify_sink,
             ui_custom_driver=ui_custom_driver,
-            ui_driver=self.ui_driver,
+            ui_driver=ui_driver,
             model_runtime=model_runtime,
             flags=projection.runtime_flags.values,
             project_trusted=self.project_trusted,
@@ -728,14 +738,14 @@ class _SessionExtensionOperations:
     def dispatch_input(
         self, text: str, *, model_runtime: ExtensionModelRuntimeControl
     ) -> str:
-        projection = self._projection()
+        projection, ui_driver = self._projection()
         return dispatch_input_hooks(
             projection.hooks.input,
             text,
             cwd=self.cwd,
             has_ui=self.has_ui,
             notify_sink=self.notify_sink,
-            ui_driver=self.ui_driver,
+            ui_driver=ui_driver,
             model_runtime=model_runtime,
             project_trusted=self.project_trusted,
         )
@@ -746,14 +756,14 @@ class _SessionExtensionOperations:
         *,
         model_runtime: ExtensionModelRuntimeControl,
     ) -> BeforeAgentStartResult:
-        projection = self._projection()
+        projection, ui_driver = self._projection()
         return dispatch_before_agent_start_hooks(
             projection.hooks.before_agent_start,
             cwd=self.cwd,
             has_ui=self.has_ui,
             system_prompt=system_prompt,
             notify_sink=self.notify_sink,
-            ui_driver=self.ui_driver,
+            ui_driver=ui_driver,
             model_runtime=model_runtime,
             flags=projection.runtime_flags.values,
             project_trusted=self.project_trusted,
@@ -765,7 +775,7 @@ class _SessionExtensionOperations:
         *,
         model_runtime: ExtensionModelRuntimeControl,
     ) -> AgentProviderRequestSnapshot:
-        projection = self._projection()
+        projection, ui_driver = self._projection()
         return prepare_provider_request(
             policy_input,
             projection.hooks.before_provider_request,
@@ -773,7 +783,7 @@ class _SessionExtensionOperations:
                 cwd=self.cwd,
                 has_ui=self.has_ui,
                 notify_sink=self.notify_sink,
-                ui_driver=self.ui_driver,
+                ui_driver=ui_driver,
                 model_runtime=model_runtime,
                 flags=projection.runtime_flags.values,
                 project_trusted=self.project_trusted,
@@ -783,7 +793,7 @@ class _SessionExtensionOperations:
     def provider_header_callback(
         self, session_tree: NativeSessionTree
     ) -> Callable[[MutableMapping[str, str | None]], None] | None:
-        projection = self._projection()
+        projection, ui_driver = self._projection()
         hooks = projection.hooks.before_provider_headers
         if not hooks:
             return None
@@ -793,7 +803,7 @@ class _SessionExtensionOperations:
             cwd=self.cwd,
             has_ui=self.has_ui,
             notify_sink=self.notify_sink,
-            ui_driver=self.ui_driver,
+            ui_driver=ui_driver,
             session_tree=session_tree,
             project_trusted=self.project_trusted,
         )
@@ -806,7 +816,7 @@ class _SessionExtensionOperations:
         is_error: bool,
         model_runtime: ExtensionModelRuntimeControl,
     ) -> ProductContent:
-        projection = self._projection()
+        projection, ui_driver = self._projection()
         hooks = projection.hooks.tool_result
         if not hooks:
             return content
@@ -819,7 +829,7 @@ class _SessionExtensionOperations:
                 cwd=self.cwd,
                 has_ui=self.has_ui,
                 notify_sink=self.notify_sink,
-                ui_driver=self.ui_driver,
+                ui_driver=ui_driver,
                 model_runtime=model_runtime,
                 flags=projection.runtime_flags.values,
                 project_trusted=self.project_trusted,
@@ -835,7 +845,7 @@ class _SessionExtensionOperations:
         trigger: str | None = None,
         model_runtime: ExtensionModelRuntimeControl,
     ) -> SessionDecision:
-        projection = self._projection()
+        projection, ui_driver = self._projection()
         hooks = {
             "switch": projection.hooks.session_before_switch,
             "fork": projection.hooks.session_before_fork,
@@ -850,11 +860,17 @@ class _SessionExtensionOperations:
             target=target,
             trigger=trigger,
             notify_sink=self.notify_sink,
-            ui_driver=self.ui_driver,
+            ui_driver=ui_driver,
             model_runtime=model_runtime,
             flags=projection.runtime_flags.values,
             project_trusted=self.project_trusted,
         )
+
+    def user_bash_inputs(
+        self,
+    ) -> tuple[tuple[HookHandler, ...], Mapping[str, object], ExtensionUiDriver | None]:
+        projection, ui_driver = self._projection()
+        return projection.hooks.user_bash, projection.runtime_flags.values, ui_driver
 
 
 _SESSION_COMMAND_ACTIONS = frozenset(
@@ -1520,13 +1536,20 @@ class _ExecutionProjectionSnapshot:
     renderers: Mapping[str, ExtensionTool]
     tool_call_hooks: tuple[HookHandler, ...]
     flags: Mapping[str, object]
+    ui_driver: ExtensionUiDriver | None
     provider: ProviderPort
 
 
 class _SessionExecutionProjections:
     """Bind one provider turn to one published tool/renderer/provider view."""
 
-    __slots__ = ("_active", "_coding_state", "_generation_ref", "_tools")
+    __slots__ = (
+        "_active",
+        "_coding_state",
+        "_generation_ref",
+        "_tools",
+        "_ui_driver",
+    )
 
     def __init__(
         self,
@@ -1534,10 +1557,12 @@ class _SessionExecutionProjections:
         generation_ref: SessionGenerationRef,
         tool_capabilities: NativeToolCapabilities,
         coding_state: CodingSessionState,
+        ui_driver: _LiveExtensionUiDriver | None,
     ) -> None:
         self._generation_ref = generation_ref
         self._tools = tool_capabilities
         self._coding_state = coding_state
+        self._ui_driver = ui_driver
         self._active: _ExecutionProjectionSnapshot | None = None
 
     def _begin_provider_turn(self) -> _ExecutionProjectionSnapshot:
@@ -1546,6 +1571,10 @@ class _SessionExecutionProjections:
             projection = snapshot.generation.projection
             if projection is None:
                 raise RuntimeError("published extension generation has no projection")
+            chrome = projection.chrome
+            ui_driver: ExtensionUiDriver | None = self._ui_driver
+            if chrome is not None and self._ui_driver is not None:
+                ui_driver = self._ui_driver.generation_driver(chrome.sink)
             active = _ExecutionProjectionSnapshot(
                 generation_id=snapshot.generation_id,
                 tools=self._tools.snapshot_for_projection(
@@ -1554,6 +1583,7 @@ class _SessionExecutionProjections:
                 renderers=projection.renderers.tools,
                 tool_call_hooks=projection.hooks.tool_call,
                 flags=projection.runtime_flags.values,
+                ui_driver=ui_driver,
                 provider=self._coding_state.provider,
             )
             self._active = active
@@ -1604,9 +1634,9 @@ class _SessionExecutionProjections:
 
     def tool_call_policy_inputs(
         self,
-    ) -> tuple[tuple[HookHandler, ...], Mapping[str, object]]:
+    ) -> tuple[tuple[HookHandler, ...], Mapping[str, object], ExtensionUiDriver | None]:
         active = self._require_active()
-        return active.tool_call_hooks, active.flags
+        return active.tool_call_hooks, active.flags, active.ui_driver
 
 
 def _build_projected_extension_tool_port(
@@ -1670,6 +1700,18 @@ def _build_candidate_extension_projection(
         build_tool_capability=prepare_capability,
         chrome=chrome,
     )
+
+
+def _finish_chrome_retirement(
+    retirement: ExtensionChromeRetirement | None,
+) -> BaseException | None:
+    return None if retirement is None else retirement.finalize_nonraising()
+
+
+def _raise_first(errors: tuple[BaseException | None, ...]) -> None:
+    for error in errors:
+        if error is not None:
+            raise error
 
 
 def _build_detached_reload_effects(
@@ -1746,6 +1788,7 @@ class _ReloadCommandEffects:
         chrome_candidate: ExtensionChromeSink | None,
         *,
         replacement_accepted: bool,
+        chrome_retirement: ExtensionChromeRetirement | None = None,
     ) -> str | None:
         if not replacement_accepted:
             return None
@@ -1753,7 +1796,14 @@ class _ReloadCommandEffects:
             return None
         owned = True
         try:
-            acceptance = self.extension_ui_driver.accept_candidate(chrome_candidate)
+            acceptance = self.extension_ui_driver.accept_candidate(
+                chrome_candidate,
+                rollback_snapshot=(
+                    chrome_retirement.snapshot
+                    if chrome_retirement is not None
+                    else None
+                ),
+            )
             if not acceptance.accepted:
                 if not acceptance.candidate_closed:
                     chrome_candidate.close()
@@ -1809,6 +1859,7 @@ class _ReloadCommandEffects:
         )
         projection: ExtensionProjection | None = None
         prepared: PreparedReloadEffects | None = None
+        chrome_retirement: ExtensionChromeRetirement | None = None
         published = False
         try:
             reloaded_extension_runtime = _activate_workspace_extensions(
@@ -1907,46 +1958,58 @@ class _ReloadCommandEffects:
                     return False, None
                 generation = SessionExtensionGeneration(
                     reloaded_extension_runtime,
-                    reloaded_flag_values,
                     projection,
                     chrome_token,
                 )
                 with gate.reserve() as token:
-                    acceptance_failure = self.ctl.generation_ref.accept_prepared_reload(
-                        generation,
-                        prepared,
-                        candidate=candidate,
-                        provider_state=provider_state,
-                        coding_state=self.provider_mutation.coding_state,
-                        tool_capabilities=self.tool_capabilities,
-                        expected_capability=expected_capability,
-                        emitter=self.emitter,
+                    acceptance_failure, retired_chrome = (
+                        self.ctl.generation_ref.accept_prepared_reload(
+                            generation,
+                            prepared,
+                            candidate=candidate,
+                            provider_state=provider_state,
+                            coding_state=self.provider_mutation.coding_state,
+                            tool_capabilities=self.tool_capabilities,
+                            expected_capability=expected_capability,
+                        )
                     )
                     if acceptance_failure is not None:
                         self.diag(f"pipy: {acceptance_failure}")
                         self.diag("pipy: keeping the previous extensions.")
                         return False, None
                     published = True
-                    _extension_hooks.deliver_accepted_staged_batch(
-                        cast(
-                            FrozenStagedDeliveryBatch,
-                            prepared.activation_inputs.value[0],
-                        ),
-                        gate=gate,
-                        token=token,
-                        user_sink=lambda _message: None,
-                        custom_sink=partial(
-                            _extension_hooks.deliver_staged_custom,
-                            self.extension_send_message,
-                        ),
-                        release_route=projection.queues.release_pending_route,
+                    chrome_retirement, chrome_close_error = (
+                        retired_chrome.close_nonraising()
+                        if retired_chrome
+                        else (None, None)
                     )
+                    delivery_error: BaseException | None = None
+                    try:
+                        _extension_hooks.deliver_accepted_staged_batch(
+                            cast(
+                                FrozenStagedDeliveryBatch,
+                                prepared.activation_inputs.value[0],
+                            ),
+                            gate=gate,
+                            token=token,
+                            user_sink=lambda _message: None,
+                            custom_sink=partial(
+                                _extension_hooks.deliver_staged_custom,
+                                self.extension_send_message,
+                            ),
+                            release_route=projection.queues.release_pending_route,
+                        )
+                    except BaseException as error:
+                        delivery_error = error
+                    cleanup_error = _finish_chrome_retirement(chrome_retirement)
+                    _raise_first((delivery_error, cleanup_error, chrome_close_error))
             diagnostic, persist_default = prepared.presentation_persistence.value
             if diagnostic is not None:
                 self.diag(cast(str, diagnostic))
             if persist_default and provider_state is not None:
-                if (error := provider_state.flush_pending_default()) is not None:
-                    self.diag(error)
+                default_error = provider_state.flush_pending_default()
+                if default_error is not None:
+                    self.diag(default_error)
             self._diagnose_unknown_tool_filters()
             return True, chrome_candidate
         finally:
@@ -1954,7 +2017,9 @@ class _ReloadCommandEffects:
                 if published:
                     if (
                         chrome_diagnostic := self._finish_candidate_chrome(
-                            chrome_candidate, replacement_accepted=True
+                            chrome_candidate,
+                            replacement_accepted=True,
+                            chrome_retirement=chrome_retirement,
                         )
                     ) is not None:
                         self.diag(chrome_diagnostic)
@@ -1980,20 +2045,23 @@ class _ReloadCommandEffects:
         if reloaded_theme:
             os.environ["PIPY_THEME"] = reloaded_theme
         if self.terminal_ui is not None:
+            snapshot = self.ctl.generation_ref.snapshot()
+            projection = snapshot.generation.projection
+            if projection is None:
+                raise RuntimeError("published extension generation has no projection")
+            commands = projection.commands
             self.terminal_ui.autocomplete_max_visible = (
                 self.settings.get_autocomplete_max_visible()
             )
             self.terminal_ui.command_names = _tool_loop_command_names(
                 self.ctl.workspace_resources,
-                self.ctl.extension_generation.runtime.menu_names,
+                commands.menu_names,
             )
             self.terminal_ui.command_descriptions = _tool_loop_command_descriptions(
                 self.ctl.workspace_resources,
-                self.ctl.extension_generation.runtime.descriptions,
+                dict(commands.descriptions),
             )
-            self.terminal_ui.extension_shortcut_keys = frozenset(
-                self.ctl.extension_generation.runtime.shortcuts
-            )
+            self.terminal_ui.extension_shortcut_keys = frozenset(commands.shortcuts)
             self.redraw_custom_entries_for_active_branch()
         for scope, detail in self.settings.load_errors().items():
             self.diag(f"pipy: kept prior {scope} settings ({detail}).")
@@ -2755,15 +2823,18 @@ class _ReplLoopStep:
         # cancels a running command. Intercepted before the user-message
         # panel so it renders as a shell block, not a chat bubble.
         if command_text.startswith("!"):
+            user_bash_hooks, user_bash_flags, user_bash_ui = (
+                extension_operations.user_bash_inputs()
+            )
             shell_context_text = session._run_local_shell_shortcut(
                 stripped,
                 terminal_ui=terminal_ui,
                 error_stream=error_stream,
                 cwd=cwd,
-                user_bash_hooks=ctl.extension_generation.runtime.user_bash_hooks,
+                user_bash_hooks=user_bash_hooks,
                 model_runtime=model_runtime,
-                ui_driver=extension_ui_driver,
-                flags=ctl.extension_generation.flag_values,
+                ui_driver=user_bash_ui,
+                flags=user_bash_flags,
                 project_trusted=settings.project_trusted,
             )
             if shell_context_text is not None:
@@ -3447,7 +3518,7 @@ class _SessionCollaborators:
     def apply_extension_tool_policy(
         self, call: AgentToolCall
     ) -> AgentToolPolicyDecision:
-        hooks, flags = self.execution_projections.tool_call_policy_inputs()
+        hooks, flags, ui_driver = self.execution_projections.tool_call_policy_inputs()
         tool_block = dispatch_tool_call_hooks(
             hooks,
             tool_name=call.tool_name,
@@ -3455,7 +3526,7 @@ class _SessionCollaborators:
             cwd=str(self.cwd),
             has_ui=self.terminal_ui is not None,
             notify_sink=self.extension_notify,
-            ui_driver=self.extension_ui_driver,
+            ui_driver=ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(
                 allow_model=False
             ),
@@ -3951,9 +4022,6 @@ class NativeToolReplSession:
             resources=workspace_resources,
             autocomplete_max_visible=settings.get_autocomplete_max_visible(),
             keybindings_manager=keybindings,
-            extension_menu_names=extension_runtime.menu_names,
-            extension_descriptions=extension_runtime.descriptions,
-            extension_shortcut_keys=frozenset(extension_runtime.shortcuts),
             include_workspace_defaults=settings.project_trusted,
         )
         if (
@@ -3966,24 +4034,6 @@ class NativeToolReplSession:
                 "packages are ignored. Use /trust to save a trust decision, "
                 "then restart pipy."
             )
-        if terminal_ui is not None and keybindings.has_user_binding(
-            "app.editor.external"
-        ):
-            editor_keys = {
-                normalized
-                for key in keybindings.keys_for("app.editor.external")
-                if (normalized := normalize_shortcut_key(key))
-            }
-            shadowed_keys = sorted(
-                editor_keys.intersection(extension_runtime.shortcuts)
-            )
-            for key in shadowed_keys:
-                print(
-                    "pipy: extension shortcut "
-                    f"{key!r} is shadowed by app.editor.external; rebind the "
-                    "editor action or extension shortcut.",
-                    file=error_stream,
-                )
 
         # Live UI sink for extension `ctx.ui.notify` from hooks and tools:
         # notifications are emitted as local diagnostics (interactive) and
@@ -4041,7 +4091,7 @@ class NativeToolReplSession:
             ),
         )
         extension_generation = SessionExtensionGeneration(
-            extension_runtime, extension_flag_values, startup_projection
+            extension_runtime, startup_projection
         )
         if (published_projection := extension_generation.projection) is None:
             message = "extension generation projection is unavailable"
@@ -4054,6 +4104,32 @@ class NativeToolReplSession:
         generation_ref = SessionGenerationRef(
             extension_generation, lock=session_state_lock
         )
+        startup_snapshot = generation_ref.snapshot()
+        startup_generation_projection = startup_snapshot.generation.projection
+        if startup_generation_projection is None:
+            raise RuntimeError("published extension generation has no projection")
+        startup_commands = startup_generation_projection.commands
+        if terminal_ui is not None:
+            terminal_ui.command_names = _tool_loop_command_names(
+                workspace_resources, startup_commands.menu_names
+            )
+            terminal_ui.command_descriptions = _tool_loop_command_descriptions(
+                workspace_resources, dict(startup_commands.descriptions)
+            )
+            terminal_ui.extension_shortcut_keys = frozenset(startup_commands.shortcuts)
+            if keybindings.has_user_binding("app.editor.external"):
+                editor_keys = {
+                    normalized
+                    for key in keybindings.keys_for("app.editor.external")
+                    if (normalized := normalize_shortcut_key(key))
+                }
+                for key in sorted(editor_keys.intersection(startup_commands.shortcuts)):
+                    print(
+                        "pipy: extension shortcut "
+                        f"{key!r} is shadowed by app.editor.external; rebind the "
+                        "editor action or extension shortcut.",
+                        file=error_stream,
+                    )
         _apply_startup_provider_projection(
             generation_ref=generation_ref,
             provider_state=self.provider_state,
@@ -4070,6 +4146,7 @@ class NativeToolReplSession:
             generation_ref=generation_ref,
             tool_capabilities=tool_capabilities,
             coding_state=coding_state,
+            ui_driver=extension_ui_driver,
         )
         provider_turn_executor = ProviderTurnExecutor(
             cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
@@ -4215,12 +4292,11 @@ class NativeToolReplSession:
         immediate_sink = SynchronousAgentEventComposite(tuple(immediate_sinks))
         emitter = _extension_hooks._ExtensionLifecycleAgentEventAdapter(
             immediate_sink,
-            lifecycle_hooks=extension_generation.runtime.lifecycle_hooks,
+            generation_snapshot=generation_ref.snapshot,
             cwd=str(cwd),
             has_ui=terminal_ui is not None,
             notify_sink=_extension_notify,
             ui_driver=extension_ui_driver,
-            flags=extension_generation.flag_values,
             project_trusted=settings.project_trusted,
         )
 
@@ -4320,9 +4396,12 @@ class NativeToolReplSession:
                 input_stream=input_stream,
                 error_stream=error_stream,
                 workspace=cwd,
-                resources=workspace_resources,
-                extension_menu_names=extension_generation.runtime.menu_names,
-                extension_descriptions=extension_generation.runtime.descriptions,
+                command_names=_tool_loop_command_names(
+                    workspace_resources, startup_commands.menu_names
+                ),
+                command_descriptions=_tool_loop_command_descriptions(
+                    workspace_resources, dict(startup_commands.descriptions)
+                ),
             )
         )
         # Terminal chrome owns the footer effect adapter. Inject the session's
@@ -4598,19 +4677,16 @@ class NativeToolReplSession:
         input_stream: TextIO,
         error_stream: TextIO,
         workspace: Path,
-        resources: WorkspaceResources,
-        extension_menu_names: tuple[str, ...] = (),
-        extension_descriptions: dict[str, str] | None = None,
+        command_names: tuple[str, ...],
+        command_descriptions: Mapping[str, str],
     ) -> NativeReplInput:
         return native_repl_input_for(
             input_stream=input_stream,
             error_stream=error_stream,
             input_runtime=self.input_runtime,
             workspace=workspace,
-            command_names=_tool_loop_command_names(resources, extension_menu_names),
-            command_descriptions=_tool_loop_command_descriptions(
-                resources, extension_descriptions
-            ),
+            command_names=command_names,
+            command_descriptions=command_descriptions,
         )
 
     def _build_terminal_ui(
@@ -4621,9 +4697,6 @@ class NativeToolReplSession:
         workspace: Path,
         resources: WorkspaceResources,
         autocomplete_max_visible: int = 5,
-        extension_menu_names: tuple[str, ...] = (),
-        extension_descriptions: dict[str, str] | None = None,
-        extension_shortcut_keys: frozenset[str] = frozenset(),
         keybindings_manager: KeybindingsManager | None = None,
         include_workspace_defaults: bool = False,
     ) -> ToolLoopTerminalUi | None:
@@ -4635,13 +4708,10 @@ class NativeToolReplSession:
             input_stream=input_stream,
             terminal_stream=error_stream,
             cwd=workspace,
-            command_names=_tool_loop_command_names(resources, extension_menu_names),
-            command_descriptions=_tool_loop_command_descriptions(
-                resources, extension_descriptions
-            ),
+            command_names=_tool_loop_command_names(resources),
+            command_descriptions=_tool_loop_command_descriptions(resources),
             autocomplete_max_visible=autocomplete_max_visible,
             keybindings_manager=keybindings_manager,
-            extension_shortcut_keys=extension_shortcut_keys,
             include_workspace_defaults=include_workspace_defaults,
         )
 

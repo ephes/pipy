@@ -323,15 +323,17 @@ an injected manager, so the narrowing relies on manager-local synchronization,
 not on claiming that no external manager surface exists. R3 builds no settings,
 keybinding, or resource projection and R4a consumes none.
 
-`SessionExtensionGeneration` now carries the live runtime and flags together
-with R3a's installed `ExtensionProjection` and inert chrome token. The builder copies
+`SessionExtensionGeneration` now carries the live runtime together with R3a's
+installed `ExtensionProjection` and inert chrome token; parsed flag values exist
+only in that projection rather than in a separately published generation field.
+The builder copies
 and freezes runtime/flags, command/menu/description/shortcut, lifecycle/request
 hooks, tool ports and candidate capability state, renderer maps, provider
 contributions, queue handles, and the exact R2 chrome handle. Mapping families
 are copied read-only values and sequence families are tuples. A custom message's
 top-level `options` mapping is copied and frozen; opaque nested option values and
 `details` retain their established shallow semantics and are not recursively
-transformed. Projected and legacy tool ports retain independent private flag
+transformed. Projected tool ports retain independent private flag
 dictionaries. Only the explicitly unconsumed queue storage handles alias the
 candidate runtime outboxes. Builder input validation proves queue/reference
 mutex identity before construction and failure injection cannot reach a live
@@ -716,8 +718,12 @@ construction/execution never runs under the session mutex. Product startup
 refuses a projection-less generation before candidate ownership transfer, and
 reload acceptance does the same before candidate-host publication or any active
 state change. Projection-less construction remains a low-level legacy/harness
-shape only and never triggers direct runtime fallback. Menu/lifecycle and chrome
-consumers remain bounded to R4c. R1 now
+shape only and never triggers direct runtime fallback. R4c now snapshots startup
+and reload menu/description/shortcut presentation, each ordinary lifecycle
+emission, user-bash inputs, and retained chrome context from that same
+projection. Ordinary operations retain a driver bound to the projection's exact
+chrome handle, so a context retained across reload cannot retarget its write to
+the successor. R1 now
 owns activation registration with one candidate-host guard over every staged
 registry/message, flag value/failure, `_activated`, and the one-way candidate
 open→sealed→committed→published/disposed transitions plus the accepted-catalog
@@ -820,9 +826,14 @@ acquisition, and retired disposal run after it is released. Concurrent retained
 or candidate writes racing a handoff queue/replay exactly once; an explicit
 nested retirement routing scope sends synchronous disposal reentry to a closed
 sink, so retiring writes cannot join that queue or overwrite the candidate. R3 carries the
-sidecar in the complete generation; R4c, not R2, binds ordinary
-command/hook/tool invocations (including retained stale invocations) to the
-originating published or retired generation and closes retired-live handles.
+sidecar in the complete generation. R4c binds ordinary command/hook/tool
+invocations (including retained stale invocations) to the originating published
+or retired generation. Publication captures the displaced handle under the
+session mutex, then releases it before the sidecar's guarded closed-check,
+snapshot, and detach; callbacks, disposal, paint, waiting, and last-reference
+release follow unlocked. Stale writes through that retired handle are therefore
+silent no-ops. R5a remains responsible for invoking the same completed close
+path at terminal run finalization.
 
 The R0 audit also found a reachable queue lost update: a cancelled
 `pipy-tool-call` worker may outlive its bounded join and use a retained activation
@@ -1187,10 +1198,12 @@ C901-pinned file. The load-bearing summary is:
   them. R4a adopted one-snapshot command/request/session-gate operations and
   synchronized live outbox append/drain/close; R4b adopted coherent tool,
   renderer, and provider consumers and deleted only those legacy sources and
-  equivalence arms after their final consumer moved. Mutation ports are not yet
-  generation-bound; a retained coding-session control can still race live
-  tree/input use and reorder durable JSONL; and lifecycle, menu, and retained-
-  chrome consumers remain for R4c.
+  equivalence arms after their final consumer moved. R4c then adopted
+  menu/lifecycle/chrome snapshots, closed retired chrome handles, and removed
+  the final separately published flag/lifecycle contribution sources and
+  equivalence arms. Mutation ports are not yet generation-bound, and a retained
+  coding-session control can still race live tree/input use and reorder durable
+  JSONL; R5a owns that next boundary and terminal close invocation.
   Current activation has no
   timeout; R1's shipped seal/disposal is
   future-timeout-safe without selecting a timeout policy;
@@ -1251,10 +1264,13 @@ and synchronized live queue append/detach/close. R4b now ships one-snapshot tool
 advertisement/execution, tool/custom rendering, provider turns, and provider
 contribution/refresh consumers. The obsolete legacy tool-port builder,
 runtime-to-renderer mapper, direct runtime renderer/provider reads, separately
-published renderer map, and only their R3a equivalence arms are gone; all other
-arms remain. The next architecture action is **R4c — snapshot menu, lifecycle,
-and chrome from one generation**; ordinary product-parity selection remains
-blocked through R7. R3c3's two documented deltas and R4a's live-message loss fix
-are recorded in the changelog. R4b has no changelog entry because it adopts
+published renderer map, and only their R3a equivalence arms are gone. R4c now
+also removes the separately stored generation flag map, temporary lifecycle/flag
+reload effect, mutable emitter copies, direct runtime menu/lifecycle reads, and
+the final R3a equivalence arms. The next architecture action is **R5a — serialize
+coding-session effects and terminal teardown**; ordinary product-parity
+selection remains blocked through R7. R3c3's two documented deltas, R4a's live-
+message loss fix, and R4c's coherent publication/stale-chrome refusal are
+recorded in the changelog. R4b has no separate changelog entry because it adopts
 R3c3's already-published coherence without adding a user-visible surface.
 That is not a verdict that the broader program failed.

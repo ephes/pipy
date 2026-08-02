@@ -218,7 +218,8 @@ entries oldest-first, and a version bump shows the new entries at startup.
   duplicate registrations and rebuilt its editor. A reload now invokes exactly
   one replacement-generation `session_start` against the candidate before
   acceptance and before accepted staged custom messages become visible, then
-  publishes the prepared generation. The publication gate remains active through
+  publishes one coherent flags/tools/renderers/hooks/providers/menu/chrome
+  generation. The publication gate remains active through
   accepted staged delivery, two-phase route release, and gate drain—even while
   those paths invoke extension-visible sinks after the session commit unlocks—
   before chrome reconciliation. If lifecycle,
@@ -238,8 +239,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
   chrome. Concurrent retained writes still cross accepted chrome reconciliation
   through a short effect-free ownership handoff; post-publication interrupts
   propagate after that reconciliation leaves the replacement explicitly live,
-  without double close. Retired-live handle binding and terminal teardown remain
-  separate follow-ons.
+  without double close. Ordinary retained UI contexts now stay bound to their
+  originating chrome handle, so writes through a retired handle are ignored
+  instead of retargeting the replacement; terminal teardown invocation remains
+  a separate follow-on.
 - Extension activation APIs retained after successful activation or candidate
   rejection can no longer appear to register commands, shortcuts, hooks, tools,
   providers, flags, or renderers into dead candidate state. Late contribution

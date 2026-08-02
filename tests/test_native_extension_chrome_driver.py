@@ -129,7 +129,7 @@ def test_driver_delegates_editor_text_helpers(tmp_path):
     assert ui.calls[-1] == ("paste-input", "paste")
 
 
-def test_live_driver_returns_retained_editor_factory_across_candidate_handoff(
+def test_generation_bound_driver_returns_its_own_editor_factory_across_handoff(
     tmp_path,
 ):
     ui = _FakeUi()
@@ -155,7 +155,7 @@ def test_live_driver_returns_retained_editor_factory_across_candidate_handoff(
     candidate_driver = driver.candidate_driver(candidate)
     candidate_driver.set_editor_component(candidate_factory)
     assert driver.get_editor_component() is live_factory
-    assert candidate_driver.get_editor_component() is live_factory
+    assert candidate_driver.get_editor_component() is candidate_factory
     assert ui.calls == [("set-editor-component", live_factory)]
 
     accepted = driver.accept_candidate(candidate)

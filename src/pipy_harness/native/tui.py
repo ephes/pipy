@@ -346,13 +346,23 @@ class _LiveExtensionUiDriver:
 
     def candidate_driver(
         self, candidate: ExtensionChromeSink
-    ) -> "_CandidateExtensionUiDriver":
+    ) -> "_GenerationExtensionUiDriver":
         """Bind declarative writes from one candidate callback to its sink."""
 
-        return _CandidateExtensionUiDriver(self, candidate)
+        return _GenerationExtensionUiDriver(self, candidate)
+
+    def generation_driver(
+        self, sink: ExtensionChromeSink
+    ) -> "_GenerationExtensionUiDriver":
+        """Bind one ordinary operation and any retained context to its generation."""
+
+        return _GenerationExtensionUiDriver(self, sink)
 
     def accept_candidate(
-        self, candidate: ExtensionChromeSink
+        self,
+        candidate: ExtensionChromeSink,
+        *,
+        rollback_snapshot: ExtensionChromeSnapshot | None = None,
     ) -> _ChromeAcceptanceResult:
         """Reconcile without holding the owner guard, then select one live sink.
 
@@ -375,9 +385,11 @@ class _LiveExtensionUiDriver:
             except (KeyboardInterrupt, SystemExit):
                 raise
             except BaseException as candidate_error:
-                restore_error = self._restore_previous_chrome(candidate, previous)
+                restored, restore_error = self._restore_previous_chrome(
+                    candidate, previous, rollback_snapshot=rollback_snapshot
+                )
                 if restore_error is None:
-                    self._complete_handoff(previous, handoff)
+                    self._complete_handoff(restored, handoff)
                     return _ChromeAcceptanceResult(
                         accepted=False,
                         diagnostic=(
@@ -391,10 +403,10 @@ class _LiveExtensionUiDriver:
                 except (KeyboardInterrupt, SystemExit):
                     raise
                 except BaseException as retry_error:
-                    retry_restore_error = self._restore_previous_chrome(
-                        candidate, previous
+                    restored, retry_restore_error = self._restore_previous_chrome(
+                        candidate, previous, rollback_snapshot=rollback_snapshot
                     )
-                    self._complete_handoff(previous, handoff)
+                    self._complete_handoff(restored, handoff)
                     if retry_restore_error is not None:
                         return _ChromeAcceptanceResult(
                             accepted=False,
@@ -420,6 +432,7 @@ class _LiveExtensionUiDriver:
                         attach_result,
                         handoff,
                         restore_required=True,
+                        rollback_snapshot=rollback_snapshot,
                     )
                 self._complete_handoff(candidate, handoff)
                 return _ChromeAcceptanceResult(
@@ -438,6 +451,7 @@ class _LiveExtensionUiDriver:
                     attach_result,
                     handoff,
                     restore_required=attach_result.reconciled,
+                    rollback_snapshot=rollback_snapshot,
                 )
             self._complete_handoff(candidate, handoff)
             return _ChromeAcceptanceResult(
@@ -490,17 +504,36 @@ class _LiveExtensionUiDriver:
         self,
         candidate: ExtensionChromeSink,
         previous: ExtensionChromeSink,
-    ) -> BaseException | None:
-        """Try one rollback repaint and discard superseded candidate disposers."""
+        *,
+        rollback_snapshot: ExtensionChromeSnapshot | None,
+    ) -> tuple[ExtensionChromeSink, BaseException | None]:
+        """Repaint an open owner or a detached copy of its retirement snapshot."""
 
+        restored = previous
         try:
-            previous.reconcile_attached(self._deliver_chrome_event)
+            if rollback_snapshot is None:
+                previous.reconcile_attached(self._deliver_chrome_event)
+            else:
+                restored = ExtensionChromeSink.from_snapshot(rollback_snapshot)
+                if not restored.attach(self._deliver_chrome_event).attached:
+                    raise RuntimeError(
+                        "retired chrome snapshot restoration was refused"
+                    )
         except (KeyboardInterrupt, SystemExit):
+            if restored is not previous:
+                restored.close()
             raise
         except BaseException as restore_error:
-            return restore_error
+            if restored is not previous:
+                try:
+                    restored.close()
+                except (KeyboardInterrupt, SystemExit):
+                    raise
+                except BaseException:
+                    pass
+            return previous, restore_error
         candidate.discard_reconciled_disposers()
-        return None
+        return restored, None
 
     def _finish_refused_attach(
         self,
@@ -510,12 +543,15 @@ class _LiveExtensionUiDriver:
         handoff: _ChromeHandoff,
         *,
         restore_required: bool,
+        rollback_snapshot: ExtensionChromeSnapshot | None,
     ) -> _ChromeAcceptanceResult:
         """Finish an attach refusal with rollback only after candidate paint."""
 
         if restore_required:
-            restore_error = self._restore_previous_chrome(candidate, previous)
-            self._complete_handoff(previous, handoff)
+            restored, restore_error = self._restore_previous_chrome(
+                candidate, previous, rollback_snapshot=rollback_snapshot
+            )
+            self._complete_handoff(restored, handoff)
             if restore_error is not None:
                 return _ChromeAcceptanceResult(
                     accepted=False,
@@ -851,13 +887,12 @@ class _LiveExtensionUiDriver:
         return ok, None if ok else message
 
 
-class _CandidateExtensionUiDriver:
-    """Route only retained declarative candidate writes to a detached sink.
+class _GenerationExtensionUiDriver:
+    """Route retained declarative reads/writes to one generation's sink.
 
     Immediate dialogs/editor text/overlays/tools/theme and sticky status/working
-    state retain their R0 behavior through ``_live``. This seam is used only for
-    replacement ``session_start`` callbacks; retired-live invocation binding
-    remains R4c-owned.
+    state retain their R0 behavior through ``_live``. Candidate and ordinary
+    published operations use the same exact sidecar binding.
     """
 
     def __init__(self, live: _LiveExtensionUiDriver, sink: ExtensionChromeSink) -> None:
@@ -900,6 +935,9 @@ class _CandidateExtensionUiDriver:
 
     def set_editor_component(self, factory: object | None) -> None:
         self._route(_ChromeHandoffOperation("editor-component", (factory,)))
+
+    def get_editor_component(self) -> object | None:
+        return self._sink.snapshot().editor_component
 
 
 class _BuiltinAutocompleteProvider:

@@ -12,7 +12,8 @@ from __future__ import annotations
 import io
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -43,6 +44,20 @@ from pipy_harness.native.extension_hooks import (
 from pipy_harness.native.extensions import discover_extensions
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
+
+
+def _generation_snapshot(
+    hooks: dict[str, tuple[object, ...]], flags: dict[str, object] | None = None
+):
+    projection = SimpleNamespace(
+        hooks=SimpleNamespace(lifecycle=hooks),
+        runtime_flags=SimpleNamespace(values={} if flags is None else flags),
+        chrome=None,
+    )
+    snapshot = SimpleNamespace(
+        generation=SimpleNamespace(projection=projection), generation_id=0
+    )
+    return lambda: snapshot
 
 
 class _FinalTextProvider:
@@ -224,7 +239,10 @@ def test_agent_event_adapter_delivers_immediately_then_maps_lifecycle() -> None:
     )
     adapter = _ExtensionLifecycleAgentEventAdapter(
         ImmediateSink(),
-        lifecycle_hooks={name: (observe,) for name in lifecycle_names},
+        generation_snapshot=cast(
+            Any,
+            _generation_snapshot({name: (observe,) for name in lifecycle_names}),
+        ),
         cwd="/workspace",
         has_ui=False,
     )
@@ -259,7 +277,9 @@ def test_agent_event_adapter_delivers_immediately_then_maps_lifecycle() -> None:
 
     failing = _ExtensionLifecycleAgentEventAdapter(
         FailingSink(),
-        lifecycle_hooks={"agent_start": (observe,)},
+        generation_snapshot=cast(
+            Any, _generation_snapshot({"agent_start": (observe,)})
+        ),
         cwd="/workspace",
         has_ui=False,
     )
@@ -268,7 +288,7 @@ def test_agent_event_adapter_delivers_immediately_then_maps_lifecycle() -> None:
     assert trace[-1] == "extension:agent_settled"
 
 
-def test_agent_event_adapter_replaces_hooks_and_dispatch_context(
+def test_agent_event_adapter_snapshots_hooks_flags_and_chrome_context_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: list[tuple[object, ...]] = []
@@ -296,33 +316,53 @@ def test_agent_event_adapter_replaces_hooks_and_dispatch_context(
         extension_hooks_module, "dispatch_lifecycle_hooks", capture_dispatch
     )
     flags = {"plan": False}
+    projection = SimpleNamespace(
+        hooks=SimpleNamespace(lifecycle={"session_start": (old_hook,)}),
+        runtime_flags=SimpleNamespace(values=flags),
+        chrome=None,
+    )
+    replacement = SimpleNamespace(
+        hooks=SimpleNamespace(lifecycle={"session_start": (new_hook,)}),
+        runtime_flags=SimpleNamespace(values={"replacement": True}),
+        chrome=None,
+    )
+    snapshot_calls = 0
+
+    def generation_snapshot() -> object:
+        nonlocal snapshot_calls, projection
+        snapshot_calls += 1
+        held = projection
+        projection = replacement
+        return SimpleNamespace(
+            generation=SimpleNamespace(projection=held),
+            generation_id=snapshot_calls - 1,
+        )
+
     adapter = _ExtensionLifecycleAgentEventAdapter(
         ImmediateSink(),
-        lifecycle_hooks={"session_start": (old_hook,)},
+        generation_snapshot=cast(Any, generation_snapshot),
         cwd="/workspace",
         has_ui=True,
         notify_sink=None,
         ui_driver=driver,
-        flags={"initial": True},
         project_trusted=True,
     )
-    adapter.set_lifecycle_hooks({"session_start": (new_hook,)})
-    adapter.set_flags(flags)
     flags["plan"] = True
 
     adapter.fire_lifecycle("session_start", reason="startup")
 
     hooks, event, context = captured[0]
-    assert hooks == (new_hook,)
+    assert hooks == (old_hook,)
     assert event == LifecycleEvent(name="session_start", reason="startup")
     assert context == {
         "cwd": "/workspace",
         "has_ui": True,
         "notify_sink": None,
         "ui_driver": driver,
-        "flags": {"plan": False},
+        "flags": {"plan": True},
         "project_trusted": True,
     }
+    assert snapshot_calls == 1
 
 
 def test_lifecycle_events_fire_through_the_session(tmp_path, monkeypatch) -> None:

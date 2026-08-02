@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import gc
 import io
 import threading
+import weakref
 from contextlib import AbstractContextManager
 from dataclasses import replace
 from pathlib import Path
@@ -37,6 +39,7 @@ from pipy_harness.native.session_generation import (
 )
 from pipy_harness.native.tool_loop_session import _ReloadCommandEffects
 import test_native_extension_activation_sealing as transactional
+from session_generation_test_support import build_test_projection
 from pipy_harness.native.tui import (
     ExtensionChromeCommitToken,
     ExtensionChromePrepareInput,
@@ -181,6 +184,46 @@ def test_sidecar_guard_never_spans_delivery_session_lock_or_disposal() -> None:
 
     assert delivered == ["reconcile", "listener", "title", "listener"]
     assert disposed == ["callback-identity", "close-disposer-identity"]
+
+
+@pytest.mark.parametrize("interrupt_type", [KeyboardInterrupt, SystemExit])
+def test_retirement_interrupt_skips_later_disposer_and_inflight_wait(
+    monkeypatch: pytest.MonkeyPatch,
+    interrupt_type: type[BaseException],
+) -> None:
+    class NonInterruptingCleanup(BaseException):
+        pass
+
+    sink = ExtensionChromeSink()
+    calls: list[str] = []
+
+    def fail(label: str, error: BaseException) -> None:
+        calls.append(label)
+        raise error
+
+    sink._terminal_input_disposers = {  # noqa: SLF001 - finalizer sequence proof
+        0: lambda: fail("ordinary", RuntimeError()),
+        1: lambda: fail("base", NonInterruptingCleanup()),
+        2: lambda: fail("interrupt", interrupt_type("stop")),
+        3: lambda: calls.append("later"),
+    }
+    sink._inflight = 1  # noqa: SLF001 - wait boundary proof
+    retirement = sink.mark_closed()
+    assert retirement is not None
+    monkeypatch.setattr(
+        sink._idle,  # noqa: SLF001 - wait boundary proof
+        "wait",
+        lambda: fail("wait", AssertionError("inflight wait entered")),
+    )
+
+    cleanup_error = retirement.finalize_nonraising()
+
+    assert type(cleanup_error) is interrupt_type
+    assert calls == ["ordinary", "base", "interrupt"]
+    with pytest.raises(RuntimeError, match="delivery"):
+        tool_loop_session._raise_first(  # noqa: SLF001 - reload aggregation proof
+            (RuntimeError("delivery"), cleanup_error, AssertionError("close"))
+        )
 
 
 class _PausedWriteSink(ExtensionChromeSink):
@@ -374,6 +417,77 @@ def test_candidate_listener_and_callback_identities_close_without_delivery() -> 
     assert callable(inert)
     assert inert() is None
     assert sink.snapshot() == ExtensionChromeSnapshot()
+
+
+def test_r4c_retired_generation_chrome_closes_before_stale_bound_writes() -> None:
+    ui = _FakeTerminalUi()
+    ui.semantic_committed = True
+    driver = _LiveExtensionUiDriver(cast(Any, ui), Path("."))
+    old_sink = driver.startup_chrome_sink()
+    old_bound = driver.generation_driver(old_sink)
+    old_bound.set_title("old-live")
+    new_sink = driver.new_candidate_sink()
+    new_sink.set_title("new-candidate")
+    lock = threading.RLock()
+    old_runtime, new_runtime = _runtime(), _runtime()
+    old = SessionExtensionGeneration(
+        old_runtime,
+        build_test_projection(old_runtime, {}, queue_mutex=lock, chrome=old_sink),
+    )
+    new = SessionExtensionGeneration(
+        new_runtime,
+        build_test_projection(new_runtime, {}, queue_mutex=lock, chrome=new_sink),
+    )
+    ref = SessionGenerationRef(old, lock=lock)
+
+    assert ref.publish(new) is old
+    old_bound.set_title("stale-retired-write")
+    assert old_sink.snapshot() == ExtensionChromeSnapshot()
+    assert ("title", "stale-retired-write") not in ui.calls
+
+    accepted = driver.accept_candidate(new_sink)
+    assert accepted.accepted and accepted.retired_sink is old_sink
+    new_bound = driver.generation_driver(new_sink)
+    new_bound.set_title("new-live-write")
+    assert ui.calls[-1] == ("title", "new-live-write")
+    assert driver.dispose_retired_sink(old_sink) is None
+
+
+def test_r4c_chrome_callbacks_and_last_references_release_after_all_guards() -> None:
+    lock = threading.RLock()
+    sink = ExtensionChromeSink()
+    runtime = _runtime()
+    generation = SessionExtensionGeneration(
+        runtime,
+        build_test_projection(runtime, {}, queue_mutex=lock, chrome=sink),
+    )
+    successor_runtime = _runtime()
+    successor = SessionExtensionGeneration(
+        successor_runtime,
+        build_test_projection(successor_runtime, {}, queue_mutex=lock),
+    )
+    lock_owned = cast(Callable[[], bool], getattr(lock, "_is_owned"))
+    sink_owned = cast(Callable[[], bool], getattr(sink._guard, "_is_owned"))  # noqa: SLF001
+    callbacks: list[tuple[bool, bool]] = []
+    releases: list[tuple[bool, bool]] = []
+
+    class Payload:
+        pass
+
+    payload = Payload()
+    weakref.finalize(payload, lambda: releases.append((lock_owned(), sink_owned())))
+    sink.set_widget("held", payload, "above_editor")
+    sink._terminal_input_disposers[0] = (  # noqa: SLF001 - guard-boundary proof
+        lambda: callbacks.append((lock_owned(), sink_owned()))
+    )
+    del payload
+
+    ref = SessionGenerationRef(generation, lock=lock)
+    ref.publish(successor)
+    gc.collect()
+
+    assert callbacks == [(False, False)]
+    assert releases == [(False, False)]
 
 
 def test_live_driver_handoff_queues_write_and_targets_accepted_owner() -> None:
@@ -917,8 +1031,14 @@ def test_failed_old_restore_retries_candidate_and_transfers_live_ownership() -> 
 
 
 class _Ctl:
-    def __init__(self, generation: SessionExtensionGeneration, ui: _FakeTerminalUi):
-        self.generation_ref = SessionGenerationRef(generation)
+    def __init__(
+        self,
+        generation: SessionExtensionGeneration,
+        ui: _FakeTerminalUi,
+        *,
+        lock: threading.RLock | None = None,
+    ):
+        self.generation_ref = SessionGenerationRef(generation, lock=lock)
         self.workspace_resources = object()
         self.package_roots = SimpleNamespace(extensions=())
         if not ui.semantic_committed:
@@ -941,7 +1061,7 @@ def _effects(
     driver: _LiveExtensionUiDriver,
     tokens: tuple[str, ...] = (),
 ) -> tuple[_ReloadCommandEffects, _Ctl]:
-    live = SessionExtensionGeneration(_runtime(), {})
+    live = SessionExtensionGeneration(_runtime())
     ctl = _Ctl(live, ui)
     capabilities, mutation, emitter, renderer = transactional._reload_owners(
         ctl.generation_ref
@@ -1135,13 +1255,23 @@ def test_candidate_session_start_uses_only_supplied_lifecycle_projection() -> No
 
     retained_hooks = {"session_start": (lambda *_args: pytest.fail("retained"),)}
     retained_flags = {"owner": "retained"}
+    retained_projection = SimpleNamespace(
+        hooks=SimpleNamespace(lifecycle=retained_hooks),
+        runtime_flags=SimpleNamespace(values=retained_flags),
+        chrome=None,
+    )
     emitter = _ExtensionLifecycleAgentEventAdapter(
         cast(Any, SimpleNamespace(emit=pytest.fail)),
-        lifecycle_hooks=cast(Any, retained_hooks),
+        generation_snapshot=cast(
+            Any,
+            lambda: SimpleNamespace(
+                generation=SimpleNamespace(projection=retained_projection),
+                generation_id=0,
+            ),
+        ),
         cwd="/candidate",
         has_ui=True,
         ui_driver=cast(Any, retained_driver),
-        flags=retained_flags,
     )
     emitter.fire_candidate_session_start(
         {"session_start": (candidate_hook,)},
@@ -1151,12 +1281,13 @@ def test_candidate_session_start_uses_only_supplied_lifecycle_projection() -> No
     assert candidate == [
         ("session_start", "reload", {"owner": "candidate"}, candidate_driver)
     ]
-    assert emitter._lifecycle_hooks is retained_hooks  # noqa: SLF001
-    assert emitter._lifecycle_flags == retained_flags  # noqa: SLF001
+    assert emitter._generation_snapshot().generation.projection is (  # noqa: SLF001
+        retained_projection
+    )
     assert emitter._lifecycle_ui_driver is retained_driver  # noqa: SLF001
 
 
-def test_production_reload_stages_real_session_start_chrome_until_acceptance(
+def test_production_reload_restores_retired_chrome_after_candidate_reconcile_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     ext_dir = tmp_path / ".pipy" / "extensions"
@@ -1173,9 +1304,39 @@ def test_production_reload_stages_real_session_start_chrome_until_acceptance(
     ui = _FakeTerminalUi()
     driver = _LiveExtensionUiDriver(cast(Any, ui), tmp_path)
     driver.set_title("OLD_TITLE")
-    live = SessionExtensionGeneration(_runtime(), {})
-    ctl = _Ctl(live, ui)
+    driver.add_terminal_input_listener(lambda key: key)
+    previous_sink = driver.startup_chrome_sink()
+    stale_driver = driver.generation_driver(previous_sink)
+    lock = threading.RLock()
+    live_runtime = _runtime()
+    live = SessionExtensionGeneration(
+        live_runtime,
+        build_test_projection(live_runtime, {}, queue_mutex=lock, chrome=previous_sink),
+    )
+    ctl = _Ctl(live, ui, lock=lock)
     ctl.workspace_resources = SimpleNamespace(custom_command_slash_names=lambda: ())
+    lock_owned = cast(Callable[[], bool], getattr(ctl.generation_ref.lock, "_is_owned"))
+    sink_owned = cast(
+        Callable[[], bool],
+        getattr(previous_sink._guard, "_is_owned"),  # noqa: SLF001
+    )
+    driver_owned = cast(
+        Callable[[], bool],
+        getattr(driver._sink_guard, "_is_owned"),  # noqa: SLF001
+    )
+    finalizer_guards: list[tuple[bool, bool, bool]] = []
+    previous_sink._terminal_input_disposers[0] = (  # noqa: SLF001
+        lambda: finalizer_guards.append((lock_owned(), sink_owned(), driver_owned()))
+    )
+    candidates: list[ExtensionChromeSink] = []
+    new_candidate_sink = driver.new_candidate_sink
+
+    def make_candidate_sink() -> ExtensionChromeSink:
+        candidate_sink = new_candidate_sink()
+        candidates.append(candidate_sink)
+        return candidate_sink
+
+    monkeypatch.setattr(driver, "new_candidate_sink", make_candidate_sink)
     commits = 0
     original_accept = SessionGenerationRef.accept_prepared_reload
 
@@ -1192,7 +1353,7 @@ def test_production_reload_stages_real_session_start_chrome_until_acceptance(
     )
     emitter = _ExtensionLifecycleAgentEventAdapter(
         cast(Any, SimpleNamespace(emit=pytest.fail)),
-        lifecycle_hooks={},
+        generation_snapshot=ctl.generation_ref.snapshot,
         cwd=str(tmp_path),
         has_ui=True,
         ui_driver=driver,
@@ -1247,6 +1408,12 @@ def test_production_reload_stages_real_session_start_chrome_until_acceptance(
         retirement_scope: Callable[[], AbstractContextManager[None]],
     ) -> dict[int, object]:
         nonlocal reject_first_candidate
+        assert not lock_owned() and not sink_owned() and not driver_owned()
+        candidate_owned = cast(
+            Callable[[], bool],
+            getattr(candidates[-1]._guard, "_is_owned"),  # noqa: SLF001
+        )
+        assert not candidate_owned()
         if reject_first_candidate and snapshot.title == "CANDIDATE_TITLE":
             reject_first_candidate = False
             raise RuntimeError("injected acceptance rejection")
@@ -1261,9 +1428,17 @@ def test_production_reload_stages_real_session_start_chrome_until_acceptance(
 
     effects.execute(outcome)
 
+    assert finalizer_guards == [(False, False, False)]
+    assert previous_sink.snapshot() == ExtensionChromeSnapshot()
+    assert candidates[0].snapshot() == ExtensionChromeSnapshot()
+    assert not driver.owns_sink(previous_sink) and not driver.owns_sink(candidates[0])
     assert [snapshot.title for snapshot in ui.reconciles] == ["OLD_WRITER_1"]
+    assert len(ui.reconciles[0].terminal_input_listeners) == 1
     assert not any(call == ("title", "CANDIDATE_TITLE") for call in ui.calls)
     assert any("kept the previous chrome" in message for message in diagnostics)
+    before_stale_write = list(ui.calls)
+    stale_driver.set_title("STALE_RETIRED_WRITE")
+    assert ui.calls == before_stale_write
     first_generation = ctl.extension_generation
 
     effects.execute(outcome)
