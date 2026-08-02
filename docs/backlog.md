@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **L9 — enable the zip-length gate**
+**Active/next slice:** **P1 — remove the agent-visible `truncate` tool**
 
 D1 is complete: it restored a concise reader-facing index, replaced the copied
 architecture-quality ledger in the living architecture overview with a link to
@@ -86,7 +86,11 @@ coding-product-session identities, catalog field/value identities, and model-
 selector rows while the existing equal-length scenarios stay unchanged. The
 repository-wide `B905` inventory is 9 to 0. L8 changes only tests and harness
 assertion behavior, changes no product behavior or rule configuration, and
-requires no changelog entry. L9 is next.
+requires no changelog entry. L9 is complete: Ruff now selects exact `B905`
+alongside `C901`, `I001`, `UP035`, and `B008`, and focused configuration
+coverage rejects broad or alternate selectors and any ignore variant that
+would neutralize `B905`. L9 is a configuration-only quality-gate slice, changes
+no product behavior, and requires no changelog entry. P1 is next.
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -224,8 +228,8 @@ No timeout, cancellation policy, concurrency abstraction, product source, or
 production behavior was added. R0's sticky chrome, immediate UI/notification,
 queue-protocol, independent settings/resources, and fail-soft process/
 persistence narrowings remain explicit. R7 adds no changelog entry because R1–
-R6 already recorded every behavior change. D1 and L1–L8 are complete as
-recorded above, and L9 is next.
+R6 already recorded every behavior change. D1 and L1–L9 are complete as
+recorded above, and P1 is next.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -678,8 +682,8 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1 → L1 → L2 → L3 → L4 → L5 → L6 → L7 → L8;
-the mandatory remaining order begins with L9. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1 → L1 → L2 → L3 → L4 → L5 → L6 → L7 → L8 → L9;
+the mandatory remaining order begins with P1. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
 their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome
