@@ -5,11 +5,11 @@ from __future__ import annotations
 import importlib
 import select
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, AsyncIterator, Iterable, Protocol, TextIO, TypeVar
+from typing import Any, Protocol, TextIO, TypeVar
 
 from pipy_harness.capture import looks_sensitive
 from pipy_harness.native.coding.command_registry import (

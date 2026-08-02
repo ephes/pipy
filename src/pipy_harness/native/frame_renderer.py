@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import re
 import textwrap
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Iterable, Mapping
 
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.session_tree_commands import sanitize_label_text

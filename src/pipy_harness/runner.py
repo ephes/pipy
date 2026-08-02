@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from math import isfinite
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 
 from pipy_harness.adapters.base import AgentPort
 from pipy_harness.capture import (

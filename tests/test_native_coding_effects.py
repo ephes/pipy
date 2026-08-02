@@ -5,10 +5,10 @@ import json
 import threading
 import time
 from collections.abc import Callable, Sequence
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, ContextManager, cast
+from typing import Any, cast
 
 import pytest
 from session_generation_test_support import build_test_projection
@@ -673,7 +673,7 @@ def test_selection_mutations_refuse_without_any_effect(
     before_thinking = state.current_thinking_level()
     before_entries = tree.get_entries()
 
-    scope: ContextManager[None]
+    scope: AbstractContextManager[None]
     if boundary == "stale":
         ref.publish(ref.current)
         scope = nullcontext()

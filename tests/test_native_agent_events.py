@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import FrozenInstanceError
-from typing import Any, Callable, cast, get_args, get_type_hints
+from typing import Any, cast, get_args, get_type_hints
 
 import pytest
 

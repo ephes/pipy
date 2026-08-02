@@ -13,9 +13,10 @@ import argparse
 import json
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 _CSI_RE = re.compile(r"\x1b\[([0-9;?]*)([ -/]*)([@-~])")
 _OSC_END_RE = re.compile(r"[\x07]|\x1b\\")

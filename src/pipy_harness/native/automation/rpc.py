@@ -25,9 +25,10 @@ import json
 import queue
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, BinaryIO, Callable, TextIO
+from typing import Any, BinaryIO, TextIO
 
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import RunRequest

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Protocol
+from collections.abc import Mapping
+from typing import Protocol
 
 from pipy_harness.capture import CapturePolicy
 from pipy_harness.models import AdapterResult, PreparedRun, RunRequest

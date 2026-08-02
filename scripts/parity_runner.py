@@ -19,9 +19,10 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 RUN_LABEL_RE = r"^[A-Za-z0-9._-]+$"
 SENTINEL_RE = r"^PARITY_RESULT: (COMMITTED \S+|NO_GAPS|BLOCKED .*)$"

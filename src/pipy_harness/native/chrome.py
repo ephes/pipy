@@ -19,11 +19,11 @@ import os
 import re as _re
 import shutil
 import textwrap
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, Protocol, TextIO
+from typing import TYPE_CHECKING, Protocol, TextIO
 
 if TYPE_CHECKING:
     from pipy_harness.native.coding.state import (

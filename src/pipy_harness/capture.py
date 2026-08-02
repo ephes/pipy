@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import re
 import subprocess
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 _SENSITIVE_PATH_VALUE_RE = re.compile(
     r"(?i)(api[_-]?key|secret|token|password|credential)\s*[=:]\s*[^/\\]+"
