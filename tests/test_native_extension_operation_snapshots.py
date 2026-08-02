@@ -245,15 +245,14 @@ def test_retained_operation_context_selection_controls_capture_generation(
     new = _generation(lock, "new", observations)
     generation_ref = _PublishingSnapshotRef(old, new, lock)
 
-    def controls(
-        generation_id: int, _allow_model: bool
-    ) -> ExtensionModelRuntimeControl:
+    def controls(generation_id: int, allow_model: bool) -> ExtensionModelRuntimeControl:
         def selected(_value: object) -> bool:
             selected_ids.append(generation_id)
             return True
 
         return ExtensionModelRuntimeControl(
             set_active_tools_fn=selected,
+            set_model_fn=selected if allow_model else lambda _value: False,
             set_thinking_level_fn=selected,
         )
 
@@ -309,7 +308,9 @@ def test_retained_operation_context_selection_controls_capture_generation(
     assert len(retained) == 1
     assert retained[0].set_active_tools(()) is True
     assert retained[0].set_thinking_level("low") is True
-    assert selected_ids == [0, 0]
+    model_allowed = family not in {"before-provider-request", "tool-result"}
+    assert retained[0].set_model("fake/fake-tools") is model_allowed
+    assert selected_ids == ([0, 0, 0] if model_allowed else [0, 0])
 
 
 def test_r4c_operation_routes_retained_chrome_to_its_snapshotted_generation(

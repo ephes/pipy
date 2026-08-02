@@ -13,12 +13,17 @@ from typing import Any, ContextManager, cast
 import pytest
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native.agent import ProductContent
+from pipy_harness.native.agent import AgentUserMessage, ProductContent
+from pipy_harness.native.agent.usage import AgentProviderUsageSample
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
+from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState
-from pipy_harness.native.extension_hooks import _compose_extension_runtime
+from pipy_harness.native.extension_hooks import (
+    _compose_extension_runtime,
+    dispatch_before_agent_start_hooks,
+)
 from pipy_harness.native.extension_runtime import (
     ExtensionCapabilityError,
     GenerationMessageRetirement,
@@ -28,6 +33,7 @@ from pipy_harness.native.extension_runtime import (
 )
 from pipy_harness.native.repl_state import (
     ModelRuntime,
+    NativeDefaultsStore,
     NativeModelSelection,
     NativeReplProviderState,
 )
@@ -575,6 +581,7 @@ def _provider_mutation_fixture(
     tmp_path: Path,
     *,
     persist_tree: bool = False,
+    persist_defaults: bool = False,
     order_check: bool = False,
 ) -> tuple[
     _ProviderMutationEffects,
@@ -608,9 +615,21 @@ def _provider_mutation_fixture(
                 openai_codex_auth_path=tmp_path / "missing-codex.json",
             )
         ),
-        persist_defaults=False,
+        defaults_store=(
+            NativeDefaultsStore(tmp_path / "defaults.json")
+            if persist_defaults
+            else None
+        ),
+        persist_defaults=persist_defaults,
     )
     state.bind_state_lock(session_lock)
+    initial_provider = state.current_provider()
+    coding_state = CodingSessionState(
+        provider=initial_provider,
+        provider_name=state.current_selection().provider_name,
+        model_id=state.current_selection().model_id,
+        state_lock=session_lock,
+    )
     tools = NativeToolCapabilities(
         production_tool_registry(),
         {},
@@ -626,7 +645,7 @@ def _provider_mutation_fixture(
         session=cast(Any, SimpleNamespace(provider_state=state)),
         ctl=ctl,
         extension_operations=cast(Any, None),
-        coding_state=cast(Any, None),
+        coding_state=coding_state,
         product_session=cast(Any, None),
         terminal_ui=None,
         tool_capabilities=tools,
@@ -828,3 +847,299 @@ def test_thinking_lock_order_instrumentation_rejects_reverse_edge(
     assert state.current_thinking_level() is None
     assert tree.get_entries() == []
     assert effects.extension_set_thinking_level(0, "low") is True
+
+
+def _model_state_snapshot(
+    effects: _ProviderMutationEffects,
+    state: NativeReplProviderState,
+    footers: list[str],
+) -> tuple[object, ...]:
+    coding = effects.coding_state
+    return (
+        state.capture_model_mutation_state(),
+        coding.provider_binding,
+        coding.messages,
+        coding.usage_snapshot(),
+        coding.compaction_suffix,
+        coding.compaction_count,
+        tuple(footers),
+    )
+
+
+def _block_model_construction(
+    monkeypatch: pytest.MonkeyPatch,
+    ref: SessionGenerationRef,
+    *,
+    model_id: str = "gpt-5.4",
+) -> tuple[threading.Event, threading.Event, list[bool]]:
+    entered = threading.Event()
+    release = threading.Event()
+    lock_observations: list[bool] = []
+    original = ModelRuntime.construct
+
+    def blocked(
+        runtime: ModelRuntime,
+        selection: NativeModelSelection,
+        *,
+        thinking_level: str | None,
+        options: Any,
+    ) -> Any:
+        lock_observations.append(cast(Any, ref.lock)._is_owned())
+        if selection.model_id == model_id:
+            entered.set()
+            assert release.wait(1)
+        return original(
+            runtime,
+            selection,
+            thinking_level=thinking_level,
+            options=options,
+        )
+
+    monkeypatch.setattr(ModelRuntime, "construct", blocked)
+    return entered, release, lock_observations
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "stale-after-prepare",
+        "gate-open-during-prepare",
+        "terminal-during-prepare",
+    ],
+)
+def test_model_mutation_refuses_when_admission_changes_during_preparation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    boundary: str,
+) -> None:
+    effects, state, _tools, ref, coordinator, _tree, footers = (
+        _provider_mutation_fixture(tmp_path)
+    )
+    control = effects.model_runtime_control(0)
+    set_model = control.set_model_fn
+    assert set_model is not None
+    before = _model_state_snapshot(effects, state, footers)
+    entered, release, lock_observations = _block_model_construction(monkeypatch, ref)
+    results: list[bool] = []
+    worker = threading.Thread(
+        target=lambda: results.append(set_model("openai/gpt-5.4"))
+    )
+    worker.start()
+    assert entered.wait(1)
+
+    closer: threading.Thread | None = None
+    if boundary == "stale-after-prepare":
+        ref.publish(ref.current)
+        release.set()
+        worker.join(1)
+    elif boundary == "gate-open-during-prepare":
+        with ref.publishing():
+            release.set()
+            worker.join(1)
+    else:
+        close_finished = threading.Event()
+        closer = threading.Thread(
+            target=lambda: _close_effects(coordinator, close_finished)
+        )
+        closer.start()
+        deadline = time.monotonic() + 1
+        while not coordinator.terminal and time.monotonic() < deadline:
+            pass
+        assert coordinator.terminal
+        release.set()
+        worker.join(1)
+        closer.join(1)
+        assert close_finished.is_set()
+    assert not worker.is_alive()
+    assert closer is None or not closer.is_alive()
+    assert results == [False]
+    assert _model_state_snapshot(effects, state, footers) == before
+    assert lock_observations == [False]
+
+
+def test_prepared_model_never_overwrites_a_newer_same_generation_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    effects, state, _tools, ref, _coordinator, _tree, footers = (
+        _provider_mutation_fixture(tmp_path)
+    )
+    set_model = effects.model_runtime_control(0).set_model_fn
+    assert set_model is not None
+    entered, release, _locks = _block_model_construction(monkeypatch, ref)
+    results: list[bool] = []
+    worker = threading.Thread(
+        target=lambda: results.append(set_model("openai/gpt-5.4"))
+    )
+    worker.start()
+    assert entered.wait(1)
+
+    newer_ok, newer_message = effects.apply_model_selection("openai/gpt-4o")
+    assert newer_ok, newer_message
+    newer_binding = effects.coding_state.provider_binding
+    release.set()
+    worker.join(1)
+
+    assert results == [False]
+    assert state.current_selection() == NativeModelSelection("openai", "gpt-4o")
+    assert effects.coding_state.provider_binding is newer_binding
+    assert footers == ["footer"]
+
+
+def test_model_provider_construction_failure_is_safe_and_non_mutating(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    effects, state, _tools, ref, _coordinator, _tree, footers = (
+        _provider_mutation_fixture(tmp_path)
+    )
+    before = _model_state_snapshot(effects, state, footers)
+    lock_observations: list[bool] = []
+
+    def fail_construct(*_args: object, **_kwargs: object) -> Any:
+        lock_observations.append(cast(Any, ref.lock)._is_owned())
+        raise RuntimeError("credential=must-not-leak")
+
+    monkeypatch.setattr(ModelRuntime, "construct", fail_construct)
+    ok, message = effects.apply_model_selection("openai/gpt-5.4")
+    set_model = effects.model_runtime_control(0).set_model_fn
+    assert set_model is not None
+
+    assert not ok and set_model("openai/gpt-5.4") is False
+    assert "RuntimeError" in message
+    assert "must-not-leak" not in message
+    assert cast(io.StringIO, effects.error_stream).getvalue() == ""
+    assert _model_state_snapshot(effects, state, footers) == before
+    assert lock_observations == [False, False]
+
+
+def test_model_persistence_failure_is_post_commit_and_fail_soft(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    effects, state, _tools, ref, _coordinator, _tree, footers = (
+        _provider_mutation_fixture(tmp_path, persist_defaults=True)
+    )
+    assert state.defaults_store is not None
+    save_locks: list[bool] = []
+
+    def fail_save(_selection: NativeModelSelection) -> None:
+        save_locks.append(cast(Any, ref.lock)._is_owned())
+        raise OSError("private filesystem detail")
+
+    monkeypatch.setattr(state.defaults_store, "save", fail_save)
+    set_model = effects.model_runtime_control(0).set_model_fn
+    assert set_model is not None
+
+    assert set_model("openai/gpt-5.4") is True
+    assert state.current_selection() == NativeModelSelection("openai", "gpt-5.4")
+    assert effects.coding_state.model_id == "gpt-5.4"
+    assert state.pending_default_value() is None
+    assert state.defaults_store.load() is None
+    assert footers == ["footer"]
+    assert save_locks == [False]
+    assert (
+        "private filesystem detail"
+        not in cast(io.StringIO, effects.error_stream).getvalue()
+    )
+
+
+def test_successful_model_commit_preserves_rebind_contract_for_current_turn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    effects, state, _tools, ref, _coordinator, _tree, footers = (
+        _provider_mutation_fixture(tmp_path, persist_defaults=True)
+    )
+    coding = effects.coding_state
+    message = AgentUserMessage(content=ProductContent("prior context"))
+    coding.append_message(message)
+    coding.absorb_usage(AgentProviderUsageSample(input_tokens=7, total_tokens=7))
+    coding.apply_compaction(
+        (message,), summary_suffix="\nretained compaction", dropped_group_count=1
+    )
+    construct_locks: list[bool] = []
+    save_locks: list[bool] = []
+    original_construct = ModelRuntime.construct
+    assert state.defaults_store is not None
+    original_save = state.defaults_store.save
+
+    def observed_construct(
+        runtime: ModelRuntime,
+        selection: NativeModelSelection,
+        *,
+        thinking_level: str | None,
+        options: Any,
+    ) -> Any:
+        construct_locks.append(cast(Any, ref.lock)._is_owned())
+        return original_construct(
+            runtime,
+            selection,
+            thinking_level=thinking_level,
+            options=options,
+        )
+
+    def observed_save(selection: NativeModelSelection) -> None:
+        save_locks.append(cast(Any, ref.lock)._is_owned())
+        original_save(selection)
+
+    monkeypatch.setattr(ModelRuntime, "construct", observed_construct)
+    monkeypatch.setattr(state.defaults_store, "save", observed_save)
+    hook_results: list[bool] = []
+
+    def switch_model(_event: object, ctx: Any) -> None:
+        hook_results.append(ctx.set_model("openai/gpt-5.4:high"))
+
+    dispatch_before_agent_start_hooks(
+        (switch_model,),
+        cwd=str(tmp_path),
+        has_ui=False,
+        model_runtime=effects.model_runtime_control(0),
+    )
+
+    assert hook_results == [True]
+    assert state.current_selection() == NativeModelSelection("openai", "gpt-5.4")
+    assert state.current_thinking_level() == "high"
+    assert coding.provider is coding.provider_binding.provider
+    assert (coding.provider_name, coding.model_id) == ("openai", "gpt-5.4")
+    assert coding.messages == ()
+    assert coding.usage.input_tokens == 0
+    assert coding.compaction_suffix == "\nretained compaction"
+    assert coding.compaction_count == 1
+    assert state.defaults_store.load() == NativeModelSelection("openai", "gpt-5.4")
+    assert state.pending_default_value() is None
+    assert footers == ["footer"]
+    assert construct_locks == [False]
+    assert save_locks == [False]
+
+
+def test_retained_model_callable_after_terminal_cannot_prepare_or_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    effects, state, _tools, ref, coordinator, _tree, footers = (
+        _provider_mutation_fixture(tmp_path, persist_defaults=True)
+    )
+    set_model = effects.model_runtime_control(0).set_model_fn
+    assert set_model is not None
+    before = _model_state_snapshot(effects, state, footers)
+    constructions: list[str] = []
+    saves: list[NativeModelSelection] = []
+    monkeypatch.setattr(
+        ModelRuntime,
+        "construct",
+        lambda *_args, **_kwargs: constructions.append("constructed"),
+    )
+    assert state.defaults_store is not None
+    monkeypatch.setattr(state.defaults_store, "save", saves.append)
+
+    retirement = GenerationMessageRetirement()
+    with coordinator.terminal_section():
+        with ref.lock:
+            ref.detach_terminal_locked(retirement)
+    retirement.finalize_retirement()
+
+    assert set_model("openai/gpt-5.4") is False
+    assert constructions == []
+    assert saves == []
+    assert _model_state_snapshot(effects, state, footers) == before

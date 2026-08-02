@@ -175,6 +175,8 @@ from pipy_harness.native.coding.session_controller import (
     _CallableCodingCommandEffects,
 )
 from pipy_harness.native.coding.state import (
+    CodingModelMutation,
+    CodingProviderBinding,
     CodingReloadHistoryValue,
     CodingSessionState,
     CodingSessionUsageSnapshot,
@@ -187,7 +189,9 @@ from pipy_harness.native.repl_input import (
     native_repl_input_for,
 )
 from pipy_harness.native.repl_state import (
+    NativeModelMutationState,
     NativeModelSelection,
+    PreparedNativeModelMutation,
     UnavailableAfterReloadProvider,
     NativeReplProviderState,
     StaticNativeReplProviderState,
@@ -2180,10 +2184,17 @@ def _report_default_persistence(
     return state.flush_pending_default()
 
 
-def _deny_model_mutation(_reference: str) -> bool:
-    """Refuse a mid-turn model switch (hook contexts that forbid it)."""
+def _deny_model_mutation(_generation_id: int, _reference: str) -> bool:
+    """Refuse a generation-bound mid-turn model switch."""
 
     return False
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedModelMutation:
+    provider_state: NativeReplProviderState
+    selection: PreparedNativeModelMutation
+    coding: CodingModelMutation | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -2241,33 +2252,6 @@ class _ProviderMutationEffects:
     # the session boundary.
     mutation_io_lock: "threading.RLock"
 
-    def _mutation_refused_during_publication(self) -> bool:
-        """Whether a reload is mid-publication, so mutations must fail closed.
-
-        These three ports are reachable from an extension handler on a detached
-        worker thread. A reload reads the live provider selection, thinking
-        level, and tool visibility, then republishes values derived from them;
-        a mutation accepted in that window would be silently overwritten at the
-        swap. Refusing is the fail-closed direction and matches the ports'
-        existing contract of returning ``False`` when a change is not applied.
-
-        **Admission is atomic only where the effect is.** Reading this flag and
-        then applying a mutation are two critical sections, so a worker can
-        pass the check and land its effect after a reload opens the gate.
-        ``extension_set_active_tools`` and ``extension_set_thinking_level``
-        close that window by holding the session mutex across the check and the
-        assignment, with their session-tree and rendering effects moved after
-        the critical section. ``extension_set_model`` cannot yet: its effect
-        persists a default part-way through, and holding the session mutex
-        across file I/O is exactly what the concurrency contract forbids.
-        Closing its window needs provider construction and persistence split
-        out of the mutation, which is Slice 3.7c and 3.8 work; until then the
-        gate narrows that one port's window rather than eliminating it, and
-        this is recorded as a residual in the rebuild plan.
-        """
-
-        return self.ctl.generation_ref.publication_pending
-
     def extension_set_active_tools(
         self, generation_id: int, tool_names: Sequence[str]
     ) -> bool:
@@ -2278,11 +2262,35 @@ class _ProviderMutationEffects:
                 return False
             return self.tool_capabilities.set_active_tools(tool_names)
 
-    def extension_set_model(self, reference: str) -> bool:
-        if self._mutation_refused_during_publication():
-            return False
-        ok, _message = self.apply_model_selection(reference)
-        return ok
+    def extension_set_model(self, generation_id: int, reference: str) -> bool:
+        """Prepare unlocked, atomically commit, then present one model switch."""
+
+        with self.ctl.coding_effects.effect() as effect_admitted:
+            if not effect_admitted:
+                return False
+            with self.mutation_io_lock:
+                with self.ctl.generation_ref.lock:
+                    if (
+                        self.ctl.coding_effects.terminal
+                        or not self._generation_admitted_locked(generation_id)
+                    ):
+                        return False
+                    state = self.session.provider_state
+                    if not isinstance(state, NativeReplProviderState):
+                        return False
+                    expected = state.capture_model_mutation_state()
+                    expected_binding = self.coding_state.provider_binding
+            prepared, _message = self._prepare_model_mutation(
+                state, expected, expected_binding, reference
+            )
+            if prepared is None or not self._commit_model_mutation(
+                prepared, generation_id=generation_id
+            ):
+                return False
+            if prepared.coding is None:
+                return False
+            self._finish_model_mutation(prepared.provider_state, _message)
+            return True
 
     def extension_set_thinking_level(self, generation_id: int, level: str) -> bool:
         """Commit, durably append, then paint one generation-bound level."""
@@ -2344,64 +2352,135 @@ class _ProviderMutationEffects:
 
         return ExtensionModelRuntimeControl(
             set_active_tools_fn=partial(self.extension_set_active_tools, generation_id),
-            set_model_fn=(
-                self.extension_set_model if allow_model else _deny_model_mutation
+            set_model_fn=partial(
+                self.extension_set_model if allow_model else _deny_model_mutation,
+                generation_id,
             ),
             set_thinking_level_fn=partial(
                 self.extension_set_thinking_level, generation_id
             ),
         )
 
-    def apply_model_selection(self, reference: str) -> tuple[bool, str]:
-        """Select ``reference`` through the provider-state boundary.
+    def _prepare_model_mutation(
+        self,
+        state: NativeReplProviderState,
+        expected: NativeModelMutationState,
+        expected_binding: CodingProviderBinding,
+        reference: str,
+    ) -> tuple[_PreparedModelMutation | None, str]:
+        """Complete every fallible model/provider preparation while unlocked."""
 
-        Mirrors the no-tool ``/model`` path: on success it rebinds the live
-        provider, clears the in-memory conversation context, rebinds the
-        usage meter, and refreshes the footer/status model label so the next
-        provider turn is constructed with the new provider/model. The switch
-        is refused (and the previous selection restored) when the chosen
-        provider does not advertise tool-call support, which the product
-        REPL requires. No provider turn happens here.
-        """
+        selection, message = state.prepare_model_mutation(expected, reference)
+        if selection is None:
+            return None, message
+        try:
+            supports_tools = bool(selection.provider.supports_tool_calls)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as exc:  # noqa: BLE001 - extension provider boundary
+            return None, (
+                "pipy: model provider capability preparation failed with "
+                f"{sanitize_text(type(exc).__name__)}; selection unchanged."
+            )
+        if not supports_tools:
+            return _PreparedModelMutation(state, selection, None), (
+                "pipy: selected model does not support tool calls in tool-loop "
+                "mode; selection unchanged."
+            )
+        replacement = selection.replacement.selection
+        coding = self.coding_state.prepare_model_mutation(
+            selection.provider,
+            expected_binding=expected_binding,
+            provider_name=replacement.provider_name,
+            model_id=replacement.model_id,
+            usage_accumulator=AgentUsageAccumulator(
+                _pricing_for(replacement.provider_name, replacement.model_id)
+            ),
+        )
+        return _PreparedModelMutation(state, selection, coding), message
+
+    def _commit_model_mutation(
+        self,
+        prepared: _PreparedModelMutation,
+        *,
+        generation_id: int | None,
+    ) -> bool:
+        """Check all owners, then publish only prepared in-memory values."""
+
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                if generation_id is not None and (
+                    self.ctl.coding_effects.terminal
+                    or not self._generation_admitted_locked(generation_id)
+                ):
+                    return False
+                if self.session.provider_state is not prepared.provider_state:
+                    return False
+                if not prepared.provider_state.model_mutation_matches_expected(
+                    prepared.selection
+                ):
+                    return False
+                if prepared.coding is None:
+                    prepared.provider_state.publish_model_capability_refusal(
+                        prepared.selection
+                    )
+                    return True
+                if not self.coding_state.model_mutation_matches_expected(
+                    prepared.coding
+                ):
+                    return False
+                prepared.provider_state.publish_model_mutation(prepared.selection)
+                self.coding_state.publish_model_mutation(prepared.coding)
+                return True
+
+    def _finish_model_mutation(
+        self, state: NativeReplProviderState, message: str
+    ) -> str:
+        """Run fail-soft presentation and default persistence after unlock."""
+
+        diagnostics: list[str] = []
+        try:
+            self.refresh_footer_text()
+        except Exception as exc:  # noqa: BLE001 - presentation is post-commit
+            diagnostics.append(
+                "pipy: selected model is active but presentation refresh failed "
+                f"with {sanitize_text(type(exc).__name__)}."
+            )
+        try:
+            persistence_error = state.flush_pending_default()
+        except Exception as exc:  # noqa: BLE001 - persistence is post-commit
+            persistence_error = (
+                "pipy: selected model is active but could not be saved as the "
+                f"default ({sanitize_text(type(exc).__name__)}); this session "
+                "is unaffected."
+            )
+        if persistence_error is not None:
+            diagnostics.append(persistence_error)
+        return "\n".join((message, *diagnostics)) if diagnostics else message
+
+    def apply_model_selection(self, reference: str) -> tuple[bool, str]:
+        """Prepare, atomically commit, and present one product model switch."""
 
         state = self.session.provider_state
         if not isinstance(state, NativeReplProviderState):
-            return False, ("pipy: /model is unavailable for this REPL provider state.")
-        previous_selection = state.current_selection()
-        ok, message = state.select_model(reference)
-        if not ok:
-            return False, message
-        new_provider = state.current_provider()
-        if not getattr(new_provider, "supports_tool_calls", False):
-            # Restore the prior selection directly rather than via
-            # select_model(): the previous selection may be an explicit,
-            # tool-capable provider that is not "available" under the
-            # env-credential probe (e.g. an injected provider), in which
-            # case re-selecting it would fail and silently leave the
-            # rejected selection (and persisted default) in place.
-            state.replace_selection(previous_selection)
-            state._save_default(previous_selection)
-            return False, (
-                f"pipy: {reference} does not support tool calls in "
-                "tool-loop mode; selection unchanged."
-            )
-        selection = state.current_selection()
-        self.coding_state.rebind_provider(
-            new_provider,
-            provider_name=selection.provider_name,
-            model_id=selection.model_id,
-            usage_accumulator=AgentUsageAccumulator(
-                _pricing_for(selection.provider_name, selection.model_id)
-            ),
+            return False, "pipy: /model is unavailable for this REPL provider state."
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                expected = state.capture_model_mutation_state()
+                expected_binding = self.coding_state.provider_binding
+        prepared, message = self._prepare_model_mutation(
+            state, expected, expected_binding, reference
         )
-        self.refresh_footer_text()
-        # Post-commit: the selection is already live. Persisting it is
-        # irreversible file I/O, so it runs after publication and reports
-        # failure without claiming the selection rolled back.
-        persistence_error = state.flush_pending_default()
-        if persistence_error is not None:
-            message = f"{message}\n{persistence_error}"
-        return True, message
+        if prepared is None:
+            return False, message
+        if not self._commit_model_mutation(prepared, generation_id=None):
+            return False, (
+                "pipy: model selection changed while the provider was prepared; "
+                "try again."
+            )
+        if prepared.coding is None:
+            return False, message
+        return True, self._finish_model_mutation(state, message)
 
     def apply_auth_change(self, action: str, argument: str) -> str:
         """Run ``/login`` or ``/logout`` through the auth boundary.

@@ -232,6 +232,51 @@ def test_coding_reload_publishers_have_exact_assignments_under_sole_shared_lock(
     assert [ast.unparse(node.value) for node in assignments] == values
 
 
+def test_model_mutation_uses_exact_binding_identity_and_assignment_only_publish() -> (
+    None
+):
+    state = _state()
+    expected = state.provider_binding
+    replacement = _provider("candidate", "candidate-model")
+    prepared = state.prepare_model_mutation(
+        replacement,
+        expected_binding=expected,
+        provider_name="candidate",
+        model_id="candidate-model",
+        usage_accumulator=AgentUsageAccumulator(),
+    )
+
+    state.refresh_provider(expected.provider)
+    assert state.provider_binding == expected
+    assert state.provider_binding is not expected
+    assert not state.model_mutation_matches_expected(prepared)
+    if state.model_mutation_matches_expected(prepared):
+        state.publish_model_mutation(prepared)
+    assert state.provider is expected.provider
+
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/coding/state.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    publisher = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "publish_model_mutation"
+    )
+    assert not any(isinstance(node, ast.Call) for node in ast.walk(publisher))
+    guard = publisher.body[1]
+    assert isinstance(guard, ast.With)
+    assignments = cast(list[ast.Assign], guard.body)
+    assert [ast.unparse(node.targets[0]) for node in assignments] == [
+        "self._binding",
+        "self._messages",
+        "self._usage_accumulator",
+    ]
+    assert [ast.unparse(node.value) for node in assignments] == [
+        "prepared.replacement_binding",
+        "()",
+        "prepared.replacement_usage",
+    ]
+
+
 def test_reload_rebind_prepares_only_binding_and_immutable_empty_history() -> None:
     message = _message()
     state = _state(messages=(message,))

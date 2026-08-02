@@ -102,16 +102,29 @@ route, and closes candidate chrome. The published-but-unowned activation API is
 therefore inert: contribution registration remains closed and retained sends
 silently drop, with no double cleanup. Direct `ctx.send_message()` delivery
 remains independent of routing. Every command, shortcut, hook, user-bash,
-tool-call/result, session-gate, and extension-tool context binds
-`set_active_tools()` and `set_thinking_level()` to the generation that created
-it. Under the session mutex, the host checks that id, the publication gate, and
-terminal liveness together with the complete in-memory mutation. A stale,
-publication-pending, or post-run call returns `False` and changes nothing; a call
-committed before gate-open remains applied through publication. Concurrent
-thinking changes serialize their in-memory assignment and durable
-`thinking_level_change` JSONL append in one order, release the session mutex
-before filesystem I/O, and release the outer coordinator before footer paint.
-`set_model()` remains the separately bounded model-admission follow-on. R4a now
+tool-call/result, session-gate, and extension-tool context binds its offered
+model-runtime controls to the generation that created it. Under the session
+mutex, the host checks that id, the publication gate, and terminal liveness
+together with the complete in-memory mutation. A stale, publication-pending, or
+post-run call returns `False` and changes nothing; a call committed before
+gate-open remains applied through publication. Concurrent thinking changes
+serialize their in-memory assignment and durable `thinking_level_change` JSONL
+append in one order, release the session mutex before filesystem I/O, and
+release the outer coordinator before footer paint. Allowed `set_model()` calls
+first prepare catalog resolution, provider construction, and detached coding
+replacements outside the session mutex. Their commit atomically rechecks the
+creating generation, gate, terminal state, exact selection/default/thinking
+expectation, and coding-binding identity, then assigns only the new selection,
+provider binding, empty history, and cleared usage. Compaction and provider
+failure remain live. Footer presentation and fail-soft default persistence run
+after unlock. A stale, gated, terminal, construction-failed, or superseded
+candidate returns `False` without rebinding, painting, or persisting. The
+pre-existing tool-capability-refusal compatibility remains narrower: selection
+and coding state stay unchanged, while an explicit `:level` is retained as the
+thinking level and the prior selection remains the pending default. A retained
+call first released after teardown is refused before provider construction.
+Mid-turn provider/tool hook contexts continue to expose a generation-bound
+denied `set_model()` that always returns `False`. R4a now
 synchronizes later accepted/live queue
 append versus drain. R4c binds every ordinary retained-chrome read/write to the
 exact `SessionGenerationSnapshot` that created its context: publication captures
@@ -1423,9 +1436,17 @@ and the live `scripts/tmux_answer_verify.sh`.
     pre-turn hook contexts and extension-tool handlers expose
     `ctx.set_active_tools(...)`,
     `ctx.set_model(...)`, and `ctx.set_thinking_level(...)` through the
-    existing provider-state, session-tree, and tool-registry boundaries; in-turn
-    provider/tool hooks reject `ctx.set_model(...)` by returning `False` so they
-    cannot clear conversation state mid-turn. `ctx.set_active_tools([])` is a
+    existing provider-state, session-tree, and tool-registry boundaries. Each
+    offered model mutation stays bound to the context's creating generation;
+    `set_model` prepares the provider unlocked, atomically checks and commits
+    selection/binding/history/usage under the session mutex, then performs
+    fail-soft default persistence and presentation after unlock. Stale, gated,
+    terminal, failed-construction, and superseded calls return `False` without a
+    partial effect. A tool-incompatible resolved target retains the established
+    explicit-thinking-level side effect while leaving selection/coding state
+    unchanged. In-turn provider/tool hooks reject `ctx.set_model(...)` by
+    returning `False` so they cannot clear conversation state mid-turn.
+    `ctx.set_active_tools([])` is a
     real empty active-tool set, disabling model-visible tools until a later
     context selects known tool names again. `user_bash` hooks can block,
     rewrite, exclude, or synthesize a local `!`/`!!` shell result;

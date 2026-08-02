@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R6 — make model mutation admission atomic**
+**Active/next slice:** **R7 — close the reload correctness boundary**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -152,8 +152,19 @@ same mutex now guards every live provider selection/thinking reader and writer,
 including session-thread cycling and RPC assignment. Thinking commits retain
 `mutation_io_lock → session mutex`, release the session mutex before durable
 JSONL append, and release the outer coordinator before footer paint, preserving
-in-memory/JSONL order. R6 is next and owns only atomic `set_model` admission,
-provider preparation/commit, and post-lock persistence/presentation.
+in-memory/JSONL order. R6 is complete: every allowed `set_model` callable now
+captures its creating generation id and claims the R5a effect lease. It performs
+an initial terminal/generation/gate admission and expected-owner capture, builds
+the provider plus detached coding replacements outside the session mutex, then
+rechecks terminal, generation, gate, exact selection/default/thinking state, and
+coding-binding identity under `mutation_io_lock → session mutex`. Only
+prevalidated selection, provider binding, empty history, and cleared usage are
+assigned there. Stale, gated, terminal, or owner-mismatched candidates return
+`False` with no state, presentation, or default-persistence effect. Provider
+construction and defaults I/O are unlocked from the session mutex; footer
+refresh and fail-soft default persistence run post-commit. Compaction and
+provider failure remain live, while model rebind still clears history and usage.
+R7 is next and owns only integration closeout and durable reconciliation.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -606,8 +617,8 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b;
-the mandatory remaining order begins with R6. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6;
+the mandatory remaining order begins with R7. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
 their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome

@@ -235,8 +235,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
   stay bound to their creating generation: stale, publication-pending, and
   post-run calls return `False` without changing tool visibility, thinking
   state, the session tree, persisted JSONL, or the footer. Thinking commits and
-  durable entries also preserve one order under concurrent callers. If lifecycle,
-  provider/catalog, or final chrome preparation then refuses the reload,
+  durable entries also preserve one order under concurrent callers. Retained
+  model controls now use the same generation, publication-gate, and terminal
+  refusal boundary: provider/catalog construction is prepared outside the
+  session mutex, the selection plus coding provider/history/usage commit is
+  atomic under it, and footer/default persistence follows after unlock. A stale,
+  gated, terminal, failed-construction, or superseded prepared model returns
+  `False` without rebinding or persisting; a callable first released after
+  teardown cannot construct a provider. If lifecycle, provider/catalog, or
+  final chrome preparation then refuses the reload,
   non-staged, non-chrome lifecycle effects such as `notify` may already have
   occurred; candidate chrome is discarded and all candidate staged messages
   that the earlier reload path could expose are suppressed. This is part of the

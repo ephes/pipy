@@ -51,6 +51,15 @@ class CodingProviderBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class CodingModelMutation:
+    """Prepared provider/history/usage replacement for one model switch."""
+
+    expected_binding: CodingProviderBinding
+    replacement_binding: CodingProviderBinding
+    replacement_usage: AgentUsageAccumulator
+
+
+@dataclass(frozen=True, slots=True)
 class CodingReloadBindingValue:
     expected: CodingProviderBinding
     replacement: CodingProviderBinding
@@ -438,6 +447,41 @@ class CodingSessionState:
             binding=binding,
             history=CodingReloadHistoryValue(()),
         )
+
+    def prepare_model_mutation(
+        self,
+        provider: ProviderPort,
+        *,
+        expected_binding: CodingProviderBinding,
+        provider_name: str,
+        model_id: str,
+        usage_accumulator: AgentUsageAccumulator,
+    ) -> CodingModelMutation:
+        """Prepare a complete model rebind without reading or changing live state."""
+
+        if type(expected_binding) is not CodingProviderBinding:
+            raise TypeError("expected_binding must be an exact CodingProviderBinding")
+        return CodingModelMutation(
+            expected_binding=expected_binding,
+            replacement_binding=CodingProviderBinding(
+                provider, provider_name, model_id
+            ),
+            replacement_usage=_require_usage_accumulator(usage_accumulator),
+        )
+
+    def model_mutation_matches_expected(self, prepared: CodingModelMutation) -> bool:
+        """Check exact binding identity under the shared session mutex."""
+
+        with self._state_lock:
+            return self._binding is prepared.expected_binding
+
+    def publish_model_mutation(self, prepared: CodingModelMutation) -> None:
+        """Publish the prevalidated binding/history/usage by assignments only."""
+
+        with self._state_lock:
+            self._binding = prepared.replacement_binding
+            self._messages = ()
+            self._usage_accumulator = prepared.replacement_usage
 
     def prepare_reload_usage_refresh(self) -> agent_usage.AgentUsageRefreshValue:
         """Prepare exact retained usage through its accumulator owner."""

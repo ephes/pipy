@@ -389,6 +389,40 @@ def test_repl_reload_publisher_ast_has_exact_assignments_and_no_calls() -> None:
     ]
 
 
+def test_model_mutation_owner_check_and_publisher_are_commit_only() -> None:
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/repl_state.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    checker = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "model_mutation_matches_expected"
+    )
+    publisher = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "publish_model_mutation"
+    )
+    assert not any(
+        isinstance(node, (ast.With, ast.Call, ast.Assign, ast.AnnAssign, ast.AugAssign))
+        for node in ast.walk(checker)
+    )
+    assert not any(
+        isinstance(node, (ast.With, ast.Call)) for node in ast.walk(publisher)
+    )
+    assignments = [node for node in publisher.body if isinstance(node, ast.Assign)]
+    assert [ast.unparse(node.targets[0]) for node in assignments] == [
+        "self.selection",
+        "self.thinking_level",
+        "self.pending_default",
+    ]
+    assert [ast.unparse(node.value) for node in assignments] == [
+        "prepared.replacement.selection",
+        "prepared.replacement.thinking_level",
+        "prepared.replacement.pending_default",
+    ]
+
+
 def test_settings_overlay_lines_renders_active_and_single_static_option():
     lines = settings_overlay_lines(StaticNativeReplProviderState(_StubProvider()))
 
@@ -691,8 +725,10 @@ def test_selection_owner_inventory_requires_the_shared_mutex() -> None:
         "prepare_reload_state",
         "reload_state_matches_expected",
         "publish_reload_state",
+        "model_mutation_matches_expected",
+        "publish_model_mutation",
+        "publish_model_capability_refusal",
         "_supports_thinking_locked",
-        "_catalog_select_model",
     }
     users: dict[str, bool] = {}
     for method in (node for node in owner.body if isinstance(node, ast.FunctionDef)):

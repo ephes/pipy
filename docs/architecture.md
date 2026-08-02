@@ -887,30 +887,38 @@ also takes `mutation_io_lock` outermost, releases the session mutex before its
 durable tree append, and releases the outer coordinator before footer paint, so
 concurrent in-memory and JSONL orders agree without filesystem I/O under the
 session mutex. `set_model`, the remaining one of the exactly three class-A
-families, still performs provider construction and persistence outside an atomic
-admission/commit shape. R5a's terminal path closes admission and
-condition-waits (releasing the lock) for effects accepted before close, then
-refuses later effectful coding-session calls with `ExtensionCapabilityError`;
-once quiescent it takes `mutation_io_lock → session mutex` only for terminal
-generation/outbox state and never holds the session mutex across provider or
-filesystem I/O. R5b now ships generation-bound active-tool/thinking admission
-and stale/publication-pending/terminal `False` refusal. R6 owns terminal `set_model`
-refusal plus three-phase model preparation, in-memory commit, and fail-soft
-persistence. Model defaults are queued during selection and written only after
-the selection is live; a persistence failure is reported without claiming the
-selection reverted. On refusal, `_ReloadCommandEffects.execute()` opens a
+families, now captures that same generation id and uses three phases. It first
+claims the R5a effect lease, performs terminal/generation/gate admission, and
+captures exact selection/default/thinking plus coding-binding expectations under
+`mutation_io_lock → session mutex`; provider/catalog construction and detached
+coding preparation then run with the session mutex released. The commit
+reacquires the same lock order, atomically rechecks terminal, generation, gate,
+and both expected owners, and performs only prevalidated assignments for
+selection, provider binding, empty history, and cleared usage. A stale, gated,
+terminal, or superseded candidate returns `False` without any commit or post-
+commit effect. Footer presentation and fail-soft default persistence run only
+after both locks release, while the effect lease keeps terminal teardown from
+finishing through a winning commit's post-effects. A callable first released
+after teardown is refused before provider construction. R5a's terminal path
+closes admission and condition-waits (releasing the lock) for effects accepted
+before close, then refuses later effectful coding-session calls with
+`ExtensionCapabilityError`; once quiescent it takes `mutation_io_lock → session
+mutex` only for terminal generation/outbox state and never holds the session
+mutex across provider or filesystem I/O. Model defaults are queued in the
+in-memory commit and written only after the selection is live; a persistence
+failure is reported without claiming the selection reverted. On refusal,
+`_ReloadCommandEffects.execute()` opens a
 separate second publishing section around retained provider refresh and unknown-
 tool-filter diagnostics. Presentation, persistence, and terminal refresh run
 outside both sections. R5b active-tool/thinking controls check the current id
 and each gate section independently rather than treating them as continuous.
-R6 must preserve that rule for model admission: a class-A mutation may be
-admitted after the first closes and before the second opens, so each refusal-path
-value is sampled only after the second section opens unless a later slice joins
-the sections. A rejected replacement fires no
+R6 preserves that rule for model admission: a class-A mutation may be admitted
+after the first closes and before the second opens, so each independent commit
+rechecks the gate immediately before its in-memory assignments. A rejected replacement fires no
 retained-generation lifecycle hook. The effect emits the final reload diagnostic
-next, and the root footer policy runs only after that effect returns. The full
-R1–R6 sequence, including ordered R5a then R5b, remains mandatory before R7 can
-close this boundary; the remediation queue contains exactly 33 execution slices.
+next, and the root footer policy runs only after that effect returns. The shipped full
+R1–R6 sequence, including ordered R5a then R5b, remains R7's mandatory
+acceptance basis before it can close this boundary; the remediation queue contains exactly 33 execution slices.
 
 ## Sessions, automation, and trust domains
 
@@ -1211,14 +1219,12 @@ C901-pinned file. The load-bearing summary is:
   the final separately published flag/lifecycle contribution sources and
   equivalence arms. R5a then serialized retained coding-session effects, active
   tree and input-queue state, and durable JSONL order, and wired terminal
-  generation/outbox/chrome close. Class-A mutation ports are not yet
-  generation-bound for active-tool/thinking controls; R6 owns the remaining
-  `set_model` admission work.
+  generation/outbox/chrome close. R5b made active-tool/thinking controls
+  generation-bound, and R6 completed atomic generation-bound `set_model`
+  preparation, commit, persistence, and presentation ordering.
   Current activation has no
   timeout; R1's shipped seal/disposal is
   future-timeout-safe without selecting a timeout policy;
-- `set_model` persists a default part-way through its mutation, so its
-  publication-gate admission is not atomic;
 - `_ReplLoopStep.step_once` remains the principal high-complexity,
   cross-boundary orchestrator with a wide collaborator list;
 - the harness/SDK one-shot compatibility runtime is an intentional
@@ -1282,8 +1288,8 @@ coordinator, guarded active-tree/input owners, durable append ordering, terminal
 refusal, and generation queue/chrome teardown. R5b now binds active-tool and
 thinking contexts to their generation and guards complete selection commits,
 including ordered durable thinking append. The next architecture action is
-**R6 — make model mutation admission atomic**; ordinary
-product-parity selection remains blocked through R7. R3c3's two documented deltas, R4a's live-
+**R7 — close the reload correctness boundary**; ordinary product-parity
+selection remains blocked until that closeout lands. R3c3's two documented deltas, R4a's live-
 message loss fix, and R4c's coherent publication/stale-chrome refusal are
 recorded in the changelog. R4b has no separate changelog entry because it adopts
 R3c3's already-published coherence without adding a user-visible surface.

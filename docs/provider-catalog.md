@@ -86,7 +86,14 @@ openai-completions) construct from the catalog via `native/provider_construction
   via `provider_for`, so a custom provider is probed as it will be used), and
   direct `/model <ref>` resolved through the shared `resolve_cli_model`
   (exact/bare/fuzzy/`:level`/colon-in-id/invalid-suffix fallback) gated by
-  availability.
+  availability. Extension `ctx.set_model(...)` uses the same resolver and
+  construction boundary through a detached three-phase adapter: fallible
+  catalog/provider preparation outside the session mutex, exact
+  generation/gate/terminal/selection/binding checks plus assignment-only coding
+  rebind under it, and footer/default persistence after unlock. Stale or
+  superseded prepared providers cannot replace the newer live selection, and
+  construction/default-write failures expose only bounded type-level
+  diagnostics rather than credential or provider-private detail.
 - **Extension providers** (`native/extension_provider_catalog.py`,
   `native/catalog_state.py`, `native/repl_state.py`): activated Python
   extensions that call `api.register_provider(ExtensionProvider(...))`

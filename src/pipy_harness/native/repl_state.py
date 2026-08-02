@@ -45,6 +45,25 @@ class NativeModelSelection:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeModelMutationState:
+    """Exact guarded provider-selection state captured before preparation."""
+
+    selection: NativeModelSelection
+    thinking_level: str | None
+    pending_default: NativeModelSelection | None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedNativeModelMutation:
+    """Fallible provider preparation plus non-fallible owner replacements."""
+
+    expected: NativeModelMutationState
+    replacement: NativeModelMutationState
+    provider: ProviderPort = field(repr=False, compare=False)
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReplSelectionReloadValue:
     """Expected and replacement active selection for the reload path."""
 
@@ -455,6 +474,106 @@ class NativeReplProviderState:
         with self._state_lock:
             return self.selection
 
+    def capture_model_mutation_state(self) -> NativeModelMutationState:
+        """Capture exact expected owner values before fallible preparation."""
+
+        with self._state_lock:
+            return NativeModelMutationState(
+                selection=self.selection,
+                thinking_level=self.thinking_level,
+                pending_default=self.pending_default,
+            )
+
+    def prepare_model_mutation(
+        self,
+        expected: NativeModelMutationState,
+        reference: str,
+    ) -> tuple[PreparedNativeModelMutation | None, str]:
+        """Resolve and construct a model mutation without changing live state.
+
+        The caller captures ``expected`` during initial generation admission.
+        Catalog resolution, extension factories, auth/config resolution, and
+        provider construction all run here, outside the session mutex. Provider
+        failures are reduced to a type-only diagnostic so credentials and
+        extension-owned detail cannot escape.
+        """
+
+        if type(expected) is not NativeModelMutationState:
+            raise TypeError("expected must be an exact NativeModelMutationState")
+        parsed = reference.strip()
+        if not parsed:
+            return None, (
+                "pipy: malformed /model command. Provide <provider>/<model> or <model>."
+            )
+        try:
+            selection, selected_thinking, message = self._resolve_model_reference(
+                parsed
+            )
+            if selection is None:
+                return None, message
+            thinking_level = (
+                expected.thinking_level
+                if selected_thinking is None
+                else selected_thinking
+            )
+            provider = self._provider_for_prepared_selection(
+                selection, thinking_level=thinking_level
+            )
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as exc:  # noqa: BLE001 - provider/extension boundary
+            return None, (
+                "pipy: model provider preparation failed with "
+                f"{sanitize_text(type(exc).__name__)}; selection unchanged."
+            )
+        pending_default = (
+            selection
+            if self.persist_defaults and self.defaults_store is not None
+            else None
+        )
+        prepared = PreparedNativeModelMutation(
+            expected=expected,
+            replacement=NativeModelMutationState(
+                selection=selection,
+                thinking_level=thinking_level,
+                pending_default=pending_default,
+            ),
+            provider=provider,
+            message=message,
+        )
+        return prepared, message
+
+    def model_mutation_matches_expected(
+        self, prepared: PreparedNativeModelMutation
+    ) -> bool:
+        """Check prepared owner values under the caller-held session mutex."""
+
+        return (
+            self.selection == prepared.expected.selection
+            and self.thinking_level == prepared.expected.thinking_level
+            and self.pending_default == prepared.expected.pending_default
+        )
+
+    def publish_model_mutation(self, prepared: PreparedNativeModelMutation) -> None:
+        """Publish prevalidated selection values by assignments only."""
+
+        self.selection = prepared.replacement.selection
+        self.thinking_level = prepared.replacement.thinking_level
+        self.pending_default = prepared.replacement.pending_default
+
+    def publish_model_capability_refusal(
+        self, prepared: PreparedNativeModelMutation
+    ) -> None:
+        """Retain the characterized thinking/default effect of a tool refusal."""
+
+        self.selection = prepared.expected.selection
+        self.thinking_level = prepared.replacement.thinking_level
+        self.pending_default = (
+            prepared.expected.selection
+            if prepared.replacement.pending_default is not None
+            else None
+        )
+
     def pending_default_value(self) -> NativeModelSelection | None:
         with self._state_lock:
             return self.pending_default
@@ -536,6 +655,22 @@ class NativeReplProviderState:
             options=self.construction_options,
         )
 
+    def _provider_for_prepared_selection(
+        self,
+        selection: NativeModelSelection,
+        *,
+        thinking_level: str | None,
+    ) -> ProviderPort:
+        """Construct a detached candidate while preserving injected state seams."""
+
+        if type(self).provider_for is not NativeReplProviderState.provider_for:
+            return self.provider_for(selection)
+        return self.model_runtime.construct(
+            selection,
+            thinking_level=thinking_level,
+            options=self.construction_options,
+        )
+
     def current_thinking_levels(self) -> list[str]:
         """Ordered Shift+Tab cycle levels for the current model (Pi-aware)."""
 
@@ -586,7 +721,15 @@ class NativeReplProviderState:
             )
         with self._state_lock:
             self.pending_default = None
-            return self._catalog_select_model(parsed)
+        selection, thinking_level, message = self._resolve_model_reference(parsed)
+        if selection is None:
+            return False, message
+        with self._state_lock:
+            self.selection = selection
+            if thinking_level is not None:
+                self.thinking_level = thinking_level
+            self._save_default(selection)
+        return True, message
 
     def current_selection_supported(self) -> bool:
         """Return whether the current selection is still backed by catalog rows."""
@@ -633,15 +776,10 @@ class NativeReplProviderState:
                 return self.selection
         return None
 
-    def _catalog_select_model(self, reference: str) -> tuple[bool, str]:
-        """Resolve direct ``/model <ref>`` through the shared catalog resolver.
-
-        Uses :func:`resolve_cli_model` so exact ``provider/id``, bare id, fuzzy
-        alias, ``provider/id:level``, colon-in-id models, and the strict invalid-
-        suffix / per-provider fallback behaviour all match Pi's model-resolver.
-        Selection is then gated by availability (an unavailable target is refused
-        with the prior selection intact).
-        """
+    def _resolve_model_reference(
+        self, reference: str
+    ) -> tuple[NativeModelSelection | None, str | None, str]:
+        """Resolve one reference through the catalog without mutating selection."""
 
         from pipy_harness.native.model_resolver import resolve_cli_model
 
@@ -650,31 +788,33 @@ class NativeReplProviderState:
             cli_provider=None, cli_model=reference, rows=state.get_all()
         )
         if result.error is not None:
-            return False, f"pipy: {sanitize_text(result.error)}"
+            return None, None, f"pipy: {sanitize_text(result.error)}"
         model = result.model
         if model is None:
-            return False, "pipy: unsupported or unknown model reference."
-
+            return None, None, "pipy: unsupported or unknown model reference."
         if not state.provider_available(model.provider_name):
             reason = state.availability_reason(model.provider_name)
-            return False, (
-                f"pipy: {model.provider_name} is unavailable ({reason or 'unknown'}); "
-                "selection unchanged."
+            return (
+                None,
+                None,
+                (
+                    f"pipy: {model.provider_name} is unavailable ({reason or 'unknown'}); "
+                    "selection unchanged."
+                ),
             )
 
         selection = NativeModelSelection(model.provider_name, model.model_id)
-        self.selection = selection
-        if result.thinking_level is not None:
-            self.thinking_level = result.thinking_level
-        self._save_default(selection)
-
         notes: list[str] = []
         if result.thinking_level is not None:
             notes.append(f"thinking: {result.thinking_level}")
         if result.warning:
             notes.append(sanitize_text(result.warning))
         suffix = f" ({'; '.join(notes)})" if notes else ""
-        return True, f"pipy: selected model {selection.reference}{suffix}."
+        return (
+            selection,
+            result.thinking_level,
+            f"pipy: selected model {selection.reference}{suffix}.",
+        )
 
     def login(
         self, provider_name: str, *, input_stream: TextIO, output_stream: TextIO

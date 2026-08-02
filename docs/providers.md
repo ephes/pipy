@@ -54,6 +54,22 @@ Inside the product TUI, use `/model` to open the provider/model selector or
 reason, but cannot be selected. Switching models clears the in-memory provider
 conversation context and keeps the session file as the durable transcript.
 
+Extension commands and safe pre-turn hooks may make the same switch through
+`ctx.set_model(...)`. Pipy resolves and constructs that candidate provider
+before taking the session mutex, then atomically verifies the context's creating
+generation, reload publication gate, terminal state, expected live selection,
+and coding provider binding before committing the in-memory rebind. A stale,
+gated, terminal, failed-construction, or superseded candidate returns `False`
+and cannot change the selection or coding context. A successful switch still
+clears in-memory provider history and usage, retains compaction/provider-failure
+state, and is visible to the current turn when called from
+`before_agent_start`. For compatibility, resolving a tool-incompatible target
+with an explicit `:level` still retains that thinking level while leaving the
+provider selection and coding state unchanged. Footer refresh and fail-soft
+default persistence happen
+after the mutex is released; provider construction and defaults-file I/O never
+run while it is held.
+
 Use `/scoped-models` or the `--models` flag to constrain Ctrl+P model cycling:
 
 ```sh
