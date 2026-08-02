@@ -282,7 +282,7 @@ class _ExtensionToolPort:
         *,
         has_ui: bool,
         notify_sink: Callable[[str, str], None] | None = None,
-        set_active_tools_fn: Callable[[Sequence[str]], bool] | None = None,
+        set_active_tools_fn: Callable[[int, Sequence[str]], bool] | None = None,
         flags: Mapping[str, object] | None = None,
         render_details_sink: ToolRenderDetailsWriter | None = None,
         project_trusted: bool = False,
@@ -306,12 +306,19 @@ class _ExtensionToolPort:
         return self._definition
 
     def invoke(self, request: ToolRequest, context: ToolContext) -> ToolExecutionResult:
+        generation_id = context.extension_generation_id
+        callback = self._set_active_tools_fn
+        set_active_tools = (
+            None
+            if callback is None or generation_id is None
+            else lambda names: callback(generation_id, names)
+        )
         ctx = make_extension_context(
             str(context.workspace_root),
             self._has_ui,
             self._notify_sink,
             model_runtime=ExtensionModelRuntimeControl(
-                set_active_tools_fn=self._set_active_tools_fn
+                set_active_tools_fn=set_active_tools
             ),
             flags=self._flags,
             project_trusted=self._project_trusted,

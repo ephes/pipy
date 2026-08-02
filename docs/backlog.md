@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R5b — bind active-tool and thinking mutations to a generation**
+**Active/next slice:** **R6 — make model mutation admission atomic**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -143,7 +143,17 @@ its reentrant lock; tree append preserves in-memory/JSONL order; and terminal
 finalization waits for accepted owners before detaching generation outboxes and
 closing chrome. Later effectful coding-session calls raise
 `ExtensionCapabilityError`, while read-only final-tree views remain available.
-R5b is next and alone adds generation-bound active-tool/thinking admission.
+R5b is complete: every retained command, shortcut, hook, user-bash, tool-call,
+tool-result, session-gate, and extension-tool active-tool/thinking context now
+captures its creating generation id. The shared session mutex admits and commits
+only a matching live generation while the publication gate is closed; stale,
+publication-pending, and terminal calls return `False` without mutation. The
+same mutex now guards every live provider selection/thinking reader and writer,
+including session-thread cycling and RPC assignment. Thinking commits retain
+`mutation_io_lock → session mutex`, release the session mutex before durable
+JSONL append, and release the outer coordinator before footer paint, preserving
+in-memory/JSONL order. R6 is next and owns only atomic `set_model` admission,
+provider preparation/commit, and post-lock persistence/presentation.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -596,8 +606,8 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a;
-the mandatory remaining order begins with R5b. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b;
+the mandatory remaining order begins with R6. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
 their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome

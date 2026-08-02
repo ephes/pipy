@@ -162,13 +162,18 @@ class NativeToolCapabilitySnapshot:
         *,
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
+        extension_generation_id: int | None = None,
     ) -> ToolExecutionOutcome:
         visible_before = tuple(
             definition.name for definition in _definitions_for(self.state, None)
         )
         outcome = self.state.executor.execute(
             call,
-            replace(self.owner._context, output_sink=output_sink),
+            replace(
+                self.owner._context,
+                output_sink=output_sink,
+                extension_generation_id=extension_generation_id,
+            ),
             wait_for_interrupt=wait_for_interrupt,
         )
         state_after = self.owner.state

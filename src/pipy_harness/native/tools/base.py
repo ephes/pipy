@@ -285,6 +285,11 @@ class ToolContext:
     `cancel_event` is set by the live TUI when the user interrupts an active
     tool run (Escape or a submitted local command such as `/quit`). Tools that
     can stop safely should observe it; the bash tool kills its process group.
+
+    `extension_generation_id` is an internal product adapter value. A projected
+    extension tool receives the generation selected for its complete invocation,
+    so a retained context cannot mutate a successor generation after reload.
+    Built-in and standalone tool calls leave it as `None`.
     """
 
     workspace_root: Path
@@ -292,6 +297,7 @@ class ToolContext:
     reference_roots: tuple[Path, ...] = field(default=())
     output_sink: Callable[[str], None] | None = field(default=None)
     cancel_event: threading.Event | None = field(default=None)
+    extension_generation_id: int | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not isinstance(self.workspace_root, Path):

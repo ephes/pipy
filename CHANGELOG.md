@@ -231,7 +231,11 @@ entries oldest-first, and a version bump shows the new entries at startup.
   generation. The publication gate remains active through
   accepted staged delivery, two-phase route release, and gate drain—even while
   those paths invoke extension-visible sinks after the session commit unlocks—
-  before chrome reconciliation. If lifecycle,
+  before chrome reconciliation. Retained active-tool and thinking controls now
+  stay bound to their creating generation: stale, publication-pending, and
+  post-run calls return `False` without changing tool visibility, thinking
+  state, the session tree, persisted JSONL, or the footer. Thinking commits and
+  durable entries also preserve one order under concurrent callers. If lifecycle,
   provider/catalog, or final chrome preparation then refuses the reload,
   non-staged, non-chrome lifecycle effects such as `notify` may already have
   occurred; candidate chrome is discarded and all candidate staged messages

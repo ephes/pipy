@@ -101,7 +101,18 @@ between, pipy keeps the newer live generation, retires the terminal candidate
 route, and closes candidate chrome. The published-but-unowned activation API is
 therefore inert: contribution registration remains closed and retained sends
 silently drop, with no double cleanup. Direct `ctx.send_message()` delivery
-remains independent of routing. R4a now synchronizes later accepted/live queue
+remains independent of routing. Every command, shortcut, hook, user-bash,
+tool-call/result, session-gate, and extension-tool context binds
+`set_active_tools()` and `set_thinking_level()` to the generation that created
+it. Under the session mutex, the host checks that id, the publication gate, and
+terminal liveness together with the complete in-memory mutation. A stale,
+publication-pending, or post-run call returns `False` and changes nothing; a call
+committed before gate-open remains applied through publication. Concurrent
+thinking changes serialize their in-memory assignment and durable
+`thinking_level_change` JSONL append in one order, release the session mutex
+before filesystem I/O, and release the outer coordinator before footer paint.
+`set_model()` remains the separately bounded model-admission follow-on. R4a now
+synchronizes later accepted/live queue
 append versus drain. R4c binds every ordinary retained-chrome read/write to the
 exact `SessionGenerationSnapshot` that created its context: publication captures
 the displaced handle under the session mutex, then closes and snapshots it under

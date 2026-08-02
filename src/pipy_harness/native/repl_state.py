@@ -6,14 +6,15 @@ import inspect
 import json
 import os
 import stat
+import threading
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TextIO, cast
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.native.cancellation import CancelToken
-from pipy_harness.native.catalog import NativeModelSpec
+from pipy_harness.native.catalog import THINKING_LEVELS, NativeModelSpec
 from pipy_harness.native.catalog_state import ProviderCatalogState
 from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.fake import AUTOMATION_FAKE_MODEL_ID
@@ -383,6 +384,16 @@ class NativeReplProviderState:
     # after the selection is live. Never written to disk inline.
     pending_default: NativeModelSelection | None = None
     thinking_level: str | None = None
+    _state_lock: threading.RLock = field(
+        default_factory=threading.RLock, init=False, repr=False, compare=False
+    )
+
+    def bind_state_lock(self, lock: threading.RLock) -> None:
+        """Adopt the run's shared session mutex before workers can reach state."""
+
+        with self._state_lock:
+            if lock is not self._state_lock:
+                self._state_lock = lock
 
     @property
     def _catalog(self) -> ProviderCatalogState:
@@ -441,10 +452,72 @@ class NativeReplProviderState:
         self.pending_default = pending_default.replacement
 
     def current_selection(self) -> NativeModelSelection:
-        return self.selection
+        with self._state_lock:
+            return self.selection
+
+    def pending_default_value(self) -> NativeModelSelection | None:
+        with self._state_lock:
+            return self.pending_default
+
+    def current_thinking_level(self) -> str | None:
+        with self._state_lock:
+            return self.thinking_level
+
+    def replace_selection(self, selection: NativeModelSelection) -> None:
+        """Replace only the live selection under the shared session mutex."""
+
+        with self._state_lock:
+            self.selection = selection
+
+    def assign_thinking_level(self, level: str) -> None:
+        """Assign an already-validated transport/session level atomically."""
+
+        with self._state_lock:
+            self.thinking_level = level
+
+    def set_supported_thinking_level(self, level: str) -> str | None:
+        """Validate and assign one extension-supplied level atomically."""
+
+        normalized = level.strip().lower()
+        with self._state_lock:
+            if normalized not in THINKING_LEVELS:
+                return None
+            if normalized != "off" and not self._supports_thinking_locked():
+                return None
+            self.thinking_level = normalized
+            return normalized
+
+    def cycle_thinking_level(self) -> str | None:
+        """Atomically select and assign the next supported reasoning level."""
+
+        with self._state_lock:
+            if not self._supports_thinking_locked():
+                return None
+            levels = tuple(self.model_runtime.thinking_levels(self.selection)) or (
+                "off",
+                "minimal",
+                "low",
+                "medium",
+                "high",
+            )
+            current = self.thinking_level if self.thinking_level in levels else "off"
+            next_level = levels[(levels.index(current) + 1) % len(levels)]
+            self.thinking_level = next_level
+            return next_level
+
+    def _supports_thinking_locked(self) -> bool:
+        current = self.selection
+        return any(
+            option.selection.provider_name == current.provider_name
+            and option.selection.model_id == current.model_id
+            and bool(option.reasoning)
+            for option in self.model_options()
+        )
 
     def current_provider(self) -> ProviderPort:
-        return self.provider_for(self.selection)
+        with self._state_lock:
+            selection = self.selection
+        return self.provider_for(selection)
 
     def provider_for(self, selection: NativeModelSelection) -> ProviderPort:
         """Construct the provider for any selection through the runtime.
@@ -455,16 +528,20 @@ class NativeReplProviderState:
         owns the whole construction switch, threading ``construction_options``.
         """
 
+        with self._state_lock:
+            thinking_level = self.thinking_level
         return self.model_runtime.construct(
             selection,
-            thinking_level=self.thinking_level,
+            thinking_level=thinking_level,
             options=self.construction_options,
         )
 
     def current_thinking_levels(self) -> list[str]:
         """Ordered Shift+Tab cycle levels for the current model (Pi-aware)."""
 
-        return self.model_runtime.thinking_levels(self.selection)
+        with self._state_lock:
+            selection = self.selection
+        return self.model_runtime.thinking_levels(selection)
 
     def provider_available(self, provider_name: str) -> bool:
         return self._catalog.provider_available(provider_name)
@@ -497,37 +574,39 @@ class NativeReplProviderState:
         an auth command, say — to persist a selection that was never live.
         """
 
-        self.pending_default = None
+        with self._state_lock:
+            self.pending_default = None
 
     def select_model(self, reference: str) -> tuple[bool, str]:
-        self._begin_selection_transaction()
         parsed = reference.strip()
         if not parsed:
             return (
                 False,
                 "pipy: malformed /model command. Provide <provider>/<model> or <model>.",
             )
-
-        return self._catalog_select_model(parsed)
+        with self._state_lock:
+            self.pending_default = None
+            return self._catalog_select_model(parsed)
 
     def current_selection_supported(self) -> bool:
         """Return whether the current selection is still backed by catalog rows."""
 
         state = self._catalog
-        if state.find(self.selection.provider_name, self.selection.model_id):
+        with self._state_lock:
+            selection = self.selection
+        if state.find(selection.provider_name, selection.model_id):
             return True
         # A user-selected custom model id on a known provider is supported via a
         # fallback row cloned from that provider's catalog defaults.
-        return bool(state.models_for(self.selection.provider_name))
+        return bool(state.models_for(selection.provider_name))
 
     def current_selection_uses_extension_provider(self) -> bool:
         """Return whether the current selection is backed by an extension row."""
 
         state = self._catalog
-        spec = state.find(
-            self.selection.provider_name,
-            self.selection.model_id,
-        )
+        with self._state_lock:
+            selection = self.selection
+        spec = state.find(selection.provider_name, selection.model_id)
         return spec is not None and spec.api == "extension-provider"
 
     def reset_to_first_available_model(
@@ -548,9 +627,10 @@ class NativeReplProviderState:
                     continue
                 if not getattr(provider, "supports_tool_calls", False):
                     continue
-            self.selection = option.selection
-            self._save_default(self.selection)
-            return self.selection
+            with self._state_lock:
+                self.selection = option.selection
+                self._save_default(option.selection)
+                return self.selection
         return None
 
     def _catalog_select_model(self, reference: str) -> tuple[bool, str]:
@@ -622,13 +702,14 @@ class NativeReplProviderState:
         provider = provider_name.strip() or "openai-codex"
         if provider == "openai-codex":
             removed = self.auth_manager_factory().logout()
-            if self.selection.provider_name == "openai-codex":
-                # Persist the shared inert default; the product REPL normalizes the
-                # live selection to a tool-capable fake at its consumption point.
-                self.selection = NativeModelSelection(
-                    "fake", DEFAULT_NATIVE_MODELS["fake"]
-                )
-                self._save_default(self.selection)
+            with self._state_lock:
+                if self.selection.provider_name == "openai-codex":
+                    # Persist the shared inert default; the product REPL normalizes
+                    # the live selection to a tool-capable fake at consumption.
+                    self.selection = NativeModelSelection(
+                        "fake", DEFAULT_NATIVE_MODELS["fake"]
+                    )
+                    self._save_default(self.selection)
             if removed:
                 return True, "pipy: openai-codex OAuth credentials removed."
             return True, "pipy: no openai-codex OAuth credentials were stored."
@@ -685,7 +766,9 @@ class NativeReplProviderState:
         store = catalog.auth_store
         assert store is not None
         removed = store.remove(provider_name)
-        if self.selection.provider_name == provider_name:
+        with self._state_lock:
+            selected_provider = self.selection.provider_name
+        if selected_provider == provider_name:
             self.reset_to_first_available_model(require_tool_calls=False)
         if removed:
             return True, f"pipy: {provider_name} OAuth credentials removed."
@@ -703,9 +786,10 @@ class NativeReplProviderState:
         returns.
         """
 
-        if not self.persist_defaults or self.defaults_store is None:
-            return
-        self.pending_default = selection
+        with self._state_lock:
+            if not self.persist_defaults or self.defaults_store is None:
+                return
+            self.pending_default = selection
 
     def flush_pending_default(self) -> str | None:
         """Persist a queued default. Returns a safe diagnostic on failure.
@@ -717,12 +801,14 @@ class NativeReplProviderState:
         rather than pretending the selection rolled back.
         """
 
-        selection = self.pending_default
-        if selection is None or self.defaults_store is None:
-            return None
-        self.pending_default = None
+        with self._state_lock:
+            selection = self.pending_default
+            store = self.defaults_store
+            if selection is None or store is None:
+                return None
+            self.pending_default = None
         try:
-            self.defaults_store.save(selection)
+            store.save(selection)
         except OSError as exc:
             return (
                 "pipy: selected model is active but could not be saved as the "

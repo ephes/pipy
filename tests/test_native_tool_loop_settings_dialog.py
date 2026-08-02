@@ -241,6 +241,15 @@ class _RecordingReplState(NativeReplProviderState):
         return provider
 
 
+def _cycle_thinking(
+    state: NativeReplProviderState, tree: NativeSessionTree
+) -> str | None:
+    level = state.cycle_thinking_level()
+    if level is not None:
+        tree.append_thinking_level_change(level)
+    return level
+
+
 def _native_state(
     tmp_path: Path, built: list[_RecordingProvider] | None = None
 ) -> NativeReplProviderState:
@@ -373,7 +382,6 @@ def test_settings_native_and_static_states_expose_distinct_exit_actions(
 ) -> None:
     store = PromptHistoryStore(tmp_path / "history.json")
     settings = _settings(tmp_path)
-    tree = NativeSessionTree.create(tmp_path, persist=False)
     provider = _RecordingProvider()
 
     native_ui = _ScriptedSettingsUi(tmp_path)
@@ -385,8 +393,8 @@ def test_settings_native_and_static_states_expose_distinct_exit_actions(
         provider=provider,
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda action, argument: f"{action}:{argument}",
+        cycle_thinking_level=lambda: None,
         settings=settings,
-        session_tree=tree,
         error_stream=io.StringIO(),
     )
     static_ui = _ScriptedSettingsUi(tmp_path)
@@ -396,8 +404,8 @@ def test_settings_native_and_static_states_expose_distinct_exit_actions(
         provider=provider,
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda action, argument: f"{action}:{argument}",
+        cycle_thinking_level=lambda: None,
         settings=settings,
-        session_tree=tree,
         error_stream=io.StringIO(),
     )
 
@@ -435,7 +443,7 @@ def test_settings_local_actions_rebuild_in_place_and_keep_partial_effects(
     store.record("private saved prompt")
     settings = _settings(tmp_path)
     state = _native_state(tmp_path)
-    state.selection = NativeModelSelection("openai", "gpt-5.5")
+    state.replace_selection(NativeModelSelection("openai", "gpt-5.5"))
     tree = NativeSessionTree.create(tmp_path, persist=False)
     ui = _ScriptedSettingsUi(
         tmp_path,
@@ -458,8 +466,8 @@ def test_settings_local_actions_rebuild_in_place_and_keep_partial_effects(
         provider=state.current_provider(),
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda action, argument: f"{action}:{argument}",
+        cycle_thinking_level=lambda: _cycle_thinking(state, tree),
         settings=settings,
-        session_tree=tree,
         error_stream=io.StringIO(),
     )
 
@@ -471,7 +479,7 @@ def test_settings_local_actions_rebuild_in_place_and_keep_partial_effects(
     assert ui.tools_expanded is True
     assert ui.thinking_hidden is True
     assert settings.get_hide_thinking_block() is True
-    assert state.thinking_level == "minimal"
+    assert state.current_thinking_level() == "minimal"
     thinking_entries = [
         entry for entry in tree.entries if isinstance(entry, ThinkingLevelChangeEntry)
     ]
@@ -504,8 +512,8 @@ def test_settings_selector_exit_actions_cancel_then_reopen_dialog(
         provider=provider,
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda selected, argument: f"{selected}:{argument}",
+        cycle_thinking_level=lambda: None,
         settings=_settings(tmp_path),
-        session_tree=NativeSessionTree.create(tmp_path, persist=False),
         error_stream=io.StringIO(),
     )
 
@@ -547,8 +555,8 @@ def test_settings_fold_and_theme_write_failures_keep_live_partial_effects(
         provider=provider,
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda action, argument: f"{action}:{argument}",
+        cycle_thinking_level=lambda: None,
         settings=settings,
-        session_tree=NativeSessionTree.create(tmp_path, persist=False),
         error_stream=io.StringIO(),
     )
 
@@ -595,8 +603,8 @@ def test_settings_selector_write_failures_notice_and_reopen_without_provider_wor
         provider=provider,
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda selected, argument: f"{selected}:{argument}",
+        cycle_thinking_level=lambda: None,
         settings=settings,
-        session_tree=NativeSessionTree.create(tmp_path, persist=False),
         error_stream=io.StringIO(),
     )
 

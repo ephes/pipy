@@ -4,10 +4,11 @@ import io
 import json
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, ContextManager, cast
 
 import pytest
 
@@ -15,11 +16,20 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native.agent import ProductContent
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
+from pipy_harness.native.auth_store import AuthStore
+from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.extension_hooks import _compose_extension_runtime
 from pipy_harness.native.extension_runtime import (
     ExtensionCapabilityError,
+    GenerationMessageRetirement,
     GenerationMessageRouting,
     QueuedCustomMessage,
     RegisteredMessageRenderer,
+)
+from pipy_harness.native.repl_state import (
+    ModelRuntime,
+    NativeModelSelection,
+    NativeReplProviderState,
 )
 from pipy_harness.native.session_generation import (
     SessionExtensionGeneration,
@@ -32,15 +42,23 @@ from pipy_harness.native.session_tree import (
     NativeSessionTree,
     SessionEntry,
     SessionInfoEntry,
+    ThinkingLevelChangeEntry,
+)
+from pipy_harness.native.tool_capabilities import (
+    NativeToolCapabilities,
+    ToolFilterOptions,
 )
 from pipy_harness.native.tool_loop_session import (
+    _ProviderMutationEffects,
     _RunControlState,
     _SessionCollaborators,
+    production_tool_registry,
 )
 from pipy_harness.native.tui import (
     _CustomEntryRenderer,
     _CustomRendererProjectionSnapshot,
 )
+from session_generation_test_support import build_test_projection
 
 
 _RLOCK_BASE = type(threading.RLock())
@@ -134,10 +152,14 @@ def _record_effect_admission(
 
 
 def _generation_ref(lock: threading.RLock) -> SessionGenerationRef:
-    runtime = cast(
-        Any, SimpleNamespace(message_routing=GenerationMessageRouting([], []))
+    user: list[Any] = []
+    custom: list[Any] = []
+    routing = GenerationMessageRouting(user, custom, mutex=lock)
+    runtime = _compose_extension_runtime((), user, custom, routing)
+    projection = build_test_projection(runtime, {}, queue_mutex=lock)
+    return SessionGenerationRef(
+        SessionExtensionGeneration(runtime, projection), lock=lock
     )
-    return SessionGenerationRef(SessionExtensionGeneration(runtime), lock=lock)
 
 
 def _close_effects(
@@ -547,3 +569,262 @@ def test_r5a_active_pointer_writer_and_rebind_inventory_is_guarded() -> None:
     assert tui.count("with self.coding_effects.lock:") == 2
     assert "with self.coding_effects.lock:\n            tree.bind_mutation_lock" in loop
     assert loop.count("self.ctl.session_tree = ") == 4
+
+
+def _provider_mutation_fixture(
+    tmp_path: Path,
+    *,
+    persist_tree: bool = False,
+    order_check: bool = False,
+) -> tuple[
+    _ProviderMutationEffects,
+    NativeReplProviderState,
+    NativeToolCapabilities,
+    SessionGenerationRef,
+    CodingEffectCoordinator,
+    NativeSessionTree,
+    list[str],
+]:
+    session_lock = threading.RLock()
+    generation_ref = _generation_ref(session_lock)
+    mutation_lock = (
+        _OrderCheckingMutationLock(session_lock) if order_check else threading.RLock()
+    )
+    coordinator = CodingEffectCoordinator(mutation_lock)
+    tree = NativeSessionTree.create(
+        tmp_path,
+        session_dir=tmp_path / "sessions",
+        persist=persist_tree,
+    )
+    ctl = _ctl(coordinator, tree)
+    ctl.generation_ref = generation_ref
+    state = NativeReplProviderState(
+        selection=NativeModelSelection("openai", "gpt-5.5"),
+        model_runtime=ModelRuntime(
+            ProviderCatalogState(
+                models_json_path=tmp_path / "models.json",
+                auth_store=AuthStore(path=tmp_path / "auth.json"),
+                env={"OPENAI_API_KEY": "test-only"},
+                openai_codex_auth_path=tmp_path / "missing-codex.json",
+            )
+        ),
+        persist_defaults=False,
+    )
+    state.bind_state_lock(session_lock)
+    tools = NativeToolCapabilities(
+        production_tool_registry(),
+        {},
+        workspace_root=tmp_path,
+        reference_roots=(),
+        stderr_sink=lambda _text: None,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=1.0,
+        state_lock=session_lock,
+    )
+    footers: list[str] = []
+    effects = _ProviderMutationEffects(
+        session=cast(Any, SimpleNamespace(provider_state=state)),
+        ctl=ctl,
+        extension_operations=cast(Any, None),
+        coding_state=cast(Any, None),
+        product_session=cast(Any, None),
+        terminal_ui=None,
+        tool_capabilities=tools,
+        settings=cast(Any, None),
+        cwd=tmp_path,
+        input_stream=io.StringIO(),
+        error_stream=io.StringIO(),
+        refresh_footer_text=lambda: footers.append("footer"),
+        extension_notify=lambda _kind, _message: None,
+        extension_ui_driver=None,
+        mutation_io_lock=coordinator.lock,
+    )
+    return effects, state, tools, generation_ref, coordinator, tree, footers
+
+
+@pytest.mark.parametrize("family", ["tools", "thinking"])
+@pytest.mark.parametrize("boundary", ["stale", "publication-pending", "terminal"])
+def test_selection_mutations_refuse_without_any_effect(
+    tmp_path: Path, family: str, boundary: str
+) -> None:
+    effects, state, tools, ref, coordinator, tree, footers = _provider_mutation_fixture(
+        tmp_path
+    )
+    control = effects.model_runtime_control(0)
+    before_tools = tools.state
+    before_thinking = state.current_thinking_level()
+    before_entries = tree.get_entries()
+
+    scope: ContextManager[None]
+    if boundary == "stale":
+        ref.publish(ref.current)
+        scope = nullcontext()
+    elif boundary == "publication-pending":
+        scope = ref.publishing()
+    else:
+        retirement = GenerationMessageRetirement()
+        with coordinator.terminal_section():
+            with ref.lock:
+                ref.detach_terminal_locked(retirement)
+        retirement.finalize_retirement()
+        scope = nullcontext()
+
+    with scope:
+        if family == "tools":
+            assert control.set_active_tools_fn is not None
+            result = control.set_active_tools_fn(())
+        else:
+            assert control.set_thinking_level_fn is not None
+            result = control.set_thinking_level_fn("low")
+
+    assert result is False
+    assert tools.state is before_tools
+    assert state.current_thinking_level() == before_thinking
+    assert tree.get_entries() == before_entries
+    assert footers == []
+
+
+@pytest.mark.parametrize("family", ["tools", "thinking"])
+def test_selection_call_admitted_before_gate_open_survives_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    family: str,
+) -> None:
+    effects, state, tools, ref, _coordinator, tree, footers = (
+        _provider_mutation_fixture(tmp_path)
+    )
+    control = effects.model_runtime_control(0)
+    entered = threading.Event()
+    release = threading.Event()
+    gate_open = threading.Event()
+    results: list[bool] = []
+    candidate_tools = tools.prepare_extensions({})
+
+    if family == "tools":
+        set_active_tools = control.set_active_tools_fn
+        assert set_active_tools is not None
+        original = NativeToolCapabilities.set_active_tools
+
+        def blocked(owner: NativeToolCapabilities, names: Sequence[str]) -> bool:
+            entered.set()
+            assert release.wait(1)
+            return original(owner, names)
+
+        monkeypatch.setattr(NativeToolCapabilities, "set_active_tools", blocked)
+
+        def mutate() -> None:
+            results.append(set_active_tools(("read",)))
+    else:
+        set_thinking_level = control.set_thinking_level_fn
+        assert set_thinking_level is not None
+        original_thinking = NativeReplProviderState.set_supported_thinking_level
+
+        def blocked_thinking(owner: NativeReplProviderState, level: str) -> str | None:
+            entered.set()
+            assert release.wait(1)
+            return original_thinking(owner, level)
+
+        monkeypatch.setattr(
+            NativeReplProviderState,
+            "set_supported_thinking_level",
+            blocked_thinking,
+        )
+
+        def mutate() -> None:
+            results.append(set_thinking_level("low"))
+
+    def publish() -> None:
+        with ref.publishing():
+            gate_open.set()
+            ref.publish(ref.current)
+            tools.publish(candidate_tools)
+
+    mutation_thread = threading.Thread(target=mutate)
+    mutation_thread.start()
+    assert entered.wait(1)
+    publication_thread = threading.Thread(target=publish)
+    publication_thread.start()
+    assert not gate_open.wait(0.05)
+    release.set()
+    mutation_thread.join(1)
+    publication_thread.join(1)
+
+    assert results == [True] and gate_open.is_set()
+    if family == "tools":
+        assert tools.state.active_tool_names == frozenset({"read"})
+        assert tree.get_entries() == [] and footers == []
+    else:
+        assert state.current_thinking_level() == "low"
+        entries = tree.get_entries()
+        assert len(entries) == 1
+        thinking_entry = entries[0]
+        assert isinstance(thinking_entry, ThinkingLevelChangeEntry)
+        assert thinking_entry.thinking_level == "low"
+        assert footers == ["footer"]
+
+
+def test_concurrent_thinking_keeps_memory_jsonl_order_and_unlocks_before_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    effects, state, _tools, ref, coordinator, tree, footers = (
+        _provider_mutation_fixture(tmp_path, persist_tree=True)
+    )
+    control = effects.model_runtime_control(0)
+    set_thinking_level = control.set_thinking_level_fn
+    assert set_thinking_level is not None
+    first_write = threading.Event()
+    release_write = threading.Event()
+    session_owned_during_io: list[bool] = []
+    original_write = tree._write_entry
+    writes = 0
+
+    def blocking_write(entry: SessionEntry) -> None:
+        nonlocal writes
+        writes += 1
+        session_owned_during_io.append(cast(Any, ref.lock)._is_owned())
+        if writes == 1:
+            first_write.set()
+            assert release_write.wait(1)
+        original_write(entry)
+
+    monkeypatch.setattr(tree, "_write_entry", blocking_write)
+
+    results: list[bool] = []
+    first = threading.Thread(target=lambda: results.append(set_thinking_level("low")))
+    second = threading.Thread(target=lambda: results.append(set_thinking_level("high")))
+    first.start()
+    assert first_write.wait(1)
+    second.start()
+    second.join(0.05)
+    assert second.is_alive()
+    release_write.set()
+    first.join(1)
+    second.join(1)
+
+    levels: list[str] = []
+    for entry in tree.get_entries():
+        assert isinstance(entry, ThinkingLevelChangeEntry)
+        levels.append(entry.thinking_level)
+    assert tree.path is not None
+    durable = [json.loads(line) for line in tree.path.read_text().splitlines()][1:]
+    assert results == [True, True]
+    assert state.current_thinking_level() == "high"
+    assert levels == ["low", "high"]
+    assert [row["thinkingLevel"] for row in durable] == levels
+    assert session_owned_during_io == [False, False]
+    assert footers == ["footer", "footer"]
+    assert not cast(Any, coordinator.lock)._is_owned()
+
+
+def test_thinking_lock_order_instrumentation_rejects_reverse_edge(
+    tmp_path: Path,
+) -> None:
+    effects, state, _tools, ref, _coordinator, tree, _footers = (
+        _provider_mutation_fixture(tmp_path, order_check=True)
+    )
+    with ref.lock:
+        with pytest.raises(RuntimeError, match="under session mutex"):
+            effects.extension_set_thinking_level(0, "low")
+    assert state.current_thinking_level() is None
+    assert tree.get_entries() == []
+    assert effects.extension_set_thinking_level(0, "low") is True

@@ -37,7 +37,7 @@ def build_test_projection(
             registered,
             has_ui=False,
             notify_sink=lambda *_args: None,
-            set_active_tools_fn=lambda _names: True,
+            set_active_tools_fn=lambda _generation_id, _names: True,
             flags=flags,
             render_details_sink={},
             project_trusted=True,

@@ -1095,14 +1095,14 @@ def test_production_projection_tool_port_is_detached_and_stable(
     assert lock is not None
     source_flags: dict[str, object] = {"projection-mode": "candidate"}
     notices: list[tuple[str, str]] = []
-    active_calls: list[tuple[str, ...]] = []
+    active_calls: list[tuple[int, tuple[str, ...]]] = []
     render_details: dict[str, object | None] = {"preexisting": {"sink": "preserved"}}
 
     def notify(kind: str, text: str) -> None:
         notices.append((kind, text))
 
-    def set_active_tools(names: Sequence[str]) -> bool:
-        active_calls.append(tuple(names))
+    def set_active_tools(generation_id: int, names: Sequence[str]) -> bool:
+        active_calls.append((generation_id, tuple(names)))
         return False
 
     def prepare(ports: Mapping[str, ToolPort]) -> ToolCapabilityState:
@@ -1128,7 +1128,11 @@ def test_production_projection_tool_port_is_detached_and_stable(
     )
     projected_port = projected.tools.ports["projected_tool"]
     source_flags["projection-mode"] = "caller-mutated"
-    context = ToolContext(workspace_root=tmp_path, stderr_sink=lambda _text: None)
+    context = ToolContext(
+        workspace_root=tmp_path,
+        stderr_sink=lambda _text: None,
+        extension_generation_id=7,
+    )
     outcomes: list[tuple[str, bool]] = []
     expected_invocations = [("projected", phase) for phase in ("mutate", "probe")]
     for side, phase in expected_invocations:
@@ -1162,7 +1166,7 @@ def test_production_projection_tool_port_is_detached_and_stable(
         ("warning", f"{side}-{phase}") for side, phase in expected_invocations
     ]
     assert active_calls == [
-        ("projected_tool", "secondary") for _ in expected_invocations
+        (7, ("projected_tool", "secondary")) for _ in expected_invocations
     ]
     assert render_details == {
         "preexisting": {"sink": "preserved"},
@@ -1269,7 +1273,7 @@ def test_invalid_builder_results_fail_before_returning_a_projection(
             registered,
             has_ui=False,
             notify_sink=lambda *_args: None,
-            set_active_tools=lambda _names: True,
+            set_active_tools=lambda _generation_id, _names: True,
             flags=flags,
             render_details={},
             project_trusted=True,

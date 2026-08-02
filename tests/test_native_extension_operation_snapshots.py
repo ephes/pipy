@@ -20,7 +20,10 @@ from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
-from pipy_harness.native.extension_hooks import _compose_extension_runtime
+from pipy_harness.native.extension_hooks import (
+    _compose_extension_runtime,
+    dispatch_user_bash_hooks,
+)
 from pipy_harness.native.extension_runtime import (
     ExtensionCodingSessionControl,
     ExtensionTool,
@@ -49,6 +52,7 @@ from pipy_harness.native.tool_capabilities import (
 from pipy_harness.native.tool_loop_session import (
     _ProviderHeaderRequestSnapshot,
     _ReloadCommandEffects,
+    _SessionCollaborators,
     _SessionExecutionProjections,
     _SessionExtensionOperations,
 )
@@ -74,12 +78,15 @@ def _generation(
     observations: list[tuple[str, str]],
     *,
     tool_result_hook: bool = True,
+    retained: list[Any] | None = None,
 ) -> SessionExtensionGeneration:
     runtime = _runtime(lock)
     projection = build_test_projection(runtime, {"generation": label}, queue_mutex=lock)
 
     def observe(ctx: Any) -> None:
         observations.append((label, str(ctx.flags.get("generation", "absent"))))
+        if retained is not None:
+            retained.append(ctx)
 
     def command(ctx: Any, _args: str) -> None:
         observe(ctx)
@@ -92,7 +99,7 @@ def _generation(
         for name in (
             "input before_agent_start before_provider_headers before_provider_request "
             "session_before_switch session_before_fork session_before_compact "
-            "session_before_tree"
+            "session_before_tree user_bash"
         ).split()
     }
     hook_values["tool_result"] = (hook,) if tool_result_hook else ()
@@ -166,6 +173,7 @@ def test_r4a_dispatch_uses_one_old_or_new_published_snapshot(
     old = _generation(lock, "old", observations, tool_result_hook=not identity)
     new = _generation(lock, "new", observations)
     generation_ref = _PublishingSnapshotRef(old, new, lock)
+    model_runtime = ExtensionModelRuntimeControl()
     operations = _SessionExtensionOperations(
         generation_ref=generation_ref,
         cwd=str(tmp_path),
@@ -173,32 +181,26 @@ def test_r4a_dispatch_uses_one_old_or_new_published_snapshot(
         notify_sink=None,
         ui_driver=None,
         project_trusted=True,
+        model_runtime_factory=lambda _generation_id, _allow_model: model_runtime,
     )
-    model_runtime = ExtensionModelRuntimeControl()
     if family == "command":
         operations.dispatch_command(
             "/probe",
             coding_session=ExtensionCodingSessionControl(),
             ui_custom_driver=None,
-            model_runtime=model_runtime,
         )
     elif family == "shortcut":
         operations.dispatch_shortcut(
             "ctrl-k",
             coding_session=ExtensionCodingSessionControl(),
             ui_custom_driver=None,
-            model_runtime=model_runtime,
         )
     elif family == "input":
-        assert (
-            operations.dispatch_input("prompt", model_runtime=model_runtime) == "prompt"
-        )
+        assert operations.dispatch_input("prompt") == "prompt"
     elif family == "before-agent":
-        operations.dispatch_before_agent_start("system", model_runtime=model_runtime)
+        operations.dispatch_before_agent_start("system")
     elif family == "before-provider-request":
-        operations.prepare_provider_request(
-            _request_input(tmp_path), model_runtime=model_runtime
-        )
+        operations.prepare_provider_request(_request_input(tmp_path))
     elif family == "before-provider-headers":
         callback = operations.provider_header_callback(
             NativeSessionTree.create(tmp_path, persist=False)
@@ -211,7 +213,6 @@ def test_r4a_dispatch_uses_one_old_or_new_published_snapshot(
             tool_name="tool",
             content=content,
             is_error=False,
-            model_runtime=model_runtime,
         )
         assert transformed.value == "result"
         if identity:
@@ -221,12 +222,94 @@ def test_r4a_dispatch_uses_one_old_or_new_published_snapshot(
             "switch",
             operation="switch",
             target="new",
-            model_runtime=model_runtime,
         ).allow
     assert generation_ref.snapshot_calls == 1
     assert generation_ref.current is new
     expected = [] if identity else [("old", "absent" if family == "input" else "old")]
     assert observations == expected
+
+
+@pytest.mark.parametrize(
+    "family",
+    "command shortcut input before-agent before-provider-request tool-result "
+    "session-gate user-bash".split(),
+)
+def test_retained_operation_context_selection_controls_capture_generation(
+    tmp_path: Path, family: str
+) -> None:
+    observations: list[tuple[str, str]] = []
+    retained: list[Any] = []
+    selected_ids: list[int] = []
+    lock = threading.RLock()
+    old = _generation(lock, "old", observations, retained=retained)
+    new = _generation(lock, "new", observations)
+    generation_ref = _PublishingSnapshotRef(old, new, lock)
+
+    def controls(
+        generation_id: int, _allow_model: bool
+    ) -> ExtensionModelRuntimeControl:
+        def selected(_value: object) -> bool:
+            selected_ids.append(generation_id)
+            return True
+
+        return ExtensionModelRuntimeControl(
+            set_active_tools_fn=selected,
+            set_thinking_level_fn=selected,
+        )
+
+    operations = _SessionExtensionOperations(
+        generation_ref=generation_ref,
+        cwd=str(tmp_path),
+        has_ui=False,
+        notify_sink=None,
+        ui_driver=None,
+        project_trusted=True,
+        model_runtime_factory=controls,
+    )
+    if family == "command":
+        operations.dispatch_command(
+            "/probe",
+            coding_session=ExtensionCodingSessionControl(),
+            ui_custom_driver=None,
+        )
+    elif family == "shortcut":
+        operations.dispatch_shortcut(
+            "ctrl-k",
+            coding_session=ExtensionCodingSessionControl(),
+            ui_custom_driver=None,
+        )
+    elif family == "input":
+        operations.dispatch_input("prompt")
+    elif family == "before-agent":
+        operations.dispatch_before_agent_start("system")
+    elif family == "before-provider-request":
+        operations.prepare_provider_request(_request_input(tmp_path))
+    elif family == "tool-result":
+        operations.transform_tool_result(
+            tool_name="tool",
+            content=ProductContent("result"),
+            is_error=False,
+        )
+    elif family == "session-gate":
+        operations.session_allows("switch", operation="switch", target="new")
+    else:
+        hooks, flags, ui_driver, model_runtime = operations.user_bash_inputs()
+        dispatch_user_bash_hooks(
+            hooks,
+            command="pwd",
+            exclude_from_context=False,
+            cwd=str(tmp_path),
+            has_ui=False,
+            ui_driver=ui_driver,
+            model_runtime=model_runtime,
+            flags=flags,
+        )
+
+    assert generation_ref.current is new
+    assert len(retained) == 1
+    assert retained[0].set_active_tools(()) is True
+    assert retained[0].set_thinking_level("low") is True
+    assert selected_ids == [0, 0]
 
 
 def test_r4c_operation_routes_retained_chrome_to_its_snapshotted_generation(
@@ -282,13 +365,15 @@ def test_r4c_operation_routes_retained_chrome_to_its_snapshotted_generation(
         notify_sink=None,
         ui_driver=cast(Any, UiRouter()),
         project_trusted=True,
+        model_runtime_factory=lambda _generation_id, _allow_model: (
+            ExtensionModelRuntimeControl()
+        ),
     )
 
     operations.dispatch_command(
         "/probe",
         coding_session=ExtensionCodingSessionControl(),
         ui_custom_driver=None,
-        model_runtime=ExtensionModelRuntimeControl(),
     )
 
     assert generation_ref.snapshot_calls == 1
@@ -380,6 +465,8 @@ def _execution_generation(
     label: str,
     capability: ToolCapabilityState,
     renderer: object,
+    *,
+    tool_call_hooks: tuple[Any, ...] = (),
 ) -> SessionExtensionGeneration:
     runtime = _runtime(lock)
     projection = build_test_projection(runtime, {"generation": label}, queue_mutex=lock)
@@ -394,6 +481,7 @@ def _execution_generation(
             projection.renderers,
             tools=MappingProxyType({"probe": cast(ExtensionTool, renderer)}),
         ),
+        hooks=replace(projection.hooks, tool_call=tool_call_hooks),
     )
     return SessionExtensionGeneration(runtime, projection)
 
@@ -470,6 +558,89 @@ def test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation(
     assert execution.provider is new_provider
     assert execution.execute(call).result.content == ProductContent("new-tool")
     assert (old_tool.calls, new_tool.calls) == (1, 1)
+
+
+def test_retained_tool_call_context_captures_active_provider_turn_generation(
+    tmp_path: Path,
+) -> None:
+    lock = threading.RLock()
+    retained: list[Any] = []
+
+    def hook(_event: object, ctx: Any) -> None:
+        retained.append(ctx)
+
+    tool = _GenerationTool("tool")
+    capabilities = NativeToolCapabilities(
+        {},
+        {"probe": tool},
+        workspace_root=tmp_path,
+        reference_roots=(),
+        stderr_sink=lambda _text: None,
+        filter_options=ToolFilterOptions.empty(),
+        cancel_join_timeout_seconds=0.1,
+        state_lock=lock,
+    )
+    capability = capabilities.state
+    old = _execution_generation(
+        lock, "old", capability, object(), tool_call_hooks=(hook,)
+    )
+    new = _execution_generation(lock, "new", capability, object())
+    generation_ref = SessionGenerationRef(old, lock=lock)
+    provider = FakeNativeProvider(supports_tool_calls=True)
+    coding = CodingSessionState(
+        provider=provider,
+        provider_name=provider.name,
+        model_id=provider.model_id,
+        usage_accumulator=AgentUsageAccumulator(),
+        state_lock=lock,
+    )
+    execution = _SessionExecutionProjections(
+        generation_ref=generation_ref,
+        tool_capabilities=capabilities,
+        coding_state=coding,
+        ui_driver=None,
+    )
+    execution.definitions()
+    generation_ref.publish(new)
+    selected_ids: list[int] = []
+
+    class Mutation:
+        def model_runtime_control(
+            self, generation_id: int, *, allow_model: bool
+        ) -> ExtensionModelRuntimeControl:
+            assert allow_model is False
+
+            def selected(_value: object) -> bool:
+                selected_ids.append(generation_id)
+                return True
+
+            return ExtensionModelRuntimeControl(
+                set_active_tools_fn=selected,
+                set_thinking_level_fn=selected,
+            )
+
+    collaborator = cast(
+        _SessionCollaborators,
+        SimpleNamespace(
+            execution_projections=execution,
+            provider_mutation=Mutation(),
+            cwd=tmp_path,
+            terminal_ui=None,
+            extension_notify=lambda _kind, _message: None,
+            settings=SimpleNamespace(project_trusted=True),
+        ),
+    )
+    call = AgentToolCall(
+        provider_correlation_id="call",
+        tool_name="probe",
+        arguments_json=ProductContent("{}"),
+    )
+    _SessionCollaborators.apply_extension_tool_policy(collaborator, call)
+
+    assert len(retained) == 1
+    assert retained[0].set_active_tools(()) is True
+    assert retained[0].set_thinking_level("low") is True
+    assert selected_ids == [0, 0]
 
 
 def test_provider_header_callback_is_request_local_across_switch_and_reload(

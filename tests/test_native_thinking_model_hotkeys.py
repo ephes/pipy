@@ -63,15 +63,24 @@ def _codex_state(tmp_path: Path, model_id: str) -> NativeReplProviderState:
     )
 
 
-def _cycle(session, state, tree, count) -> list[str]:
+def _cycle_mutation(
+    state: NativeReplProviderState, tree: NativeSessionTree
+) -> str | None:
+    level = state.cycle_thinking_level()
+    if level is not None:
+        tree.append_thinking_level_change(level)
+    return level
+
+
+def _cycle(session, state, tree, count) -> list[str | None]:
     seen = []
     for _ in range(count):
         session._cycle_thinking_level(
             terminal_ui=None,
             error_stream=cast(TextIO, io.StringIO()),
-            session_tree=tree,
+            cycle_thinking_level=lambda: _cycle_mutation(state, tree),
         )
-        seen.append(state.thinking_level)
+        seen.append(state.current_thinking_level())
     return seen
 
 
@@ -107,7 +116,7 @@ class TestThinkingCycle:
         session._cycle_thinking_level(
             terminal_ui=None,
             error_stream=cast(TextIO, io.StringIO()),
-            session_tree=tree,
+            cycle_thinking_level=lambda: _cycle_mutation(state, tree),
         )
         entries = [
             entry
@@ -125,9 +134,9 @@ class TestThinkingCycle:
         session._cycle_thinking_level(
             terminal_ui=None,
             error_stream=cast(TextIO, err),
-            session_tree=tree,
+            cycle_thinking_level=lambda: _cycle_mutation(state, tree),
         )
-        assert state.thinking_level is None
+        assert state.current_thinking_level() is None
         assert "does not support thinking" in err.getvalue()
         assert not [
             entry
@@ -139,5 +148,5 @@ class TestThinkingCycle:
         state = _state(tmp_path, "gpt-5.5")
         session = _session(state)
         assert session._effort_label("openai", "gpt-5.5") in {"high", "default"}
-        state.thinking_level = "low"
+        state.assign_thinking_level("low")
         assert session._effort_label("openai", "gpt-5.5") == "low"

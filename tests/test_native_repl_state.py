@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import threading
 from dataclasses import fields
 from datetime import UTC, datetime
 from pathlib import Path
@@ -642,6 +643,93 @@ def _catalog_repl_state(tmp_path, env, *, models_json=None):
         model_runtime=ModelRuntime(catalog=state),
         persist_defaults=False,
     )
+
+
+def test_provider_selection_readers_and_writers_share_the_session_mutex(
+    tmp_path: Path,
+) -> None:
+    state = _catalog_repl_state(tmp_path, {})
+    mutex = threading.RLock()
+    state.bind_state_lock(mutex)
+    reads: list[NativeModelSelection] = []
+    read_done = threading.Event()
+    write_done = threading.Event()
+
+    def read() -> None:
+        reads.append(state.current_selection())
+        read_done.set()
+
+    def write() -> None:
+        state.assign_thinking_level("high")
+        write_done.set()
+
+    with mutex:
+        reader = threading.Thread(target=read)
+        writer = threading.Thread(target=write)
+        reader.start()
+        writer.start()
+        assert not read_done.wait(0.05)
+        assert not write_done.wait(0.05)
+    reader.join(1)
+    writer.join(1)
+
+    assert state._state_lock is mutex
+    assert reads == [NativeModelSelection("fake", "fake-native-bootstrap")]
+    assert state.current_thinking_level() == "high"
+
+
+def test_selection_owner_inventory_requires_the_shared_mutex() -> None:
+    source = Path(__file__).parents[1] / "src/pipy_harness/native/repl_state.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    owner = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "NativeReplProviderState"
+    )
+    guarded_fields = {"selection", "thinking_level", "pending_default"}
+    caller_guarded = {
+        "prepare_reload_state",
+        "reload_state_matches_expected",
+        "publish_reload_state",
+        "_supports_thinking_locked",
+        "_catalog_select_model",
+    }
+    users: dict[str, bool] = {}
+    for method in (node for node in owner.body if isinstance(node, ast.FunctionDef)):
+        if not any(
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+            and node.attr in guarded_fields
+            for node in ast.walk(method)
+        ):
+            continue
+        users[method.name] = any(
+            isinstance(node, ast.With)
+            and any(
+                ast.unparse(item.context_expr) == "self._state_lock"
+                for item in node.items
+            )
+            for node in ast.walk(method)
+        )
+    assert {name for name, guarded in users.items() if not guarded} == caller_guarded
+
+    root = source.parent
+    external_direct: list[tuple[str, str]] = []
+    for path in root.rglob("*.py"):
+        if path == source:
+            continue
+        module = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(module):
+            if not isinstance(node, ast.Attribute) or node.attr not in guarded_fields:
+                continue
+            text = ast.unparse(node)
+            if text.startswith(("state.", "provider_state.")):
+                external_direct.append((path.name, text))
+    assert external_direct == [
+        ("session_generation.py", "provider_state.selection"),
+        ("session_generation.py", "provider_state.pending_default"),
+    ]
 
 
 _ALL_KEYS = {

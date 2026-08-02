@@ -266,7 +266,7 @@ def test_set_thinking_level_updates_provider_state_before_construction(
     server._cmd_set_thinking_level("t", {"level": "high"})
 
     assert adapter.provider_state is not None
-    assert adapter.provider_state.thinking_level == "high"
+    assert adapter.provider_state.current_thinking_level() == "high"
     provider = adapter._current_provider()
     assert getattr(provider, "reasoning_effort", None) == "high"
 
@@ -288,9 +288,40 @@ def test_cycle_thinking_level_updates_provider_state_before_construction(
     server._cmd_cycle_thinking_level("t", {})
 
     assert adapter.provider_state is not None
-    assert adapter.provider_state.thinking_level == "minimal"
+    assert adapter.provider_state.current_thinking_level() == "minimal"
     provider = adapter._current_provider()
     assert getattr(provider, "reasoning_effort", None) == "minimal"
+
+
+def test_rpc_thinking_adapter_uses_the_provider_session_mutex(
+    tmp_path: Path,
+) -> None:
+    adapter = _provider_state_adapter(tmp_path)
+    assert adapter.provider_state is not None
+    mutex = threading.RLock()
+    adapter.provider_state.bind_state_lock(mutex)
+    server = NativeRpcServer(
+        adapter=adapter,
+        cwd=tmp_path,
+        native_session=NativeSessionTree.create(tmp_path, persist=False),
+        stdin=io.StringIO(),
+        stdout_buffer=io.BytesIO(),
+        error_stream=io.StringIO(),
+    )
+    done = threading.Event()
+
+    def set_level() -> None:
+        server._set_thinking_level("high")
+        done.set()
+
+    with mutex:
+        writer = threading.Thread(target=set_level)
+        writer.start()
+        assert not done.wait(0.05)
+        assert adapter.provider_state.thinking_level is None
+    writer.join(1)
+    assert done.is_set()
+    assert adapter.provider_state.current_thinking_level() == "high"
 
 
 def test_batch_eof_drains_queued_followup(tmp_path: Path) -> None:

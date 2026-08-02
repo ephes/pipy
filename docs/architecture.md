@@ -877,28 +877,36 @@ first section covers derived live-owner preparation, checking, and publication,
 then stays open through accepted staged-message sinks, two-phase route release,
 and gate drain. The session mutex is released around those effects except for
 the vetted phase-2 tail append, but `publication_pending` remains true until the
-drain finishes. `set_active_tools` and `set_thinking_level` take the session
-mutex across their
-gate check and assignment, but none of the exactly three class-A families
-(`set_active_tools`, `set_thinking_level`, `set_model`) captures a generation id.
-`set_model` also performs provider construction and persistence outside an
-atomic admission/commit shape. R5a's terminal path closes admission and
+drain finishes. `set_active_tools` and `set_thinking_level` contexts now capture their creating
+generation id and take the session mutex across generation/gate admission and
+the complete in-memory commit. Stale, publication-pending, and terminal calls
+return `False` without mutation; a commit admitted before gate-open survives
+publication. `NativeReplProviderState` selection/thinking access, the
+session-thread cycle, and RPC thinking assignment use that same mutex. Thinking
+also takes `mutation_io_lock` outermost, releases the session mutex before its
+durable tree append, and releases the outer coordinator before footer paint, so
+concurrent in-memory and JSONL orders agree without filesystem I/O under the
+session mutex. `set_model`, the remaining one of the exactly three class-A
+families, still performs provider construction and persistence outside an atomic
+admission/commit shape. R5a's terminal path closes admission and
 condition-waits (releasing the lock) for effects accepted before close, then
 refuses later effectful coding-session calls with `ExtensionCapabilityError`;
 once quiescent it takes `mutation_io_lock → session mutex` only for terminal
 generation/outbox state and never holds the session mutex across provider or
-filesystem I/O. R5b owns generation-bound active-tool/thinking admission and
-makes stale or terminal calls return `False`. R6 owns terminal `set_model`
+filesystem I/O. R5b now ships generation-bound active-tool/thinking admission
+and stale/publication-pending/terminal `False` refusal. R6 owns terminal `set_model`
 refusal plus three-phase model preparation, in-memory commit, and fail-soft
 persistence. Model defaults are queued during selection and written only after
 the selection is live; a persistence failure is reported without claiming the
 selection reverted. On refusal, `_ReloadCommandEffects.execute()` opens a
 separate second publishing section around retained provider refresh and unknown-
 tool-filter diagnostics. Presentation, persistence, and terminal refresh run
-outside both sections. R5b/R6 must not treat the sections as continuous: a
-class-A mutation may be admitted after the first closes and before the second
-opens, so each refusal-path value must be sampled only after the second section
-opens unless a later slice joins the sections. A rejected replacement fires no
+outside both sections. R5b active-tool/thinking controls check the current id
+and each gate section independently rather than treating them as continuous.
+R6 must preserve that rule for model admission: a class-A mutation may be
+admitted after the first closes and before the second opens, so each refusal-path
+value is sampled only after the second section opens unless a later slice joins
+the sections. A rejected replacement fires no
 retained-generation lifecycle hook. The effect emits the final reload diagnostic
 next, and the root footer policy runs only after that effect returns. The full
 R1–R6 sequence, including ordered R5a then R5b, remains mandatory before R7 can
@@ -1204,7 +1212,8 @@ C901-pinned file. The load-bearing summary is:
   equivalence arms. R5a then serialized retained coding-session effects, active
   tree and input-queue state, and durable JSONL order, and wired terminal
   generation/outbox/chrome close. Class-A mutation ports are not yet
-  generation-bound; R5b/R6 own that remaining admission work.
+  generation-bound for active-tool/thinking controls; R6 owns the remaining
+  `set_model` admission work.
   Current activation has no
   timeout; R1's shipped seal/disposal is
   future-timeout-safe without selecting a timeout policy;
@@ -1270,8 +1279,10 @@ also removes the separately stored generation flag map, temporary lifecycle/flag
 reload effect, mutable emitter copies, direct runtime menu/lifecycle reads, and
 the final R3a equivalence arms. R5a now ships one reentrant coding-effect
 coordinator, guarded active-tree/input owners, durable append ordering, terminal
-refusal, and generation queue/chrome teardown. The next architecture action is
-**R5b — bind active-tool and thinking mutations to a generation**; ordinary
+refusal, and generation queue/chrome teardown. R5b now binds active-tool and
+thinking contexts to their generation and guards complete selection commits,
+including ordered durable thinking append. The next architecture action is
+**R6 — make model mutation admission atomic**; ordinary
 product-parity selection remains blocked through R7. R3c3's two documented deltas, R4a's live-
 message loss fix, and R4c's coherent publication/stale-chrome refusal are
 recorded in the changelog. R4b has no separate changelog entry because it adopts

@@ -211,7 +211,6 @@ from pipy_harness.native.project_trust import (
 )
 from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.settings import SettingsManager
-from pipy_harness.native.catalog import THINKING_LEVELS
 from pipy_harness.native.version_check import pipy_version
 from pipy_harness.native.export_distribution import (
     NativeExportError,
@@ -702,10 +701,11 @@ class _SessionExtensionOperations:
     notify_sink: Callable[[str, str], None] | None
     ui_driver: ExtensionUiDriver | None
     project_trusted: bool
+    model_runtime_factory: Callable[[int, bool], ExtensionModelRuntimeControl]
 
     def _projection(
         self,
-    ) -> tuple[ExtensionProjection, ExtensionUiDriver | None]:
+    ) -> tuple[ExtensionProjection, ExtensionUiDriver | None, int]:
         snapshot = self.generation_ref.snapshot()
         projection = snapshot.generation.projection
         if projection is None:
@@ -715,7 +715,7 @@ class _SessionExtensionOperations:
         bind = getattr(ui_driver, "generation_driver", None)
         if chrome is not None and callable(bind):
             ui_driver = bind(chrome.sink)
-        return projection, ui_driver
+        return projection, ui_driver, snapshot.generation_id
 
     def dispatch_command(
         self,
@@ -723,9 +723,8 @@ class _SessionExtensionOperations:
         *,
         coding_session: ExtensionCodingSessionControl,
         ui_custom_driver: CustomComponentDriver | None,
-        model_runtime: ExtensionModelRuntimeControl,
     ) -> ExtensionCommandDispatch | None:
-        projection, ui_driver = self._projection()
+        projection, ui_driver, generation_id = self._projection()
         return dispatch_extension_command(
             command_text,
             projection.commands.commands,
@@ -735,7 +734,7 @@ class _SessionExtensionOperations:
             notify_sink=self.notify_sink,
             ui_custom_driver=ui_custom_driver,
             ui_driver=ui_driver,
-            model_runtime=model_runtime,
+            model_runtime=self.model_runtime_factory(generation_id, True),
             flags=projection.runtime_flags.values,
             project_trusted=self.project_trusted,
         )
@@ -746,9 +745,8 @@ class _SessionExtensionOperations:
         *,
         coding_session: ExtensionCodingSessionControl,
         ui_custom_driver: CustomComponentDriver | None,
-        model_runtime: ExtensionModelRuntimeControl,
     ) -> ExtensionCommandDispatch | None:
-        projection, ui_driver = self._projection()
+        projection, ui_driver, generation_id = self._projection()
         return dispatch_extension_shortcut(
             key,
             projection.commands.shortcuts,
@@ -758,15 +756,13 @@ class _SessionExtensionOperations:
             notify_sink=self.notify_sink,
             ui_custom_driver=ui_custom_driver,
             ui_driver=ui_driver,
-            model_runtime=model_runtime,
+            model_runtime=self.model_runtime_factory(generation_id, True),
             flags=projection.runtime_flags.values,
             project_trusted=self.project_trusted,
         )
 
-    def dispatch_input(
-        self, text: str, *, model_runtime: ExtensionModelRuntimeControl
-    ) -> str:
-        projection, ui_driver = self._projection()
+    def dispatch_input(self, text: str) -> str:
+        projection, ui_driver, generation_id = self._projection()
         return dispatch_input_hooks(
             projection.hooks.input,
             text,
@@ -774,17 +770,15 @@ class _SessionExtensionOperations:
             has_ui=self.has_ui,
             notify_sink=self.notify_sink,
             ui_driver=ui_driver,
-            model_runtime=model_runtime,
+            model_runtime=self.model_runtime_factory(generation_id, True),
             project_trusted=self.project_trusted,
         )
 
     def dispatch_before_agent_start(
         self,
         system_prompt: str,
-        *,
-        model_runtime: ExtensionModelRuntimeControl,
     ) -> BeforeAgentStartResult:
-        projection, ui_driver = self._projection()
+        projection, ui_driver, generation_id = self._projection()
         return dispatch_before_agent_start_hooks(
             projection.hooks.before_agent_start,
             cwd=self.cwd,
@@ -792,7 +786,7 @@ class _SessionExtensionOperations:
             system_prompt=system_prompt,
             notify_sink=self.notify_sink,
             ui_driver=ui_driver,
-            model_runtime=model_runtime,
+            model_runtime=self.model_runtime_factory(generation_id, True),
             flags=projection.runtime_flags.values,
             project_trusted=self.project_trusted,
         )
@@ -800,10 +794,8 @@ class _SessionExtensionOperations:
     def prepare_provider_request(
         self,
         policy_input: AgentProviderRequestPolicyInput,
-        *,
-        model_runtime: ExtensionModelRuntimeControl,
     ) -> AgentProviderRequestSnapshot:
-        projection, ui_driver = self._projection()
+        projection, ui_driver, generation_id = self._projection()
         return prepare_provider_request(
             policy_input,
             projection.hooks.before_provider_request,
@@ -812,7 +804,7 @@ class _SessionExtensionOperations:
                 has_ui=self.has_ui,
                 notify_sink=self.notify_sink,
                 ui_driver=ui_driver,
-                model_runtime=model_runtime,
+                model_runtime=self.model_runtime_factory(generation_id, False),
                 flags=projection.runtime_flags.values,
                 project_trusted=self.project_trusted,
             ),
@@ -821,7 +813,7 @@ class _SessionExtensionOperations:
     def provider_header_callback(
         self, session_tree: NativeSessionTree
     ) -> Callable[[MutableMapping[str, str | None]], None] | None:
-        projection, ui_driver = self._projection()
+        projection, ui_driver, _generation_id = self._projection()
         hooks = projection.hooks.before_provider_headers
         if not hooks:
             return None
@@ -842,9 +834,8 @@ class _SessionExtensionOperations:
         tool_name: str,
         content: ProductContent,
         is_error: bool,
-        model_runtime: ExtensionModelRuntimeControl,
     ) -> ProductContent:
-        projection, ui_driver = self._projection()
+        projection, ui_driver, generation_id = self._projection()
         hooks = projection.hooks.tool_result
         if not hooks:
             return content
@@ -858,7 +849,7 @@ class _SessionExtensionOperations:
                 has_ui=self.has_ui,
                 notify_sink=self.notify_sink,
                 ui_driver=ui_driver,
-                model_runtime=model_runtime,
+                model_runtime=self.model_runtime_factory(generation_id, False),
                 flags=projection.runtime_flags.values,
                 project_trusted=self.project_trusted,
             )
@@ -871,9 +862,8 @@ class _SessionExtensionOperations:
         operation: str,
         target: str | None = None,
         trigger: str | None = None,
-        model_runtime: ExtensionModelRuntimeControl,
     ) -> SessionDecision:
-        projection, ui_driver = self._projection()
+        projection, ui_driver, generation_id = self._projection()
         hooks = {
             "switch": projection.hooks.session_before_switch,
             "fork": projection.hooks.session_before_fork,
@@ -889,16 +879,26 @@ class _SessionExtensionOperations:
             trigger=trigger,
             notify_sink=self.notify_sink,
             ui_driver=ui_driver,
-            model_runtime=model_runtime,
+            model_runtime=self.model_runtime_factory(generation_id, True),
             flags=projection.runtime_flags.values,
             project_trusted=self.project_trusted,
         )
 
     def user_bash_inputs(
         self,
-    ) -> tuple[tuple[HookHandler, ...], Mapping[str, object], ExtensionUiDriver | None]:
-        projection, ui_driver = self._projection()
-        return projection.hooks.user_bash, projection.runtime_flags.values, ui_driver
+    ) -> tuple[
+        tuple[HookHandler, ...],
+        Mapping[str, object],
+        ExtensionUiDriver | None,
+        ExtensionModelRuntimeControl,
+    ]:
+        projection, ui_driver, generation_id = self._projection()
+        return (
+            projection.hooks.user_bash,
+            projection.runtime_flags.values,
+            ui_driver,
+            self.model_runtime_factory(generation_id, True),
+        )
 
 
 _SESSION_COMMAND_ACTIONS = frozenset(
@@ -1320,8 +1320,8 @@ class _ProviderConfigurationCommandEffects:
                 provider=self.coding_state.provider,
                 apply_model_selection=self.provider_mutation.apply_model_selection,
                 apply_auth_change=self.provider_mutation.apply_auth_change,
+                cycle_thinking_level=self.provider_mutation.cycle_thinking_level,
                 settings=self.settings,
-                session_tree=self.ctl.session_tree,
                 error_stream=self.error_stream,
             )
         else:
@@ -1636,10 +1636,12 @@ class _SessionExecutionProjections:
         output_sink: Callable[[str], None] | None = None,
         wait_for_interrupt: ToolInterruptWaiter | None = None,
     ) -> ToolExecutionOutcome:
-        return self._require_active().tools.execute(
+        active = self._require_active()
+        return active.tools.execute(
             call,
             output_sink=output_sink,
             wait_for_interrupt=wait_for_interrupt,
+            extension_generation_id=active.generation_id,
         )
 
     def error_result(
@@ -1662,9 +1664,19 @@ class _SessionExecutionProjections:
 
     def tool_call_policy_inputs(
         self,
-    ) -> tuple[tuple[HookHandler, ...], Mapping[str, object], ExtensionUiDriver | None]:
+    ) -> tuple[
+        int,
+        tuple[HookHandler, ...],
+        Mapping[str, object],
+        ExtensionUiDriver | None,
+    ]:
         active = self._require_active()
-        return active.tool_call_hooks, active.flags, active.ui_driver
+        return (
+            active.generation_id,
+            active.tool_call_hooks,
+            active.flags,
+            active.ui_driver,
+        )
 
 
 def _build_projected_extension_tool_port(
@@ -1672,7 +1684,7 @@ def _build_projected_extension_tool_port(
     *,
     has_ui: bool,
     notify_sink: Callable[[str, str], None],
-    set_active_tools: Callable[[Sequence[str]], bool],
+    set_active_tools: Callable[[int, Sequence[str]], bool],
     flags: Mapping[str, object],
     render_details: ToolRenderDetailsWriter,
     project_trusted: bool,
@@ -1698,7 +1710,7 @@ def _build_candidate_extension_projection(
     reference_mutex: threading.RLock,
     has_ui: bool,
     notify_sink: Callable[[str, str], None],
-    set_active_tools: Callable[[Sequence[str]], bool],
+    set_active_tools: Callable[[int, Sequence[str]], bool],
     render_details: ToolRenderDetailsWriter,
     project_trusted: bool,
     prepare_capability: Callable[[Mapping[str, ToolPort]], ToolCapabilityState],
@@ -2256,16 +2268,13 @@ class _ProviderMutationEffects:
 
         return self.ctl.generation_ref.publication_pending
 
-    def extension_set_active_tools(self, tool_names: Sequence[str]) -> bool:
-        """Restrict model-visible tools for future provider requests.
-
-        The check and the mutation share one critical section — the tool
-        capability owner takes the same session mutex — so a publication
-        cannot open between admitting this call and applying it.
-        """
+    def extension_set_active_tools(
+        self, generation_id: int, tool_names: Sequence[str]
+    ) -> bool:
+        """Restrict future tools only for the context's live generation."""
 
         with self.ctl.generation_ref.lock:
-            if self._mutation_refused_during_publication():
+            if not self._generation_admitted_locked(generation_id):
                 return False
             return self.tool_capabilities.set_active_tools(tool_names)
 
@@ -2275,63 +2284,54 @@ class _ProviderMutationEffects:
         ok, _message = self.apply_model_selection(reference)
         return ok
 
-    def extension_set_thinking_level(self, level: str) -> bool:
-        """Set the active reasoning level through the provider state.
+    def extension_set_thinking_level(self, generation_id: int, level: str) -> bool:
+        """Commit, durably append, then paint one generation-bound level."""
 
-        The gate check, the eligibility checks, and the assignment share one
-        critical section, so a publication cannot open between admitting this
-        call and applying it. Everything after the assignment — the session-tree
-        append and the footer refresh — is a post-mutation effect and runs
-        outside that lock, keeping file I/O and rendering off the session mutex.
-
-        ``mutation_io_lock`` spans the decision *and* those effects so two
-        concurrent callers cannot assign in one order and append in the other,
-        which would leave the durable thinking-level record disagreeing with
-        live state. Lock order is always this lock first, then the session
-        mutex.
-        """
-
+        normalized: str | None = None
         with self.mutation_io_lock:
             with self.ctl.generation_ref.lock:
-                if self._mutation_refused_during_publication():
+                if not self._generation_admitted_locked(generation_id):
                     return False
-                # Normalize exactly once: persisting a separately re-derived
-                # value could disagree with what was assigned.
-                normalized = self._assign_thinking_level_locked(level)
+                state = self.session.provider_state
+                if isinstance(state, NativeReplProviderState):
+                    normalized = state.set_supported_thinking_level(level)
                 if normalized is None:
                     return False
+            # The session mutex is released before durable filesystem I/O. The
+            # outer coordinator remains held so concurrent commits and JSONL
+            # appends have one order.
             self.ctl.session_tree.append_thinking_level_change(normalized)
-            self.refresh_footer_text()
+        self.refresh_footer_text()
         return True
 
-    def _assign_thinking_level_locked(self, level: str) -> str | None:
-        """Validate and assign the level, returning the value actually set.
+    def cycle_thinking_level(self) -> str | None:
+        """Apply the session-thread cycle through the same ordered commit path."""
 
-        Caller holds the session mutex. Returns ``None`` when the level is
-        refused, so the caller persists exactly the string that was assigned
-        rather than re-deriving it.
-        """
+        next_level: str | None = None
+        with self.mutation_io_lock:
+            with self.ctl.generation_ref.lock:
+                state = self.session.provider_state
+                if isinstance(state, NativeReplProviderState):
+                    next_level = state.cycle_thinking_level()
+                if next_level is None:
+                    return None
+            self.ctl.session_tree.append_thinking_level_change(next_level)
+        return next_level
 
-        state = self.session.provider_state
-        if not isinstance(state, NativeReplProviderState):
-            return None
-        normalized = str(level).strip().lower()
-        if normalized not in THINKING_LEVELS:
-            return None
-        current = state.current_selection()
-        supports_thinking = any(
-            option.selection.provider_name == current.provider_name
-            and option.selection.model_id == current.model_id
-            and bool(option.reasoning)
-            for option in state.model_options()
+    def _generation_admitted_locked(self, generation_id: int) -> bool:
+        """Check terminal, generation identity, and gate under the caller's mutex."""
+
+        try:
+            snapshot = self.ctl.generation_ref.snapshot()
+        except RuntimeError:
+            return False
+        return (
+            snapshot.generation_id == generation_id
+            and not self.ctl.generation_ref.publication_pending
         )
-        if normalized != "off" and not supports_thinking:
-            return None
-        state.thinking_level = normalized
-        return normalized
 
     def model_runtime_control(
-        self, *, allow_model: bool = True
+        self, generation_id: int, *, allow_model: bool = True
     ) -> ExtensionModelRuntimeControl:
         """Bundle the three model-runtime control callables for a context.
 
@@ -2343,11 +2343,13 @@ class _ProviderMutationEffects:
         """
 
         return ExtensionModelRuntimeControl(
-            set_active_tools_fn=self.extension_set_active_tools,
+            set_active_tools_fn=partial(self.extension_set_active_tools, generation_id),
             set_model_fn=(
                 self.extension_set_model if allow_model else _deny_model_mutation
             ),
-            set_thinking_level_fn=self.extension_set_thinking_level,
+            set_thinking_level_fn=partial(
+                self.extension_set_thinking_level, generation_id
+            ),
         )
 
     def apply_model_selection(self, reference: str) -> tuple[bool, str]:
@@ -2377,7 +2379,7 @@ class _ProviderMutationEffects:
             # env-credential probe (e.g. an injected provider), in which
             # case re-selecting it would fail and silently leave the
             # rejected selection (and persisted default) in place.
-            state.selection = previous_selection
+            state.replace_selection(previous_selection)
             state._save_default(previous_selection)
             return False, (
                 f"pipy: {reference} does not support tool calls in "
@@ -2453,7 +2455,9 @@ class _ProviderMutationEffects:
         # The persisted default stays the inert ``fake-native-bootstrap``;
         # the product REPL upgrades the *live* fake selection to the
         # tool-capable ``fake-tools`` here so the next turn has tool support.
-        state.selection = normalize_repl_fake_selection(state.current_selection())
+        state.replace_selection(
+            normalize_repl_fake_selection(state.current_selection())
+        )
         rebound_provider = state.current_provider()
         selection = state.current_selection()
         self.coding_state.rebind_provider(
@@ -2584,7 +2588,6 @@ class _ProviderMutationEffects:
             "compact",
             operation="compact",
             trigger=trigger,
-            model_runtime=self.model_runtime_control(),
         )
         if not decision.allow:
             reason = decision.reason or "blocked by extension"
@@ -2690,6 +2693,7 @@ class _ReplLoopStep:
         coding_footer_text: Callable[[], str],
         refresh_legacy_footer_with_usage: Callable[[], None],
         apply_compaction: Callable[[str], str],
+        cycle_thinking_level: Callable[[], str | None],
         append_agent_message: Callable[[AgentMessage], None],
         drain_extension_outboxes: Callable[[], None],
         _active_provider_header_callback: Callable[
@@ -2699,7 +2703,6 @@ class _ReplLoopStep:
         _extension_notify: Callable[[str, str], None],
         _sync_tool_policy_counters: Callable[[AgentToolPolicyState], None],
         coding_session_control: Callable[[], ExtensionCodingSessionControl],
-        model_runtime: ExtensionModelRuntimeControl,
     ) -> LoopStepSignal:
         # Per-action built-in control-state reassignments (session tree, tree
         # filter mode, prefill, and the whole `/reload` extension-runtime
@@ -2786,7 +2789,7 @@ class _ReplLoopStep:
             session._cycle_thinking_level(
                 terminal_ui=terminal_ui,
                 error_stream=error_stream,
-                session_tree=ctl.session_tree,
+                cycle_thinking_level=cycle_thinking_level,
             )
             refresh_legacy_footer_with_usage()
             return LoopStepSignal.continue_loop()
@@ -2806,7 +2809,6 @@ class _ReplLoopStep:
                 shortcut_key,
                 coding_session=coding_session_control(),
                 ui_custom_driver=_extension_custom_driver,
-                model_runtime=model_runtime,
             )
             if (
                 shortcut_dispatch is not None
@@ -2851,16 +2853,19 @@ class _ReplLoopStep:
         # cancels a running command. Intercepted before the user-message
         # panel so it renders as a shell block, not a chat bubble.
         if command_text.startswith("!"):
-            user_bash_hooks, user_bash_flags, user_bash_ui = (
-                extension_operations.user_bash_inputs()
-            )
+            (
+                user_bash_hooks,
+                user_bash_flags,
+                user_bash_ui,
+                user_bash_model_runtime,
+            ) = extension_operations.user_bash_inputs()
             shell_context_text = session._run_local_shell_shortcut(
                 stripped,
                 terminal_ui=terminal_ui,
                 error_stream=error_stream,
                 cwd=cwd,
                 user_bash_hooks=user_bash_hooks,
-                model_runtime=model_runtime,
+                model_runtime=user_bash_model_runtime,
                 ui_driver=user_bash_ui,
                 flags=user_bash_flags,
                 project_trusted=settings.project_trusted,
@@ -2922,9 +2927,7 @@ class _ReplLoopStep:
         # system-prompt context ride the returned turn and never enter
         # the metadata-only workflow archive.
         def _transform_accepted_input(prompt: str) -> str:
-            return extension_operations.dispatch_input(
-                prompt, model_runtime=model_runtime
-            )
+            return extension_operations.dispatch_input(prompt)
 
         def _resolve_accepted_file_references(
             prompt: str,
@@ -2951,7 +2954,7 @@ class _ReplLoopStep:
 
         def _accepted_system_prompt_suffix(base_prompt: str) -> str | None:
             before_agent_result = extension_operations.dispatch_before_agent_start(
-                base_prompt, model_runtime=model_runtime
+                base_prompt
             )
             return before_agent_result.append_system_prompt
 
@@ -3502,7 +3505,6 @@ class _SessionCollaborators:
             operation=operation,
             target=target,
             trigger=trigger,
-            model_runtime=self.provider_mutation.model_runtime_control(),
         )
         if decision.allow:
             return True
@@ -3582,17 +3584,14 @@ class _SessionCollaborators:
     def prepare_agent_provider_request(
         self, policy_input: AgentProviderRequestPolicyInput
     ) -> AgentProviderRequestSnapshot:
-        return self.extension_operations.prepare_provider_request(
-            policy_input,
-            model_runtime=self.provider_mutation.model_runtime_control(
-                allow_model=False
-            ),
-        )
+        return self.extension_operations.prepare_provider_request(policy_input)
 
     def apply_extension_tool_policy(
         self, call: AgentToolCall
     ) -> AgentToolPolicyDecision:
-        hooks, flags, ui_driver = self.execution_projections.tool_call_policy_inputs()
+        generation_id, hooks, flags, ui_driver = (
+            self.execution_projections.tool_call_policy_inputs()
+        )
         tool_block = dispatch_tool_call_hooks(
             hooks,
             tool_name=call.tool_name,
@@ -3602,7 +3601,7 @@ class _SessionCollaborators:
             notify_sink=self.extension_notify,
             ui_driver=ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(
-                allow_model=False
+                generation_id, allow_model=False
             ),
             flags=flags,
             project_trusted=self.settings.project_trusted,
@@ -3618,9 +3617,6 @@ class _SessionCollaborators:
             tool_name=call.tool_name,
             content=result.content,
             is_error=result.is_error,
-            model_runtime=self.provider_mutation.model_runtime_control(
-                allow_model=False
-            ),
         )
 
     def dispatch_resource_effect(
@@ -3654,7 +3650,6 @@ class _SessionCollaborators:
             command_text,
             coding_session=self.coding_session_control(),
             ui_custom_driver=self.extension_custom_driver,
-            model_runtime=self.provider_mutation.model_runtime_control(),
         )
         if extension_dispatch is None:
             return None
@@ -4027,6 +4022,8 @@ class NativeToolReplSession:
         # rebinds its provider and clears its history; that must serialize
         # against the session thread's own reads and writes.
         coding_state.bind_state_lock(session_state_lock)
+        if isinstance(self.provider_state, NativeReplProviderState):
+            self.provider_state.bind_state_lock(session_state_lock)
         resource_options = self.resource_options
         # Compose installed package resources: resolve local paths and managed
         # git caches, then install the package theme registry so package
@@ -4155,7 +4152,9 @@ class NativeToolReplSession:
             reference_mutex=session_state_lock,
             has_ui=terminal_ui is not None,
             notify_sink=_extension_notify,
-            set_active_tools=lambda n: provider_mutation.extension_set_active_tools(n),
+            set_active_tools=lambda generation_id, names: (
+                provider_mutation.extension_set_active_tools(generation_id, names)
+            ),
             render_details=render_details.writer,
             project_trusted=settings.project_trusted,
             prepare_capability=tool_capabilities.prepare_extensions,
@@ -4554,6 +4553,11 @@ class NativeToolReplSession:
             notify_sink=_extension_notify,
             ui_driver=extension_ui_driver,
             project_trusted=settings.project_trusted,
+            model_runtime_factory=lambda generation_id, allow_model: (
+                provider_mutation.model_runtime_control(
+                    generation_id, allow_model=allow_model
+                )
+            ),
         )
 
         # The provider/model/auth/compaction mutation effects live in the
@@ -4722,6 +4726,7 @@ class NativeToolReplSession:
                 coding_footer_text=footer.coding_footer_text,
                 refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
                 apply_compaction=provider_mutation.apply_compaction,
+                cycle_thinking_level=provider_mutation.cycle_thinking_level,
                 append_agent_message=append_agent_message,
                 drain_extension_outboxes=custom_renderer.drain_extension_outboxes,
                 _active_provider_header_callback=collaborators.active_provider_header_callback,
@@ -4729,7 +4734,6 @@ class NativeToolReplSession:
                 _extension_notify=_extension_notify,
                 _sync_tool_policy_counters=_sync_tool_policy_counters,
                 coding_session_control=collaborators.coding_session_control,
-                model_runtime=provider_mutation.model_runtime_control(),
             ),
             finalize=partial(
                 repl_loop_step.finalize,
@@ -5006,18 +5010,6 @@ class NativeToolReplSession:
             f"$ {command}\n{status_line}\n\n{output_text}"
         )
 
-    # Ordinary-tier fallback cycle (Pi's base reasoning levels). The live cycle
-    # is model-aware via ``state.current_thinking_levels()`` — it appends
-    # ``xhigh``/``max`` when the active row maps them (Sol cycles all seven).
-    # This constant is used only when no per-model level list is available.
-    _THINKING_CYCLE_LEVELS: ClassVar[tuple[str, ...]] = (
-        "off",
-        "minimal",
-        "low",
-        "medium",
-        "high",
-    )
-
     def _toggle_view_fold(
         self,
         hotkey: str,
@@ -5070,7 +5062,7 @@ class NativeToolReplSession:
         *,
         terminal_ui: ToolLoopTerminalUi | None,
         error_stream: TextIO,
-        session_tree: NativeSessionTree,
+        cycle_thinking_level: Callable[[], str | None],
     ) -> None:
         """Cycle the reasoning level (Pi's Shift+Tab ``cycleThinkingLevel``).
 
@@ -5089,30 +5081,14 @@ class NativeToolReplSession:
                 "pipy: thinking-level cycling is unavailable for this REPL state.",
             )
             return
-        current = state.current_selection()
-        supports_thinking = any(
-            option.selection.provider_name == current.provider_name
-            and option.selection.model_id == current.model_id
-            and bool(option.reasoning)
-            for option in state.model_options()
-        )
-        if not supports_thinking:
+        next_level = cycle_thinking_level()
+        if next_level is None:
             self._emit_diagnostic(
                 terminal_ui,
                 error_stream,
                 "pipy: current model does not support thinking.",
             )
             return
-        # Model-aware cycle (Pi's Shift+Tab over getSupportedThinkingLevels):
-        # the ordinary tier for every reasoning model, plus xhigh/max only when
-        # the active row maps them.
-        levels = tuple(state.current_thinking_levels()) or self._THINKING_CYCLE_LEVELS
-        current_level = (
-            state.thinking_level if state.thinking_level in levels else "off"
-        )
-        next_level = levels[(levels.index(current_level) + 1) % len(levels)]
-        state.thinking_level = next_level
-        session_tree.append_thinking_level_change(next_level)
         self._emit_diagnostic(
             terminal_ui, error_stream, f"pipy: thinking level: {next_level}"
         )
@@ -5196,7 +5172,12 @@ class NativeToolReplSession:
         model's default effort label.
         """
 
-        level = getattr(self.provider_state, "thinking_level", None)
+        state = self.provider_state
+        level = (
+            state.current_thinking_level()
+            if isinstance(state, NativeReplProviderState)
+            else None
+        )
         if isinstance(level, str) and level:
             return level
         return _chrome._effort_label_for(provider_name, model_id)
@@ -5418,8 +5399,8 @@ class NativeToolReplSession:
         provider: ProviderPort,
         apply_model_selection: Callable[[str], tuple[bool, str]],
         apply_auth_change: Callable[[str, str], str],
+        cycle_thinking_level: Callable[[], str | None],
         settings: "SettingsManager",
-        session_tree: NativeSessionTree,
         error_stream: TextIO,
     ) -> None:
         """Open the live ``/settings`` dialog and act on the user's choices.
@@ -5485,7 +5466,7 @@ class NativeToolReplSession:
                 self._cycle_thinking_level(
                     terminal_ui=terminal_ui,
                     error_stream=error_stream,
-                    session_tree=session_tree,
+                    cycle_thinking_level=cycle_thinking_level,
                 )
             return _rows()
 
@@ -5776,7 +5757,11 @@ class NativeToolReplSession:
                     action="toggle_thinking",
                 )
             )
-            level = getattr(state, "thinking_level", None) or "off"
+            level = (
+                state.current_thinking_level()
+                if isinstance(state, NativeReplProviderState)
+                else None
+            ) or "off"
             rows.append(
                 SettingsRow(
                     label=f"thinking level: {level} — cycle (shift+tab)",

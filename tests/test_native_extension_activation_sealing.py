@@ -1064,7 +1064,7 @@ def _reload_owners(ref: SessionGenerationRef, emitter: Any = None):
     )
     mutation = SimpleNamespace(coding_state=None)
     mutation.extension_notify = lambda *_args: None
-    mutation.extension_set_active_tools = lambda _names: True
+    mutation.extension_set_active_tools = lambda _generation_id, _names: True
     lifecycle = emitter or SimpleNamespace()
     if emitter is None:
         lifecycle.fire_candidate_session_start = lambda *_args, **_kwargs: None

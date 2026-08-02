@@ -772,8 +772,9 @@ class NativeRpcServer:
     def _set_thinking_level(self, level: str) -> None:
         self._thinking_level = level
         provider_state = getattr(self._adapter, "provider_state", None)
-        if provider_state is not None and hasattr(provider_state, "thinking_level"):
-            provider_state.thinking_level = level
+        assign = getattr(provider_state, "assign_thinking_level", None)
+        if callable(assign):
+            assign(level)
 
     def _cmd_set_thinking_level(self, cid: str | None, command: dict[str, Any]) -> None:
         level = command.get("level")
