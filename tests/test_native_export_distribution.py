@@ -307,7 +307,8 @@ def test_jsonl_export_linearizes_active_branch_and_import_round_trips(
     assert lines[0]["type"] == "session"
     entries = lines[1:]
     assert entries[0]["parentId"] is None
-    for previous, current in zip(entries, entries[1:]):
+    # The shifted input is shorter by one; validate every real adjacent link.
+    for previous, current in zip(entries, entries[1:], strict=False):
         assert current["parentId"] == previous["id"]
     serialized = json.dumps(lines)
     assert "MAIN prompt" in serialized

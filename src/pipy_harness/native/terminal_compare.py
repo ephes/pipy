@@ -384,7 +384,9 @@ def _comparison_pairs(
 
     The two CLIs often settle after different numbers of active samples. Pairing
     only by JSONL order can accidentally compare pipy's final frame with Pi's
-    still-working active frame and then skip the actual Pi final frame.
+    still-working active frame and then skip the actual Pi final frame. Active
+    and fallback sample streams deliberately stop at the shorter input because
+    an unpaired frame has no cross-product comparison.
     """
 
     reference_selected = _comparable_records(reference_records)
@@ -393,7 +395,7 @@ def _comparison_pairs(
     target_active = _phase_records(target_selected, "active")
     pairs = [
         _ComparisonPair("active", reference, target)
-        for reference, target in zip(reference_active, target_active)
+        for reference, target in zip(reference_active, target_active, strict=False)
     ]
     reference_final = _last_phase_record(reference_selected, "final")
     target_final = _last_phase_record(target_selected, "final")
@@ -407,7 +409,7 @@ def _comparison_pairs(
             reference,
             target,
         )
-        for reference, target in zip(reference_selected, target_selected)
+        for reference, target in zip(reference_selected, target_selected, strict=False)
     ]
 
 

@@ -840,7 +840,8 @@ def _separator_rows(rows: Iterable[str]) -> list[int]:
 
 
 def _input_row(separator_rows: list[int]) -> int | None:
-    for previous, current in zip(separator_rows, separator_rows[1:]):
+    # Shifted inputs intentionally differ by one to visit each adjacent pair.
+    for previous, current in zip(separator_rows, separator_rows[1:], strict=False):
         if current - previous == 2:
             return previous + 1
     if separator_rows:

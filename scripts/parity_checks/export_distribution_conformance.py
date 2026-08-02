@@ -159,7 +159,8 @@ def run_gate() -> list[Check]:
             and entries[0]["parentId"] is None
             and all(
                 current["parentId"] == previous["id"]
-                for previous, current in zip(entries, entries[1:])
+                # The shifted input is shorter by one so only adjacent links pair.
+                for previous, current in zip(entries, entries[1:], strict=False)
             )
         )
         jsonl_blob = json.dumps(lines)

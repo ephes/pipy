@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pipy_harness.native.terminal_compare import compare_screen_metrics
+from pipy_harness.native.terminal_compare import (
+    _comparison_pairs,
+    compare_screen_metrics,
+)
 
 
 def _write_jsonl(path: Path, records: list[dict]) -> None:
@@ -53,6 +56,32 @@ def _record(
     if visual_regions is not None:
         record["visual_regions"] = visual_regions
     return record
+
+
+def test_comparison_pairs_truncate_unequal_sample_streams() -> None:
+    reference_active = [
+        {"phase": "active", "sample": "reference-1"},
+        {"phase": "active", "sample": "reference-2"},
+    ]
+    target_active = [{"phase": "active", "sample": "target-1"}]
+
+    active_pairs = _comparison_pairs(reference_active, target_active)
+
+    assert [(pair.phase, pair.reference, pair.target) for pair in active_pairs] == [
+        ("active", reference_active[0], target_active[0])
+    ]
+
+    reference_fallback = [
+        {"phase": "startup", "sample": "reference-1"},
+        {"phase": "startup", "sample": "reference-2"},
+    ]
+    target_fallback = [{"phase": "startup", "sample": "target-1"}]
+
+    fallback_pairs = _comparison_pairs(reference_fallback, target_fallback)
+
+    assert [(pair.phase, pair.reference, pair.target) for pair in fallback_pairs] == [
+        ("startup", reference_fallback[0], target_fallback[0])
+    ]
 
 
 def test_compare_screen_metrics_writes_row_column_delta_artifacts(

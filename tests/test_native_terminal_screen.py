@@ -9,6 +9,7 @@ from typing import TextIO, cast
 
 from pipy_harness.native.terminal_screen import (
     TerminalScreen,
+    _input_row,
     analyze_frame_files,
     parse_ansi_screen,
 )
@@ -42,6 +43,11 @@ def _ui(tmp_path: Path) -> tuple[ToolLoopTerminalUi, _TtyBuffer]:
         ),
         terminal,
     )
+
+
+def test_input_row_preserves_shifted_adjacent_pair_iteration() -> None:
+    assert _input_row([0, 4, 6, 11]) == 5
+    assert _input_row([3, 8, 14]) == 4
 
 
 def test_terminal_screen_tracks_cursor_clear_and_cell_attributes() -> None:
