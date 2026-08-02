@@ -44,6 +44,7 @@ from pipy_harness.native.extension_hooks import (
 from pipy_harness.native.extension_runtime import (
     ActivatedExtension,
     ExtensionActivationBatch,
+    GenerationMessageRetirement,
     GenerationMessageRouting,
     QueuedCustomMessage,
     QueuedUserMessage,
@@ -227,7 +228,11 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
         message_outbox=second_outbox,
         custom_message_outbox=second_custom_outbox,
     )
-    ctl.extension_generation = SessionExtensionGeneration(second_runtime, {})
+    ctl.extension_generation = SessionExtensionGeneration(
+        second_runtime,
+        {},
+        build_test_projection(second_runtime, {}, queue_mutex=ctl.generation_ref.lock),
+    )
 
     assert adapter.extension_message_outbox is second_outbox
     assert adapter.extension_custom_message_outbox is second_custom_outbox
@@ -247,19 +252,24 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
     ]
 
 
-def _generation(tmp_path: Path, label: str) -> SessionExtensionGeneration:
-    return SessionExtensionGeneration(
-        _runtime_from_batch(tmp_path, message_outbox=[], custom_message_outbox=[]),
-        {"mode": label},
+def _generation(
+    tmp_path: Path, label: str, mutex: threading.RLock | None = None
+) -> SessionExtensionGeneration:
+    runtime = _runtime_from_batch(tmp_path, message_outbox=[], custom_message_outbox=[])
+    projection = (
+        None
+        if mutex is None
+        else build_test_projection(runtime, {"mode": label}, queue_mutex=mutex)
     )
+    return SessionExtensionGeneration(runtime, {"mode": label}, projection)
 
 
-def test_generation_ref_publishes_a_new_identity_and_returns_the_retired_value(
+def test_generation_ref_publishes_projected_and_refuses_projectionless_values(
     tmp_path: Path,
 ) -> None:
     first = _generation(tmp_path, "first")
-    second = _generation(tmp_path, "second")
     ref = SessionGenerationRef(first)
+    second = _generation(tmp_path, "second", ref.lock)
 
     before = ref.snapshot()
     assert before.generation is first
@@ -271,6 +281,10 @@ def test_generation_ref_publishes_a_new_identity_and_returns_the_retired_value(
     assert after.generation is second
     assert after.generation_id != before.generation_id
 
+    with pytest.raises(ValueError, match="projection is unavailable"):
+        ref.publish(_generation(tmp_path, "invalid"))
+    assert ref.snapshot() == after
+
 
 def test_a_snapshot_does_not_follow_a_later_publication(tmp_path: Path) -> None:
     """An operation reads one generation for its whole duration."""
@@ -279,7 +293,7 @@ def test_a_snapshot_does_not_follow_a_later_publication(tmp_path: Path) -> None:
     ref = SessionGenerationRef(first)
     held = ref.snapshot()
 
-    ref.publish(_generation(tmp_path, "second"))
+    ref.publish(_generation(tmp_path, "second", ref.lock))
 
     assert held.generation is first
     assert held.generation.flag_values == {"mode": "first"}
@@ -346,7 +360,7 @@ def test_the_gate_stays_open_across_the_pointer_swap(tmp_path: Path) -> None:
     """
 
     ref = SessionGenerationRef(_generation(tmp_path, "first"))
-    second = _generation(tmp_path, "second")
+    second = _generation(tmp_path, "second", ref.lock)
 
     with ref.publishing():
         ref.publish(second)
@@ -663,7 +677,9 @@ def test_uninstalled_retire_is_a_direct_fallback_noop_and_mismatches_refuse(
         {"customType": "direct", "content": "still-custom"}
     )
     assert (
-        owner.route_drain(lambda: pytest.fail("uninstalled route handled drain"))
+        owner.route_drain(
+            lambda *_batch: pytest.fail("uninstalled route handled drain")
+        )
         is False
     )
     assert [message.content for message in runtime.outbox] == ["still-direct"]
@@ -780,7 +796,7 @@ def test_release_is_two_batches_or_failure_terminalizes_without_successor_effect
         host.send_user_message("late-drop")
         assert queues.release_pending_route() == 0
         assert runtime.message_routing.route_drain(
-            lambda: pytest.fail("retired drain callback ran")
+            lambda *_batch: pytest.fail("retired drain callback ran")
         )
         assert queues.retire_route() == queues.retire_route() == ()
         assert mutex.acquire(timeout=1)
@@ -792,9 +808,15 @@ def test_release_is_two_batches_or_failure_terminalizes_without_successor_effect
             include_default_extensions=False,
         )
         ref = SessionGenerationRef(SessionExtensionGeneration(runtime, {}), lock=mutex)
-        ref.publish(SessionExtensionGeneration(successor, {}))
+        ref.publish(
+            SessionExtensionGeneration(
+                successor,
+                {},
+                build_test_projection(successor, {}, queue_mutex=mutex),
+            )
+        )
         host.send_user_message("post-publish-drop")
-        assert runtime.message_routing.route_drain(lambda: None)
+        assert runtime.message_routing.route_drain(lambda *_batch: None)
         assert runtime.message_routing.retire() == ()
         gate.release(token)
         assert gate.drain(token)
@@ -811,8 +833,11 @@ def test_renderer_uses_one_snapshot_while_direct_custom_stays_unconditional(
     mutex = threading.RLock()
     first = _rich_runtime(tmp_path, "renderer-first", mutex=mutex)
     first.outbox[:] = [QueuedUserMessage("first", {})]
-    ref = SessionGenerationRef(SessionExtensionGeneration(first, {}), lock=mutex)
-    queues = _projection(first).queues
+    projection = _projection(first)
+    ref = SessionGenerationRef(
+        SessionExtensionGeneration(first, {}, projection), lock=mutex
+    )
+    queues = projection.queues
     gate = OrderedDeliveryGate(mutex)
     queues.install_candidate_route(gate)
     snapshots: list[SessionGenerationSnapshot] = []
@@ -849,9 +874,148 @@ def test_renderer_uses_one_snapshot_while_direct_custom_stays_unconditional(
     queues.retire_route()
     assert renderer.extension_send_message("retired", "direct", False, {}) == "entry"
     second = _rich_runtime(tmp_path, "renderer-second", mutex=mutex)
-    ref.publish(SessionExtensionGeneration(second, {}))
+    second.outbox.append(QueuedUserMessage("legacy", {}))
+    projectionless = SessionGenerationSnapshot(
+        SessionExtensionGeneration(second, {}), 1
+    )
+    with pytest.raises(RuntimeError, match="has no projection"):
+        replace(
+            renderer, generation_snapshot=lambda: projectionless
+        ).drain_extension_outboxes()
+    assert len(snapshots) == 1 and second.outbox
+    state.extension_message_outbox = second.outbox
+    state.extension_custom_message_outbox = second.custom_outbox
+    replace(renderer, generation_snapshot=None).drain_extension_outboxes()
+    assert second.outbox == []
+
+
+def test_cancelled_pipy_tool_call_writer_racing_drain_is_not_erased_or_locked(
+    tmp_path: Path,
+) -> None:
+    mutex = threading.RLock()
+    runtime = _rich_runtime(tmp_path, "live-drain-race", mutex=mutex)
+    runtime.outbox.clear()
+    runtime.custom_outbox.clear()
+    projection = _projection(runtime)
+    gate = OrderedDeliveryGate(mutex)
+    projection.queues.install_candidate_route(gate)
+    with gate.reserve() as token:
+        assert projection.queues.release_pending_route() == 0
+        gate.release(token)
+        assert gate.drain(token)
+    runtime.outbox.append(QueuedUserMessage("before-drain", {}))
+    ref = SessionGenerationRef(
+        SessionExtensionGeneration(runtime, {}, projection), lock=mutex
+    )
+    sink_entered = threading.Event()
+    release_sink = threading.Event()
+    delivered: list[str] = []
+
+    class BlockingInputQueue:
+        def enqueue_extension_prompt(self, content: Any) -> None:
+            delivered.append(content.value)
+            if len(delivered) == 1:
+                sink_entered.set()
+                assert release_sink.wait(1)
+
+    state = SimpleNamespace(
+        session_tree=SimpleNamespace(),
+        extension_renderer_map={},
+        extension_entry_renderer_map={},
+        extension_message_outbox=runtime.outbox,
+        extension_custom_message_outbox=runtime.custom_outbox,
+        extension_in_agent_turn=False,
+    )
+    renderer = _CustomEntryRenderer(
+        session=SimpleNamespace(_emit_diagnostic=lambda *_args: None),
+        ctl=state,
+        terminal_ui=None,
+        coding_input_queue=cast(Any, BlockingInputQueue()),
+        error_stream=sys.stderr,
+        generation_snapshot=ref.snapshot,
+    )
+    drain = threading.Thread(target=renderer.drain_extension_outboxes)
+    drain.start()
+    assert sink_entered.wait(1)
+
+    writer = threading.Thread(
+        target=lambda: runtime.activation_hosts[0].send_user_message("racing-writer"),
+        name="pipy-tool-call",
+    )
+    writer.start()
+    writer.join(1)
+    assert not writer.is_alive(), "sink delivery retained the session mutex"
+    assert [message.content for message in runtime.outbox] == ["racing-writer"]
+
+    release_sink.set()
+    drain.join(1)
+    assert not drain.is_alive()
+    assert delivered == ["before-drain"]
     renderer.drain_extension_outboxes()
-    assert len(snapshots) == 2
+    assert delivered == ["before-drain", "racing-writer"]
+    assert runtime.outbox == []
+
+
+def test_live_private_outbox_mismatch_and_retirement_refuse_every_send_name(
+    tmp_path: Path,
+) -> None:
+    mutex = threading.RLock()
+    runtime = _rich_runtime(tmp_path, "closed-live", mutex=mutex)
+    runtime.outbox.clear()
+    runtime.custom_outbox.clear()
+    projection = _projection(runtime)
+    gate = OrderedDeliveryGate(mutex)
+    projection.queues.install_candidate_route(gate)
+    with gate.reserve() as token:
+        assert projection.queues.release_pending_route() == 0
+        gate.release(token)
+        assert gate.drain(token)
+
+    host = runtime.activation_hosts[0]
+    mismatched_user: list[QueuedUserMessage] = []
+    mismatched_custom: list[QueuedCustomMessage] = []
+    host._outbox, host._custom_outbox = mismatched_user, mismatched_custom
+    sends = (
+        lambda: host.send_user_message("user"),
+        lambda: host.send_message({"customType": "snake", "content": "custom"}),
+        lambda: host.sendMessage({"customType": "alias", "content": "alias"}),
+    )
+    assert [send() for send in sends] == [None, None, None]
+    with mutex:
+        assert runtime.message_routing._state == "live"
+    assert (
+        mismatched_user
+        == mismatched_custom
+        == runtime.outbox
+        == runtime.custom_outbox
+        == []
+    )
+
+    class Payload:
+        pass
+
+    host._outbox, host._custom_outbox = runtime.outbox, runtime.custom_outbox
+    payload = Payload()
+    release_lock_states: list[bool] = []
+    lock_owned = cast(Callable[[], bool], getattr(mutex, "_is_owned"))
+    weakref.finalize(payload, lambda: release_lock_states.append(lock_owned()))
+    host.send_user_message("held", {"payload": payload})
+    del payload
+    retirement = GenerationMessageRetirement()
+    with mutex:
+        projection.queues.message_routing.mark_retired_locked(retirement)
+        assert runtime.outbox and retirement.user_outbox is runtime.outbox
+        assert retirement.gate is gate and release_lock_states == []
+    retired = retirement.finalize_retirement()
+    assert runtime.outbox == [] and gate in retired and release_lock_states == []
+    assert [send() for send in sends] == [None, None, None]
+    assert runtime.outbox == runtime.custom_outbox == []
+    assert runtime.message_routing.route_drain(
+        lambda *_batch: pytest.fail("closed queue delivered")
+    )
+    del retired
+    gc.collect()
+    assert release_lock_states == [False]
 
 
 def test_chrome_projection_carries_the_exact_r2_handle(tmp_path: Path) -> None:
@@ -2414,7 +2578,7 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
         for path in root.rglob("*.py")
     }
     watched = set(
-        "accept submit route_drain _bind_session_mutex _install_candidate_route install_candidate_route release_pending release_pending_route retire retire_route _accept_message_route _commit_activation".split()
+        "accept submit route_drain _bind_session_mutex _install_candidate_route install_candidate_route release_pending release_pending_route retire retire_route mark_retired_locked finalize_retirement _accept_message_route _commit_activation".split()
     )
     constructors = set(
         "GenerationMessageRouting SessionGenerationRef _CustomEntryRenderer".split()
@@ -2438,8 +2602,10 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
     actual_calls = " ".join(f"{name}={calls.count(name)}" for name in sorted(watched))
     assert actual_calls == (
         "_accept_message_route=2 _bind_session_mutex=3 _commit_activation=2 "
-        "_install_candidate_route=1 accept=2 install_candidate_route=2 release_pending=1 "
-        "release_pending_route=0 retire=2 retire_route=3 route_drain=1 submit=2"
+        "_install_candidate_route=1 accept=2 finalize_retirement=2 "
+        "install_candidate_route=2 mark_retired_locked=2 release_pending=1 "
+        "release_pending_route=0 retire=1 retire_route=2 "
+        "route_drain=1 submit=2"
     )
     built = {
         name: [

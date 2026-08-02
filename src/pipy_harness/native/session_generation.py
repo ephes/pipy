@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_runtime import (
+    GenerationMessageRetirement,
     GenerationMessageRouting,
     HookHandler,
     RegisteredCommand,
@@ -141,12 +142,11 @@ def balance_startup_candidate(
 
 @dataclass(frozen=True, slots=True)
 class GenerationQueueHandle(Generic[_T]):
-    """Unconsumed R3a handle for one candidate generation outbox.
+    """One generation outbox's exact storage and session mutex.
 
-    The list identity intentionally remains shared with the candidate runtime so
-    R4a can move append/drain/close atomically without changing delivery
-    semantics.  R3a defines no queue operation and no production caller reaches
-    this handle.
+    The list identity remains shared with the runtime. Live append, detach/drain,
+    and retirement close are serialized by ``GenerationMessageRouting`` under
+    this exact mutex; sink delivery and detached cleanup happen after unlock.
     """
 
     storage: list[_T]
@@ -236,7 +236,7 @@ class ExtensionQueueProjection:
     def release_pending_route(self) -> int:
         return self.message_routing.release_pending()
 
-    def retire_route(self) -> tuple[Callable[[], None], ...]:
+    def retire_route(self) -> tuple[object, ...]:
         return self.message_routing.retire()
 
 
@@ -1070,13 +1070,8 @@ class SessionGenerationRef:
     def snapshot(self) -> SessionGenerationSnapshot:
         """Take one consistent view for the whole of an operation.
 
-        Not yet adopted by the composition root, which still reads
-        :attr:`current` per access. That is sound *today* only because the sole
-        publisher is `/reload`, which runs on the session thread: there is no
-        concurrent writer for a multi-read operation to interleave with. It
-        stops being sound the moment a detached worker can publish, so the
-        consumer conversion is required by the slice that introduces
-        generation-bound mutation ports, not deferred past it.
+        R4a command/request/session-gate dispatch and live outbox drain consume
+        this value once per operation. Other projection families move in R4b/R4c.
         """
 
         with self._lock:
@@ -1100,6 +1095,8 @@ class SessionGenerationRef:
         whole publication.
         """
 
+        if generation.projection is None:
+            raise ValueError("extension generation projection is unavailable")
         generation.runtime.message_routing._bind_session_mutex(self._lock)
         with self._lock:
             return self.publish_locked(generation)
@@ -1107,6 +1104,8 @@ class SessionGenerationRef:
     def publish_locked(
         self, generation: SessionExtensionGeneration
     ) -> SessionExtensionGeneration:
+        if generation.projection is None:
+            raise ValueError("extension generation projection is unavailable")
         retired = self._generation
         self._generation = generation
         self._generation_id += 1
@@ -1125,6 +1124,8 @@ class SessionGenerationRef:
         renderer: Any,
         emitter: Any,
     ) -> str | None:
+        if generation.projection is None:
+            return "extension generation projection is unavailable"
         strategy = (factory := effects.provider_factory.value)[0]
         catalog = provider_state.model_runtime.catalog if provider_state else None
         overlay = effects.provider_catalog.value
@@ -1137,10 +1138,11 @@ class SessionGenerationRef:
         usage, capability = effects.coding_usage.value, effects.capability.value
         renderers, hooks, flags = effects.temporary_legacy.value
         retired: list[object | None] = [None] * 20  # Preallocate; release after unlock.
+        route_retirement = GenerationMessageRetirement()
         if not publish_candidate_ownership(candidate):
             return "extension candidate ownership is unavailable"
         with self._lock:
-            owner = (old := self._generation).runtime.message_routing
+            owner = self._generation.runtime.message_routing
             auth_store = None if catalog is None else catalog.auth_store
             matches = (
                 tool_capabilities._state is expected_capability
@@ -1169,11 +1171,7 @@ class SessionGenerationRef:
             if auth_store is not None:
                 retired[10] = auth_store._data
             retired[0] = self.publish_locked(generation)
-            retired[1] = (
-                old.projection.queues.retire_route()
-                if old.projection is not None
-                else owner.retire()
-            )
+            owner.mark_retired_locked(route_retirement)
             if provider_state is not None and catalog is not None:
                 retired[2] = catalog.extension_providers
                 retired[3] = catalog.extension_unregistered_providers
@@ -1202,6 +1200,7 @@ class SessionGenerationRef:
             retired[17], renderer._tool_renderers = renderer._tool_renderers, renderers
             retired[18], emitter._lifecycle_hooks = emitter._lifecycle_hooks, hooks
             retired[19], emitter._lifecycle_flags = emitter._lifecycle_flags, flags
+        retired[1] = route_retirement.finalize_retirement()
         del retired
         return None
 

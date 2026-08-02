@@ -315,12 +315,13 @@ successfully stay applied when that extension candidate rejects. R0 formally
 retains that sequential configuration-refresh behavior: manager values stay
 independently immutable/locked and run-control resources are not fields of the
 extension generation. RPC's main dispatcher has no settings/keybinding/resource
-reference; its session worker runs the same serial loop. The provider-header
-worker currently reads only the run-local `project_trusted` scalar through the
-manager, and R4a must capture that scalar with the request snapshot. External
-callers may retain an injected manager, so the narrowing relies on manager-local
-synchronization, not on claiming that no external manager surface exists. R3
-therefore builds no settings/resource projection and R4a consumes none.
+reference; its session worker runs the same serial loop. Each provider request
+rebuilds its header callback from the current generation hooks and current
+session tree, and copies run-local `project_trusted`, so a retained callback
+holds no `SettingsManager`. External callers may retain
+an injected manager, so the narrowing relies on manager-local synchronization,
+not on claiming that no external manager surface exists. R3 builds no settings,
+keybinding, or resource projection and R4a consumes none.
 
 `SessionExtensionGeneration` now carries the live runtime and flags together
 with R3a's installed `ExtensionProjection` and inert chrome token. The builder copies
@@ -400,22 +401,32 @@ and attached FIFO—is read or written only under the exact session mutex shared
 by `SessionGenerationRef` and the queue handles. The installed lifecycle is
 `candidate -> releasing -> live`, with retirement possible from any installed
 state. Acceptance in `candidate` or `releasing` appends only to the attached
-FIFO; live acceptance detaches an immutable claim with a strong reference to
-its exact generation-owned gate/storage. Retirement and publication are bounded
-constant-time, nonblocking state changes: while holding the mutex they may only
-mark retired, swap/detach owner and FIFO references, and publish pointers. They
-never wait, yield, sleep, perform I/O, call a callback or arbitrary sink, or
-temporarily unlock/relock to wait for an active claim or reservation. A claim
-that linearized before retirement may finish after unlock only against detached
-old-generation gate/storage; it cannot enqueue into, deliver into, publish to,
-or otherwise affect the successor. A claim that linearizes after retirement
-silently fails closed. This pre-retirement claim is the sole permitted delivery
-into detached retired-generation state; no post-retirement claim may enter it.
+FIFO; live acceptance consults the exact generation-owned gate and performs its
+final closed-check+append under the same session mutex used by drain and close.
+Retirement and publication are bounded constant-time, nonblocking state changes:
+while holding the mutex they may only mark retired, capture and detach gate/FIFO/
+active-storage references into a preallocated `GenerationMessageRetirement`, and
+publish pointers. They never allocate or traverse queue contents, clear storage,
+release a detached reference, wait, yield, sleep, perform I/O, call a callback or
+arbitrary sink, or temporarily unlock/relock to wait.
+`SessionGenerationRef.accept_prepared_reload()` invokes only that assignment-only
+mark phase while its outer session-mutex section is held, then explicitly
+finalizes after the outer block. The direct retirement wrapper follows the same
+split around its own acquisition; startup and rejection callers use that wrapper.
+Unlocked finalization copies retention values, clears the exact runtime-owned
+list identities, and releases detached references. Stable routing accessors still
+expose those constructor-validated identities for fail-closed host checks; only
+their active routing references were detached. Retirement
+winning before a live callback's final append makes that callback silently drop.
+The preserved exception is an already-detached candidate-release prefix: it may
+finish only against old-generation storage and cannot affect the successor. No
+post-retirement activation call may enter retired storage.
 
 The generation routing owner strongly owns its exact `OrderedDeliveryGate` and
 queue storage while attached. Held old snapshots, detached release batches,
-already-submitted gate callbacks, and in-flight pre-retirement claims each retain
-the old owner or an immutable handle to that exact old-generation state. It is
+already-submitted gate callbacks, and in-flight claims each retain the old owner
+or an immutable handle to that exact old-generation state until they finish or
+observe closure. It is
 reclaimable only after retirement has detached it from the live reference,
 attached pending work has been detached for post-unlock drop, and all such
 strong references are gone. Retirement does not transfer mutable-state
@@ -476,17 +487,19 @@ and nonraising and cannot affect a successor generation.
 
 R3c2 defines the typed optional `SessionGenerationSnapshot` provider seam for
 the custom renderer, and R3c3 wires the one renderer directly to
-`SessionGenerationRef.snapshot`. When installed, each drain operation takes at most
-one coherent snapshot and resolves the owner from
-`snapshot.generation.runtime.message_routing`, never from separately reread
-outboxes. Durable direct custom tree/render/input delivery remains outside
+`SessionGenerationRef.snapshot`. R4a now makes each installed drain take exactly
+one coherent snapshot, resolve its queue projection and routing owner from that
+snapshot, and atomically detach both live outboxes under the session mutex before
+unlocked delivery. Durable direct custom tree/render/input delivery remains outside
 routing retirement and always calls `_deliver_custom_message()` directly with
 its existing R1 return value, unlocked. It does not consult routing in R3c2;
 only drain may perform the nonraising typed coherent routing side effect.
 Unavailable, uninstalled, mismatched, or retired routing therefore cannot
-suppress or alter direct delivery. When the provider/snapshot is unavailable,
-drain fallback remains direct and nonraising without pretending to consult
-installed routing state.
+suppress or alter direct delivery. The legacy/harness seam with no snapshot
+provider remains direct and nonraising. Once a provider is installed, its one
+snapshot must contain the published projection; provider failure, `None`, or a
+projection-less generation raises before touching either outbox rather than
+falling through to an unsynchronized direct drain.
 
 `ExtensionQueueProjection.install_candidate_route()`, `release_pending_route()`,
 and `retire_route()` are the validated lifecycle API. R3c3 supplies the
@@ -688,8 +701,15 @@ with behavior-neutrality limited to its ordinary uninstalled R1 path. R3c3 now
 production-wires the coherent renderer snapshot provider and composes R3a/R3b
 through R3c1a–R3c1c and R3c2 into the atomically published generation/owner
 snapshot; installed retirement races fail closed.
-All production consumers still read
-`generation_ref.current` per access even though `snapshot()` exists. R1 now
+R4a command, shortcut, input, before-agent, before-provider, tool-result, and
+session-gate operations now each take one `SessionGenerationRef.snapshot()` and
+use its immutable command/hook/flag projection throughout. Product startup
+refuses a projection-less generation before candidate ownership transfer, and
+reload acceptance does the same before candidate-host publication or any active
+state change. Projection-less construction remains a low-level legacy/harness
+shape only and never triggers direct runtime fallback. Tool execution,
+renderer selection, provider contribution, menu/lifecycle, and chrome consumers
+remain bounded to R4b/R4c rather than rereading through this adapter. R1 now
 owns activation registration with one candidate-host guard over every staged
 registry/message, flag value/failure, `_activated`, and the one-way candidate
 open→sealed→committed→published/disposed transitions plus the accepted-catalog
@@ -753,8 +773,9 @@ activation commit releases the candidate guard before its still-list-backed queu
 append. R3b/R3c3 own authoritative staged-message detach, flush, and delivery
 ordering. Shipped R3c2 makes send paths consult their explicitly supplied owner
 and defines the drain owner's typed snapshot-provider seam; R3c3 now wires its
-sole production provider. Unavailable/uninstalled drain routing stays R1-direct,
-never raises, and does not claim an installed-state consultation. Durable direct custom tree/render/input delivery always retains
+sole production provider. The no-provider legacy/harness seam and an
+uninstalled route stay R1-direct and nonraising; after provider installation a
+missing snapshot/projection does not claim or bypass installed routing. Durable direct custom tree/render/input delivery always retains
 its R1 behavior regardless of unavailable, uninstalled, mismatched, or retired
 routing and does not consult routing; only typed coherent drain consultation may
 affect queue/drain side effects and is nonraising. An accepted post-seal send first claims host eligibility and binds
@@ -768,8 +789,10 @@ its detached old-generation gate/storage, with no effect on the successor.
 R3c3 installs the candidate route before
 replacement `session_start`, then atomically publishes/installs the complete
 generation/owner pointer, so matching post-freeze sends queue while a retirement
-race loses nonraising—a delta unavailable to ordinary retained pending hosts. R4a later
-synchronizes live append/drain/close and must not reimplement that staged flush. R1 does not publish the queue sidecar early.
+race loses nonraising—a delta unavailable to ordinary retained pending hosts.
+R4a preserves that candidate/gate sequence and now serializes only later live
+closed-check+append, detach/drain, and retirement close. R1 does not publish the
+queue sidecar early.
 Current activation still has
 no timeout—`extension_loader._drive_awaitable()` joins its private worker
 without one—and R1 added no timeout policy. R2 removed the pre-validation live
@@ -799,10 +822,11 @@ API to append directly to a generation outbox while the session/RPC-session
 worker's `_CustomEntryRenderer.drain_extension_outboxes()` copies and clears the
 same list. R3 owns generation queue-sidecar values, R3c2 owns the installable
 send/drain routing seam, and R3b/R3c3 own the authoritative staged activation
-detach/flush/delivery sequence. R4a later converts accepted/live
+detach/flush/delivery sequence. R4a now makes accepted live
 `_ActivationApi.send_user_message()` and `send_message()`/its alias plus the live
-drain/close paths so the session mutex serializes closed-check+append,
-detach/drain, and close; it does not repeat the staged flush. Accepted staged
+drain/close paths use the same session mutex for closed-check+append, atomic
+detach, and close; it does not repeat the staged flush. Delivery and detached
+cleanup occur after unlock. Accepted staged
 activation custom messages bypass `custom_outbox` and call
 `_CustomEntryRenderer.extension_send_message()` directly. That method is also
 the `ExtensionCodingSessionControl` custom-message target; the control is not a
@@ -816,14 +840,15 @@ existing per-run `mutation_io_lock` plus a condition into one coding-effect
 coordinator whose exclusive/reentrant owner lease serializes retained effects,
 plus active-tree pointer access, every mutable tree/input owner method, durable
 order, and terminal teardown. Provider/render work runs unlocked; durable tree append alone holds the
-coordinator lock across I/O. A closed activation send silently returns its
-existing `None` with no diagnostic. Closing a retired handle changes no
-observable delivery—the live
-adapter already stops draining the retired list. R4a is nevertheless a
-user-visible correctness slice because it prevents a live racing append from
-being erased; its future changelog entry must describe that loss fix without
-claiming retired handles become deliverable. It does not invent ids, retry
-cursors, deduplication, or queue-capacity semantics.
+coordinator lock across I/O. A rejected or retired activation send silently
+returns its existing `None` with no diagnostic or queue accumulation. The same
+fail-closed result applies if a private/stale host outbox no longer matches its
+constructor-validated routing owner: reservation is refused while only the host
+guard is held, and route accessors take no session mutex. Closing a retired
+handle changes no observable delivery—the live adapter already stopped draining
+that list. R4a is user-visible because a live racing append can no longer be
+erased. It does not make retired handles deliverable or invent ids,
+retry cursors, deduplication, or queue-capacity semantics.
 
 Reload uses two separate `generation_ref.publishing()` sections rather than one
 gate around the whole operation. Configuration/package/resource recomposition,
@@ -1150,13 +1175,13 @@ C901-pinned file. The load-bearing summary is:
   the complete reconciled transaction. R1 shipped the guarded sealed/disposed
   candidate activation host, R2 shipped rejected-candidate retained-chrome/
   listener staging and post-acceptance reconciliation, and R3a shipped only the
-  detached immutable construction values and pure adapters. Production does not
-  call or install them. Generation snapshots are not adopted by production
-  operations; mutation ports are not generation-bound; a cancelled extension-
-  tool worker can race the session outbox copy/clear and lose its append; a
-  retained coding-session control can race live tree/input use and reorder
-  durable JSONL; and tool, renderer, lifecycle, provider, menu, retained-chrome,
-  and queue projections still publish separately. Current activation has no
+  detached immutable construction values and pure adapters, and R3c3 now installs
+  them. R4a has adopted one-snapshot command/request/session-gate operations and
+  synchronized live outbox append/drain/close, but mutation ports are not yet
+  generation-bound; a retained coding-session control can still race live
+  tree/input use and reorder durable JSONL; and tool execution, renderer,
+  lifecycle, provider, menu, and retained-chrome consumers remain for R4b/R4c.
+  Current activation has no
   timeout; R1's shipped seal/disposal is
   future-timeout-safe without selecting a timeout policy;
 - `set_model` persists a default part-way through its mutation, so its
@@ -1177,10 +1202,10 @@ C901-pinned file. The load-bearing summary is:
   observable bytes and offsets own sequencing.
 
 R0 reconciled the bounded contract, R1 shipped candidate registration sealing,
-R2 shipped candidate retained-chrome/listener staging, R3a shipped detached
-immutable projection construction, and R3b shipped detached reload-effect and
-ordered-delivery definitions without changing a runtime caller or behavior. R3
-remains incomplete. The one-shot R3c plan was non-executable because it excluded
+R2 shipped candidate retained-chrome/listener staging, R3a/R3b shipped detached
+projection/effect foundations, and R3c1a–R3c3 completed their owner ports,
+routing, and production composition. The former one-shot R3c plan was
+non-executable because it excluded
 the real `_ActivationApi` owner while requiring gate consultation there, and the
 provider catalog, coding session, and `NativeReplProviderState` selection/
 pending-default owner lacked the required detached prepare/non-fallible publish
@@ -1205,12 +1230,15 @@ The full usage accumulator owner ports are shipped in R3c1b with no production
 caller; catalog/auth refresh now ships in R3c1c, also without a production
 caller. R3c2's routing seam and R3c3's production composition now ship: startup/reload
 install one projection/routing owner, reload performs one owner-checked aggregate
-publication, and the renderer receives the exact generation snapshot provider.
-Unavailable fallback stays direct and nonraising. Durable direct custom tree/render/input delivery always retains
+publication, and the renderer receives the exact generation snapshot provider. The
+no-provider legacy/harness fallback stays direct and nonraising; an installed
+provider requires a projected generation. Durable direct custom tree/render/input delivery always retains
 R1 behavior even when routing is uninstalled or retired; only queue/drain side
 effects may consult routing. Installed activation-send publication races obey
-guarded acceptance/detach or nonraising drop. No registry discovery or second renderer-visible pointer exists. The next
-architecture action is **R4a — snapshot command/request operations and live
-outboxes**; ordinary product-parity selection remains blocked through R7.
-R3c3's two documented deltas are recorded in the changelog.
+guarded acceptance/detach or nonraising drop. No registry discovery or second renderer-visible pointer exists. R4a now ships
+coherent command/request/session-gate snapshots, request-local provider trust,
+and synchronized live queue append/detach/close. The next architecture action is
+**R4b — snapshot tool, renderer, and provider projections**; ordinary
+product-parity selection remains blocked through R7. R3c3's two documented
+deltas and R4a's live-message loss fix are recorded in the changelog.
 That is not a verdict that the broader program failed.

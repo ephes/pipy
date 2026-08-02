@@ -42,7 +42,7 @@ from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
-from typing import Any, ClassVar, TextIO, cast
+from typing import Any, ClassVar, Literal, TextIO, cast
 
 from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
@@ -272,11 +272,14 @@ from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_runtime import (
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
+    BeforeAgentStartResult,
     ExtensionCapabilityError,
     ExtensionCodingSessionControl,
+    ExtensionCommandDispatch,
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
     HookHandler,
+    SessionDecision,
     ExtensionActivationBatch,
     QueuedCustomMessage,
     QueuedUserMessage,
@@ -293,6 +296,7 @@ from pipy_harness.native.extension_runtime import (
     normalize_shortcut_key,
     parse_extension_flag_tokens,
 )
+from pipy_harness.native.extension_types import CustomComponentDriver
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
@@ -644,6 +648,232 @@ class _ExtensionCustomEntryRunState:
         return self.ctl.extension_in_agent_turn
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _ProviderHeaderRequestSnapshot:
+    """Detached provider-worker callback inputs for one request."""
+
+    hooks: tuple[HookHandler, ...]
+    flags: Mapping[str, object]
+    cwd: str
+    has_ui: bool
+    notify_sink: Callable[[str, str], None] | None
+    ui_driver: ExtensionUiDriver | None
+    session_tree: NativeSessionTree
+    project_trusted: bool
+
+    def __call__(self, headers: MutableMapping[str, str | None]) -> None:
+        dispatch_before_provider_headers_hooks(
+            self.hooks,
+            headers,
+            cwd=self.cwd,
+            has_ui=self.has_ui,
+            notify_sink=self.notify_sink,
+            ui_driver=self.ui_driver,
+            flags=self.flags,
+            session_tree=self.session_tree,
+            project_trusted=self.project_trusted,
+        )
+
+
+_SessionHookFamily = Literal["switch", "fork", "compact", "tree"]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _SessionExtensionOperations:
+    """Take one published projection snapshot for each R4a operation."""
+
+    generation_ref: SessionGenerationRef
+    cwd: str
+    has_ui: bool
+    notify_sink: Callable[[str, str], None] | None
+    ui_driver: ExtensionUiDriver | None
+    project_trusted: bool
+
+    def _projection(self) -> ExtensionProjection:
+        snapshot = self.generation_ref.snapshot()
+        projection = snapshot.generation.projection
+        if projection is None:
+            raise RuntimeError("published extension generation has no projection")
+        return projection
+
+    def dispatch_command(
+        self,
+        command_text: str,
+        *,
+        coding_session: ExtensionCodingSessionControl,
+        ui_custom_driver: CustomComponentDriver | None,
+        model_runtime: ExtensionModelRuntimeControl,
+    ) -> ExtensionCommandDispatch | None:
+        projection = self._projection()
+        return dispatch_extension_command(
+            command_text,
+            projection.commands.commands,
+            cwd=self.cwd,
+            has_ui=self.has_ui,
+            coding_session=coding_session,
+            notify_sink=self.notify_sink,
+            ui_custom_driver=ui_custom_driver,
+            ui_driver=self.ui_driver,
+            model_runtime=model_runtime,
+            flags=projection.runtime_flags.values,
+            project_trusted=self.project_trusted,
+        )
+
+    def dispatch_shortcut(
+        self,
+        key: str,
+        *,
+        coding_session: ExtensionCodingSessionControl,
+        ui_custom_driver: CustomComponentDriver | None,
+        model_runtime: ExtensionModelRuntimeControl,
+    ) -> ExtensionCommandDispatch | None:
+        projection = self._projection()
+        return dispatch_extension_shortcut(
+            key,
+            projection.commands.shortcuts,
+            cwd=self.cwd,
+            has_ui=self.has_ui,
+            coding_session=coding_session,
+            notify_sink=self.notify_sink,
+            ui_custom_driver=ui_custom_driver,
+            ui_driver=self.ui_driver,
+            model_runtime=model_runtime,
+            flags=projection.runtime_flags.values,
+            project_trusted=self.project_trusted,
+        )
+
+    def dispatch_input(
+        self, text: str, *, model_runtime: ExtensionModelRuntimeControl
+    ) -> str:
+        projection = self._projection()
+        return dispatch_input_hooks(
+            projection.hooks.input,
+            text,
+            cwd=self.cwd,
+            has_ui=self.has_ui,
+            notify_sink=self.notify_sink,
+            ui_driver=self.ui_driver,
+            model_runtime=model_runtime,
+            project_trusted=self.project_trusted,
+        )
+
+    def dispatch_before_agent_start(
+        self,
+        system_prompt: str,
+        *,
+        model_runtime: ExtensionModelRuntimeControl,
+    ) -> BeforeAgentStartResult:
+        projection = self._projection()
+        return dispatch_before_agent_start_hooks(
+            projection.hooks.before_agent_start,
+            cwd=self.cwd,
+            has_ui=self.has_ui,
+            system_prompt=system_prompt,
+            notify_sink=self.notify_sink,
+            ui_driver=self.ui_driver,
+            model_runtime=model_runtime,
+            flags=projection.runtime_flags.values,
+            project_trusted=self.project_trusted,
+        )
+
+    def prepare_provider_request(
+        self,
+        policy_input: AgentProviderRequestPolicyInput,
+        *,
+        model_runtime: ExtensionModelRuntimeControl,
+    ) -> AgentProviderRequestSnapshot:
+        projection = self._projection()
+        return prepare_provider_request(
+            policy_input,
+            projection.hooks.before_provider_request,
+            NativeProviderRequestHookContext(
+                cwd=self.cwd,
+                has_ui=self.has_ui,
+                notify_sink=self.notify_sink,
+                ui_driver=self.ui_driver,
+                model_runtime=model_runtime,
+                flags=projection.runtime_flags.values,
+                project_trusted=self.project_trusted,
+            ),
+        )
+
+    def provider_header_callback(
+        self, session_tree: NativeSessionTree
+    ) -> Callable[[MutableMapping[str, str | None]], None] | None:
+        projection = self._projection()
+        hooks = projection.hooks.before_provider_headers
+        if not hooks:
+            return None
+        return _ProviderHeaderRequestSnapshot(
+            hooks=hooks,
+            flags=projection.runtime_flags.values,
+            cwd=self.cwd,
+            has_ui=self.has_ui,
+            notify_sink=self.notify_sink,
+            ui_driver=self.ui_driver,
+            session_tree=session_tree,
+            project_trusted=self.project_trusted,
+        )
+
+    def transform_tool_result(
+        self,
+        *,
+        tool_name: str,
+        content: ProductContent,
+        is_error: bool,
+        model_runtime: ExtensionModelRuntimeControl,
+    ) -> ProductContent:
+        projection = self._projection()
+        hooks = projection.hooks.tool_result
+        if not hooks:
+            return content
+        return ProductContent(
+            dispatch_tool_result_hooks(
+                hooks,
+                tool_name=tool_name,
+                content=content.value,
+                is_error=is_error,
+                cwd=self.cwd,
+                has_ui=self.has_ui,
+                notify_sink=self.notify_sink,
+                ui_driver=self.ui_driver,
+                model_runtime=model_runtime,
+                flags=projection.runtime_flags.values,
+                project_trusted=self.project_trusted,
+            )
+        )
+
+    def session_allows(
+        self,
+        family: _SessionHookFamily,
+        *,
+        operation: str,
+        target: str | None = None,
+        trigger: str | None = None,
+        model_runtime: ExtensionModelRuntimeControl,
+    ) -> SessionDecision:
+        projection = self._projection()
+        hooks = {
+            "switch": projection.hooks.session_before_switch,
+            "fork": projection.hooks.session_before_fork,
+            "compact": projection.hooks.session_before_compact,
+            "tree": projection.hooks.session_before_tree,
+        }[family]
+        return dispatch_session_before_hooks(
+            hooks,
+            operation=operation,
+            cwd=self.cwd,
+            has_ui=self.has_ui,
+            target=target,
+            trigger=trigger,
+            notify_sink=self.notify_sink,
+            ui_driver=self.ui_driver,
+            model_runtime=model_runtime,
+            flags=projection.runtime_flags.values,
+            project_trusted=self.project_trusted,
+        )
+
+
 _SESSION_COMMAND_ACTIONS = frozenset(
     {
         CodingCommandAction.SHOW_SESSION_STATUS,
@@ -753,11 +983,7 @@ class _SessionCommandEffects:
 
     def _execute_new(self) -> None:
         # Start a fresh native product session in the same store.
-        if self.extension_session_allows(
-            self.ctl.extension_generation.runtime.session_before_switch_hooks,
-            operation="switch",
-            target="new",
-        ):
+        if self.extension_session_allows("switch", operation="switch", target="new"):
             session_dir = (
                 self.ctl.session_tree.path.parent
                 if self.ctl.session_tree.path is not None
@@ -784,9 +1010,7 @@ class _SessionCommandEffects:
             not argument and self.terminal_ui is not None
         ) or tree_sub in {"select", "label", "filter"}
         tree_allowed = not tree_may_change or self.extension_session_allows(
-            self.ctl.extension_generation.runtime.session_before_tree_hooks,
-            operation="tree",
-            target=argument or None,
+            "tree", operation="tree", target=argument or None
         )
         if tree_allowed:
             tree_outcome = self.session._handle_tree_command(
@@ -868,9 +1092,7 @@ class _SessionCommandEffects:
         ):
             self.diag("pipy: already on the selected native session.")
         elif self.extension_session_allows(
-            self.ctl.extension_generation.runtime.session_before_switch_hooks,
-            operation="switch",
-            target=str(picked_session),
+            "switch", operation="switch", target=str(picked_session)
         ):
             self._open_session(picked_session)
 
@@ -922,9 +1144,7 @@ class _SessionCommandEffects:
         if target is None:
             self.diag(f"pipy: no native session matched {argument!r}.")
         elif self.extension_session_allows(
-            self.ctl.extension_generation.runtime.session_before_switch_hooks,
-            operation="switch",
-            target=str(target),
+            "switch", operation="switch", target=str(target)
         ):
             self._open_session(target)
 
@@ -977,9 +1197,7 @@ class _SessionCommandEffects:
         else:
             fork_leaf = self.ctl.session_tree.get_leaf_id()
         if fork_target_resolved and self.extension_session_allows(
-            self.ctl.extension_generation.runtime.session_before_fork_hooks,
-            operation="fork",
-            target=fork_leaf,
+            "fork", operation="fork", target=fork_leaf
         ):
             forked_tree = NativeSessionTree.fork_from(
                 self.ctl.session_tree.path,
@@ -1840,6 +2058,7 @@ class _ProviderMutationEffects:
 
     session: NativeToolReplSession
     ctl: _RunControlState
+    extension_operations: _SessionExtensionOperations
     coding_state: CodingSessionState
     product_session: CodingProductSessionCoordinator
     terminal_ui: ToolLoopTerminalUi | None
@@ -2205,17 +2424,11 @@ class _ProviderMutationEffects:
         result is orphaned because the cut is at a user-message boundary.
         """
 
-        decision = dispatch_session_before_hooks(
-            self.ctl.extension_generation.runtime.session_before_compact_hooks,
+        decision = self.extension_operations.session_allows(
+            "compact",
             operation="compact",
-            cwd=str(self.cwd),
-            has_ui=self.terminal_ui is not None,
             trigger=trigger,
-            notify_sink=self.extension_notify,
-            ui_driver=self.extension_ui_driver,
             model_runtime=self.model_runtime_control(),
-            flags=self.ctl.extension_generation.flag_values,
-            project_trusted=self.settings.project_trusted,
         )
         if not decision.allow:
             reason = decision.reason or "blocked by extension"
@@ -2316,6 +2529,7 @@ class _ReplLoopStep:
         provider_turn_executor: ProviderTurnExecutor,
         usage_publisher: NativeAgentUsagePublisher,
         extension_ui_driver: _LiveExtensionUiDriver | None,
+        extension_operations: _SessionExtensionOperations,
         diag: Callable[[str], None],
         coding_footer_text: Callable[[], str],
         refresh_legacy_footer_with_usage: Callable[[], None],
@@ -2432,18 +2646,11 @@ class _ReplLoopStep:
             # continue. Covered by
             # test_shortcut_send_user_message_triggers_a_turn.
             shortcut_key = command_text[len(HOTKEY_EXTENSION_SHORTCUT_PREFIX) :]
-            shortcut_dispatch = dispatch_extension_shortcut(
+            shortcut_dispatch = extension_operations.dispatch_shortcut(
                 shortcut_key,
-                ctl.extension_generation.runtime.shortcuts,
-                cwd=str(cwd),
-                has_ui=terminal_ui is not None,
                 coding_session=coding_session_control(),
-                notify_sink=_extension_notify,
                 ui_custom_driver=_extension_custom_driver,
-                ui_driver=extension_ui_driver,
                 model_runtime=model_runtime,
-                flags=ctl.extension_generation.flag_values,
-                project_trusted=settings.project_trusted,
             )
             if (
                 shortcut_dispatch is not None
@@ -2556,15 +2763,8 @@ class _ReplLoopStep:
         # system-prompt context ride the returned turn and never enter
         # the metadata-only workflow archive.
         def _transform_accepted_input(prompt: str) -> str:
-            return dispatch_input_hooks(
-                ctl.extension_generation.runtime.input_hooks,
-                prompt,
-                cwd=str(cwd),
-                has_ui=terminal_ui is not None,
-                notify_sink=_extension_notify,
-                ui_driver=extension_ui_driver,
-                model_runtime=model_runtime,
-                project_trusted=settings.project_trusted,
+            return extension_operations.dispatch_input(
+                prompt, model_runtime=model_runtime
             )
 
         def _resolve_accepted_file_references(
@@ -2591,16 +2791,8 @@ class _ReplLoopStep:
             )
 
         def _accepted_system_prompt_suffix(base_prompt: str) -> str | None:
-            before_agent_result = dispatch_before_agent_start_hooks(
-                ctl.extension_generation.runtime.before_agent_start_hooks,
-                cwd=str(cwd),
-                has_ui=terminal_ui is not None,
-                system_prompt=base_prompt,
-                notify_sink=_extension_notify,
-                ui_driver=extension_ui_driver,
-                model_runtime=model_runtime,
-                flags=ctl.extension_generation.flag_values,
-                project_trusted=settings.project_trusted,
+            before_agent_result = extension_operations.dispatch_before_agent_start(
+                base_prompt, model_runtime=model_runtime
             )
             return before_agent_result.append_system_prompt
 
@@ -2928,6 +3120,7 @@ class _SessionCollaborators:
 
     session: NativeToolReplSession
     ctl: _RunControlState
+    extension_operations: _SessionExtensionOperations
     coding_state: CodingSessionState
     product_session: CodingProductSessionCoordinator
     coding_input_queue: CodingInputQueue
@@ -3049,9 +3242,7 @@ class _SessionCollaborators:
         """Apply the extension session-switch gate for an import source."""
 
         return self.extension_session_allows(
-            self.ctl.extension_generation.runtime.session_before_switch_hooks,
-            operation="switch",
-            target=target,
+            "switch", operation="switch", target=target
         )
 
     def reload_command_effects(
@@ -3104,24 +3295,18 @@ class _SessionCollaborators:
 
     def extension_session_allows(
         self,
-        hooks: Sequence[HookHandler],
+        family: _SessionHookFamily,
         *,
         operation: str,
         target: str | None = None,
         trigger: str | None = None,
     ) -> bool:
-        decision = dispatch_session_before_hooks(
-            hooks,
+        decision = self.extension_operations.session_allows(
+            family,
             operation=operation,
-            cwd=str(self.cwd),
-            has_ui=self.terminal_ui is not None,
             target=target,
             trigger=trigger,
-            notify_sink=self.extension_notify,
-            ui_driver=self.extension_ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(),
-            flags=self.ctl.extension_generation.flag_values,
-            project_trusted=self.settings.project_trusted,
         )
         if decision.allow:
             return True
@@ -3190,44 +3375,18 @@ class _SessionCollaborators:
             return None
         return (result.final_text or "").strip() or None
 
-    def dispatch_extension_provider_headers(
-        self, headers: MutableMapping[str, str | None]
-    ) -> None:
-        dispatch_before_provider_headers_hooks(
-            self.ctl.extension_generation.runtime.before_provider_headers_hooks,
-            headers,
-            cwd=str(self.cwd),
-            has_ui=self.terminal_ui is not None,
-            notify_sink=self.extension_notify,
-            ui_driver=self.extension_ui_driver,
-            flags=self.ctl.extension_generation.flag_values,
-            session_tree=self.ctl.session_tree,
-            project_trusted=self.settings.project_trusted,
-        )
-
     def active_provider_header_callback(
         self,
     ) -> Callable[[MutableMapping[str, str | None]], None] | None:
-        if not self.ctl.extension_generation.runtime.before_provider_headers_hooks:
-            return None
-        return self.dispatch_extension_provider_headers
+        return self.extension_operations.provider_header_callback(self.ctl.session_tree)
 
     def prepare_agent_provider_request(
         self, policy_input: AgentProviderRequestPolicyInput
     ) -> AgentProviderRequestSnapshot:
-        return prepare_provider_request(
+        return self.extension_operations.prepare_provider_request(
             policy_input,
-            self.ctl.extension_generation.runtime.before_provider_request_hooks,
-            NativeProviderRequestHookContext(
-                cwd=str(self.cwd),
-                has_ui=self.terminal_ui is not None,
-                notify_sink=self.extension_notify,
-                ui_driver=self.extension_ui_driver,
-                model_runtime=self.provider_mutation.model_runtime_control(
-                    allow_model=False
-                ),
-                flags=self.ctl.extension_generation.flag_values,
-                project_trusted=self.settings.project_trusted,
+            model_runtime=self.provider_mutation.model_runtime_control(
+                allow_model=False
             ),
         )
 
@@ -3255,24 +3414,14 @@ class _SessionCollaborators:
     def transform_extension_tool_result(
         self, call: AgentToolCall, result: AgentToolResultMessage
     ) -> ProductContent:
-        if not self.ctl.extension_generation.runtime.tool_result_hooks:
-            return result.content
-        transformed = dispatch_tool_result_hooks(
-            self.ctl.extension_generation.runtime.tool_result_hooks,
+        return self.extension_operations.transform_tool_result(
             tool_name=call.tool_name,
-            content=result.content.value,
+            content=result.content,
             is_error=result.is_error,
-            cwd=str(self.cwd),
-            has_ui=self.terminal_ui is not None,
-            notify_sink=self.extension_notify,
-            ui_driver=self.extension_ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(
                 allow_model=False
             ),
-            flags=self.ctl.extension_generation.flag_values,
-            project_trusted=self.settings.project_trusted,
         )
-        return ProductContent(transformed)
 
     def dispatch_resource_effect(
         self, command_text: str
@@ -3301,18 +3450,11 @@ class _SessionCollaborators:
     def dispatch_extension_effect(
         self, command_text: str
     ) -> ExtensionDispatchResolution | None:
-        extension_dispatch = dispatch_extension_command(
+        extension_dispatch = self.extension_operations.dispatch_command(
             command_text,
-            self.ctl.extension_generation.runtime.commands,
-            cwd=str(self.cwd),
-            has_ui=self.terminal_ui is not None,
             coding_session=self.coding_session_control(),
-            notify_sink=self.extension_notify,
             ui_custom_driver=self.extension_custom_driver,
-            ui_driver=self.extension_ui_driver,
             model_runtime=self.provider_mutation.model_runtime_control(),
-            flags=self.ctl.extension_generation.flag_values,
-            project_trusted=self.settings.project_trusted,
         )
         if extension_dispatch is None:
             return None
@@ -3782,7 +3924,9 @@ class NativeToolReplSession:
             safe_message = "\n".join(
                 sanitize_label_text(line) for line in str(message).splitlines()
             )
-            self._emit_diagnostic(terminal_ui, error_stream, safe_message)
+            NativeToolReplSession._emit_diagnostic(
+                terminal_ui, error_stream, safe_message
+            )
 
         extension_ui_driver = (
             _LiveExtensionUiDriver(terminal_ui, cwd)
@@ -3828,12 +3972,17 @@ class NativeToolReplSession:
                 else None
             ),
         )
-        startup_gate = OrderedDeliveryGate(session_state_lock)
-        startup_projection.queues.install_candidate_route(startup_gate)
-        staged = FrozenStagedDeliveryBatch.freeze((), extension_runtime.custom_messages)
         extension_generation = SessionExtensionGeneration(
             extension_runtime, extension_flag_values, startup_projection
         )
+        if (published_projection := extension_generation.projection) is None:
+            message = "extension generation projection is unavailable"
+            print(f"pipy: {message}", file=error_stream)
+            return self._fail_startup(coding_state, "ExtensionActivationError", message)
+        startup_projection = published_projection
+        startup_gate = OrderedDeliveryGate(session_state_lock)
+        startup_projection.queues.install_candidate_route(startup_gate)
+        staged = FrozenStagedDeliveryBatch.freeze((), extension_runtime.custom_messages)
         generation_ref = SessionGenerationRef(
             extension_generation, lock=session_state_lock
         )
@@ -4164,6 +4313,15 @@ class NativeToolReplSession:
             except RuntimeError:
                 pass
 
+        extension_operations = _SessionExtensionOperations(
+            generation_ref=ctl.generation_ref,
+            cwd=str(cwd),
+            has_ui=terminal_ui is not None,
+            notify_sink=_extension_notify,
+            ui_driver=extension_ui_driver,
+            project_trusted=settings.project_trusted,
+        )
+
         # The provider/model/auth/compaction mutation effects live in the
         # `_ProviderMutationEffects` handler, built after `product_session`/`footer`
         # exist; it reaches the run's mutable control state through the shared `ctl`
@@ -4171,6 +4329,7 @@ class NativeToolReplSession:
         provider_mutation = _ProviderMutationEffects(
             session=self,
             ctl=ctl,
+            extension_operations=extension_operations,
             coding_state=coding_state,
             product_session=product_session,
             terminal_ui=terminal_ui,
@@ -4195,6 +4354,7 @@ class NativeToolReplSession:
         collaborators = _SessionCollaborators(
             session=self,
             ctl=ctl,
+            extension_operations=extension_operations,
             coding_state=coding_state,
             product_session=product_session,
             coding_input_queue=coding_input_queue,
@@ -4320,6 +4480,7 @@ class NativeToolReplSession:
                 provider_turn_executor=provider_turn_executor,
                 usage_publisher=usage_publisher,
                 extension_ui_driver=extension_ui_driver,
+                extension_operations=extension_operations,
                 diag=collaborators.diag,
                 coding_footer_text=footer.coding_footer_text,
                 refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,

@@ -640,6 +640,9 @@ _RegistrationFamily: TypeAlias = Literal[
     "entry_renderer",
 ]
 _MessageDelivery: TypeAlias = Callable[[], None]
+_DrainedMessageDelivery: TypeAlias = Callable[
+    [tuple[QueuedUserMessage, ...], tuple[QueuedCustomMessage, ...]], None
+]
 _DeliveryValue = TypeVar("_DeliveryValue")
 _RLOCK_TYPE = type(threading.RLock())
 
@@ -655,7 +658,35 @@ class GenerationMessageReservation:
     owner: "GenerationMessageRouting"
     delivery: _MessageDelivery
     forwarding: _MessageDelivery
+    live_forwarding: _MessageDelivery
     allow_uninstalled_fallback: bool
+
+
+@dataclass(slots=True)
+class GenerationMessageRetirement:
+    """References detached by the locked mark phase and finalized unlocked."""
+
+    pending: deque[_MessageDelivery] | None = None
+    gate: OrderedMessageDeliveryGate | None = None
+    user_outbox: list[QueuedUserMessage] | None = None
+    custom_outbox: list[QueuedCustomMessage] | None = None
+
+    def finalize_retirement(self) -> tuple[object, ...]:
+        pending, gate = self.pending, self.gate
+        user_outbox, custom_outbox = self.user_outbox, self.custom_outbox
+        self.pending = self.gate = self.user_outbox = self.custom_outbox = None
+        if user_outbox is None:
+            return ()
+        retained = (
+            (() if pending is None else tuple(pending))
+            + (() if gate is None else (gate,))
+            + tuple(user_outbox)
+            + (() if custom_outbox is None else tuple(custom_outbox))
+        )
+        user_outbox.clear()
+        if custom_outbox is not None:
+            custom_outbox.clear()
+        return retained
 
 
 class GenerationMessageRouting:
@@ -673,6 +704,8 @@ class GenerationMessageRouting:
             raise TypeError("generation message routing mutex must be an RLock")
         self._user_outbox = user_outbox
         self._custom_outbox = custom_outbox
+        self._attached_user_outbox: list[QueuedUserMessage] | None = user_outbox
+        self._attached_custom_outbox: list[QueuedCustomMessage] | None = custom_outbox
         self._mutex = mutex
         self._boundary_observer = boundary_observer
         self._state: Literal[
@@ -743,7 +776,7 @@ class GenerationMessageRouting:
             elif self._state == "live":
                 if self._gate is None:
                     raise RuntimeError("live message route has no delivery gate")
-                claim = (self._gate, reservation.forwarding)
+                claim = (self._gate, reservation.live_forwarding)
         if direct:
             self._observe("direct_fallback")
             reservation.delivery()
@@ -801,25 +834,56 @@ class GenerationMessageRouting:
             self._state = "live"
             return prefix_count + len(tail)
 
-    def retire(self) -> tuple[_MessageDelivery, ...]:
+    def _append_live_user(self, message: QueuedUserMessage) -> None:
+        with self._locked():
+            if self._state == "live" and self._attached_user_outbox is not None:
+                self._attached_user_outbox.append(message)
+
+    def _append_live_custom(self, message: QueuedCustomMessage) -> None:
+        with self._locked():
+            if self._state == "live" and self._attached_custom_outbox is not None:
+                self._attached_custom_outbox.append(message)
+
+    def _deliver_live_drain(self, delivery: _DrainedMessageDelivery) -> None:
+        with self._locked():
+            user_outbox = self._attached_user_outbox
+            custom_outbox = self._attached_custom_outbox
+            if self._state != "live" or user_outbox is None or custom_outbox is None:
+                return
+            user_messages = tuple(user_outbox)
+            custom_messages = tuple(custom_outbox)
+            user_outbox.clear()
+            custom_outbox.clear()
+        self._observe("ordered_forwarding")
+        delivery(user_messages, custom_messages)
+
+    def mark_retired_locked(self, retirement: GenerationMessageRetirement) -> None:
+        """Mark and detach by assignments only; the caller owns the session mutex."""
+
+        if self._state == "uninstalled" or self._attached_user_outbox is None:
+            return
+        retirement.pending = self._pending
+        retirement.gate = self._gate
+        retirement.user_outbox = self._attached_user_outbox
+        retirement.custom_outbox = self._attached_custom_outbox
+        self._state = "retired"
+        self._pending = self._gate = None
+        self._attached_user_outbox = self._attached_custom_outbox = None
+
+    def retire(self) -> tuple[object, ...]:
         if self._mutex is None:
             return ()
+        retirement = GenerationMessageRetirement()
         with self._locked():
-            if self._state in ("uninstalled", "retired"):
-                pending = None
-            else:
-                self._state = "retired"
-                pending, self._pending = self._pending, None
-                self._gate = None
-        return () if pending is None else tuple(pending)
+            self.mark_retired_locked(retirement)
+        return retirement.finalize_retirement()
 
-    def route_drain(self, delivery: _MessageDelivery) -> bool:
+    def route_drain(self, delivery: _DrainedMessageDelivery) -> bool:
         if self._mutex is None:
             return False
 
         def forwarding() -> None:
-            self._observe("ordered_forwarding")
-            delivery()
+            self._deliver_live_drain(delivery)
 
         claim: tuple[OrderedMessageDeliveryGate, _MessageDelivery] | None = None
         with self._locked():
@@ -839,7 +903,8 @@ def _reserved_message_delivery(
     owner: GenerationMessageRouting,
     target: list[_DeliveryValue],
     message: _DeliveryValue,
-) -> tuple[_MessageDelivery, _MessageDelivery]:
+    append_live: Callable[[_DeliveryValue], None],
+) -> tuple[_MessageDelivery, _MessageDelivery, _MessageDelivery]:
     def deliver() -> None:
         target.append(message)
 
@@ -847,7 +912,11 @@ def _reserved_message_delivery(
         owner._observe("ordered_forwarding")
         deliver()
 
-    return deliver, forward
+    def forward_live() -> None:
+        owner._observe("ordered_forwarding")
+        append_live(message)
+
+    return deliver, forward, forward_live
 
 
 _RegistrationValue: TypeAlias = (
@@ -1534,7 +1603,7 @@ def extension_shortcuts(
 
 def dispatch_extension_command(
     command_text: str,
-    command_map: dict[str, RegisteredCommand],
+    command_map: Mapping[str, RegisteredCommand],
     *,
     cwd: str,
     has_ui: bool,
@@ -1585,7 +1654,7 @@ def dispatch_extension_command(
 
 def dispatch_extension_shortcut(
     key: str,
-    shortcut_map: dict[str, RegisteredShortcut],
+    shortcut_map: Mapping[str, RegisteredShortcut],
     *,
     cwd: str,
     has_ui: bool,
@@ -2058,26 +2127,34 @@ class _ActivationApi:
                 else:
                     self._staged_custom_messages.append(message)
                 reservation = None
-            elif self._message_route_authority is not None and self._state in (
-                "sealed",
-                "committed",
-                "published",
+            elif (
+                self._message_route_authority is not None
+                and self._state in ("sealed", "committed", "published")
+                and self._message_routing.user_outbox is self._outbox
+                and self._message_routing.custom_outbox is self._custom_outbox
             ):
                 allow_fallback = (
                     self._state in ("committed", "published") and self._activated
                 )
                 if isinstance(message, QueuedUserMessage):
-                    delivery, forwarding = _reserved_message_delivery(
-                        self._message_routing, self._outbox, message
+                    delivery, forwarding, live_forwarding = _reserved_message_delivery(
+                        self._message_routing,
+                        self._outbox,
+                        message,
+                        self._message_routing._append_live_user,
                     )
                 else:
-                    delivery, forwarding = _reserved_message_delivery(
-                        self._message_routing, self._custom_outbox, message
+                    delivery, forwarding, live_forwarding = _reserved_message_delivery(
+                        self._message_routing,
+                        self._custom_outbox,
+                        message,
+                        self._message_routing._append_live_custom,
                     )
                 reservation = GenerationMessageReservation(
                     self._message_routing,
                     delivery,
                     forwarding,
+                    live_forwarding,
                     allow_fallback,
                 )
             else:

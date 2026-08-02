@@ -334,12 +334,21 @@ the override before reservation. A non-string, empty/whitespace-only, or
 slash-containing
 `unregister_provider(...)` argument records and raises the same
 `invalid_provider` activation failure as invalid provider registration; it is
-not silently ignored. Runtime message sending keeps its existing return shape
-and is governed separately from
-contribution registration. Messages staged before the activation host seals are
-committed from that one frozen snapshot; a send racing after seal while
-activation is still pending silently returns `None` and has no effect. Accepted
-handlers continue to send through their runtime queues after activation commit.
+not silently ignored. Runtime message sending keeps its existing `None` return shape and is governed
+separately from contribution registration. Messages staged before the activation
+host seals are committed from that one frozen snapshot; a send racing after seal
+while activation is still pending silently returns `None` and has no effect.
+Accepted handlers send through their generation queue while it is live. Live
+append and drain serialize under the session mutex, so a concurrent drain cannot
+erase a writer that lands between copying and clearing. Once a candidate is
+rejected or a live generation is retired, retained `api.send_user_message(...)`,
+`api.send_message(...)`, and `api.sendMessage(...)` calls silently return `None`,
+emit no diagnostic, and accumulate nothing; only the live generation drains.
+The same silent refusal applies if an internal retained host no longer matches
+its constructor-validated routing outboxes.
+This closed-queue rule does not apply to command-context `ctx.send_message(...)`,
+which targets the durable session tree/render/input sinks rather than a generation
+outbox.
 
 A provider-only catalog harvest detaches its immutable provider and
 unregistration outputs, then finalizes each accepted activation host into a

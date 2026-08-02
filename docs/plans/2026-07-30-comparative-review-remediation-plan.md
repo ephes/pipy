@@ -194,8 +194,8 @@ delivery always retains R1 behavior even when routing is uninstalled or retired;
 only queue/drain side effects may consult routing. This is an explicitly
 authorized plan-boundary revision: R3c2 defines the seam because the prior
 construction-time port could not execute coherently across publication; R3c3,
-not R3c2, wires it in production. R4a retains only later live append/detach/
-drain/close conversion.
+not R3c2, wires it in production. R4a has since shipped only the later live
+append/detach/drain/close conversion.
 **R3c3** now ships as the first production installer and user-visible effect
 boundary, composing the shipped R3a/R3b values through all four foundations. R3
 is complete; R3a, R3b, and R3c1a–R3c3 are shipped facts. For the historical R3c2 shipment, no startup or reload path installed the candidate route, so
@@ -1153,14 +1153,24 @@ callbacks, or candidate-host guard acquisition. All other callbacks, sinks,
 I/O, direct delivery, rendering, commit flush, prefix submission, ordered
 forwarding/delivery, and detached-value release remain unlocked.
 
-Retirement remains constant-time/nonblocking under the session mutex.
-Retirement while `uninstalled` is a nonfallible no-op preserving lifecycle,
-exact outbox identities, and later direct R1 append/custom behavior. If it wins
-while prefix submission is unlocked, it marks `retired`, detaches/drops the
-attached tail, and returns without waiting. Phase 2 observes `retired`, does not
-submit the dropped tail, does not flip live, and stops. The already-detached
-pre-retirement prefix may finish only against detached old-generation storage
-and cannot affect the newly published generation.
+Retirement remains constant-time/nonblocking under the session mutex. A
+`GenerationMessageRetirement` is allocated before acquisition; the mutex section
+only marks `retired` and captures/detaches gate/FIFO/active-storage references by
+assignment, with no allocation, traversal, clear, or detached-reference release.
+`accept_prepared_reload()` invokes only that mark phase inside its existing outer
+publication section and explicitly finalizes after the outer block. The direct
+wrapper uses the same mark/finalize split around its own acquisition. Unlocked
+finalization retains the pending FIFO, gate, and old list values, clears the exact
+runtime-owned list identities, and releases detached references; stable owner
+accessors preserve the constructor identities used by fail-closed host checks.
+Retirement while
+`uninstalled` is a nonfallible no-op preserving lifecycle, exact outbox
+identities, and later direct R1 append/custom behavior. If it wins while prefix
+submission is unlocked, it marks `retired`, detaches/drops the attached tail,
+and returns without waiting. Phase 2 observes `retired`, does not submit the
+dropped tail, does not flip live, and stops. The already-detached pre-retirement
+prefix may finish only against detached old-generation storage and cannot affect
+the newly published generation.
 
 Injected `append_reserved()` failure has deterministic terminal cleanup. Phase
 1 reacquires the mutex exactly once, terminalizes/detaches any still-attached
@@ -1180,8 +1190,8 @@ delivery lies outside routing retirement and always calls
 `_deliver_custom_message()` with its existing R1 return value, unlocked. It
 does not consult routing in R3c2; only drain may perform a nonraising typed
 coherent routing side effect. Unavailable, uninstalled, mismatched, or retired
-routing cannot suppress or alter direct delivery. Unavailable-provider drain
-fallback remains direct and nonraising.
+routing cannot suppress or alter direct delivery. The no-provider
+legacy/harness drain fallback remains direct and nonraising.
 Defining this seam is the authorized move from R4a; production adoption belongs
 to R3c3.
 
@@ -1213,7 +1223,7 @@ wiring is empty; R3c3 updates it when installing the route.
 **Acceptance:** exact tests cover the uninstalled/default path, post-freeze
 user/custom names and alias, every ineligible host refusal, exact owner/list/
 mutex identity, idempotent valid composition, the production-unwired typed
-renderer-provider seam plus honest unavailable fallback, and absence of every
+renderer-provider seam plus honest no-provider fallback, and absence of every
 forbidden registry or identity-discovery form. Barrier tests cover send versus
 disposal and both route linearizations around installation/retirement:
 retirement-first/mismatch/closed activation routing claims silently drop; a pre-
@@ -1276,11 +1286,13 @@ unlocked first; one later uninterrupted session-mutex acquisition checks every
 expected owner before its first write, then commits every session publication
 write without unlocking. A second
 renderer-visible pointer or later owner/outbox rebind is forbidden. The
-publication/retirement section is bounded constant-time and nonblocking: it
-marks the old owner retired, swaps out its attached pending FIFO for post-unlock
-drop, detaches the old owner, and changes the renderer-visible generation/owner.
-It never waits, yields, sleeps, performs I/O, invokes callbacks/sinks, or
-unlocks/relocks to wait for active claims or reservations. Displaced-generation
+publication/retirement section is bounded constant-time and nonblocking: using a
+preallocated receipt, it marks the old owner retired, detaches its gate/FIFO/
+active-storage references by assignment, and changes the renderer-visible
+generation/owner. It never copies or clears queue storage, releases a detached
+reference, waits, yields, sleeps, performs I/O, invokes callbacks/sinks, or
+unlocks/relocks to wait. The receipt is explicitly finalized only after that
+outer mutex block. Displaced-generation
 snapshots and pre-retirement detached work retain only exact detached old-
 generation state and cannot reopen routing or affect the successor.
 R3c3 preserves the same three-phase boundary established by R3c1c. The exact
@@ -1296,7 +1308,7 @@ time, allocation-free owner identity/token comparisons before the first session
 write → on a match, perform only constant-time route retirement/pointer
 publication plus generation/chrome-token/temporary-legacy assignments and call
 only explicitly vetted non-fallible owner publishers without unlocking → unlock
-→ frozen staged delivery → release phase 1
+→ finalize retired queue retention/copy/clear/release → frozen staged delivery → release phase 1
 transitions `candidate -> releasing`, detaches the finite prefix under the mutex,
 and submits it through the exact `OrderedDeliveryGate` unlocked → release phase
 2 reacquires the mutex exactly once, submits the finite attached tail through
@@ -1455,15 +1467,23 @@ clears live retained TUI chrome before activation” record both deltas. Commit:
 
 ### R4a — snapshot command/request operations and live outboxes
 
+**Status:** shipped in the intended same change as its code and documentation;
+R4b is active/next.
+
 **Kind:** user-visible concurrency correctness: coherent snapshots and no erased
 live queue append; retired-handle close does not add delivery semantics.
 
 **Scope:** Convert extension command, shortcut, input, before-agent,
 before-provider, tool-result, and session-gate dispatch to take one published
-R3c3 snapshot at operation start and use its runtime, flags, and queue sidecars
-throughout. R3c2 already defines the narrow `_CustomEntryRenderer` typed
-snapshot-provider seam and R3c3 wires it; R4a only converts its later live
-detach/drain synchronization. Convert accepted/live
+R3c3 snapshot at operation start and use its runtime, historically supplied
+flags, and queue sidecars throughout. Input hooks retain their exact flag-less
+call shape, and no-hook tool-result dispatch retains the original
+`ProductContent` identity. R3c2 already defines the narrow
+`_CustomEntryRenderer` typed snapshot-provider seam and R3c3 wires it; R4a only
+converts its later live detach/drain synchronization. Snapshot-backed operations
+require the published projection; only the legacy/harness renderer seam with no
+provider keeps direct fallback, so an installed provider never bypasses routing
+on failure, `None`, or a projection-less generation. Convert accepted/live
 `_ActivationApi.send_user_message()` and `send_message()`/`sendMessage()`
 writers plus only that drain synchronization. R3b already
 defines, and R3c3 already installs and invokes, the authoritative ordered gate/
@@ -1471,12 +1491,16 @@ token, frozen staged-message sequencer, and direct-sink delivery; these existing
 producer/drain hooks already consult that gate. R4a must not redefine the token,
 change staged-first sequencing, or reimplement delivery. It converts only the
 same hooks' append/drain synchronization. Under the same session mutex, live
-closed-check+append, atomic detach/drain, and retirement close serialize; sink
-delivery/cleanup follow after unlock. A stale
+closed-check+append, atomic detach/drain, and retirement mark/reference-detach
+serialize; retirement copy/clear/release and sink delivery/cleanup follow only
+after the outer mutex is released. A stale
 activation-api append silently returns its existing `None` with no diagnostic or
-accumulation. Capture `project_trusted` in the provider-header request snapshot,
-removing the detached provider-worker reach into `SettingsManager`. Settings,
-keybindings, and resources remain absent from the snapshot.
+accumulation. Constructor validation pins each host/owner outbox pair; a defensive
+private mismatch silently refuses reservation under only the host guard, before
+route/session synchronization. Capture `project_trusted` in the provider-header
+request snapshot, removing the detached provider-worker reach into
+`SettingsManager`. Settings, keybindings, and resources remain absent from the
+snapshot.
 
 **Bound:** command/shortcut/input/request/session-hook dispatch, the two live
 activation send names/alias, renderer outbox detach/drain synchronization but
@@ -1492,9 +1516,23 @@ lifecycle, chrome, class-A ports,
 and the R3a builder are excluded.
 
 **Acceptance:** barriers publish between reads for every converted family and
-report one matching generation id/flags/hooks/sidecar. A retained provider-
-header callback holds no `SettingsManager`. A cancelled `pipy-tool-call` writer
-racing drain cannot append between detach and clear and be erased. Inventory
+report one matching generation id/hooks/sidecar and matching flags where that
+family historically received flags; input remains flag-less. No-hook tool-result
+dispatch retains exact `ProductContent` identity. The production route rebuilds
+each provider-header callback from the current generation hooks and current
+session tree across reload/session switch; a retained callback holds no
+`SettingsManager`. A cancelled `pipy-tool-call` writer racing
+drain cannot append between detach and clear and be erased. A production-shaped
+retirement test externally holds the session mutex, invokes only the assignment-
+only mark/reference-detach phase, and proves storage, retention, and finalizers
+remain untouched until explicit unlocked finalization. Static inventory proves
+`accept_prepared_reload()` marks the already-resolved exact old-generation
+routing owner inside its sole outer lock and finalizes afterward; it covers
+combined publication, startup-refusal, reload-refusal, failure, and idempotent
+direct paths. Startup publication and reload acceptance refuse a projection-less
+generation before candidate-host publication or any active-generation write;
+projection-less construction remains only a low-level legacy/harness shape and
+never gains a direct runtime fallback. Inventory
 covers both live activation send names/alias and the renderer drain, proves each
 retains R3c2's gate consultation, and proves R3b's token, staged sequencer, and
 direct-sink delivery are neither redefined nor reimplemented; coding-session

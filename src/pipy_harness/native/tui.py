@@ -1647,32 +1647,42 @@ class _CustomEntryRenderer:
     def drain_extension_outboxes(self) -> None:
         """Move one coherent generation's scheduled messages into session queues."""
 
-        snapshot = self._snapshot()
-        if snapshot is None:
+        if self.generation_snapshot is None:
             self._drain_extension_outboxes_direct(
                 self.ctl.extension_message_outbox,
                 self.ctl.extension_custom_message_outbox,
             )
             return
-        runtime = snapshot.generation.runtime
-        if runtime.message_routing.route_drain(
-            lambda: self._drain_extension_outboxes_direct(
-                runtime.outbox, runtime.custom_outbox
-            )
-        ):
+        snapshot = self._snapshot()
+        if snapshot is None or (projection := snapshot.generation.projection) is None:
+            raise RuntimeError("published extension generation has no projection")
+        queues = projection.queues
+        if queues.message_routing.route_drain(self._deliver_extension_outbox_batch):
             return
-        self._drain_extension_outboxes_direct(runtime.outbox, runtime.custom_outbox)
+        self._drain_extension_outboxes_direct(
+            queues.user.storage, queues.custom.storage
+        )
 
     def _drain_extension_outboxes_direct(
         self,
         user_outbox: list[QueuedUserMessage],
         custom_outbox: list[QueuedCustomMessage],
     ) -> None:
-        for message in drain_user_messages(user_outbox):
+        self._deliver_extension_outbox_batch(
+            tuple(drain_user_messages(user_outbox)),
+            tuple(drain_custom_messages(custom_outbox)),
+        )
+
+    def _deliver_extension_outbox_batch(
+        self,
+        user_messages: tuple[QueuedUserMessage, ...],
+        custom_messages: tuple[QueuedCustomMessage, ...],
+    ) -> None:
+        for message in user_messages:
             self.coding_input_queue.enqueue_extension_prompt(
                 ProductContent(message.content)
             )
-        for custom_message in drain_custom_messages(custom_outbox):
+        for custom_message in custom_messages:
             self._deliver_custom_message(custom_message)
 
 

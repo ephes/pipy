@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **R4a — snapshot command/request operations and live outboxes**
+**Active/next slice:** **R4b — snapshot tool, renderer, and provider projections**
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -99,8 +99,26 @@ remain outside its guards.
 R3 is complete through shipped R3c3. Startup and reload now build and install
 R3a projections, while reload consumes the R3b prepared-effect/gate sequence,
 R3c1 owner APIs, and R3c2 routing/snapshot seam in one accepted publication.
-R4a is next and owns later live append/detach/drain synchronization and command/
-request snapshot adoption.
+R4a is complete: command, shortcut, input, before-agent, before-provider,
+tool-result, and session-gate operations use one published projection snapshot.
+Startup and reload refuse a projection-less generation before candidate
+ownership publication or any active state change; projection-less construction
+remains a low-level legacy/harness shape only and never triggers direct runtime
+fallback.
+Input preserves its flag-less context and no-hook tool results preserve
+`ProductContent` identity. The real provider route rebuilds a header callback per
+request from the current generation hooks and current session tree; a retained
+callback holds copied trust rather than `SettingsManager`.
+The session mutex serializes live outbox append, detach/drain, and only the O(1)
+retirement mark/reference-detach phase. `accept_prepared_reload()` explicitly
+finalizes retention/copy/clear/release after its outer mutex block; direct startup
+and rejection wrappers finalize after their own acquisition, so sinks, variable
+cleanup, and finalizers remain unlocked. Snapshot-backed drains require a
+projection and never direct-fallback around an installed provider. The shipped R3b token,
+staged-first sequence, direct custom sinks, candidate preservation, and R3c3
+publication/release order are unchanged. Rejected or retired activation sends
+silently accumulate nothing, and a live append can no longer be erased by a
+concurrent drain. R4b is next.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -390,8 +408,9 @@ outside routing retirement and always calls `_deliver_custom_message()` with
 its existing R1 return value, unlocked; it does not consult routing in R3c2.
 Only drain may perform the nonraising typed coherent routing side effect, so
 unavailable, uninstalled, mismatched, or retired routing cannot suppress or
-alter direct custom delivery. Unavailable-provider drain fallback remains
-direct and nonraising. Stable explicit
+alter direct custom delivery. The no-provider legacy/harness drain fallback
+remains direct and nonraising; once a provider is installed, a missing snapshot
+or projection raises before touching an outbox rather than bypassing routing. Stable explicit
 boundary instrumentation, not `sys.settrace` or list-subclass hooks, pins these
 boundaries.
 
@@ -552,9 +571,10 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3; the mandatory
-remaining order begins with R4a. R4a later converts only live append/detach/drain/close
-synchronization and must not redefine R3b's token or staged sequence.
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a; the
+mandatory remaining order begins with R4b. R4a converted only live
+append/detach/drain/close synchronization and did not redefine R3b's token or
+staged sequence.
 R5a/R5b/R6 ownership and the class-A count of three are unchanged. Provenance
 is fixed: the R5a split brought the
 queue to 27 slices, the R3a/R3b/R3c split brought it to 29, the initial

@@ -62,6 +62,7 @@ from pipy_harness.native.tool_capabilities import (
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_loop_session import _ReloadCommandEffects
+from session_generation_test_support import build_test_projection
 
 
 def _host(
@@ -1037,7 +1038,9 @@ def test_reservation_precedes_disposal_and_retirement_drops_only_the_tail(
         releaser.start()
         assert submission_entered.wait(1)
         successor.send_user_message("attached-drop")
-        assert len(routing.retire()) == 1
+        retired = routing.retire()
+        assert len(retired) == 3  # attached tail, gate, and closed queue entry
+        assert outbox == custom == []
         successor.send_user_message("retirement-first-drop")
         release_submission.set()
         releaser.join(1)
@@ -1125,7 +1128,11 @@ def test_candidate_and_session_guards_never_nest_and_callbacks_run_unlocked() ->
 
     host = _host(outbox=[], guard=candidate_guard, boundary_observer=boundary)
     runtime = _empty_runtime(host)
-    generation = SessionExtensionGeneration(runtime=runtime, flag_values={})
+    generation = SessionExtensionGeneration(
+        runtime,
+        {},
+        build_test_projection(runtime, {}, queue_mutex=session_mutex),
+    )
     ref = SessionGenerationRef(generation, lock=session_mutex)
 
     with ref.publishing():
@@ -1894,6 +1901,10 @@ OWNERSHIP_FAILURE = "pipy: extension candidate ownership is unavailable"
     ("failure", "diagnostic"),
     (
         ("expected-owner-mismatch", "pipy: prepared reload owner state changed"),
+        (
+            "projectionless",
+            "pipy: extension generation projection is unavailable",
+        ),
         ("publish-returned-false", OWNERSHIP_FAILURE),
         ("publish-raised", OWNERSHIP_FAILURE),
     ),
@@ -1911,8 +1922,13 @@ def test_reload_acceptance_failure_keeps_previous_generation(
     live_host._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
     live_runtime = _empty_runtime(live_host)
     assert _ExtensionCandidate(live_runtime).publish() is True
-    live_generation = SessionExtensionGeneration(live_runtime, {})
-    ref = SessionGenerationRef(live_generation)
+    lock = threading.RLock()
+    live_generation = SessionExtensionGeneration(
+        live_runtime,
+        {},
+        build_test_projection(live_runtime, {}, queue_mutex=lock),
+    )
+    ref = SessionGenerationRef(live_generation, lock=lock)
 
     candidate_host = _host()
     candidate_host._seal_and_freeze(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
@@ -1974,6 +1990,19 @@ def test_reload_acceptance_failure_keeps_previous_generation(
 
         monkeypatch.setattr(
             _ExtensionCandidate, "publish", publish_then_mutate_expected_owner
+        )
+    elif failure == "projectionless":
+        monkeypatch.setattr(
+            tool_loop_session,
+            "SessionExtensionGeneration",
+            lambda runtime, flags, _projection, chrome: SessionExtensionGeneration(
+                runtime, flags, None, chrome
+            ),
+        )
+        monkeypatch.setattr(
+            _ExtensionCandidate,
+            "publish",
+            lambda _candidate: pytest.fail("projectionless candidate was published"),
         )
     elif failure == "publish-returned-false":
         monkeypatch.setattr(_ExtensionCandidate, "publish", lambda _candidate: False)
@@ -2135,7 +2164,7 @@ def test_reload_interrupt_releases_route_and_preserves_base_exception(
         effects._reload_extension_generation(candidate)
 
     installed = ref.current
-    assert installed.runtime is runtime
+    assert installed.runtime is runtime and installed.projection is not None
     routing = runtime.message_routing
     assert routing._state == "live" and routing._pending is None
     assert host._state == "published"
@@ -2180,6 +2209,9 @@ def test_reload_host_transfer_and_retired_slot_layout_are_static() -> None:
     assert len(session_sections) == 1
     section = session_sections[0]
     assert host_publications[0].lineno < section.lineno
+    assert source.index("if generation.projection is None:") < source.index(
+        "publish_candidate_ownership(candidate)"
+    )
     assert (
         "if not matches:\n            return 'prepared reload owner state changed'"
         in source
@@ -2188,6 +2220,11 @@ def test_reload_host_transfer_and_retired_slot_layout_are_static() -> None:
         "retired[0] = self.publish_locked(generation)"
     )
     assert "_boundary_observer" not in source
+    section_source = ast.unparse(section)
+    assert "mark_route_retired_locked" not in section_source
+    assert section_source.count("owner.mark_retired_locked(route_retirement)") == 1
+    assert "finalize_retirement" not in section_source
+    assert source.count("route_retirement.finalize_retirement()") == 1
     assert "retired: list[object | None] = [None] * 20" in source
     assert source.count("retired[") == 20
     assert all(f"retired[{index}]" in source for index in range(20))

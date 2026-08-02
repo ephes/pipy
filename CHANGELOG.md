@@ -205,6 +205,10 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- A live extension message can no longer be erased when
+  `api.send_user_message(...)` or `api.send_message(...)` races the session's
+  outbox drain. Live append and detach now serialize; rejected or retired queue
+  handles silently keep the existing `None` return and accumulate nothing.
 - Extension reload no longer clears live retained TUI chrome before activation
   and dynamic-flag validation succeed. Invalid flags or another rejected
   candidate now preserve the prior title, header/footer/widgets, indicator,
