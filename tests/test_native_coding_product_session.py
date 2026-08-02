@@ -106,6 +106,15 @@ def _messages() -> tuple[AgentMessage, ...]:
     return (user, assistant, result)
 
 
+def _assert_message_identity_order(
+    actual: tuple[AgentMessage, ...], expected: tuple[AgentMessage, ...]
+) -> None:
+    assert all(
+        actual_message is expected_message
+        for actual_message, expected_message in zip(actual, expected, strict=True)
+    )
+
+
 def _action(
     messages: tuple[AgentMessage, ...] | None = None,
 ) -> CodingProductSessionCompaction:
@@ -142,6 +151,20 @@ def _callbacks(
     return CodingProductSessionCallbacks(load, append, compact)
 
 
+@pytest.mark.parametrize("shorter_side", ["actual", "expected"])
+def test_message_identity_assertion_rejects_unequal_lengths(shorter_side: str) -> None:
+    messages = _messages()
+    actual = messages
+    expected = messages
+    if shorter_side == "actual":
+        actual = messages[:-1]
+    else:
+        expected = messages[:-1]
+
+    with pytest.raises(ValueError):
+        _assert_message_identity_order(actual, expected)
+
+
 def test_append_preserves_exact_message_identity_order_and_state_first_timing() -> None:
     state = _state()
     events: list[str] = []
@@ -153,7 +176,7 @@ def test_append_preserves_exact_message_identity_order_and_state_first_timing() 
         coordinator.append_message(message)
 
     assert state.messages == messages
-    assert all(actual is expected for actual, expected in zip(state.messages, messages))
+    _assert_message_identity_order(state.messages, messages)
     assert events == ["append", "append", "append"]
 
 
@@ -200,7 +223,7 @@ def test_rebuild_loads_exact_context_and_preserves_cumulative_counters() -> None
     ).rebuild_active_history()
 
     assert state.messages == loaded
-    assert all(actual is expected for actual, expected in zip(state.messages, loaded))
+    _assert_message_identity_order(state.messages, loaded)
     assert state.compaction_suffix == ""
     assert state.compaction_count == 1
     assert state.compaction_dropped_group_count == 3
@@ -225,7 +248,7 @@ def test_load_failure_leaves_state_unchanged_and_propagates() -> None:
         coordinator.rebuild_active_history()
 
     assert state.result_snapshot() == before
-    assert all(actual is expected for actual, expected in zip(state.messages, messages))
+    _assert_message_identity_order(state.messages, messages)
 
 
 @pytest.mark.parametrize("invalid_kind", ["list", "nested", "subclass"])
@@ -258,7 +281,7 @@ def test_invalid_loaded_context_leaves_state_unchanged(invalid_kind: str) -> Non
         coordinator.rebuild_active_history()
 
     assert state.messages == original
-    assert all(actual is expected for actual, expected in zip(state.messages, original))
+    _assert_message_identity_order(state.messages, original)
 
 
 def test_compaction_applies_state_first_and_passes_the_exact_action() -> None:
@@ -285,10 +308,7 @@ def test_compaction_applies_state_first_and_passes_the_exact_action() -> None:
 
     assert observed == [action]
     assert observed[0] is action
-    assert all(
-        actual is expected
-        for actual, expected in zip(state.messages, action.retained_messages)
-    )
+    _assert_message_identity_order(state.messages, action.retained_messages)
 
 
 def test_compaction_callback_failure_propagates_after_state_advances() -> None:

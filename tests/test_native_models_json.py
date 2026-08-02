@@ -28,6 +28,17 @@ def _write(path, payload: dict | str) -> None:
         path.write_text(payload, encoding="utf-8")
 
 
+def _assert_catalog_field_identity_pairs(
+    catalog: ModelCatalog,
+    field_names: tuple[str, ...],
+    values: tuple[object, ...],
+) -> None:
+    assert all(
+        getattr(catalog, name) is value
+        for name, value in zip(field_names, values, strict=True)
+    )
+
+
 # ---- comment / trailing-comma stripping ------------------------------------
 
 
@@ -503,6 +514,22 @@ def test_live_refresh_reset_failure_semantics_and_non_tautological_request(tmp_p
     assert catalog.error is None and catalog._config is not None
 
 
+@pytest.mark.parametrize("shorter_side", ["field_names", "values"])
+def test_catalog_field_identity_assertion_rejects_unequal_lengths(
+    tmp_path, shorter_side
+):
+    catalog = ModelCatalog(models_json_path=tmp_path / "absent.json")
+    field_names = tuple(field.name for field in fields(ModelCatalog))
+    values = tuple(getattr(catalog, name) for name in field_names)
+    if shorter_side == "field_names":
+        field_names = field_names[:-1]
+    else:
+        values = values[:-1]
+
+    with pytest.raises(ValueError):
+        _assert_catalog_field_identity_pairs(catalog, field_names, values)
+
+
 def test_prepared_refresh_covers_all_inputs_is_pure_and_reentrant(tmp_path):
     nested = [{"value": 1}]
     extra = {
@@ -543,9 +570,7 @@ def test_prepared_refresh_covers_all_inputs_is_pure_and_reentrant(tmp_path):
     field_names = tuple(field.name for field in fields(ModelCatalog))
     before = tuple(getattr(detached, name) for name in field_names)
     prepared = detached.prepare_catalog_reload()
-    assert all(
-        getattr(detached, name) is value for name, value in zip(field_names, before)
-    )
+    _assert_catalog_field_identity_pairs(detached, field_names, before)
     assert detached.validate_prepared_catalog_reload(prepared)
     prepared_ids = {row.model_id for row in prepared.rows}
     assert {"file-custom", "extra-custom", "registered-custom"} <= prepared_ids

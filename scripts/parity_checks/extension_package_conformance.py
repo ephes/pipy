@@ -122,6 +122,12 @@ def _run_cli(argv: list[str]) -> tuple[int, str, str]:
     return code, out.getvalue(), err.getvalue()
 
 
+def _pair_remote_results(
+    sources: tuple[str, ...], results: list[tuple[int, str, str]]
+) -> tuple[tuple[str, tuple[int, str, str]], ...]:
+    return tuple(zip(sources, results, strict=True))
+
+
 def run_checks(base: Path) -> list[Check]:
     workspace = base / "ws"
     (workspace / ".pipy").mkdir(parents=True)
@@ -230,15 +236,32 @@ def run_checks(base: Path) -> list[Check]:
         "pypi:demo",
     )
     remote_results = [_run_cli(["install", src]) for src in unsupported_sources]
+    remote_pairs = _pair_remote_results(unsupported_sources, remote_results)
     checks.append(
         Check(
             "unsupported_remote_rejected",
             all(code == 2 for code, _out, _err in remote_results)
             and any(
                 src == "pypi:demo" and "unsupported package source" in err
-                for src, (_code, _out, err) in zip(unsupported_sources, remote_results)
+                for src, (_code, _out, err) in remote_pairs
             ),
             "unsupported PyPI/npm/credentialed/ambiguous remote sources are rejected",
+        )
+    )
+    mismatch_rejections = 0
+    for sources, results in (
+        (unsupported_sources[:-1], remote_results),
+        (unsupported_sources, remote_results[:-1]),
+    ):
+        try:
+            _pair_remote_results(sources, results)
+        except ValueError:
+            mismatch_rejections += 1
+    checks.append(
+        Check(
+            "unsupported_remote_pairing_rejects_length_mismatch",
+            mismatch_rejections == 2,
+            "unsupported source/result pairing rejects either unequal length",
         )
     )
 

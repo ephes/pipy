@@ -36,7 +36,7 @@ docs review of the resulting corrections. Landing the planning commit on `main`
 certifies the required review completed, material findings were addressed, and
 G0 is authorized.
 
-**Active/next slice:** **L8 — reject mismatched paired assertions**
+**Active/next slice:** **L9 — enable the zip-length gate**
 
 D1 is complete: it restored a concise reader-facing index, replaced the copied
 architecture-quality ledger in the living architecture overview with a link to
@@ -74,7 +74,19 @@ characterization preserving their exact prior results. The repository-wide
 assertion in `tests/test_native_models_json.py` was introduced after the plan's
 13-finding baseline; it is a verified mismatch-refusal site and remains L8-owned
 beside the eight planned refusal sites. L7 changed no behavior or rule
-configuration and requires no changelog entry. L8 is next.
+configuration and requires no changelog entry. L8 is complete: git blame and
+history confirm the ninth refusal site, the catalog field/value identity
+assertion in `tests/test_native_models_json.py`, entered in R3c1c commit
+`5cdb084` after the plan's 13-finding baseline and before this lint-remediation
+sequence began. It is semantically the same strict paired-identity assertion as
+the planned sites, so L8 reconciles it beside the original eight. All nine
+remaining sites now use `strict=True`; focused unequal-length characterization
+covers extension-package source/results, agent-event identities, the five
+coding-product-session identities, catalog field/value identities, and model-
+selector rows while the existing equal-length scenarios stay unchanged. The
+repository-wide `B905` inventory is 9 to 0. L8 changes only tests and harness
+assertion behavior, changes no product behavior or rule configuration, and
+requires no changelog entry. L9 is next.
 
 G0 is complete: this test-policy-only slice retired frozen closeout
 synchronization, changed no product behavior, and requires no changelog entry.
@@ -212,8 +224,8 @@ No timeout, cancellation policy, concurrency abstraction, product source, or
 production behavior was added. R0's sticky chrome, immediate UI/notification,
 queue-protocol, independent settings/resources, and fail-soft process/
 persistence narrowings remain explicit. R7 adds no changelog entry because R1–
-R6 already recorded every behavior change. D1 and L1–L7 are complete as
-recorded above, and L8 is next.
+R6 already recorded every behavior change. D1 and L1–L8 are complete as
+recorded above, and L9 is next.
 
 The former one-shot R3c contract was non-executable and was split around the
 real `_ActivationApi` send owner. Material review then proved the original exact
@@ -666,8 +678,8 @@ and the changelog target is the existing
 `### Fixed` bullet beginning “Extension reload no longer clears live retained
 TUI chrome before activation”.
 
-The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1 → L1 → L2 → L3 → L4 → L5 → L6 → L7;
-the mandatory remaining order begins with L8. R4a converted only live
+The shipped prefix is R3c1a → R3c1b → R3c1c → R3c2 → R3c3 → R4a → R4b → R4c → R5a → R5b → R6 → R7 → D1 → L1 → L2 → L3 → L4 → L5 → L6 → L7 → L8;
+the mandatory remaining order begins with L9. R4a converted only live
 append/detach/drain/close synchronization and did not redefine R3b's token or
 staged sequence; R4b then converted only tool/renderer/provider consumers and
 their proven legacy-source deletion; R4c completed the menu/lifecycle/chrome

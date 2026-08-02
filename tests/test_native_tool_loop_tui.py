@@ -43,6 +43,7 @@ from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import (
     HOTKEY_MODEL_SELECT,
+    ModelSelectorOption,
     SettingsRow,
     ToolLoopTerminalUi,
     _TuiToolLoopRenderer,
@@ -1352,6 +1353,30 @@ def _recording_provider_state(
     )
 
 
+def _pair_model_selector_rows(
+    selections: list[NativeModelSelection],
+    ui_options: list[ModelSelectorOption],
+) -> tuple[tuple[NativeModelSelection, ModelSelectorOption], ...]:
+    return tuple(zip(selections, ui_options, strict=True))
+
+
+@pytest.mark.parametrize("shorter_side", ["selections", "ui_options"])
+def test_model_selector_row_pairing_rejects_unequal_lengths(
+    shorter_side: str,
+) -> None:
+    selection = NativeModelSelection("fake", "fake-model")
+    option = ModelSelectorOption("fake/fake-model  [available]", True)
+    selections = [selection]
+    ui_options = [option]
+    if shorter_side == "selections":
+        selections = []
+    else:
+        ui_options = []
+
+    with pytest.raises(ValueError):
+        _pair_model_selector_rows(selections, ui_options)
+
+
 def test_model_selector_rows_gate_unavailable_and_non_tool_capable(tmp_path: Path):
     seen: list[tuple[str, str]] = []
     # Use the registered default model so the current selection matches the
@@ -1373,7 +1398,7 @@ def test_model_selector_rows_gate_unavailable_and_non_tool_capable(tmp_path: Pat
 
     by_selection = {
         (sel.provider_name, sel.model_id): option
-        for sel, option in zip(selections, ui_options)
+        for sel, option in _pair_model_selector_rows(selections, ui_options)
     }
     # `fake` is credential-available but not tool-capable → visible, not choosable.
     fake_option = by_selection[("fake", "fake-native-bootstrap")]

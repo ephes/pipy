@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import cast
 
 import pytest
@@ -547,6 +547,15 @@ class _ProductActionCollector:
         self.actions.append(action)
 
 
+def _assert_product_message_identities(
+    actual: Sequence[AgentMessage], expected: Sequence[AgentMessage]
+) -> None:
+    assert all(
+        actual_message is expected_message
+        for actual_message, expected_message in zip(actual, expected, strict=True)
+    )
+
+
 def test_product_projection_preserves_real_empty_assistant_and_skipped_results() -> (
     None
 ):
@@ -614,6 +623,22 @@ def test_product_projection_omits_synthetic_balance_only_assistant(
     assert collector.actions == []
 
 
+@pytest.mark.parametrize("shorter_side", ["actual", "expected"])
+def test_product_message_identity_assertion_rejects_unequal_lengths(
+    shorter_side: str,
+) -> None:
+    message = AgentUserMessage(ProductContent("same common-prefix identity"))
+    actual: Sequence[AgentMessage] = (message,)
+    expected: Sequence[AgentMessage] = (message,)
+    if shorter_side == "actual":
+        actual = ()
+    else:
+        expected = ()
+
+    with pytest.raises(ValueError):
+        _assert_product_message_identities(actual, expected)
+
+
 def test_product_projection_pins_exact_append_sequence_for_a_real_assistant_turn() -> (
     None
 ):
@@ -658,11 +683,8 @@ def test_product_projection_pins_exact_append_sequence_for_a_real_assistant_turn
 
     appended = [action.message for action in collector.actions]
     assert appended == [user, real_assistant, completed, skipped]
-    assert all(
-        actual is expected
-        for actual, expected in zip(
-            appended, (user, real_assistant, completed, skipped)
-        )
+    _assert_product_message_identities(
+        appended, (user, real_assistant, completed, skipped)
     )
     # The already completed tool result is not re-appended from ``TurnCompleted``.
     assert appended.count(completed) == 1
