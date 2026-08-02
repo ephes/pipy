@@ -8,73 +8,14 @@ CLI. `pipy_harness` owns the agent runtime, providers, tools, private product
 sessions, automation modes, extensions, and terminal UI. `pipy_session` is a
 separate metadata-only workflow archive and catalog.
 
-The Phase 0–7 [Architecture Migration](architecture-migration.md) and reviewed
-[Architecture Quality Improvement Program](specs/2026-07-24-architecture-quality-improvement-plan.md)
-are completed/reconciled historical evidence.
+Historical architecture-quality measurements, review evidence, and migration
+disposition are preserved in the
+[2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md).
 
-The final integration ledger is closed/reconciled at reviewed endpoint
-`87c6f887f4afb719da89e68074551e9b8786ac1d`: 13 program/integration commits
-since `fe474e0e55b3d1e8ae370534acb54a0a5fd9496b`, with 298 changed paths. The
-exhaustive A-G partition union exactly covers all 298 changed paths:
-
-- A: 29/29, 220,750 bytes/5,384 lines, valid complete CLEAN.
-- B: 22/22, 359,459 bytes/8,776 lines, valid complete CLEAN.
-- C: 14/14, 111,705 bytes/2,418 lines, valid complete CLEAN.
-- D: 103/103, 410,314 bytes/9,494 lines, valid complete CLEAN.
-- E: 150/150, 406,331 bytes/9,333 lines, valid complete CLEAN.
-- Refreshed F: 19/19, 139,365 bytes/1,892 lines, valid complete CLEAN.
-- G: 8/8, 36,717 bytes, valid complete CLEAN.
-
-Slice 16 landed as `7deb8d8807f4e7eb52f7c9c8bd9e0ad30cb60727`
-(`docs: close architecture quality program`). The three integration-fix commits
-are the original Bundle F ledger fix
-`ffeb86f0319efd28f6f360174ae640fa358761d0`
-(`docs: reconcile architecture program ledger`), warning-state closure
-`aea52b438713ce04fcad93ae32927ff156574aac`
-(`docs: record integration warning closure`), and README/provider-catalog
-closure `b64ceb7db9581bf3ebfab51f5803c513c1fdb549`
-(`docs: align provider catalog status`). The prior valid complete exact-schema
-cross-cutting review by Pi `openai-codex/gpt-5.6-sol` at committed endpoint
-`b64ceb7` found the sole incomplete-ledger Warning: living ledgers omitted
-refreshed F and `aea52b4`/`b64ceb7`. It found zero Critical or Suggestion
-findings, omissions, forbidden tool uses, skips, truncations, or redactions.
-Fresh exact-model Pi implementation fixed the ledger/test and metric
-synchronization. A first focused review then found inaccurate
-implementation/endpoint attribution and missing ratchets; those were corrected.
-The final focused exact-schema G review covered 8/8 files and 36,717 bytes and
-was valid CLEAN with no findings or coverage defects. That synchronization
-landed as `87c6f887f4afb719da89e68074551e9b8786ac1d`
-(`docs: sync final integration ledger`).
-
-A fresh valid complete exact-schema cross-cutting re-review by Pi
-`openai-codex/gpt-5.6-sol` at reviewed endpoint `87c6f88` covered A-G
-manifests/reports, prior cross-cutting evidence, final ledger files, and
-unchanged cross-contracts. The A-G manifest union exactly covers all 298 changed
-paths. It returned `STATE: CLEAN`, `COVERAGE_COMPLETE: yes`,
-`PARTITION_UNION_COMPLETE: yes`, and `VERDICT: CLEAN`, with zero Critical,
-Warning, or Suggestion findings; `SCOPED_OMISSIONS: none`,
-`FORBIDDEN_TOOL_USES: 0`, `SKIPPED_FILES: none`, `TRUNCATIONS: none`, and
-`REDACTIONS: none`. Review stopped because the sole prior ledger Warning was
-fixed and the fresh complete re-review was CLEAN; further review would add no
-material value unless scope changes.
-
-Latest stable verification for reviewed endpoint `87c6f88` is strict Mypy
-across 169 source files, combined Mypy across 438 source/test files, and `just
-check` at 4,829 passed / 2 skipped. Ruff formatting covers 480 files. Stable
-metrics are 34 / 18 repository/source C901 findings, 81,738 / 121,191
-source/test physical lines, 43 `ToolLoopTerminalUi` fields, one source ignore,
-and 5,433 / 6,329 lines in `tool_loop_session.py` / `tui.py`. Docs are clean,
-diff is clean, both theme sources are `pi`, and pre-commit is absent. Slice 14
-stress evidence remains focused 20x, groups 10x, PTY smoke 5x, then the full
-check; the latest PTY smoke is 8/8.
-
-The architecture-quality program and final integration review are closed/reconciled. R7 now closes the
-bounded transactional-reload correctness boundary against the reconciled R0
-contract, subject to its required review/commit gate. **D1 — make the
-documentation entry point reader-facing** is the explicit next slice. The measured
-disposition and current comparison are in the
-[2026-07-29 architecture quality assessment](2026-07-29-architecture-quality-assessment.md);
-the [Backlog](backlog.md) owns the exact pointer and next queue. The package
+The bounded transactional-reload correctness boundary is complete. **D1 — make
+the documentation entry point reader-facing** is also complete, and **L1 —
+normalize source import order** is the explicit next slice. The
+[Backlog](backlog.md) owns the exact pointer and next queue. The package
 metadata's native coding-agent description matches this architecture and stays
 unchanged; version/distribution identity, license/URLs, and wheel verification
 remain release-triggered while the project is private.
@@ -919,8 +860,8 @@ rechecks the gate immediately before its in-memory assignments. A rejected repla
 retained-generation lifecycle hook. The effect emits the final reload diagnostic
 next, and the root footer policy runs only after that effect returns. R7 has run
 the full R1–R6 acceptance basis, including ordered R5a then R5b, and represents
-this boundary as closed subject to its review/commit gate; the remediation queue
-contains exactly 33 execution slices and D1 is next.
+this boundary as closed. The remediation queue contains exactly 33 execution
+slices; D1 is complete and L1 is next.
 
 ## Sessions, automation, and trust domains
 
@@ -1294,10 +1235,9 @@ thinking contexts to their generation and guards complete selection commits,
 including ordered durable thinking append. R6 ships three-phase atomic model
 mutation. R7 adds one compact successful-reload cross-owner integration test and
 the durable six-residual/scenario reconciliation; it adds no product behavior or
-mechanism. R7 is complete subject to the required independent review,
-supervising-root full `just check`, and commit gate. **D1 — make the
-documentation entry point reader-facing** is next and may begin only after that
-commit. R3c3's two documented deltas, R4a's live-message loss fix, and R4c's
+mechanism. R7 is complete. **D1 — make the documentation entry point
+reader-facing** is also complete, and **L1 — normalize source import order** is
+next. R3c3's two documented deltas, R4a's live-message loss fix, and R4c's
 coherent publication/stale-chrome refusal are recorded in the changelog. R4b and
 R7 have no separate changelog entry because R4b adopts already-published
 coherence and R7 adds characterization/reconciliation only. That is not a
