@@ -18,7 +18,6 @@ import subprocess
 import sys
 import tempfile
 import termios
-import textwrap
 import threading
 import time
 from collections.abc import (
@@ -209,6 +208,12 @@ from pipy_harness.native.tool_renderers import (
     _ToolLoopRenderer,
     build_tool_render_theme,
     render_chrome_component,
+)
+from pipy_harness.native.ui.components.extension_prompts import (
+    ExtensionConfirmComponent,
+    ExtensionInputComponent,
+    ExtensionSelectComponent,
+    clip_plain,
 )
 from pipy_harness.native.ui.key_specs import (
     matches_key_specs,
@@ -1079,151 +1084,6 @@ class _ExtensionChromeTuiHandle:
         self.requestRender(force)
 
 
-class _ExtensionSelectComponent:
-    """Simple string selector used by extension `ctx.ui.select`/`confirm`."""
-
-    _MAX_VISIBLE_OPTIONS = 8
-
-    def __init__(
-        self, title: str, options: Sequence[str], done: Callable[..., None]
-    ) -> None:
-        self.title = title
-        self.options = tuple(str(option) for option in options if str(option))
-        self.selected = 0
-        self._done = done
-
-    def render(self, width: int) -> list[str]:
-        lines = [
-            _clip_plain(
-                f" {sanitize_label_text(self.title)} - up/down move, enter select, esc cancel",
-                width,
-            )
-        ]
-        start, end = self._visible_window()
-        for index, option in enumerate(self.options[start:end], start=start):
-            prefix = "-> " if index == self.selected else "   "
-            lines.append(_clip_plain(f"{prefix}{sanitize_label_text(option)}", width))
-        if start > 0 or end < len(self.options):
-            lines.append(
-                _clip_plain(
-                    f"   ({self.selected + 1}/{len(self.options)})",
-                    width,
-                )
-            )
-        return lines
-
-    def _visible_window(self) -> tuple[int, int]:
-        total = len(self.options)
-        if total <= self._MAX_VISIBLE_OPTIONS:
-            return 0, total
-        start = max(
-            0,
-            min(
-                self.selected - (self._MAX_VISIBLE_OPTIONS // 2),
-                total - self._MAX_VISIBLE_OPTIONS,
-            ),
-        )
-        return start, start + self._MAX_VISIBLE_OPTIONS
-
-    def handle_input(self, key: str) -> None:
-        if key in {"esc", "ctrl-c", "ctrl-d"}:
-            self._done(None)
-            return
-        if not self.options:
-            self._done(None)
-            return
-        if key == "up":
-            self.selected = (self.selected - 1) % len(self.options)
-            return
-        if key == "down":
-            self.selected = (self.selected + 1) % len(self.options)
-            return
-        if key == "enter":
-            self._done(self.options[self.selected])
-
-
-class _ExtensionConfirmComponent(_ExtensionSelectComponent):
-    """Confirmation dialog with a bounded, visible message body."""
-
-    _MAX_MESSAGE_LINES = 6
-
-    def __init__(
-        self,
-        title: str,
-        message: str,
-        done: Callable[..., None],
-    ) -> None:
-        super().__init__(title, ("Yes", "No"), done)
-        self.message = message
-
-    def render(self, width: int) -> list[str]:
-        lines = [
-            _clip_plain(
-                f" {sanitize_label_text(self.title)} - up/down move, enter select, esc cancel",
-                width,
-            )
-        ]
-        message_lines = self._message_lines(width)
-        lines.extend(message_lines)
-        if message_lines:
-            lines.append("")
-        start, end = self._visible_window()
-        for index, option in enumerate(self.options[start:end], start=start):
-            prefix = "-> " if index == self.selected else "   "
-            lines.append(_clip_plain(f"{prefix}{option}", width))
-        return lines
-
-    def _message_lines(self, width: int) -> list[str]:
-        all_lines: list[str] = []
-        body_width = max(20, width - 3)
-        raw_lines = str(self.message).splitlines() or [""]
-        for raw_line in raw_lines:
-            pieces = textwrap.wrap(sanitize_label_text(raw_line), width=body_width) or [
-                ""
-            ]
-            all_lines.extend(f"  {piece}" for piece in pieces)
-        truncated = len(all_lines) > self._MAX_MESSAGE_LINES
-        wrapped = all_lines[: self._MAX_MESSAGE_LINES]
-        if truncated and wrapped:
-            wrapped[-1] = _clip_plain(wrapped[-1] + " ...", width)
-        return [_clip_plain(line, width) for line in wrapped]
-
-
-class _ExtensionInputComponent:
-    """Single-line input overlay used by extension `ctx.ui.input`."""
-
-    def __init__(
-        self, title: str, placeholder: str | None, done: Callable[..., None]
-    ) -> None:
-        self.title = title
-        self.placeholder = placeholder or ""
-        self.text = ""
-        self._done = done
-
-    def render(self, width: int) -> list[str]:
-        shown = sanitize_label_text(self.text if self.text else self.placeholder)
-        return [
-            _clip_plain(
-                f" {sanitize_label_text(self.title)} - enter submit, esc cancel",
-                width,
-            ),
-            _clip_plain(f"> {shown}", width),
-        ]
-
-    def handle_input(self, key: str) -> None:
-        if key in {"esc", "ctrl-c", "ctrl-d"}:
-            self._done(None)
-            return
-        if key == "enter":
-            self._done(self.text)
-            return
-        if key == "backspace":
-            self.text = self.text[:-1]
-            return
-        if len(key) == 1 and key.isprintable():
-            self.text += key
-
-
 class _ExtensionEditorComponent:
     """Multi-line editor overlay used by extension `ctx.ui.editor`."""
 
@@ -1250,7 +1110,7 @@ class _ExtensionEditorComponent:
             key_hint = self._external_editor_keys[0].replace("+", "-")
             hint += f", {key_hint} external edit"
         lines = [
-            _clip_plain(
+            clip_plain(
                 f" {sanitize_label_text(self.title)} - {hint}",
                 width,
             )
@@ -1269,9 +1129,9 @@ class _ExtensionEditorComponent:
             safe = sanitize_label_text(row)
             if row_index == cursor_row:
                 safe = safe[:cursor_col] + "▏" + safe[cursor_col:]
-            lines.append(_clip_plain(f"{marker} {safe}", width))
+            lines.append(clip_plain(f"{marker} {safe}", width))
         if start > 0 or end < len(rows):
-            lines.append(_clip_plain(f"  ({cursor_row + 1}/{len(rows)})", width))
+            lines.append(clip_plain(f"  ({cursor_row + 1}/{len(rows)})", width))
         return lines
 
     def handle_input(self, key: str) -> None:
@@ -1344,10 +1204,6 @@ class _ExtensionEditorComponent:
         row = min(max(0, target_row), len(rows) - 1)
         index = sum(len(item) + 1 for item in rows[:row])
         return min(index + max(0, min(target_col, len(rows[row]))), len(self.text))
-
-
-def _clip_plain(text: str, width: int) -> str:
-    return sanitize_label_text(text)[: max(0, width)]
 
 
 def _visible_len_allow_sgr(text: str) -> int:
@@ -3934,7 +3790,7 @@ class ToolLoopTerminalUi:
         if not choices:
             return None
         result = self.run_custom_component(
-            lambda done: _ExtensionSelectComponent(str(title), choices, done)
+            lambda done: ExtensionSelectComponent(str(title), choices, done)
         )
         return result if isinstance(result, str) else None
 
@@ -3944,7 +3800,7 @@ class ToolLoopTerminalUi:
         """Run a Pi-shaped extension text input overlay."""
 
         result = self.run_custom_component(
-            lambda done: _ExtensionInputComponent(str(title), placeholder, done)
+            lambda done: ExtensionInputComponent(str(title), placeholder, done)
         )
         return result if isinstance(result, str) else None
 
@@ -4057,7 +3913,7 @@ class ToolLoopTerminalUi:
         """Run a Pi-shaped extension confirmation dialog."""
 
         result = self.run_custom_component(
-            lambda done: _ExtensionConfirmComponent(str(title), str(message), done)
+            lambda done: ExtensionConfirmComponent(str(title), str(message), done)
         )
         return result == "Yes"
 

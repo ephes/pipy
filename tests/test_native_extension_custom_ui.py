@@ -32,10 +32,12 @@ from pipy_harness.native.extension_runtime import (
 from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.tui import (
     ToolLoopTerminalUi,
-    _ExtensionConfirmComponent,
     _ExtensionEditorComponent,
-    _ExtensionInputComponent,
-    _ExtensionSelectComponent,
+)
+from pipy_harness.native.ui.components.extension_prompts import (
+    ExtensionConfirmComponent,
+    ExtensionInputComponent,
+    ExtensionSelectComponent,
 )
 
 
@@ -249,7 +251,7 @@ def test_open_custom_overlay_renders_component_lines(tmp_path: Path) -> None:
 
 def test_extension_select_component_navigation_and_cancel() -> None:
     result: list[object] = []
-    component = _ExtensionSelectComponent(
+    component = ExtensionSelectComponent(
         "Pick\x1b[31m",
         ["one", "two\rbad", "three"],
         lambda value=None: result.append(value),
@@ -268,7 +270,7 @@ def test_extension_select_component_navigation_and_cancel() -> None:
     assert result == ["one"]
 
     cancelled: list[object] = []
-    component = _ExtensionSelectComponent(
+    component = ExtensionSelectComponent(
         "Pick", ["one"], lambda value=None: cancelled.append(value)
     )
     component.handle_input("esc")
@@ -276,7 +278,7 @@ def test_extension_select_component_navigation_and_cancel() -> None:
 
 
 def test_extension_select_component_windows_around_highlight() -> None:
-    component = _ExtensionSelectComponent(
+    component = ExtensionSelectComponent(
         "Pick",
         [f"option-{index:02d}" for index in range(20)],
         lambda value=None: None,
@@ -293,7 +295,7 @@ def test_extension_select_component_windows_around_highlight() -> None:
 
 def test_extension_confirm_component_keeps_body_and_choices_visible() -> None:
     result: list[object] = []
-    component = _ExtensionConfirmComponent(
+    component = ExtensionConfirmComponent(
         "Delete",
         "This operation removes a generated file.\n"
         "Review the path carefully before continuing because this message is long.",
@@ -315,7 +317,7 @@ def test_extension_confirm_component_keeps_body_and_choices_visible() -> None:
 
 def test_extension_input_component_edits_sanitizes_display_and_submits_raw() -> None:
     result: list[object] = []
-    component = _ExtensionInputComponent(
+    component = ExtensionInputComponent(
         "Name\x1b[31m",
         "place\rholder",
         lambda value=None: result.append(value),
