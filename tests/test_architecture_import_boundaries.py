@@ -984,12 +984,21 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.coding.state",
             "pipy_harness.native.coding.session",
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.tui",
         ),
-        reason="UI adapters must consume ports/events instead of session internals",
+        reason=(
+            "UI adapters must consume ports/events instead of session internals. "
+            "The `native.tui` entry forbids the back-edge the decomposition "
+            "program exists to break: `tui.py`'s owners move *into* `native.ui`, "
+            "so a new module there importing `tui` would recreate the cycle one "
+            "extraction at a time while every individual slice still looked "
+            "green (docs/plans/2026-08-03-god-file-decomposition-plan.md)."
+        ),
     ),
     BoundaryRule(
         source_package="pipy_harness.native.frame_renderer",
         forbidden_imports=(
+            "pipy_harness.native.ui",
             "pipy_harness.native.tui",
             "pipy_harness.native.terminal_driver",
             "pipy_harness.native.editor_state",
@@ -1018,6 +1027,7 @@ ARCHITECTURE_RULES = (
     BoundaryRule(
         source_package="pipy_harness.native.overlay_state",
         forbidden_imports=(
+            "pipy_harness.native.ui",
             "pipy_harness.native.tui",
             "pipy_harness.native.terminal_driver",
             "pipy_harness.native.tool_loop_session",
@@ -1052,6 +1062,7 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.session_tree_commands",
         forbidden_imports=(
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.ui",
             "pipy_harness.native.tui",
         ),
         reason=(
@@ -1063,6 +1074,7 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.tool_renderers",
         forbidden_imports=(
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.ui",
             "pipy_harness.native.tui",
         ),
         reason=(
@@ -1073,6 +1085,7 @@ ARCHITECTURE_RULES = (
     BoundaryRule(
         source_package="pipy_harness.native.extensions",
         forbidden_imports=(
+            "pipy_harness.native.ui",
             "pipy_harness.native.tui",
             "pipy_harness.native.coding.state",
             "pipy_harness.native.coding.session",
@@ -1105,6 +1118,7 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.extension_ui",
         forbidden_imports=(
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.ui",
             "pipy_harness.native.tui",
         ),
         reason=(
