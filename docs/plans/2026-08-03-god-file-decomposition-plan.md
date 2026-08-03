@@ -90,9 +90,69 @@ Built from **Proposal 1 (state ownership)** — winner 2–1 (implementability, 
 5. **`provider_state` has two owners today** — declared on the session, written exclusively by `_ProviderMutationEffects` through `self.session.provider_state`. *Handling:* the field and all 16 methods move into `repl/provider_selection.py`; consumers read `current_thinking_level()` instead of the three-variant union.
 6. **`self` is part of the extension contract.** `factory(self, theme, keybindings)` and `_CustomOverlayHandle(self)` pass the whole `ToolLoopTerminalUi`. Verified: accepted in every factory signature, read in none. *Decision, settled now:* keep passing the residual facade (it still holds the key loops, driver and owner handles); pass narrowed ports only to `_CustomOverlayHandle`.
 
+## 2a. Ordering amendment (2026-08-03, after slice 1 landed)
+
+**This section governs where it conflicts with section 3.** The design phase
+measured field cohesion *inside* each god class but never measured outbound
+dependencies *from* a candidate extraction back to it. Section 3's wave order
+was written without that number, and it is close to inverted.
+
+Measured with an AST closure walk (`closure(x)` = every top-level name in the
+file that must move together with `x`):
+
+| File | Top-level defs | Extractable without touching the god class | Blocked |
+| --- | --- | --- | --- |
+| `native/tui.py` | 59 | **54** | 4 |
+| `native/tool_loop_session.py` | 44 | **41** | 2 |
+
+Only four things in `tui.py` are genuinely blocked: `_TuiToolLoopRenderer`,
+`run_project_trust_selector`, `run_startup_project_trust_selector`, and
+`run_startup_session_picker`. Everything else is free today.
+
+Two corrections follow.
+
+**Section 3's slice 2 does not exist as written.** `FrameLine` already lives in
+`native/frame_renderer.py`, and `Region`, `KeyTarget`, `RepaintPort` and
+`OverlayHandle` appear nowhere in the tree. That slice is not a relocation; it is
+an instruction to invent four Protocols with no implementors. The honest version
+is to *derive* one port from the 20 members `_TuiToolLoopRenderer` actually uses
+on `ToolLoopTerminalUi` (including the private `_driver`), and to do it only when
+a blocked extraction needs it — not speculatively, and not before any free work.
+
+**Section 3's slice 3 cannot move verbatim.** `_TuiToolLoopRenderer` reaches
+those same 20 members, so relocating it under `native.ui` would violate the
+back-edge rule slice 1 just added. The plan's own Wave 0 blocks the plan's own
+next slice.
+
+Revised order for the free extractions, smallest closure first, so early
+sessions build momentum and every slice stays reviewable:
+
+| # | Extraction | Closure | Was |
+| --- | --- | --- | --- |
+| 1 | `ui/key_specs.py` | 20L | slice 7 — **done** |
+| 2 | `_ExtensionSelectComponent`, `_ExtensionConfirmComponent`, `_ExtensionInputComponent`, `_clip_plain` | ~110L | slice 20 |
+| 3 | `_CustomOverlayHandle` | 70L | slice 20 |
+| 4 | `_BuiltinAutocompleteProvider` | 62L | slice 6 |
+| 5 | `_ExtensionEditorComponent` | 122L | slice 21 |
+| 6 | `_CustomEntryRenderer` + its 4 companions | 395L | slice 4 |
+| 7 | `_LiveExtensionUiDriver` / `_GenerationExtensionUiDriver` cluster | 667L | slice 23 |
+
+Item 7 is the single largest free extraction in the file and section 3 scheduled
+it last. The four blocked items move only after item 7, once the port is derived
+from real usage.
+
+Section 3's *target layout* is unaffected — the module list, the shared-state
+analysis in section 2, and the success criteria in section 5 all held up under
+checking. Only the ordering and the "near-free" labels were wrong.
+
 ## 3. Ordered slices
 
 Take 3–5 per session. **[T]** touches `tui.py`, **[S]** touches `tool_loop_session.py` — these serialize; never run two in parallel.
+
+> **Superseded in part.** The wave ordering below predates the dependency
+> measurement in section 2a; where the two disagree, section 2a governs. The
+> target layout, per-slice boundary-rule edits, and C901 handling below remain
+> current.
 
 **Wave 0 — rules first (free, no source churn)**
 
