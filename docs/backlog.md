@@ -21,6 +21,25 @@ follow-up. The big-topic specs indexed by the plan are
 [tui-workflow.md](tui-workflow.md), and
 [export-distribution.md](export-distribution.md).
 
+## Active Program — God-File Decomposition
+
+The
+[2026-08-03 god-file decomposition plan](plans/2026-08-03-god-file-decomposition-plan.md)
+is the current implementation queue. It closes the one axis where pipy
+measurably trails `pi-mono`: shape. `native/tui.py` (7,210 lines, holding a
+4,746-line/345-method/43-field `ToolLoopTerminalUi`) and
+`native/tool_loop_session.py` (6,171) become ~500 and ~420 lines, against
+pi-mono's no-file-above-2,400 bar.
+
+It supersedes the shape-related deferrals in the comparative-review remediation
+plan below, which postponed whole-file decomposition until measured ownership
+existed "after A1". A1 landed; the ownership measurement is in this plan.
+
+**Program status:** Wave 0 (test-only boundary hardening) first, then 34 slices
+across six waves. Slices touching `tui.py` or `tool_loop_session.py` serialize —
+exactly one at a time. Every slice lands with `just check` green and the old
+path deleted in the same commit; no slice depends on the next.
+
 ## Landing-Gated Program — Comparative Review Remediation
 
 The
