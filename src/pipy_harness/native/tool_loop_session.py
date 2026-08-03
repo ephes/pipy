@@ -2246,7 +2246,6 @@ class _ProviderMutationEffects:
     error_stream: TextIO
     refresh_footer_text: Callable[[], None]
     extension_notify: Callable[[str, str], None]
-    extension_ui_driver: _LiveExtensionUiDriver | None
     # Orders a mutation's decision against its own follow-on I/O. Two callers
     # that assign under the session mutex and then append to the session tree
     # outside it could otherwise persist their changes in the opposite order,
@@ -2778,6 +2777,59 @@ class _AgentTurnStatusPresentationAdapter:
         self.refresh_legacy_footer_with_usage()
 
 
+@dataclass(frozen=True, slots=True)
+class _ReplLoopScope:
+    """The run-scope collaborators one REPL loop iteration reads.
+
+    These values are bound once per ``NativeToolReplSession.run()`` and never
+    reassigned for the life of that run, so they travel as one frozen record
+    instead of ~36 separate keyword arguments threaded through
+    ``functools.partial``. The run's *mutable* control state is deliberately
+    not flattened into this record: it stays behind the ``ctl`` holder, so a
+    ``/reload``, ``/new``, ``/resume``, ``/fork``, or ``/clone`` rebind is still
+    observed by both the composition-root closures and :meth:`_ReplLoopStep.
+    step_once` exactly as it was when the loop body was inline.
+    """
+
+    session: "NativeToolReplSession"
+    ctl: _RunControlState
+    loop_controller: CodingSessionController
+    terminal_ui: ToolLoopTerminalUi | None
+    error_stream: TextIO
+    coding_state: CodingSessionState
+    repl_input: "ToolLoopTerminalUi | NativeReplInput"
+    renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer"
+    emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
+    settings: SettingsManager
+    cwd: Path
+    started_at: datetime
+    base_system_prompt: str
+    image_reference_roots: tuple[Path, ...]
+    prompt_history_store: PromptHistoryStore
+    execution_projections: _SessionExecutionProjections
+    agent_tool_policy: NativeAgentToolPolicy
+    coding_input_queue: CodingInputQueue
+    command_effects: CodingCommandEffects
+    input_queued_input_port: NativeAgentQueuedInputPort | None
+    provider_request_policy: NativeAgentProviderRequestPolicy
+    provider_turn_executor: ProviderTurnExecutor
+    usage_publisher: NativeAgentUsagePublisher
+    extension_operations: _SessionExtensionOperations
+    diag: Callable[[str], None]
+    coding_footer_text: Callable[[], str]
+    refresh_legacy_footer_with_usage: Callable[[], None]
+    apply_compaction: Callable[[str], str]
+    cycle_thinking_level: Callable[[], str | None]
+    append_agent_message: Callable[[AgentMessage], None]
+    drain_extension_outboxes: Callable[[], None]
+    active_provider_header_callback: Callable[
+        [], Callable[[MutableMapping[str, str | None]], None] | None
+    ]
+    extension_custom_driver: Callable[..., object]
+    extension_notify: Callable[[str, str], None]
+    coding_session_control: Callable[[], ExtensionCodingSessionControl]
+
+
 class _ReplLoopStep:
     """Composition-root handler that owns one REPL loop iteration and the
     loop's lifecycle bookends.
@@ -2789,11 +2841,13 @@ class _ReplLoopStep:
     ``clear_extension_chrome`` ports. :meth:`step_once` performs exactly one
     iteration and returns only the routing :class:`LoopStepSignal`; the bookend
     methods build the terminal projections and fire the lifecycle effects. The
-    handler holds no state of its own (``__slots__ = ()``); it receives the run's
-    mutable control-state holder ``ctl`` plus the stable run-scope collaborators
-    explicitly as keyword-only arguments and mutates ``ctl`` in place, so the
-    composition-root closures read the reassigned loop control flags back
-    byte-identically. The bodies formerly lived as the ``_repl_step`` closure
+    handler holds no state of its own (``__slots__ = ()``); it receives the
+    stable run-scope collaborators as one frozen :class:`_ReplLoopScope` record,
+    reaches the run's mutable control-state holder through ``scope.ctl``, and
+    mutates that holder in place, so the composition-root closures read the
+    reassigned loop control flags back byte-identically. Only genuinely
+    per-run-constant values belong in the scope; anything a command may rebind
+    stays behind ``ctl``. The bodies formerly lived as the ``_repl_step`` closure
     (with its nested ``_prepare_loop_request``) and the ``_finalize_repl_loop``/
     ``_fire_session_start``/``_fire_session_shutdown``/
     ``_consume_agent_settled_pending``/``_clear_extension_chrome_after_run``
@@ -2802,48 +2856,45 @@ class _ReplLoopStep:
 
     __slots__ = ()
 
-    def step_once(
-        self,
-        *,
-        session: "NativeToolReplSession",
-        ctl: _RunControlState,
-        loop_controller: CodingSessionController,
-        terminal_ui: ToolLoopTerminalUi | None,
-        error_stream: TextIO,
-        coding_state: CodingSessionState,
-        repl_input: "ToolLoopTerminalUi | NativeReplInput",
-        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
-        emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
-        settings: SettingsManager,
-        cwd: Path,
-        started_at: datetime,
-        base_system_prompt: str,
-        image_reference_roots: tuple[Path, ...],
-        prompt_history_store: PromptHistoryStore,
-        execution_projections: _SessionExecutionProjections,
-        agent_tool_policy: NativeAgentToolPolicy,
-        coding_input_queue: CodingInputQueue,
-        command_effects: CodingCommandEffects,
-        input_queued_input_port: NativeAgentQueuedInputPort | None,
-        provider_request_policy: NativeAgentProviderRequestPolicy,
-        provider_turn_executor: ProviderTurnExecutor,
-        usage_publisher: NativeAgentUsagePublisher,
-        extension_ui_driver: _LiveExtensionUiDriver | None,
-        extension_operations: _SessionExtensionOperations,
-        diag: Callable[[str], None],
-        coding_footer_text: Callable[[], str],
-        refresh_legacy_footer_with_usage: Callable[[], None],
-        apply_compaction: Callable[[str], str],
-        cycle_thinking_level: Callable[[], str | None],
-        append_agent_message: Callable[[AgentMessage], None],
-        drain_extension_outboxes: Callable[[], None],
-        _active_provider_header_callback: Callable[
-            [], Callable[[MutableMapping[str, str | None]], None] | None
-        ],
-        _extension_custom_driver: Callable[..., object],
-        _extension_notify: Callable[[str, str], None],
-        coding_session_control: Callable[[], ExtensionCodingSessionControl],
-    ) -> LoopStepSignal:
+    def step_once(self, *, scope: _ReplLoopScope) -> LoopStepSignal:
+        # Unpacked once into locals so the 460-line body below reads the
+        # run-scope collaborators by their own names, exactly as it did when
+        # they arrived as keyword arguments.
+        session = scope.session
+        ctl = scope.ctl
+        loop_controller = scope.loop_controller
+        terminal_ui = scope.terminal_ui
+        error_stream = scope.error_stream
+        coding_state = scope.coding_state
+        repl_input = scope.repl_input
+        renderer = scope.renderer
+        emitter = scope.emitter
+        settings = scope.settings
+        cwd = scope.cwd
+        started_at = scope.started_at
+        base_system_prompt = scope.base_system_prompt
+        image_reference_roots = scope.image_reference_roots
+        prompt_history_store = scope.prompt_history_store
+        execution_projections = scope.execution_projections
+        agent_tool_policy = scope.agent_tool_policy
+        coding_input_queue = scope.coding_input_queue
+        command_effects = scope.command_effects
+        input_queued_input_port = scope.input_queued_input_port
+        provider_request_policy = scope.provider_request_policy
+        provider_turn_executor = scope.provider_turn_executor
+        usage_publisher = scope.usage_publisher
+        extension_operations = scope.extension_operations
+        diag = scope.diag
+        coding_footer_text = scope.coding_footer_text
+        refresh_legacy_footer_with_usage = scope.refresh_legacy_footer_with_usage
+        apply_compaction = scope.apply_compaction
+        cycle_thinking_level = scope.cycle_thinking_level
+        append_agent_message = scope.append_agent_message
+        drain_extension_outboxes = scope.drain_extension_outboxes
+        _active_provider_header_callback = scope.active_provider_header_callback
+        _extension_custom_driver = scope.extension_custom_driver
+        _extension_notify = scope.extension_notify
+        coding_session_control = scope.coding_session_control
         # Per-action built-in control-state reassignments (session tree, tree
         # filter mode, prefill, and the whole `/reload` extension-runtime
         # bundle) now live in typed effect-family owners routed through
@@ -4648,7 +4699,6 @@ class NativeToolReplSession:
             error_stream=error_stream,
             refresh_footer_text=footer.refresh_footer_text,
             extension_notify=_extension_notify,
-            extension_ui_driver=extension_ui_driver,
             mutation_io_lock=coding_effects.lock,
         )
 
@@ -4764,46 +4814,45 @@ class NativeToolReplSession:
         # (each `functools.partial`-bound to the run-scope collaborators) through
         # the same `run_loop` ports.
         repl_loop_step = _ReplLoopStep()
+        scope = _ReplLoopScope(
+            session=self,
+            ctl=ctl,
+            loop_controller=loop_controller,
+            terminal_ui=terminal_ui,
+            error_stream=error_stream,
+            coding_state=coding_state,
+            repl_input=repl_input,
+            renderer=renderer,
+            emitter=emitter,
+            settings=settings,
+            cwd=cwd,
+            started_at=started_at,
+            base_system_prompt=base_system_prompt,
+            image_reference_roots=image_reference_roots,
+            prompt_history_store=prompt_history_store,
+            execution_projections=execution_projections,
+            agent_tool_policy=agent_tool_policy,
+            coding_input_queue=coding_input_queue,
+            command_effects=command_effects,
+            input_queued_input_port=input_queued_input_port,
+            provider_request_policy=provider_request_policy,
+            provider_turn_executor=provider_turn_executor,
+            usage_publisher=usage_publisher,
+            extension_operations=extension_operations,
+            diag=collaborators.diag,
+            coding_footer_text=footer.coding_footer_text,
+            refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
+            apply_compaction=provider_mutation.apply_compaction,
+            cycle_thinking_level=provider_mutation.cycle_thinking_level,
+            append_agent_message=append_agent_message,
+            drain_extension_outboxes=custom_renderer.drain_extension_outboxes,
+            active_provider_header_callback=collaborators.active_provider_header_callback,
+            extension_custom_driver=collaborators.extension_custom_driver,
+            extension_notify=_extension_notify,
+            coding_session_control=collaborators.coding_session_control,
+        )
         return loop_controller.run_loop(
-            step_once=partial(
-                repl_loop_step.step_once,
-                session=self,
-                ctl=ctl,
-                loop_controller=loop_controller,
-                terminal_ui=terminal_ui,
-                error_stream=error_stream,
-                coding_state=coding_state,
-                repl_input=repl_input,
-                renderer=renderer,
-                emitter=emitter,
-                settings=settings,
-                cwd=cwd,
-                started_at=started_at,
-                base_system_prompt=base_system_prompt,
-                image_reference_roots=image_reference_roots,
-                prompt_history_store=prompt_history_store,
-                execution_projections=execution_projections,
-                agent_tool_policy=agent_tool_policy,
-                coding_input_queue=coding_input_queue,
-                command_effects=command_effects,
-                input_queued_input_port=input_queued_input_port,
-                provider_request_policy=provider_request_policy,
-                provider_turn_executor=provider_turn_executor,
-                usage_publisher=usage_publisher,
-                extension_ui_driver=extension_ui_driver,
-                extension_operations=extension_operations,
-                diag=collaborators.diag,
-                coding_footer_text=footer.coding_footer_text,
-                refresh_legacy_footer_with_usage=footer.refresh_legacy_footer_with_usage,
-                apply_compaction=provider_mutation.apply_compaction,
-                cycle_thinking_level=provider_mutation.cycle_thinking_level,
-                append_agent_message=append_agent_message,
-                drain_extension_outboxes=custom_renderer.drain_extension_outboxes,
-                _active_provider_header_callback=collaborators.active_provider_header_callback,
-                _extension_custom_driver=collaborators.extension_custom_driver,
-                _extension_notify=_extension_notify,
-                coding_session_control=collaborators.coding_session_control,
-            ),
+            step_once=partial(repl_loop_step.step_once, scope=scope),
             finalize=partial(
                 repl_loop_step.finalize,
                 coding_state=coding_state,

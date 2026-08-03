@@ -654,7 +654,6 @@ def _provider_mutation_fixture(
         error_stream=io.StringIO(),
         refresh_footer_text=lambda: footers.append("footer"),
         extension_notify=lambda _kind, _message: None,
-        extension_ui_driver=None,
         mutation_io_lock=coordinator.lock,
     )
     return effects, state, tools, generation_ref, coordinator, tree, footers
