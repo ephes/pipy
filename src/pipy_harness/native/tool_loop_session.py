@@ -2046,7 +2046,7 @@ class _ReloadCommandEffects:
                             ),
                             release_route=projection.queues.release_pending_route,
                         )
-                    except BaseException as error:
+                    except BaseException as error:  # noqa: BLE001 - collected; chrome retirement still runs
                         delivery_error = error
                     cleanup_error = _finish_chrome_retirement(chrome_retirement)
                     _raise_first((delivery_error, cleanup_error, chrome_close_error))
@@ -3257,7 +3257,7 @@ class _ReplLoopStep:
             ended_at = datetime.now(UTC)
             try:
                 repl_input.close()
-            except Exception:
+            except Exception:  # noqa: BLE001 - the run already failed; close must not mask it
                 pass
             return LoopStepSignal.return_result(
                 build_repl_result(
@@ -3281,7 +3281,7 @@ class _ReplLoopStep:
     ) -> NativeToolReplResult:
         try:
             repl_input.close()
-        except Exception:
+        except Exception:  # noqa: BLE001 - teardown close is best-effort
             pass
         ended_at = datetime.now(UTC)
         result_snapshot = coding_state.result_snapshot()
@@ -3333,7 +3333,7 @@ class _ReplLoopStep:
         queue_error: BaseException | None = None
         try:
             retained = queue_retirement.finalize_retirement()
-        except BaseException as error:
+        except BaseException as error:  # noqa: BLE001 - collected; chrome close still runs
             queue_error = error
         chrome_retirement, chrome_close_error = (
             chrome.close_nonraising() if chrome is not None else (None, None)
@@ -4907,7 +4907,8 @@ class NativeToolReplSession:
                         cancel_token=cancel_token,
                     )
                 )
-            except BaseException as exc:  # pragma: no cover - re-raised below
+            # re-raised by the caller
+            except BaseException as exc:  # pragma: no cover  # noqa: BLE001
                 error_holder.append(exc)
             finally:
                 done_event.set()
@@ -5966,7 +5967,7 @@ class NativeToolReplSession:
 
         try:
             provider = state.provider_for(selection)
-        except Exception:
+        except Exception:  # noqa: BLE001 - construct() is total; reads as no tool support
             return False
         return bool(getattr(provider, "supports_tool_calls", False))
 

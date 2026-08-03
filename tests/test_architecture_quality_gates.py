@@ -58,13 +58,14 @@ def test_ruff_quality_gates_select_only_the_exact_ratchet_rules() -> None:
     for selectors in lint.get("per-file-ignores", {}).values():
         ignored_selectors.extend(selectors)
 
-    assert extend_select == ["C901", "I001", "UP035", "B008", "B905"]
+    assert extend_select == ["C901", "I001", "UP035", "B008", "B905", "BLE001"]
     assert configured_selectors == extend_select
     for category, exact_selectors in (
         ("C", {"C901"}),
         ("I", {"I001"}),
         ("UP", {"UP035"}),
-        ("B", {"B008", "B905"}),
+        ("B", {"B008", "B905", "BLE001"}),
+        ("BLE", {"BLE001"}),
     ):
         assert {
             selector
@@ -72,7 +73,7 @@ def test_ruff_quality_gates_select_only_the_exact_ratchet_rules() -> None:
             if selector == "ALL" or selector.startswith(category)
         } == exact_selectors
 
-    protected_selectors = ("I001", "UP035", "B008", "B905")
+    protected_selectors = ("I001", "UP035", "B008", "B905", "BLE001")
     assert all(
         ignored_selector != "ALL"
         and all(

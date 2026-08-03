@@ -123,7 +123,7 @@ class ExtensionChromeRetirement:
                 disposer()
             except (KeyboardInterrupt, SystemExit):
                 raise
-            except BaseException:
+            except BaseException:  # noqa: BLE001 - one bad disposer must not strand cleanup
                 continue
         with self.sink._guard:  # noqa: SLF001 - exact sink-local idle owner
             while self.sink._inflight:  # noqa: SLF001
@@ -134,7 +134,7 @@ class ExtensionChromeRetirement:
     def finalize_nonraising(self) -> BaseException | None:
         try:
             self.finalize()
-        except BaseException as error:
+        except BaseException as error:  # noqa: BLE001 - non-raising: caller inspects the error
             return error
         return None
 
@@ -360,7 +360,7 @@ class ExtensionChromeSink:
                 disposer()
             except (KeyboardInterrupt, SystemExit):
                 raise
-            except BaseException:
+            except BaseException:  # noqa: BLE001 - one stale listener must not leak later cleanup
                 # One stale listener must not leak later cleanup or replace the
                 # result of the delivery that made it stale.
                 continue

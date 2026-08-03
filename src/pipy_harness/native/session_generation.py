@@ -132,7 +132,7 @@ def balance_startup_candidate(
                     raise
                 try:
                     sink(f"pipy: cleanup report failed: {type(error).__name__}.")
-                except BaseException:
+                except BaseException:  # noqa: BLE001 - must not replace the original error
                     pass
 
     parameters = list(signature.parameters.values())
@@ -261,7 +261,7 @@ class ExtensionChromeHandle:
     ) -> tuple[ExtensionChromeRetirement | None, BaseException | None]:
         try:
             return self.close(), None
-        except BaseException as error:
+        except BaseException as error:  # noqa: BLE001 - non-raising: caller inspects the error
             return None, error
 
 
@@ -547,7 +547,7 @@ class PreparedReloadEffects:
         for name in reversed(PREPARED_RELOAD_BUILD_STEPS):
             try:
                 getattr(self, name).dispose()
-            except BaseException as error:  # complete cleanup, including interrupts
+            except BaseException as error:  # noqa: BLE001 - every step disposes, interrupts included
                 failures.append(error)
         _raise_collected("detached reload disposal failures", failures)
 
@@ -730,7 +730,7 @@ def _dispose_completed_reload_effects(
     for effect in reversed(completed):
         try:
             effect.dispose()
-        except BaseException:
+        except BaseException:  # noqa: BLE001 - best-effort rollback
             pass
 
 
@@ -949,7 +949,7 @@ class OrderedDeliveryGate:
                     delivery = self._queued.popleft()
                 try:
                     delivery()
-                except Exception as error:
+                except Exception as error:  # noqa: BLE001 - collected; every delivery still runs
                     failures.append(error)
         finally:
             with self._condition:
@@ -1001,7 +1001,7 @@ def publish_candidate_ownership(candidate: _ExtensionCandidate) -> bool:
         return bool(candidate.publish())
     except (KeyboardInterrupt, SystemExit):
         raise
-    except BaseException:
+    except BaseException:  # noqa: BLE001 - a failed publish means no ownership
         return False
 
 

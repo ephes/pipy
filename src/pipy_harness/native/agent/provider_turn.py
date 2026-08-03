@@ -384,7 +384,8 @@ class ProviderTurnExecutor:
                 )
             except ProviderCancelledError:
                 provider_cancelled.set()
-            except BaseException as exc:  # pragma: no cover - re-raised by caller
+            # re-raised by the caller
+            except BaseException as exc:  # pragma: no cover  # noqa: BLE001
                 errors.append(exc)
             finally:
                 order.record_completion()

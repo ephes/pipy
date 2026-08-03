@@ -207,7 +207,7 @@ class _RpcProcess:
         assert self._proc.stdin is not None
         try:
             self._proc.stdin.close()
-        except Exception:
+        except Exception:  # noqa: BLE001 - closing an already-dead child stdin is best-effort
             pass
         try:
             return self._proc.wait(timeout=15.0)

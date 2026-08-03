@@ -734,7 +734,7 @@ class NativeHarnessCompatibilityRuntime:
         tool_started_at = utc_now()
         try:
             tool_result = self.tool.invoke(tool_request)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - reported as a failed tool result
             tool_result = _failed_tool_result(
                 tool_request, exc, started_at=tool_started_at
             )
@@ -788,7 +788,7 @@ class NativeHarnessCompatibilityRuntime:
                 parsed_fixture.gate_decision,
                 parsed_fixture.target,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - reported as a failed tool result
             tool_result = _failed_tool_result(tool_request, exc, started_at=utc_now())
             _emit_tool_result_event(event_sink, safe_context, tool_request, tool_result)
             return tool_result, None
@@ -819,7 +819,7 @@ class NativeHarnessCompatibilityRuntime:
             result = NativePatchApplyTool(run_input.cwd).invoke(
                 self.patch_apply_request, gate
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - reported as a failed patch-apply result
             result = _failed_patch_apply_result(self.patch_apply_request, gate, exc)
         _emit_patch_apply_recorded(event_sink, safe_context, result)
         return result
@@ -841,7 +841,7 @@ class NativeHarnessCompatibilityRuntime:
             result = NativeVerificationTool(run_input.cwd).invoke(
                 self.verification_request, gate
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - reported as a failed verification result
             result = _failed_verification_result(self.verification_request, gate)
         _emit_verification_recorded(event_sink, safe_context, result)
         return result
@@ -1166,7 +1166,7 @@ def _call_provider_turn(
             tool_observation=tool_observation,
             attachments=attachments,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - reported as a failed provider result
         provider_result = _failed_provider_result(
             run_input, exc, started_at=provider_started_at
         )

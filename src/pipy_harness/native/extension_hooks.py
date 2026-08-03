@@ -198,7 +198,7 @@ def deliver_accepted_staged_batch(  # noqa: C901 - explicit independent cleanup 
     def deliver(callback: Callable[[Any], None], value: object) -> None:
         try:
             callback(value)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - collected; every subscriber still delivered
             failures.append(error)
 
     route_release_attempted = False
@@ -212,18 +212,18 @@ def deliver_accepted_staged_batch(  # noqa: C901 - explicit independent cleanup 
             route_release_attempted = True
             try:
                 release_route()
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - collected; the gate is still released
                 failures.append(error)
         gate.release(token)
         try:
             gate.drain(token)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - collected; drain failure is reported
             failures.append(error)
     except BaseException:
         if release_route is not None and not route_release_attempted:
             try:
                 release_route()
-            except BaseException:
+            except BaseException:  # noqa: BLE001 - rollback in rollback; original re-raised
                 pass
         raise
     if len(failures) == 1:

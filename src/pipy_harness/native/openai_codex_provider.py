@@ -261,7 +261,7 @@ class WebsocketsSyncClient:
                 WebSocketException,
             )
             from websockets.sync.client import connect
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise OpenAICodexTransportError(
                 "OpenAI Codex transport failed while waiting for response headers.",
                 metadata={
@@ -280,7 +280,7 @@ class WebsocketsSyncClient:
                 max_size=4 * 1024 * 1024,
                 max_queue=16,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if cancel_token is not None:
                 cancel_token.raise_if_cancelled()
             normalized = _normalize_websocket_handshake_exception(
@@ -413,7 +413,7 @@ def _send_websocket_request(
 ) -> None:
     try:
         websocket.send(json.dumps({"type": "response.create", **body}))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
         normalized = _normalize_transport_exception(
@@ -440,7 +440,7 @@ def _receive_websocket_event(
         if isinstance(exc, connection_closed_ok):
             return None
         _raise_websocket_stream_interruption(exc, cancel_token=cancel_token)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
         normalized = _normalize_transport_exception(
@@ -493,7 +493,7 @@ def _open_sse_response(
         ) from exc
     except ProviderCancelledError:
         raise
-    except Exception as exc:  # noqa: BLE001 - recognized transport failures only
+    except Exception as exc:  # recognized transport failures only
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
         normalized = _normalize_transport_exception(
@@ -518,7 +518,7 @@ def _iter_sse_response_events(
             yield event
     except ProviderCancelledError:
         raise
-    except Exception as exc:  # noqa: BLE001 - recognized transport failures only
+    except Exception as exc:  # recognized transport failures only
         if cancel_token is not None and cancel_token.cancelled:
             raise ProviderCancelledError("native provider turn cancelled") from exc
         normalized = _normalize_transport_exception(
@@ -1424,7 +1424,7 @@ def _read_codex_http_error_body(
         raw_body = exc.read()
     except ProviderCancelledError:
         raise
-    except Exception as read_exc:  # noqa: BLE001 - recognized transport failures only
+    except Exception as read_exc:  # recognized transport failures only
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
         if transport_exception_retryable(read_exc) is None:

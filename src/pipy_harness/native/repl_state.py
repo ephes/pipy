@@ -770,7 +770,7 @@ class NativeReplProviderState:
             if require_tool_calls:
                 try:
                     provider = self.provider_for(option.selection)
-                except Exception:
+                except Exception:  # noqa: BLE001 - construct() is total; skips one picker row
                     continue
                 if not getattr(provider, "supports_tool_calls", False):
                     continue

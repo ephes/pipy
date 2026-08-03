@@ -741,7 +741,7 @@ def _startup_skill_settings(
             tuple(settings.get_skills_patterns()),
             settings.get_enable_skill_commands(),
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - unreadable settings degrade to defaults
         return (), (), True
 
 

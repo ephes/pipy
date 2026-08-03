@@ -644,7 +644,7 @@ def test_release_is_two_batches_or_failure_terminalizes_without_successor_effect
         def release() -> None:
             try:
                 released.append(queues.release_pending_route())
-            except BaseException as exc:  # deterministic injected invariant failure
+            except BaseException as exc:  # noqa: BLE001 - injected invariant failure, asserted below
                 failures.append(exc)
 
         releaser = threading.Thread(target=release)
@@ -2271,7 +2271,7 @@ def test_direct_interrupt_preserves_pending_reservation_and_queued_send() -> Non
     def submit_direct() -> None:
         try:
             gate.submit(direct)
-        except BaseException as error:
+        except BaseException as error:  # noqa: BLE001 - asserted below
             interrupts.append(type(error))
 
     submitter = threading.Thread(target=submit_direct)

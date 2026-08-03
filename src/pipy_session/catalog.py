@@ -868,7 +868,7 @@ def _is_secret_shaped(value: str) -> bool:
 
     try:
         from pipy_harness.capture import sanitize_text
-    except Exception:  # pragma: no cover - harness always present in practice
+    except ImportError:  # pragma: no cover - harness always present in practice
         return False
     return sanitize_text(value) == "[REDACTED]"
 

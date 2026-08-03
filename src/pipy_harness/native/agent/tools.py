@@ -225,7 +225,8 @@ class ToolExecutor:
         def _worker() -> None:
             try:
                 result_holder.append(self._execute_once(call, cancellable_context))
-            except BaseException as exc:  # pragma: no cover - re-raised below
+            # re-raised by the caller
+            except BaseException as exc:  # pragma: no cover  # noqa: BLE001
                 error_holder.append(exc)
             finally:
                 execution_order.record_completion()
@@ -277,7 +278,7 @@ class ToolExecutor:
         except KeyboardInterrupt:
             cancel_event.set()
             return ToolExecutionInterruption.OPERATOR_ABORT
-        except BaseException:  # noqa: BLE001 - cancel and re-raise waiter failures
+        except BaseException:  # cancel and re-raise waiter failures
             cancel_event.set()
             output_gate.deactivate()
             worker.join(timeout=self._cancel_join_timeout_seconds)

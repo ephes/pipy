@@ -313,7 +313,7 @@ class ReadlineNativeReplInput:
             delims = saved.get("completer_delims")
             if isinstance(delims, str):
                 readline.set_completer_delims(delims)
-        except Exception:
+        except Exception:  # noqa: BLE001 - restoring foreign readline state is best-effort
             pass
         if saved.get("display_matches_hook_installed"):
             display_hook = getattr(
@@ -1021,7 +1021,7 @@ def _automatic_native_repl_input_for(
                 command_descriptions=command_descriptions,
                 autocomplete_max_visible=autocomplete_max_visible,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - falls through to the next input backend
             pass
     if _prompt_toolkit_streams_supported(input_stream, error_stream):
         try:
@@ -1030,7 +1030,7 @@ def _automatic_native_repl_input_for(
                 error_stream=error_stream,
                 workspace=workspace,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - falls through to the next input backend
             pass
     if _readline_streams_supported(input_stream, error_stream):
         try:
@@ -1039,7 +1039,7 @@ def _automatic_native_repl_input_for(
                 error_stream=error_stream,
                 workspace=workspace,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - falls through to the plain input backend
             pass
     return PlainNativeReplInput(input_stream=input_stream, error_stream=error_stream)
 

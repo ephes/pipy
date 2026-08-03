@@ -214,6 +214,15 @@ entries oldest-first, and a version bump shows the new entries at startup.
 
 ### Fixed
 
+- `--mode rpc` `get_state` and `set_model` responses no longer report a
+  fabricated `fake`/`fake-tools` provider selection when the session adapter is
+  built without a provider. The underlying `ValueError` now reaches the RPC
+  client as a real command error response, so a misconfigured session is no
+  longer indistinguishable from a working one over the protocol.
+- Package-manager git ref validation now rejects a malformed percent-escape
+  outright instead of silently decoding it to replacement characters and
+  validating the mangled result.
+
 - Concurrent extension coding-session controls now serialize complete provider,
   durable session-tree, custom-render, and queued-input effects. Native tree
   id/parent selection, in-memory publication, labels/names, RPC snapshots, and

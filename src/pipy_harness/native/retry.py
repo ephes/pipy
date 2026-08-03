@@ -119,7 +119,7 @@ def retry_with_backoff(
     for attempt in range(1, policy.max_attempts + 1):
         try:
             return operation()
-        except BaseException as exc:  # noqa: BLE001 — we re-raise unrecognized errors
+        except BaseException as exc:  # we re-raise unrecognized errors
             if should_retry is None:
                 status = _extract_http_status(exc)
                 retry = status is not None and status in policy.retriable_statuses

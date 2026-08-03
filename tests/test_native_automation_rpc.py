@@ -397,7 +397,8 @@ def test_prompt_racing_agent_end_is_reserved_not_stranded(
     def submit_prompt() -> None:
         try:
             server._cmd_prompt("p", {"type": "prompt", "message": "NEXT"})
-        except BaseException as exc:  # pragma: no cover - surfaced below
+        # asserted below
+        except BaseException as exc:  # pragma: no cover  # noqa: BLE001
             failures.put(exc)
 
     prompt_thread = threading.Thread(

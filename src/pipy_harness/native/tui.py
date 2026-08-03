@@ -418,7 +418,7 @@ class _LiveExtensionUiDriver:
                 attach_result = candidate.attach(self._deliver_chrome_event)
             except (KeyboardInterrupt, SystemExit):
                 raise
-            except BaseException as candidate_error:
+            except BaseException as candidate_error:  # noqa: BLE001 - attach failure must still roll back
                 restored, restore_error = self._restore_previous_chrome(
                     candidate, previous, rollback_snapshot=rollback_snapshot
                 )
@@ -436,7 +436,7 @@ class _LiveExtensionUiDriver:
                     attach_result = candidate.attach(self._deliver_chrome_event)
                 except (KeyboardInterrupt, SystemExit):
                     raise
-                except BaseException as retry_error:
+                except BaseException as retry_error:  # noqa: BLE001 - retry failure must still roll back
                     restored, retry_restore_error = self._restore_previous_chrome(
                         candidate, previous, rollback_snapshot=rollback_snapshot
                     )
@@ -557,13 +557,13 @@ class _LiveExtensionUiDriver:
             if restored is not previous:
                 restored.close()
             raise
-        except BaseException as restore_error:
+        except BaseException as restore_error:  # noqa: BLE001 - rollback reports, never raises mid-handoff
             if restored is not previous:
                 try:
                     restored.close()
                 except (KeyboardInterrupt, SystemExit):
                     raise
-                except BaseException:
+                except BaseException:  # noqa: BLE001 - close must not mask the restore failure
                     pass
             return previous, restore_error
         candidate.discard_reconciled_disposers()
@@ -626,7 +626,7 @@ class _LiveExtensionUiDriver:
                 retired.close()
         except (KeyboardInterrupt, SystemExit):
             raise
-        except BaseException as close_error:
+        except BaseException as close_error:  # noqa: BLE001 - retired-chrome cleanup is never fatal
             return (
                 "pipy: accepted extension chrome; retired chrome cleanup "
                 f"was incomplete ({type(close_error).__name__})."
@@ -670,7 +670,7 @@ class _LiveExtensionUiDriver:
             result = self._apply_sink_operation(sink, operation)
         except (KeyboardInterrupt, SystemExit):
             raise
-        except BaseException:
+        except BaseException:  # noqa: BLE001 - one bad delayed paint stays bounded
             # The originating void setter already returned while ownership was
             # undecided. Keep one bad delayed paint bounded like other TUI
             # extension effects and continue the handoff.
@@ -688,7 +688,7 @@ class _LiveExtensionUiDriver:
                 stale_disposer()
             except (KeyboardInterrupt, SystemExit):
                 raise
-            except BaseException:
+            except BaseException:  # noqa: BLE001 - a stale disposer must not break the handoff
                 pass
 
     @staticmethod
@@ -1501,7 +1501,7 @@ class _CustomEntryRenderer:
             return None
         try:
             return provider()
-        except Exception:
+        except Exception:  # noqa: BLE001 - a failed generation snapshot degrades to no projection
             return None
 
     def _renderer_projection(self) -> _CustomRendererProjectionSnapshot:
@@ -3908,7 +3908,7 @@ class ToolLoopTerminalUi:
                     dispose()
                 except (KeyboardInterrupt, SystemExit):
                     raise
-                except BaseException:
+                except BaseException:  # noqa: BLE001 - must not strand the screen relinquish
                     pass
             # Relinquish the screen immediately: repaint the normal frame so the
             # overlay does not linger until some unrelated later paint. Guarded
@@ -3930,7 +3930,7 @@ class ToolLoopTerminalUi:
                 overlay_options = overlay_options()
             except (KeyboardInterrupt, SystemExit):
                 raise
-            except BaseException:
+            except BaseException:  # noqa: BLE001 - bad options degrade to defaults
                 overlay_options = None
         width = self._custom_option(overlay_options, "width")
         if isinstance(width, bool):
@@ -3955,7 +3955,7 @@ class ToolLoopTerminalUi:
             callback(handle)
         except (KeyboardInterrupt, SystemExit):
             raise
-        except BaseException:
+        except BaseException:  # noqa: BLE001 - an overlay callback must not break the session
             pass
 
     @staticmethod
@@ -4323,7 +4323,7 @@ class ToolLoopTerminalUi:
         for callback in callbacks:
             try:
                 callback()
-            except Exception:
+            except Exception:  # noqa: BLE001 - one bad footer callback must not stop repaints
                 continue
         self.paint()
 

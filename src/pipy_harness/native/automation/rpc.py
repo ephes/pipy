@@ -543,7 +543,8 @@ class NativeRpcServer:
             self._adapter.run(
                 prepared, event_sink=_NullEventSink(), capture_policy=CapturePolicy()
             )
-        except Exception as exc:  # pragma: no cover - surface, never crash stdout
+        # never crash stdout
+        except Exception as exc:  # pragma: no cover  # noqa: BLE001
             print(f"pipy: rpc worker ended: {type(exc).__name__}", file=self._error)
 
     def _read_loop(self) -> None:
@@ -583,7 +584,7 @@ class NativeRpcServer:
             return
         try:
             self._dispatch(ctype, cid, command)
-        except Exception as exc:  # never crash the loop
+        except Exception as exc:  # noqa: BLE001 - becomes an error response, never a dead loop
             self._respond_error(cid, str(ctype), f"{type(exc).__name__}: {exc}")
 
     def _dispatch(self, ctype: str, cid: str | None, command: dict[str, Any]) -> None:
@@ -822,16 +823,17 @@ class NativeRpcServer:
 
     # -- introspection ---------------------------------------------------
     def _selection(self) -> tuple[str, str]:
-        try:
-            sel = self._adapter._current_selection()
-            return sel.provider_name, sel.model_id
-        except Exception:
-            return "fake", "fake-tools"
+        # No fallback identity: an adapter built without `provider`/`provider_state`
+        # raises `ValueError`, and reporting a fabricated `fake`/`fake-tools`
+        # selection would make a misconfigured session indistinguishable from a
+        # working one. `_handle()` turns the raise into a real error response.
+        sel = self._adapter._current_selection()
+        return sel.provider_name, sel.model_id
 
     def _messages(self) -> list[Any]:
         try:
             return list(self._tree.build_context().messages)
-        except Exception:
+        except Exception:  # noqa: BLE001 - an unreadable tree reports no messages
             return []
 
     def _cmd_get_state(self, cid: str | None, command: dict[str, Any]) -> None:
@@ -928,7 +930,7 @@ class NativeRpcServer:
                 message = getattr(entry, "message", None)
                 if isinstance(message, AgentUserMessage):
                     entries.append({"entryId": entry.id, "text": message.content.value})
-        except Exception:
+        except Exception:  # noqa: BLE001 - an unreadable branch reports no fork points
             entries = []
         self._respond(cid, "get_fork_messages", {"messages": entries})
 
@@ -1001,7 +1003,7 @@ class NativeRpcServer:
             return
         try:
             self._tree.append_session_info(name.strip())
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - reported as a command error response
             self._respond_error(cid, "set_session_name", f"{type(exc).__name__}: {exc}")
             return
         self._respond(cid, "set_session_name")
@@ -1037,7 +1039,7 @@ class NativeRpcServer:
                         "truncated": result.truncated,
                     },
                 )
-            except Exception as exc:  # never crash the loop
+            except Exception as exc:  # noqa: BLE001 - reported as a command error response
                 self._respond_error(cid, "bash", f"{type(exc).__name__}: {exc}")
             finally:
                 with self._lock:

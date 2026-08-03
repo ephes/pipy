@@ -718,8 +718,11 @@ def _parse_git_repo(
 
 def _safe_git_component(value: str, *, allow_slash: bool) -> bool:
     try:
-        decoded = urllib.parse.unquote(value)
-    except Exception:
+        decoded = urllib.parse.unquote(value, errors="strict")
+    except UnicodeDecodeError:
+        # Only a malformed percent-escape is a rejectable component here. A
+        # blind catch would let an unrelated bug read as "unsafe" and silently
+        # reject a legitimate ref.
         return False
     for candidate in (value, decoded):
         if "\x00" in candidate or "\\" in candidate or candidate.startswith("/"):

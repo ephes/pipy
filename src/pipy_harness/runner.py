@@ -268,7 +268,7 @@ class HarnessRunner:
                     "duration_seconds": _duration_seconds(started_at, self.clock()),
                 },
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any run failure becomes the archived FAILED outcome
             status = HarnessStatus.FAILED
             exit_code = 1
             error_type = type(exc).__name__

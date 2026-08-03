@@ -153,7 +153,7 @@ def _run_awaitable(
 
     try:
         _drive_awaitable(awaitable)
-    except BaseException:  # noqa: BLE001 - preserve activation control flow
+    except BaseException:  # preserve activation control flow
         if abandon is not None:
             abandon()
         raise

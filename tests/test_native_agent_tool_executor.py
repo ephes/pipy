@@ -680,7 +680,8 @@ def test_cancellation_does_not_wait_for_an_admitted_backpressured_sink(
                     wait_for_interrupt=interrupt_admitted_sink,
                 )
             )
-        except BaseException as exc:  # pragma: no cover - asserted below
+        # asserted below
+        except BaseException as exc:  # pragma: no cover  # noqa: BLE001
             errors.append(exc)
         finally:
             execution_finished.set()
