@@ -106,7 +106,6 @@ from pipy_harness.native.extension_runtime import (
     drain_custom_messages,
     drain_user_messages,
     is_valid_custom_entry_type,
-    normalize_shortcut_key,
     render_extension_entry,
     render_extension_message,
     safe_custom_entry_data,
@@ -158,7 +157,6 @@ from pipy_harness.native.frame_renderer import (
     visible_len as render_visible_len,
 )
 from pipy_harness.native.keybindings import (
-    DEFAULT_KEYBINDINGS,
     KeybindingsManager,
 )
 from pipy_harness.native.overlay_state import (
@@ -211,6 +209,10 @@ from pipy_harness.native.tool_renderers import (
     _ToolLoopRenderer,
     build_tool_render_theme,
     render_chrome_component,
+)
+from pipy_harness.native.ui.key_specs import (
+    matches_key_specs,
+    resolved_key_specs,
 )
 
 if TYPE_CHECKING:
@@ -1282,7 +1284,7 @@ class _ExtensionEditorComponent:
         if key in {"shift-enter", "alt-enter"}:
             self._insert("\n")
             return
-        if self._external_editor is not None and _matches_key_specs(
+        if self._external_editor is not None and matches_key_specs(
             key, self._external_editor_keys
         ):
             edited = self._external_editor(self.text)
@@ -1897,53 +1899,6 @@ class _CustomOverlayHandle:
 
 
 _HistoryBlock = tuple[str, tuple[str, ...]]
-_USER_KEYBINDING_ACTIONS = frozenset({"app.editor.external"})
-
-
-def _canonical_key_spec(key: str) -> str:
-    normalized = normalize_shortcut_key(key)
-    parts = normalized.split("-")
-    modifiers: list[str] = []
-    index = 0
-    while index < len(parts) - 1 and parts[index] in {"shift", "ctrl", "alt", "meta"}:
-        modifiers.append(parts[index])
-        index += 1
-    base = "-".join(parts[index:])
-    return "+".join([*modifiers, base]) if modifiers else base
-
-
-def _default_keys_for_action(action: str) -> tuple[str, ...]:
-    if action == "app.clipboard.pasteImage" and sys.platform == "win32":
-        return ("alt+v",)
-    default = DEFAULT_KEYBINDINGS.get(action)
-    return tuple(default.default_keys) if default is not None else ()
-
-
-def _resolved_key_specs(
-    action: str, keybindings_manager: KeybindingsManager | None
-) -> list[str]:
-    if (
-        keybindings_manager is not None
-        and action in _USER_KEYBINDING_ACTIONS
-        and action in DEFAULT_KEYBINDINGS
-    ):
-        if keybindings_manager.has_user_binding(action):
-            return [
-                _canonical_key_spec(key) for key in keybindings_manager.keys_for(action)
-            ]
-    return [_canonical_key_spec(key) for key in _default_keys_for_action(action)]
-
-
-def _matches_key_specs(key: str, specs: Sequence[str]) -> bool:
-    normalized = normalize_shortcut_key(key)
-    aliases = {
-        candidate for spec in specs if (candidate := normalize_shortcut_key(spec))
-    }
-    if "escape" in aliases:
-        aliases.add("esc")
-    if "esc" in aliases:
-        aliases.add("escape")
-    return bool(normalized) and normalized in aliases
 
 
 class _CustomEditorKeybindings:
@@ -1988,10 +1943,10 @@ class _CustomEditorKeybindings:
         return handler
 
     def keys_for(self, action: str) -> list[str]:
-        return _resolved_key_specs(action, self._keybindings_manager)
+        return resolved_key_specs(action, self._keybindings_manager)
 
     def matches(self, key: str, action: str) -> bool:
-        return _matches_key_specs(key, self.keys_for(action))
+        return matches_key_specs(key, self.keys_for(action))
 
     def matches_action(self, key: str, action: str) -> bool:
         return self.matches(key, action)
@@ -3999,7 +3954,7 @@ class ToolLoopTerminalUi:
         """Run a Pi-shaped extension multi-line editor overlay."""
 
         external_editor = self._extension_external_editor_callback()
-        external_editor_keys = _resolved_key_specs(
+        external_editor_keys = resolved_key_specs(
             "app.editor.external", self.keybindings_manager
         )
         result = self.run_custom_component(
@@ -4031,9 +3986,9 @@ class ToolLoopTerminalUi:
         return self._run_extension_external_editor(editor_cmd, current_text)
 
     def _matches_keybinding(self, key: str, action: str) -> bool:
-        return _matches_key_specs(
+        return matches_key_specs(
             key,
-            _resolved_key_specs(action, self.keybindings_manager),
+            resolved_key_specs(action, self.keybindings_manager),
         )
 
     def _run_extension_external_editor(
