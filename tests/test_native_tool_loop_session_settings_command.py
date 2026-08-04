@@ -130,6 +130,7 @@ def test_composition_trims_for_classification_but_preserves_user_bubble(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.coding.session_controller as controller_module
+    import pipy_harness.native.repl.provider_config_commands as config_commands
     import pipy_harness.native.tool_loop_session as loop_module
 
     cwd = _workspace(tmp_path)
@@ -167,10 +168,11 @@ def test_composition_trims_for_classification_but_preserves_user_bubble(
     monkeypatch.setattr(
         loop_module._ToolLoopRenderer, "render_user_message", render_user_message
     )
-    # `_ProviderConfigurationCommandEffects` still lives at the composition
-    # root, so the overlay builder binds in `loop_module`'s namespace; patching
-    # the definition site would leave the real builder running.
-    monkeypatch.setattr(loop_module, "tool_loop_settings_overlay_lines", overlay_lines)
+    # The overlay builder binds where its *caller* lives, which is now the
+    # provider-configuration family's own module.
+    monkeypatch.setattr(
+        config_commands, "tool_loop_settings_overlay_lines", overlay_lines
+    )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
     provider = _RecordingProvider()
 
@@ -208,7 +210,7 @@ def test_unexpected_settings_projection_failures_cut_off_footer_and_provider(
     monkeypatch: pytest.MonkeyPatch,
     failure_stage: str,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.provider_config_commands as config_commands
 
     cwd = _workspace(tmp_path)
     footer_calls: list[str] = []
@@ -233,10 +235,11 @@ def test_unexpected_settings_projection_failures_cut_off_footer_and_provider(
         return ["FIRST SETTINGS LINE", "PRIVATE LATER LINE"]
 
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
-    # `_ProviderConfigurationCommandEffects` still lives at the composition
-    # root, so the overlay builder binds in `loop_module`'s namespace; patching
-    # the definition site would leave the real builder running.
-    monkeypatch.setattr(loop_module, "tool_loop_settings_overlay_lines", overlay_lines)
+    # The overlay builder binds where its *caller* lives, which is now the
+    # provider-configuration family's own module.
+    monkeypatch.setattr(
+        config_commands, "tool_loop_settings_overlay_lines", overlay_lines
+    )
     session = NativeToolReplSession(
         provider=provider,
         settings_manager=_settings(tmp_path, cwd),

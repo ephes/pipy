@@ -571,16 +571,20 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
 
 
 def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
+    import pipy_harness.native.repl.provider_config_commands as config_commands
     import pipy_harness.native.tool_loop_session as tool_loop_session
 
-    module_path = tool_loop_session.__file__
-    assert module_path is not None
-    syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+    # The family owns its own module; the interpreter that routes to it is
+    # still at the composition root.
+    module_path = config_commands.__file__
+    root_path = tool_loop_session.__file__
+    assert module_path is not None and root_path is not None
+    syntax = ast.parse(Path(root_path).read_text(encoding="utf-8"))
     effects_class = next(
         node
-        for node in syntax.body
+        for node in ast.parse(Path(module_path).read_text(encoding="utf-8")).body
         if isinstance(node, ast.ClassDef)
-        and node.name == "_ProviderConfigurationCommandEffects"
+        and node.name == "ProviderConfigurationCommandEffects"
     )
     dataclass_decorator = next(
         decorator
@@ -598,7 +602,8 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
         for node in effects_class.body
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
     } == {
-        "session",
+        "provider_state",
+        "clipboard_copy",
         "ctl",
         "coding_state",
         "terminal_ui",
@@ -2145,8 +2150,11 @@ def test_scoped_models_write_failure_preserves_settings_and_usage_footer_order(
         footer_usage_flags.append(kwargs.get("usage_snapshot") is not None)
 
     monkeypatch.setattr(manager, "set_enabled_models", fail_write)
+    # `/scoped-models` reports its failure from the provider-configuration
+    # family's own module now, which is where the diagnostic binds.
     monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic", record_diagnostic
+        "pipy_harness.native.repl.provider_config_commands.emit_diagnostic",
+        record_diagnostic,
     )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")
