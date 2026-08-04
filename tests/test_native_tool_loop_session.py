@@ -67,6 +67,7 @@ from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.repl.execution_projections import (
     build_candidate_extension_projection,
 )
+from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl.turn_leaves import (
     pricing_for,
     wait_for_provider_interrupt,
@@ -241,6 +242,7 @@ def _capture_usage_construction(
     """Spy on the product composition sites without replacing accumulator logic."""
 
     import pipy_harness.native.agent.loop as agent_loop
+    import pipy_harness.native.repl.provider_selection as provider_selection
     import pipy_harness.native.tool_loop_session as tool_loop_session
 
     constructed: list[AgentUsageAccumulator] = []
@@ -262,6 +264,14 @@ def _capture_usage_construction(
     )
     monkeypatch.setattr(agent_loop, "AgentUsageAccumulator", _RecordingUsageAccumulator)
     monkeypatch.setattr(tool_loop_session, "pricing_for", record_pricing)
+    # Startup binds the accumulator at the composition root; every rebind after
+    # that -- `/model`, an auth change, the post-reload fallback -- binds it in
+    # the provider-mutation owner. Both names bind at import in their own
+    # module, so a spy on one of them sees only half the construction sites.
+    monkeypatch.setattr(
+        provider_selection, "AgentUsageAccumulator", _RecordingUsageAccumulator
+    )
+    monkeypatch.setattr(provider_selection, "pricing_for", record_pricing)
     return constructed, pricing_lookups
 
 
@@ -1951,7 +1961,7 @@ def test_scoped_models_show_set_clear_and_reload_auth_owner_recovery(
     auth_store = catalog.auth_store
     before = (state.selection, session.provider_port, catalog.catalog.rows)
     reloads = refreshes = 0
-    refresh = loop._ProviderMutationEffects.refresh_provider_after_reload
+    refresh = ProviderMutationEffects.refresh_provider_after_reload
     reload_configuration = (
         loop._ReloadCommandEffects._reload_configuration_and_resources
     )
@@ -1975,7 +1985,7 @@ def test_scoped_models_show_set_clear_and_reload_auth_owner_recovery(
         drop_then_restore_auth,
     )
     monkeypatch.setattr(
-        loop._ProviderMutationEffects, "refresh_provider_after_reload", record_refresh
+        ProviderMutationEffects, "refresh_provider_after_reload", record_refresh
     )
     monkeypatch.setattr(
         NativeToolCapabilities,
@@ -2900,7 +2910,8 @@ def test_reload_tool_capability_fallback_refreshes_accepted_or_retained_generati
 ) -> None:
     if not reject_candidate:
         monkeypatch.setattr(
-            "pipy_harness.native.tool_loop_session._ProviderMutationEffects.refresh_provider_after_reload",
+            "pipy_harness.native.repl.provider_selection."
+            "ProviderMutationEffects.refresh_provider_after_reload",
             lambda _effects: pytest.fail("accepted reload used legacy refresh"),
         )
     constructed, pricing_lookups = _capture_usage_construction(monkeypatch)

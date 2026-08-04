@@ -33,6 +33,7 @@ from pipy_harness.native.extension_runtime import (
     RegisteredMessageRenderer,
 )
 from pipy_harness.native.repl.loop_scope import RunControlState
+from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeDefaultsStore,
@@ -57,7 +58,6 @@ from pipy_harness.native.tool_capabilities import (
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_loop_session import (
-    _ProviderMutationEffects,
     _SessionCollaborators,
     production_tool_registry,
 )
@@ -587,7 +587,7 @@ def _provider_mutation_fixture(
     persist_defaults: bool = False,
     order_check: bool = False,
 ) -> tuple[
-    _ProviderMutationEffects,
+    ProviderMutationEffects,
     NativeReplProviderState,
     NativeToolCapabilities,
     SessionGenerationRef,
@@ -644,8 +644,8 @@ def _provider_mutation_fixture(
         state_lock=session_lock,
     )
     footers: list[str] = []
-    effects = _ProviderMutationEffects(
-        session=cast(Any, SimpleNamespace(provider_state=state)),
+    effects = ProviderMutationEffects(
+        provider_state=state,
         ctl=ctl,
         extension_operations=cast(Any, None),
         coding_state=coding_state,
@@ -852,7 +852,7 @@ def test_thinking_lock_order_instrumentation_rejects_reverse_edge(
 
 
 def _model_state_snapshot(
-    effects: _ProviderMutationEffects,
+    effects: ProviderMutationEffects,
     state: NativeReplProviderState,
     footers: list[str],
 ) -> tuple[object, ...]:
