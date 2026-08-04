@@ -89,3 +89,53 @@ def test_readme_names_the_codex_websocket_dependency() -> None:
 
     assert "Codex WebSocket transport uses" in readme
     assert "declared `websockets` dependency" in readme
+
+
+# --- decomposition size ratchet ---------------------------------------------
+#
+# The previous architecture program shrank these two files and they grew ~14%
+# straight back, because every gate in this repository constrains *direction*
+# (no new complex function, no new boundary violation) and none constrains
+# *mass*. `tool_loop_session.py` in particular is protected as the apex of the
+# import DAG, which means nothing gates what it accretes.
+#
+# These bounds are the mass gate for the god-file decomposition
+# (docs/plans/2026-08-03-god-file-decomposition-plan.md). Lower them in any
+# slice that shrinks a file; never raise one. A slice that needs a bound raised
+# is a slice that put code back.
+_SIZE_RATCHET = {
+    "src/pipy_harness/native/tui.py": 6288,
+    "src/pipy_harness/native/tool_loop_session.py": 6109,
+}
+
+# Nothing else under `native/` may quietly become the next god file while the
+# named two are being burned down. Set just above today's largest non-ratcheted
+# module (`extension_runtime.py`, itself scheduled for deletion).
+_NATIVE_FILE_CEILING = 4200
+
+
+def _line_count(path: Path) -> int:
+    return len(path.read_text(encoding="utf-8").splitlines())
+
+
+def test_decomposition_size_ratchet_never_grows() -> None:
+    for relative, bound in _SIZE_RATCHET.items():
+        actual = _line_count(REPO_ROOT / relative)
+        assert actual <= bound, (
+            f"{relative} grew to {actual} lines, above its ratchet of {bound}. "
+            "Move code out rather than raising the bound."
+        )
+
+
+def test_no_other_native_module_becomes_the_next_god_file() -> None:
+    offenders = {
+        str(path.relative_to(REPO_ROOT)): _line_count(path)
+        for path in (REPO_ROOT / "src/pipy_harness/native").rglob("*.py")
+        if "__pycache__" not in path.parts
+        and str(path.relative_to(REPO_ROOT)) not in _SIZE_RATCHET
+        and _line_count(path) > _NATIVE_FILE_CEILING
+    }
+
+    assert not offenders, (
+        f"native modules above the {_NATIVE_FILE_CEILING}-line ceiling: {offenders}"
+    )
