@@ -289,6 +289,38 @@ closed: the first landed at `repl/extension_operations.py`, and the second
 dissolved into four record fields when `ReplLoopScope` moved to
 `repl/loop_scope.py`.
 
+## 2c. Execution status (2026-08-04, after 35 slices)
+
+| File | Start | Now | Target |
+|---|---|---|---|
+| `native/tool_loop_session.py` | 6,171 | **2,017** | ~400 |
+| `native/tui.py` | 7,210 | 6,288 | ~720 |
+| `native/extension_runtime.py` | 4,131 | 4,131 | deleted |
+
+**The session side is nearly done and the boundary now bites.** `native/repl/`
+holds 15 modules (5,012 lines). No module under it makes a code-level reference
+to `NativeToolReplSession` -- the three remaining mentions are docstring prose --
+so the rule forbidding `native.repl` → `tool_loop_session` is load-bearing rather
+than aspirational. Every command family, the run scope, the mutable control
+state, the collaborators factory and the command router are out.
+
+**What is left in `tool_loop_session.py`:** `_ReplLoopStep` (569 lines,
+`step_once` complexity 30, slice 41 → `repl/loop_step.py`), `NativeToolReplSession`
+itself (1,088 lines, `run` complexity 40, slice 44 → `repl/wiring.py`), plus
+`_ExtensionCustomEntryRunState` (27) and `_build_detached_reload_effects` (8).
+Both remaining C901 pins on this file are those two functions; deleting the pin
+needs both splits.
+
+**Ordering that held up.** Section 2b's sibling rule was right twice more:
+`_SessionCollaborators` and `_BuiltinCommandInterpreter` sat at session-port zero
+for eight slices, blocked entirely by families that had not moved, and both
+moved byte-identical the moment the last sibling left. The measured-port order
+was otherwise followed exactly and did not need revising.
+
+**The tui side and `extension_runtime.py` are untouched.** Neither has been
+measured under the corrected methodology (`self.<member>` only, plus literal
+`getattr`/`hasattr`/`setattr`). Re-measure before planning either.
+
 ## 3. Ordered slices
 
 `[T]` touches `tui.py`, `[S]` `tool_loop_session.py` — these serialize. `[X]` touches neither and is
