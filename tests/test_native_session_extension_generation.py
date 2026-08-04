@@ -69,6 +69,10 @@ from pipy_harness.native.provider_construction import (
     build_provider,
     try_build_extension_provider_port,
 )
+from pipy_harness.native.repl.execution_projections import (
+    build_candidate_extension_projection,
+    build_projected_extension_tool_port,
+)
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,
@@ -106,9 +110,7 @@ from pipy_harness.native.tool_capabilities import (
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_loop_session import (
-    _build_candidate_extension_projection,
     _build_detached_reload_effects,
-    _build_projected_extension_tool_port,
     _ExtensionCustomEntryRunState,
     _ReplLoopStep,
     _RunControlState,
@@ -1112,7 +1114,7 @@ def test_production_projection_tool_port_is_detached_and_stable(
             cancel_join_timeout_seconds=1.0,
         )
 
-    projected = _build_candidate_extension_projection(
+    projected = build_candidate_extension_projection(
         runtime,
         source_flags,
         queue_mutex=lock,
@@ -1268,7 +1270,7 @@ def test_invalid_builder_results_fail_before_returning_a_projection(
     assert lock is not None
 
     def port(registered: Any, flags: Mapping[str, object]) -> ToolPort:
-        return _build_projected_extension_tool_port(
+        return build_projected_extension_tool_port(
             registered,
             has_ui=False,
             notify_sink=lambda *_args: None,
@@ -1438,8 +1440,8 @@ def test_projection_omits_settings_keybindings_resources_and_reverse_adapters() 
 def test_production_projection_and_port_adapter_callers_are_exactly_bounded() -> None:
     target_names = {
         "build_extension_projection",
-        "_build_candidate_extension_projection",
-        "_build_projected_extension_tool_port",
+        "build_candidate_extension_projection",
+        "build_projected_extension_tool_port",
     }
     calls: dict[str, list[tuple[str, tuple[str, ...]]]] = {
         name: [] for name in target_names
@@ -1489,21 +1491,21 @@ def test_production_projection_and_port_adapter_callers_are_exactly_bounded() ->
     )
     startup_owner = ("class:NativeToolReplSession", "function:run")
     assert calls == {
-        "_build_candidate_extension_projection": [
+        "build_candidate_extension_projection": [
             (loop_path, reload_owner),
             (loop_path, startup_owner),
         ],
         "build_extension_projection": [
             (
-                "pipy_harness/native/tool_loop_session.py",
-                ("function:_build_candidate_extension_projection",),
+                "pipy_harness/native/repl/execution_projections.py",
+                ("function:build_candidate_extension_projection",),
             )
         ],
-        "_build_projected_extension_tool_port": [
+        "build_projected_extension_tool_port": [
             (
-                "pipy_harness/native/tool_loop_session.py",
+                "pipy_harness/native/repl/execution_projections.py",
                 (
-                    "function:_build_candidate_extension_projection",
+                    "function:build_candidate_extension_projection",
                     "function:build_tool_port",
                 ),
             )

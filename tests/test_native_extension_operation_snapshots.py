@@ -35,6 +35,9 @@ from pipy_harness.native.extension_runtime import (
     _ExtensionRuntime,
 )
 from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.repl.execution_projections import (
+    SessionExecutionProjections,
+)
 from pipy_harness.native.repl.extension_operations import (
     ProviderHeaderRequestSnapshot,
     SessionExtensionOperations,
@@ -57,7 +60,6 @@ from pipy_harness.native.tool_capabilities import (
 from pipy_harness.native.tool_loop_session import (
     _ReloadCommandEffects,
     _SessionCollaborators,
-    _SessionExecutionProjections,
 )
 from pipy_harness.native.tools import (
     ToolContext,
@@ -526,7 +528,7 @@ def test_r4b_provider_turn_retains_one_tool_renderer_and_provider_generation(
         usage_accumulator=AgentUsageAccumulator(),
         state_lock=lock,
     )
-    execution = _SessionExecutionProjections(
+    execution = SessionExecutionProjections(
         generation_ref=generation_ref,
         tool_capabilities=tool_capabilities,
         coding_state=coding_state,
@@ -597,7 +599,7 @@ def test_retained_tool_call_context_captures_active_provider_turn_generation(
         usage_accumulator=AgentUsageAccumulator(),
         state_lock=lock,
     )
-    execution = _SessionExecutionProjections(
+    execution = SessionExecutionProjections(
         generation_ref=generation_ref,
         tool_capabilities=capabilities,
         coding_state=coding,
@@ -714,7 +716,7 @@ def test_projectionless_startup_fails_without_install_or_publication(
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setattr(
         tool_loop_session,
-        "_build_candidate_extension_projection",
+        "build_candidate_extension_projection",
         lambda *_args, **_kwargs: None,
     )
     for name in ("SessionGenerationRef", "publish_candidate_ownership"):
@@ -819,12 +821,18 @@ def test_r4c_deletes_all_converted_legacy_sources_and_equivalence_arms() -> None
     }
     assert removed_arms.isdisjoint(remaining_tests)
 
-    loop_tree = ast.parse(loop_source)
+    # `SessionExecutionProjections` moved to the module that owns the frozen
+    # per-turn views; the invariant below is about that class, not about which
+    # file it sits in.
+    loop_tree = ast.parse(
+        (root / "src/pipy_harness/native/repl/execution_projections.py").read_text(
+            encoding="utf-8"
+        )
+    )
     execution_owner = next(
         node
         for node in loop_tree.body
-        if isinstance(node, ast.ClassDef)
-        and node.name == "_SessionExecutionProjections"
+        if isinstance(node, ast.ClassDef) and node.name == "SessionExecutionProjections"
     )
     begin = next(
         node

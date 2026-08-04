@@ -88,10 +88,6 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputKind,
     AgentQueuedInputPort,
 )
-from pipy_harness.native.agent.tools import (
-    ToolExecutionOutcome,
-    ToolInterruptWaiter,
-)
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
     AgentUsageAccumulator,
@@ -222,17 +218,13 @@ from pipy_harness.native.extension_runtime import (
     ExtensionCapabilityError,
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
-    ExtensionTool,
     ExtensionUiDriver,
     GenerationMessageRetirement,
     HookHandler,
     QueuedCustomMessage,
     QueuedUserMessage,
-    RegisteredTool,
     ToolRenderDetailsWriter,
     _ExtensionCandidate,
-    _ExtensionRuntime,
-    _ExtensionToolPort,
     _report_activation_cleanup,
     normalize_shortcut_key,
     parse_extension_flag_tokens,
@@ -260,6 +252,11 @@ from pipy_harness.native.project_trust import (
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl.execution_projections import (
+    SessionExecutionProjections,
+    apply_startup_provider_projection,
+    build_candidate_extension_projection,
+)
 from pipy_harness.native.repl.extension_operations import (
     SessionExtensionOperations,
     SessionHookFamily,
@@ -307,7 +304,6 @@ from pipy_harness.native.session_generation import (
     SessionExtensionGeneration,
     SessionGenerationRef,
     balance_startup_candidate,
-    build_extension_projection,
     build_prepared_reload_effects,
     prepare_production_reload,
     publish_candidate_ownership,
@@ -351,8 +347,6 @@ from pipy_harness.native.themes import (
 )
 from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
-    NativeToolCapabilitySnapshot,
-    ToolCapabilityState,
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_renderers import (
@@ -1210,191 +1204,6 @@ class _TransferCommandEffects:
             self.diag(f"pipy: gist URL: {result.gist_url}")
 
 
-@dataclass(frozen=True, slots=True)
-class _ExecutionProjectionSnapshot:
-    generation_id: int
-    tools: NativeToolCapabilitySnapshot
-    renderers: Mapping[str, ExtensionTool]
-    tool_call_hooks: tuple[HookHandler, ...]
-    flags: Mapping[str, object]
-    ui_driver: ExtensionUiDriver | None
-    provider: ProviderPort
-
-
-class _SessionExecutionProjections:
-    """Bind one provider turn to one published tool/renderer/provider view."""
-
-    __slots__ = (
-        "_active",
-        "_coding_state",
-        "_generation_ref",
-        "_tools",
-        "_ui_driver",
-    )
-
-    def __init__(
-        self,
-        *,
-        generation_ref: SessionGenerationRef,
-        tool_capabilities: NativeToolCapabilities,
-        coding_state: CodingSessionState,
-        ui_driver: _LiveExtensionUiDriver | None,
-    ) -> None:
-        self._generation_ref = generation_ref
-        self._tools = tool_capabilities
-        self._coding_state = coding_state
-        self._ui_driver = ui_driver
-        self._active: _ExecutionProjectionSnapshot | None = None
-
-    def _begin_provider_turn(self) -> _ExecutionProjectionSnapshot:
-        with self._generation_ref.lock:
-            snapshot = self._generation_ref.snapshot()
-            projection = snapshot.generation.projection
-            if projection is None:
-                raise RuntimeError("published extension generation has no projection")
-            chrome = projection.chrome
-            ui_driver: ExtensionUiDriver | None = self._ui_driver
-            if chrome is not None and self._ui_driver is not None:
-                ui_driver = self._ui_driver.generation_driver(chrome.sink)
-            active = _ExecutionProjectionSnapshot(
-                generation_id=snapshot.generation_id,
-                tools=self._tools.snapshot_for_projection(
-                    projection.tools.capability_state
-                ),
-                renderers=projection.renderers.tools,
-                tool_call_hooks=projection.hooks.tool_call,
-                flags=projection.runtime_flags.values,
-                ui_driver=ui_driver,
-                provider=self._coding_state.provider,
-            )
-            self._active = active
-            return active
-
-    def _require_active(self) -> _ExecutionProjectionSnapshot:
-        if self._active is None:
-            raise RuntimeError("tool advertisement has not started a provider turn")
-        return self._active
-
-    def definitions(
-        self,
-        allowed_names: Sequence[str] | None = None,
-        /,
-    ) -> tuple[ToolDefinition, ...]:
-        return self._begin_provider_turn().tools.definitions(allowed_names)
-
-    def execute(
-        self,
-        call: AgentToolCall,
-        *,
-        output_sink: Callable[[str], None] | None = None,
-        wait_for_interrupt: ToolInterruptWaiter | None = None,
-    ) -> ToolExecutionOutcome:
-        active = self._require_active()
-        return active.tools.execute(
-            call,
-            output_sink=output_sink,
-            wait_for_interrupt=wait_for_interrupt,
-            extension_generation_id=active.generation_id,
-        )
-
-    def error_result(
-        self,
-        call: AgentToolCall,
-        output_text: str,
-        /,
-    ) -> AgentToolResultMessage:
-        return self._require_active().tools.error_result(call, output_text)
-
-    def tool_renderers(
-        self, advertised_names: Sequence[str]
-    ) -> Mapping[str, ExtensionTool]:
-        renderers = self._require_active().renderers
-        return {name: renderers[name] for name in advertised_names if name in renderers}
-
-    @property
-    def provider(self) -> ProviderPort:
-        return self._require_active().provider
-
-    def tool_call_policy_inputs(
-        self,
-    ) -> tuple[
-        int,
-        tuple[HookHandler, ...],
-        Mapping[str, object],
-        ExtensionUiDriver | None,
-    ]:
-        active = self._require_active()
-        return (
-            active.generation_id,
-            active.tool_call_hooks,
-            active.flags,
-            active.ui_driver,
-        )
-
-
-def _build_projected_extension_tool_port(
-    registered: RegisteredTool,
-    *,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None],
-    set_active_tools: Callable[[int, Sequence[str]], bool],
-    flags: Mapping[str, object],
-    render_details: ToolRenderDetailsWriter,
-    project_trusted: bool,
-) -> ToolPort:
-    """Construct one detached projection port without touching live state."""
-
-    return _ExtensionToolPort(
-        registered,
-        has_ui=has_ui,
-        notify_sink=notify_sink,
-        set_active_tools_fn=set_active_tools,
-        flags=flags,
-        render_details_sink=render_details,
-        project_trusted=project_trusted,
-    )
-
-
-def _build_candidate_extension_projection(
-    runtime: _ExtensionRuntime,
-    flag_values: Mapping[str, object],
-    *,
-    queue_mutex: threading.RLock,
-    reference_mutex: threading.RLock,
-    has_ui: bool,
-    notify_sink: Callable[[str, str], None],
-    set_active_tools: Callable[[int, Sequence[str]], bool],
-    render_details: ToolRenderDetailsWriter,
-    project_trusted: bool,
-    prepare_capability: Callable[[Mapping[str, ToolPort]], ToolCapabilityState],
-    chrome: ExtensionChromeHandle | None,
-) -> ExtensionProjection:
-    """Purely compose one detached candidate projection for publication."""
-
-    def build_tool_port(
-        registered: RegisteredTool, frozen_flags: Mapping[str, object]
-    ) -> ToolPort:
-        return _build_projected_extension_tool_port(
-            registered,
-            has_ui=has_ui,
-            notify_sink=notify_sink,
-            set_active_tools=set_active_tools,
-            flags=frozen_flags,
-            render_details=render_details,
-            project_trusted=project_trusted,
-        )
-
-    return build_extension_projection(
-        runtime,
-        flag_values,
-        queue_mutex=queue_mutex,
-        reference_mutex=reference_mutex,
-        build_tool_port=build_tool_port,
-        build_tool_capability=prepare_capability,
-        chrome=chrome,
-    )
-
-
 def _finish_chrome_retirement(
     retirement: ExtensionChromeRetirement | None,
 ) -> BaseException | None:
@@ -1579,7 +1388,7 @@ class _ReloadCommandEffects:
                 self.diag(f"pipy: {reloaded_flag_error}")
                 self.diag("pipy: keeping the previous extensions.")
                 return False, None
-            projection = _build_candidate_extension_projection(
+            projection = build_candidate_extension_projection(
                 reloaded_extension_runtime,
                 reloaded_flag_values,
                 queue_mutex=self.ctl.generation_ref.lock,
@@ -2452,7 +2261,7 @@ class _ReplLoopScope:
     base_system_prompt: str
     image_reference_roots: tuple[Path, ...]
     prompt_history_store: PromptHistoryStore
-    execution_projections: _SessionExecutionProjections
+    execution_projections: SessionExecutionProjections
     agent_tool_policy: NativeAgentToolPolicy
     coding_input_queue: CodingInputQueue
     command_effects: CodingCommandEffects
@@ -3079,7 +2888,7 @@ class _SessionCollaborators:
     session: NativeToolReplSession
     ctl: _RunControlState
     extension_operations: SessionExtensionOperations
-    execution_projections: _SessionExecutionProjections
+    execution_projections: SessionExecutionProjections
     coding_state: CodingSessionState
     product_session: CodingProductSessionCoordinator
     coding_input_queue: CodingInputQueue
@@ -3428,63 +3237,6 @@ class _SessionCollaborators:
             ran=extension_dispatch.ran,
             error=extension_dispatch.error,
         )
-
-
-def _apply_startup_provider_projection(
-    *,
-    generation_ref: SessionGenerationRef,
-    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None,
-    coding_state: CodingSessionState,
-    error_stream: TextIO,
-) -> None:
-    """Apply one published startup provider projection and any required fallback."""
-
-    snapshot = generation_ref.snapshot()
-    projection = snapshot.generation.projection
-    if projection is None:
-        raise RuntimeError("published extension generation has no projection")
-    match provider_state:
-        case NativeReplProviderState():
-            catalog_state = provider_state.model_runtime.catalog
-            was_extension_selection = (
-                provider_state.current_selection_uses_extension_provider()
-            )
-            providers = projection.providers
-            catalog_state.set_extension_provider_contributions(
-                providers.providers,
-                providers.unregistered,
-            )
-            if not provider_state.current_selection_supported() or (
-                was_extension_selection
-                and not provider_state.current_selection_uses_extension_provider()
-            ):
-                fallback = provider_state.reset_to_first_available_model(
-                    require_tool_calls=True
-                )
-                if fallback is None:
-                    raise ValueError(
-                        "selected provider is unavailable after extension activation, "
-                        "and no available tool-capable fallback was found"
-                    )
-                fallback_provider = provider_state.current_provider()
-                coding_state.rebind_provider(
-                    fallback_provider,
-                    provider_name=fallback.provider_name,
-                    model_id=fallback.model_id,
-                    usage_accumulator=AgentUsageAccumulator(
-                        pricing_for(fallback.provider_name, fallback.model_id)
-                    ),
-                )
-                print(
-                    "pipy: active model disappeared on startup; selected "
-                    f"{fallback.reference}.",
-                    file=error_stream,
-                )
-                # Post-commit: the fallback is bound, so persist it and report a
-                # failure without claiming the binding reverted.
-                startup_persistence_error = provider_state.flush_pending_default()
-                if startup_persistence_error is not None:
-                    print(startup_persistence_error, file=error_stream)
 
 
 @dataclass
@@ -3911,7 +3663,7 @@ class NativeToolReplSession:
             # separate locks would not do.
             state_lock=session_state_lock,
         )
-        startup_projection = _build_candidate_extension_projection(
+        startup_projection = build_candidate_extension_projection(
             extension_runtime,
             extension_flag_values,
             queue_mutex=session_state_lock,
@@ -3970,7 +3722,7 @@ class NativeToolReplSession:
                         "editor action or extension shortcut.",
                         file=error_stream,
                     )
-        _apply_startup_provider_projection(
+        apply_startup_provider_projection(
             generation_ref=generation_ref,
             provider_state=self.provider_state,
             coding_state=coding_state,
@@ -3982,7 +3734,7 @@ class NativeToolReplSession:
             print(f"pipy: {message}", file=error_stream)
             return self._fail_startup(coding_state, "ExtensionActivationError", message)
         tool_capabilities.publish(startup_projection.tools.capability_state)
-        execution_projections = _SessionExecutionProjections(
+        execution_projections = SessionExecutionProjections(
             generation_ref=generation_ref,
             tool_capabilities=tool_capabilities,
             coding_state=coding_state,

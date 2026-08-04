@@ -64,6 +64,9 @@ from pipy_harness.native.extension_provider_catalog import (
     load_extension_provider_contributions,
 )
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.repl.execution_projections import (
+    build_candidate_extension_projection,
+)
 from pipy_harness.native.repl.turn_leaves import (
     pricing_for,
     wait_for_provider_interrupt,
@@ -4200,18 +4203,21 @@ def test_startup_signature_and_failure_candidate_balance_is_exact(
         raise KeyboardInterrupt("report failed")
 
     monkeypatch.setattr(generation, "_report_activation_cleanup", fail_report)
-    build_projection = loop._build_candidate_extension_projection
+    build_projection = build_candidate_extension_projection
 
     def fail_projection(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("injected startup projection failure")
 
-    monkeypatch.setattr(loop, "_build_candidate_extension_projection", fail_projection)
+    monkeypatch.setattr(
+        "pipy_harness.native.tool_loop_session.build_candidate_extension_projection",
+        fail_projection,
+    )
     with pytest.raises(RuntimeError, match="startup projection failure"):
         _run_session(tmp_path=tmp_path, tool_calls_script=())
     cleanup, sink = reports[0]
     assert len(reports) == cleanup.disposed == 1
     assert "cleanup report failed: KeyboardInterrupt" in sink.args[-1].getvalue()
-    monkeypatch.setattr(loop, "_build_candidate_extension_projection", build_projection)
+    monkeypatch.setattr(loop, "build_candidate_extension_projection", build_projection)
     with pytest.raises(KeyboardInterrupt, match="report failed"):
         _run_session(tmp_path=tmp_path, tool_calls_script=())
     try:
