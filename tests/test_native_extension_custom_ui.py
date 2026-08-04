@@ -243,7 +243,7 @@ def test_custom_component_failed_physical_acquisition_has_no_release(
 
 def test_open_custom_overlay_renders_component_lines(tmp_path: Path) -> None:
     ui = _ui(tmp_path)
-    ui._custom_component = _ScriptedComponent(lambda _v=None: None)
+    ui._overlays.custom_component = _ScriptedComponent(lambda _v=None: None)
     ui.custom_overlay_open = True
     frame = "\n".join(ui.render_lines())
     assert "CUSTOM-OVERLAY-LINE" in frame

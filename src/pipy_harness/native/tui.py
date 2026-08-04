@@ -211,7 +211,10 @@ from pipy_harness.native.ui.chrome_handoff import (
 from pipy_harness.native.ui.components.custom_editor import (
     ExtensionEditorComponent,
 )
-from pipy_harness.native.ui.components.custom_overlay import CustomOverlayHandle
+from pipy_harness.native.ui.components.custom_overlay import (
+    CustomComponentRunner,
+    custom_overlay_region_lines,
+)
 from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionConfirmComponent,
     ExtensionInputComponent,
@@ -241,7 +244,6 @@ from pipy_harness.native.ui.paint_lock import PaintLock
 
 if TYPE_CHECKING:
     from pipy_harness.native.extension_types import (
-        CustomComponent,
         CustomComponentFactory,
         CustomComponentOptions,
         ToolRenderContext,
@@ -1391,22 +1393,6 @@ class ToolLoopTerminalUi:
             self._overlays.supersede("custom")
         else:
             self._overlays.close("custom")
-
-    @property
-    def _custom_component(self) -> CustomComponent | None:
-        return cast("CustomComponent | None", self._overlays.custom_component)
-
-    @_custom_component.setter
-    def _custom_component(self, value: CustomComponent | None) -> None:
-        self._overlays.custom_component = value
-
-    @property
-    def _custom_component_render_width(self) -> int | None:
-        return self._overlays.custom_render_width
-
-    @_custom_component_render_width.setter
-    def _custom_component_render_width(self, value: int | None) -> None:
-        self._overlays.custom_render_width = value
 
     @property
     def session_picker_open(self) -> bool:
@@ -2575,131 +2561,22 @@ class ToolLoopTerminalUi:
         callbacks for API parity.
         """
 
-        previous_width = self._overlays.custom_render_width
-        render_width = self._custom_component_width(options)
-        custom_started = False
-        pending_done = False
-        pending_result: object = None
-
-        def done(result: object = None) -> None:
-            nonlocal pending_done, pending_result
-            if custom_started:
-                self._overlays.finish_custom(result)
-            elif not pending_done:
-                pending_done = True
-                pending_result = result
-
-        component = factory(done)
+        runner = CustomComponentRunner(self._overlays, self.paint)
+        runner.create(factory, options)
         raw_mode_acquired = False
         try:
-            self._overlays.begin_custom(component, render_width=render_width)
-            custom_started = True
-            if pending_done:
-                self._overlays.finish_custom(pending_result)
-            self._notify_custom_handle(
-                options, CustomOverlayHandle(self._overlays, self.paint)
-            )
-            self.paint()
+            runner.begin()
             fd = self.input_stream.fileno()
             self._driver.enter_raw_mode()
             raw_mode_acquired = True
-            while not self._overlays.custom_done:
-                key = self._read_key_polling_resize(fd)
-                if key is None:
-                    # Stream EOF / read error: cancel deterministically.
-                    done(None)
+            while not runner.finished:
+                if runner.handle_key(self._read_key_polling_resize(fd)):
                     break
-                if key == "paste":
-                    # A bracketed-paste marker carries no decoded text here;
-                    # ignore it rather than forwarding a sentinel to the
-                    # component.
-                    continue
-                try:
-                    if (
-                        self._overlays.custom_hidden
-                        or not self._overlays.custom_focused
-                    ):
-                        self.paint()
-                        continue
-                    component.handle_input(key)
-                except (KeyboardInterrupt, SystemExit):
-                    raise
-                except BaseException:  # noqa: BLE001 - a bad component cancels
-                    done(None)
-                    break
-                if not self._overlays.custom_done:
-                    self.paint()
         finally:
-            result = self._overlays.end_custom(previous_width=previous_width)
-            dispose = getattr(component, "dispose", None)
-            if callable(dispose):
-                try:
-                    dispose()
-                except (KeyboardInterrupt, SystemExit):
-                    raise
-                except BaseException:  # noqa: BLE001 - must not strand the screen relinquish
-                    pass
-            # Relinquish the screen immediately: repaint the normal frame so the
-            # overlay does not linger until some unrelated later paint. Guarded
-            # so a repaint failure never masks the in-flight result/exception.
-            try:
-                self.paint()
-            except (OSError, ValueError):
-                pass
+            result = runner.dispose()
             if raw_mode_acquired:
                 self._driver.restore_terminal_mode()
         return result
-
-    def _custom_component_width(self, options: object) -> int | None:
-        overlay_options = self._custom_option(
-            options, "overlayOptions", "overlay_options"
-        )
-        if callable(overlay_options):
-            try:
-                overlay_options = overlay_options()
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except BaseException:  # noqa: BLE001 - bad options degrade to defaults
-                overlay_options = None
-        width = self._custom_option(overlay_options, "width")
-        if isinstance(width, bool):
-            return None
-        if isinstance(width, int) and width > 0:
-            return max(1, min(width, 500))
-        if isinstance(width, float) and width > 0:
-            return max(1, min(int(width), 500))
-        if isinstance(width, str):
-            try:
-                parsed = int(width)
-            except ValueError:
-                return None
-            return max(1, min(parsed, 500)) if parsed > 0 else None
-        return None
-
-    def _notify_custom_handle(self, options: object, handle: object) -> None:
-        callback = self._custom_option(options, "onHandle", "on_handle")
-        if not callable(callback):
-            return
-        try:
-            callback(handle)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - an overlay callback must not break the session
-            pass
-
-    @staticmethod
-    def _custom_option(source: object, *names: str) -> object:
-        if source is None:
-            return None
-        if isinstance(source, Mapping):
-            for name in names:
-                if name in source:
-                    return source[name]
-            return None
-        for name in names:
-            if hasattr(source, name):
-                return getattr(source, name)
-        return None
 
     def run_extension_select(self, title: str, options: Sequence[str]) -> str | None:
         """Run a Pi-shaped extension selector over string options."""
@@ -3293,33 +3170,6 @@ class ToolLoopTerminalUi:
             if not self._chrome.working_visible:
                 self.working_text = ""
         self.paint()
-
-    def _custom_overlay_region_lines(
-        self, *, width: int, height: int
-    ) -> list[_FrameLine]:
-        """Compose the custom extension overlay from the component's lines.
-
-        The component owns its own layout (it is trusted local code, matching
-        the extension trust boundary), but the driver still sanitizes and clips
-        rendered lines before they reach the terminal frame.
-        """
-
-        if self._overlays.custom_hidden:
-            return []
-        component = self._custom_component
-        if component is None:
-            return []
-        try:
-            render_width = self._custom_component_render_width or width
-            raw = component.render(render_width)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException:  # noqa: BLE001 - never let a bad render crash paint
-            raw = ["(custom component render error)"]
-        lines = [_clip_custom_overlay_text(str(line), width) for line in (raw or [])][
-            : max(1, height)
-        ]
-        return [_FrameLine(line, "normal") for line in lines]
 
     # -- interactive session picker (/resume + -r overlay) ------------------
 
@@ -4303,7 +4153,9 @@ class ToolLoopTerminalUi:
 
         active = self._overlays.active
         if active == "custom":
-            return self._custom_overlay_region_lines(width=width, height=height)
+            return custom_overlay_region_lines(
+                self._overlays, width=width, height=height
+            )
         if active in {"settings", "project_trust"}:
             return settings_dialog_region_lines(
                 self._overlays,

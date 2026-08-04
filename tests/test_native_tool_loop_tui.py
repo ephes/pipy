@@ -315,7 +315,7 @@ def test_tui_tool_blocks_sanitize_control_characters(tmp_path: Path):
 
 def test_tui_custom_overlay_sanitizes_control_characters(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui._custom_component = _RawCustomComponent()
+    ui._overlays.custom_component = _RawCustomComponent()
     ui.custom_overlay_open = True
 
     frame = "\n".join(ui.render_lines(width=72, height=14))

@@ -99,7 +99,7 @@ def test_component_tui_custom_overlay_preserves_safe_sgr(tmp_path: Path) -> None
         terminal_stream=cast(TextIO, io.StringIO()),
         cwd=tmp_path,
     )
-    ui._custom_component = comp
+    ui._overlays.custom_component = comp
     ui.custom_overlay_open = True
 
     frame = "\n".join(ui.render_lines(width=80, height=14))
