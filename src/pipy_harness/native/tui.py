@@ -204,6 +204,13 @@ from pipy_harness.native.tool_renderers import (
     render_chrome_component,
 )
 from pipy_harness.native.ui.autocomplete import BuiltinAutocompleteProvider
+from pipy_harness.native.ui.chrome_handoff import (
+    ChromeAcceptanceResult,
+    ChromeHandoff,
+    ChromeHandoffLease,
+    ChromeHandoffOperation,
+    ChromeRoutingLease,
+)
 from pipy_harness.native.ui.components.custom_editor import (
     ExtensionEditorComponent,
 )
@@ -282,50 +289,6 @@ TURN_STEERED = "steered"  # a steering message interrupted the turn
 TURN_LOCAL_COMMAND = "local_command"  # a /… or !… command interrupted the turn
 
 
-@dataclass(frozen=True, slots=True)
-class _ChromeAcceptanceResult:
-    """Ownership result for one post-commit chrome acceptance attempt."""
-
-    accepted: bool
-    diagnostic: str | None = None
-    retired_sink: ExtensionChromeSink | None = None
-    candidate_closed: bool = False
-
-
-@dataclass(slots=True)
-class _ChromeHandoffOperation:
-    """One retained write admitted while chrome ownership is undecided."""
-
-    kind: str
-    values: tuple[object, ...]
-    cancelled: bool = False
-    live_disposer: Callable[[], None] | None = None
-
-
-@dataclass(slots=True)
-class _ChromeHandoff:
-    """Short-guard state that queues writes until acceptance selects an owner."""
-
-    candidate: ExtensionChromeSink
-    pending: list[_ChromeHandoffOperation] = field(default_factory=list)
-
-
-@dataclass(frozen=True, slots=True)
-class _ChromeHandoffLease:
-    """Exact installed handoff and the owner retained during acquisition."""
-
-    previous: ExtensionChromeSink
-    handoff: _ChromeHandoff
-
-
-@dataclass(frozen=True, slots=True)
-class _ChromeRoutingLease:
-    """Explicit source route for synchronous reentrant chrome writes."""
-
-    source: str
-    sink: ExtensionChromeSink
-
-
 class _LiveExtensionUiDriver:
     """Live `ExtensionUiDriver` backed by the product TUI (one per session)."""
 
@@ -336,8 +299,8 @@ class _LiveExtensionUiDriver:
         self._sink_idle = threading.Condition(self._sink_guard)
         self._active_sink = ExtensionChromeSink(self._deliver_chrome_event)
         self._active_sink_leases = 0
-        self._handoff: _ChromeHandoff | None = None
-        self._routing_leases: ContextVar[tuple[_ChromeRoutingLease, ...]] = ContextVar(
+        self._handoff: ChromeHandoff | None = None
+        self._routing_leases: ContextVar[tuple[ChromeRoutingLease, ...]] = ContextVar(
             "extension_chrome_routing_leases", default=()
         )
         self._retirement_drop_sink = ExtensionChromeSink()
@@ -379,7 +342,7 @@ class _LiveExtensionUiDriver:
         candidate: ExtensionChromeSink,
         *,
         rollback_snapshot: ExtensionChromeSnapshot | None = None,
-    ) -> _ChromeAcceptanceResult:
+    ) -> ChromeAcceptanceResult:
         """Reconcile without holding the owner guard, then select one live sink.
 
         The short ``_sink_guard`` only starts/completes the handoff and accounts
@@ -390,7 +353,7 @@ class _LiveExtensionUiDriver:
         """
 
         acquired = self._acquire_candidate_handoff(candidate)
-        if isinstance(acquired, _ChromeAcceptanceResult):
+        if isinstance(acquired, ChromeAcceptanceResult):
             return acquired
         previous = acquired.previous
         handoff = acquired.handoff
@@ -406,7 +369,7 @@ class _LiveExtensionUiDriver:
                 )
                 if restore_error is None:
                     self._complete_handoff(restored, handoff)
-                    return _ChromeAcceptanceResult(
+                    return ChromeAcceptanceResult(
                         accepted=False,
                         diagnostic=(
                             "pipy: extension chrome reconciliation failed; kept "
@@ -424,7 +387,7 @@ class _LiveExtensionUiDriver:
                     )
                     self._complete_handoff(restored, handoff)
                     if retry_restore_error is not None:
-                        return _ChromeAcceptanceResult(
+                        return ChromeAcceptanceResult(
                             accepted=False,
                             diagnostic=(
                                 "pipy: extension chrome reconciliation and "
@@ -433,7 +396,7 @@ class _LiveExtensionUiDriver:
                                 f"({type(retry_error).__name__})."
                             ),
                         )
-                    return _ChromeAcceptanceResult(
+                    return ChromeAcceptanceResult(
                         accepted=False,
                         diagnostic=(
                             "pipy: extension chrome reconciliation failed; "
@@ -451,7 +414,7 @@ class _LiveExtensionUiDriver:
                         rollback_snapshot=rollback_snapshot,
                     )
                 self._complete_handoff(candidate, handoff)
-                return _ChromeAcceptanceResult(
+                return ChromeAcceptanceResult(
                     accepted=True,
                     diagnostic=(
                         "pipy: previous chrome restoration failed; accepted "
@@ -470,7 +433,7 @@ class _LiveExtensionUiDriver:
                     rollback_snapshot=rollback_snapshot,
                 )
             self._complete_handoff(candidate, handoff)
-            return _ChromeAcceptanceResult(
+            return ChromeAcceptanceResult(
                 accepted=True,
                 retired_sink=previous,
             )
@@ -485,24 +448,24 @@ class _LiveExtensionUiDriver:
 
     def _acquire_candidate_handoff(
         self, candidate: ExtensionChromeSink
-    ) -> _ChromeHandoffLease | _ChromeAcceptanceResult:
+    ) -> ChromeHandoffLease | ChromeAcceptanceResult:
         """Install one handoff and drain selected writes exception-safely."""
 
-        acquired: _ChromeHandoffLease | None = None
+        acquired: ChromeHandoffLease | None = None
         try:
             with self._sink_guard:
                 previous = self._active_sink
                 if candidate is previous:
-                    return _ChromeAcceptanceResult(accepted=True)
+                    return ChromeAcceptanceResult(accepted=True)
                 if self._handoff is not None:
-                    return _ChromeAcceptanceResult(
+                    return ChromeAcceptanceResult(
                         accepted=False,
                         diagnostic=(
                             "pipy: extension chrome handoff is already active."
                         ),
                     )
-                handoff = _ChromeHandoff(candidate)
-                acquired = _ChromeHandoffLease(previous, handoff)
+                handoff = ChromeHandoff(candidate)
+                acquired = ChromeHandoffLease(previous, handoff)
                 self._handoff = handoff
                 while self._active_sink_leases:
                     self._sink_idle.wait()
@@ -556,11 +519,11 @@ class _LiveExtensionUiDriver:
         candidate: ExtensionChromeSink,
         previous: ExtensionChromeSink,
         attach_result: ExtensionChromeAttachResult,
-        handoff: _ChromeHandoff,
+        handoff: ChromeHandoff,
         *,
         restore_required: bool,
         rollback_snapshot: ExtensionChromeSnapshot | None,
-    ) -> _ChromeAcceptanceResult:
+    ) -> ChromeAcceptanceResult:
         """Finish an attach refusal with rollback only after candidate paint."""
 
         if restore_required:
@@ -569,7 +532,7 @@ class _LiveExtensionUiDriver:
             )
             self._complete_handoff(restored, handoff)
             if restore_error is not None:
-                return _ChromeAcceptanceResult(
+                return ChromeAcceptanceResult(
                     accepted=False,
                     diagnostic=(
                         "pipy: closed extension chrome candidate and previous "
@@ -588,7 +551,7 @@ class _LiveExtensionUiDriver:
                 if attach_result.candidate_closed
                 else "pipy: extension chrome candidate refused before reconciliation."
             )
-        return _ChromeAcceptanceResult(
+        return ChromeAcceptanceResult(
             accepted=False,
             diagnostic=diagnostic,
             candidate_closed=attach_result.candidate_closed,
@@ -616,7 +579,7 @@ class _LiveExtensionUiDriver:
         return None
 
     def _complete_handoff(
-        self, owner: ExtensionChromeSink, handoff: _ChromeHandoff
+        self, owner: ExtensionChromeSink, handoff: ChromeHandoff
     ) -> None:
         """Select ``owner`` and drain one exact handoff outside the guard."""
 
@@ -643,7 +606,7 @@ class _LiveExtensionUiDriver:
             raise
 
     def _replay_handoff_operation(
-        self, sink: ExtensionChromeSink, operation: _ChromeHandoffOperation
+        self, sink: ExtensionChromeSink, operation: ChromeHandoffOperation
     ) -> None:
         with self._sink_guard:
             if operation.cancelled:
@@ -675,7 +638,7 @@ class _LiveExtensionUiDriver:
 
     @staticmethod
     def _apply_sink_operation(
-        sink: ExtensionChromeSink, operation: _ChromeHandoffOperation
+        sink: ExtensionChromeSink, operation: ChromeHandoffOperation
     ) -> object:
         values = operation.values
         if operation.kind == "widget":
@@ -709,7 +672,7 @@ class _LiveExtensionUiDriver:
         raise AssertionError(f"unknown chrome handoff operation: {operation.kind}")
 
     def _route_bound_sink_operation(
-        self, sink: ExtensionChromeSink, operation: _ChromeHandoffOperation
+        self, sink: ExtensionChromeSink, operation: ChromeHandoffOperation
     ) -> object:
         """Route a generation-bound write, honoring an explicit callback source."""
 
@@ -717,7 +680,7 @@ class _LiveExtensionUiDriver:
         target = routing_leases[-1].sink if routing_leases else sink
         return self._apply_sink_operation(target, operation)
 
-    def _route_sink_operation(self, operation: _ChromeHandoffOperation) -> object:
+    def _route_sink_operation(self, operation: ChromeHandoffOperation) -> object:
         routing_leases = self._routing_leases.get()
         if routing_leases:
             # A synchronous callback inherits its explicit source route. In
@@ -738,7 +701,7 @@ class _LiveExtensionUiDriver:
                 if not self._active_sink_leases:
                     self._sink_idle.notify_all()
 
-    def _dispose_handoff_listener(self, operation: _ChromeHandoffOperation) -> None:
+    def _dispose_handoff_listener(self, operation: ChromeHandoffOperation) -> None:
         with self._sink_guard:
             operation.cancelled = True
             live_disposer = operation.live_disposer
@@ -760,7 +723,7 @@ class _LiveExtensionUiDriver:
         token = self._routing_leases.set(
             (
                 *current,
-                _ChromeRoutingLease("retiring-disposal", self._retirement_drop_sink),
+                ChromeRoutingLease("retiring-disposal", self._retirement_drop_sink),
             )
         )
         try:
@@ -826,26 +789,26 @@ class _LiveExtensionUiDriver:
 
     def set_widget(self, key: str, content: object, placement: str) -> None:
         self._route_sink_operation(
-            _ChromeHandoffOperation("widget", (key, content, placement))
+            ChromeHandoffOperation("widget", (key, content, placement))
         )
 
     def set_header(self, factory: object | None) -> None:
-        self._route_sink_operation(_ChromeHandoffOperation("header", (factory,)))
+        self._route_sink_operation(ChromeHandoffOperation("header", (factory,)))
 
     def set_footer(self, factory: object | None) -> None:
-        self._route_sink_operation(_ChromeHandoffOperation("footer", (factory,)))
+        self._route_sink_operation(ChromeHandoffOperation("footer", (factory,)))
 
     def set_title(self, title: str) -> None:
-        self._route_sink_operation(_ChromeHandoffOperation("title", (title,)))
+        self._route_sink_operation(ChromeHandoffOperation("title", (title,)))
 
     def set_working_indicator(self, frames: object, interval_ms: object) -> None:
         self._route_sink_operation(
-            _ChromeHandoffOperation("indicator", (frames, interval_ms))
+            ChromeHandoffOperation("indicator", (frames, interval_ms))
         )
 
     def set_hidden_thinking_label(self, label: str | None = None) -> None:
         self._route_sink_operation(
-            _ChromeHandoffOperation("hidden-thinking-label", (label,))
+            ChromeHandoffOperation("hidden-thinking-label", (label,))
         )
 
     def get_editor_text(self) -> str:
@@ -858,7 +821,7 @@ class _LiveExtensionUiDriver:
         self._terminal_ui.paste_input_text(text)
 
     def add_terminal_input_listener(self, handler: Any) -> Callable[[], None]:
-        operation = _ChromeHandoffOperation("listener", (handler,))
+        operation = ChromeHandoffOperation("listener", (handler,))
         result = self._route_sink_operation(operation)
         if callable(result):
             return result
@@ -878,11 +841,11 @@ class _LiveExtensionUiDriver:
                 paint()
 
     def add_autocomplete_provider(self, factory: object) -> None:
-        self._route_sink_operation(_ChromeHandoffOperation("autocomplete", (factory,)))
+        self._route_sink_operation(ChromeHandoffOperation("autocomplete", (factory,)))
 
     def set_editor_component(self, factory: object | None) -> None:
         self._route_sink_operation(
-            _ChromeHandoffOperation("editor-component", (factory,))
+            ChromeHandoffOperation("editor-component", (factory,))
         )
 
     def get_editor_component(self) -> object | None:
@@ -918,39 +881,39 @@ class _GenerationExtensionUiDriver:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._live, name)
 
-    def _route(self, operation: _ChromeHandoffOperation) -> object:
+    def _route(self, operation: ChromeHandoffOperation) -> object:
         return self._live._route_bound_sink_operation(  # noqa: SLF001
             self._sink, operation
         )
 
     def set_widget(self, key: str, content: object, placement: str) -> None:
-        self._route(_ChromeHandoffOperation("widget", (key, content, placement)))
+        self._route(ChromeHandoffOperation("widget", (key, content, placement)))
 
     def set_header(self, factory: object | None) -> None:
-        self._route(_ChromeHandoffOperation("header", (factory,)))
+        self._route(ChromeHandoffOperation("header", (factory,)))
 
     def set_footer(self, factory: object | None) -> None:
-        self._route(_ChromeHandoffOperation("footer", (factory,)))
+        self._route(ChromeHandoffOperation("footer", (factory,)))
 
     def set_title(self, title: str) -> None:
-        self._route(_ChromeHandoffOperation("title", (title,)))
+        self._route(ChromeHandoffOperation("title", (title,)))
 
     def set_working_indicator(self, frames: object, interval_ms: object) -> None:
-        self._route(_ChromeHandoffOperation("indicator", (frames, interval_ms)))
+        self._route(ChromeHandoffOperation("indicator", (frames, interval_ms)))
 
     def set_hidden_thinking_label(self, label: str | None = None) -> None:
-        self._route(_ChromeHandoffOperation("hidden-thinking-label", (label,)))
+        self._route(ChromeHandoffOperation("hidden-thinking-label", (label,)))
 
     def add_terminal_input_listener(self, handler: Any) -> Callable[[], None]:
-        result = self._route(_ChromeHandoffOperation("listener", (handler,)))
+        result = self._route(ChromeHandoffOperation("listener", (handler,)))
         assert callable(result)
         return result
 
     def add_autocomplete_provider(self, factory: object) -> None:
-        self._route(_ChromeHandoffOperation("autocomplete", (factory,)))
+        self._route(ChromeHandoffOperation("autocomplete", (factory,)))
 
     def set_editor_component(self, factory: object | None) -> None:
-        self._route(_ChromeHandoffOperation("editor-component", (factory,)))
+        self._route(ChromeHandoffOperation("editor-component", (factory,)))
 
     def get_editor_component(self) -> object | None:
         return self._sink.snapshot().editor_component
