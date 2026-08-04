@@ -24,7 +24,10 @@ from pipy_harness.native.coding.commands import (
 )
 from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeAttachResult,
+    ExtensionChromeCommitToken,
     ExtensionChromeEvent,
+    ExtensionChromePrepareInput,
+    ExtensionChromePreparePort,
     ExtensionChromeSink,
     ExtensionChromeSnapshot,
 )
@@ -41,9 +44,6 @@ from pipy_harness.native.session_generation import (
 )
 from pipy_harness.native.tool_loop_session import _ReloadCommandEffects
 from pipy_harness.native.tui import (
-    ExtensionChromeCommitToken,
-    ExtensionChromePrepareInput,
-    ExtensionChromePreparePort,
     ToolLoopTerminalUi,
     _LiveExtensionUiDriver,
 )

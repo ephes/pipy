@@ -41,7 +41,10 @@ from pipy_harness.native.coding.state import (
     CodingReloadHistoryValue,
     CodingSessionState,
 )
-from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
+from pipy_harness.native.extension_chrome_state import (
+    ExtensionChromePrepareInput,
+    ExtensionChromeSink,
+)
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
     deliver_accepted_staged_batch,
@@ -118,7 +121,6 @@ from pipy_harness.native.tools import (
 )
 from pipy_harness.native.tui import (
     AcceptedCustomMessageSinks,
-    ExtensionChromePrepareInput,
     _CustomEntryRenderer,
 )
 

@@ -209,6 +209,8 @@ from pipy_harness.native.export_distribution import (
     import_native_session_jsonl as import_native_session_jsonl,
 )
 from pipy_harness.native.extension_chrome_state import (
+    ExtensionChromeCommitToken,
+    ExtensionChromePrepareInput,
     ExtensionChromeRetirement,
     ExtensionChromeSink,
 )
@@ -381,8 +383,6 @@ from pipy_harness.native.tui import (
     TURN_LOCAL_COMMAND,
     TURN_SETTLED,
     TURN_STEERED,
-    ExtensionChromeCommitToken,
-    ExtensionChromePrepareInput,
     ModelSelectorOption,
     ScopedModelRow,
     SettingsRow,

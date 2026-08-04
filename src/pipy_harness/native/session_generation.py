@@ -34,9 +34,9 @@ if TYPE_CHECKING:
         ReplSelectionReloadValue,
     )
     from pipy_harness.native.tool_capabilities import NativeToolCapabilities
-    from pipy_harness.native.tui import ExtensionChromePrepareInput
 
 from pipy_harness.native.extension_chrome_state import (
+    ExtensionChromePrepareInput,
     ExtensionChromeRetirement,
     ExtensionChromeSink,
 )

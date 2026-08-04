@@ -39,7 +39,6 @@ from typing import (
     Protocol,
     Self,
     TextIO,
-    TypeAlias,
     TypedDict,
     cast,
 )
@@ -77,7 +76,9 @@ from pipy_harness.native.editor_state import (
 from pipy_harness.native.extension_chrome_state import (
     ChromeRegion,
     ExtensionChromeAttachResult,
+    ExtensionChromeCommitToken,
     ExtensionChromeEvent,
+    ExtensionChromePrepareInput,
     ExtensionChromeSink,
     ExtensionChromeSnapshot,
     ExtensionChromeState,
@@ -279,29 +280,6 @@ TURN_SETTLED = "settled"  # the provider turn finished on its own
 TURN_ABORTED = "aborted"  # Escape/Ctrl-C cancelled the turn
 TURN_STEERED = "steered"  # a steering message interrupted the turn
 TURN_LOCAL_COMMAND = "local_command"  # a /… or !… command interrupted the turn
-
-
-@dataclass(frozen=True, slots=True)
-class ExtensionChromePrepareInput:
-    """Exact detached R2 sink passed to the future chrome prepare phase."""
-
-    candidate: ExtensionChromeSink
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.candidate, ExtensionChromeSink):
-            raise TypeError("chrome prepare candidate must be an ExtensionChromeSink")
-
-
-@dataclass(frozen=True, slots=True)
-class ExtensionChromeCommitToken:
-    """Inert prepared data for R3c's non-fallible sink-pointer assignment."""
-
-    prepared: ExtensionChromePrepareInput
-
-
-ExtensionChromePreparePort: TypeAlias = Callable[
-    [ExtensionChromePrepareInput], ExtensionChromeCommitToken | None
-]
 
 
 @dataclass(frozen=True, slots=True)

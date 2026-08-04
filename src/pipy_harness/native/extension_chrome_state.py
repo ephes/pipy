@@ -514,6 +514,29 @@ class ExtensionChromeSink:
             retirement.finalize()
 
 
+@dataclass(frozen=True, slots=True)
+class ExtensionChromePrepareInput:
+    """Exact detached R2 sink passed to the future chrome prepare phase."""
+
+    candidate: ExtensionChromeSink
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.candidate, ExtensionChromeSink):
+            raise TypeError("chrome prepare candidate must be an ExtensionChromeSink")
+
+
+@dataclass(frozen=True, slots=True)
+class ExtensionChromeCommitToken:
+    """Inert prepared data for R3c's non-fallible sink-pointer assignment."""
+
+    prepared: ExtensionChromePrepareInput
+
+
+ExtensionChromePreparePort: TypeAlias = Callable[
+    [ExtensionChromePrepareInput], ExtensionChromeCommitToken | None
+]
+
+
 @dataclass(slots=True)
 class ExtensionChromeState:
     """Single mutable owner for extension chrome and listener bookkeeping."""
