@@ -2790,6 +2790,10 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         ("dispose", sg, ("function:_dispose_completed_reload_effects",)),
         ("validate", hooks, sequencer),
         ("release", hooks, sequencer),
+        # Unrelated to the reload gate: `PaintLock` delegates to the RLock it
+        # wraps. The inventory is exhaustive by name, so a legitimate second
+        # `release` has to be listed rather than filtered out.
+        ("release", "native/ui/paint_lock.py", ("class:PaintLock", "function:release")),
         ("drain", hooks, sequencer),
         ("abort", sg, reserve),
         *{

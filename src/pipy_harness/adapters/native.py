@@ -39,9 +39,9 @@ from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
-    production_tool_registry,
 )
 from pipy_harness.native.tools import ToolPort as ModelDrivenToolPort
+from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.workspace_context import (
     WorkspaceInstructionLoader,
     compose_system_prompt,

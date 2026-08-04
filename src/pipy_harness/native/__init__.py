@@ -131,8 +131,8 @@ from pipy_harness.native.session import NativeHarnessCompatibilityRuntime
 from pipy_harness.native.tool import ToolPort
 from pipy_harness.native.tool_loop_session import (
     NativeToolReplSession,
-    production_tool_registry,
 )
+from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.usage import (
     NORMALIZED_PROVIDER_USAGE_KEYS,
     normalize_provider_usage,

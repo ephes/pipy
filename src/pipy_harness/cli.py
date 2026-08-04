@@ -32,7 +32,6 @@ from pipy_harness.native import (
     default_native_defaults_path,
     default_openai_codex_auth_path,
     default_selection_for,
-    production_tool_registry,
     validate_native_repl_input_runtime,
 )
 from pipy_harness.native.agent.loop_policy import MAX_AGENT_TOOL_BUDGET
@@ -67,6 +66,7 @@ from pipy_harness.native.themes import (
 )
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
 from pipy_harness.native.tools import ToolPort
+from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.version_check import (
     PIPY_OFFLINE_ENV,
     PIPY_SKIP_VERSION_CHECK_ENV,

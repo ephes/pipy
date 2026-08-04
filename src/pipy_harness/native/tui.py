@@ -221,6 +221,7 @@ from pipy_harness.native.ui.key_specs import (
     matches_key_specs,
     resolved_key_specs,
 )
+from pipy_harness.native.ui.paint_lock import PaintLock
 
 if TYPE_CHECKING:
     from pipy_harness.native.extension_types import (
@@ -1188,7 +1189,7 @@ class ToolLoopTerminalUi:
     _painted_block_count: int = 0
     _live_height: int = 0
     _live_input_row: int = 0
-    _paint_lock: Any = field(default_factory=threading.RLock)
+    _paint_lock: PaintLock = field(default_factory=PaintLock)
     _painting: bool = False
     _paint_requested_during_paint: bool = False
     # Live extension custom editor component (Pi ``ctx.ui.setEditorComponent``).
@@ -3331,9 +3332,8 @@ class ToolLoopTerminalUi:
     ) -> Callable[[], None]:
         """Register a Pi-shaped footer branch-change callback."""
 
-        # _paint_lock is a threading.RLock, so footer factories may safely call
-        # onBranchChange while _build_region is already running under the same
-        # paint lock during set/rebuild.
+        # Reentrancy matters here: a footer factory may call onBranchChange
+        # while _build_region already holds this lock during set/rebuild.
         with self._paint_lock:
             generation, callback_id = self._chrome.register_footer_branch_callback(
                 callback

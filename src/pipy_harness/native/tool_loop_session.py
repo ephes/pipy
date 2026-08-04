@@ -376,6 +376,7 @@ from pipy_harness.native.tools import (
     ToolPort,
 )
 from pipy_harness.native.tools.bash import LocalShellResult, run_local_command
+from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.tui import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
     HOTKEY_MODEL_CYCLE_NEXT,
@@ -401,33 +402,6 @@ from pipy_harness.native.tui import (
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.version_check import pipy_version
-
-
-def production_tool_registry() -> dict[str, ToolPort]:
-    """Return the current production tool registry.
-
-    `bash` is a real shell, matching Pi: it runs an arbitrary command in the
-    workspace and returns combined, bounded stdout/stderr to the model. See
-    `pipy_harness.native.tools.bash.BashTool`.
-    """
-
-    from pipy_harness.native.tools.bash import BashTool
-    from pipy_harness.native.tools.edit import EditTool
-    from pipy_harness.native.tools.find import FindTool
-    from pipy_harness.native.tools.grep import GrepTool
-    from pipy_harness.native.tools.ls import LsTool
-    from pipy_harness.native.tools.read import ReadTool
-    from pipy_harness.native.tools.write import WriteTool
-
-    return {
-        "read": ReadTool(),
-        "ls": LsTool(),
-        "grep": GrepTool(),
-        "find": FindTool(),
-        "write": WriteTool(),
-        "edit": EditTool(),
-        "bash": BashTool(),
-    }
 
 
 def _tool_loop_command_names(
