@@ -1,6 +1,8 @@
 # God-File Decomposition Plan
 
-Status: active. Wave 0 is test-only rule hardening and lands first; every later
+Status: active. Sections 2a, 3, 3a and 3b were re-derived from measurement on
+2026-08-04 and supersede section 1's line estimates and the original wave order.
+Wave 0 is test-only rule hardening and landed first; every later
 slice lands individually with `just check` green and the old path deleted in the
 same commit.
 
@@ -76,7 +78,7 @@ Built from **Proposal 1 (state ownership)** — winner 2–1 (implementability, 
 | `native/repl/wiring.py` | ~8 phase functions each **returning a frozen record**; `SessionWiring` | 620 | session `run()` |
 | `native/chrome.py` (grows) | absorbs footer composition; deletes 2 injected callables | 1176 | session |
 | `native/extensions/*` (12 modules) | contracts, message_routing, custom_payloads, session_views, dispatch, tool_port, contribution_names, collectors, flag_tokens, provider_normalization, command_context, activation | 1570 max | extension_runtime |
-| `native/tui.py` (residual) | 8 own fields + one handle per owner, `read_line`, `wait_for_active_turn_interrupt`, `start`, `is_supported` | **500** | — |
+| `native/tui.py` (residual) | 8 own fields + one handle per owner, `read_line`, `wait_for_active_turn_interrupt`, `start`, `is_supported` | ~~500~~ **720** (see 3a) | — |
 | `native/tool_loop_session.py` (residual) | dataclass surface, `__post_init__`, `provider_port`, `run()` = 2 lines | **420** | — |
 
 **Projected largest file this plan produces:** `native/extensions/activation.py` ~1,570 (pi's counterpart `runner.ts` is 1,236) — comfortably under the 2,400 bar. Then `chrome.py` 1,176, `extensions/packages.py` 1,105, `ui/components/settings_dialog.py` 840. Repo-wide, `cli.py` (2,851) and `session.py` (2,488) become the largest files; both are out of scope.
@@ -90,115 +92,218 @@ Built from **Proposal 1 (state ownership)** — winner 2–1 (implementability, 
 5. **`provider_state` has two owners today** — declared on the session, written exclusively by `_ProviderMutationEffects` through `self.session.provider_state`. *Handling:* the field and all 16 methods move into `repl/provider_selection.py`; consumers read `current_thinking_level()` instead of the three-variant union.
 6. **`self` is part of the extension contract.** `factory(self, theme, keybindings)` and `_CustomOverlayHandle(self)` pass the whole `ToolLoopTerminalUi`. Verified: accepted in every factory signature, read in none. *Decision, settled now:* keep passing the residual facade (it still holds the key loops, driver and owner handles); pass narrowed ports only to `_CustomOverlayHandle`.
 
-## 2a. Ordering amendment (2026-08-03, after slice 1 landed)
+## 2a. Measured re-plan (2026-08-04) — supersedes the 2026-08-03 amendment
 
-**This section governs where it conflicts with section 3.** The design phase
-measured field cohesion *inside* each god class but never measured outbound
-dependencies *from* a candidate extraction back to it. Section 3's wave order
-was written without that number, and it is close to inverted.
+**This section governs where it conflicts with section 3.** Numbers come from a typed-receiver
+resolver that reads string annotations verbatim (`ast.Constant` → `.value`), resolves quoted *field*
+and *return* annotations, follows `getattr(x, "lit")`, cross-checked against a word-boundary sweep
+of each definition's own source. Both failure directions were observed and cleared by hand.
 
-Measured with an AST closure walk (`closure(x)` = every top-level name in the
-file that must move together with `x`):
+### What the measurement says
 
-| File | Top-level defs | Extractable without touching the god class | Blocked |
-| --- | --- | --- | --- |
-| `native/tui.py` | 59 | **54** | 4 |
-| `native/tool_loop_session.py` | 44 | **41** | 2 |
+`port` = distinct god-class members touched. `eff` = port minus `@property` projections onto an
+existing record, static/class methods, instance-free methods, and read-only injected values.
+`cx` = ruff `--isolated --select C901` (threshold 10; no pin follows moved code).
 
-Only four things in `tui.py` are genuinely blocked: `_TuiToolLoopRenderer`,
-`run_project_trust_selector`, `run_startup_project_trust_selector`, and
-`run_startup_session_picker`. Everything else is free today.
+| Extraction | file | L | port | eff | cx | illusion? |
+|---|---|---|---|---|---|---|
+| `_LiveExtensionUiDriver` L351-791 band | tui | 441 | **0** | 0 | 14 | n/a — all 24 touches sit in the L793-925 binding, which stays |
+| `_GenerationExtensionUiDriver` | tui | 51 | 0 | 0 | 1 | **inverted** — `__getattr__` proxy; never moves |
+| `_CustomEntryRenderer` + companions | tui | 421 | 7 | 5→**0** | 6 | yes, by schedule |
+| `_TuiToolLoopRenderer` | tui | 281 | 20 | 16→**0** | 8 | yes — 4 `@property`→`_chrome`, 13 transcript verbs |
+| `_ExtensionChromeTuiHandle` | tui | 26 | 1 | 1 | 3 | no — real 10-line method |
+| `_CustomEditorKeybindings` | tui | 52 | 1 | 1 | 2 | no — real but degenerate field write |
+| `run_project_trust_selector` | tui | 78 | 1 | 1 | 6 | no — `run_settings_dialog` is a real 71-line method |
+| `run_startup_*` (trust, picker) | tui | 68 | 1 / 2 | 1 / 2 | 5 | no — and both **construct** the god class |
+| `_ReplLoopStep` | session | 566 | 7 | **0** | 30 | yes — 4 free functions + 3 never-written scalars |
+| `_ProviderConfigurationCommandEffects` | session | 226 | 8 | **0** | 9 | yes — 9 of 18 touches are one `@staticmethod` |
+| `_TransferCommandEffects` | session | 79 | 3 | **0** | 5 | yes — all three are static/classmethods |
+| `_ReloadCommandEffects` | session | 352 | 4 | **1** | 16 | no — `_maybe_save_implicit_trust_after_reload` |
+| `_ProviderMutationEffects` | session | 515 | 2 | **0** | 7 | yes — `provider_state` is never assigned |
+| `_SessionCollaborators` / `_SessionCommandEffects` | session | 377/304 | 1/2 | **0** | 5/8 | yes |
+| `_ExtensionRuntime` + `_routing_for_activation_batch` | ext_rt | 68 | 1 | **0** | 7 | yes — `_ActivationApi`'s only `@property` |
+| activation lifecycle band | ext_rt | ~300 | 2-4 | 2-4 | 9 | no — unbound dispatch under capability tokens; **no port derivable** |
 
-Two corrections follow.
+Of 110 top-level defs in `extension_runtime.py`, 5 have non-zero effective port and all 5 are one
+lifecycle band. Across `tool_loop_session.py` exactly **one** member is a genuine mutable edge:
+`auto_trust_on_reload_cwd` (read L5461, written L5470/L5480).
 
-**Section 3's slice 2 does not exist as written.** `FrameLine` already lives in
-`native/frame_renderer.py`, and `Region`, `KeyTarget`, `RepaintPort` and
-`OverlayHandle` appear nowhere in the tree. That slice is not a relocation; it is
-an instruction to invent four Protocols with no implementors. The honest version
-is to *derive* one port from the 20 members `_TuiToolLoopRenderer` actually uses
-on `ToolLoopTerminalUi` (including the private `_driver`), and to do it only when
-a blocked extraction needs it — not speculatively, and not before any free work.
+### The ports
 
-**Section 3's slice 3 cannot move verbatim.** `_TuiToolLoopRenderer` reaches
-those same 20 members, so relocating it under `native.ui` would violate the
-back-edge rule slice 1 just added. The plan's own Wave 0 blocks the plan's own
-next slice.
+Five survive; none is a Protocol restating private god names.
 
-### Correction to this section, same day
+1. **`ExtensionChromeDelivery`** — *already exists*, `extension_chrome_state.py:65`,
+   `Callable[[ExtensionChromeEvent], object]`. One member, `__call__(event) -> object`, passed as an
+   opaque value at tui L359/422/440/553/556; already the parameter type of
+   `ExtensionChromeSink.attach` (:217) and `.reconcile_attached` (:278). Shell:
+   `_LiveExtensionUiDriver` keeps its name, module, constructor and full public surface, holding
+   `self._chrome = ExtensionChromeRouter(self._deliver_chrome_event)`.
+2. **`PaintLock`** — newtype over the single `RLock`, **no default constructor**, defined in
+   `ui/paint_lock.py` (slice 5), constructed once in `ui/screen.py` (slice 43). Every ui owner takes
+   `(record, PaintLock, repaint: Callable[[], None])` — the landed `CustomOverlayHandle` shape.
+3. **`Callable[[], None]`** for `_ExtensionChromeTuiHandle` (`request_extension_chrome_render`) and
+   **`Callable[[str], None]`** for `_CustomEditorKeybindings` (`_queue_custom_editor_action`, a
+   2-line write of plain field `_custom_editor_action`, L1646) — plain constructor parameters. The
+   second is *retired* at slice 24 when `custom_editor.py` owns the record.
+4. **`ImplicitTrustState`** — one-field mutable record (resolved cwd) built in `__post_init__` and
+   injected; replaces the last real port member in `tool_loop_session.py`.
+5. **`_ReplLoopScope` widened** — delete `session: "NativeToolReplSession"` (L2794, the sole god
+   edge, entered once at L2863); add `abort_event`, `file_reference_roots`, `tool_budget`, none ever
+   assigned on this class. Name it `file_reference_roots`: `image_reference_roots` is *derived* from
+   it under a different clipboard policy and both are consumed 14 lines apart under the same
+   parameter name. Do **not** add `provider_state` — the record already carries
+   `cycle_thinking_level` (L2821), which runs the identical guard.
 
-The first pass of this measurement was itself wrong, and the error is worth
-recording because it is easy to repeat. The dependency walk collected
-`ast.Name` and `ast.Attribute` nodes, which **misses a string annotation**. Every
-class here takes the god class as `ui: "ToolLoopTerminalUi"` — a quoted forward
-reference, so an `ast.Constant`. The walk reported those classes as free when
-they are not. Corrected numbers, from a conservative word-boundary scan of each
-definition's own source text: `tui.py` is **42 free / 12 blocked**, not 54 / 4.
+**Dissolved ports.** `CustomEntryTerminalPort` (5) and the `_TuiToolLoopRenderer` port (16) vanish
+because `components/transcript.py` lands first and owns `_history_blocks` and the commit verbs while
+`ui/screen.py` owns the live `(width, expanded, stream)` triple; the renderer's four `@property`
+reads of `_chrome` (L2094/2102/2158/2166) are **deleted** and the component reads
+`ExtensionChromeState` directly. The 24-member driver port dissolves by cutting at the seam the code
+already has; `_ActivationApi`'s sole `@property` by threading the `GenerationMessageRouting` record;
+everything in `tool_loop_session.py` bar `auto_trust_on_reload_cwd` into free functions and records.
 
-Closure size was also the wrong metric. What decides whether an extraction is
-cheap is its **port surface**: how many members of the god class it actually
-touches. A 120-line class that touches nothing is free; a 70-line class that
-reaches four private fields is not.
+### Two facts that decide destinations and no port count shows
 
-| Extraction | Port surface | Closure | Verdict |
-| --- | --- | --- | --- |
-| `ui/key_specs.py` | 0 | 20L | **done** |
-| `Extension{Select,Confirm,Input}Component` + `clip_plain` | 0 | ~110L | **done** |
-| `_ExtensionEditorComponent` | **0** | 120L | free — take next |
-| `_BuiltinAutocompleteProvider` | **1** (`cwd`) | 62L | free once it takes `cwd` |
-| `_CustomOverlayHandle` | 5 | 70L | needs a port |
-| `_CustomEntryRenderer` + companions | 7 | 395L | needs a port |
-| `_LiveExtensionUiDriver` / `_GenerationExtensionUiDriver` | 22 | 667L | needs the large port |
-
-So the original section 3 was right that a port has to come early — it was only
-wrong about which port, and about inventing its contents. Derive each port from
-the measured member list, smallest first, and let the three port-needing
-extractions follow their own port rather than a speculative one.
-
-The ordering method that survives: measure port surface, take zero-port
-extractions first, then derive each remaining port from real usage.
-
-Section 3's *target layout* is unaffected — the module list, the shared-state
-analysis in section 2, and the success criteria in section 5 all held up under
-checking. Only the ordering and the "near-free" labels were wrong.
+- **`native.ui` may never name `ToolLoopTerminalUi`.** The rule at
+  `tests/test_architecture_import_boundaries.py:982-997` forbids `native.tui`, and the module
+  docstring (L12-15) plus a plain `ast` walk confirm TYPE_CHECKING and function-local imports are
+  scanned. So (a) `run_startup_project_trust_selector` (constructs at L6671) and
+  `run_startup_session_picker` (L6716) need `native/startup_selectors.py`; (b) every "tui + session"
+  row in section 1 is **two** modules — `_drive_settings_dialog` (L5515), `_handle_trust_command`
+  (L5409), `_open_scoped_models_overlay` (L5639), `_open_default_project_trust_selector` (L5731),
+  `_maybe_save_implicit_trust_after_reload` (L5455), `_toggle_view_fold` (L5136),
+  `_cycle_thinking_level` (L5182) all annotate `terminal_ui: ToolLoopTerminalUi`, so their half
+  lands under `native/repl/`, which may import `native.tui`. There is no `repl/hotkeys.py`.
+- **`ui/screen.py` is a fan-out hub.** `_frame_snapshot` (L5001) reads eight live buffers,
+  `_history_blocks`, `input_text`, `_effective_input_cursor()` and `_overlays`;
+  `_standard_frame_inputs` (L5050) calls eight `*_lines` owners. Extracted early its port exceeds
+  20, so it goes **last** among tui owners, taking an ordered contributor tuple.
 
 ## 3. Ordered slices
 
-Take 3–5 per session. **[T]** touches `tui.py`, **[S]** touches `tool_loop_session.py` — these serialize; never run two in parallel.
+`[T]` touches `tui.py`, `[S]` `tool_loop_session.py` — these serialize. `[X]` touches neither and is
+always available. Standing rules: every port is a callable, a record, or an existing type defined in
+the destination; anything >10 splits **inside the slice that moves it**; import from the definition
+site; the old path dies in the same commit.
 
-> **Superseded in part.** The wave ordering below predates the dependency
-> measurement in section 2a; where the two disagree, section 2a governs. The
-> target layout, per-slice boundary-rule edits, and C901 handling below remain
-> current.
+**Slice 1, in full, so a fresh session can execute it.** `[T]` Move `ExtensionChromePrepareInput`
+(tui L284-292), `ExtensionChromeCommitToken` (L295-299) and `ExtensionChromePreparePort` (L302-304)
+into `src/pipy_harness/native/extension_chrome_state.py`, directly after `ExtensionChromeSink`.
+They are declaration-only and import nothing, so that module's total-leaf rule
+(`forbidden_imports=("pipy_harness","pipy_session")`, L1045-1052) holds verbatim. Repoint
+`tool_loop_session.py` L384-385 into its existing `extension_chrome_state` import block; **delete**
+`session_generation.py:37` (`from pipy_harness.native.tui import ExtensionChromePrepareInput` — a
+TYPE_CHECKING back-edge from a dependency-neutral record into the god file); update
+`tests/test_native_extension_chrome_staging.py` L43-49 and
+`tests/test_native_session_extension_generation.py` L121. Port: none. Boundary edit: none. C901:
+max moved complexity 2. Safe alone, and a prerequisite for slice 2, whose `prepare_candidate`
+signature names two of the three.
 
-**Wave 0 — rules first (free, no source churn)**
+Each row below is safe alone for the reason in its port column: zero port, or a port already landed.
 
-1. **Boundary hardening.** Edit only `tests/test_architecture_import_boundaries.py`: (a) add `"pipy_harness.native.ui",` immediately above each `"pipy_harness.native.tui",` in the six inner rules at lines **993** (`frame_renderer`), **1021** (`overlay_state`), **1055** (`session_tree_commands`), **1066** (`tool_renderers`), **1076** (`extensions`), **1108** (`extension_ui`); (b) add `"pipy_harness.native.tui",` to the `source_package="pipy_harness.native.ui"` rule's `forbidden_imports` at lines 982–989. Verified green today: none of those six modules imports `native.ui`, and neither `ui/rendering.py` nor `ui/state.py` imports `tui`. Without (a), relocating tui.py into `native.ui.*` is a silent six-rule weakening; (b) forbids the back-edge the whole program exists to break. No C901 impact.
+| # | moves → target | tag | port | C901 |
+|---|---|---|---|---|
+| 2 | 5 `_Chrome*` records + `_LiveExtensionUiDriver` L351-791 → `ui/chrome_handoff.py` as `ExtensionChromeRouter`; `ChromeHandoffOperation`/`ChromeAcceptanceResult` and `route`/`route_bound`/`dispose_handoff_listener`/`retiring_disposal_route` go public | T | `ExtensionChromeDelivery` | **split `accept_candidate` 14** at the inner `except BaseException` arm → `_recover_failed_attach`; `_apply_sink_operation` exactly 10 — byte-for-byte |
+| 3 | `repl/diagnostics.py` (`_emit_diagnostic`, 40 refs), `repl/session_adapters.py` (status adapters, `production_tool_registry`, `_BuiltinCommandInterpreter`), `repl/turn_leaves.py` (`_wait_for_*_interrupt`, `_pricing_for`, `_AGENT_HISTORY_*`, `_finish_chrome_retirement`, `_raise_first`, `_CANCEL_JOIN_TIMEOUT_SECONDS`) | S | none | `interpret` 9 — add nothing |
+| 4 | `extensions.py` → `extensions/packages.py` + empty `__init__.py` | X | none | none |
+| 5 | `ui/paint_lock.py` — `PaintLock` newtype | T | — | none |
+| 6 | tests-only ratchet: sizes pinned at today's measured ast-lines, tightened by every later slice | — | — | — |
+| 7 | `repl/provider_selection.py` (`_ProviderMutationEffects` + startup projection); pass the record | S | none | max 7 |
+| 8 | `extensions/{session_views,command_context}.py` | X | none | max 3 |
+| 9 | `repl/session_commands.py` + the 3 instance-free god methods it reaches | S | none | `execute` 8 |
+| 10 | `repl/collaborators.py` (`_SessionCollaborators`) | S | none | max 5 |
+| 11 | `ui/extension_generation.py` — named teardown owner, ordered participant tuple | T | PaintLock + repaint | none |
+| 12 | `ui/extension_chrome.py` + `components/footer.py` + `terminal_input_listeners.py`; `_build_region` lands **here**, not in screen; the 4 `_chrome` projections deleted | T | record + PaintLock + repaint | **split `_apply_extension_terminal_input_listeners` 11** |
+| 13 | `repl/reload.py` + `_maybe_save_implicit_trust_after_reload` | S | `ImplicitTrustState` | **split `_reload_extension_generation` 16** activate→prepare→publish→retire |
+| 14 | `ui/components/transcript.py` — `_history_blocks`, live buffers, 31 commit/stream verbs | T | PaintLock + repaint | max 8 |
+| 15 | `ui/components/custom_entry_renderer.py` + run state + `AcceptedCustomMessageSinks`; `_CustomEntryDiagnosticHost` **deleted**, its one reach inlined; dead `hasattr` L1330 deleted | T | none — 14 and 43 own it | max 6 |
+| 16 | `ui/autocomplete.py` grows: suggestions, path completion, slash menu, provider registry | T | `cwd` + buffer accessor | `_attempt_path_completion` 9 |
+| 17 | `ui/components/session_picker.py` (14 fields, 3 modes) | T | overlay record + PaintLock + repaint | **split `_handle_session_picker_key` 20** on `session_mode` |
+| 18 | `extensions/custom_payloads.py` (incl. `_CustomEntryRedrawRow`) | X | none | max 8 — verbatim |
+| 19 | `repl/settings_actions.py` — drive loop, rows, overlay lines, theme selector | S | provider record | **split `_drive_settings_dialog` 16** on its `_local_action` dispatch |
+| 20 | `repl/local_shell.py` + `repl/view_actions.py` (fold, thinking cycle) | S | none | `_run_local_shell_shortcut` exactly 10 — verbatim |
+| 21 | `repl/{extension_operations,execution_projections}.py` | S | none | max 3 |
+| 22 | `ui/components/input_editor.py` + exported `apply_editing_key` | T | EditorState + PaintLock + repaint | all <10 |
+| 23 | `ui/components/tool_loop_renderer.py` | T | none — 14 + `ExtensionChromeState` | max 8 |
+| 24 | `ui/components/custom_editor.py` grows: 7 fields, wiring, keys, frame, `_CustomEditorKeybindings` | T | record retires slice-5's callable | **split `_handle_custom_editor_key` 28** by key class; `_wire_custom_editor_component`, `_custom_editor_frame_lines` exactly 10 |
+| 25 | `extensions/message_routing.py`; retire the `message_routing` `@property` by threading the record | X | none | `accept` exactly 10 — **verbatim** |
+| 26 | `repl/session_transfer.py` + its 3 static/classmethods | S | none | `_import_session` exactly 10 |
+| 27 | `ui/components/{model_selector,scoped_models_selector}.py` — pool/render/keys only | T | overlay + PaintLock + repaint | `run_scoped_models_selector` exactly 10 |
+| 28 | `repl/selector_actions.py` — rows, openers, `_handle_trust_command` | S | none | max 9 — verbatim |
+| 29 | `extensions/contribution_names.py`, **excluding** `_activated_/_staged_contribution_names` (they take `ActivatedExtension`/`_FrozenActivation` and stay with activation) | X | none | max 5 |
+| 30 | `ui/pending_messages.py` + `ui/clipboard_images.py` | T | EditorState + repaint | max 8 |
+| 31 | `extensions/{dispatch,tool_port}.py` | X | none | `invoke` 7 |
+| 32 | `ui/components/settings_dialog.py` — tui half only | T | overlay + PaintLock + repaint | **split `run_settings_dialog` 11** at the raw-mode loop |
+| 33 | `ui/components/custom_overlay.py` grows — component runner | T | OverlayState + repaint | **split `run_custom_component` 17** setup/loop/dispose |
+| 34 | `extensions/{collectors,contracts,flag_tokens,provider_normalization}.py` | X | none | max 6 |
+| 35 | `ui/components/tree_selector.py` | T | overlay + PaintLock + repaint | `run_tree_selector` exactly 10 |
+| 36 | `native/startup_selectors.py` — both constructing entrypoints + `run_project_trust_selector`; `cli.py` repoints | T | concrete import (legal here) | max 6 |
+| 37 | `ui/components/extension_prompts.py` grows — external editor | T | `external_io_suspension` injected | **split `_run_extension_external_editor` 11** |
+| 38 | `_ExtensionChromeTuiHandle` → `ui/chrome_handoff.py` | T | `Callable[[], None]` | max 3 |
+| 39 | `chrome.py` absorbs footer composition; deletes 2 injected callables | S | none | max 8 |
+| 40 | `repl/loop_scope.py`; **dissolve the loop-step port** — delete `session`, add the 3 fields, rewrite the 11 `session.*` sites plus the by-value `session=session` at L3268 | S | the widened record | `run()` grows +2 ast-lines — do **not** lower the `run < 800` bound here |
+| 41 | `repl/loop_step.py` | S | none | **split `step_once` 30**: A unpack/prefill, B intake, C1 hotkeys / C2 `!` shell, D dispatch, E accepted input, F1 assembly / F2 run+settle; must not reintroduce the nine status-callback names as nested defs |
+| 42 | `repl/provider_config_commands.py` | S | none | `_scoped_models` 9 |
+| 43 | `ui/screen.py` — paint core, `_frame_snapshot`, resize, `external_io_suspension`, the one `drive(owner)` loop; constructs the single `RLock` | T | ordered contributor tuple | all <10; six key loops collapse |
+| 44 | `repl/wiring.py` — `run()` as ~8 value-returning phases | S | none | **`run` 40 dissolves per phase**; delete `tool_loop_session.py` from per-file-ignores; lower the run bound to ~10 |
+| 45 | `repl/command_router.py` + session residual | S | none | must be <10; the pin is gone |
+| 46 | `extensions/activation.py`; delete `extension_runtime.py` | X | **none, by design** | `activate_extension_batch` exactly 10 — verbatim |
+| 47 | `repl/extension_attach.py` — unify startup and `/reload` attach | S | none | merged form <10 |
+| 48 | burn `read_line` 39 and `wait_for_active_turn_interrupt` 35 onto `apply_editing_key`; split `_deliver_chrome_event` 11 | T | none | succeed → delete tui.py's pin |
+| 49 | final ratchet + boundary audit | tests | — | — |
 
-**Wave 1 — near-free tui owners (zero C901 findings)**
+**Boundary edits, complete.** Slice 3 adds `"pipy_harness.native.repl"` beside every
+`"pipy_harness.native.tool_loop_session"` (25 literal occurrences today — re-read the line numbers,
+the 2026-08-03 list has drifted 9-14 lines) plus a new rule `source_package=
+"pipy_harness.native.repl", forbidden_imports=("pipy_session",
+"pipy_harness.native.tool_loop_session")`; that rule is what forces slice 40 to *delete* the
+`session` field rather than quote it. Slice 36 adds the analogous `native.startup_selectors` rule.
+Slice 46 deletes all 17 `"pipy_harness.native.extension_runtime"` entries and that module's member
+of the four-module host tuple — each already covered by the stricter `native.extensions` rule. No
+other slice edits a rule; **no rule is relaxed anywhere**.
 
-2. **[T]** `ui/component.py` — Protocols + `FrameLine`. Pure declarations. 3. **[T]** `ui/components/tool_loop_renderer.py` — verbatim; already implements `ui/rendering.AgentEventRenderer`. 4. **[T]** `ui/components/transcript.py`. 5. **[T]** `ui/screen.py` + `PaintLock` newtype + the one `drive(owner)` loop. 6. **[T]** `ui/autocomplete.py` + `ui/components/input_editor.py`. 7. **[T]** `ui/pending_messages.py` + `ui/clipboard_images.py` + `ui/key_specs.py`.
+**Good stopping points.** After **6**: back-edge gone, chrome transaction out, repl package and its
+rule exist, ratchet armed. After **21**: both god files roughly halved, every remaining tui owner
+independently landable. After **34**: every widget owned. After **44**: both god files under the
+bar, session pin deleted. After **46**: `extension_runtime.py` retired. 47-49 are polish; 47 is the
+only behaviour-affecting slice and is deliberately last.
 
-Each is a single owner's fields + effects; `dataclass(slots=True)` + mypy strict turns every missed property rebind into a check failure. Delete that owner's property projections **in the same slice**. No pyproject edit; tui.py keeps its existing pin covering fewer functions each time.
+## 3a. Projected end state
 
-**Wave 2 — repl tier (free moves)**
+`tui.py` **6,730 → ~720 ast-lines**. The residual is irreducibly the terminal boundary: `read_line`
+and `wait_for_active_turn_interrupt` (~230 after slice 48), the 24-member binding at L793-925
+(~185), `_GenerationExtensionUiDriver` (51 — moving a full-surface `__getattr__` proxy into
+`native.ui` would launder a back-edge past the boundary test, mypy and grep at once), plus fields,
+one handle per owner, imports. **The asserted 500 is not reachable**; slice 49 pins the measured
+value. `tool_loop_session.py` **6,221 → ~400**: dataclass surface, `__post_init__`, `provider_port`,
+a two-line `run()`. `extension_runtime.py` **4,131 → 0**.
 
-8. **[S]** `repl/diagnostics.py`. Creates the package; add `"pipy_harness.native.repl"` beside every `"pipy_harness.native.tool_loop_session"` (16 sites: 115, 164, 222, 759, 792, 815, 986, 1000, 1023, 1045, 1054, 1065, 1079, 1089, 1107, 2166) in the same commit, plus a new rule `source_package="pipy_harness.native.repl", forbidden_imports=("pipy_session",)` (verified: zero `pipy_session` refs today; do **not** forbid `pipy_harness.capture` or `native.automation`, which are genuinely imported). Deletes `tui._CustomEntryDiagnosticHost`. Blast radius: 4 src + 7 test files.
-9. **[S]** `repl/loop_scope.py` (delete the dead `extension_notify` field). 10. **[S]** `chrome.py` absorbs footer composition; deletes two injected-callable fields. 11. **[S]** `repl/local_shell.py` + `session_transfer.py`. 12. **[S]** `repl/extension_operations.py` + `execution_projections.py` + `session_adapters.py` (none has a `session` or `ctl` field). 13. **[S]** `repl/provider_selection.py`.
+Largest file produced: **`extensions/activation.py` ~1,570** — 35% under the pi-mono ~2,400 bar,
+above pi's `runner.ts` (1,236) only because its state machine is driven from outside via capability
+tokens with unbound dispatch and one raw-private-field read. Then `chrome.py` ~1,180,
+`extensions/packages.py` 1,105, `repl/wiring.py` ~620, `ui/screen.py` ~600, `repl/loop_step.py`
+~570, `ui/chrome_handoff.py` ~510. Nothing above 1,700, pinned by slice 49. **C901: 13 pinned files
+→ 11**, zero added.
 
-**Wave 3 — widgets (dual-file [T][S], widest slices)**
+## 3b. What changed from the previous ordering, and why
 
-14. model_selector + scoped_models_selector. 15. tree_selector. 16. session_picker — burn `_handle_session_picker_key` (20) **in tui.py first**, splitting on `session_mode`; rename/delete handlers already exist. 17. settings_dialog — burn `run_settings_dialog` (11) and `_drive_settings_dialog` (16) first; the latter is already a `_local_action` dispatch. 18. trust_selector + startup prompts (`cli.py` repoints). 19. **[T]** `ui/extension_generation.py` (teardown owner) — must precede 20–21. 20. **[T]** custom_overlay + extension_prompts (burn 17, 11, 14). 21. **[T]** custom_editor (burn `_handle_custom_editor_key` 28, split by key class). 22. **[T]** extension_chrome + footer + terminal_input_listeners (burn 11). 23. **[T]** chrome_handoff + extension_chrome_driver (burn 14, 11) — the P2 split; the apply-port `ExtensionChromeSink(self._deliver_chrome_event)` already exists in `__init__`.
-
-Findings 11/17/20 largely dissolve once `screen.drive(owner)` replaces six hand-rolled raw-key loops — the burn *is* the move.
-
-**Wave 4 — repl apex**
-
-24. **[S]** command families + router. 25. **[S]** `repl/extension_bringup.py` + `reload.py` (burn `_reload_extension_generation` 16 along activate → prepare → publish → retire). 26. **[S]** `repl/loop_step.py` (burn `step_once` 30 into regions A–E behind `_TurnScope`). 27. **[S]** `repl/wiring.py` — run() as ~8 value-returning phase functions; `run()` becomes two lines. `run`'s C901 40 dissolves per-phase (4–8 band); **no pin for wiring.py** — if a phase measures >10 it splits again. **Delete `"src/pipy_harness/native/tool_loop_session.py"` from per-file-ignores.** Lower the `run < 800` ast-line bound in `tests/test_architecture_agent_loop_boundaries.py:643` in every slice that shrinks run(); final value ~80.
-28. **[S]** `repl/extension_attach.py` — unify the startup and `/reload` attach into `attach_generation(predecessor=None)`. **Behavior-affecting**, not a move; schedule last in this wave with the full extension-reload scenario suite.
-
-**Wave 5 — extensions/** 29–33. Convert `native/extensions.py` → `native/extensions/packages.py`; then leaf cuts (`flag_tokens`, `provider_normalization`, `session_views`, `dispatch`, `tool_port`, `contribution_names`, `collectors`, `custom_payloads`, `command_context`, `message_routing`, `contracts`), residual `activation.py` last. Destination is the **plural** `native.extensions`: already in `_PLANNED_IMPORT_PREFIXES` (line 1124), already a rule source (1073) with a *stricter* list than `extension_runtime`'s, already paired everywhere — zero forbidden-list additions and three edges tightened. The commit that deletes `extension_runtime.py` must remove all 21 stale `"pipy_harness.native.extension_runtime"` forbidden entries and the `extension_runtime` member of the four-module host tuple. Re-read `tests/test_native_extension_activation_sealing.py`: it monkeypatches module-object attributes (`_r1_*`) and embeds the literal import string in generated source — invisible to grep and mypy.
-
-**Wave 6 — the tui pin.** 34. **[T]** Collapse the ~60 duplicated editing-key lines in `read_line` (39) and `wait_for_active_turn_interrupt` (35) into `input_editor.apply_editing_key`. Succeed → delete tui.py's pin. Fall short → tui.py keeps its **existing** pin now covering 2 functions instead of 11; no pyproject edit either way. **Zero new pins, ever.**
+1. **Port surface is a measured column now.** The old table listed `_LiveExtensionUiDriver` at 22;
+   it is 24, and the two extras (`getattr(self._terminal_ui, "rerender_custom_messages"/"paint")`,
+   L894/L898) are invisible to any `_terminal_ui\.` grep — an extraction built on 22 fails at
+   runtime, not at type-check.
+2. **All three "needs a port" verdicts were wrong.** The driver's 441-line transaction touches the
+   god class **zero** times; `_CustomEntryRenderer`'s 5 and `_TuiToolLoopRenderer`'s 16 dissolve
+   once `transcript.py` and `screen.py` own the state. Port surface is a property of the *schedule*.
+3. **`ui/screen.py` moved from Wave 1 to slice 43** — it is a fan-out hub whose early port exceeds
+   20; that was the worst placement in the old order.
+4. **Every "tui + session" row is two modules.** Seven session-side helpers annotate
+   `terminal_ui: ToolLoopTerminalUi`, which `native.ui` may not name even under TYPE_CHECKING; the
+   old layout would have failed the rule Wave 0 added — slice-1-blocks-slice-3 at 840 lines.
+5. **`ui/component.py` and `ui/extension_chrome_driver.py` are deleted from section 1.** The first
+   invents four Protocols with no implementors; the second *is* the 24-member port.
+6. **Section 2 item 5 is corrected.** `provider_state` is never assigned: 7 reads, 0 writes, so
+   `repl/provider_selection.py` is a pass-the-record move, not an ownership transfer — and the
+   entire genuine port surface of `NativeToolReplSession` is one mutable `Path | None` slot.
 
 ## 4. Explicitly out of scope
 
