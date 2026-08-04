@@ -42,6 +42,10 @@ from pipy_harness.native.repl.extension_operations import (
     ProviderHeaderRequestSnapshot,
     SessionExtensionOperations,
 )
+from pipy_harness.native.repl.reload import (
+    ImplicitTrustState,
+    ReloadCommandEffects,
+)
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session_generation import (
@@ -57,10 +61,7 @@ from pipy_harness.native.tool_capabilities import (
     ToolCapabilityState,
     ToolFilterOptions,
 )
-from pipy_harness.native.tool_loop_session import (
-    _ReloadCommandEffects,
-    _SessionCollaborators,
-)
+from pipy_harness.native.tool_loop_session import _SessionCollaborators
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -419,17 +420,15 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
         terminal_ui=terminal_ui,
         ctl=LegacyCtl(),
         redraw_custom_entries_for_active_branch=lambda: None,
-        session=SimpleNamespace(
-            verbose_startup=False,
-            _maybe_save_implicit_trust_after_reload=lambda **_kwargs: False,
-        ),
+        verbose_startup=False,
+        implicit_trust=ImplicitTrustState(),
         error_stream=io.StringIO(),
         cwd=tmp_path,
         resource_options=RuntimeResourceOptions(),
     )
 
     assert (
-        _ReloadCommandEffects._refresh_presentation_and_persistence(  # noqa: SLF001
+        ReloadCommandEffects._refresh_presentation_and_persistence(  # noqa: SLF001
             cast(Any, effect)
         )
         is False
@@ -763,7 +762,7 @@ def test_all_production_generation_constructions_supply_projection() -> None:
         and ast.unparse(call.func).rsplit(".", 1)[-1] == "SessionExtensionGeneration"
     )
     assert constructions == [
-        ("tool_loop_session.py", "projection"),
+        ("repl/reload.py", "projection"),
         ("tool_loop_session.py", "startup_projection"),
     ]
 

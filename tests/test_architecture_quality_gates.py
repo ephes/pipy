@@ -105,7 +105,7 @@ def test_readme_names_the_codex_websocket_dependency() -> None:
 # is a slice that put code back.
 _SIZE_RATCHET = {
     "src/pipy_harness/native/tui.py": 6288,
-    "src/pipy_harness/native/tool_loop_session.py": 3801,
+    "src/pipy_harness/native/tool_loop_session.py": 3360,
 }
 
 # Nothing else under `native/` may quietly become the next god file while the

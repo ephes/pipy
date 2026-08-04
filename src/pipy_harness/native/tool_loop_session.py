@@ -42,9 +42,8 @@ from dataclasses import InitVar, dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar, TextIO, cast
+from typing import Any, ClassVar, TextIO
 
-import pipy_harness.native.agent.usage as _agent_usage
 import pipy_harness.native.chrome as _chrome
 import pipy_harness.native.tool_renderers as _tool_renderers
 from pipy_harness.capture import sanitize_text
@@ -169,18 +168,11 @@ from pipy_harness.native.coding.session_controller import (
     _CallableCodingCommandEffects,
 )
 from pipy_harness.native.coding.state import (
-    CodingReloadHistoryValue,
     CodingSessionState,
     CodingSessionUsageSnapshot,
 )
 from pipy_harness.native.coding.status_effects import CodingAgentTurnStatusEffects
 from pipy_harness.native.diagnostics import emit_diagnostic, last_assistant_answer
-from pipy_harness.native.extension_chrome_state import (
-    ExtensionChromeCommitToken,
-    ExtensionChromePrepareInput,
-    ExtensionChromeRetirement,
-    ExtensionChromeSink,
-)
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
     dispatch_tool_call_hooks,
@@ -199,7 +191,6 @@ from pipy_harness.native.extension_runtime import (
     QueuedUserMessage,
     ToolRenderDetailsWriter,
     _ExtensionCandidate,
-    _report_activation_cleanup,
     normalize_shortcut_key,
     parse_extension_flag_tokens,
 )
@@ -225,6 +216,10 @@ from pipy_harness.native.project_trust import (
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl.command_menu import (
+    tool_loop_command_descriptions,
+    tool_loop_command_names,
+)
 from pipy_harness.native.repl.execution_projections import (
     SessionExecutionProjections,
     apply_startup_provider_projection,
@@ -242,6 +237,10 @@ from pipy_harness.native.repl.loop_scope import (
     RunControlState,
 )
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
+from pipy_harness.native.repl.reload import (
+    ImplicitTrustState,
+    ReloadCommandEffects,
+)
 from pipy_harness.native.repl.session_commands import SessionCommandEffects
 from pipy_harness.native.repl.session_transfer import TransferCommandEffects
 from pipy_harness.native.repl.turn_leaves import (
@@ -249,7 +248,9 @@ from pipy_harness.native.repl.turn_leaves import (
     AGENT_HISTORY_MAX_BYTES,
     AGENT_HISTORY_MAX_MESSAGES,
     CANCEL_JOIN_TIMEOUT_SECONDS,
+    finish_chrome_retirement,
     pricing_for,
+    raise_first,
     wait_for_provider_interrupt,
     wait_for_tool_interrupt,
 )
@@ -258,7 +259,6 @@ from pipy_harness.native.repl.view_actions import (
     toggle_view_fold,
 )
 from pipy_harness.native.repl_input import (
-    DEFAULT_REPL_COMMAND_DESCRIPTIONS,
     REPL_INPUT_RUNTIME_AUTO,
     NativeReplInput,
     native_repl_input_for,
@@ -267,7 +267,6 @@ from pipy_harness.native.repl_state import (
     NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
-    UnavailableAfterReloadProvider,
     settings_overlay_lines,
 )
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
@@ -279,20 +278,16 @@ from pipy_harness.native.resources import (
 from pipy_harness.native.scoped_models import filter_scoped_references, next_reference
 from pipy_harness.native.session_generation import (
     ExtensionChromeHandle,
-    ExtensionProjection,
     FrozenStagedDeliveryBatch,
     OrderedDeliveryGate,
     PreparedReloadEffects,
     ReloadEffectPreparationPorts,
     ReloadPreparationObserver,
-    ReloadPreparationRefused,
     SessionExtensionGeneration,
     SessionGenerationRef,
     balance_startup_candidate,
     build_prepared_reload_effects,
-    prepare_production_reload,
     publish_candidate_ownership,
-    with_tool_capability,
 )
 from pipy_harness.native.session_resume import (
     ResumeContext,
@@ -336,7 +331,6 @@ from pipy_harness.native.tui import (
     HOTKEY_THINKING_CYCLE,
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
-    TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
     ModelSelectorOption,
     ScopedModelRow,
     SettingsRow,
@@ -351,60 +345,6 @@ from pipy_harness.native.tui import (
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.version_check import pipy_version
-
-
-def _tool_loop_command_names(
-    resources: WorkspaceResources,
-    extension_command_names: tuple[str, ...] = (),
-) -> tuple[str, ...]:
-    """Tool-loop slash-menu command set, honest to what can execute.
-
-    The static built-in set is augmented with the ``/skill`` resource
-    entry point (which always at least lists), every discovered prompt
-    template registered as its own ``/<name>`` command (Pi shape), every
-    discovered, non-reserved custom ``/<name>`` command, and any activated
-    extension ``/<name>`` commands (appended last, never shadowing a
-    built-in or custom command).
-    """
-
-    names = list(TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS)
-    insert_at = (names.index("/model") + 1) if "/model" in names else len(names)
-    names[insert_at:insert_at] = ["/skill"]
-    for slash_name in resources.template_slash_names():
-        if slash_name not in names:
-            names.append(slash_name)
-    for slash_name in resources.custom_command_slash_names():
-        if slash_name not in names:
-            names.append(slash_name)
-    for slash_name in extension_command_names:
-        if slash_name not in names:
-            names.append(slash_name)
-    return tuple(names)
-
-
-def _tool_loop_command_descriptions(
-    resources: WorkspaceResources,
-    extension_descriptions: dict[str, str] | None = None,
-) -> dict[str, str]:
-    """Build the slash-menu descriptions with dispatch-honest precedence.
-
-    The menu description for a name must describe what dispatching that name
-    actually runs. ``dispatch_resource_command`` resolves a colliding name in
-    the order built-in > prompt template > custom command, and extension
-    commands dispatch last (lowest precedence). Descriptions are layered in
-    the reverse order (lowest precedence first) so a later ``update`` for a
-    higher-precedence source wins a collision — i.e. for a name shared by a
-    template and a custom command, the menu shows the *template's*
-    description, matching what runs.
-    """
-
-    descriptions: dict[str, str] = {}
-    if extension_descriptions:
-        descriptions.update(extension_descriptions)
-    descriptions.update(resources.custom_command_descriptions())
-    descriptions.update(resources.template_descriptions())
-    descriptions.update(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
-    return descriptions
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -699,18 +639,6 @@ class _ProviderConfigurationCommandEffects:
         emit_diagnostic(self.terminal_ui, self.error_stream, message)
 
 
-def _finish_chrome_retirement(
-    retirement: ExtensionChromeRetirement | None,
-) -> BaseException | None:
-    return None if retirement is None else retirement.finalize_nonraising()
-
-
-def _raise_first(errors: tuple[BaseException | None, ...]) -> None:
-    for error in errors:
-        if error is not None:
-            raise error
-
-
 def _build_detached_reload_effects(
     ports: ReloadEffectPreparationPorts,
     *,
@@ -719,361 +647,6 @@ def _build_detached_reload_effects(
     """Pure R3b adapter; production startup/reload intentionally never calls it."""
 
     return build_prepared_reload_effects(ports, step_observer=step_observer)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _ReloadCommandEffects:
-    """Execute ``/reload`` through explicit behavior-preserving phases."""
-
-    session: "NativeToolReplSession"
-    ctl: RunControlState
-    settings: SettingsManager
-    keybindings: KeybindingsManager
-    terminal_ui: ToolLoopTerminalUi | None
-    renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer"
-    error_stream: TextIO
-    emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
-    provider_mutation: ProviderMutationEffects
-    cwd: Path
-    resource_options: RuntimeResourceOptions
-    tool_capabilities: NativeToolCapabilities
-    diag: Callable[[str], None]
-    redraw_custom_entries_for_active_branch: Callable[[], None]
-    extension_send_message: Callable[
-        [str, str, bool, "Mapping[str, object]", object | None], object
-    ]
-    extension_render_details: ToolRenderDetailsWriter
-    extension_ui_driver: _LiveExtensionUiDriver | None = None
-
-    def execute(self, command_outcome: CodingCommandOutcome) -> None:
-        """Reload settings and publish every derived live projection in order."""
-
-        if command_outcome.action is not CodingCommandAction.RELOAD:
-            raise AssertionError("reload command executor received another action")
-        # Open the publication gate before the first live selection, thinking,
-        # or tool-visibility read. The optional holder adopts the composed
-        # runtime immediately and disposes every rejected/exceptional candidate
-        # only after the gate's session-mutex handoff has closed. Publication
-        # empties it, so this cleanup can never dispose the live generation.
-        candidate = _ExtensionCandidate()
-        try:
-            self._reload_configuration_and_resources()
-            replacement_accepted = False
-            try:
-                replacement_accepted, _ = self._reload_extension_generation(candidate)
-            except ReloadPreparationRefused as error:
-                self.diag(f"pipy: {error}")
-                self.diag("pipy: keeping the previous extensions.")
-            if not replacement_accepted:
-                with self.ctl.generation_ref.publishing():
-                    self.provider_mutation.refresh_provider_after_reload()
-                    self._diagnose_unknown_tool_filters()
-            saved_implicit_trust = self._refresh_presentation_and_persistence()
-            self.diag(
-                (
-                    "pipy: reloaded settings, keybindings, and resources; "
-                    "saved project trust."
-                    if saved_implicit_trust
-                    else "pipy: reloaded settings, keybindings, and resources."
-                )
-            )
-        finally:
-            _report_activation_cleanup(candidate.dispose(), self.diag)
-
-    def _finish_candidate_chrome(
-        self,
-        chrome_candidate: ExtensionChromeSink | None,
-        *,
-        replacement_accepted: bool,
-        chrome_retirement: ExtensionChromeRetirement | None = None,
-    ) -> str | None:
-        if not replacement_accepted:
-            return None
-        if self.extension_ui_driver is None or chrome_candidate is None:
-            return None
-        owned = True
-        try:
-            acceptance = self.extension_ui_driver.accept_candidate(
-                chrome_candidate,
-                rollback_snapshot=(
-                    chrome_retirement.snapshot
-                    if chrome_retirement is not None
-                    else None
-                ),
-            )
-            if not acceptance.accepted:
-                if not acceptance.candidate_closed:
-                    chrome_candidate.close()
-                owned = False
-                return acceptance.diagnostic
-            # Ownership transferred before retired cleanup. Interrupts from a
-            # retired disposer propagate without closing the now-live candidate.
-            owned = False
-            cleanup_diagnostic = (
-                self.extension_ui_driver.dispose_retired_sink(acceptance.retired_sink)
-                if acceptance.retired_sink is not None
-                else None
-            )
-            return cleanup_diagnostic or acceptance.diagnostic
-        finally:
-            if owned and not self.extension_ui_driver.owns_sink(chrome_candidate):
-                chrome_candidate.close()
-
-    def _reload_configuration_and_resources(self) -> None:
-        self.settings.reload()
-        self.keybindings.reload()
-        self.ctl.package_roots = compose_package_runtime(
-            self.settings,
-            self.cwd,
-            include_package_themes=not self.resource_options.no_themes,
-            explicit_theme_paths=self.resource_options.theme_paths,
-        )
-        self.ctl.workspace_resources = WorkspaceResources.discover(
-            self.cwd,
-            package_roots=self.ctl.package_roots,
-            explicit_skill_paths=self.resource_options.skill_paths,
-            explicit_prompt_template_paths=(
-                self.resource_options.prompt_template_paths
-            ),
-            include_skills_defaults=not self.resource_options.no_skills,
-            include_prompt_template_defaults=(
-                not self.resource_options.no_prompt_templates
-            ),
-            include_workspace_defaults=self.settings.project_trusted,
-        ).with_enablement(
-            skills_patterns=self.settings.get_skills_patterns(),
-            prompts_patterns=self.settings.get_prompts_patterns(),
-            enable_skill_commands=self.settings.get_enable_skill_commands(),
-        )
-
-    def _reload_extension_generation(
-        self, candidate: _ExtensionCandidate
-    ) -> tuple[bool, ExtensionChromeSink | None]:
-        chrome_candidate = (
-            self.extension_ui_driver.new_candidate_sink()
-            if self.extension_ui_driver is not None
-            else None
-        )
-        projection: ExtensionProjection | None = None
-        prepared: PreparedReloadEffects | None = None
-        chrome_retirement: ExtensionChromeRetirement | None = None
-        published = False
-        try:
-            reloaded_extension_runtime = _activate_workspace_extensions(
-                self.cwd,
-                self.ctl.workspace_resources,
-                tuple(self.session.tool_registry.keys()),
-                package_roots=(
-                    ()
-                    if self.resource_options.no_extensions
-                    else self.ctl.package_roots.extensions
-                ),
-                extension_patterns=self.settings.get_extensions_patterns(),
-                explicit_extension_paths=self.resource_options.extension_paths,
-                include_default_extensions=not self.resource_options.no_extensions,
-                include_workspace_defaults=self.settings.project_trusted,
-                diagnostic=self.diag,
-            )
-            candidate.adopt(reloaded_extension_runtime, self.diag)
-            reloaded_flag_values, reloaded_flag_error = parse_extension_flag_tokens(
-                reloaded_extension_runtime.flags,
-                tuple(self.resource_options.extension_flag_tokens),
-            )
-            if reloaded_flag_error is not None:
-                self.diag(f"pipy: {reloaded_flag_error}")
-                self.diag("pipy: keeping the previous extensions.")
-                return False, None
-            projection = build_candidate_extension_projection(
-                reloaded_extension_runtime,
-                reloaded_flag_values,
-                queue_mutex=self.ctl.generation_ref.lock,
-                reference_mutex=self.ctl.generation_ref.lock,
-                has_ui=self.terminal_ui is not None,
-                notify_sink=self.provider_mutation.extension_notify,
-                set_active_tools=self.provider_mutation.extension_set_active_tools,
-                render_details=self.extension_render_details,
-                project_trusted=self.settings.project_trusted,
-                prepare_capability=self.tool_capabilities.prepare_extensions,
-                chrome=(
-                    ExtensionChromeHandle(chrome_candidate)
-                    if chrome_candidate is not None
-                    else None
-                ),
-            )
-            gate = OrderedDeliveryGate(self.ctl.generation_ref.lock)
-            projection.queues.install_candidate_route(gate)
-            self.emitter.fire_candidate_session_start(
-                reloaded_extension_runtime.lifecycle_hooks,
-                reloaded_flag_values,
-                ui_driver=(
-                    self.extension_ui_driver.candidate_driver(chrome_candidate)
-                    if self.extension_ui_driver is not None
-                    and chrome_candidate is not None
-                    else None
-                ),
-            )
-            with self.ctl.generation_ref.publishing():
-                with self.ctl.generation_ref.lock:
-                    expected_capability = self.tool_capabilities._state
-                capability = self.tool_capabilities.prepare_extensions(
-                    projection.tools.ports
-                )
-                projection = with_tool_capability(projection, capability)
-                provider_state = getattr(self.session, "provider_state", None)
-                if not isinstance(provider_state, NativeReplProviderState):
-                    provider_state = None
-                coding = self.provider_mutation.coding_state
-                chrome_sink = chrome_candidate or ExtensionChromeSink()
-                prepared = prepare_production_reload(
-                    reloaded_extension_runtime,
-                    projection,
-                    ExtensionChromePrepareInput(chrome_sink),
-                    state=provider_state,
-                    coding=coding,
-                    lock=self.ctl.generation_ref.lock,
-                    unavailable_provider=lambda message: UnavailableAfterReloadProvider(
-                        coding.provider_name,
-                        coding.model_id,
-                        message,
-                    ),
-                    usage_prototype=lambda item: _agent_usage.AgentUsageAccumulator(
-                        pricing_for(item.provider_name, item.model_id)
-                    ),
-                    empty_history=CodingReloadHistoryValue(()),
-                    capability=capability,
-                )
-                if chrome_candidate is None:
-                    chrome_sink.close()
-                chrome_input = prepared.chrome_prepare_input.value
-                if (driver := self.extension_ui_driver) is not None:
-                    chrome_token = driver.prepare_candidate(chrome_input)
-                else:
-                    chrome_token = ExtensionChromeCommitToken(chrome_input)
-                if chrome_token is None:
-                    self.diag("pipy: extension chrome candidate is unavailable")
-                    self.diag("pipy: keeping the previous extensions.")
-                    return False, None
-                generation = SessionExtensionGeneration(
-                    reloaded_extension_runtime,
-                    projection,
-                    chrome_token,
-                )
-                with gate.reserve() as token:
-                    acceptance_failure, retired_chrome = (
-                        self.ctl.generation_ref.accept_prepared_reload(
-                            generation,
-                            prepared,
-                            candidate=candidate,
-                            provider_state=provider_state,
-                            coding_state=self.provider_mutation.coding_state,
-                            tool_capabilities=self.tool_capabilities,
-                            expected_capability=expected_capability,
-                        )
-                    )
-                    if acceptance_failure is not None:
-                        self.diag(f"pipy: {acceptance_failure}")
-                        self.diag("pipy: keeping the previous extensions.")
-                        return False, None
-                    published = True
-                    chrome_retirement, chrome_close_error = (
-                        retired_chrome.close_nonraising()
-                        if retired_chrome
-                        else (None, None)
-                    )
-                    delivery_error: BaseException | None = None
-                    try:
-                        _extension_hooks.deliver_accepted_staged_batch(
-                            cast(
-                                FrozenStagedDeliveryBatch,
-                                prepared.activation_inputs.value[0],
-                            ),
-                            gate=gate,
-                            token=token,
-                            user_sink=lambda _message: None,
-                            custom_sink=partial(
-                                _extension_hooks.deliver_staged_custom,
-                                self.extension_send_message,
-                            ),
-                            release_route=projection.queues.release_pending_route,
-                        )
-                    except BaseException as error:  # noqa: BLE001 - collected; chrome retirement still runs
-                        delivery_error = error
-                    cleanup_error = _finish_chrome_retirement(chrome_retirement)
-                    _raise_first((delivery_error, cleanup_error, chrome_close_error))
-            diagnostic, persist_default = prepared.presentation_persistence.value
-            if diagnostic is not None:
-                self.diag(cast(str, diagnostic))
-            if persist_default and provider_state is not None:
-                default_error = provider_state.flush_pending_default()
-                if default_error is not None:
-                    self.diag(default_error)
-            self._diagnose_unknown_tool_filters()
-            return True, chrome_candidate
-        finally:
-            try:
-                if published:
-                    if (
-                        chrome_diagnostic := self._finish_candidate_chrome(
-                            chrome_candidate,
-                            replacement_accepted=True,
-                            chrome_retirement=chrome_retirement,
-                        )
-                    ) is not None:
-                        self.diag(chrome_diagnostic)
-                else:
-                    if projection is not None:
-                        projection.queues.retire_route()
-                    if chrome_candidate is not None:
-                        chrome_candidate.close()
-            finally:
-                if prepared is not None:
-                    prepared.dispose()
-
-    def _diagnose_unknown_tool_filters(self) -> None:
-        unknown_filter_names = self.tool_capabilities.unknown_filter_names
-        if not unknown_filter_names:
-            return
-        known = ", ".join(sorted(self.tool_capabilities.registered_names)) or "<none>"
-        unknown = ", ".join(unknown_filter_names)
-        self.diag(f"pipy: unknown tool name(s): {unknown}. Known tools: {known}")
-
-    def _refresh_presentation_and_persistence(self) -> bool:
-        reloaded_theme = self.settings.get_theme()
-        if reloaded_theme:
-            os.environ["PIPY_THEME"] = reloaded_theme
-        if self.terminal_ui is not None:
-            snapshot = self.ctl.generation_ref.snapshot()
-            projection = snapshot.generation.projection
-            if projection is None:
-                raise RuntimeError("published extension generation has no projection")
-            commands = projection.commands
-            self.terminal_ui.autocomplete_max_visible = (
-                self.settings.get_autocomplete_max_visible()
-            )
-            self.terminal_ui.command_names = _tool_loop_command_names(
-                self.ctl.workspace_resources,
-                commands.menu_names,
-            )
-            self.terminal_ui.command_descriptions = _tool_loop_command_descriptions(
-                self.ctl.workspace_resources,
-                dict(commands.descriptions),
-            )
-            self.terminal_ui.extension_shortcut_keys = frozenset(commands.shortcuts)
-            self.redraw_custom_entries_for_active_branch()
-        for scope, detail in self.settings.load_errors().items():
-            self.diag(f"pipy: kept prior {scope} settings ({detail}).")
-        if self.session.verbose_startup or not self.settings.get_quiet_startup():
-            print_startup_chrome(
-                self.error_stream,
-                cwd=self.cwd,
-                include_workspace_defaults=self.settings.project_trusted,
-            )
-        return self.session._maybe_save_implicit_trust_after_reload(
-            cwd=self.cwd,
-            settings=self.settings,
-            terminal_ui=self.terminal_ui,
-            error_stream=self.error_stream,
-        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1091,7 +664,7 @@ class _BuiltinCommandInterpreter:
     session_effects: SessionCommandEffects
     provider_configuration_effects: _ProviderConfigurationCommandEffects
     transfer_effects: TransferCommandEffects
-    reload_effects: _ReloadCommandEffects
+    reload_effects: ReloadCommandEffects
     refresh_legacy_footer: Callable[[], None]
     refresh_legacy_footer_with_usage: Callable[[], None]
 
@@ -1686,9 +1259,9 @@ class _ReplLoopStep:
         chrome_retirement, chrome_close_error = (
             chrome.close_nonraising() if chrome is not None else (None, None)
         )
-        chrome_finalize_error = _finish_chrome_retirement(chrome_retirement)
+        chrome_finalize_error = finish_chrome_retirement(chrome_retirement)
         del retained, generation
-        _raise_first((queue_error, chrome_close_error, chrome_finalize_error))
+        raise_first((queue_error, chrome_close_error, chrome_finalize_error))
 
     def clear_extension_chrome(self, *, terminal_ui: ToolLoopTerminalUi | None) -> None:
         if terminal_ui is not None:
@@ -1729,6 +1302,10 @@ class _SessionCollaborators:
 
     session: NativeToolReplSession
     abort_event: threading.Event | _AbortCallbackSignal | None
+    implicit_trust: ImplicitTrustState
+    provider_state: NativeReplProviderState | StaticNativeReplProviderState | None
+    tool_registry: Mapping[str, ToolPort]
+    verbose_startup: bool
     ctl: RunControlState
     extension_operations: SessionExtensionOperations
     execution_projections: SessionExecutionProjections
@@ -1874,11 +1451,14 @@ class _SessionCollaborators:
         resource_options: RuntimeResourceOptions,
         tool_capabilities: NativeToolCapabilities,
         extension_render_details: ToolRenderDetailsWriter,
-    ) -> _ReloadCommandEffects:
+    ) -> ReloadCommandEffects:
         """Assemble the phased reload executor from authoritative owners."""
 
-        return _ReloadCommandEffects(
-            session=self.session,
+        return ReloadCommandEffects(
+            implicit_trust=self.implicit_trust,
+            provider_state=self.provider_state,
+            tool_registry=self.tool_registry,
+            verbose_startup=self.verbose_startup,
             ctl=self.ctl,
             settings=self.settings,
             keybindings=keybindings,
@@ -2152,20 +1732,28 @@ class NativeToolReplSession:
     # Exact final cwd that entered trusted state only because no protected
     # resource existed at startup. A later explicit /reload may persist trust
     # once if a protected resource has appeared (Pi's narrow safety exception).
-    auto_trust_on_reload_cwd: Path | None = None
+    # Construction input only: the live one-shot is `implicit_trust`, which the
+    # reload owner clears once it fires.
+    auto_trust_on_reload_cwd: InitVar[Path | None] = None
     # Finalized startup activation shared with catalog construction. Only the
     # initial run consumes it; explicit /reload performs a fresh activation.
     initial_extension_batch: ExtensionActivationBatch | None = None
     _coding_state: CodingSessionState = field(init=False, repr=False)
+    implicit_trust: ImplicitTrustState = field(init=False, repr=False)
 
     DEFAULT_TOOL_BUDGET: ClassVar[int] = 50
     MAX_TOOL_BUDGET: ClassVar[int] = MAX_AGENT_TOOL_BUDGET
 
-    def __post_init__(self, provider: ProviderPort) -> None:
-        if self.auto_trust_on_reload_cwd is not None:
-            self.auto_trust_on_reload_cwd = (
-                self.auto_trust_on_reload_cwd.expanduser().resolve()
+    def __post_init__(
+        self, provider: ProviderPort, auto_trust_on_reload_cwd: Path | None
+    ) -> None:
+        self.implicit_trust = ImplicitTrustState(
+            cwd=(
+                auto_trust_on_reload_cwd.expanduser().resolve()
+                if auto_trust_on_reload_cwd is not None
+                else None
             )
+        )
         if not provider.supports_tool_calls:
             raise ValueError(
                 f"provider {provider.name!r} does not advertise "
@@ -2420,10 +2008,10 @@ class NativeToolReplSession:
             raise RuntimeError("published extension generation has no projection")
         startup_commands = startup_generation_projection.commands
         if terminal_ui is not None:
-            terminal_ui.command_names = _tool_loop_command_names(
+            terminal_ui.command_names = tool_loop_command_names(
                 workspace_resources, startup_commands.menu_names
             )
-            terminal_ui.command_descriptions = _tool_loop_command_descriptions(
+            terminal_ui.command_descriptions = tool_loop_command_descriptions(
                 workspace_resources, dict(startup_commands.descriptions)
             )
             terminal_ui.extension_shortcut_keys = frozenset(startup_commands.shortcuts)
@@ -2705,10 +2293,10 @@ class NativeToolReplSession:
                 input_stream=input_stream,
                 error_stream=error_stream,
                 workspace=cwd,
-                command_names=_tool_loop_command_names(
+                command_names=tool_loop_command_names(
                     workspace_resources, startup_commands.menu_names
                 ),
-                command_descriptions=_tool_loop_command_descriptions(
+                command_descriptions=tool_loop_command_descriptions(
                     workspace_resources, dict(startup_commands.descriptions)
                 ),
             )
@@ -2823,6 +2411,10 @@ class NativeToolReplSession:
         collaborators = _SessionCollaborators(
             session=self,
             abort_event=self.abort_event,
+            implicit_trust=self.implicit_trust,
+            provider_state=self.provider_state,
+            tool_registry=self.tool_registry,
+            verbose_startup=self.verbose_startup,
             ctl=ctl,
             extension_operations=extension_operations,
             execution_projections=execution_projections,
@@ -3030,8 +2622,8 @@ class NativeToolReplSession:
             input_stream=input_stream,
             terminal_stream=error_stream,
             cwd=workspace,
-            command_names=_tool_loop_command_names(resources),
-            command_descriptions=_tool_loop_command_descriptions(resources),
+            command_names=tool_loop_command_names(resources),
+            command_descriptions=tool_loop_command_descriptions(resources),
             autocomplete_max_visible=autocomplete_max_visible,
             keybindings_manager=keybindings_manager,
             include_workspace_defaults=include_workspace_defaults,
@@ -3201,39 +2793,6 @@ class NativeToolReplSession:
             f"{'trusted' if selected.trusted else 'untrusted'}. "
             "Restart pipy for this to take effect."
         )
-
-    def _maybe_save_implicit_trust_after_reload(
-        self,
-        *,
-        cwd: Path,
-        settings: "SettingsManager",
-        terminal_ui: ToolLoopTerminalUi | None,
-        error_stream: TextIO,
-    ) -> bool:
-        """Persist Pi's narrowly guarded no-resource-start reload exception."""
-
-        resolved = cwd.expanduser().resolve()
-        if self.auto_trust_on_reload_cwd != resolved:
-            return False
-        if not settings.project_trusted or not has_trust_requiring_project_resources(
-            resolved
-        ):
-            return False
-        store = ProjectTrustStore()
-        try:
-            if store.get(resolved) is not None:
-                self.auto_trust_on_reload_cwd = None
-                return False
-            store.set(resolved, True)
-        except ProjectTrustError as exc:
-            emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                f"pipy: could not save project trust after reload: {exc}",
-            )
-            return False
-        self.auto_trust_on_reload_cwd = None
-        return True
 
     def _settings_overlay_lines(
         self,

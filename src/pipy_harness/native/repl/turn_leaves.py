@@ -8,7 +8,9 @@ out of the agent loop. An unrecognized outcome raises rather than defaulting --
 a new terminal outcome silently mapping to SETTLED would end turns early.
 
 The cancel-join bound is the other half of the same seam: once an interrupt is
-translated, every caller that cancelled a worker waits on this one value.
+translated, every caller that cancelled a worker waits on this one value. The
+two error helpers are the third: when a turn or a generation unwinds, several
+disposals must all run and the *first* failure is the one that propagates.
 
 Pricing is deliberately approximate and prefix-matched, so a new model in a
 known family (``gpt-5.5`` under ``gpt-5``) keeps rendering a cost instead of
@@ -22,6 +24,7 @@ import threading
 from pipy_harness.native.agent.provider_turn import ProviderTurnInterruption
 from pipy_harness.native.agent.tools import ToolExecutionInterruption
 from pipy_harness.native.agent.usage import AgentTokenPricing
+from pipy_harness.native.extension_chrome_state import ExtensionChromeRetirement
 from pipy_harness.native.tui import (
     TURN_ABORTED,
     TURN_LOCAL_COMMAND,
@@ -48,6 +51,18 @@ PRICING_TABLE: dict[tuple[str, str], AgentTokenPricing] = {
         input_per_million=1.25, output_per_million=10.00, reasoning_per_million=10.00
     ),
 }
+
+
+def finish_chrome_retirement(
+    retirement: ExtensionChromeRetirement | None,
+) -> BaseException | None:
+    return None if retirement is None else retirement.finalize_nonraising()
+
+
+def raise_first(errors: tuple[BaseException | None, ...]) -> None:
+    for error in errors:
+        if error is not None:
+            raise error
 
 
 def wait_for_tool_interrupt(

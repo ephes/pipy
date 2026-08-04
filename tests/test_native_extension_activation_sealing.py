@@ -51,6 +51,10 @@ from pipy_harness.native.extension_runtime import (
 )
 from pipy_harness.native.extension_types import _ActivationError
 from pipy_harness.native.extensions.packages import discover_extensions
+from pipy_harness.native.repl.reload import (
+    ImplicitTrustState,
+    ReloadCommandEffects,
+)
 from pipy_harness.native.session_generation import (
     ExtensionQueueProjection,
     GenerationQueueHandle,
@@ -62,7 +66,6 @@ from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolFilterOptions,
 )
-from pipy_harness.native.tool_loop_session import _ReloadCommandEffects
 
 
 def _host(
@@ -1331,14 +1334,14 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
                 )
 
     assert constructions == {
-        ("tool_loop_session.py", "_ReloadCommandEffects.execute", 0),
+        ("repl/reload.py", "ReloadCommandEffects.execute", 0),
         ("session_generation.py", "guarded", 0),
     }
     assert candidate_calls == {
-        ("tool_loop_session.py", "_ReloadCommandEffects.execute", "dispose"),
+        ("repl/reload.py", "ReloadCommandEffects.execute", "dispose"),
         (
-            "tool_loop_session.py",
-            "_ReloadCommandEffects._reload_extension_generation",
+            "repl/reload.py",
+            "ReloadCommandEffects._activate_reload_candidate",
             "adopt",
         ),
         ("session_generation.py", "publish_candidate_ownership", "publish"),
@@ -1353,8 +1356,8 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
             False,
         ),
         (
-            "tool_loop_session.py",
-            "_ReloadCommandEffects._reload_extension_generation",
+            "repl/reload.py",
+            "ReloadCommandEffects._activate_reload_candidate",
             "_activate_workspace_extensions",
             True,
         ),
@@ -1458,7 +1461,7 @@ def test_activation_producer_and_cleanup_reporting_inventories() -> None:
         ("native/extension_runtime.py", "activate_extension_batch"),
         ("native/extension_runtime.py", "adopt"),
         ("native/session_generation.py", "guarded"),
-        ("native/tool_loop_session.py", "execute"),
+        ("native/repl/reload.py", "execute"),
     }
     assert catalog_finalizers == {
         (
@@ -1913,7 +1916,7 @@ def test_reload_acceptance_failure_keeps_previous_generation(
     failure: str,
     diagnostic: str,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as tool_loop_session
+    import pipy_harness.native.repl.reload as reload_module
     from pipy_harness.native.resource_loading import RuntimeResourceOptions
 
     live_host = _host()
@@ -1933,7 +1936,7 @@ def test_reload_acceptance_failure_keeps_previous_generation(
     candidate_host._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
     rejected_runtime = _empty_runtime(candidate_host)
     monkeypatch.setattr(
-        tool_loop_session,
+        reload_module,
         "_activate_workspace_extensions",
         lambda *_args, **_kwargs: rejected_runtime,
     )
@@ -1947,8 +1950,11 @@ def test_reload_acceptance_failure_keeps_previous_generation(
     retained_renderers = {"old": object()}
     renderer._tool_renderers = retained_renderers
     before = ref.snapshot()
-    effects = _ReloadCommandEffects(
-        session=cast(Any, SimpleNamespace(tool_registry={})),
+    effects = ReloadCommandEffects(
+        implicit_trust=ImplicitTrustState(),
+        provider_state=None,
+        tool_registry={},
+        verbose_startup=False,
         ctl=cast(Any, ctl),
         settings=cast(
             Any,
@@ -1988,7 +1994,7 @@ def test_reload_acceptance_failure_keeps_previous_generation(
         )
     elif failure == "projectionless":
         monkeypatch.setattr(
-            tool_loop_session,
+            reload_module,
             "SessionExtensionGeneration",
             lambda runtime, _projection, chrome: SessionExtensionGeneration(
                 runtime, None, chrome
@@ -2030,7 +2036,7 @@ def test_reload_acceptance_failure_keeps_previous_generation(
 def test_reload_failure_before_semantic_commit_disposes_candidate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as tool_loop_session
+    import pipy_harness.native.repl.reload as reload_module
     from pipy_harness.native.resource_loading import RuntimeResourceOptions
 
     host = _host()
@@ -2038,20 +2044,23 @@ def test_reload_failure_before_semantic_commit_disposes_candidate(
     host._commit_activation(_lifecycle_token=_ACTIVATION_LIFECYCLE_TOKEN)
     runtime = _empty_runtime(host)
     monkeypatch.setattr(
-        tool_loop_session,
+        reload_module,
         "_activate_workspace_extensions",
         lambda *_args, **_kwargs: runtime,
     )
     monkeypatch.setattr(
-        tool_loop_session,
+        reload_module,
         "SessionExtensionGeneration",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("build failed")),
     )
     live = SessionExtensionGeneration(_empty_runtime(_host()))
     ref = SessionGenerationRef(live)
     capabilities, mutation, emitter, renderer = _reload_owners(ref)
-    effects = _ReloadCommandEffects(
-        session=cast(Any, SimpleNamespace(tool_registry={})),
+    effects = ReloadCommandEffects(
+        implicit_trust=ImplicitTrustState(),
+        provider_state=None,
+        tool_registry={},
+        verbose_startup=False,
         ctl=cast(
             Any,
             SimpleNamespace(
@@ -2091,7 +2100,7 @@ def test_reload_failure_before_semantic_commit_disposes_candidate(
 def test_reload_interrupt_releases_route_and_preserves_base_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as tool_loop_session
+    import pipy_harness.native.repl.reload as reload_module
     from pipy_harness.native.resource_loading import RuntimeResourceOptions
 
     live = SessionExtensionGeneration(_empty_runtime(_host()))
@@ -2120,7 +2129,7 @@ def test_reload_interrupt_releases_route_and_preserves_base_exception(
         custom_messages=(QueuedCustomMessage("interrupt", "now", True, None, {}),),
     )
     monkeypatch.setattr(
-        tool_loop_session,
+        reload_module,
         "_activate_workspace_extensions",
         lambda *_args, **_kwargs: runtime,
     )
@@ -2130,8 +2139,11 @@ def test_reload_interrupt_releases_route_and_preserves_base_exception(
     def interrupt_message(*_args: object) -> None:
         raise KeyboardInterrupt("post-commit delivery interrupted")
 
-    effects = _ReloadCommandEffects(
-        session=cast(Any, SimpleNamespace(tool_registry={})),
+    effects = ReloadCommandEffects(
+        implicit_trust=ImplicitTrustState(),
+        provider_state=None,
+        tool_registry={},
+        verbose_startup=False,
         ctl=cast(Any, _Ctl()),
         settings=cast(
             Any,
@@ -2419,7 +2431,7 @@ def test_reload_exception_disposes_candidate_only_after_the_gate_closes(
         return original_dispose_locked(host)
 
     def raise_after_activation(
-        _self: _ReloadCommandEffects,
+        _self: ReloadCommandEffects,
         lifetime: _ExtensionCandidate,
     ) -> None:
         lifetime.adopt(candidate_runtime, pytest.fail)
@@ -2427,17 +2439,20 @@ def test_reload_exception_disposes_candidate_only_after_the_gate_closes(
 
     monkeypatch.setattr(_ActivationApi, "_dispose_locked", observe_dispose_locked)
     monkeypatch.setattr(
-        _ReloadCommandEffects,
+        ReloadCommandEffects,
         "_reload_configuration_and_resources",
         lambda _self: None,
     )
     monkeypatch.setattr(
-        _ReloadCommandEffects,
+        ReloadCommandEffects,
         "_reload_extension_generation",
         raise_after_activation,
     )
-    effects = _ReloadCommandEffects(
-        session=cast(Any, None),
+    effects = ReloadCommandEffects(
+        implicit_trust=ImplicitTrustState(),
+        provider_state=None,
+        tool_registry={},
+        verbose_startup=False,
         ctl=cast(Any, SimpleNamespace(generation_ref=ref)),
         settings=cast(Any, None),
         keybindings=cast(Any, None),

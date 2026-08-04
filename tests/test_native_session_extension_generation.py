@@ -1485,14 +1485,15 @@ def test_production_projection_and_port_adapter_callers_are_exactly_bounded() ->
         CallInventory(relative_path).visit(ast.parse(path.read_text(encoding="utf-8")))
 
     loop_path = "pipy_harness/native/tool_loop_session.py"
+    reload_path = "pipy_harness/native/repl/reload.py"
     reload_owner = (
-        "class:_ReloadCommandEffects",
-        "function:_reload_extension_generation",
+        "class:ReloadCommandEffects",
+        "function:_activate_reload_candidate",
     )
     startup_owner = ("class:NativeToolReplSession", "function:run")
     assert calls == {
         "build_candidate_extension_projection": [
-            (loop_path, reload_owner),
+            (reload_path, reload_owner),
             (loop_path, startup_owner),
         ],
         "build_extension_projection": [
@@ -2753,8 +2754,12 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
     assert sum(map(len, nonempty.values())) == len(actual)
     sg, hooks = "native/session_generation.py", "native/extension_hooks.py"
     loop = "native/tool_loop_session.py"
-    reload_owner = "class:_ReloadCommandEffects"
-    reload_generation = (reload_owner, "function:_reload_extension_generation")
+    reload_file = "native/repl/reload.py"
+    reload_owner = "class:ReloadCommandEffects"
+    reload_generation = (reload_owner, "function:_retire_reload_attempt")
+    reload_activate = (reload_owner, "function:_activate_reload_candidate")
+    reload_commit = (reload_owner, "function:_commit_reload_generation")
+    reload_accept = (reload_owner, "function:_accept_prepared_generation")
     startup = ("class:NativeToolReplSession", "function:run")
     startup_guard = ("function:balance_startup_candidate", "function:guarded")
     chrome_prepare = ("class:ExtensionChromeRouter", "function:prepare_candidate")
@@ -2787,8 +2792,8 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
             "native/extension_runtime.py",
             ("function:_dispose_activation_results",),
         ),
-        ("dispose", loop, ("class:_ReloadCommandEffects", "function:execute")),
-        ("dispose", loop, reload_generation),
+        ("dispose", reload_file, (reload_owner, "function:execute")),
+        ("dispose", reload_file, reload_generation),
         ("dispose", sg, startup_guard),
         ("dispose", sg, ("class:PreparedReloadEffects", "function:dispose")),
         ("dispose", sg, ("function:_dispose_completed_reload_effects",)),
@@ -2806,13 +2811,19 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
             "PresentationPersistenceValue ReloadEffectPreparationPorts "
             "build_prepared_reload_effects freeze".split()
         },
-        ("ExtensionChromePrepareInput", loop, reload_generation),
-        ("ExtensionChromeCommitToken", loop, reload_generation),
+        # The reload path is four phases behind one teardown, so each call
+        # names the phase that makes it. The set is the same size as when the
+        # phases were one 182-line method; a call appearing in a second phase
+        # would fail here rather than pass unnoticed.
+        ("ExtensionChromePrepareInput", reload_file, reload_commit),
+        ("ExtensionChromeCommitToken", reload_file, reload_commit),
         ("ExtensionChromeCommitToken", "native/ui/chrome_handoff.py", chrome_prepare),
+        ("OrderedDeliveryGate", reload_file, reload_activate),
+        ("deliver_accepted_staged_batch", reload_file, reload_accept),
+        ("reserve", reload_file, reload_accept),
         *{
-            (name, loop, owner)
+            (name, loop, startup)
             for name in "OrderedDeliveryGate deliver_accepted_staged_batch reserve".split()
-            for owner in (reload_generation, startup)
         },
         ("freeze", loop, startup),
     }

@@ -68,6 +68,7 @@ from pipy_harness.native.repl.execution_projections import (
     build_candidate_extension_projection,
 )
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
+from pipy_harness.native.repl.reload import ReloadCommandEffects
 from pipy_harness.native.repl.turn_leaves import (
     pricing_for,
     wait_for_provider_interrupt,
@@ -243,6 +244,7 @@ def _capture_usage_construction(
 
     import pipy_harness.native.agent.loop as agent_loop
     import pipy_harness.native.repl.provider_selection as provider_selection
+    import pipy_harness.native.repl.reload as reload_owner_module
     import pipy_harness.native.tool_loop_session as tool_loop_session
 
     constructed: list[AgentUsageAccumulator] = []
@@ -272,6 +274,8 @@ def _capture_usage_construction(
         provider_selection, "AgentUsageAccumulator", _RecordingUsageAccumulator
     )
     monkeypatch.setattr(provider_selection, "pricing_for", record_pricing)
+    # The post-reload rebind prices its replacement in the reload owner.
+    monkeypatch.setattr(reload_owner_module, "pricing_for", record_pricing)
     return constructed, pricing_lookups
 
 
@@ -667,13 +671,14 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
 
 
 def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None:
+    import pipy_harness.native.repl.reload as reload_module
     import pipy_harness.native.repl.session_transfer as session_transfer
     import pipy_harness.native.tool_loop_session as tool_loop_session
 
-    # The transfer family owns its own module now; the reload family and the
-    # interpreter that routes to both are still at the composition root.
+    # Both families own their own module now; the interpreter that routes to
+    # them is still at the composition root.
     classes: dict[str, ast.ClassDef] = {}
-    for module in (tool_loop_session, session_transfer):
+    for module in (tool_loop_session, session_transfer, reload_module):
         module_path = module.__file__
         assert module_path is not None
         syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
@@ -695,8 +700,11 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
             "session_switch_allows",
             "rebuild_messages_from_tree",
         },
-        "_ReloadCommandEffects": {
-            "session",
+        "ReloadCommandEffects": {
+            "implicit_trust",
+            "provider_state",
+            "tool_registry",
+            "verbose_startup",
             "ctl",
             "settings",
             "keybindings",
@@ -799,28 +807,25 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         "tool_capabilities",
     }.isdisjoint(root_names)
 
-    reload_owner = classes["_ReloadCommandEffects"]
+    reload_owner = classes["ReloadCommandEffects"]
     reload_execute = next(
         node
         for node in reload_owner.body
         if isinstance(node, ast.FunctionDef) and node.name == "execute"
     )
-    reload_generation = next(
-        node
+    reload_methods = {
+        node.name: node
         for node in reload_owner.body
         if isinstance(node, ast.FunctionDef)
-        and node.name == "_reload_extension_generation"
-    )
-    publication_lifetime = next(
-        node
-        for node in reload_generation.body
-        if isinstance(node, ast.Try)
-        and any(isinstance(statement, ast.With) for statement in node.body)
-    )
+    }
+    # The generation reload is four phases behind one teardown. The phase that
+    # opens the publication gate owns the whole critical section; the phase it
+    # calls to swap the live generation runs inside that gate.
+    reload_commit = reload_methods["_commit_reload_generation"]
+    reload_accept = reload_methods["_accept_prepared_generation"]
+    reload_activate = reload_methods["_activate_reload_candidate"]
     publishing = next(
-        statement
-        for statement in publication_lifetime.body
-        if isinstance(statement, ast.With)
+        statement for statement in reload_commit.body if isinstance(statement, ast.With)
     )
     assert len(publishing.items) == 1
     publishing_context = publishing.items[0].context_expr
@@ -838,24 +843,38 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
     assert ctl.attr == "ctl"
     assert isinstance(ctl.value, ast.Name)
     assert ctl.value.id == "self"
-    publication_calls = sorted(
-        (node.lineno, node.col_offset, ast.unparse(node.func))
-        for statement in publishing.body
-        for node in ast.walk(statement)
-        if isinstance(node, ast.Call)
+
+    def _ordered_calls(*nodes: ast.AST) -> list[str]:
+        return [
+            name
+            for _, _, name in sorted(
+                (node.lineno, node.col_offset, ast.unparse(node.func))
+                for root in nodes
+                for node in ast.walk(root)
+                if isinstance(node, ast.Call)
+            )
+        ]
+
+    # The full ordered inventory of the critical section, across the two
+    # methods it now spans. Unchanged from when it was one method except that
+    # `getattr(self.session, "provider_state", ...)` became a plain field read.
+    assert (
+        _ordered_calls(*publishing.body) + _ordered_calls(reload_accept)
+        == (
+            "attempt.require_projection self.tool_capabilities.prepare_extensions "
+            "with_tool_capability isinstance ExtensionChromeSink "
+            "prepare_production_reload ExtensionChromePrepareInput "
+            "UnavailableAfterReloadProvider _agent_usage.AgentUsageAccumulator "
+            "pricing_for CodingReloadHistoryValue chrome_sink.close "
+            "driver.prepare_candidate ExtensionChromeCommitToken self.diag self.diag "
+            "SessionExtensionGeneration self._accept_prepared_generation "
+            "attempt.require_projection gate.reserve "
+            "self.ctl.generation_ref.accept_prepared_reload self.diag self.diag "
+            "retired_chrome.close_nonraising "
+            "_extension_hooks.deliver_accepted_staged_batch cast partial "
+            "finish_chrome_retirement raise_first"
+        ).split()
     )
-    assert [name for _, _, name in publication_calls] == (
-        "self.tool_capabilities.prepare_extensions with_tool_capability getattr "
-        "isinstance ExtensionChromeSink prepare_production_reload "
-        "ExtensionChromePrepareInput UnavailableAfterReloadProvider "
-        "_agent_usage.AgentUsageAccumulator pricing_for CodingReloadHistoryValue "
-        "chrome_sink.close driver.prepare_candidate ExtensionChromeCommitToken "
-        "self.diag self.diag SessionExtensionGeneration gate.reserve "
-        "self.ctl.generation_ref.accept_prepared_reload self.diag self.diag "
-        "retired_chrome.close_nonraising "
-        "_extension_hooks.deliver_accepted_staged_batch cast partial "
-        "_finish_chrome_retirement _raise_first"
-    ).split()
     execution_lifetime = next(
         node for node in reload_execute.body if isinstance(node, ast.Try)
     )
@@ -869,13 +888,32 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         and node.func.value.id == "candidate"
         and node.func.attr == "dispose"
     )
-    finish_chrome_call = next(
-        node
-        for node in ast.walk(publication_lifetime)
-        if isinstance(node, ast.Call)
+    # Candidate chrome is finished only in the teardown phase, which the outer
+    # `finally` reaches after the publication gate has closed -- so the call
+    # cannot appear inside the gate at all.
+    reload_retire = reload_methods["_retire_reload_attempt"]
+    assert not any(
+        isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "_finish_candidate_chrome"
+        for node in ast.walk(reload_commit)
     )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "_finish_candidate_chrome"
+        for node in ast.walk(reload_retire)
+    )
+    reload_generation = reload_methods["_reload_extension_generation"]
+    generation_lifetime = next(
+        node for node in reload_generation.body if isinstance(node, ast.Try)
+    )
+    assert [
+        ast.unparse(node.func)
+        for statement in generation_lifetime.finalbody
+        for node in ast.walk(statement)
+        if isinstance(node, ast.Call)
+    ] == ["self._retire_reload_attempt"]
     reload_with_chrome_finish_call = next(
         node
         for node in ast.walk(execution_lifetime)
@@ -891,19 +929,11 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         and node.func.attr == "diag"
         and node.lineno > reload_with_chrome_finish_call.lineno
     )
-    publishing_end = publishing.end_lineno
-    assert publishing_end is not None
-    assert publishing_end < finish_chrome_call.lineno
     assert reload_with_chrome_finish_call.lineno < final_diagnostic.lineno
     assert final_diagnostic.lineno < disposal_call.lineno
-    reload_methods = {
-        node.name: node
-        for node in reload_owner.body
-        if isinstance(node, ast.FunctionDef)
-    }
     (staged_call,) = (
         node
-        for node in ast.walk(reload_generation)
+        for node in ast.walk(reload_activate)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "fire_candidate_session_start"
@@ -912,17 +942,24 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
     assert any(keyword.arg == "ui_driver" for keyword in staged_call.keywords)
     accept_call = next(
         node
-        for node in ast.walk(reload_generation)
+        for node in ast.walk(reload_accept)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "accept_prepared_reload"
     )
+    # Staging fires in the phase before acceptance, and the class defines the
+    # phases in the order they run.
     assert staged_call.lineno < accept_call.lineno
     reload_method_line_budgets = {
         "execute": 44,
         "_finish_candidate_chrome": 43,
         "_reload_configuration_and_resources": 32,
-        "_reload_extension_generation": 182,
+        "_reload_extension_generation": 40,
+        "_activate_reload_candidate": 66,
+        "_commit_reload_generation": 74,
+        "_accept_prepared_generation": 60,
+        "_report_reload_presentation": 20,
+        "_retire_reload_attempt": 30,
         "_diagnose_unknown_tool_filters": 12,
         "_refresh_presentation_and_persistence": 40,
     }
@@ -1948,7 +1985,6 @@ def _scoped_models_state(tmp_path, seen):
 def test_scoped_models_show_set_clear_and_reload_auth_owner_recovery(
     tmp_path, monkeypatch
 ):
-    import pipy_harness.native.tool_loop_session as loop
     from pipy_harness.native.settings import SettingsManager
     from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 
@@ -1970,9 +2006,7 @@ def test_scoped_models_show_set_clear_and_reload_auth_owner_recovery(
     before = (state.selection, session.provider_port, catalog.catalog.rows)
     reloads = refreshes = 0
     refresh = ProviderMutationEffects.refresh_provider_after_reload
-    reload_configuration = (
-        loop._ReloadCommandEffects._reload_configuration_and_resources
-    )
+    reload_configuration = ReloadCommandEffects._reload_configuration_and_resources
 
     def drop_then_restore_auth(effects):
         nonlocal reloads
@@ -1988,7 +2022,7 @@ def test_scoped_models_show_set_clear_and_reload_auth_owner_recovery(
         refreshes += 1
 
     monkeypatch.setattr(
-        loop._ReloadCommandEffects,
+        ReloadCommandEffects,
         "_reload_configuration_and_resources",
         drop_then_restore_auth,
     )

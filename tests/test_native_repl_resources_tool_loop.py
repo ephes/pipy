@@ -20,11 +20,9 @@ from pathlib import Path
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
 from pipy_harness.native.prompt_history import PromptHistoryStore
+from pipy_harness.native.repl.command_menu import tool_loop_command_names
 from pipy_harness.native.resources import WorkspaceResources
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    _tool_loop_command_names,
-)
+from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 @dataclass
@@ -166,7 +164,7 @@ def test_tool_loop_menu_command_set_is_honest(tmp_path, monkeypatch):
         home_dir=tmp_path,
         include_workspace_defaults=True,
     )
-    names = _tool_loop_command_names(resources)
+    names = tool_loop_command_names(resources)
     # /skill stays; the discovered template and custom command are advertised
     # as their own /<name> entries (Pi shape).
     for executable in ("/hotkeys", "/model", "/skill", "/review", "/deploy"):
@@ -189,7 +187,7 @@ def test_prompt_template_registers_as_its_own_command(tmp_path, monkeypatch):
         home_dir=tmp_path,
         include_workspace_defaults=True,
     )
-    names = _tool_loop_command_names(resources)
+    names = tool_loop_command_names(resources)
     # The seeded "review" template is advertised under its own slash name.
     assert "/review" in names
 
@@ -213,13 +211,13 @@ def test_template_custom_command_name_collision_is_dispatch_honest(
     description must describe what dispatching actually runs (the template),
     matching ``dispatch_resource_command``'s template-first resolution."""
 
+    from pipy_harness.native.repl.command_menu import (
+        tool_loop_command_descriptions,
+    )
     from pipy_harness.native.resources import (
         DISPATCH_TEMPLATE_RUN,
         WorkspaceResources,
         dispatch_resource_command,
-    )
-    from pipy_harness.native.tool_loop_session import (
-        _tool_loop_command_descriptions,
     )
 
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
@@ -246,7 +244,7 @@ def test_template_custom_command_name_collision_is_dispatch_honest(
     )
 
     # The menu description for /foo is the template's, not the command's.
-    descriptions = _tool_loop_command_descriptions(resources)
+    descriptions = tool_loop_command_descriptions(resources)
     assert descriptions["/foo"] == "TEMPLATE_foo_description"
 
     # Dispatching /foo runs the template (template wins the collision).

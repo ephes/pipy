@@ -16,7 +16,6 @@ from pipy_harness.cli import (
     main,
     route_argv,
 )
-from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.project_trust import (
@@ -29,6 +28,10 @@ from pipy_harness.native.project_trust import (
     has_trust_requiring_project_resources,
     resolve_project_trust,
     resolve_project_trusted,
+)
+from pipy_harness.native.repl.reload import (
+    ImplicitTrustState,
+    maybe_save_implicit_trust_after_reload,
 )
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.settings import SettingsManager
@@ -375,22 +378,18 @@ def test_reload_auto_persists_only_newly_materialized_project_input(
     config = tmp_path / "config"
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
     settings = SettingsManager.for_workspace(cwd, project_trusted=True)
-    session = NativeToolReplSession(
-        provider=FakeNativeProvider(supports_tool_calls=True),
-        tool_registry={},
-        auto_trust_on_reload_cwd=cwd,
-    )
+    implicit_trust = ImplicitTrustState(cwd=cwd)
     error = io.StringIO()
-    assert not session._maybe_save_implicit_trust_after_reload(
-        cwd=cwd, settings=settings, terminal_ui=None, error_stream=error
+    assert not maybe_save_implicit_trust_after_reload(
+        implicit_trust, cwd=cwd, settings=settings, terminal_ui=None, error_stream=error
     )
     assert not (config / "trust.json").exists()
     (cwd / ".pipy" / "skills").mkdir(parents=True)
-    assert session._maybe_save_implicit_trust_after_reload(
-        cwd=cwd, settings=settings, terminal_ui=None, error_stream=error
+    assert maybe_save_implicit_trust_after_reload(
+        implicit_trust, cwd=cwd, settings=settings, terminal_ui=None, error_stream=error
     )
     assert ProjectTrustStore(config / "trust.json").get(cwd) is True
-    assert session.auto_trust_on_reload_cwd is None
+    assert implicit_trust.cwd is None
 
 
 def test_reload_auto_persist_never_overrides_a_saved_decision(
@@ -402,19 +401,16 @@ def test_reload_auto_persist_never_overrides_a_saved_decision(
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(config))
     store = ProjectTrustStore(config / "trust.json")
     store.set(cwd.parent, False)
-    session = NativeToolReplSession(
-        provider=FakeNativeProvider(supports_tool_calls=True),
-        tool_registry={},
-        auto_trust_on_reload_cwd=cwd,
-    )
-    assert not session._maybe_save_implicit_trust_after_reload(
+    implicit_trust = ImplicitTrustState(cwd=cwd)
+    assert not maybe_save_implicit_trust_after_reload(
+        implicit_trust,
         cwd=cwd,
         settings=SettingsManager.for_workspace(cwd, project_trusted=True),
         terminal_ui=None,
         error_stream=io.StringIO(),
     )
     assert store.get(cwd) is False
-    assert session.auto_trust_on_reload_cwd is None
+    assert implicit_trust.cwd is None
 
 
 def test_untrusted_settings_never_open_project_and_refuse_writes(

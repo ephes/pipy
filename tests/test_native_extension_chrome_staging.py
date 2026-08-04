@@ -15,7 +15,8 @@ import pytest
 import test_native_extension_activation_sealing as transactional
 from session_generation_test_support import build_test_projection
 
-import pipy_harness.native.tool_loop_session as tool_loop_session
+import pipy_harness.native.repl.reload as reload_module
+import pipy_harness.native.repl.turn_leaves as turn_leaves
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
     CodingCommandFooterPolicy,
@@ -37,12 +38,15 @@ from pipy_harness.native.extension_runtime import (
     _ExtensionRuntime,
 )
 from pipy_harness.native.extension_types import QueuedCustomMessage
+from pipy_harness.native.repl.reload import (
+    ImplicitTrustState,
+    ReloadCommandEffects,
+)
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.session_generation import (
     SessionExtensionGeneration,
     SessionGenerationRef,
 )
-from pipy_harness.native.tool_loop_session import _ReloadCommandEffects
 from pipy_harness.native.tui import (
     ToolLoopTerminalUi,
     _LiveExtensionUiDriver,
@@ -221,7 +225,7 @@ def test_retirement_interrupt_skips_later_disposer_and_inflight_wait(
     assert type(cleanup_error) is interrupt_type
     assert calls == ["ordinary", "base", "interrupt"]
     with pytest.raises(RuntimeError, match="delivery"):
-        tool_loop_session._raise_first(  # noqa: SLF001 - reload aggregation proof
+        turn_leaves.raise_first(
             (RuntimeError("delivery"), cleanup_error, AssertionError("close"))
         )
 
@@ -1060,14 +1064,17 @@ def _effects(
     ui: _FakeTerminalUi,
     driver: _LiveExtensionUiDriver,
     tokens: tuple[str, ...] = (),
-) -> tuple[_ReloadCommandEffects, _Ctl]:
+) -> tuple[ReloadCommandEffects, _Ctl]:
     live = SessionExtensionGeneration(_runtime())
     ctl = _Ctl(live, ui)
     capabilities, mutation, emitter, renderer = transactional._reload_owners(
         ctl.generation_ref
     )
-    effects = _ReloadCommandEffects(
-        session=cast(Any, SimpleNamespace(tool_registry={})),
+    effects = ReloadCommandEffects(
+        implicit_trust=ImplicitTrustState(),
+        provider_state=None,
+        tool_registry={},
+        verbose_startup=False,
         ctl=cast(Any, ctl),
         settings=cast(
             Any,
@@ -1121,7 +1128,7 @@ def test_invalid_flags_keep_live_title_widgets_and_listeners_without_candidate_p
     candidate_sink = _preloaded_candidate()
     monkeypatch.setattr(driver, "new_candidate_sink", lambda: candidate_sink)
     monkeypatch.setattr(
-        tool_loop_session,
+        reload_module,
         "_activate_workspace_extensions",
         lambda *_a, **_k: _runtime(),
     )
@@ -1150,7 +1157,7 @@ def test_injected_activation_failure_keeps_live_chrome_and_disposes_candidate_si
         raise RuntimeError("injected activation failure")
 
     monkeypatch.setattr(
-        tool_loop_session, "_activate_workspace_extensions", fail_activation
+        reload_module, "_activate_workspace_extensions", fail_activation
     )
     effects, ctl = _effects(ui=ui, driver=driver)
     live = ctl.extension_generation
@@ -1172,22 +1179,22 @@ def test_post_acceptance_presentation_failure_leaves_candidate_chrome_live(
     sink = driver.new_candidate_sink()
     monkeypatch.setattr(driver, "new_candidate_sink", lambda: sink)
     monkeypatch.setattr(
-        tool_loop_session,
+        reload_module,
         "_activate_workspace_extensions",
         lambda *_args, **_kwargs: _runtime(),
     )
     effects, _ctl = _effects(ui=ui, driver=driver)
     monkeypatch.setattr(
-        _ReloadCommandEffects,
+        ReloadCommandEffects,
         "_reload_configuration_and_resources",
         lambda _self: None,
     )
 
-    def fail_projection(_self: _ReloadCommandEffects) -> None:
+    def fail_projection(_self: ReloadCommandEffects) -> None:
         raise RuntimeError("injected post-commit projection failure")
 
     monkeypatch.setattr(
-        _ReloadCommandEffects,
+        ReloadCommandEffects,
         "_refresh_presentation_and_persistence",
         fail_projection,
     )
@@ -1221,7 +1228,7 @@ def test_post_publication_interrupt_finishes_live_candidate_chrome_once(
         custom_messages=(QueuedCustomMessage("interrupt", "now", True, None, {}),),
     )
     monkeypatch.setattr(
-        tool_loop_session,
+        reload_module,
         "_activate_workspace_extensions",
         lambda *_args, **_kwargs: runtime,
     )
@@ -1362,8 +1369,11 @@ def test_production_reload_restores_retired_chrome_after_candidate_reconcile_fai
     capabilities, mutation, emitter, renderer = transactional._reload_owners(
         ctl.generation_ref, emitter
     )
-    effects = _ReloadCommandEffects(
-        session=cast(Any, SimpleNamespace(tool_registry={})),
+    effects = ReloadCommandEffects(
+        implicit_trust=ImplicitTrustState(),
+        provider_state=None,
+        tool_registry={},
+        verbose_startup=False,
         ctl=cast(Any, ctl),
         settings=cast(
             Any,
@@ -1389,13 +1399,13 @@ def test_production_reload_restores_retired_chrome_after_candidate_reconcile_fai
     )
 
     monkeypatch.setattr(
-        _ReloadCommandEffects,
+        ReloadCommandEffects,
         "_reload_configuration_and_resources",
         lambda _self: None,
     )
 
     monkeypatch.setattr(
-        _ReloadCommandEffects,
+        ReloadCommandEffects,
         "_refresh_presentation_and_persistence",
         lambda _self: False,
     )
@@ -1466,7 +1476,7 @@ def test_successful_removal_reconciles_empty_chrome_once_after_acceptance(
     driver.set_widget("old", ["OLD_WIDGET"], "above_editor")
     driver.add_terminal_input_listener(lambda key: key)
     monkeypatch.setattr(
-        tool_loop_session,
+        reload_module,
         "_activate_workspace_extensions",
         lambda *_a, **_k: _runtime(),
     )

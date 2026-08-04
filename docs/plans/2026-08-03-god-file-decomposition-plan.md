@@ -231,11 +231,24 @@ target name against the new module's imports. It became `run_tree_command`. Same
 root cause as failed approach 5 -- one name meaning two things -- arrived at from
 the rename direction rather than the regex direction.
 
-A constant reached by both the moving code and the code that stays is a third
-case, and duplicating it is the wrong answer -- that is how the duplicate
-`PRICING_TABLE` shipped. Give it one owner in the tier both can import;
-`CANCEL_JOIN_TIMEOUT_SECONDS` went to `repl/turn_leaves.py` beside the interrupt
-translation it bounds.
+**A leaf reached by both the moving code and the code that stays needs one
+owner, not two copies.** Duplicating it is how the duplicate `PRICING_TABLE`
+shipped. Give it a home in a tier both can import, and move it in the same
+slice: `CANCEL_JOIN_TIMEOUT_SECONDS`, `finish_chrome_retirement` and
+`raise_first` went to `repl/turn_leaves.py` beside the interrupt translation
+they belong with, and the slash-menu builders to `repl/command_menu.py`, because
+both startup and `/reload` rebuild the menu. Expect one or two of these per
+slice; they are not scope creep, they are the cost of the boundary rule.
+
+**Splitting a `try/finally` method: the shared locals are the contract.** The
+182-line `_reload_extension_generation` had four locals set at three different
+depths that only its `finally` clause read. Splitting it into phases means those
+locals cannot stay locals -- they became one mutable `_ReloadAttempt` record the
+phases write and the teardown reads, which is what keeps the teardown seeing
+exactly what it saw before. Verify such a split by diffing the *ordered
+statement list* of the original against the concatenated phases, not by reading:
+every original statement must appear, in order, with only the rebinding and the
+phase-dispatch statements added.
 
 **Measure `self.session` only, and include `getattr`.** The table below was
 re-derived on 2026-08-04 after the loop-scope slice, and the previous version of

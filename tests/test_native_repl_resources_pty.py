@@ -24,12 +24,12 @@ from pty_sync import wait_for_input_ready_after
 
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
-from pipy_harness.native.resources import WorkspaceResources
-from pipy_harness.native.tool_loop_session import (
-    NativeToolReplSession,
-    _tool_loop_command_descriptions,
-    _tool_loop_command_names,
+from pipy_harness.native.repl.command_menu import (
+    tool_loop_command_descriptions,
+    tool_loop_command_names,
 )
+from pipy_harness.native.resources import WorkspaceResources
+from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
@@ -133,8 +133,8 @@ def _drive_session(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
-        command_names=_tool_loop_command_names(resources),
-        command_descriptions=_tool_loop_command_descriptions(resources),
+        command_names=tool_loop_command_names(resources),
+        command_descriptions=tool_loop_command_descriptions(resources),
     )
     provider = _CapturingToolProvider()
     session = NativeToolReplSession(provider=provider, tool_registry={})
