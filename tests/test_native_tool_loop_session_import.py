@@ -541,6 +541,7 @@ def test_session_before_switch_runs_once_before_import_and_can_veto(
     monkeypatch: pytest.MonkeyPatch,
     allowed: bool,
 ) -> None:
+    import pipy_harness.native.repl.extension_operations as ops_module
     import pipy_harness.native.tool_loop_session as loop_module
 
     cwd = _workspace(tmp_path)
@@ -561,7 +562,7 @@ def test_session_before_switch_runs_once_before_import_and_can_veto(
             source_path, session_dir=session_dir, missing_cwd=missing_cwd
         )
 
-    monkeypatch.setattr(loop_module, "dispatch_session_before_hooks", gate)
+    monkeypatch.setattr(ops_module, "dispatch_session_before_hooks", gate)
     monkeypatch.setattr(loop_module, "import_native_session_jsonl", import_session)
     _result, _output, error = _run(
         NativeToolReplSession(
@@ -908,7 +909,7 @@ def test_import_has_no_provider_tool_prompt_history_agent_or_archive_effects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd = _workspace(tmp_path)
     active = _active_tree(tmp_path, cwd)
@@ -925,7 +926,7 @@ def test_import_has_no_provider_tool_prompt_history_agent_or_archive_effects(
     def reject_input_hook(*_args: object, **_kwargs: object) -> str:
         raise AssertionError("/import must not dispatch extension input hooks")
 
-    monkeypatch.setattr(loop_module, "dispatch_input_hooks", reject_input_hook)
+    monkeypatch.setattr(ops_module, "dispatch_input_hooks", reject_input_hook)
     result, _output, _error = _run(
         NativeToolReplSession(
             provider=provider,

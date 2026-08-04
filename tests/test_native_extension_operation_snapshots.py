@@ -35,6 +35,10 @@ from pipy_harness.native.extension_runtime import (
     _ExtensionRuntime,
 )
 from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.repl.extension_operations import (
+    ProviderHeaderRequestSnapshot,
+    SessionExtensionOperations,
+)
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.session_generation import (
@@ -51,11 +55,9 @@ from pipy_harness.native.tool_capabilities import (
     ToolFilterOptions,
 )
 from pipy_harness.native.tool_loop_session import (
-    _ProviderHeaderRequestSnapshot,
     _ReloadCommandEffects,
     _SessionCollaborators,
     _SessionExecutionProjections,
-    _SessionExtensionOperations,
 )
 from pipy_harness.native.tools import (
     ToolContext,
@@ -174,7 +176,7 @@ def test_r4a_dispatch_uses_one_old_or_new_published_snapshot(
     new = _generation(lock, "new", observations)
     generation_ref = _PublishingSnapshotRef(old, new, lock)
     model_runtime = ExtensionModelRuntimeControl()
-    operations = _SessionExtensionOperations(
+    operations = SessionExtensionOperations(
         generation_ref=generation_ref,
         cwd=str(tmp_path),
         has_ui=False,
@@ -256,7 +258,7 @@ def test_retained_operation_context_selection_controls_capture_generation(
             set_thinking_level_fn=selected,
         )
 
-    operations = _SessionExtensionOperations(
+    operations = SessionExtensionOperations(
         generation_ref=generation_ref,
         cwd=str(tmp_path),
         has_ui=False,
@@ -359,7 +361,7 @@ def test_r4c_operation_routes_retained_chrome_to_its_snapshotted_generation(
         ),
     )
     generation_ref = _PublishingSnapshotRef(old, new, lock)
-    operations = _SessionExtensionOperations(
+    operations = SessionExtensionOperations(
         generation_ref=generation_ref,
         cwd=str(tmp_path),
         has_ui=True,
@@ -697,7 +699,7 @@ def test_provider_header_callback_is_request_local_across_switch_and_reload(
     session_ids = [header["X-Session"] for header in headers]
     assert session_ids[0] != session_ids[1] == session_ids[2]
     callback = callbacks[-1]
-    assert isinstance(callback, _ProviderHeaderRequestSnapshot)
+    assert isinstance(callback, ProviderHeaderRequestSnapshot)
     assert callback.session_tree.session_id == session_ids[-1]
     retained = weakref.ref(settings)
     del settings, session
@@ -840,8 +842,14 @@ def test_r4c_deletes_all_converted_legacy_sources_and_equivalence_arms() -> None
 
 
 def test_r4a_production_source_has_no_direct_converted_family_dispatch_reads() -> None:
-    path = Path(__file__).parents[1] / "src/pipy_harness/native/tool_loop_session.py"
-    source = path.read_text(encoding="utf-8")
+    # The eight dispatchers moved to the module that owns per-operation effects;
+    # `tool_loop_session.py` is checked too, so a dispatch call reappearing at the
+    # composition root fails the count rather than passing unnoticed.
+    root = Path(__file__).parents[1] / "src/pipy_harness/native"
+    source = "\n".join(
+        (root / name).read_text(encoding="utf-8")
+        for name in ("repl/extension_operations.py", "tool_loop_session.py")
+    )
     dispatchers = set(
         "dispatch_extension_command dispatch_extension_shortcut dispatch_input_hooks dispatch_before_agent_start_hooks prepare_provider_request dispatch_before_provider_headers_hooks dispatch_tool_result_hooks dispatch_session_before_hooks".split()
     )

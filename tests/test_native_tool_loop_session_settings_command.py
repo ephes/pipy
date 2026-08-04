@@ -246,7 +246,7 @@ def test_unexpected_settings_projection_failures_cut_off_footer_and_provider(
 def test_settings_has_no_input_session_history_or_provider_effects(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
@@ -262,7 +262,7 @@ def test_settings_has_no_input_session_history_or_provider_effects(
     def reject_input_clear(_queue: CodingInputQueue) -> None:
         raise AssertionError("/settings must not clear extension input")
 
-    monkeypatch.setattr(loop_module, "dispatch_input_hooks", reject_input_hook)
+    monkeypatch.setattr(ops_module, "dispatch_input_hooks", reject_input_hook)
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", reject_input_clear)
     provider = _RecordingProvider()
     result, _rendered = _run_captured(

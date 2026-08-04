@@ -316,14 +316,14 @@ def test_canonical_tree_branch_scenario(tmp_path: Path) -> None:
 def test_tree_outer_dispatch_gate_matrix_preserves_full_argument_target(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, persist=False)
     trace: list[str] = []
-    original_gate = loop_module.dispatch_session_before_hooks
+    original_gate = ops_module.dispatch_session_before_hooks
     monkeypatch.setattr(
-        loop_module,
+        ops_module,
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
@@ -356,7 +356,7 @@ def test_tree_outer_dispatch_gate_matrix_preserves_full_argument_target(
 def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, persist=False)
@@ -368,7 +368,7 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
     trace: list[str] = []
     handled_arguments: list[str] = []
     scripted = iter(("/tree", "/exit"))
-    original_gate = loop_module.dispatch_session_before_hooks
+    original_gate = ops_module.dispatch_session_before_hooks
 
     def build_terminal_ui(
         self: NativeToolReplSession, **_kwargs: object
@@ -390,7 +390,7 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
         return TreeCommandOutcome()
 
     monkeypatch.setattr(
-        loop_module,
+        ops_module,
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
@@ -655,7 +655,7 @@ def test_name_session_new_and_resume_roundtrip(tmp_path: Path) -> None:
 def test_new_command_preserves_switch_order_store_and_fresh_context(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd = _workspace(tmp_path)
     session_dir = tmp_path / "sessions"
@@ -670,7 +670,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
             trace.append("provider")
             return super().complete(request, **kwargs)
 
-    original_gate = loop_module.dispatch_session_before_hooks
+    original_gate = ops_module.dispatch_session_before_hooks
     original_create = NativeSessionTree.create
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     original_clear = CodingInputQueue.clear_extension_inputs
@@ -714,7 +714,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
         original_diag(ui, stream, message)
 
     monkeypatch.setattr(
-        loop_module,
+        ops_module,
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
@@ -880,14 +880,14 @@ def test_new_storage_failure_cuts_off_later_effects(
     monkeypatch: pytest.MonkeyPatch,
     failure_stage: str,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd = _workspace(tmp_path)
     session_dir = tmp_path / "sessions"
     active = NativeSessionTree.create(cwd, session_dir=session_dir)
     active.append_message(AgentUserMessage(content=ProductContent("OLD")))
     trace: list[str] = []
-    original_gate = loop_module.dispatch_session_before_hooks
+    original_gate = ops_module.dispatch_session_before_hooks
     original_create = NativeSessionTree.create
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     rebuild_calls = 0
@@ -924,7 +924,7 @@ def test_new_storage_failure_cuts_off_later_effects(
         original_rebuild(self)
 
     monkeypatch.setattr(
-        loop_module,
+        ops_module,
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=False),
     )
@@ -1162,7 +1162,7 @@ def _write_resume_switch_gate(cwd: Path, body: str, *, target: Path) -> None:
 def test_resume_local_management_is_ungated_and_archive_safe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd, session_dir, active, selected = _resume_fixture(tmp_path)
     deleted = NativeSessionTree.create(cwd, session_dir=session_dir)
@@ -1173,9 +1173,9 @@ def test_resume_local_management_is_ungated_and_archive_safe(
     archive.write_bytes(b'{"safe":"sentinel"}\n')
     before = archive.read_bytes()
     trace: list[str] = []
-    original_gate = loop_module.dispatch_session_before_hooks
+    original_gate = ops_module.dispatch_session_before_hooks
     monkeypatch.setattr(
-        loop_module,
+        ops_module,
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
@@ -1209,13 +1209,13 @@ def test_live_resume_cancel_and_current_selection_are_ungated_noops(
     monkeypatch: pytest.MonkeyPatch,
     picker_result: str,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd, _session_dir, active, _selected = _resume_fixture(tmp_path)
     _install_resume_terminal(monkeypatch, cwd=cwd, commands=("/resume", "/exit"))
     trace: list[str] = []
     open_calls: list[Path] = []
-    original_gate = loop_module.dispatch_session_before_hooks
+    original_gate = ops_module.dispatch_session_before_hooks
     original_open = NativeSessionTree.open
 
     def pick(
@@ -1232,7 +1232,7 @@ def test_live_resume_cancel_and_current_selection_are_ungated_noops(
         return original_open(path, persist=persist)
 
     monkeypatch.setattr(
-        loop_module,
+        ops_module,
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
@@ -1253,14 +1253,14 @@ def test_resume_switch_order_gate_and_fresh_history(
     monkeypatch: pytest.MonkeyPatch,
     selection_mode: str,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
     assert selected.path is not None
     command = "/resume" if selection_mode == "picker" else f"/resume {selected.path}"
     _install_resume_terminal(monkeypatch, cwd=cwd, commands=(command, "FRESH", "/exit"))
     trace: list[str] = []
-    original_gate = loop_module.dispatch_session_before_hooks
+    original_gate = ops_module.dispatch_session_before_hooks
     original_open = NativeSessionTree.open
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     original_clear = CodingInputQueue.clear_extension_inputs
@@ -1297,7 +1297,7 @@ def test_resume_switch_order_gate_and_fresh_history(
         original_diag(ui, stream, message)
 
     monkeypatch.setattr(
-        loop_module,
+        ops_module,
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
@@ -1335,13 +1335,13 @@ def test_resume_switch_order_gate_and_fresh_history(
 def test_direct_resume_of_active_path_still_gates_and_reopens(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd, _session_dir, active, _selected = _resume_fixture(tmp_path)
     assert active.path is not None
     trace: list[str] = []
     footer_calls: list[None] = []
-    original_gate = loop_module.dispatch_session_before_hooks
+    original_gate = ops_module.dispatch_session_before_hooks
     original_open = NativeSessionTree.open
 
     def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
@@ -1349,7 +1349,7 @@ def test_direct_resume_of_active_path_still_gates_and_reopens(
         return original_open(path, persist=persist)
 
     monkeypatch.setattr(
-        loop_module,
+        ops_module,
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
@@ -1459,7 +1459,7 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
     monkeypatch: pytest.MonkeyPatch,
     failure_stage: str,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
     assert selected.path is not None
@@ -1468,7 +1468,7 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
     )
     trace: list[str] = []
     rebuild_calls = 0
-    original_gate = loop_module.dispatch_session_before_hooks
+    original_gate = ops_module.dispatch_session_before_hooks
     original_open = NativeSessionTree.open
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
 
@@ -1499,7 +1499,7 @@ def test_resume_switch_failure_timing_cuts_off_later_effects(
             raise RuntimeError("redraw failed")
 
     monkeypatch.setattr(
-        loop_module,
+        ops_module,
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=False),
     )

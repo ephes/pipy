@@ -167,6 +167,7 @@ def _install_terminal(
 def test_fork_requires_persistence_before_resolution_or_hooks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import pipy_harness.native.repl.extension_operations as ops_module
     import pipy_harness.native.tool_loop_session as loop_module
 
     cwd = _workspace(tmp_path)
@@ -178,7 +179,7 @@ def test_fork_requires_persistence_before_resolution_or_hooks(
         lambda *_args, **_kwargs: trace.append("resolve"),
     )
     monkeypatch.setattr(
-        loop_module,
+        ops_module,
         "dispatch_session_before_hooks",
         lambda *_args, **_kwargs: trace.append("gate"),
     )
@@ -198,7 +199,7 @@ def test_fork_requires_persistence_before_resolution_or_hooks(
 def test_unresolved_fork_target_stops_before_gate_and_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd, _session_dir, tree = _persistent_tree(tmp_path)
     trace: list[str] = []
@@ -213,7 +214,7 @@ def test_unresolved_fork_target_stops_before_gate_and_copy(
         trace.append(f"gate:{operation}:{target}")
         return SessionDecision()
 
-    monkeypatch.setattr(loop_module, "dispatch_session_before_hooks", gate)
+    monkeypatch.setattr(ops_module, "dispatch_session_before_hooks", gate)
     monkeypatch.setattr(
         NativeSessionTree,
         "fork_from",
@@ -362,7 +363,7 @@ def test_fork_gate_fatal_cuts_off_copy_and_command_footer(
 def test_fork_success_order_fresh_history_and_no_custom_redraw(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     cwd, _session_dir, tree = _persistent_tree(tmp_path)
     root = tree.append_message(AgentUserMessage(content=ProductContent("ROOT")))
@@ -415,7 +416,7 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
             trace.append("diagnostic")
         original_diag(ui, stream, message)
 
-    monkeypatch.setattr(loop_module, "dispatch_session_before_hooks", gate)
+    monkeypatch.setattr(ops_module, "dispatch_session_before_hooks", gate)
     monkeypatch.setattr(NativeSessionTree, "fork_from", staticmethod(fork))
     monkeypatch.setattr(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild

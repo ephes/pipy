@@ -43,7 +43,7 @@ from dataclasses import InitVar, dataclass, field
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, ClassVar, Literal, TextIO, cast
+from typing import Any, ClassVar, TextIO, cast
 
 import pipy_harness.native.agent.history as _agent_history
 import pipy_harness.native.agent.usage as _agent_usage
@@ -108,10 +108,6 @@ from pipy_harness.native.agent_loop_policy import (
     NativeAgentProviderRequestPolicy,
     NativeAgentToolPolicy,
     materialize_provider_request,
-)
-from pipy_harness.native.agent_request import (
-    NativeProviderRequestHookContext,
-    prepare_provider_request,
 )
 from pipy_harness.native.agent_runtime import (
     NativeAgentQueuedInputPort as NativeAgentQueuedInputPort,
@@ -213,11 +209,7 @@ from pipy_harness.native.extension_chrome_state import (
 )
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
-    dispatch_before_agent_start_hooks,
-    dispatch_before_provider_headers_hooks,
-    dispatch_input_hooks,
     dispatch_tool_call_hooks,
-    dispatch_tool_result_hooks,
     dispatch_user_bash_hooks,
 )
 from pipy_harness.native.extension_hooks import (
@@ -226,11 +218,9 @@ from pipy_harness.native.extension_hooks import (
 from pipy_harness.native.extension_runtime import (
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
-    BeforeAgentStartResult,
     ExtensionActivationBatch,
     ExtensionCapabilityError,
     ExtensionCodingSessionControl,
-    ExtensionCommandDispatch,
     ExtensionModelRuntimeControl,
     ExtensionTool,
     ExtensionUiDriver,
@@ -239,18 +229,14 @@ from pipy_harness.native.extension_runtime import (
     QueuedCustomMessage,
     QueuedUserMessage,
     RegisteredTool,
-    SessionDecision,
     ToolRenderDetailsWriter,
     _ExtensionCandidate,
     _ExtensionRuntime,
     _ExtensionToolPort,
     _report_activation_cleanup,
-    dispatch_extension_command,
-    dispatch_extension_shortcut,
     normalize_shortcut_key,
     parse_extension_flag_tokens,
 )
-from pipy_harness.native.extension_types import CustomComponentDriver
 from pipy_harness.native.file_references import (
     FileReferenceResolution,
     resolve_file_references,
@@ -274,6 +260,10 @@ from pipy_harness.native.project_trust import (
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl.extension_operations import (
+    SessionExtensionOperations,
+    SessionHookFamily,
+)
 from pipy_harness.native.repl.turn_leaves import (
     AGENT_HISTORY_KEEP_RECENT_GROUPS,
     AGENT_HISTORY_MAX_BYTES,
@@ -566,246 +556,6 @@ class _ExtensionCustomEntryRunState:
     @property
     def extension_in_agent_turn(self) -> bool:
         return self.ctl.extension_in_agent_turn
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _ProviderHeaderRequestSnapshot:
-    """Detached provider-worker callback inputs for one request."""
-
-    hooks: tuple[HookHandler, ...]
-    flags: Mapping[str, object]
-    cwd: str
-    has_ui: bool
-    notify_sink: Callable[[str, str], None] | None
-    ui_driver: ExtensionUiDriver | None
-    session_tree: NativeSessionTree
-    project_trusted: bool
-
-    def __call__(self, headers: MutableMapping[str, str | None]) -> None:
-        dispatch_before_provider_headers_hooks(
-            self.hooks,
-            headers,
-            cwd=self.cwd,
-            has_ui=self.has_ui,
-            notify_sink=self.notify_sink,
-            ui_driver=self.ui_driver,
-            flags=self.flags,
-            session_tree=self.session_tree,
-            project_trusted=self.project_trusted,
-        )
-
-
-_SessionHookFamily = Literal["switch", "fork", "compact", "tree"]
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _SessionExtensionOperations:
-    """Take one published projection snapshot for each R4a operation."""
-
-    generation_ref: SessionGenerationRef
-    cwd: str
-    has_ui: bool
-    notify_sink: Callable[[str, str], None] | None
-    ui_driver: ExtensionUiDriver | None
-    project_trusted: bool
-    model_runtime_factory: Callable[[int, bool], ExtensionModelRuntimeControl]
-
-    def _projection(
-        self,
-    ) -> tuple[ExtensionProjection, ExtensionUiDriver | None, int]:
-        snapshot = self.generation_ref.snapshot()
-        projection = snapshot.generation.projection
-        if projection is None:
-            raise RuntimeError("published extension generation has no projection")
-        ui_driver = self.ui_driver
-        chrome = projection.chrome
-        bind = getattr(ui_driver, "generation_driver", None)
-        if chrome is not None and callable(bind):
-            ui_driver = bind(chrome.sink)
-        return projection, ui_driver, snapshot.generation_id
-
-    def dispatch_command(
-        self,
-        command_text: str,
-        *,
-        coding_session: ExtensionCodingSessionControl,
-        ui_custom_driver: CustomComponentDriver | None,
-    ) -> ExtensionCommandDispatch | None:
-        projection, ui_driver, generation_id = self._projection()
-        return dispatch_extension_command(
-            command_text,
-            projection.commands.commands,
-            cwd=self.cwd,
-            has_ui=self.has_ui,
-            coding_session=coding_session,
-            notify_sink=self.notify_sink,
-            ui_custom_driver=ui_custom_driver,
-            ui_driver=ui_driver,
-            model_runtime=self.model_runtime_factory(generation_id, True),
-            flags=projection.runtime_flags.values,
-            project_trusted=self.project_trusted,
-        )
-
-    def dispatch_shortcut(
-        self,
-        key: str,
-        *,
-        coding_session: ExtensionCodingSessionControl,
-        ui_custom_driver: CustomComponentDriver | None,
-    ) -> ExtensionCommandDispatch | None:
-        projection, ui_driver, generation_id = self._projection()
-        return dispatch_extension_shortcut(
-            key,
-            projection.commands.shortcuts,
-            cwd=self.cwd,
-            has_ui=self.has_ui,
-            coding_session=coding_session,
-            notify_sink=self.notify_sink,
-            ui_custom_driver=ui_custom_driver,
-            ui_driver=ui_driver,
-            model_runtime=self.model_runtime_factory(generation_id, True),
-            flags=projection.runtime_flags.values,
-            project_trusted=self.project_trusted,
-        )
-
-    def dispatch_input(self, text: str) -> str:
-        projection, ui_driver, generation_id = self._projection()
-        return dispatch_input_hooks(
-            projection.hooks.input,
-            text,
-            cwd=self.cwd,
-            has_ui=self.has_ui,
-            notify_sink=self.notify_sink,
-            ui_driver=ui_driver,
-            model_runtime=self.model_runtime_factory(generation_id, True),
-            project_trusted=self.project_trusted,
-        )
-
-    def dispatch_before_agent_start(
-        self,
-        system_prompt: str,
-    ) -> BeforeAgentStartResult:
-        projection, ui_driver, generation_id = self._projection()
-        return dispatch_before_agent_start_hooks(
-            projection.hooks.before_agent_start,
-            cwd=self.cwd,
-            has_ui=self.has_ui,
-            system_prompt=system_prompt,
-            notify_sink=self.notify_sink,
-            ui_driver=ui_driver,
-            model_runtime=self.model_runtime_factory(generation_id, True),
-            flags=projection.runtime_flags.values,
-            project_trusted=self.project_trusted,
-        )
-
-    def prepare_provider_request(
-        self,
-        policy_input: AgentProviderRequestPolicyInput,
-    ) -> AgentProviderRequestSnapshot:
-        projection, ui_driver, generation_id = self._projection()
-        return prepare_provider_request(
-            policy_input,
-            projection.hooks.before_provider_request,
-            NativeProviderRequestHookContext(
-                cwd=self.cwd,
-                has_ui=self.has_ui,
-                notify_sink=self.notify_sink,
-                ui_driver=ui_driver,
-                model_runtime=self.model_runtime_factory(generation_id, False),
-                flags=projection.runtime_flags.values,
-                project_trusted=self.project_trusted,
-            ),
-        )
-
-    def provider_header_callback(
-        self, session_tree: NativeSessionTree
-    ) -> Callable[[MutableMapping[str, str | None]], None] | None:
-        projection, ui_driver, _generation_id = self._projection()
-        hooks = projection.hooks.before_provider_headers
-        if not hooks:
-            return None
-        return _ProviderHeaderRequestSnapshot(
-            hooks=hooks,
-            flags=projection.runtime_flags.values,
-            cwd=self.cwd,
-            has_ui=self.has_ui,
-            notify_sink=self.notify_sink,
-            ui_driver=ui_driver,
-            session_tree=session_tree,
-            project_trusted=self.project_trusted,
-        )
-
-    def transform_tool_result(
-        self,
-        *,
-        tool_name: str,
-        content: ProductContent,
-        is_error: bool,
-    ) -> ProductContent:
-        projection, ui_driver, generation_id = self._projection()
-        hooks = projection.hooks.tool_result
-        if not hooks:
-            return content
-        return ProductContent(
-            dispatch_tool_result_hooks(
-                hooks,
-                tool_name=tool_name,
-                content=content.value,
-                is_error=is_error,
-                cwd=self.cwd,
-                has_ui=self.has_ui,
-                notify_sink=self.notify_sink,
-                ui_driver=ui_driver,
-                model_runtime=self.model_runtime_factory(generation_id, False),
-                flags=projection.runtime_flags.values,
-                project_trusted=self.project_trusted,
-            )
-        )
-
-    def session_allows(
-        self,
-        family: _SessionHookFamily,
-        *,
-        operation: str,
-        target: str | None = None,
-        trigger: str | None = None,
-    ) -> SessionDecision:
-        projection, ui_driver, generation_id = self._projection()
-        hooks = {
-            "switch": projection.hooks.session_before_switch,
-            "fork": projection.hooks.session_before_fork,
-            "compact": projection.hooks.session_before_compact,
-            "tree": projection.hooks.session_before_tree,
-        }[family]
-        return dispatch_session_before_hooks(
-            hooks,
-            operation=operation,
-            cwd=self.cwd,
-            has_ui=self.has_ui,
-            target=target,
-            trigger=trigger,
-            notify_sink=self.notify_sink,
-            ui_driver=ui_driver,
-            model_runtime=self.model_runtime_factory(generation_id, True),
-            flags=projection.runtime_flags.values,
-            project_trusted=self.project_trusted,
-        )
-
-    def user_bash_inputs(
-        self,
-    ) -> tuple[
-        tuple[HookHandler, ...],
-        Mapping[str, object],
-        ExtensionUiDriver | None,
-        ExtensionModelRuntimeControl,
-    ]:
-        projection, ui_driver, generation_id = self._projection()
-        return (
-            projection.hooks.user_bash,
-            projection.runtime_flags.values,
-            ui_driver,
-            self.model_runtime_factory(generation_id, True),
-        )
 
 
 _SESSION_COMMAND_ACTIONS = frozenset(
@@ -2131,7 +1881,7 @@ class _ProviderMutationEffects:
 
     session: NativeToolReplSession
     ctl: _RunControlState
-    extension_operations: _SessionExtensionOperations
+    extension_operations: SessionExtensionOperations
     coding_state: CodingSessionState
     product_session: CodingProductSessionCoordinator
     terminal_ui: ToolLoopTerminalUi | None
@@ -2710,7 +2460,7 @@ class _ReplLoopScope:
     provider_request_policy: NativeAgentProviderRequestPolicy
     provider_turn_executor: ProviderTurnExecutor
     usage_publisher: NativeAgentUsagePublisher
-    extension_operations: _SessionExtensionOperations
+    extension_operations: SessionExtensionOperations
     diag: Callable[[str], None]
     coding_footer_text: Callable[[], str]
     refresh_legacy_footer_with_usage: Callable[[], None]
@@ -3328,7 +3078,7 @@ class _SessionCollaborators:
 
     session: NativeToolReplSession
     ctl: _RunControlState
-    extension_operations: _SessionExtensionOperations
+    extension_operations: SessionExtensionOperations
     execution_projections: _SessionExecutionProjections
     coding_state: CodingSessionState
     product_session: CodingProductSessionCoordinator
@@ -3514,7 +3264,7 @@ class _SessionCollaborators:
 
     def extension_session_allows(
         self,
-        family: _SessionHookFamily,
+        family: SessionHookFamily,
         *,
         operation: str,
         target: str | None = None,
@@ -4558,7 +4308,7 @@ class NativeToolReplSession:
             except RuntimeError:
                 pass
 
-        extension_operations = _SessionExtensionOperations(
+        extension_operations = SessionExtensionOperations(
             generation_ref=ctl.generation_ref,
             cwd=str(cwd),
             has_ui=terminal_ui is not None,

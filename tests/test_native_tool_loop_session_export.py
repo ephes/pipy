@@ -413,7 +413,7 @@ def test_export_has_no_input_session_history_agent_or_provider_effects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.extension_operations as ops_module
 
     tree = _branched_tree(tmp_path)
     cwd = Path(tree.get_header().cwd)
@@ -432,7 +432,7 @@ def test_export_has_no_input_session_history_agent_or_provider_effects(
     def reject_input_clear(_queue: CodingInputQueue) -> None:
         raise AssertionError("/export must not clear extension input")
 
-    monkeypatch.setattr(loop_module, "dispatch_input_hooks", reject_input_hook)
+    monkeypatch.setattr(ops_module, "dispatch_input_hooks", reject_input_hook)
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", reject_input_clear)
     result, _rendered = _run_captured(
         NativeToolReplSession(
