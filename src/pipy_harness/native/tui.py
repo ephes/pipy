@@ -217,6 +217,14 @@ from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionInputComponent,
     ExtensionSelectComponent,
 )
+from pipy_harness.native.ui.components.model_selector import (
+    ModelSelectorComponent,
+    model_selector_region_lines,
+)
+from pipy_harness.native.ui.components.scoped_models_selector import (
+    ScopedModelsSelectorComponent,
+    scoped_models_region_lines,
+)
 from pipy_harness.native.ui.components.tree_selector import (
     TreeSelectorComponent,
     tree_selector_region_lines,
@@ -1363,41 +1371,6 @@ class ToolLoopTerminalUi:
     # ``*_open`` write changes the one active-overlay discriminator, so two
     # overlays cannot become renderable simultaneously.
     @property
-    def model_selector_open(self) -> bool:
-        return self._overlays.is_open("model")
-
-    @model_selector_open.setter
-    def model_selector_open(self, value: bool) -> None:
-        if value:
-            self._overlays.supersede("model")
-        else:
-            self._overlays.close("model")
-
-    @property
-    def model_selector_options(self) -> tuple[ModelSelectorOption, ...]:
-        return self._overlays.model_options
-
-    @model_selector_options.setter
-    def model_selector_options(self, value: tuple[ModelSelectorOption, ...]) -> None:
-        self._overlays.model_options = value
-
-    @property
-    def model_selector_selection(self) -> int:
-        return self._overlays.model_selection
-
-    @model_selector_selection.setter
-    def model_selector_selection(self, value: int) -> None:
-        self._overlays.model_selection = value
-
-    @property
-    def model_selector_title(self) -> str | None:
-        return self._overlays.model_title
-
-    @model_selector_title.setter
-    def model_selector_title(self, value: str | None) -> None:
-        self._overlays.model_title = value
-
-    @property
     def settings_dialog_open(self) -> bool:
         return self._overlays.active in {"settings", "project_trust"}
 
@@ -1439,41 +1412,6 @@ class ToolLoopTerminalUi:
         # (`repl/session_commands.py` persists the last filter mode); the rest
         # of the tree-selector state is owned by `ui/components/tree_selector`.
         return self._overlays.tree_filter
-
-    @property
-    def scoped_models_open(self) -> bool:
-        return self._overlays.is_open("scoped_models")
-
-    @scoped_models_open.setter
-    def scoped_models_open(self, value: bool) -> None:
-        if value:
-            self._overlays.supersede("scoped_models")
-        else:
-            self._overlays.close("scoped_models")
-
-    @property
-    def scoped_models_rows(self) -> tuple[ScopedModelRow, ...]:
-        return self._overlays.scoped_rows
-
-    @scoped_models_rows.setter
-    def scoped_models_rows(self, value: tuple[ScopedModelRow, ...]) -> None:
-        self._overlays.scoped_rows = value
-
-    @property
-    def scoped_models_selection(self) -> int:
-        return self._overlays.scoped_selection
-
-    @scoped_models_selection.setter
-    def scoped_models_selection(self, value: int) -> None:
-        self._overlays.scoped_selection = value
-
-    @property
-    def scoped_models_checked(self) -> set[int]:
-        return self._overlays.scoped_checked
-
-    @scoped_models_checked.setter
-    def scoped_models_checked(self, value: set[int]) -> None:
-        self._overlays.scoped_checked = value
 
     @property
     def custom_overlay_open(self) -> bool:
@@ -2192,40 +2130,19 @@ class ToolLoopTerminalUi:
         ``/settings`` theme row); ``None`` keeps the provider/model wording.
         """
 
-        if not self._overlays.begin_model(
-            options, current_index=current_index, title=title
-        ):
+        selector = ModelSelectorComponent(self._overlays, self._paint_lock, self.paint)
+        if not selector.open(options, current_index=current_index, title=title):
             return None
-        self.paint()
         fd = self.input_stream.fileno()
         with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
-                if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
-                    self._close_model_selector()
-                    return None
                 if key == "paste":
                     self._editor.consume_paste()
                     continue
-                if key in {"up", "down"}:
-                    self._navigate_model_selector(key)
-                    continue
-                if key == "enter":
-                    index = self._overlays.model_selection
-                    option = self._overlays.model_options[index]
-                    if option.selectable:
-                        self._close_model_selector()
-                        return index
-                    continue
-
-    def _navigate_model_selector(self, key: str) -> None:
-        delta = -1 if key == "up" else 1
-        if self._overlays.navigate_model(delta):
-            self.paint()
-
-    def _close_model_selector(self) -> None:
-        self._overlays.end_model()
-        self.paint()
+                closed = selector.handle_key(key)
+                if closed is not None:
+                    return closed.index
 
     def run_scoped_models_selector(
         self,
@@ -2241,107 +2158,21 @@ class ToolLoopTerminalUi:
         Esc/Ctrl-C/Ctrl-D cancel (returning ``None``). Runs no provider turn.
         """
 
-        if not self._overlays.begin_scoped(rows, checked):
+        selector = ScopedModelsSelectorComponent(
+            self._overlays, self._paint_lock, self.paint
+        )
+        if not selector.open(rows, checked):
             return None
-        self.paint()
         fd = self.input_stream.fileno()
         with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
-                if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
-                    self._close_scoped_models_selector()
-                    return None
                 if key == "paste":
                     self._editor.consume_paste()
                     continue
-                if key in {"up", "down"}:
-                    self._navigate_scoped_models(key)
-                    continue
-                if key == " ":
-                    self._toggle_scoped_models_row()
-                    continue
-                if key == "a":
-                    self._overlays.select_all_scoped()
-                    self.paint()
-                    continue
-                if key == "c":
-                    self._overlays.clear_scoped()
-                    self.paint()
-                    continue
-                if key == "enter":
-                    chosen = self._overlays.selected_scoped_references()
-                    self._close_scoped_models_selector()
-                    return chosen
-
-    def _navigate_scoped_models(self, key: str) -> None:
-        delta = -1 if key == "up" else 1
-        if self._overlays.navigate_scoped(delta):
-            self.paint()
-
-    def _toggle_scoped_models_row(self) -> None:
-        if self._overlays.toggle_scoped():
-            self.paint()
-
-    def _close_scoped_models_selector(self) -> None:
-        self._overlays.end_scoped()
-        self.paint()
-
-    def _scoped_models_region_lines(
-        self, *, width: int, height: int
-    ) -> list[_FrameLine]:
-        rows = self.scoped_models_rows
-        footer = [
-            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
-        ]
-        title = _FrameLine(
-            self._clip(
-                " Scoped models — ↑/↓ move · space toggle · a all · c clear · "
-                "enter save · esc cancel",
-                width,
-            ),
-            "selector_title",
-        )
-        max_rows = max(1, height - 4)
-        total = len(rows)
-        visible_count = min(total, max_rows)
-        start = max(
-            0,
-            min(
-                self.scoped_models_selection - (visible_count // 2),
-                max(0, total - visible_count),
-            ),
-        )
-        rendered: list[_FrameLine] = []
-        for offset in range(start, start + visible_count):
-            row = rows[offset]
-            selected = offset == self.scoped_models_selection
-            box = "[x]" if offset in self.scoped_models_checked else "[ ]"
-            suffix = "" if row.available else "  [unavailable]"
-            prefix = "→ " if selected else "  "
-            if selected:
-                kind = "selector_option_selected"
-            elif row.available:
-                kind = "selector_option"
-            else:
-                kind = "selector_option_disabled"
-            rendered.append(
-                _FrameLine(
-                    self._clip(f"{prefix}{box} {row.reference}{suffix}", width), kind
-                )
-            )
-        lines = [title, *rendered]
-        if start > 0 or start + visible_count < total:
-            lines.append(
-                _FrameLine(
-                    self._clip(
-                        f"  ({self.scoped_models_selection + 1}/{total})", width
-                    ),
-                    "slash_menu_scroll",
-                )
-            )
-        lines.extend(footer)
-        return lines
+                closed = selector.handle_key(key)
+                if closed is not None:
+                    return closed.references
 
     def run_settings_dialog(
         self,
@@ -4548,71 +4379,20 @@ class ToolLoopTerminalUi:
                 footer_lines=self.footer_lines,
             )
         if active == "scoped_models":
-            return self._scoped_models_region_lines(width=width, height=height)
-        if active == "model":
-            return self._model_selector_region_lines(width=width, height=height)
-        return None
-
-    def _model_selector_region_lines(
-        self, *, width: int, height: int
-    ) -> list[_FrameLine]:
-        """Compose the interactive provider/model selector overlay.
-
-        Layout (top to bottom): a title/affordance row, a windowed list of
-        provider/model rows (the highlighted row carries a ``→`` marker, an
-        optional scroll indicator when the list overflows), and the two footer
-        rows. Unselectable rows are dimmed; the highlighted row is accented.
-        """
-
-        options = self.model_selector_options
-        footer = [
-            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
-        ]
-        heading = self.model_selector_title or "Select provider/model"
-        title = _FrameLine(
-            self._clip(
-                f" {heading} — ↑/↓ move · enter select · esc cancel",
-                width,
-            ),
-            "selector_title",
-        )
-        # Reserve the title, the two footer rows, and one row for the optional
-        # scroll indicator so the visible window always fits the live region.
-        max_rows = max(1, height - 4)
-        total = len(options)
-        visible_count = min(total, max_rows)
-        start = max(
-            0,
-            min(
-                self.model_selector_selection - (visible_count // 2),
-                max(0, total - visible_count),
-            ),
-        )
-        visible = options[start : start + visible_count]
-        rows: list[_FrameLine] = []
-        for offset, option in enumerate(visible, start=start):
-            selected = offset == self.model_selector_selection
-            prefix = "→ " if selected else "  "
-            if selected:
-                kind = "selector_option_selected"
-            elif option.selectable:
-                kind = "selector_option"
-            else:
-                kind = "selector_option_disabled"
-            rows.append(_FrameLine(self._clip(f"{prefix}{option.label}", width), kind))
-        lines = [title, *rows]
-        if start > 0 or start + visible_count < total:
-            lines.append(
-                _FrameLine(
-                    self._clip(
-                        f"  ({self.model_selector_selection + 1}/{total})", width
-                    ),
-                    "slash_menu_scroll",
-                )
+            return scoped_models_region_lines(
+                self._overlays,
+                width=width,
+                height=height,
+                footer_lines=self.footer_lines,
             )
-        lines.extend(footer)
-        return lines
+        if active == "model":
+            return model_selector_region_lines(
+                self._overlays,
+                width=width,
+                height=height,
+                footer_lines=self.footer_lines,
+            )
+        return None
 
     def _settings_dialog_region_lines(
         self, *, width: int, height: int

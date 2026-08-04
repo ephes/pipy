@@ -3492,7 +3492,9 @@ def test_pty_scoped_models_overlay_saves_cycle_scope(
         assert (
             wait_for_output(err_chunks, "Scoped models", after=toggle_start) is not None
         ), f"{label}: toggled scope did not repaint"
-        assert ui.scoped_models_checked, f"{label}: highlighted model was not checked"
+        assert ui._overlays.scoped_checked, (
+            f"{label}: highlighted model was not checked"
+        )
         save_start = len(output_bytes(err_chunks))
         os.write(in_master, b"\n")
         assert (

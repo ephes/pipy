@@ -504,7 +504,7 @@ def test_overlay_snapshot_does_not_execute_hidden_extension_chrome(
             return ["chrome"]
 
     ui.set_extension_widget("widget", lambda _tui, _theme: Component())
-    ui.model_selector_open = True
+    ui._overlays.supersede("model")
     before = len(renders)
 
     snapshot = ui._frame_snapshot(width=60, height=12, include_session_picker=True)

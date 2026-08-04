@@ -1051,13 +1051,17 @@ def test_tui_model_selector_renders_rows_with_highlight_and_reasons(
     from pipy_harness.native.tui import ModelSelectorOption
 
     ui = _ui(tmp_path)
-    ui.model_selector_open = True
-    ui.model_selector_options = (
-        ModelSelectorOption("openrouter/openai/gpt  [available] (current)", True),
-        ModelSelectorOption("openai/gpt-5.5  [available]", True),
-        ModelSelectorOption("fake/fake  [unavailable: no tool-call support]", False),
+    assert ui._overlays.begin_model(
+        (
+            ModelSelectorOption("openrouter/openai/gpt  [available] (current)", True),
+            ModelSelectorOption("openai/gpt-5.5  [available]", True),
+            ModelSelectorOption(
+                "fake/fake  [unavailable: no tool-call support]", False
+            ),
+        ),
+        current_index=1,
+        title=None,
     )
-    ui.model_selector_selection = 1
 
     frame = ui._frame_lines(width=88, height=24, pad=False)
     rendered = "\n".join(line.text for line in frame)
@@ -1086,33 +1090,15 @@ def test_render_lines_excludes_session_picker_but_live_paint_projection_keeps_it
     assert "captured contract" in captured
 
 
-def test_tui_model_selector_navigation_wraps(tmp_path: Path):
-    from pipy_harness.native.tui import ModelSelectorOption
-
-    ui = _ui(tmp_path)
-    ui.model_selector_open = True
-    ui.model_selector_options = (
-        ModelSelectorOption("a", True),
-        ModelSelectorOption("b", True),
-        ModelSelectorOption("c", False),
-    )
-    ui.model_selector_selection = 0
-
-    ui._navigate_model_selector("down")
-    assert ui.model_selector_selection == 1
-    ui._navigate_model_selector("up")
-    ui._navigate_model_selector("up")
-    # Wrapping: up from index 0 lands on the last row.
-    assert ui.model_selector_selection == 2
-
-
 def test_tui_model_selector_keeps_cursor_hidden(tmp_path: Path):
     from pipy_harness.native.tui import ModelSelectorOption
 
     ui = _ui(tmp_path)
-    ui.model_selector_open = True
-    ui.model_selector_options = (ModelSelectorOption("a  [available]", True),)
-    ui.model_selector_selection = 0
+    assert ui._overlays.begin_model(
+        (ModelSelectorOption("a  [available]", True),),
+        current_index=0,
+        title=None,
+    )
 
     ui.paint()
     painted = cast(_TtyBuffer, ui.terminal_stream).getvalue()

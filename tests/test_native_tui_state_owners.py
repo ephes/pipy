@@ -25,6 +25,9 @@ from pipy_harness.native.overlay_state import (
 from pipy_harness.native.session_tree_commands import SessionListEntry
 from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.components.scoped_models_selector import (
+    ScopedModelsSelectorComponent,
+)
 
 
 def _session(path: Path) -> SessionListEntry:
@@ -618,8 +621,9 @@ def test_single_row_facade_navigation_repaints_once(
     paints: list[None] = []
     monkeypatch.setattr(ToolLoopTerminalUi, "paint", lambda _self: paints.append(None))
 
+    scoped = ScopedModelsSelectorComponent(ui._overlays, ui._paint_lock, ui.paint)
     assert ui._overlays.begin_scoped((ScopedModelRow("only"),), checked=())
-    ui._navigate_scoped_models("down")
+    assert scoped.handle_key("down") is None
     assert len(paints) == 1
 
     ui._overlays.end_scoped()
@@ -758,16 +762,17 @@ def test_facade_overlay_end_detaches_assignable_live_containers(
     checked = {0}
     project = [_session(tmp_path / "project.jsonl")]
     all_sessions = [*project, _session(tmp_path / "other.jsonl")]
-    ui.scoped_models_checked = checked
+    scoped = ScopedModelsSelectorComponent(ui._overlays, ui._paint_lock, ui.paint)
+    ui._overlays.scoped_checked = checked
     ui._session_picker_project = project
     ui._session_picker_all = all_sessions
 
-    ui._close_scoped_models_selector()
+    assert scoped.handle_key("esc") is not None
     ui._close_session_picker()
 
     assert checked == {0}
-    assert ui.scoped_models_checked == set()
-    assert ui.scoped_models_checked is not checked
+    assert ui._overlays.scoped_checked == set()
+    assert ui._overlays.scoped_checked is not checked
     assert project == [_session(tmp_path / "project.jsonl")]
     assert ui._session_picker_project == []
     assert ui._session_picker_project is not project
