@@ -124,22 +124,38 @@ those same 20 members, so relocating it under `native.ui` would violate the
 back-edge rule slice 1 just added. The plan's own Wave 0 blocks the plan's own
 next slice.
 
-Revised order for the free extractions, smallest closure first, so early
-sessions build momentum and every slice stays reviewable:
+### Correction to this section, same day
 
-| # | Extraction | Closure | Was |
+The first pass of this measurement was itself wrong, and the error is worth
+recording because it is easy to repeat. The dependency walk collected
+`ast.Name` and `ast.Attribute` nodes, which **misses a string annotation**. Every
+class here takes the god class as `ui: "ToolLoopTerminalUi"` — a quoted forward
+reference, so an `ast.Constant`. The walk reported those classes as free when
+they are not. Corrected numbers, from a conservative word-boundary scan of each
+definition's own source text: `tui.py` is **42 free / 12 blocked**, not 54 / 4.
+
+Closure size was also the wrong metric. What decides whether an extraction is
+cheap is its **port surface**: how many members of the god class it actually
+touches. A 120-line class that touches nothing is free; a 70-line class that
+reaches four private fields is not.
+
+| Extraction | Port surface | Closure | Verdict |
 | --- | --- | --- | --- |
-| 1 | `ui/key_specs.py` | 20L | slice 7 — **done** |
-| 2 | `_ExtensionSelectComponent`, `_ExtensionConfirmComponent`, `_ExtensionInputComponent`, `_clip_plain` | ~110L | slice 20 |
-| 3 | `_CustomOverlayHandle` | 70L | slice 20 |
-| 4 | `_BuiltinAutocompleteProvider` | 62L | slice 6 |
-| 5 | `_ExtensionEditorComponent` | 122L | slice 21 |
-| 6 | `_CustomEntryRenderer` + its 4 companions | 395L | slice 4 |
-| 7 | `_LiveExtensionUiDriver` / `_GenerationExtensionUiDriver` cluster | 667L | slice 23 |
+| `ui/key_specs.py` | 0 | 20L | **done** |
+| `Extension{Select,Confirm,Input}Component` + `clip_plain` | 0 | ~110L | **done** |
+| `_ExtensionEditorComponent` | **0** | 120L | free — take next |
+| `_BuiltinAutocompleteProvider` | **1** (`cwd`) | 62L | free once it takes `cwd` |
+| `_CustomOverlayHandle` | 5 | 70L | needs a port |
+| `_CustomEntryRenderer` + companions | 7 | 395L | needs a port |
+| `_LiveExtensionUiDriver` / `_GenerationExtensionUiDriver` | 22 | 667L | needs the large port |
 
-Item 7 is the single largest free extraction in the file and section 3 scheduled
-it last. The four blocked items move only after item 7, once the port is derived
-from real usage.
+So the original section 3 was right that a port has to come early — it was only
+wrong about which port, and about inventing its contents. Derive each port from
+the measured member list, smallest first, and let the three port-needing
+extractions follow their own port rather than a speculative one.
+
+The ordering method that survives: measure port surface, take zero-port
+extractions first, then derive each remaining port from real usage.
 
 Section 3's *target layout* is unaffected — the module list, the shared-state
 analysis in section 2, and the success criteria in section 5 all held up under
