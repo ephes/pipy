@@ -206,6 +206,7 @@ from pipy_harness.native.ui.autocomplete import BuiltinAutocompleteProvider
 from pipy_harness.native.ui.components.custom_editor import (
     ExtensionEditorComponent,
 )
+from pipy_harness.native.ui.components.custom_overlay import CustomOverlayHandle
 from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionConfirmComponent,
     ExtensionInputComponent,
@@ -1492,78 +1493,6 @@ class _CustomEntryRenderer:
             self._deliver_custom_message(custom_message)
 
 
-class _CustomOverlayHandle:
-    """Minimal Pi-shaped custom overlay handle exposed to extension callbacks."""
-
-    def __init__(self, ui: "ToolLoopTerminalUi") -> None:
-        self._ui = ui
-
-    def _paint(self) -> None:
-        try:
-            self._ui.paint()
-        except (OSError, ValueError):
-            pass
-
-    def hide(self) -> None:
-        if not self._ui._custom_done:
-            self._ui._custom_done = True
-            self._ui._custom_result = None
-            self._paint()
-
-    def setHidden(self, hidden: bool) -> None:  # noqa: N802 - Pi API
-        value = bool(hidden)
-        if self._ui._custom_overlay_hidden == value:
-            return
-        self._ui._custom_overlay_hidden = value
-        self._ui._custom_overlay_focused = not value
-        self._paint()
-
-    def set_hidden(self, hidden: bool) -> None:
-        self.setHidden(hidden)
-
-    def isHidden(self) -> bool:  # noqa: N802 - Pi API
-        return bool(self._ui._custom_overlay_hidden)
-
-    def is_hidden(self) -> bool:
-        return self.isHidden()
-
-    def focus(self) -> None:
-        changed = (
-            self._ui._custom_overlay_hidden or not self._ui._custom_overlay_focused
-        )
-        self._ui._custom_overlay_hidden = False
-        self._ui._custom_overlay_focused = True
-        if changed:
-            self._paint()
-
-    def unfocus(self, options: object = None) -> None:
-        # ``options.target`` is accepted for Pi-shaped duck typing. Pipy's
-        # bounded custom-component path has no overlay stack/focus graph yet,
-        # so there is no alternate target to focus in this slice.
-        del options
-        if not self._ui._custom_overlay_focused:
-            return
-        self._ui._custom_overlay_focused = False
-        self._paint()
-
-    def isFocused(self) -> bool:  # noqa: N802 - Pi API
-        return bool(
-            self._ui._custom_overlay_focused and not self._ui._custom_overlay_hidden
-        )
-
-    def is_focused(self) -> bool:
-        return self.isFocused()
-
-    def update(self) -> None:
-        self.requestRender()
-
-    def requestRender(self) -> None:
-        self._paint()
-
-    def request_render(self) -> None:
-        self.requestRender()
-
-
 _HistoryBlock = tuple[str, tuple[str, ...]]
 
 
@@ -2037,38 +1966,6 @@ class ToolLoopTerminalUi:
     @_custom_component_render_width.setter
     def _custom_component_render_width(self, value: int | None) -> None:
         self._overlays.custom_render_width = value
-
-    @property
-    def _custom_overlay_hidden(self) -> bool:
-        return self._overlays.custom_hidden
-
-    @_custom_overlay_hidden.setter
-    def _custom_overlay_hidden(self, value: bool) -> None:
-        self._overlays.custom_hidden = value
-
-    @property
-    def _custom_overlay_focused(self) -> bool:
-        return self._overlays.custom_focused
-
-    @_custom_overlay_focused.setter
-    def _custom_overlay_focused(self, value: bool) -> None:
-        self._overlays.custom_focused = value
-
-    @property
-    def _custom_done(self) -> bool:
-        return self._overlays.custom_done
-
-    @_custom_done.setter
-    def _custom_done(self, value: bool) -> None:
-        self._overlays.custom_done = value
-
-    @property
-    def _custom_result(self) -> object:
-        return self._overlays.custom_result
-
-    @_custom_result.setter
-    def _custom_result(self, value: object) -> None:
-        self._overlays.custom_result = value
 
     @property
     def session_picker_open(self) -> bool:
@@ -3490,7 +3387,9 @@ class ToolLoopTerminalUi:
             custom_started = True
             if pending_done:
                 self._overlays.finish_custom(pending_result)
-            self._notify_custom_handle(options, _CustomOverlayHandle(self))
+            self._notify_custom_handle(
+                options, CustomOverlayHandle(self._overlays, self.paint)
+            )
             self.paint()
             fd = self.input_stream.fileno()
             self._driver.enter_raw_mode()
@@ -4197,7 +4096,7 @@ class ToolLoopTerminalUi:
         rendered lines before they reach the terminal frame.
         """
 
-        if self._custom_overlay_hidden:
+        if self._overlays.custom_hidden:
             return []
         component = self._custom_component
         if component is None:
