@@ -6,7 +6,7 @@ import io
 from pathlib import Path
 from typing import TextIO, cast
 
-from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
+from pipy_harness.native.repl.view_actions import toggle_view_fold
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tui import (
     HOTKEY_TOGGLE_THINKING,
@@ -98,12 +98,9 @@ class TestToolExpansion:
 class TestToggleDispatch:
     def test_toggle_tools_flips_flag_and_reports(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
-        session = NativeToolReplSession(
-            provider=FakeNativeProvider(supports_tool_calls=True), tool_registry={}
-        )
         settings = SettingsManager.for_workspace(tmp_path)
         err = io.StringIO()
-        session._toggle_view_fold(
+        toggle_view_fold(
             HOTKEY_TOGGLE_TOOLS,
             terminal_ui=ui,
             error_stream=cast(TextIO, err),
@@ -113,12 +110,9 @@ class TestToggleDispatch:
 
     def test_toggle_thinking_persists_to_settings(self, tmp_path: Path) -> None:
         ui = _ui(tmp_path)
-        session = NativeToolReplSession(
-            provider=FakeNativeProvider(supports_tool_calls=True), tool_registry={}
-        )
         settings = SettingsManager.for_workspace(tmp_path)
         err = io.StringIO()
-        session._toggle_view_fold(
+        toggle_view_fold(
             HOTKEY_TOGGLE_THINKING,
             terminal_ui=ui,
             error_stream=cast(TextIO, err),

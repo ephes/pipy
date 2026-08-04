@@ -15,6 +15,7 @@ from typing import TextIO, cast
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.auth_store import AuthStore
 from pipy_harness.native.catalog_state import ProviderCatalogState
+from pipy_harness.native.repl.view_actions import cycle_thinking_level_action
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,
@@ -75,7 +76,8 @@ def _cycle_mutation(
 def _cycle(session, state, tree, count) -> list[str | None]:
     seen = []
     for _ in range(count):
-        session._cycle_thinking_level(
+        cycle_thinking_level_action(
+            session.provider_state,
             terminal_ui=None,
             error_stream=cast(TextIO, io.StringIO()),
             cycle_thinking_level=lambda: _cycle_mutation(state, tree),
@@ -113,7 +115,8 @@ class TestThinkingCycle:
         state = _state(tmp_path, "gpt-5.5")
         session = _session(state)
         tree = _tree(tmp_path)
-        session._cycle_thinking_level(
+        cycle_thinking_level_action(
+            session.provider_state,
             terminal_ui=None,
             error_stream=cast(TextIO, io.StringIO()),
             cycle_thinking_level=lambda: _cycle_mutation(state, tree),
@@ -131,7 +134,8 @@ class TestThinkingCycle:
         session = _session(state)
         tree = _tree(tmp_path)
         err = io.StringIO()
-        session._cycle_thinking_level(
+        cycle_thinking_level_action(
+            session.provider_state,
             terminal_ui=None,
             error_stream=cast(TextIO, err),
             cycle_thinking_level=lambda: _cycle_mutation(state, tree),

@@ -269,6 +269,10 @@ from pipy_harness.native.repl.turn_leaves import (
     wait_for_provider_interrupt,
     wait_for_tool_interrupt,
 )
+from pipy_harness.native.repl.view_actions import (
+    cycle_thinking_level_action,
+    toggle_view_fold,
+)
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
     REPL_INPUT_RUNTIME_AUTO,
@@ -2424,7 +2428,7 @@ class _ReplLoopStep:
         # Shift+Tab cycles the thinking level; Ctrl+P / Shift+Ctrl+P cycle
         # the model (translated to the existing /scoped-models dispatch).
         if command_text in {HOTKEY_TOGGLE_TOOLS, HOTKEY_TOGGLE_THINKING}:
-            session._toggle_view_fold(
+            toggle_view_fold(
                 stripped,
                 terminal_ui=terminal_ui,
                 error_stream=error_stream,
@@ -2432,7 +2436,8 @@ class _ReplLoopStep:
             )
             return LoopStepSignal.continue_loop()
         if command_text == HOTKEY_THINKING_CYCLE:
-            session._cycle_thinking_level(
+            cycle_thinking_level_action(
+                session.provider_state,
                 terminal_ui=terminal_ui,
                 error_stream=error_stream,
                 cycle_thinking_level=cycle_thinking_level,
@@ -4520,85 +4525,6 @@ class NativeToolReplSession:
             f"$ {command}\n{status_line}\n\n{output_text}"
         )
 
-    def _toggle_view_fold(
-        self,
-        hotkey: str,
-        *,
-        terminal_ui: ToolLoopTerminalUi | None,
-        error_stream: TextIO,
-        settings: "SettingsManager",
-    ) -> None:
-        """Toggle a renderer view fold (Pi Ctrl+O tool output / Ctrl+T thinking).
-
-        Ctrl+O flips tool-output expansion (a pure live-render view flag); Ctrl+T
-        flips thinking-block visibility and persists it to the non-secret
-        settings store. Both run no provider turn and only mutate renderer view
-        state (plus, for thinking, the settings file). A status is shown.
-        """
-
-        if hotkey == HOTKEY_TOGGLE_TOOLS:
-            new_value = not (terminal_ui.tools_expanded if terminal_ui else False)
-            if terminal_ui is not None:
-                terminal_ui.tools_expanded = new_value
-                terminal_ui.rerender_custom_messages()
-            label = "expanded" if new_value else "collapsed"
-            emit_diagnostic(terminal_ui, error_stream, f"pipy: tool output: {label}")
-            return
-        # HOTKEY_TOGGLE_THINKING
-        current = (
-            terminal_ui.thinking_hidden
-            if terminal_ui is not None
-            else settings.get_hide_thinking_block()
-        )
-        new_hidden = not current
-        if terminal_ui is not None:
-            # Route through set_thinking_hidden so unfolding reveals any
-            # reasoning that settled while folded (deferred, not dropped).
-            terminal_ui.set_thinking_hidden(new_hidden)
-        try:
-            settings.set_value("hideThinkingBlock", new_hidden)
-        except RuntimeError:
-            # A read-only/locked settings file must not break the live toggle.
-            pass
-        label = "hidden" if new_hidden else "visible"
-        emit_diagnostic(terminal_ui, error_stream, f"pipy: thinking blocks: {label}")
-
-    def _cycle_thinking_level(
-        self,
-        *,
-        terminal_ui: ToolLoopTerminalUi | None,
-        error_stream: TextIO,
-        cycle_thinking_level: Callable[[], str | None],
-    ) -> None:
-        """Cycle the reasoning level (Pi's Shift+Tab ``cycleThinkingLevel``).
-
-        Cycles off→minimal→low→medium→high (wrapping), clamped to whether the
-        active model advertises reasoning support, sets the runtime level on the
-        provider state (so the footer effort label reflects it), appends a
-        ``thinking_level_change`` native-tree entry, and shows a status. Runs no
-        provider turn; the new level applies to the next turn.
-        """
-
-        state = self.provider_state
-        if not isinstance(state, NativeReplProviderState):
-            emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                "pipy: thinking-level cycling is unavailable for this REPL state.",
-            )
-            return
-        next_level = cycle_thinking_level()
-        if next_level is None:
-            emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                "pipy: current model does not support thinking.",
-            )
-            return
-        emit_diagnostic(
-            terminal_ui, error_stream, f"pipy: thinking level: {next_level}"
-        )
-
     def _execute_local_shell(
         self,
         command: str,
@@ -4955,21 +4881,22 @@ class NativeToolReplSession:
                 # re-persists the existing recall buffer — only new prompts).
                 prompt_history_store.clear()
             elif action == "toggle_tools":
-                self._toggle_view_fold(
+                toggle_view_fold(
                     HOTKEY_TOGGLE_TOOLS,
                     terminal_ui=terminal_ui,
                     error_stream=error_stream,
                     settings=settings,
                 )
             elif action == "toggle_thinking":
-                self._toggle_view_fold(
+                toggle_view_fold(
                     HOTKEY_TOGGLE_THINKING,
                     terminal_ui=terminal_ui,
                     error_stream=error_stream,
                     settings=settings,
                 )
             elif action == "cycle_thinking":
-                self._cycle_thinking_level(
+                cycle_thinking_level_action(
+                    self.provider_state,
                     terminal_ui=terminal_ui,
                     error_stream=error_stream,
                     cycle_thinking_level=cycle_thinking_level,
