@@ -42,7 +42,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from pipy_harness.native.extensions import (
+from pipy_harness.native.extensions.packages import (
     CURRENT_API_VERSION,
     REASON_BINARY_ENTRY,
     REASON_DUPLICATE_NAME,

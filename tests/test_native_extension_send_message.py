@@ -85,7 +85,7 @@ def test_command_context_send_message_unavailable_is_bounded(tmp_path):
 
 def test_activation_api_stages_custom_messages_only_on_success(tmp_path):
     from pipy_harness.native.extension_runtime import activate_extensions
-    from pipy_harness.native.extensions import ExtensionDescriptor
+    from pipy_harness.native.extensions.packages import ExtensionDescriptor
 
     good = tmp_path / "good.py"
     good.write_text(

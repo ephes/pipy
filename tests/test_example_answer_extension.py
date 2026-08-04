@@ -20,7 +20,7 @@ from pipy_harness.native.extension_runtime import (
     extension_command_map,
 )
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.tui import ToolLoopTerminalUi
 
 _EXAMPLE = (

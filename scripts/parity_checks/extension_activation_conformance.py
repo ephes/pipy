@@ -47,7 +47,7 @@ from pipy_harness.native.extension_runtime import (
     activate_extensions,
     safe_activation_metadata,
 )
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 
 
 @dataclass(frozen=True)

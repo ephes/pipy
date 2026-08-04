@@ -35,7 +35,7 @@ from pipy_harness.native.extension_types import (
     _ActivationError,
     _safe_diagnostic,
 )
-from pipy_harness.native.extensions import ExtensionDescriptor
+from pipy_harness.native.extensions.packages import ExtensionDescriptor
 
 
 def _import_entry_module(descriptor: ExtensionDescriptor) -> object:

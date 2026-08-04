@@ -1,7 +1,7 @@
 """Extension activation sandbox boundary + runtime dispatch surface.
 
 This module imports an explicit, already-inventoried *loadable* extension
-module (from `pipy_harness.native.extensions`), calls its `activate(api)` entry
+module (from `pipy_harness.native.extensions.packages`), calls its `activate(api)` entry
 point, and exposes the registered contributions to the live session. The
 activation API supports command and keyboard-shortcut registration, event
 hooks, tool and provider registration/unregistration, and `send_user_message`.
@@ -255,7 +255,7 @@ from pipy_harness.native.extension_ui import (
 from pipy_harness.native.extension_ui import (
     lines_component as lines_component,
 )
-from pipy_harness.native.extensions import ExtensionDescriptor
+from pipy_harness.native.extensions.packages import ExtensionDescriptor
 from pipy_harness.native.tools.base import (
     ToolContext,
     ToolDefinition,

@@ -62,7 +62,7 @@ from pipy_harness.native.extension_runtime import (
     dispatch_extension_command,
 )
 from pipy_harness.native.extension_types import ProviderContext
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.fake import FakeNativeProvider
 from pipy_harness.native.package_resources import PackageResourceRoots
 from pipy_harness.native.provider_construction import (

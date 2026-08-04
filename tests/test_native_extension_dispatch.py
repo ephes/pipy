@@ -30,7 +30,7 @@ from pipy_harness.native.extension_runtime import (
     safe_custom_entry_data,
 )
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_tree import (
     CustomEntry,
     CustomMessageEntry,

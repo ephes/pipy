@@ -142,7 +142,7 @@ from pipy_harness.native.extension_types import (
     _safe_diagnostic,
 )
 from pipy_harness.native.extension_ui import _CollectingUi
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_generation import (
     FrozenStagedDeliveryBatch,
     OrderedDeliveryGate,

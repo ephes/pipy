@@ -22,7 +22,7 @@ from pipy_harness.native.extension_runtime import (
     parse_extension_flag_tokens,
     safe_activation_metadata,
 )
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 
 
 def _make_workspace(tmp_path: Path) -> Path:

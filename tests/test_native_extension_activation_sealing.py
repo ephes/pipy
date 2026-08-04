@@ -50,7 +50,7 @@ from pipy_harness.native.extension_runtime import (
     parse_extension_flag_tokens,
 )
 from pipy_harness.native.extension_types import _ActivationError
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_generation import (
     ExtensionQueueProjection,
     GenerationQueueHandle,

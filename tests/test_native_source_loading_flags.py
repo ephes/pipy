@@ -11,7 +11,7 @@ from pathlib import Path
 
 from pipy_harness.cli import _resource_options_from_args, build_parser
 from pipy_harness.native.extension_hooks import _activate_workspace_extensions
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.package_resources import PackageRoot
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.theme_files import build_theme_registry

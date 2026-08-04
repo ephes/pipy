@@ -26,7 +26,7 @@ from pipy_harness.native.extension_runtime import (
     extension_shortcuts,
     make_extension_context,
 )
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.resource_loading import RuntimeResourceOptions
 from pipy_harness.native.settings import SettingsManager
 

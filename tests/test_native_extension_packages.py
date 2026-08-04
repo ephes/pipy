@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pipy_harness.native.extensions import (
+from pipy_harness.native.extensions.packages import (
     REASON_DUPLICATE_NAME,
     discover_extensions,
 )

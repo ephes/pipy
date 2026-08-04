@@ -23,7 +23,7 @@ from pipy_harness.native.extension_runtime import (
     activate_extensions,
     make_extension_context,
 )
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 

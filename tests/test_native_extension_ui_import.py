@@ -17,7 +17,7 @@ import pipy_harness.native.extension_hooks as extension_hooks
 import pipy_harness.native.extension_runtime as extension_runtime
 import pipy_harness.native.extension_types as extension_types
 import pipy_harness.native.extension_ui as extension_ui
-import pipy_harness.native.extensions as extension_discovery
+import pipy_harness.native.extensions.packages as extension_discovery
 import pipy_harness.native.provider as provider
 import pipy_harness.native.provider_construction as provider_construction
 

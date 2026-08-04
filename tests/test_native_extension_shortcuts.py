@@ -44,7 +44,7 @@ def test_modifier_reordered_reserved_key_is_refused(tmp_path) -> None:
         "def activate(api):\n"
         "    api.register_shortcut('Ctrl+Shift+P', lambda ctx, args: None)\n",
     )
-    from pipy_harness.native.extensions import discover_extensions
+    from pipy_harness.native.extensions.packages import discover_extensions
 
     descriptors = discover_extensions(
         tmp_path,
@@ -66,7 +66,7 @@ def test_default_external_editor_shortcut_is_reserved(tmp_path) -> None:
         "def activate(api):\n"
         "    api.register_shortcut('Ctrl+G', lambda ctx, args: None)\n",
     )
-    from pipy_harness.native.extensions import discover_extensions
+    from pipy_harness.native.extensions.packages import discover_extensions
 
     descriptors = discover_extensions(
         tmp_path,
@@ -107,7 +107,7 @@ def _write_ext(root, name: str, body: str) -> None:
 
 
 def _activate(tmp_path):
-    from pipy_harness.native.extensions import discover_extensions
+    from pipy_harness.native.extensions.packages import discover_extensions
 
     descriptors = discover_extensions(
         tmp_path,
@@ -198,7 +198,7 @@ def test_single_character_shortcut_key_is_rejected(tmp_path) -> None:
             "bad",
             f"def activate(api):\n    api.register_shortcut({key}, lambda ctx, args: None)\n",
         )
-        from pipy_harness.native.extensions import discover_extensions
+        from pipy_harness.native.extensions.packages import discover_extensions
 
         descriptors = discover_extensions(
             root,
@@ -219,7 +219,7 @@ def test_empty_base_shortcut_key_is_rejected(tmp_path) -> None:
         "def activate(api):\n"
         "    api.register_shortcut('Ctrl+', lambda ctx, args: None)\n",
     )
-    from pipy_harness.native.extensions import discover_extensions
+    from pipy_harness.native.extensions.packages import discover_extensions
 
     descriptors = discover_extensions(
         tmp_path,

@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 from pipy_harness.cli import KNOWN_SUBCOMMANDS, build_parser, route_argv
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.package_runtime import compose_package_runtime
 from pipy_harness.native.project_trust import (
     PROTECTED_PROJECT_ENTRIES,

@@ -124,7 +124,7 @@ from pipy_harness.native.extension_ui import (
     coerce_tool_render_lines,
     lines_component,
 )
-from pipy_harness.native.extensions import (
+from pipy_harness.native.extensions.packages import (
     ExtensionDescriptor,
     discover_extensions,
     safe_extension_metadata,

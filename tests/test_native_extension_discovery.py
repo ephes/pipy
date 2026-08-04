@@ -1,7 +1,7 @@
 """Slice 1 tests for the Python extension discovery + manifest inventory.
 
 These tests pin the discovery rules in
-`pipy_harness.native.extensions`. Slice 1 is an inventory boundary only:
+`pipy_harness.native.extensions.packages`. Slice 1 is an inventory boundary only:
 no extension module is ever imported and no extension code runs. The
 discovery layer stats candidates, reads entry-file bytes (for the
 inventory hash), and parses the optional `pipy-extension.toml` manifest.
@@ -15,7 +15,7 @@ import json
 import sys
 from pathlib import Path
 
-from pipy_harness.native.extensions import (
+from pipy_harness.native.extensions.packages import (
     CURRENT_API_VERSION,
     REASON_BINARY_ENTRY,
     REASON_DUPLICATE_NAME,

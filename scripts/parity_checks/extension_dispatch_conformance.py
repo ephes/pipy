@@ -44,7 +44,7 @@ from pipy_harness.native.extension_runtime import (
     activate_extensions,
     extension_command_map,
 )
-from pipy_harness.native.extensions import discover_extensions
+from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_tree import CustomEntry, NativeSessionTree
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 

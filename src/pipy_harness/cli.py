@@ -1734,7 +1734,7 @@ def _cmd_config(args: Any) -> int:
         # package resource (skill/prompt/theme/extension) still appears with
         # enabled=false rather than vanishing. No global theme registry is
         # installed (listing has no lasting effect on session state).
-        from pipy_harness.native.extensions import discover_extensions
+        from pipy_harness.native.extensions.packages import discover_extensions
         from pipy_harness.native.package_runtime import compose_package_runtime
         from pipy_harness.native.theme_files import build_theme_registry
         from pipy_harness.native.themes import builtin_palettes
@@ -2773,7 +2773,7 @@ def _build_extension_activation_batch(
         extension_reserved_tool_names,
     )
     from pipy_harness.native.extension_runtime import activate_extension_batch
-    from pipy_harness.native.extensions import discover_extensions
+    from pipy_harness.native.extensions.packages import discover_extensions
     from pipy_harness.native.resource_enablement import is_resource_enabled
     from pipy_harness.native.resources import WorkspaceResources
 

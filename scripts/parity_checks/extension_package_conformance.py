@@ -59,7 +59,10 @@ from pipy_harness.cli import (
 )
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult, themes
-from pipy_harness.native.extensions import discover_extensions, safe_extension_metadata
+from pipy_harness.native.extensions.packages import (
+    discover_extensions,
+    safe_extension_metadata,
+)
 from pipy_harness.native.package_manager import (
     configure_resource_filter,
     install_package,
