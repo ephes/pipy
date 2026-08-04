@@ -225,6 +225,10 @@ from pipy_harness.native.ui.components.scoped_models_selector import (
     ScopedModelsSelectorComponent,
     scoped_models_region_lines,
 )
+from pipy_harness.native.ui.components.settings_dialog import (
+    SettingsDialogComponent,
+    settings_dialog_region_lines,
+)
 from pipy_harness.native.ui.components.tree_selector import (
     TreeSelectorComponent,
     tree_selector_region_lines,
@@ -1371,42 +1375,6 @@ class ToolLoopTerminalUi:
     # ``*_open`` write changes the one active-overlay discriminator, so two
     # overlays cannot become renderable simultaneously.
     @property
-    def settings_dialog_open(self) -> bool:
-        return self._overlays.active in {"settings", "project_trust"}
-
-    @settings_dialog_open.setter
-    def settings_dialog_open(self, value: bool) -> None:
-        if value:
-            self._overlays.supersede("settings")
-        else:
-            self._overlays.close("settings")
-            self._overlays.close("project_trust")
-
-    @property
-    def settings_dialog_rows(self) -> tuple[SettingsRow, ...]:
-        return self._overlays.settings_rows
-
-    @settings_dialog_rows.setter
-    def settings_dialog_rows(self, value: tuple[SettingsRow, ...]) -> None:
-        self._overlays.settings_rows = value
-
-    @property
-    def settings_dialog_selection(self) -> int:
-        return self._overlays.settings_selection
-
-    @settings_dialog_selection.setter
-    def settings_dialog_selection(self, value: int) -> None:
-        self._overlays.settings_selection = value
-
-    @property
-    def settings_dialog_title(self) -> str:
-        return self._overlays.settings_title
-
-    @settings_dialog_title.setter
-    def settings_dialog_title(self, value: str) -> None:
-        self._overlays.settings_title = value
-
-    @property
     def tree_selector_filter(self) -> str:
         # Read by the session-side `/tree` handler after the selector closes
         # (`repl/session_commands.py` persists the last filter mode); the rest
@@ -2205,58 +2173,27 @@ class ToolLoopTerminalUi:
         the caller acts on afterwards.
         """
 
-        if not self._overlays.begin_settings(
-            rows,
-            current_index=current_index,
-            title=title,
-            kind=overlay_kind,
+        dialog = SettingsDialogComponent(
+            self._overlays,
+            self._paint_lock,
+            self.paint,
+            on_local_action=on_local_action,
+            exit_actions=exit_actions,
+        )
+        if not dialog.open(
+            rows, current_index=current_index, title=title, kind=overlay_kind
         ):
             return None
-        self.paint()
         fd = self.input_stream.fileno()
         with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
-                if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
-                    self._close_settings_dialog()
-                    return None
                 if key == "paste":
                     self._editor.consume_paste()
                     continue
-                if key in {"up", "down"}:
-                    self._navigate_settings_dialog(key)
-                    continue
-                if key in {"enter", " "}:
-                    if not (
-                        0
-                        <= self.settings_dialog_selection
-                        < len(self.settings_dialog_rows)
-                    ):
-                        continue
-                    row = self.settings_dialog_rows[self.settings_dialog_selection]
-                    if row.action is None:
-                        continue
-                    if row.action in exit_actions:
-                        self._close_settings_dialog()
-                        return row.action
-                    rebuilt = on_local_action(row.action)
-                    if not self._overlays.replace_settings_rows(rebuilt):
-                        self._close_settings_dialog()
-                        return None
-                    self.paint()
-                    continue
-
-    def _actionable_settings_indices(self) -> list[int]:
-        return self._overlays.actionable_settings_indices()
-
-    def _navigate_settings_dialog(self, key: str) -> None:
-        delta = -1 if key == "up" else 1
-        if self._overlays.navigate_settings(delta):
-            self.paint()
-
-    def _close_settings_dialog(self) -> None:
-        self._overlays.end_settings()
-        self.paint()
+                closed = dialog.handle_key(key)
+                if closed is not None:
+                    return closed.action
 
     def set_input_text(self, text: str) -> None:
         """Pre-fill the current or next ``read_line`` prompt with ``text``.
@@ -4368,7 +4305,12 @@ class ToolLoopTerminalUi:
         if active == "custom":
             return self._custom_overlay_region_lines(width=width, height=height)
         if active in {"settings", "project_trust"}:
-            return self._settings_dialog_region_lines(width=width, height=height)
+            return settings_dialog_region_lines(
+                self._overlays,
+                width=width,
+                height=height,
+                footer_lines=self.footer_lines,
+            )
         if active == "session_picker" and include_session_picker:
             return self._session_picker_region_lines(width=width, height=height)
         if active == "tree":
@@ -4393,75 +4335,6 @@ class ToolLoopTerminalUi:
                 footer_lines=self.footer_lines,
             )
         return None
-
-    def _settings_dialog_region_lines(
-        self, *, width: int, height: int
-    ) -> list[_FrameLine]:
-        """Compose the interactive ``/settings`` dialog overlay.
-
-        Layout (top to bottom): a title/affordance row, a windowed list of
-        rows (section headers as labels, read-only status rows dimmed, and
-        actionable rows with a ``→`` marker on the highlighted one), an optional
-        scroll indicator when the list overflows, and the two footer rows. The
-        window is centered on the highlighted row so navigation/scroll stays
-        coherent at any height, mirroring the provider/model selector overlay.
-        """
-
-        rows = self.settings_dialog_rows
-        footer = [
-            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
-        ]
-        title = _FrameLine(
-            self._clip(
-                f" {self.settings_dialog_title} — ↑/↓ move · enter/space act · esc close",
-                width,
-            ),
-            "selector_title",
-        )
-        # Reserve the title, the two footer rows, and one row for the optional
-        # scroll indicator so the visible window always fits the live region.
-        max_rows = max(1, height - 4)
-        total = len(rows)
-        visible_count = min(total, max_rows)
-        start = max(
-            0,
-            min(
-                self.settings_dialog_selection - (visible_count // 2),
-                max(0, total - visible_count),
-            ),
-        )
-        visible = rows[start : start + visible_count]
-        rendered_rows: list[_FrameLine] = []
-        for offset, row in enumerate(visible, start=start):
-            selected = offset == self.settings_dialog_selection
-            if row.kind == "header":
-                rendered_rows.append(
-                    _FrameLine(self._clip(f"  {row.label}", width), "selector_title")
-                )
-                continue
-            prefix = "→ " if selected else "  "
-            if selected:
-                kind = "selector_option_selected"
-            elif row.action is not None:
-                kind = "selector_option"
-            else:
-                kind = "selector_option_disabled"
-            rendered_rows.append(
-                _FrameLine(self._clip(f"{prefix}{row.label}", width), kind)
-            )
-        lines = [title, *rendered_rows]
-        if start > 0 or start + visible_count < total:
-            lines.append(
-                _FrameLine(
-                    self._clip(
-                        f"  ({self.settings_dialog_selection + 1}/{total})", width
-                    ),
-                    "slash_menu_scroll",
-                )
-            )
-        lines.extend(footer)
-        return lines
 
     # Max queued-message rows shown in the pending region. Bounded so a large
     # queue cannot grow the pinned chrome and push the input/footer out of the

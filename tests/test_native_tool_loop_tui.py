@@ -1959,10 +1959,10 @@ def test_tui_settings_dialog_renders_rows_with_highlight_and_affordances(
     tmp_path: Path,
 ):
     ui = _ui(tmp_path)
-    ui.settings_dialog_open = True
-    ui.settings_dialog_rows = _settings_dialog_rows()
     # Highlight the toggle action row (index 4).
-    ui.settings_dialog_selection = 4
+    assert ui._overlays.begin_settings(
+        _settings_dialog_rows(), current_index=4, title="Settings"
+    )
 
     frame = ui._frame_lines(width=88, height=24, pad=False)
     rendered = "\n".join(line.text for line in frame)
@@ -2010,28 +2010,6 @@ def test_terminal_ui_editor_text_helpers_replace_and_report_buffer(
     assert ui.input_cursor == len("replacement")
 
 
-def test_tui_settings_dialog_navigation_skips_non_actionable_rows(tmp_path: Path):
-    ui = _ui(tmp_path)
-    ui.settings_dialog_open = True
-    ui.settings_dialog_rows = _settings_dialog_rows()
-    ui.settings_dialog_selection = ui._overlays.initial_settings_selection(None)
-
-    # Initial selection lands on the first actionable row (the model action).
-    assert ui.settings_dialog_selection == 2
-
-    ui._navigate_settings_dialog("down")
-    # Skips the "Prompt history" header to the toggle action.
-    assert ui.settings_dialog_selection == 4
-    ui._navigate_settings_dialog("down")
-    assert ui.settings_dialog_selection == 5
-    ui._navigate_settings_dialog("down")
-    # Wraps back to the first actionable row.
-    assert ui.settings_dialog_selection == 2
-    ui._navigate_settings_dialog("up")
-    # Wraps backward to the last actionable row.
-    assert ui.settings_dialog_selection == 5
-
-
 def test_tui_settings_dialog_windows_long_list_with_scroll_indicator(tmp_path: Path):
     from pipy_harness.native.tui import SettingsRow
 
@@ -2041,9 +2019,7 @@ def test_tui_settings_dialog_windows_long_list_with_scroll_indicator(tmp_path: P
         for index in range(20)
     )
     ui = _ui(tmp_path)
-    ui.settings_dialog_open = True
-    ui.settings_dialog_rows = tuple(rows)
-    ui.settings_dialog_selection = 10
+    assert ui._overlays.begin_settings(tuple(rows), current_index=10, title="Settings")
 
     frame = ui._frame_lines(width=88, height=14, pad=False)
     rendered = "\n".join(line.text for line in frame)
@@ -2056,9 +2032,9 @@ def test_tui_settings_dialog_windows_long_list_with_scroll_indicator(tmp_path: P
 
 def test_tui_settings_dialog_keeps_cursor_hidden(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.settings_dialog_open = True
-    ui.settings_dialog_rows = _settings_dialog_rows()
-    ui.settings_dialog_selection = 2
+    assert ui._overlays.begin_settings(
+        _settings_dialog_rows(), current_index=2, title="Settings"
+    )
 
     ui.paint()
     painted = cast(_TtyBuffer, ui.terminal_stream).getvalue()

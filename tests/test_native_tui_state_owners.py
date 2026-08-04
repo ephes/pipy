@@ -28,6 +28,7 @@ from pipy_harness.native.tui import ToolLoopTerminalUi
 from pipy_harness.native.ui.components.scoped_models_selector import (
     ScopedModelsSelectorComponent,
 )
+from pipy_harness.native.ui.components.settings_dialog import SettingsDialogComponent
 
 
 def _session(path: Path) -> SessionListEntry:
@@ -278,7 +279,7 @@ def test_nested_facade_driver_keeps_raw_mode_and_restores_outer(
     def read_key(ui: ToolLoopTerminalUi, _fd: int) -> str:
         key = next(keys)
         if key == "esc" and ui._overlays.active == "settings":
-            outer_selections_before_close.append(ui.settings_dialog_selection)
+            outer_selections_before_close.append(ui._overlays.settings_selection)
         return key
 
     monkeypatch.setattr(ToolLoopTerminalUi, "_read_key_polling_resize", read_key)
@@ -314,7 +315,7 @@ def test_nested_facade_driver_keeps_raw_mode_and_restores_outer(
             return rows
 
         assert ui.run_settings_dialog(rows, on_local_action=open_inner) is None
-        assert ui.settings_dialog_selection == 0
+        assert ui._overlays.settings_selection == 0
         assert ui._driver._raw_mode_depth == 0
         assert ui._driver._old_termios is None
 
@@ -365,9 +366,9 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
         paints.append(
             (
                 ui._overlays.active,
-                ui.settings_dialog_title,
-                ui.settings_dialog_selection,
-                ui.settings_dialog_rows,
+                ui._overlays.settings_title,
+                ui._overlays.settings_selection,
+                ui._overlays.settings_rows,
                 frame,
             )
         )
@@ -401,9 +402,9 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
                 is None
             )
             assert ui._overlays.active == "settings"
-            assert ui.settings_dialog_rows == outer_rows
-            assert ui.settings_dialog_title == "Outer settings"
-            assert ui.settings_dialog_selection == 1
+            assert ui._overlays.settings_rows == outer_rows
+            assert ui._overlays.settings_title == "Outer settings"
+            assert ui._overlays.settings_selection == 1
             assert ui._driver._raw_mode_depth == 1
             assert restore_calls == []
             return outer_rows
@@ -418,9 +419,9 @@ def test_nested_settings_project_trust_facade_restores_and_continues(
 
         assert chosen == "finish"
         assert ui._overlays.active is None
-        assert ui.settings_dialog_rows == ()
-        assert ui.settings_dialog_title == "Settings"
-        assert ui.settings_dialog_selection == 0
+        assert ui._overlays.settings_rows == ()
+        assert ui._overlays.settings_title == "Settings"
+        assert ui._overlays.settings_selection == 0
         assert ui._driver._raw_mode_depth == 0
 
     assert restore_calls == [(input_fd, termios.TCSADRAIN, "saved")]
@@ -627,12 +628,18 @@ def test_single_row_facade_navigation_repaints_once(
     assert len(paints) == 1
 
     ui._overlays.end_scoped()
+    dialog = SettingsDialogComponent(
+        ui._overlays,
+        ui._paint_lock,
+        ui.paint,
+        on_local_action=lambda _action: (),
+    )
     assert ui._overlays.begin_settings(
         (SettingsRow("only", kind="action", action="only"),),
         current_index=None,
         title="Settings",
     )
-    ui._navigate_settings_dialog("up")
+    assert dialog.handle_key("up") is None
     assert len(paints) == 2
 
 
