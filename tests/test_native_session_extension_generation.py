@@ -738,7 +738,6 @@ def test_renderer_uses_one_snapshot_while_direct_custom_stays_unconditional(
     )
     coding_effects = CodingEffectCoordinator()
     renderer = _CustomEntryRenderer(
-        session=SimpleNamespace(_emit_diagnostic=lambda *_args: None),
         ctl=state,
         terminal_ui=None,
         coding_input_queue=CodingInputQueue(mutation_lock=coding_effects.lock),
@@ -816,7 +815,6 @@ def test_custom_message_rendering_keeps_one_generation_snapshot(
     )
     coding_effects = CodingEffectCoordinator()
     renderer = _CustomEntryRenderer(
-        session=SimpleNamespace(_emit_diagnostic=lambda *_args: None),
         ctl=state,
         terminal_ui=None,
         coding_input_queue=CodingInputQueue(mutation_lock=coding_effects.lock),
@@ -872,7 +870,6 @@ def test_cancelled_pipy_tool_call_writer_racing_drain_is_not_erased_or_locked(
         extension_in_agent_turn=False,
     )
     renderer = _CustomEntryRenderer(
-        session=SimpleNamespace(_emit_diagnostic=lambda *_args: None),
         ctl=state,
         terminal_ui=None,
         coding_input_queue=cast(Any, BlockingInputQueue()),
@@ -2632,7 +2629,7 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
     path, renderer_call = built["_CustomEntryRenderer"][0]
     assert (path, renderer_call.args) == ("tool_loop_session.py", [])
     assert {kw.arg for kw in renderer_call.keywords} == set(
-        "session ctl terminal_ui coding_input_queue coding_effects error_stream generation_snapshot".split()
+        "ctl terminal_ui coding_input_queue coding_effects error_stream generation_snapshot".split()
     )
     assert not any(
         isinstance(node, ast.Attribute)

@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     )
     from pipy_harness.native.tool_capabilities import NativeToolCapabilities
 
+from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_chrome_state import (
     ExtensionChromePrepareInput,
     ExtensionChromeRetirement,
@@ -118,7 +119,7 @@ def balance_startup_candidate(
         candidate = _ExtensionCandidate()
         bound = signature.bind(session, candidate, *args, **kwargs)
         bound.apply_defaults()
-        sink = partial(session._emit_diagnostic, None, bound.arguments["error_stream"])
+        sink = partial(emit_diagnostic, None, bound.arguments["error_stream"])
         body_succeeded = False
         try:
             result = function(session, candidate, *args, **kwargs)

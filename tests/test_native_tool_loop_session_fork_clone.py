@@ -11,7 +11,11 @@ from typing import TextIO, TypedDict, Unpack
 import pytest
 
 from pipy_harness.models import HarnessStatus
-from pipy_harness.native import NativeToolReplSession, ProviderRequest, ProviderResult
+from pipy_harness.native import (
+    NativeToolReplSession,
+    ProviderRequest,
+    ProviderResult,
+)
 from pipy_harness.native.agent import (
     AgentAssistantMessage,
     AgentUserMessage,
@@ -19,6 +23,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
+from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_runtime import SessionDecision
 from pipy_harness.native.session_tree import (
     CompactionEntry,
@@ -375,7 +380,7 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
     original_fork = NativeSessionTree.fork_from
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     original_clear = CodingInputQueue.clear_extension_inputs
-    original_diag = NativeToolReplSession._emit_diagnostic
+    original_diag = emit_diagnostic
     rebuild_count = 0
 
     def gate(
@@ -417,7 +422,7 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(
-        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(
         ToolLoopTerminalUi,
@@ -553,9 +558,8 @@ def test_fork_failure_timing_cuts_off_later_effects(
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(
-        NativeToolReplSession,
-        "_emit_diagnostic",
-        staticmethod(lambda *_args, **_kwargs: trace.append("diagnostic")),
+        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+        lambda *_args, **_kwargs: trace.append("diagnostic"),
     )
     monkeypatch.setattr(
         NativeToolReplSession,

@@ -53,7 +53,6 @@ from pipy_harness.capture import sanitize_text
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
-    AgentAssistantMessage,
     AgentEventSink,
     AgentFailure,
     AgentMessage,
@@ -191,6 +190,7 @@ from pipy_harness.native.coding.state import (
     CodingSessionUsageSnapshot,
 )
 from pipy_harness.native.coding.status_effects import CodingAgentTurnStatusEffects
+from pipy_harness.native.diagnostics import emit_diagnostic, last_assistant_answer
 from pipy_harness.native.export_distribution import (
     NativeExportError,
     ShareCancelled,
@@ -1236,7 +1236,7 @@ class _ProviderConfigurationCommandEffects:
             print(changelog_text, file=self.error_stream)
 
     def _copy_last_answer(self, _command_outcome: CodingCommandOutcome) -> None:
-        self.session._emit_diagnostic(
+        emit_diagnostic(
             self.terminal_ui,
             self.error_stream,
             self.session._copy_last_answer(
@@ -1288,14 +1288,14 @@ class _ProviderConfigurationCommandEffects:
         argument = self._argument(command_outcome)
         state = self.session.provider_state
         if not isinstance(state, NativeReplProviderState):
-            self.session._emit_diagnostic(
+            emit_diagnostic(
                 self.terminal_ui,
                 self.error_stream,
                 "pipy: /model is unavailable for this REPL provider state.",
             )
         elif argument:
             _ok, message = self.provider_mutation.apply_model_selection(argument)
-            self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
+            emit_diagnostic(self.terminal_ui, self.error_stream, message)
         elif self.terminal_ui is not None:
             ui_options, selections = self.session._model_selector_rows(state)
             current = state.current_selection()
@@ -1356,16 +1356,14 @@ class _ProviderConfigurationCommandEffects:
                 f"  patterns: {pattern_text}",
                 f"  cycle set: {cycle_text}",
             ):
-                self.session._emit_diagnostic(
-                    self.terminal_ui, self.error_stream, self.ctl.line
-                )
+                emit_diagnostic(self.terminal_ui, self.error_stream, self.ctl.line)
         elif argument == "clear":
             try:
                 self.settings.set_enabled_models([])
                 message = "pipy: scoped models cleared (cycle uses the full catalog)."
             except RuntimeError as exc:
                 message = f"pipy: could not update scoped models: {exc}"
-            self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
+            emit_diagnostic(self.terminal_ui, self.error_stream, message)
         elif argument in {"next", "prev"}:
             current_ref = (
                 state.current_selection().reference
@@ -1378,7 +1376,7 @@ class _ProviderConfigurationCommandEffects:
                 forward=argument == "next",
             )
             if cycle_target is None:
-                self.session._emit_diagnostic(
+                emit_diagnostic(
                     self.terminal_ui,
                     self.error_stream,
                     "pipy: no models available to cycle.",
@@ -1387,9 +1385,7 @@ class _ProviderConfigurationCommandEffects:
                 _ok, message = self.provider_mutation.apply_model_selection(
                     cycle_target
                 )
-                self.session._emit_diagnostic(
-                    self.terminal_ui, self.error_stream, message
-                )
+                emit_diagnostic(self.terminal_ui, self.error_stream, message)
         else:
             new_patterns = argument.split()
             try:
@@ -1397,7 +1393,7 @@ class _ProviderConfigurationCommandEffects:
                 message = "pipy: scoped models set: " + ", ".join(new_patterns)
             except RuntimeError as exc:
                 message = f"pipy: could not update scoped models: {exc}"
-            self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
+            emit_diagnostic(self.terminal_ui, self.error_stream, message)
 
     def _auth(self, command_outcome: CodingCommandOutcome) -> None:
         argument = self._argument(command_outcome)
@@ -1405,7 +1401,7 @@ class _ProviderConfigurationCommandEffects:
             "login" if command_outcome.action is CodingCommandAction.LOGIN else "logout"
         )
         message = self.provider_mutation.apply_auth_change(auth_action, argument)
-        self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
+        emit_diagnostic(self.terminal_ui, self.error_stream, message)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -2545,7 +2541,7 @@ class _ProviderMutationEffects:
         fallback = state.reset_to_first_available_model(require_tool_calls=True)
         if fallback is None:
             self._bind_unavailable_after_reload(unavailable_message)
-            self.session._emit_diagnostic(
+            emit_diagnostic(
                 self.terminal_ui,
                 self.error_stream,
                 f"pipy: {unavailable_message}.",
@@ -2560,14 +2556,14 @@ class _ProviderMutationEffects:
                 pricing_for(fallback.provider_name, fallback.model_id)
             ),
         )
-        self.session._emit_diagnostic(
+        emit_diagnostic(
             self.terminal_ui,
             self.error_stream,
             f"{selected_message} {fallback.reference}.",
         )
         persistence_error = _report_default_persistence(state)
         if persistence_error is not None:
-            self.session._emit_diagnostic(
+            emit_diagnostic(
                 self.terminal_ui,
                 self.error_stream,
                 persistence_error,
@@ -2693,7 +2689,7 @@ class _AgentTurnStatusPresentationAdapter:
             self.terminal_ui.restore_pending_to_editor()
 
     def emit_diagnostic(self, message: str, /) -> None:
-        self.session._emit_diagnostic(
+        emit_diagnostic(
             self.terminal_ui,
             self.error_stream,
             message,
@@ -2932,7 +2928,7 @@ class _ReplLoopStep:
                 and not shortcut_dispatch.ran
                 and shortcut_dispatch.error
             ):
-                session._emit_diagnostic(
+                emit_diagnostic(
                     terminal_ui,
                     error_stream,
                     (
@@ -3076,7 +3072,7 @@ class _ReplLoopStep:
             return before_agent_result.append_system_prompt
 
         def _emit_accepted_input_diagnostic(message: str) -> None:
-            session._emit_diagnostic(terminal_ui, error_stream, message)
+            emit_diagnostic(terminal_ui, error_stream, message)
 
         accepted_turn = CodingAcceptedInputPreparer(
             transform_input=_transform_accepted_input,
@@ -3119,7 +3115,7 @@ class _ReplLoopStep:
                 keep_recent_groups=AGENT_HISTORY_KEEP_RECENT_GROUPS,
             ):
                 notice = apply_compaction("auto")
-                session._emit_diagnostic(terminal_ui, error_stream, notice)
+                emit_diagnostic(terminal_ui, error_stream, notice)
             snapshot = provider_request_policy.prepare(
                 AgentProviderRequestPolicyInput(
                     baseline=ProviderRequest(
@@ -3374,7 +3370,7 @@ class _SessionCollaborators:
     extension_notify: Callable[[str, str], None]
 
     def diag(self, message: str) -> None:
-        self.session._emit_diagnostic(self.terminal_ui, self.error_stream, message)
+        emit_diagnostic(self.terminal_ui, self.error_stream, message)
 
     def extension_set_session_name(self, name: str | None) -> object:
         with self.coding_effects.effect() as admitted:
@@ -4114,13 +4110,11 @@ class NativeToolReplSession:
             include_default_extensions=not resource_options.no_extensions,
             include_workspace_defaults=settings.project_trusted,
             activation_batch=self.initial_extension_batch,
-            diagnostic=lambda message: self._emit_diagnostic(
-                None, error_stream, message
-            ),
+            diagnostic=lambda message: emit_diagnostic(None, error_stream, message),
         )
         candidate.adopt(
             extension_runtime,
-            partial(self._emit_diagnostic, None, error_stream),
+            partial(emit_diagnostic, None, error_stream),
         )
         extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
             extension_runtime.flags,
@@ -4164,9 +4158,7 @@ class NativeToolReplSession:
             safe_message = "\n".join(
                 sanitize_label_text(line) for line in str(message).splitlines()
             )
-            NativeToolReplSession._emit_diagnostic(
-                terminal_ui, error_stream, safe_message
-            )
+            emit_diagnostic(terminal_ui, error_stream, safe_message)
 
         extension_ui_driver = (
             _LiveExtensionUiDriver(terminal_ui, cwd)
@@ -4492,7 +4484,6 @@ class NativeToolReplSession:
         # tree and `extension_in_agent_turn` remain live run control. Its
         # bound methods are passed wherever the deleted closures were consumed.
         custom_renderer = _CustomEntryRenderer(
-            session=self,
             ctl=_ExtensionCustomEntryRunState(ctl=ctl),
             terminal_ui=terminal_ui,
             coding_input_queue=coding_input_queue,
@@ -4888,7 +4879,7 @@ class NativeToolReplSession:
             finally:
                 done_event.set()
 
-        self._emit_diagnostic(
+        emit_diagnostic(
             terminal_ui,
             error_stream,
             "pipy: sharing native session... press Escape to cancel.",
@@ -4904,20 +4895,18 @@ class NativeToolReplSession:
         except KeyboardInterrupt:
             cancel_token.cancel()
             worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
-            self._emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
+            emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
             return None
         if outcome == TURN_ABORTED:
             cancel_token.cancel()
             worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
-            self._emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
+            emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
             return None
         worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
         if error_holder:
             error = error_holder[0]
             if isinstance(error, ShareCancelled):
-                self._emit_diagnostic(
-                    terminal_ui, error_stream, "pipy: Share cancelled."
-                )
+                emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
                 return None
             if isinstance(error, NativeExportError):
                 raise error
@@ -4964,7 +4953,7 @@ class NativeToolReplSession:
             command_line[2:] if exclude_from_context else command_line[1:]
         ).strip()
         if not command:
-            self._emit_diagnostic(
+            emit_diagnostic(
                 terminal_ui,
                 error_stream,
                 "pipy: ! needs a command, e.g. !ls (use !! to skip recording).",
@@ -4977,7 +4966,7 @@ class NativeToolReplSession:
             exclude_from_context=exclude_from_context,
             cwd=str(cwd),
             has_ui=terminal_ui is not None,
-            notify_sink=lambda kind, message: self._emit_diagnostic(
+            notify_sink=lambda kind, message: emit_diagnostic(
                 terminal_ui, error_stream, message
             ),
             ui_driver=ui_driver,
@@ -4986,7 +4975,7 @@ class NativeToolReplSession:
             project_trusted=project_trusted,
         )
         if not decision.allowed:
-            self._emit_diagnostic(
+            emit_diagnostic(
                 terminal_ui,
                 error_stream,
                 f"pipy: shell command blocked by extension: {decision.reason}",
@@ -5077,9 +5066,7 @@ class NativeToolReplSession:
                 terminal_ui.tools_expanded = new_value
                 terminal_ui.rerender_custom_messages()
             label = "expanded" if new_value else "collapsed"
-            self._emit_diagnostic(
-                terminal_ui, error_stream, f"pipy: tool output: {label}"
-            )
+            emit_diagnostic(terminal_ui, error_stream, f"pipy: tool output: {label}")
             return
         # HOTKEY_TOGGLE_THINKING
         current = (
@@ -5098,9 +5085,7 @@ class NativeToolReplSession:
             # A read-only/locked settings file must not break the live toggle.
             pass
         label = "hidden" if new_hidden else "visible"
-        self._emit_diagnostic(
-            terminal_ui, error_stream, f"pipy: thinking blocks: {label}"
-        )
+        emit_diagnostic(terminal_ui, error_stream, f"pipy: thinking blocks: {label}")
 
     def _cycle_thinking_level(
         self,
@@ -5120,7 +5105,7 @@ class NativeToolReplSession:
 
         state = self.provider_state
         if not isinstance(state, NativeReplProviderState):
-            self._emit_diagnostic(
+            emit_diagnostic(
                 terminal_ui,
                 error_stream,
                 "pipy: thinking-level cycling is unavailable for this REPL state.",
@@ -5128,13 +5113,13 @@ class NativeToolReplSession:
             return
         next_level = cycle_thinking_level()
         if next_level is None:
-            self._emit_diagnostic(
+            emit_diagnostic(
                 terminal_ui,
                 error_stream,
                 "pipy: current model does not support thinking.",
             )
             return
-        self._emit_diagnostic(
+        emit_diagnostic(
             terminal_ui, error_stream, f"pipy: thinking level: {next_level}"
         )
 
@@ -5340,7 +5325,7 @@ class NativeToolReplSession:
         """Show and persist a next-start trust decision without hot loading."""
 
         if terminal_ui is None:
-            self._emit_diagnostic(
+            emit_diagnostic(
                 terminal_ui,
                 error_stream,
                 "pipy: /trust requires the interactive product TUI; use "
@@ -5397,7 +5382,7 @@ class NativeToolReplSession:
                 return False
             store.set(resolved, True)
         except ProjectTrustError as exc:
-            self._emit_diagnostic(
+            emit_diagnostic(
                 terminal_ui,
                 error_stream,
                 f"pipy: could not save project trust after reload: {exc}",
@@ -5946,20 +5931,6 @@ class NativeToolReplSession:
             return False
         return bool(getattr(provider, "supports_tool_calls", False))
 
-    @staticmethod
-    def _emit_diagnostic(
-        terminal_ui: ToolLoopTerminalUi | None,
-        error_stream: TextIO,
-        message: str,
-    ) -> None:
-        if terminal_ui is not None:
-            terminal_ui.add_notice(message)
-            return
-        safe_message = "\n".join(
-            sanitize_label_text(line) for line in str(message).splitlines()
-        )
-        print(safe_message, file=error_stream)
-
     def _copy_last_answer(
         self, messages: Sequence[AgentMessage], *, error_stream: TextIO
     ) -> str:
@@ -5970,7 +5941,7 @@ class NativeToolReplSession:
         It never invokes the provider, tools, login/logout, or model switching.
         """
 
-        answer = self._last_assistant_answer(messages)
+        answer = last_assistant_answer(messages)
         if not answer:
             return "pipy: nothing to copy yet (no assistant answer in this session)."
         result = self.clipboard_copy(answer, terminal_stream=error_stream)
@@ -6066,19 +6037,19 @@ class NativeToolReplSession:
         )
         new_filter = terminal_ui.tree_selector_filter
         if chosen is None:
-            self._emit_diagnostic(terminal_ui, error_stream, "pipy: /tree cancelled.")
+            emit_diagnostic(terminal_ui, error_stream, "pipy: /tree cancelled.")
             return TreeCommandOutcome(filter_mode=new_filter)
         selection = apply_tree_selection(session_tree, chosen)
         rebuild_messages()
         if selection.is_noop:
-            self._emit_diagnostic(
+            emit_diagnostic(
                 terminal_ui,
                 error_stream,
                 "pipy: already at the selected point (no change).",
             )
             return TreeCommandOutcome(filter_mode=new_filter)
         if selection.is_user_selection:
-            self._emit_diagnostic(
+            emit_diagnostic(
                 terminal_ui,
                 error_stream,
                 "pipy: selected user message; rehydrating editor for a new branch.",
@@ -6086,7 +6057,7 @@ class NativeToolReplSession:
             return TreeCommandOutcome(
                 prefill=selection.editor_text, filter_mode=new_filter
             )
-        self._emit_diagnostic(
+        emit_diagnostic(
             terminal_ui,
             error_stream,
             f"pipy: continuing from entry {sanitize_label_text(chosen[:8])}.",
@@ -6124,21 +6095,12 @@ class NativeToolReplSession:
             session_tree=session_tree,
             filter_mode=filter_mode,
             rebuild_messages=rebuild_messages,
-            diagnostic=lambda message: self._emit_diagnostic(
+            diagnostic=lambda message: emit_diagnostic(
                 terminal_ui, error_stream, message
             ),
             summarizer=summarizer,
             interactive_selector=interactive_selector,
         )
-
-    @staticmethod
-    def _last_assistant_answer(messages: Sequence[AgentMessage]) -> str:
-        for message in reversed(messages):
-            if isinstance(message, AgentAssistantMessage):
-                content = message.content.value.strip()
-                if content:
-                    return message.content.value
-        return ""
 
 
 __all__ = [

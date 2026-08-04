@@ -419,7 +419,6 @@ def test_custom_message_owner_blocks_terminal_until_tree_then_input_finish(
     queue = BlockingQueue(mutation_lock=coordinator.lock)
     state = SimpleNamespace(session_tree=tree, extension_in_agent_turn=False)
     renderer = _CustomEntryRenderer(
-        session=SimpleNamespace(_emit_diagnostic=lambda *_args: None),
         ctl=state,
         terminal_ui=None,
         coding_input_queue=queue,

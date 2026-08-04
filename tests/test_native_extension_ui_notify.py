@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pipy_harness.models import HarnessStatus
+from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
     extension_event_hooks,
@@ -199,7 +200,7 @@ def test_command_notify_sanitizes_terminal_controls(tmp_path, monkeypatch) -> No
 def test_non_tui_diagnostic_sanitizes_terminal_controls() -> None:
     error_stream = io.StringIO()
 
-    NativeToolReplSession._emit_diagnostic(
+    emit_diagnostic(
         None,
         error_stream,
         "pipy: BAD\x1b[31mRED\rRETURN",

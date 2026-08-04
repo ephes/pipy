@@ -66,6 +66,7 @@ from pipy_harness.native.clipboard import ImageClipboardResult
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.command_registry import project_command_completions
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
+from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.editor_state import (
     CompletionItem,
     CompletionMode,
@@ -642,17 +643,6 @@ class _CustomEntryRendererRunState(Protocol):
     def extension_in_agent_turn(self) -> bool: ...
 
 
-class _CustomEntryDiagnosticHost(Protocol):
-    """Diagnostic method used by the captured custom-message path."""
-
-    def _emit_diagnostic(
-        self,
-        terminal_ui: "ToolLoopTerminalUi | None",
-        error_stream: TextIO,
-        message: str,
-    ) -> None: ...
-
-
 def _route_legacy_custom_message_input(
     content: str,
     options: Mapping[str, object],
@@ -725,7 +715,6 @@ class _CustomEntryRenderer:
     legacy/harness direct-drain outboxes.
     """
 
-    session: _CustomEntryDiagnosticHost
     ctl: _CustomEntryRendererRunState
     terminal_ui: "ToolLoopTerminalUi | None"
     coding_input_queue: CodingInputQueue
@@ -995,7 +984,7 @@ class _CustomEntryRenderer:
                     renderer_projection=renderer_projection,
                 )
                 lines = "\n".join(str(line) for line in rendered.lines)
-                self.session._emit_diagnostic(
+                emit_diagnostic(
                     self.terminal_ui,
                     self.error_stream,
                     f"{message.custom_type}:\n{lines}"

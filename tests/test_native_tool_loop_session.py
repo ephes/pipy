@@ -2091,7 +2091,7 @@ def test_scoped_models_write_failure_preserves_settings_and_usage_footer_order(
 
     monkeypatch.setattr(manager, "set_enabled_models", fail_write)
     monkeypatch.setattr(
-        NativeToolReplSession, "_emit_diagnostic", staticmethod(record_diagnostic)
+        "pipy_harness.native.tool_loop_session.emit_diagnostic", record_diagnostic
     )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
     provider = FakeNativeProvider(supports_tool_calls=True, final_text="unused")

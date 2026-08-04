@@ -30,6 +30,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
+from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_runtime import (
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
@@ -479,7 +480,7 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, persist=False)
     trace: list[str] = []
-    original_diag = NativeToolReplSession._emit_diagnostic
+    original_diag = emit_diagnostic
 
     def handle_tree(
         self: NativeToolReplSession,
@@ -511,7 +512,7 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
 
     monkeypatch.setattr(NativeToolReplSession, "_handle_tree_command", handle_tree)
     monkeypatch.setattr(
-        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
 
@@ -542,7 +543,7 @@ def test_tree_noop_selection_still_rebuilds_then_clears_extension_inputs(
     trace: list[str] = []
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     original_clear = CodingInputQueue.clear_extension_inputs
-    original_diag = NativeToolReplSession._emit_diagnostic
+    original_diag = emit_diagnostic
 
     def rebuild(self: CodingProductSessionCoordinator) -> None:
         trace.append("rebuild")
@@ -564,7 +565,7 @@ def test_tree_noop_selection_still_rebuilds_then_clears_extension_inputs(
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(
-        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
 
@@ -620,7 +621,7 @@ def test_tree_rebuild_failure_preserves_leaf_and_cuts_off_later_effects(
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(
-        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
 
@@ -673,7 +674,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
     original_create = NativeSessionTree.create
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     original_clear = CodingInputQueue.clear_extension_inputs
-    original_diag = NativeToolReplSession._emit_diagnostic
+    original_diag = emit_diagnostic
 
     def create(
         path: Path,
@@ -723,7 +724,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(
-        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(
         NativeToolReplSession, "_print_footer", lambda *_a, **_k: trace.append("footer")
@@ -937,9 +938,8 @@ def test_new_storage_failure_cuts_off_later_effects(
         lambda _self: trace.append("clear-extension"),
     )
     monkeypatch.setattr(
-        NativeToolReplSession,
-        "_emit_diagnostic",
-        staticmethod(lambda *_args: trace.append("diagnostic")),
+        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+        lambda *_args: trace.append("diagnostic"),
     )
     monkeypatch.setattr(
         NativeToolReplSession,
@@ -1264,7 +1264,7 @@ def test_resume_switch_order_gate_and_fresh_history(
     original_open = NativeSessionTree.open
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     original_clear = CodingInputQueue.clear_extension_inputs
-    original_diag = NativeToolReplSession._emit_diagnostic
+    original_diag = emit_diagnostic
 
     def pick(
         self: NativeToolReplSession,
@@ -1309,7 +1309,7 @@ def test_resume_switch_order_gate_and_fresh_history(
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(ToolLoopTerminalUi, "redraw_custom_entries", redraw)
     monkeypatch.setattr(
-        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(
         NativeToolReplSession,

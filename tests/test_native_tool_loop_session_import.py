@@ -636,7 +636,7 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(
-        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
     monkeypatch.setattr(
@@ -881,7 +881,7 @@ def test_uncontrolled_diagnostic_and_footer_failures_retain_completed_switch(
             raise RuntimeError("footer failed")
 
     monkeypatch.setattr(
-        NativeToolReplSession, "_emit_diagnostic", staticmethod(diagnostic)
+        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
 
