@@ -78,7 +78,6 @@ from pipy_harness.native.agent.loop_policy import (
 )
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
-    ProviderTurnInterruption,
     ProviderTurnOutcome,
     _AbortCallbackSignal,
     _StartGatedProvider,
@@ -91,13 +90,11 @@ from pipy_harness.native.agent.runtime_ports import (
     AgentQueuedInputPort,
 )
 from pipy_harness.native.agent.tools import (
-    ToolExecutionInterruption,
     ToolExecutionOutcome,
     ToolInterruptWaiter,
 )
 from pipy_harness.native.agent.usage import (
     AgentProviderUsageSample,
-    AgentTokenPricing,
     AgentUsageAccumulator,
 )
 from pipy_harness.native.agent_adapters import (
@@ -277,6 +274,14 @@ from pipy_harness.native.project_trust import (
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl.turn_leaves import (
+    AGENT_HISTORY_KEEP_RECENT_GROUPS,
+    AGENT_HISTORY_MAX_BYTES,
+    AGENT_HISTORY_MAX_MESSAGES,
+    pricing_for,
+    wait_for_provider_interrupt,
+    wait_for_tool_interrupt,
+)
 from pipy_harness.native.repl_input import (
     DEFAULT_REPL_COMMAND_DESCRIPTIONS,
     REPL_INPUT_RUNTIME_AUTO,
@@ -382,7 +387,6 @@ from pipy_harness.native.tui import (
     TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
     TURN_LOCAL_COMMAND,
     TURN_SETTLED,
-    TURN_STEERED,
     ModelSelectorOption,
     ScopedModelRow,
     SettingsRow,
@@ -397,84 +401,6 @@ from pipy_harness.native.tui import (
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.version_check import pipy_version
-
-
-def _wait_for_tool_interrupt(
-    terminal_ui: ToolLoopTerminalUi,
-    done_event: threading.Event,
-    cancel_event: threading.Event,
-) -> ToolExecutionInterruption:
-    """Translate the terminal driver's string outcome at the composition seam."""
-
-    outcome = terminal_ui.wait_for_active_turn_interrupt(
-        done_event,
-        cancel_event,
-        accept_commands=True,
-    )
-    if outcome == TURN_SETTLED:
-        return ToolExecutionInterruption.SETTLED
-    if outcome == TURN_ABORTED:
-        return ToolExecutionInterruption.OPERATOR_ABORT
-    if outcome == TURN_LOCAL_COMMAND:
-        return ToolExecutionInterruption.LOCAL_COMMAND
-    raise RuntimeError(f"unexpected tool interrupt outcome: {outcome!r}")
-
-
-def _wait_for_provider_interrupt(
-    terminal_ui: ToolLoopTerminalUi,
-    done_event: threading.Event,
-    cancel_event: threading.Event,
-) -> ProviderTurnInterruption:
-    """Translate terminal-driver strings into the provider-loop contract."""
-
-    try:
-        outcome = terminal_ui.wait_for_active_turn_interrupt(
-            done_event, cancel_event, accept_queue=True
-        )
-    except KeyboardInterrupt:
-        cancel_event.set()
-        return ProviderTurnInterruption.OPERATOR_ABORT
-    if outcome == TURN_SETTLED:
-        return ProviderTurnInterruption.SETTLED
-    if outcome == TURN_ABORTED:
-        return ProviderTurnInterruption.OPERATOR_ABORT
-    if outcome == TURN_STEERED:
-        return ProviderTurnInterruption.STEERING
-    if outcome == TURN_LOCAL_COMMAND:
-        return ProviderTurnInterruption.LOCAL_COMMAND
-    raise RuntimeError(f"unexpected provider interrupt outcome: {outcome!r}")
-
-
-_PRICING_TABLE: dict[tuple[str, str], AgentTokenPricing] = {
-    # OpenAI Codex subscription (GPT-5.x family) — approximate.
-    ("openai-codex", "gpt-5"): AgentTokenPricing(
-        input_per_million=1.25, output_per_million=10.00, reasoning_per_million=10.00
-    ),
-}
-
-
-def _pricing_for(provider_name: str, model_id: str) -> AgentTokenPricing | None:
-    """Return per-million-token pricing for (provider, model), or None.
-
-    Falls back to a model-family prefix lookup so e.g. ``gpt-5.5`` reuses
-    the ``gpt-5`` entry. ``None`` disables cost rendering for that
-    selection; the bottom status keeps showing ``$0.000``.
-    """
-
-    direct = _PRICING_TABLE.get((provider_name, model_id))
-    if direct is not None:
-        return direct
-    for (entry_provider, entry_model), price in _PRICING_TABLE.items():
-        if entry_provider != provider_name:
-            continue
-        if model_id.startswith(entry_model):
-            return price
-    return None
-
-
-_AGENT_HISTORY_KEEP_RECENT_GROUPS = 2
-_AGENT_HISTORY_MAX_MESSAGES = 40
-_AGENT_HISTORY_MAX_BYTES = 48 * 1024
 
 
 def production_tool_registry() -> dict[str, ToolPort]:
@@ -1987,7 +1913,7 @@ class _ReloadCommandEffects:
                         message,
                     ),
                     usage_prototype=lambda item: _agent_usage.AgentUsageAccumulator(
-                        _pricing_for(item.provider_name, item.model_id)
+                        pricing_for(item.provider_name, item.model_id)
                     ),
                     empty_history=CodingReloadHistoryValue(()),
                     capability=capability,
@@ -2396,7 +2322,7 @@ class _ProviderMutationEffects:
             provider_name=replacement.provider_name,
             model_id=replacement.model_id,
             usage_accumulator=AgentUsageAccumulator(
-                _pricing_for(replacement.provider_name, replacement.model_id)
+                pricing_for(replacement.provider_name, replacement.model_id)
             ),
         )
         return _PreparedModelMutation(state, selection, coding), message
@@ -2546,7 +2472,7 @@ class _ProviderMutationEffects:
             provider_name=selection.provider_name,
             model_id=selection.model_id,
             usage_accumulator=AgentUsageAccumulator(
-                _pricing_for(selection.provider_name, selection.model_id)
+                pricing_for(selection.provider_name, selection.model_id)
             ),
         )
         self.refresh_footer_text()
@@ -2631,7 +2557,7 @@ class _ProviderMutationEffects:
             provider_name=fallback.provider_name,
             model_id=fallback.model_id,
             usage_accumulator=AgentUsageAccumulator(
-                _pricing_for(fallback.provider_name, fallback.model_id)
+                pricing_for(fallback.provider_name, fallback.model_id)
             ),
         )
         self.session._emit_diagnostic(
@@ -2675,7 +2601,7 @@ class _ProviderMutationEffects:
             return f"pipy: compact blocked by extension: {reason}"
         result = compact_agent_history(
             self.coding_state.messages,
-            keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
+            keep_recent_groups=AGENT_HISTORY_KEEP_RECENT_GROUPS,
         )
         if not result.changed:
             return "pipy: nothing to compact yet."
@@ -2708,9 +2634,9 @@ class _ProviderMutationEffects:
             if isinstance(entry, _MessageEntry)
             and isinstance(entry.message, AgentUserMessage)
         ]
-        if len(user_entries) <= _AGENT_HISTORY_KEEP_RECENT_GROUPS:
+        if len(user_entries) <= AGENT_HISTORY_KEEP_RECENT_GROUPS:
             return
-        first_kept = user_entries[len(user_entries) - _AGENT_HISTORY_KEEP_RECENT_GROUPS]
+        first_kept = user_entries[len(user_entries) - AGENT_HISTORY_KEEP_RECENT_GROUPS]
         self.ctl.session_tree.append_compaction(
             summary=summary_block.strip(),
             first_kept_entry_id=first_kept.id,
@@ -3188,9 +3114,9 @@ class _ReplLoopStep:
             # rides in the system prompt suffix below.
             if settings.get_compaction_enabled() and should_compact_agent_history(
                 coding_state.messages,
-                max_messages=_AGENT_HISTORY_MAX_MESSAGES,
-                max_bytes=_AGENT_HISTORY_MAX_BYTES,
-                keep_recent_groups=_AGENT_HISTORY_KEEP_RECENT_GROUPS,
+                max_messages=AGENT_HISTORY_MAX_MESSAGES,
+                max_bytes=AGENT_HISTORY_MAX_BYTES,
+                keep_recent_groups=AGENT_HISTORY_KEEP_RECENT_GROUPS,
             ):
                 notice = apply_compaction("auto")
                 session._emit_diagnostic(terminal_ui, error_stream, notice)
@@ -3233,7 +3159,7 @@ class _ReplLoopStep:
             provider_waiter = None
             provider_for_turn = execution_projections.provider
             if terminal_ui is not None:
-                provider_waiter = partial(_wait_for_provider_interrupt, terminal_ui)
+                provider_waiter = partial(wait_for_provider_interrupt, terminal_ui)
             elif session.abort_event is not None:
                 provider_start_event = None
                 if isinstance(session.abort_event, _AbortCallbackSignal):
@@ -3274,7 +3200,7 @@ class _ReplLoopStep:
         tool_waiter = (
             None
             if terminal_ui is None
-            else partial(_wait_for_tool_interrupt, terminal_ui)
+            else partial(wait_for_tool_interrupt, terminal_ui)
         )
         run_coordinator = CodingAgentRunCoordinator(
             request_source=AgentLoopRequestSourceAdapter(_prepare_loop_request),
@@ -3293,7 +3219,7 @@ class _ReplLoopStep:
         loop_outcome = run_coordinator.run_turn(
             active_input,
             initial_tool_state,
-            pricing=_pricing_for(
+            pricing=pricing_for(
                 coding_state.provider_name,
                 coding_state.model_id,
             ),
@@ -3826,7 +3752,7 @@ def _apply_startup_provider_projection(
                     provider_name=fallback.provider_name,
                     model_id=fallback.model_id,
                     usage_accumulator=AgentUsageAccumulator(
-                        _pricing_for(fallback.provider_name, fallback.model_id)
+                        pricing_for(fallback.provider_name, fallback.model_id)
                     ),
                 )
                 print(
@@ -4120,7 +4046,7 @@ class NativeToolReplSession:
             provider_name=initial_provider_name,
             model_id=initial_model_id,
             usage_accumulator=AgentUsageAccumulator(
-                _pricing_for(initial_provider_name, initial_model_id)
+                pricing_for(initial_provider_name, initial_model_id)
             ),
         )
 

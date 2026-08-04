@@ -757,6 +757,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.tui",
             "pipy_harness.native.coding",
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
             "pipy_harness.native.session",
             "pipy_harness.native.session_resume",
             "pipy_harness.native.session_tree",
@@ -790,6 +791,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.tui",
             "pipy_harness.native.coding",
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
             "pipy_harness.native.session",
             "pipy_harness.native.session_resume",
             "pipy_harness.native.session_tree",
@@ -813,6 +815,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
             "pipy_harness.native.session_tree",
             "pipy_harness.native.extension_hooks",
             "pipy_harness.native.extension_loader",
@@ -979,11 +982,26 @@ ARCHITECTURE_RULES = (
         ),
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.repl",
+        forbidden_imports=(
+            "pipy_session",
+            "pipy_harness.native.tool_loop_session",
+        ),
+        reason=(
+            "the REPL tier is being carved out of the composition root, so it "
+            "must never import back into it -- that edge is what would let the "
+            "extraction land one module at a time while the god file quietly "
+            "stayed the real owner. `pipy_session` is the durable-store tier and "
+            "is reached through the session tree, never directly"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.ui",
         forbidden_imports=(
             "pipy_harness.native.coding.state",
             "pipy_harness.native.coding.session",
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
             "pipy_harness.native.tui",
         ),
         reason=(
@@ -1007,6 +1025,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.extension_runtime",
             "pipy_harness.native.extension_types",
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
             "pipy_harness.native.session",
             "pipy_session",
         ),
@@ -1031,6 +1050,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.tui",
             "pipy_harness.native.terminal_driver",
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
             "pipy_harness.native.extension_runtime",
             "pipy_harness.native.extension_types",
             "pipy_session",
@@ -1052,7 +1072,10 @@ ARCHITECTURE_RULES = (
     ),
     BoundaryRule(
         source_package="pipy_harness.native.tui",
-        forbidden_imports=("pipy_harness.native.tool_loop_session",),
+        forbidden_imports=(
+            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
+        ),
         reason=(
             "the terminal UI owns adapters through structural ports and must not "
             "import the concrete product-session composition root"
@@ -1062,6 +1085,7 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.session_tree_commands",
         forbidden_imports=(
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
         ),
@@ -1074,6 +1098,7 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.tool_renderers",
         forbidden_imports=(
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
         ),
@@ -1090,6 +1115,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.coding.state",
             "pipy_harness.native.coding.session",
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
         ),
         reason=(
             "package activation must use extension-host ports instead of concrete "
@@ -1099,7 +1125,10 @@ ARCHITECTURE_RULES = (
     *(
         BoundaryRule(
             source_package=host_module,
-            forbidden_imports=("pipy_harness.native.tool_loop_session",),
+            forbidden_imports=(
+                "pipy_harness.native.tool_loop_session",
+                "pipy_harness.native.repl",
+            ),
             reason=(
                 "extension activation and host-port modules define ports against "
                 "coding-session / model-runtime interfaces (extension_types value "
@@ -1118,6 +1147,7 @@ ARCHITECTURE_RULES = (
         source_package="pipy_harness.native.extension_ui",
         forbidden_imports=(
             "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
         ),

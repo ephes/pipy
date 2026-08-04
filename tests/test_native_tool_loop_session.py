@@ -64,6 +64,10 @@ from pipy_harness.native.extension_provider_catalog import (
     load_extension_provider_contributions,
 )
 from pipy_harness.native.provider import StreamChunkSink
+from pipy_harness.native.repl.turn_leaves import (
+    pricing_for,
+    wait_for_provider_interrupt,
+)
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,
@@ -74,7 +78,6 @@ from pipy_harness.native.session import NATIVE_TOOL_LOOP_SYSTEM_PROMPT
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
-from pipy_harness.native.tool_loop_session import _wait_for_provider_interrupt
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -239,7 +242,7 @@ def _capture_usage_construction(
 
     constructed: list[AgentUsageAccumulator] = []
     pricing_lookups: list[tuple[str, str, AgentTokenPricing | None]] = []
-    original_pricing_for = tool_loop_session._pricing_for
+    original_pricing_for = pricing_for
 
     class _RecordingUsageAccumulator(AgentUsageAccumulator):
         def __init__(self, pricing: AgentTokenPricing | None = None) -> None:
@@ -255,7 +258,7 @@ def _capture_usage_construction(
         tool_loop_session, "AgentUsageAccumulator", _RecordingUsageAccumulator
     )
     monkeypatch.setattr(agent_loop, "AgentUsageAccumulator", _RecordingUsageAccumulator)
-    monkeypatch.setattr(tool_loop_session, "_pricing_for", record_pricing)
+    monkeypatch.setattr(tool_loop_session, "pricing_for", record_pricing)
     return constructed, pricing_lookups
 
 
@@ -824,7 +827,7 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         "self.tool_capabilities.prepare_extensions with_tool_capability getattr "
         "isinstance ExtensionChromeSink prepare_production_reload "
         "ExtensionChromePrepareInput UnavailableAfterReloadProvider "
-        "_agent_usage.AgentUsageAccumulator _pricing_for CodingReloadHistoryValue "
+        "_agent_usage.AgentUsageAccumulator pricing_for CodingReloadHistoryValue "
         "chrome_sink.close driver.prepare_candidate ExtensionChromeCommitToken "
         "self.diag self.diag SessionExtensionGeneration gate.reserve "
         "self.ctl.generation_ref.accept_prepared_reload self.diag self.diag "
@@ -1314,7 +1317,7 @@ def test_provider_interrupt_waiter_maps_terminal_outcomes(
     done_event = threading.Event()
     cancel_event = threading.Event()
 
-    interruption = _wait_for_provider_interrupt(
+    interruption = wait_for_provider_interrupt(
         cast(ToolLoopTerminalUi, ui), done_event, cancel_event
     )
 
@@ -1331,7 +1334,7 @@ def test_provider_interrupt_waiter_maps_keyboard_interrupt_and_signals_cancel() 
     done_event = threading.Event()
     cancel_event = threading.Event()
 
-    interruption = _wait_for_provider_interrupt(
+    interruption = wait_for_provider_interrupt(
         cast(ToolLoopTerminalUi, ui), done_event, cancel_event
     )
 
