@@ -32,6 +32,7 @@ from pipy_harness.native.extension_runtime import (
     QueuedCustomMessage,
     RegisteredMessageRenderer,
 )
+from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
 from pipy_harness.native.repl_state import (
@@ -57,10 +58,7 @@ from pipy_harness.native.tool_capabilities import (
     NativeToolCapabilities,
     ToolFilterOptions,
 )
-from pipy_harness.native.tool_loop_session import (
-    _SessionCollaborators,
-    production_tool_registry,
-)
+from pipy_harness.native.tool_loop_session import production_tool_registry
 from pipy_harness.native.tui import (
     _CustomEntryRenderer,
     _CustomRendererProjectionSnapshot,
@@ -359,7 +357,7 @@ def test_completion_terminal_barrier_and_provider_callback_read_are_unlocked(
             )
 
     collaborators = cast(
-        _SessionCollaborators,
+        SessionCollaborators,
         SimpleNamespace(
             coding_effects=coordinator,
             coding_state=SimpleNamespace(
@@ -374,7 +372,7 @@ def test_completion_terminal_barrier_and_provider_callback_read_are_unlocked(
     results: list[str] = []
     completion = threading.Thread(
         target=lambda: results.append(
-            _SessionCollaborators.extension_complete(collaborators, "system", "user")
+            SessionCollaborators.extension_complete(collaborators, "system", "user")
         )
     )
     completion.start()
@@ -395,7 +393,7 @@ def test_completion_terminal_barrier_and_provider_callback_read_are_unlocked(
     assert results == ["accepted"] and last_effects == ["complete"]
     assert callback_reads == [True]
     with pytest.raises(ExtensionCapabilityError, match="coding session is closed"):
-        _SessionCollaborators.extension_complete(
+        SessionCollaborators.extension_complete(
             collaborators, "late-system", "late-user"
         )
     assert last_effects == ["complete"]
@@ -505,10 +503,10 @@ def test_active_tree_pointer_selection_and_name_append_are_one_section(
 
     monkeypatch.setattr(selected_tree, "append_session_info", paused_append)
     collaborator = cast(
-        _SessionCollaborators, SimpleNamespace(coding_effects=coordinator, ctl=ctl)
+        SessionCollaborators, SimpleNamespace(coding_effects=coordinator, ctl=ctl)
     )
     writer = threading.Thread(
-        target=lambda: _SessionCollaborators.extension_set_session_name(
+        target=lambda: SessionCollaborators.extension_set_session_name(
             collaborator, "accepted"
         )
     )
@@ -566,17 +564,18 @@ def test_incoming_tree_bind_and_active_pointer_swap_are_one_section(
 
 def test_r5a_active_pointer_writer_and_rebind_inventory_is_guarded() -> None:
     root = Path(__file__).parents[1] / "src/pipy_harness/native"
-    loop, tui, scope, transfer, commands = (
+    tui, scope, transfer, commands, collaborators = (
         (root / name).read_text()
         for name in (
-            "tool_loop_session.py",
             "tui.py",
             "repl/loop_scope.py",
             "repl/session_transfer.py",
             "repl/session_commands.py",
+            "repl/collaborators.py",
         )
     )
-    assert loop.count("with self.ctl.session_tree_section() as tree:") == 3
+    # The guarded readers travelled with the collaborators that hold `ctl`.
+    assert collaborators.count("with self.ctl.session_tree_section() as tree:") == 3
     assert tui.count("with self.coding_effects.lock:") == 2
     # The rebind itself lives with `RunControlState`, which owns the tree slot;
     # the guarded readers and writers stay at the composition root.
@@ -586,7 +585,7 @@ def test_r5a_active_pointer_writer_and_rebind_inventory_is_guarded() -> None:
     # Every rebind of the active pointer travelled to the command that performs
     # it -- `/new`, `/resume`, `/fork` and `/clone` to the session commands,
     # `/import` to the transfer verbs. The composition root rebinds none.
-    assert loop.count("self.ctl.session_tree = ") == 0
+    assert collaborators.count("self.ctl.session_tree = ") == 0
     assert commands.count("self.ctl.session_tree = ") == 3
     assert transfer.count("self.ctl.session_tree = ") == 1
 

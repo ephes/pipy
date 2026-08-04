@@ -481,15 +481,13 @@ def test_footer_paths_read_constant_time_state_scalars(
 
 
 def test_session_command_family_has_one_narrow_composition_root_executor() -> None:
+    import pipy_harness.native.repl.collaborators as collaborators
     import pipy_harness.native.repl.session_commands as session_commands
-    import pipy_harness.native.tool_loop_session as tool_loop_session
 
-    # The family owns its own module; the interpreter that routes to it is
-    # still at the composition root.
+    # The family and the interpreter that routes to it own separate modules.
     module_path = session_commands.__file__
-    root_path = tool_loop_session.__file__
-    assert module_path is not None and root_path is not None
-    syntax = ast.parse(Path(root_path).read_text(encoding="utf-8"))
+    collaborators_path = collaborators.__file__
+    assert module_path is not None and collaborators_path is not None
     effects_class = next(
         node
         for node in ast.parse(Path(module_path).read_text(encoding="utf-8")).body
@@ -528,8 +526,8 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
 
     interpreter_class = next(
         node
-        for node in syntax.body
-        if isinstance(node, ast.ClassDef) and node.name == "_BuiltinCommandInterpreter"
+        for node in ast.parse(Path(collaborators_path).read_text(encoding="utf-8")).body
+        if isinstance(node, ast.ClassDef) and node.name == "BuiltinCommandInterpreter"
     )
     interpret_method = next(
         node
@@ -571,15 +569,13 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
 
 
 def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
+    import pipy_harness.native.repl.collaborators as collaborators
     import pipy_harness.native.repl.provider_config_commands as config_commands
-    import pipy_harness.native.tool_loop_session as tool_loop_session
 
-    # The family owns its own module; the interpreter that routes to it is
-    # still at the composition root.
+    # The family and the interpreter that routes to it own separate modules.
     module_path = config_commands.__file__
-    root_path = tool_loop_session.__file__
-    assert module_path is not None and root_path is not None
-    syntax = ast.parse(Path(root_path).read_text(encoding="utf-8"))
+    collaborators_path = collaborators.__file__
+    assert module_path is not None and collaborators_path is not None
     effects_class = next(
         node
         for node in ast.parse(Path(module_path).read_text(encoding="utf-8")).body
@@ -617,8 +613,8 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
 
     interpreter_class = next(
         node
-        for node in syntax.body
-        if isinstance(node, ast.ClassDef) and node.name == "_BuiltinCommandInterpreter"
+        for node in ast.parse(Path(collaborators_path).read_text(encoding="utf-8")).body
+        if isinstance(node, ast.ClassDef) and node.name == "BuiltinCommandInterpreter"
     )
     interpret_method = next(
         node
@@ -676,14 +672,14 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
 
 
 def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None:
+    import pipy_harness.native.repl.collaborators as collaborators
     import pipy_harness.native.repl.reload as reload_module
     import pipy_harness.native.repl.session_transfer as session_transfer
-    import pipy_harness.native.tool_loop_session as tool_loop_session
 
-    # Both families own their own module now; the interpreter that routes to
-    # them is still at the composition root.
+    # Both families own their own module, and so does the interpreter that
+    # routes to them.
     classes: dict[str, ast.ClassDef] = {}
-    for module in (tool_loop_session, session_transfer, reload_module):
+    for module in (collaborators, session_transfer, reload_module):
         module_path = module.__file__
         assert module_path is not None
         syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
@@ -727,7 +723,7 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
             "extension_render_details",
             "extension_ui_driver",
         },
-        "_BuiltinCommandInterpreter": {
+        "BuiltinCommandInterpreter": {
             "session_effects",
             "provider_configuration_effects",
             "transfer_effects",
@@ -756,7 +752,7 @@ def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None
         } == fields
 
     assert "_ReloadConfigurationDependencies" not in classes
-    interpreter = classes["_BuiltinCommandInterpreter"]
+    interpreter = classes["BuiltinCommandInterpreter"]
     interpret = next(
         node
         for node in interpreter.body

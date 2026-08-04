@@ -422,8 +422,10 @@ def test_fork_success_order_fresh_history_and_no_custom_redraw(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
+    # `/fork` reports through the collaborators' injected `diag`, so that is
+    # where `emit_diagnostic` binds.
     monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
+        "pipy_harness.native.repl.collaborators.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(
         ToolLoopTerminalUi,

@@ -515,7 +515,7 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
     monkeypatch.setattr(commands_module, "run_tree_command", handle_tree)
     for emitter in (
         "pipy_harness.native.repl.session_commands.emit_diagnostic",
-        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+        "pipy_harness.native.repl.collaborators.emit_diagnostic",
     ):
         monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
@@ -570,7 +570,7 @@ def test_tree_noop_selection_still_rebuilds_then_clears_extension_inputs(
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     for emitter in (
         "pipy_harness.native.repl.session_commands.emit_diagnostic",
-        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+        "pipy_harness.native.repl.collaborators.emit_diagnostic",
     ):
         monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
@@ -628,7 +628,7 @@ def test_tree_rebuild_failure_preserves_leaf_and_cuts_off_later_effects(
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     for emitter in (
         "pipy_harness.native.repl.session_commands.emit_diagnostic",
-        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+        "pipy_harness.native.repl.collaborators.emit_diagnostic",
     ):
         monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
@@ -733,7 +733,7 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     for emitter in (
         "pipy_harness.native.repl.session_commands.emit_diagnostic",
-        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+        "pipy_harness.native.repl.collaborators.emit_diagnostic",
     ):
         monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(
@@ -1320,7 +1320,7 @@ def test_resume_switch_order_gate_and_fresh_history(
     monkeypatch.setattr(ToolLoopTerminalUi, "redraw_custom_entries", redraw)
     for emitter in (
         "pipy_harness.native.repl.session_commands.emit_diagnostic",
-        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+        "pipy_harness.native.repl.collaborators.emit_diagnostic",
     ):
         monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(

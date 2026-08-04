@@ -638,7 +638,7 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
+        "pipy_harness.native.repl.collaborators.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
     monkeypatch.setattr(
@@ -685,7 +685,7 @@ def test_import_uses_persistent_and_default_destination_stores_with_collisions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.collaborators as collaborators_module
 
     cwd = _workspace(tmp_path)
     source, _ = _import_source(tmp_path, cwd, name="collision.payload")
@@ -709,7 +709,7 @@ def test_import_uses_persistent_and_default_destination_stores_with_collisions(
 
     default_store = tmp_path / "default-product-store"
     monkeypatch.setattr(
-        loop_module, "default_native_session_dir", lambda _cwd: default_store
+        collaborators_module, "default_native_session_dir", lambda _cwd: default_store
     )
     ephemeral = _active_tree(tmp_path, cwd, persist=False)
     _run(
@@ -883,7 +883,7 @@ def test_uncontrolled_diagnostic_and_footer_failures_retain_completed_switch(
             raise RuntimeError("footer failed")
 
     monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
+        "pipy_harness.native.repl.collaborators.emit_diagnostic", diagnostic
     )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
 

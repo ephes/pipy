@@ -35,6 +35,7 @@ from pipy_harness.native.extension_runtime import (
     _ExtensionRuntime,
 )
 from pipy_harness.native.models import ProviderRequest
+from pipy_harness.native.repl.collaborators import SessionCollaborators
 from pipy_harness.native.repl.execution_projections import (
     SessionExecutionProjections,
 )
@@ -61,7 +62,6 @@ from pipy_harness.native.tool_capabilities import (
     ToolCapabilityState,
     ToolFilterOptions,
 )
-from pipy_harness.native.tool_loop_session import _SessionCollaborators
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -624,7 +624,7 @@ def test_retained_tool_call_context_captures_active_provider_turn_generation(
             )
 
     collaborator = cast(
-        _SessionCollaborators,
+        SessionCollaborators,
         SimpleNamespace(
             execution_projections=execution,
             provider_mutation=Mutation(),
@@ -639,7 +639,7 @@ def test_retained_tool_call_context_captures_active_provider_turn_generation(
         tool_name="probe",
         arguments_json=ProductContent("{}"),
     )
-    _SessionCollaborators.apply_extension_tool_policy(collaborator, call)
+    SessionCollaborators.apply_extension_tool_policy(collaborator, call)
 
     assert len(retained) == 1
     assert retained[0].set_active_tools(()) is True
