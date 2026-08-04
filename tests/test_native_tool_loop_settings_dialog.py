@@ -29,6 +29,7 @@ from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.repl.settings_actions import drive_settings_dialog
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,
@@ -383,12 +384,11 @@ def test_settings_native_and_static_states_expose_distinct_exit_actions(
     provider = _RecordingProvider()
 
     native_ui = _ScriptedSettingsUi(tmp_path)
-    NativeToolReplSession(
-        provider=provider, provider_state=_native_state(tmp_path), tool_registry={}
-    )._drive_settings_dialog(
+    drive_settings_dialog(
         native_ui,
         store,
         provider=provider,
+        provider_state=_native_state(tmp_path),
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda action, argument: f"{action}:{argument}",
         cycle_thinking_level=lambda: None,
@@ -396,10 +396,11 @@ def test_settings_native_and_static_states_expose_distinct_exit_actions(
         error_stream=io.StringIO(),
     )
     static_ui = _ScriptedSettingsUi(tmp_path)
-    NativeToolReplSession(provider=provider, tool_registry={})._drive_settings_dialog(
+    drive_settings_dialog(
         static_ui,
         store,
         provider=provider,
+        provider_state=None,
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda action, argument: f"{action}:{argument}",
         cycle_thinking_level=lambda: None,
@@ -454,14 +455,11 @@ def test_settings_local_actions_rebuild_in_place_and_keep_partial_effects(
         ),
     )
     ui.input_history = ["private saved prompt"]
-    session = NativeToolReplSession(
-        provider=state.current_provider(), provider_state=state, tool_registry={}
-    )
-
-    session._drive_settings_dialog(
+    drive_settings_dialog(
         ui,
         store,
         provider=state.current_provider(),
+        provider_state=state,
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda action, argument: f"{action}:{argument}",
         cycle_thinking_level=lambda: _cycle_thinking(state, tree),
@@ -498,16 +496,14 @@ def test_settings_selector_exit_actions_cancel_then_reopen_dialog(
 ) -> None:
     state = _native_state(tmp_path)
     provider = cast(_RecordingProvider, state.current_provider())
-    session = NativeToolReplSession(
-        provider=provider, provider_state=state, tool_registry={}
-    )
     ui = _ScriptedSettingsUi(tmp_path, actions=(action,))
     ui.selector_cancelled = True
 
-    session._drive_settings_dialog(
+    drive_settings_dialog(
         ui,
         PromptHistoryStore(tmp_path / "history.json"),
         provider=provider,
+        provider_state=state,
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda selected, argument: f"{selected}:{argument}",
         cycle_thinking_level=lambda: None,
@@ -545,12 +541,11 @@ def test_settings_fold_and_theme_write_failures_keep_live_partial_effects(
         raise RuntimeError("settings are read-only")
 
     monkeypatch.setattr(settings, "set_value", fail_write)
-    NativeToolReplSession(
-        provider=provider, provider_state=state, tool_registry={}
-    )._drive_settings_dialog(
+    drive_settings_dialog(
         ui,
         PromptHistoryStore(tmp_path / "history.json"),
         provider=provider,
+        provider_state=state,
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda action, argument: f"{action}:{argument}",
         cycle_thinking_level=lambda: None,
@@ -593,12 +588,11 @@ def test_settings_selector_write_failures_notice_and_reopen_without_provider_wor
 
         monkeypatch.setattr(settings, "set_default_project_trust", fail_trust)
 
-    NativeToolReplSession(
-        provider=provider, provider_state=state, tool_registry={}
-    )._drive_settings_dialog(
+    drive_settings_dialog(
         ui,
         PromptHistoryStore(tmp_path / "history.json"),
         provider=provider,
+        provider_state=state,
         apply_model_selection=lambda reference: (True, reference),
         apply_auth_change=lambda selected, argument: f"{selected}:{argument}",
         cycle_thinking_level=lambda: None,

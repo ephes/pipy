@@ -105,8 +105,8 @@ check D6 "Custom slash commands"     small  "grep -q dispatch_resource_command s
 # selected theme changes the rendered chrome styling (default pi separator, ocean
 # separator after switching), while NO_COLOR / non-TTY always force plain output
 # regardless of the selected theme. Theme selection lives in the /settings dialog
-# (the _open_theme_selector picker); the pipy-only /theme command was removed.
-check D7 "Themes"                    small  "grep -q 'def select_theme' src/pipy_harness/native/themes.py && grep -q '_open_theme_selector' src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/theme_behavior.py"
+# (the open_theme_selector picker); the pipy-only /theme command was removed.
+check D7 "Themes"                    small  "grep -q 'def select_theme' src/pipy_harness/native/themes.py && grep -q 'def open_theme_selector' src/pipy_harness/native/repl/settings_actions.py && uv run python scripts/parity_checks/theme_behavior.py"
 # D8 is a behavior check, not a grep rubber-stamp: it seeds a workspace PNG,
 # drives the product tool-loop REPL with a real @image: prompt, and proves
 # the image reaches the provider as a bounded, type-validated attachment that a

@@ -28,6 +28,7 @@ import tempfile
 from pathlib import Path
 
 from pipy_harness.native.fake import FakeNativeProvider
+from pipy_harness.native.repl.settings_actions import open_theme_selector
 from pipy_harness.native.repl_input import REPL_INPUT_RUNTIME_PLAIN
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.themes import resolve_palette
@@ -129,7 +130,7 @@ def _pick_ocean_via_settings_picker() -> bool:
     cwd = Path(tempfile.mkdtemp())
     ui = _StubThemeSelectorUi("ocean")
     settings = SettingsManager.for_workspace(cwd)
-    _new_session()._open_theme_selector(ui, settings=settings)
+    open_theme_selector(ui, settings=settings)
     return (
         any(label.startswith("ocean") for label in ui.offered_labels)
         and os.environ.get("PIPY_THEME") == "ocean"
