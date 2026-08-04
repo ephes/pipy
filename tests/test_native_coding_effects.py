@@ -566,9 +566,14 @@ def test_incoming_tree_bind_and_active_pointer_swap_are_one_section(
 
 def test_r5a_active_pointer_writer_and_rebind_inventory_is_guarded() -> None:
     root = Path(__file__).parents[1] / "src/pipy_harness/native"
-    loop, tui, scope = (
+    loop, tui, scope, transfer = (
         (root / name).read_text()
-        for name in ("tool_loop_session.py", "tui.py", "repl/loop_scope.py")
+        for name in (
+            "tool_loop_session.py",
+            "tui.py",
+            "repl/loop_scope.py",
+            "repl/session_transfer.py",
+        )
     )
     assert loop.count("with self.ctl.session_tree_section() as tree:") == 3
     assert tui.count("with self.coding_effects.lock:") == 2
@@ -577,7 +582,10 @@ def test_r5a_active_pointer_writer_and_rebind_inventory_is_guarded() -> None:
     assert (
         "with self.coding_effects.lock:\n            tree.bind_mutation_lock" in scope
     )
-    assert loop.count("self.ctl.session_tree = ") == 4
+    # One of the five rebinds is `/import` replacing the active tree, which
+    # travelled to the transfer module with the verb that performs it.
+    assert loop.count("self.ctl.session_tree = ") == 3
+    assert transfer.count("self.ctl.session_tree = ") == 1
 
 
 def _provider_mutation_fixture(

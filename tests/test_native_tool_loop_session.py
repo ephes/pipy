@@ -664,18 +664,23 @@ def test_provider_configuration_family_has_one_typed_effect_owner() -> None:
 
 
 def test_transfer_and_reload_families_have_closed_phased_effect_owners() -> None:
+    import pipy_harness.native.repl.session_transfer as session_transfer
     import pipy_harness.native.tool_loop_session as tool_loop_session
 
-    module_path = tool_loop_session.__file__
-    assert module_path is not None
-    syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
-    classes = {
-        node.name: node for node in syntax.body if isinstance(node, ast.ClassDef)
-    }
+    # The transfer family owns its own module now; the reload family and the
+    # interpreter that routes to both are still at the composition root.
+    classes: dict[str, ast.ClassDef] = {}
+    for module in (tool_loop_session, session_transfer):
+        module_path = module.__file__
+        assert module_path is not None
+        syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+        classes.update(
+            {node.name: node for node in syntax.body if isinstance(node, ast.ClassDef)}
+        )
 
     expected_fields = {
-        "_TransferCommandEffects": {
-            "session",
+        "TransferCommandEffects": {
+            "abort_event",
             "ctl",
             "cwd",
             "system_prompt",

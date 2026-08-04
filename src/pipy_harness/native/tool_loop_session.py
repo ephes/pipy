@@ -110,7 +110,6 @@ from pipy_harness.native.automation.agent_events import AutomationAgentEventAdap
 from pipy_harness.native.automation.events import (
     AutomationEventSink,
 )
-from pipy_harness.native.cancellation import CancelToken
 from pipy_harness.native.changelog import (
     changelog_startup,
     read_changelog_entries,
@@ -176,20 +175,6 @@ from pipy_harness.native.coding.state import (
 )
 from pipy_harness.native.coding.status_effects import CodingAgentTurnStatusEffects
 from pipy_harness.native.diagnostics import emit_diagnostic, last_assistant_answer
-from pipy_harness.native.export_distribution import (
-    NativeExportError,
-    ShareCancelled,
-    ShareResult,
-    default_html_export_path,
-    export_native_branch_to_jsonl,
-    export_native_session_to_html,
-    parse_command_path_argument,
-    resolve_github_token,
-    share_native_session,
-)
-from pipy_harness.native.export_distribution import (
-    import_native_session_jsonl as import_native_session_jsonl,
-)
 from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeCommitToken,
     ExtensionChromePrepareInput,
@@ -257,6 +242,7 @@ from pipy_harness.native.repl.loop_scope import (
     RunControlState,
 )
 from pipy_harness.native.repl.provider_selection import ProviderMutationEffects
+from pipy_harness.native.repl.session_transfer import TransferCommandEffects
 from pipy_harness.native.repl.turn_leaves import (
     AGENT_HISTORY_KEEP_RECENT_GROUPS,
     AGENT_HISTORY_MAX_BYTES,
@@ -1030,88 +1016,6 @@ class _ProviderConfigurationCommandEffects:
         emit_diagnostic(self.terminal_ui, self.error_stream, message)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _TransferCommandEffects:
-    """Execute native session export, import, and share effects."""
-
-    session: "NativeToolReplSession"
-    ctl: RunControlState
-    cwd: Path
-    system_prompt: str
-    input_stream: TextIO
-    error_stream: TextIO
-    terminal_ui: ToolLoopTerminalUi | None
-    diag: Callable[[str], None]
-    current_session_dir: Callable[[], Path]
-    session_switch_allows: Callable[[str], bool]
-    rebuild_messages_from_tree: Callable[[], None]
-
-    def execute(self, command_outcome: CodingCommandOutcome) -> None:
-        """Execute one outcome from the closed transfer-command family."""
-
-        action = command_outcome.action
-        if action is CodingCommandAction.SESSION_EXPORT:
-            self.session._export_session(
-                command_outcome.argument,
-                session_tree=self.ctl.session_tree,
-                cwd=self.cwd,
-                system_prompt=self.system_prompt,
-                diagnostic=self.diag,
-            )
-        elif action is CodingCommandAction.SESSION_IMPORT:
-            self._execute_import(command_outcome)
-        elif action is CodingCommandAction.SESSION_SHARE:
-            self._execute_share()
-        else:
-            raise AssertionError("transfer command executor received another action")
-
-    def _execute_import(self, command_outcome: CodingCommandOutcome) -> None:
-        imported_tree = self.session._import_session(
-            command_outcome.argument,
-            cwd=self.cwd,
-            input_stream=self.input_stream,
-            error_stream=self.error_stream,
-            current_session_dir=self.current_session_dir,
-            session_switch_allows=self.session_switch_allows,
-            diagnostic=self.diag,
-        )
-        if imported_tree is None:
-            return
-        self.ctl.session_tree = imported_tree
-        self.rebuild_messages_from_tree()
-        self.diag(
-            "pipy: imported native session "
-            f"{sanitize_label_text(self.ctl.session_tree.session_id[:8])}."
-        )
-
-    def _execute_share(self) -> None:
-        token = resolve_github_token()
-        if not token:
-            self.diag(
-                "pipy: No GitHub token found. Set GITHUB_TOKEN or run `gh auth login`."
-            )
-            return
-        try:
-            result = self.session._share_native_session_command(
-                session_tree=self.ctl.session_tree,
-                token=token,
-                terminal_ui=self.terminal_ui,
-                error_stream=self.error_stream,
-            )
-        except NativeExportError as exc:
-            self.diag(f"pipy: {exc}")
-            return
-        if result is None:
-            return
-        if result.viewer_url:
-            self.diag(
-                f"pipy: share URL: {result.viewer_url}\n"
-                f"pipy: gist URL: {result.gist_url}"
-            )
-        else:
-            self.diag(f"pipy: gist URL: {result.gist_url}")
-
-
 def _finish_chrome_retirement(
     retirement: ExtensionChromeRetirement | None,
 ) -> BaseException | None:
@@ -1503,7 +1407,7 @@ class _BuiltinCommandInterpreter:
 
     session_effects: _SessionCommandEffects
     provider_configuration_effects: _ProviderConfigurationCommandEffects
-    transfer_effects: _TransferCommandEffects
+    transfer_effects: TransferCommandEffects
     reload_effects: _ReloadCommandEffects
     refresh_legacy_footer: Callable[[], None]
     refresh_legacy_footer_with_usage: Callable[[], None]
@@ -2141,6 +2045,7 @@ class _SessionCollaborators:
     """
 
     session: NativeToolReplSession
+    abort_event: threading.Event | _AbortCallbackSignal | None
     ctl: RunControlState
     extension_operations: SessionExtensionOperations
     execution_projections: SessionExecutionProjections
@@ -2254,11 +2159,11 @@ class _SessionCollaborators:
         *,
         system_prompt: str,
         input_stream: TextIO,
-    ) -> _TransferCommandEffects:
+    ) -> TransferCommandEffects:
         """Assemble native session transfer effects from narrow live ports."""
 
-        return _TransferCommandEffects(
-            session=self.session,
+        return TransferCommandEffects(
+            abort_event=self.abort_event,
             ctl=self.ctl,
             cwd=self.cwd,
             system_prompt=system_prompt,
@@ -2603,130 +2508,6 @@ class NativeToolReplSession:
         """Return the state-owned provider port outside an active run."""
 
         return self._coding_state.provider
-
-    @staticmethod
-    def _export_session(
-        argument: ProductContent | None,
-        *,
-        session_tree: NativeSessionTree,
-        cwd: Path,
-        system_prompt: str,
-        diagnostic: Callable[[str], None],
-    ) -> None:
-        """Export the active product session through the typed command effect."""
-
-        if type(argument) is not ProductContent:
-            raise TypeError("SESSION_EXPORT requires an exact ProductContent argument")
-        path_arg = parse_command_path_argument(argument.value)
-        try:
-            if path_arg and Path(path_arg).suffix.lower() == ".jsonl":
-                output_path = Path(path_arg).expanduser()
-                if not output_path.is_absolute():
-                    output_path = cwd / output_path
-                exported = export_native_branch_to_jsonl(session_tree, output_path)
-                diagnostic(f"pipy: exported native session JSONL to {exported}.")
-            else:
-                output_path = (
-                    Path(path_arg).expanduser()
-                    if path_arg
-                    else default_html_export_path(session_tree, cwd=cwd)
-                )
-                if not output_path.is_absolute():
-                    output_path = cwd / output_path
-                exported = export_native_session_to_html(
-                    session_tree,
-                    output_path,
-                    system_prompt=system_prompt,
-                )
-                diagnostic(f"pipy: exported native session HTML to {exported}.")
-        except NativeExportError as exc:
-            diagnostic(f"pipy: {exc}")
-
-    @staticmethod
-    def _confirm_import_prompt(
-        prompt: str,
-        *,
-        input_stream: TextIO,
-        error_stream: TextIO,
-    ) -> bool:
-        """Read one direct import confirmation without changing failure policy."""
-
-        print(prompt, end="", file=error_stream, flush=True)
-        try:
-            return input_stream.readline().strip().lower() in ("y", "yes")
-        except (OSError, ValueError):
-            return False
-
-    @staticmethod
-    def _resolve_import_source_path(argument: str, *, cwd: Path) -> Path | None:
-        """Parse and expand the first import path without resolving symlinks."""
-
-        path_arg = parse_command_path_argument(argument)
-        if not path_arg:
-            return None
-        source_path = Path(path_arg).expanduser()
-        if source_path.is_absolute():
-            return source_path
-        return cwd / source_path
-
-    @classmethod
-    def _import_session(
-        cls,
-        argument: ProductContent | None,
-        *,
-        cwd: Path,
-        input_stream: TextIO,
-        error_stream: TextIO,
-        current_session_dir: Callable[[], Path],
-        session_switch_allows: Callable[[str], bool],
-        diagnostic: Callable[[str], None],
-    ) -> NativeSessionTree | None:
-        """Import a product session through the typed command effect."""
-
-        if type(argument) is not ProductContent:
-            raise TypeError("SESSION_IMPORT requires an exact ProductContent argument")
-        source_path = cls._resolve_import_source_path(argument.value, cwd=cwd)
-        if source_path is None:
-            diagnostic("pipy: Usage: /import <path.jsonl>")
-            return None
-        confirm = "--yes" in argument.value.split()
-        if not confirm:
-            confirm = cls._confirm_import_prompt(
-                f"Replace current session with {source_path}? [y/N] ",
-                input_stream=input_stream,
-                error_stream=error_stream,
-            )
-        if not confirm:
-            diagnostic("pipy: /import cancelled.")
-            return None
-        if not session_switch_allows(str(source_path)):
-            return None
-        try:
-            return import_native_session_jsonl(
-                source_path,
-                session_dir=current_session_dir(),
-            )
-        except NativeExportError as exc:
-            if "imported session cwd does not exist:" not in str(exc):
-                diagnostic(f"pipy: {exc}")
-                return None
-            use_current = cls._confirm_import_prompt(
-                f"{exc} Use current workspace {cwd}? [y/N] ",
-                input_stream=input_stream,
-                error_stream=error_stream,
-            )
-            if not use_current:
-                diagnostic("pipy: /import cancelled.")
-                return None
-            try:
-                return import_native_session_jsonl(
-                    source_path,
-                    session_dir=current_session_dir(),
-                    missing_cwd=cwd,
-                )
-            except NativeExportError as second_exc:
-                diagnostic(f"pipy: {second_exc}")
-                return None
 
     def _fail_startup(
         self, coding_state: CodingSessionState, error_type: str, message: str
@@ -3359,6 +3140,7 @@ class NativeToolReplSession:
         # the shared `ctl` holder so a `/reload` rebind is reflected on next dispatch.
         collaborators = _SessionCollaborators(
             session=self,
+            abort_event=self.abort_event,
             ctl=ctl,
             extension_operations=extension_operations,
             execution_projections=execution_projections,
@@ -3572,80 +3354,6 @@ class NativeToolReplSession:
             keybindings_manager=keybindings_manager,
             include_workspace_defaults=include_workspace_defaults,
         )
-
-    def _share_native_session_command(
-        self,
-        *,
-        session_tree: NativeSessionTree,
-        token: str,
-        terminal_ui: ToolLoopTerminalUi | None,
-        error_stream: TextIO,
-    ) -> ShareResult | None:
-        """Run ``/share`` with product cancellation when the TUI is active."""
-
-        if terminal_ui is None:
-            return share_native_session(
-                session_tree,
-                token=token,
-                cancelled=(
-                    self.abort_event.is_set if self.abort_event is not None else None
-                ),
-            )
-
-        cancel_token = CancelToken()
-        done_event = threading.Event()
-        result_holder: list[ShareResult] = []
-        error_holder: list[BaseException] = []
-
-        def _run_share() -> None:
-            try:
-                result_holder.append(
-                    share_native_session(
-                        session_tree,
-                        token=token,
-                        cancelled=cancel_token.event.is_set,
-                        cancel_token=cancel_token,
-                    )
-                )
-            # re-raised by the caller
-            except BaseException as exc:  # pragma: no cover  # noqa: BLE001
-                error_holder.append(exc)
-            finally:
-                done_event.set()
-
-        emit_diagnostic(
-            terminal_ui,
-            error_stream,
-            "pipy: sharing native session... press Escape to cancel.",
-        )
-        worker = threading.Thread(
-            target=_run_share, name="pipy-share-gist", daemon=True
-        )
-        worker.start()
-        try:
-            outcome = terminal_ui.wait_for_active_turn_interrupt(
-                done_event, cancel_token.event, accept_queue=False
-            )
-        except KeyboardInterrupt:
-            cancel_token.cancel()
-            worker.join(timeout=CANCEL_JOIN_TIMEOUT_SECONDS)
-            emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
-            return None
-        if outcome == TURN_ABORTED:
-            cancel_token.cancel()
-            worker.join(timeout=CANCEL_JOIN_TIMEOUT_SECONDS)
-            emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
-            return None
-        worker.join(timeout=CANCEL_JOIN_TIMEOUT_SECONDS)
-        if error_holder:
-            error = error_holder[0]
-            if isinstance(error, ShareCancelled):
-                emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
-                return None
-            if isinstance(error, NativeExportError):
-                raise error
-            raise error
-        return result_holder[0] if result_holder else None
 
     def _effort_label(self, provider_name: str, model_id: str) -> str:
         """Reasoning-effort label, preferring the live runtime thinking level.

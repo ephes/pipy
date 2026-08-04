@@ -316,7 +316,7 @@ def test_controlled_export_error_is_terminal_sanitized_before_standard_footer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.session_transfer as transfer_module
 
     tree = _branched_tree(tmp_path)
     cwd = Path(tree.get_header().cwd)
@@ -333,7 +333,7 @@ def test_controlled_export_error_is_terminal_sanitized_before_standard_footer(
         footer_calls.append("footer")
         print("STANDARD FOOTER", file=error_stream)
 
-    monkeypatch.setattr(loop_module, "export_native_session_to_html", fail_export)
+    monkeypatch.setattr(transfer_module, "export_native_session_to_html", fail_export)
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
 
     _result, rendered = _run_captured(
@@ -359,7 +359,7 @@ def test_uncontrolled_export_failure_cuts_off_diagnostic_and_retains_file(
     monkeypatch: pytest.MonkeyPatch,
     retained_body: str,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.session_transfer as transfer_module
 
     tree = _branched_tree(tmp_path)
     cwd = Path(tree.get_header().cwd)
@@ -383,7 +383,9 @@ def test_uncontrolled_export_failure_cuts_off_diagnostic_and_retains_file(
     ) -> None:
         footer_calls.append("footer")
 
-    monkeypatch.setattr(loop_module, "export_native_session_to_html", fail_after_write)
+    monkeypatch.setattr(
+        transfer_module, "export_native_session_to_html", fail_after_write
+    )
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", footer)
     errors = io.StringIO()
     session = NativeToolReplSession(

@@ -21,7 +21,9 @@ def test_session_user_docs_match_current_slash_dispatcher_arguments() -> None:
 
     usage = _read("docs/usage.md")
     sessions = _read("docs/sessions.md")
-    dispatcher = _read("src/pipy_harness/native/tool_loop_session.py")
+    # `/export` chooses its format by suffix, and that choice lives with the
+    # transfer verbs rather than at the composition root.
+    transfer = _read("src/pipy_harness/native/repl/session_transfer.py")
 
     compact = classify_coding_command(ProductContent("/compact"))
     compact_with_argument = classify_coding_command(ProductContent("/compact prompt"))
@@ -30,7 +32,7 @@ def test_session_user_docs_match_current_slash_dispatcher_arguments() -> None:
     assert "`/compact [prompt]`" not in usage
     assert "`/compact` | Compact context when enough history exists" in usage
 
-    assert 'Path(path_arg).suffix.lower() == ".jsonl"' in dispatcher
+    assert 'Path(path_arg).suffix.lower() == ".jsonl"' in transfer
     assert "when `file` ends in `.jsonl`" in usage
     assert "when `file` ends in `.jsonl`" in sessions
 

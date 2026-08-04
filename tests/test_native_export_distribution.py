@@ -37,6 +37,7 @@ from pipy_harness.native.export_distribution import (
 )
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.provider import ProviderPort
+from pipy_harness.native.repl.session_transfer import share_native_session_command
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
@@ -256,7 +257,7 @@ def test_tool_loop_share_command_uses_token_and_share_boundary(
 
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_UPLOAD_TOKEN_123456789")
     monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.share_native_session", fake_share
+        "pipy_harness.native.repl.session_transfer.share_native_session", fake_share
     )
 
     err = _run_commands(tree, cwd, "/share\n/exit\n")
@@ -483,14 +484,15 @@ def test_tool_loop_tui_share_command_cancels_worker_with_cancel_token(
         observed.append("cancelled")
         raise ShareCancelled("Share cancelled.")
 
+    # The upload binds in the transfer module at import; patching the old
+    # composition-root name would leave the real gist upload running.
     monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.share_native_session", fake_share
+        "pipy_harness.native.repl.session_transfer.share_native_session", fake_share
     )
-    result = NativeToolReplSession(
-        provider=_NoTurnProvider()
-    )._share_native_session_command(
+    result = share_native_session_command(
         session_tree=tree,
         token="ghp_UPLOAD_TOKEN_123456789",
+        abort_event=None,
         terminal_ui=ui,  # type: ignore[arg-type]
         error_stream=io.StringIO(),
     )

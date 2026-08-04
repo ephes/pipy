@@ -31,6 +31,7 @@ from pipy_harness.native.coding.product_session import CodingProductSessionCoord
 from pipy_harness.native.export_distribution import (
     NativeExportError,
     export_native_branch_to_jsonl,
+    import_native_session_jsonl,
 )
 from pipy_harness.native.extension_hooks import (
     _ExtensionLifecycleAgentEventAdapter,
@@ -429,9 +430,9 @@ def test_missing_cwd_second_prompt_decline_cancels(
     active = _active_tree(tmp_path, cwd)
     source, _ = _import_source(tmp_path, cwd)
 
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.session_transfer as transfer_module
 
-    original_import = loop_module.import_native_session_jsonl
+    original_import = import_native_session_jsonl
 
     def missing_cwd(
         _source: Path, *, session_dir: Path, missing_cwd: Path | None = None
@@ -442,7 +443,7 @@ def test_missing_cwd_second_prompt_decline_cancels(
         assert active.path is not None
         return original_import(source, session_dir=active.path.parent)
 
-    monkeypatch.setattr(loop_module, "import_native_session_jsonl", missing_cwd)
+    monkeypatch.setattr(transfer_module, "import_native_session_jsonl", missing_cwd)
     _result, _output, error = _run(
         NativeToolReplSession(
             provider=_RecordingProvider(),
@@ -465,7 +466,7 @@ def test_missing_cwd_second_prompt_read_errors_cancel(
     monkeypatch: pytest.MonkeyPatch,
     error_factory: type[Exception],
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.session_transfer as transfer_module
 
     cwd = _workspace(tmp_path)
     active = _active_tree(tmp_path, cwd)
@@ -478,7 +479,7 @@ def test_missing_cwd_second_prompt_read_errors_cancel(
         assert missing_cwd is None
         raise NativeExportError("imported session cwd does not exist: removed")
 
-    monkeypatch.setattr(loop_module, "import_native_session_jsonl", missing_cwd)
+    monkeypatch.setattr(transfer_module, "import_native_session_jsonl", missing_cwd)
     stream = _FailingPromptStream(
         f"/import {source} --yes\n", lambda: error_factory("prompt failed")
     )
@@ -502,7 +503,7 @@ def test_missing_cwd_second_import_error_is_controlled(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.session_transfer as transfer_module
 
     cwd = _workspace(tmp_path)
     active = _active_tree(tmp_path, cwd)
@@ -518,7 +519,7 @@ def test_missing_cwd_second_import_error_is_controlled(
             raise NativeExportError("imported session cwd does not exist: removed")
         raise NativeExportError("replacement failed")
 
-    monkeypatch.setattr(loop_module, "import_native_session_jsonl", fail_twice)
+    monkeypatch.setattr(transfer_module, "import_native_session_jsonl", fail_twice)
     _result, _output, error = _run(
         NativeToolReplSession(
             provider=_RecordingProvider(),
@@ -542,13 +543,13 @@ def test_session_before_switch_runs_once_before_import_and_can_veto(
     allowed: bool,
 ) -> None:
     import pipy_harness.native.repl.extension_operations as ops_module
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.session_transfer as transfer_module
 
     cwd = _workspace(tmp_path)
     active = _active_tree(tmp_path, cwd)
     source, _ = _import_source(tmp_path, cwd)
     trace: list[str] = []
-    original_import = loop_module.import_native_session_jsonl
+    original_import = import_native_session_jsonl
 
     def gate(_hooks: object, **kwargs: object) -> SessionDecision:
         trace.append(f"hook:{kwargs['operation']}:{kwargs['target']}")
@@ -563,7 +564,7 @@ def test_session_before_switch_runs_once_before_import_and_can_veto(
         )
 
     monkeypatch.setattr(ops_module, "dispatch_session_before_hooks", gate)
-    monkeypatch.setattr(loop_module, "import_native_session_jsonl", import_session)
+    monkeypatch.setattr(transfer_module, "import_native_session_jsonl", import_session)
     _result, _output, error = _run(
         NativeToolReplSession(
             provider=_RecordingProvider(),
@@ -585,7 +586,7 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.session_transfer as transfer_module
 
     cwd = _workspace(tmp_path)
     active = _active_tree(tmp_path, cwd)
@@ -594,7 +595,7 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
     provider = _RecordingProvider()
     trace: list[str] = []
     lifecycle: list[tuple[str, str | None]] = []
-    original_import = loop_module.import_native_session_jsonl
+    original_import = import_native_session_jsonl
     original_rebuild = CodingProductSessionCoordinator.rebuild_active_history
     original_clear = CodingInputQueue.clear_extension_inputs
 
@@ -631,7 +632,7 @@ def test_success_assigns_then_rebuilds_clears_extension_input_and_next_turn_uses
     ) -> None:
         lifecycle.append((name, reason))
 
-    monkeypatch.setattr(loop_module, "import_native_session_jsonl", import_session)
+    monkeypatch.setattr(transfer_module, "import_native_session_jsonl", import_session)
     monkeypatch.setattr(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
@@ -730,7 +731,7 @@ def test_controlled_import_error_is_sanitized_and_gets_footer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.session_transfer as transfer_module
 
     cwd = _workspace(tmp_path)
     active = _active_tree(tmp_path, cwd)
@@ -740,7 +741,7 @@ def test_controlled_import_error_is_sanitized_and_gets_footer(
     def fail(*_args: object, **_kwargs: object) -> NativeSessionTree:
         raise NativeExportError("unsafe\x1b[31m label\nsecond\x07 line")
 
-    monkeypatch.setattr(loop_module, "import_native_session_jsonl", fail)
+    monkeypatch.setattr(transfer_module, "import_native_session_jsonl", fail)
     monkeypatch.setattr(
         NativeToolReplSession,
         "_print_footer",
@@ -1022,7 +1023,7 @@ def test_uncontrolled_import_failure_is_bounded_in_finalized_metadata_archive(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.session_transfer as transfer_module
 
     cwd = _workspace(tmp_path)
     active = _active_tree(tmp_path, cwd)
@@ -1036,7 +1037,7 @@ def test_uncontrolled_import_failure_is_bounded_in_finalized_metadata_archive(
     def fail_import(*_args: object, **_kwargs: object) -> NativeSessionTree:
         raise PermissionError(raw_message)
 
-    monkeypatch.setattr(loop_module, "import_native_session_jsonl", fail_import)
+    monkeypatch.setattr(transfer_module, "import_native_session_jsonl", fail_import)
     direct_session = NativeToolReplSession(
         provider=_RecordingProvider(),
         native_session=active,
