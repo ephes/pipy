@@ -25,11 +25,18 @@ follow-up. The big-topic specs indexed by the plan are
 
 The
 [2026-08-03 god-file decomposition plan](plans/2026-08-03-god-file-decomposition-plan.md)
-is the current implementation queue. It closes the one axis where pipy
-measurably trails `pi-mono`: shape. `native/tui.py` (7,210 lines, holding a
-4,746-line/345-method/43-field `ToolLoopTerminalUi`) and
-`native/tool_loop_session.py` (6,171) become ~500 and ~420 lines, against
-pi-mono's no-file-above-2,400 bar.
+is the current implementation queue. It closes what the 2026-07-30 comparative
+review called the one axis where pipy measurably trailed `pi-mono`: shape.
+`native/tui.py` (7,210 lines, holding a 4,746-line/345-method/43-field
+`ToolLoopTerminalUi`) and `native/tool_loop_session.py` (6,171) become ~790 and
+~420 lines (plan §3a, whose ~720 residual estimate §2d corrects upward by the
+~70-line retained driver shell). The "no-file-above-2,400" bar holds only for pi-mono's
+`packages/tui` and `packages/agent`; pi-mono's functional counterparts of the
+two god files — `coding-agent`'s `interactive-mode.ts` (6,353 lines at
+`05bf9df65`, above 2,400 continuously since 2026-01-02) and `agent-session.ts`
+(3,337) — are far above it and still growing. The plan's targets are therefore
+stricter than the reference implementation achieves, by deliberate choice; the
+2026-08-04 re-measurement is in the plan's §2d.
 
 It supersedes the shape-related deferrals in the comparative-review remediation
 plan below, which postponed whole-file decomposition until measured ownership

@@ -2,6 +2,9 @@
 
 Status: active. Sections 2a, 3, 3a and 3b were re-derived from measurement on
 2026-08-04 and supersede section 1's line estimates and the original wave order.
+Section 2d (also 2026-08-04) re-measures the tui side and extension_runtime.py,
+adds the class-level ratchet, corrects the pi-mono bar's scope, and fixes the
+slice-44/45/48 rename decisions (`CodingSession`, `TerminalUi`).
 Wave 0 is test-only rule hardening and landed first; every later
 slice lands individually with `just check` green and the old path deleted in the
 same commit.
@@ -321,9 +324,165 @@ was otherwise followed exactly and did not need revising.
 measured under the corrected methodology (`self.<member>` only, plus literal
 `getattr`/`hasattr`/`setattr`). Re-measure before planning either.
 
+## 2d. Tui-side and extension-runtime re-measurement (2026-08-04) — supersedes §2c's "untouched/unmeasured" rows and governs §3 where it conflicts
+
+Measured at `bf1122d` with the corrected methodology (§2a/§2b: `self.<member>`
+only; literal `getattr`/`hasattr`/`setattr` resolved; string annotations and
+keyword-only receivers resolved as typed receivers; spans from the first
+decorator). The companion bands reproduced §2a's numbers exactly (driver 24,
+renderer 20, entry renderer 7, handle 1, keybindings 1), so the methodology
+transfers to the tui side unchanged.
+
+### The class, not the file, is the residual problem
+
+Of the 922 lines that left `tui.py` (7,210 → 6,288), the god class lost **31**
+(4,748 → 4,717 ast-lines, 345 → 337 defs — the eight departed defs are the four
+projection property pairs deleted with the custom-overlay handle). Every landed
+tui slice so far carved helper bands and companions, not the class. The file
+ratchet cannot see this. **New success criterion, ranked with §5 item 2: a
+class-level ratchet pinning `ToolLoopTerminalUi` at ≤ 4,717 ast-lines and
+≤ 337 defs, lowered by every slice that shrinks it, never raised** (the
+43-field pin already exists).
+
+Context for the bar itself: the "no file above ~2,400 lines" statement in this
+plan's opening is true only for `packages/tui`+`agent` as scoped there.
+pi-mono's functional counterparts of the two god files are
+`interactive-mode.ts` (6,353 at `05bf9df65`; above 2,400 continuously since
+2026-01-02) and `agent-session.ts` (3,337), both still growing. This plan's
+targets are stricter than the reference achieves — a deliberate choice, not a
+pi-mono fact. `docs/backlog.md` is corrected accordingly.
+
+### Measured cluster map
+
+All 78 remaining properties are pure projections onto the three landed state
+records; zero non-projection properties remain. Five widget slices own no
+god-class field and have zero effective port beyond the shared raw-mode drive
+loops: **17 session_picker, 27 model+scoped, 32 settings_dialog,
+33 custom_overlay and 35 tree_selector are landable immediately, in any
+order.** Their six `run_*` drive loops stay in `tui.py` until slice 43 ("six
+key loops collapse") — which also resolves slice 33's stated-port
+inconsistency: its runner loop reads `_driver.raw_mode`,
+`_read_key_polling_resize` and `input_stream.fileno()`, so the loop waits like
+the other five rather than gaining a key-read port.
+
+Remaining clusters, measured: transcript(14) 9 fields/24 methods/422L,
+effective port 1 — `_force_full_redraw` stays behind a scrollback-reset
+callable because it writes screen-owned
+`_painted_block_count`/`_live_height`/`_live_input_row` (a port §1 omits);
+autocomplete(16) 3 fields/17m/~393L, effective port 1 (the custom-editor
+forward at L5418-5424, retired at slice 24); custom_editor(24) 7 fields/12m/
+312L, port 14 — the most sibling-blocked cluster; pending+clipboard(30)
+3 fields/11m/173L; chrome+footer+listeners(12) needs two ports §1 omits
+(`_driver` access for the title OSC at L3450-3458 and region width at
+L3220-3268, plus a working-text clear verb at L3638-3645);
+extension_generation(11) is only 2m/81L but touches 15 members across six
+clusters — confirming §2 item 3's named-teardown-owner design; screen(43)
+effective port **33**, including every widget's `*_region_lines` — goes last,
+confirmed. Slice 15 is partially landed already (`_CustomEntryDiagnosticHost`
+was deleted in `167740b`; the dead `hasattr` is now at L890).
+
+**Slices 24 and 30 form a cycle §3 never names:** `_handle_custom_editor_key`
+calls `_paste_clipboard_image`/`enqueue_follow_up`/`restore_pending_to_editor`
+(30-owned, L2665-2759) while 30's verbs call
+`_custom_editor_text`/`_set_custom_editor_text` (24-owned, L5500-5524,
+L5264-5311). Whichever lands first takes explicit callable ports the other
+slice retires.
+
+### The nine external write sites (the repo's last ownership violations)
+
+The 8-field external-writer list in the 2026-08-04 comparison has a ninth
+site: `_LiveExtensionUiDriver.set_tools_expanded` writes `tools_expanded` at
+tui.py:464 alongside `repl/view_actions.py:46`. Retirements, folded into the
+owning slices: `command_names` + `command_descriptions` +
+`extension_shortcut_keys` + `autocomplete_max_visible` → one frozen
+`CommandSurface` record with a single replace verb on the autocomplete owner
+(writers at tool_loop_session.py:1271-1277 and repl/reload.py:583-594
+repoint); `thinking_hidden` → transcript owner, startup calls the existing
+`set_thinking_hidden` verb instead of a field write; `tools_expanded` →
+transcript verb that bundles the rerender, both writers repoint;
+`clipboard_temp_dir` + `clipboard_image_read` → a `ClipboardConfig` record
+injected at wiring — a record, not a verb, because the session co-owns the
+path for reference-root policy.
+
+### extension_runtime.py corrections
+
+111 top-level defs, not §2a's 110 (a miscount, not drift; the
+five-defs-with-effective-port claim verifies exactly, all one lifecycle band —
+which is three non-contiguous clusters, L2769-3039 / L3784-3853 / L3856-4027,
+and reads private *fields* `host._guard`/`host._state` across the function
+boundary, not just unbound methods). Slice 46's `activation.py` lands at
+~1,750-1,950 file lines, not ~1,570: the lower figure silently assigns
+`ActivatedExtension`, `ExtensionActivationBatch` and `_ExtensionRuntime` (105
+def-lines) to the contracts module — slices 34/46 adopt that placement
+explicitly. Still under the 2,400 bar, and the don't-split-further rationale
+holds in code (capability tokens at L1160-1161 gate `_commit_activation` at
+L2320 and `_seal_and_freeze` at L2676). The `[X]` tag is overstated for slices
+18, 25, 34 and 46: each edits a god file's `extension_runtime` import block
+under the definition-site rule (only 8 and 29 touch neither god file at all),
+and slice 46 fans out to 17 importers repo-wide. Semantically parallel with
+[T]/[S] work, but expect import-block merge conflicts, not zero contact.
+
+### Renames, folded into slices 44/45 and 48
+
+`NativeToolReplSession` misnames the product session three ways: "Native" (vs
+wrapped agents) is vestigial now that the native runtime is the product;
+"Tool" is vestigial since the no-tool REPL retired (`8c9441f`, 2026-06-20);
+"Repl" is wrong — all four `repl`-subcommand modes (interactive/json/rpc/
+print) drive this class (cli.py:2407-2487, automation/run_modes.py,
+automation/rpc.py); only the legacy one-shot `pipy run`/`sdk.py` path bypasses
+it. Decisions:
+
+- **Slices 44/45 create the residual as
+  `native/coding/session.py::CodingSession`** (companions:
+  `NativeToolReplResult` → `CodingSessionResult`, `PipyNativeToolReplAdapter`
+  → `CodingSessionAdapter`; the `name="pipy-native"` data string is
+  unchanged). Not `AgentSession`: every one of the 15 existing `AgentSession`
+  occurrences cites *Pi's* class (e.g. rpc.py:788), and the name collides
+  conceptually with `native/agent/`, which the boundary tests keep
+  product-free. `CodingSession` matches tau, matches the existing `coding/`
+  package vocabulary, has zero collisions — and the boundary suite already
+  uses `pipy_harness.native.coding.session.CodingSession` as its synthetic
+  fixture (test_architecture_import_boundaries.py:3549). §5 item 7 gains the
+  row pi `core/agent-session.ts` ↔ `native/coding/session.py`.
+- **Slice 48 renames `ToolLoopTerminalUi` → `TerminalUi`** — the unique
+  zero-collision candidate; the test fakes are already `FakeTerminalUi` /
+  `_FakeTerminalUi`.
+- Timing rationale: slices 3/40 rewrite the boundary literals anyway (**34**
+  occurrences of `"pipy_harness.native.tool_loop_session"` at `bf1122d`, not
+  §3's 25 — the drift warning now applies to the count), and slices 44/45
+  rewrite the residual file wholesale; renaming earlier edits the literals
+  twice, renaming later re-edits freshly written docstrings (repl/ already
+  cites the old name four times). The `native/` package prefix (94.4% of
+  pipy_harness lines) is **not** renamed in this program — that is 178-module
+  churn; at most a terminal cleanup after slice 49.
+- Mechanical blast radius, measured: session class ~105 files / 713
+  occurrences (only 2 real src imports; the rest tests/docs/scripts), 29
+  mirrored test filenames, pyproject.toml:98.
+
+### Latent break the slices must handle regardless of renames
+
+`scripts/parity_score.sh` greps `tool_loop_session.py` *contents* seven times
+(compact_agent_history, tool_budget, production_tool_registry, attachments=,
+/settings, …) and `scripts/architecture_metrics.py` hardcodes both god-file
+paths and parses the literal class name `ToolLoopTerminalUi`. Slices 40-45 and
+48 move those tokens, so both scripts break during this plan's own execution
+even with no rename. The slice that moves each token updates the script in the
+same commit.
+
+### Drifted anchors (for §2a/§3 readers)
+
+`_frame_snapshot` L5001 → 4559; `_standard_frame_inputs` L5050 → 4608;
+`_queue_custom_editor_action` L1646 → 2582; the driver binding band L793-925 →
+L290-496 with the getattr pair at L465/L469; startup selectors L6671/L6716 →
+6219/6245; the renderer's `_chrome` reads L2094-2166 → 5906-5931. §3a's
+residual arithmetic is ~70L short: the retained driver shell is 207L (+51L
+generation proxy), not "~185".
+
 ## 3. Ordered slices
 
-`[T]` touches `tui.py`, `[S]` `tool_loop_session.py` — these serialize. `[X]` touches neither and is
+`[T]` touches `tui.py`, `[S]` `tool_loop_session.py` — these serialize. Per §2d, slices 18/25/34/46
+edit a god file's `extension_runtime` import block only: treat them as `[X]` for code motion but
+serialize their import-block edits against concurrent `[T]`/`[S]` slices. `[X]` touches neither and is
 always available. Standing rules: every port is a callable, a record, or an existing type defined in
 the destination; anything >10 splits **inside the slice that moves it**; import from the definition
 site; the old path dies in the same commit.
@@ -376,8 +535,8 @@ Each row below is safe alone for the reason in its port column: zero port, or a 
 | 30 | `ui/pending_messages.py` + `ui/clipboard_images.py` | T | EditorState + repaint | max 8 |
 | 31 | `extensions/{dispatch,tool_port}.py` | X | none | `invoke` 7 |
 | 32 | `ui/components/settings_dialog.py` — tui half only | T | overlay + PaintLock + repaint | **split `run_settings_dialog` 11** at the raw-mode loop |
-| 33 | `ui/components/custom_overlay.py` grows — component runner | T | OverlayState + repaint | **split `run_custom_component` 17** setup/loop/dispose |
-| 34 | `extensions/{collectors,contracts,flag_tokens,provider_normalization}.py` | X | none | max 6 |
+| 33 | `ui/components/custom_overlay.py` grows — component runner; its raw-mode drive loop stays in `tui.py` until slice 43 (§2d) | T | OverlayState + repaint | **split `run_custom_component` 17** setup/loop/dispose |
+| 34 | `extensions/{collectors,contracts,flag_tokens,provider_normalization}.py`; `contracts` also takes `ActivatedExtension`, `ExtensionActivationBatch`, `_ExtensionRuntime` (§2d placement) | X | none | max 6 |
 | 35 | `ui/components/tree_selector.py` | T | overlay + PaintLock + repaint | `run_tree_selector` exactly 10 |
 | 36 | `native/startup_selectors.py` — both constructing entrypoints + `run_project_trust_selector`; `cli.py` repoints | T | concrete import (legal here) | max 6 |
 | 37 | `ui/components/extension_prompts.py` grows — external editor | T | `external_io_suspension` injected | **split `_run_extension_external_editor` 11** |
@@ -388,10 +547,10 @@ Each row below is safe alone for the reason in its port column: zero port, or a 
 | 42 | `repl/provider_config_commands.py` | S | none | `_scoped_models` 9 |
 | 43 | `ui/screen.py` — paint core, `_frame_snapshot`, resize, `external_io_suspension`, the one `drive(owner)` loop; constructs the single `RLock` | T | ordered contributor tuple | all <10; six key loops collapse |
 | 44 | `repl/wiring.py` — `run()` as ~8 value-returning phases | S | none | **`run` 40 dissolves per phase**; delete `tool_loop_session.py` from per-file-ignores; lower the run bound to ~10 |
-| 45 | `repl/command_router.py` + session residual | S | none | must be <10; the pin is gone |
+| 45 | `repl/command_router.py`; the session residual lands as `native/coding/session.py::CodingSession` with `CodingSessionResult`/`CodingSessionAdapter` companions (§2d renames) | S | none | must be <10; the pin is gone |
 | 46 | `extensions/activation.py`; delete `extension_runtime.py` | X | **none, by design** | `activate_extension_batch` exactly 10 — verbatim |
 | 47 | `repl/extension_attach.py` — unify startup and `/reload` attach | S | none | merged form <10 |
-| 48 | burn `read_line` 39 and `wait_for_active_turn_interrupt` 35 onto `apply_editing_key`; split `_deliver_chrome_event` 11 | T | none | succeed → delete tui.py's pin |
+| 48 | burn `read_line` 39 and `wait_for_active_turn_interrupt` 35 onto `apply_editing_key`; split `_deliver_chrome_event` 11; rename `ToolLoopTerminalUi` → `TerminalUi` (§2d) | T | none | succeed → delete tui.py's pin |
 | 49 | final ratchet + boundary audit | tests | — | — |
 
 **Boundary edits, complete.** Slice 3 adds `"pipy_harness.native.repl"` beside every
@@ -459,10 +618,10 @@ tokens with unbound dispatch and one raw-private-field read. Then `chrome.py` ~1
 ## 5. How to tell it worked
 
 1. **Field ownership is machine-checkable.** New test: for every field of `ToolLoopTerminalUi`, `_RunControlState`, and `NativeToolReplSession`, `grep -rn "self\._<field>" src/` returns hits in **exactly one module**. Set the bound at **1**, not at "no worse than today."
-2. **Size ratchet** (both files regrew ~14% last time, so pin the *value*, not the trend): a test asserting `tui.py ≤ 550` and `tool_loop_session.py ≤ 450` ast-lines once Wave 4 lands, plus **no file under `src/pipy_harness/native/` above 1,700 lines**. Lower each bound in any slice that shrinks the file; never raise one.
+2. **Size ratchet** (both files regrew ~14% last time, so pin the *value*, not the trend): a test asserting `tui.py ≤ 550` and `tool_loop_session.py ≤ 450` ast-lines once Wave 4 lands, plus **no file under `src/pipy_harness/native/` above 1,700 lines**. Lower each bound in any slice that shrinks the file; never raise one. Per §2d, a **class-level ratchet** additionally pins `ToolLoopTerminalUi` at ≤ 4,717 ast-lines and ≤ 337 defs immediately (not deferred to Wave 4), lowered by every slice that shrinks the class — the file ratchet alone missed 35 slices that removed 922 file lines but only 31 class lines.
 3. **`run()` ast-line bound** at `tests/test_architecture_agent_loop_boundaries.py:643` reaches ~80 (from 787/800 today), and `run()` constructs no collaborator — `repl/wiring.py` returns a frozen `SessionWiring`.
 4. **C901 baseline: 13 pinned files → 11 or 12.** `tool_loop_session.py` removed; `tui.py` removed or covering 2 functions. **Zero entries added** across the whole program.
 5. **Boundary rules strictly stronger:** `native.ui` forbidden everywhere `native.tui` is (six new sites); `native.ui` may not import `native.tui`, `native.repl`, `native.tool_loop_session`; `native.repl` forbidden everywhere `tool_loop_session` is; `extension_runtime` entries deleted with the file; `_PLANNED_IMPORT_PREFIXES` unchanged except as noted. No rule relaxed anywhere.
 6. **Locks are types, not comments:** `grep -c "RLock()" src/pipy_harness/native/` shows exactly one construction site for `PaintLock` (`ui/screen.py`) and one for `SessionStateLock` (`repl/wiring.py`), each with no default parameter anywhere.
-7. **Parity diffs are file-to-file:** pi's `components/session-selector.ts` ↔ `ui/components/session_picker.py`, `core/model-runtime.ts` ↔ `repl/provider_selection.py`, `core/bash-executor.ts` ↔ `repl/local_shell.py`, `agent-loop.ts` ↔ `repl/loop_step.py`, `main.ts` ↔ `repl/wiring.py`, `core/extensions/runner.ts` ↔ `extensions/activation.py`.
+7. **Parity diffs are file-to-file:** pi's `components/session-selector.ts` ↔ `ui/components/session_picker.py`, `core/model-runtime.ts` ↔ `repl/provider_selection.py`, `core/bash-executor.ts` ↔ `repl/local_shell.py`, `agent-loop.ts` ↔ `repl/loop_step.py`, `main.ts` ↔ `repl/wiring.py`, `core/extensions/runner.ts` ↔ `extensions/activation.py`, `core/agent-session.ts` ↔ `native/coding/session.py` (the slice-45 residual, renamed `CodingSession` per §2d).
 8. `just check` green on every commit, with the old path deleted in the same commit — no slice depends on the next.
