@@ -217,6 +217,10 @@ from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionInputComponent,
     ExtensionSelectComponent,
 )
+from pipy_harness.native.ui.components.tree_selector import (
+    TreeSelectorComponent,
+    tree_selector_region_lines,
+)
 from pipy_harness.native.ui.key_specs import (
     matches_key_specs,
     resolved_key_specs,
@@ -1430,39 +1434,11 @@ class ToolLoopTerminalUi:
         self._overlays.settings_title = value
 
     @property
-    def tree_selector_open(self) -> bool:
-        return self._overlays.is_open("tree")
-
-    @tree_selector_open.setter
-    def tree_selector_open(self, value: bool) -> None:
-        if value:
-            self._overlays.supersede("tree")
-        else:
-            self._overlays.close("tree")
-
-    @property
-    def tree_selector_rows(self) -> tuple[TreeSelectorRow, ...]:
-        return self._overlays.tree_rows
-
-    @tree_selector_rows.setter
-    def tree_selector_rows(self, value: tuple[TreeSelectorRow, ...]) -> None:
-        self._overlays.tree_rows = value
-
-    @property
-    def tree_selector_selection(self) -> int:
-        return self._overlays.tree_selection
-
-    @tree_selector_selection.setter
-    def tree_selector_selection(self, value: int) -> None:
-        self._overlays.tree_selection = value
-
-    @property
     def tree_selector_filter(self) -> str:
+        # Read by the session-side `/tree` handler after the selector closes
+        # (`repl/session_commands.py` persists the last filter mode); the rest
+        # of the tree-selector state is owned by `ui/components/tree_selector`.
         return self._overlays.tree_filter
-
-    @tree_selector_filter.setter
-    def tree_selector_filter(self, value: str) -> None:
-        self._overlays.tree_filter = value
 
     @property
     def scoped_models_open(self) -> bool:
@@ -2789,119 +2765,25 @@ class ToolLoopTerminalUi:
         selection semantics afterward.
         """
 
-        filter_mode = (
-            initial_filter if initial_filter in filter_modes else filter_modes[0]
+        selector = TreeSelectorComponent(
+            self._overlays,
+            self._paint_lock,
+            self.paint,
+            build_rows=build_rows,
+            filter_modes=filter_modes,
+            on_label_toggle=on_label_toggle,
         )
-        self._overlays.begin_tree(build_rows(filter_mode), filter_mode=filter_mode)
-        self.paint()
+        selector.open(initial_filter)
         fd = self.input_stream.fileno()
         with self._driver.raw_mode():
             while True:
                 key = self._read_key_polling_resize(fd)
-                if key is None or key in {"esc", "ctrl-c", "ctrl-d"}:
-                    self._close_tree_selector()
-                    return None
                 if key == "paste":
                     self._editor.consume_paste()
                     continue
-                if key in {"up", "down"}:
-                    self._navigate_tree_selector(key)
-                    continue
-                if key == "ctrl-o":
-                    position = list(filter_modes).index(self.tree_selector_filter)
-                    self._overlays.tree_filter = filter_modes[
-                        (position + 1) % len(filter_modes)
-                    ]
-                    self._overlays.replace_tree_rows(
-                        build_rows(self.tree_selector_filter), reset_to_active=True
-                    )
-                    self.paint()
-                    continue
-                if key == "L":
-                    if 0 <= self.tree_selector_selection < len(self.tree_selector_rows):
-                        entry_id = self.tree_selector_rows[
-                            self.tree_selector_selection
-                        ].entry_id
-                        on_label_toggle(entry_id)
-                        self._overlays.replace_tree_rows(
-                            build_rows(self.tree_selector_filter)
-                        )
-                        self.paint()
-                    continue
-                if key == "enter":
-                    if not self.tree_selector_rows:
-                        continue
-                    entry_id = self.tree_selector_rows[
-                        self.tree_selector_selection
-                    ].entry_id
-                    self._close_tree_selector()
-                    return entry_id
-
-    def _navigate_tree_selector(self, key: str) -> None:
-        delta = -1 if key == "up" else 1
-        if self._overlays.navigate_tree(delta):
-            self.paint()
-
-    def _close_tree_selector(self) -> None:
-        self._overlays.end_tree()
-        self.paint()
-
-    def _tree_selector_region_lines(
-        self, *, width: int, height: int
-    ) -> list[_FrameLine]:
-        """Compose the interactive ``/tree`` selector overlay."""
-
-        footer = [
-            _FrameLine(self._clip(self.footer_lines[0], width), "footer"),
-            _FrameLine(self._clip(self.footer_lines[1], width), "footer"),
-        ]
-        title = _FrameLine(
-            self._clip(
-                " Session tree — ↑/↓ move · enter select · L label · "
-                f"^O filter ({self.tree_selector_filter}) · esc cancel",
-                width,
-            ),
-            "selector_title",
-        )
-        rows_data = self.tree_selector_rows
-        max_rows = max(1, height - 4)
-        total = len(rows_data)
-        if total == 0:
-            return [
-                title,
-                _FrameLine(self._clip("  (empty session tree)", width), "normal"),
-                *footer,
-            ]
-        visible_count = min(total, max_rows)
-        start = max(
-            0,
-            min(
-                self.tree_selector_selection - (visible_count // 2),
-                max(0, total - visible_count),
-            ),
-        )
-        visible = rows_data[start : start + visible_count]
-        rows: list[_FrameLine] = []
-        for offset, row in enumerate(visible, start=start):
-            selected = offset == self.tree_selector_selection
-            prefix = "→ " if selected else "  "
-            marker = "*" if row.active else " "
-            kind = "selector_option_selected" if selected else "selector_option"
-            rows.append(
-                _FrameLine(self._clip(f"{prefix}{marker} {row.label}", width), kind)
-            )
-        lines = [title, *rows]
-        if start > 0 or start + visible_count < total:
-            lines.append(
-                _FrameLine(
-                    self._clip(
-                        f"  ({self.tree_selector_selection + 1}/{total})", width
-                    ),
-                    "slash_menu_scroll",
-                )
-            )
-        lines.extend(footer)
-        return lines
+                closed = selector.handle_key(key)
+                if closed is not None:
+                    return closed.entry_id
 
     # -- custom extension overlay (ctx.ui.custom) ---------------------------
 
@@ -4659,7 +4541,12 @@ class ToolLoopTerminalUi:
         if active == "session_picker" and include_session_picker:
             return self._session_picker_region_lines(width=width, height=height)
         if active == "tree":
-            return self._tree_selector_region_lines(width=width, height=height)
+            return tree_selector_region_lines(
+                self._overlays,
+                width=width,
+                height=height,
+                footer_lines=self.footer_lines,
+            )
         if active == "scoped_models":
             return self._scoped_models_region_lines(width=width, height=height)
         if active == "model":
