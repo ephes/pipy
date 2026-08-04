@@ -57,7 +57,6 @@ from pipy_harness.native.autocomplete_provider import (
     coerce_apply_result,
     coerce_suggestion,
     cursor_to_line_col,
-    line_col_to_cursor,
 )
 from pipy_harness.native.chrome import (
     ChromeStyle,
@@ -69,12 +68,6 @@ from pipy_harness.native.clipboard import ImageClipboardResult
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.command_registry import project_command_completions
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
-from pipy_harness.native.editor_completion import (
-    at_candidates,
-    extract_at_token,
-    extract_path_prefix,
-    path_candidates,
-)
 from pipy_harness.native.editor_state import (
     CompletionItem,
     CompletionMode,
@@ -209,6 +202,7 @@ from pipy_harness.native.tool_renderers import (
     build_tool_render_theme,
     render_chrome_component,
 )
+from pipy_harness.native.ui.autocomplete import BuiltinAutocompleteProvider
 from pipy_harness.native.ui.components.custom_editor import (
     ExtensionEditorComponent,
 )
@@ -981,70 +975,6 @@ class _GenerationExtensionUiDriver:
 
     def get_editor_component(self) -> object | None:
         return self._sink.snapshot().editor_component
-
-
-class _BuiltinAutocompleteProvider:
-    """Pi-shaped wrapper around pipy's built-in @ and path completion."""
-
-    def __init__(self, ui: "ToolLoopTerminalUi") -> None:
-        self._ui = ui
-
-    def get_suggestions(
-        self,
-        lines: Sequence[str],
-        cursor_line: int,
-        cursor_col: int,
-        context: AutocompleteContext,
-    ) -> AutocompleteSuggestion | None:
-        text_before_cursor = "\n".join(lines[:cursor_line])
-        if cursor_line > 0:
-            text_before_cursor += "\n"
-        text_before_cursor += lines[cursor_line][:cursor_col]
-        if context.force:
-            extracted = extract_path_prefix(text_before_cursor, force=True)
-            if extracted is None:
-                return None
-            start, prefix = extracted
-            if prefix == "":
-                return None
-            items = tuple(path_candidates(self._ui.cwd, prefix))
-            if not items:
-                return None
-            return AutocompleteSuggestion(items, prefix, start, "path")
-        token = extract_at_token(text_before_cursor)
-        if token is None:
-            return None
-        start, query = token
-        items = tuple(at_candidates(self._ui.cwd, query))
-        if not items:
-            return None
-        return AutocompleteSuggestion(items, "@" + query, start, "at")
-
-    getSuggestions = get_suggestions
-
-    def apply_completion(
-        self,
-        lines: Sequence[str],
-        cursor_line: int,
-        cursor_col: int,
-        item: CompletionItem,
-        prefix: str,
-    ) -> AutocompleteApplyResult:
-        text = "\n".join(lines)
-        cursor = line_col_to_cursor(lines, cursor_line, cursor_col)
-        start = max(0, cursor - len(prefix))
-        new_text = text[:start] + item.value + text[cursor:]
-        return AutocompleteApplyResult(new_text, start + len(item.value))
-
-    applyCompletion = apply_completion
-
-    def should_trigger_file_completion(
-        self, lines: Sequence[str], cursor_line: int, cursor_col: int
-    ) -> bool:
-        del lines, cursor_line, cursor_col
-        return True
-
-    shouldTriggerFileCompletion = should_trigger_file_completion
 
 
 _WIDGET_MAX_LINES = 10
@@ -6037,7 +5967,7 @@ class ToolLoopTerminalUi:
                 )
 
     def _autocomplete_provider(self) -> object:
-        provider: object = _BuiltinAutocompleteProvider(self)
+        provider: object = BuiltinAutocompleteProvider(self.cwd)
         for factory in self._autocomplete_provider_factories:
             try:
                 wrapped = cast(Callable[[object], object], factory)(provider)
@@ -6080,7 +6010,7 @@ class ToolLoopTerminalUi:
                 AutocompleteContext(force=force, signal=None),
             )
         except Exception:  # noqa: BLE001 - extension provider must fail soft
-            provider = _BuiltinAutocompleteProvider(self)
+            provider = BuiltinAutocompleteProvider(self.cwd)
             raw = provider.get_suggestions(
                 lines,
                 cursor_line,
@@ -6207,7 +6137,7 @@ class ToolLoopTerminalUi:
             return
         self._editor.snapshot_for_undo()
         self._editor.reset_history_nav()
-        provider = selection.active_provider or _BuiltinAutocompleteProvider(self)
+        provider = selection.active_provider or BuiltinAutocompleteProvider(self.cwd)
         lines, cursor_line, cursor_col = cursor_to_line_col(
             selection.text, selection.cursor
         )
