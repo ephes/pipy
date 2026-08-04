@@ -73,6 +73,7 @@ from pipy_harness.native.repl.execution_projections import (
     build_candidate_extension_projection,
     build_projected_extension_tool_port,
 )
+from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,
@@ -113,7 +114,6 @@ from pipy_harness.native.tool_loop_session import (
     _build_detached_reload_effects,
     _ExtensionCustomEntryRunState,
     _ReplLoopStep,
-    _RunControlState,
 )
 from pipy_harness.native.tools import (
     ToolContext,
@@ -152,7 +152,7 @@ def _runtime_from_batch(
 def test_run_control_holds_one_generation_reference_and_no_mirrors() -> None:
     """Extension state has exactly one owner, reached through the session ref."""
 
-    field_names = {field.name for field in fields(_RunControlState)}
+    field_names = {field.name for field in fields(RunControlState)}
 
     assert "_ext_runtime" not in field_names
     # The generation itself is no longer a bare field: it is reached through
@@ -201,7 +201,7 @@ def test_generation_preserves_outbox_identity_and_ui_adapter_late_binding(
     first_flags: dict[str, object] = {"mode": "first"}
     first_generation = SessionExtensionGeneration(first_runtime)
     coding_effects = CodingEffectCoordinator()
-    ctl = _RunControlState(
+    ctl = RunControlState(
         coding_effects=coding_effects,
         _session_tree=NativeSessionTree.create(tmp_path, persist=False),
         tree_filter_mode="default",
@@ -2688,7 +2688,9 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
             for node in ast.walk(method)
         )
     ] == ["__init__", "_accept_message_route", "_clear_terminal_storage_locked"]
-    assert "generation_ref.publish(" in ast.unparse(trees["tool_loop_session.py"])
+    # The one publication path: `RunControlState.extension_generation`'s setter,
+    # which moved to the REPL tier with the record it belongs to.
+    assert "generation_ref.publish(" in ast.unparse(trees["repl/loop_scope.py"])
 
 
 def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:

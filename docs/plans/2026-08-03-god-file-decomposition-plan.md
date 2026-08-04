@@ -151,8 +151,16 @@ Five survive; none is a Protocol restating private god names.
    edge, entered once at L2863); add `abort_event`, `file_reference_roots`, `tool_budget`, none ever
    assigned on this class. Name it `file_reference_roots`: `image_reference_roots` is *derived* from
    it under a different clipboard policy and both are consumed 14 lines apart under the same
-   parameter name. Do **not** add `provider_state` — the record already carries
-   `cycle_thinking_level` (L2821), which runs the identical guard.
+   parameter name. ~~Do **not** add `provider_state` — the record already carries
+   `cycle_thinking_level` (L2821), which runs the identical guard.~~ **Corrected in execution: the
+   record carries `provider_state` too, a fourth field.** The guard really is identical --
+   `_ProviderMutationEffects.cycle_thinking_level` runs the same
+   `isinstance(state, NativeReplProviderState)` check and returns `None` -- but the *diagnostic* is
+   not. `cycle_thinking_level_action` says "thinking-level cycling is unavailable for this REPL
+   state" for a static provider state and "current model does not support thinking" for a model
+   without reasoning. Collapsing onto the callable would have replaced the first message with the
+   second. A guard being duplicated is not proof the duplicate is redundant; check what each arm
+   *emits* before merging them.
 
 **Dissolved ports.** `CustomEntryTerminalPort` (5) and the `_TuiToolLoopRenderer` port (16) vanish
 because `components/transcript.py` lands first and owns `_history_blocks` and the commit verbs while
@@ -218,25 +226,44 @@ case, and duplicating it is the wrong answer -- that is how the duplicate
 `CANCEL_JOIN_TIMEOUT_SECONDS` went to `repl/turn_leaves.py` beside the interrupt
 translation it bounds.
 
-Measured session-port of the remaining effect families (members of
-`NativeToolReplSession`, of 62, that each actually touches):
+**Measure `self.session` only, and include `getattr`.** The table below was
+re-derived on 2026-08-04 after the loop-scope slice, and the previous version of
+it was wrong in three places for two reasons, both already on the failed-approach
+list:
 
-| Family | Lines | Session-port |
-| --- | --- | --- |
-| `_SessionCollaborators` | 377 | **0** |
-| `_BuiltinCommandInterpreter` | 45 | **0** (blocked by 8 sibling families) |
-| `_SessionExtensionOperations` | 207 | **0** |
-| `_ProviderMutationEffects` | 515 | 1 (`provider_state`) |
-| `_SessionCommandEffects` | 304 | 2 |
-| `_ReloadCommandEffects` | 352 | 3 |
-| `_TransferCommandEffects` | 79 | 3 |
-| `_ReplLoopStep` | 566 | 6 |
-| `_ProviderConfigurationCommandEffects` | 222 | 7 |
+- A `session\.` text scan matches `native_session.name` and
+  `coding_session.rebuild_active_history`. An `ast.Name(id="session")` scan
+  matches a comprehension variable -- `_SessionCommandEffects` has
+  `[session for session in sessions if session.name]`. Only
+  `self.session.<member>` is the field.
+- `_ReloadCommandEffects` reaches `provider_state` through
+  `getattr(self.session, "provider_state", None)` (L1348), invisible to every
+  attribute walk. Its port is 4, not 3. This is the same defect as the driver's
+  `getattr(self._terminal_ui, ...)` in 3b item 1, found a second time; a port
+  measurement that does not resolve literal `getattr`/`hasattr`/`setattr` names
+  is not a measurement.
 
-Section 3 schedules `_SessionCollaborators` at slice 10 and
-`_SessionExtensionOperations` at slice 21. Both are free today. Take the
-zero-port families first, in that table's order, and let the port-needing ones
-follow their own port as 2a already prescribes.
+| Family | Lines | Session-port | Also blocked by |
+| --- | --- | --- | --- |
+| `_SessionCollaborators` | 378 | **0** | forwards the session *by value* into four sibling families (L2961/2986/3007/3040) |
+| `_BuiltinCommandInterpreter` | 46 | **0** | names 8 sibling families still in the file |
+| `_ProviderMutationEffects` | 516 | 1 (`provider_state`, 7 reads, 0 writes) | -- |
+| `_SessionCommandEffects` | 305 | 2 (`_handle_tree_command`, `_run_interactive_session_picker`) | -- |
+| `_TransferCommandEffects` | 80 | 3 (`_export_session`, `_import_session`, `_share_native_session_command`) | -- |
+| `_ReloadCommandEffects` | 353 | 4 (`_maybe_save_implicit_trust_after_reload`, `tool_registry`, `verbose_startup`, `getattr` `provider_state`) | -- |
+| `_ProviderConfigurationCommandEffects` | 223 | 7 | -- |
+
+Every one of these declares `session: NativeToolReplSession` as a *field*, so
+each is blocked by the boundary rule and not merely by coupling. A family whose
+port is entirely session *methods* unblocks by moving those methods out first; a
+family whose port is session *data* unblocks by taking that data as a
+constructor parameter. `_SessionCollaborators` is last of the group regardless of
+its zero port, because it is the thing that hands the god object to the others.
+
+`_SessionExtensionOperations` (207) and `_ReplLoopStep`'s session edge are both
+closed: the first landed at `repl/extension_operations.py`, and the second
+dissolved into four record fields when `ReplLoopScope` moved to
+`repl/loop_scope.py`.
 
 ## 3. Ordered slices
 

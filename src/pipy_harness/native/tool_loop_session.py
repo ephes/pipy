@@ -37,8 +37,7 @@ from __future__ import annotations
 import os
 import tempfile
 import threading
-from collections.abc import Callable, Iterator, Mapping, MutableMapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import InitVar, dataclass, field
 from datetime import UTC, datetime
 from functools import partial
@@ -54,7 +53,6 @@ from pipy_harness.models import HarnessStatus
 from pipy_harness.native import extension_hooks as _extension_hooks
 from pipy_harness.native.agent import (
     AgentEventSink,
-    AgentFailure,
     AgentMessage,
     AgentToolCall,
     AgentToolResultMessage,
@@ -73,7 +71,6 @@ from pipy_harness.native.agent.loop_policy import (
     MAX_AGENT_TOOL_BUDGET,
     AgentProviderRequestPolicyInput,
     AgentToolPolicyDecision,
-    AgentToolPolicyState,
 )
 from pipy_harness.native.agent.provider_turn import (
     ProviderTurnExecutor,
@@ -237,7 +234,6 @@ from pipy_harness.native.image_attachment import (
 from pipy_harness.native.keybindings import KeybindingsManager, render_hotkeys
 from pipy_harness.native.models import ProviderRequest
 from pipy_harness.native.package_runtime import (
-    PackageResourceRoots,
     compose_package_runtime,
 )
 from pipy_harness.native.project_trust import (
@@ -259,6 +255,12 @@ from pipy_harness.native.repl.extension_operations import (
     SessionHookFamily,
 )
 from pipy_harness.native.repl.local_shell import run_local_shell_shortcut
+from pipy_harness.native.repl.loop_scope import (
+    AgentTurnStatusPresentationAdapter,
+    AgentTurnStatusStateAdapter,
+    ReplLoopScope,
+    RunControlState,
+)
 from pipy_harness.native.repl.turn_leaves import (
     AGENT_HISTORY_KEEP_RECENT_GROUPS,
     AGENT_HISTORY_MAX_BYTES,
@@ -442,87 +444,6 @@ def _tool_loop_command_descriptions(
     return descriptions
 
 
-@dataclass(slots=True)
-class _RunControlState:
-    """Mutable holder for the control state a single ``run()`` invocation shares
-    across its composition-root closures and the built-in command handler.
-
-    Before this holder existed, these run-scope names were shared through a
-    ~40-name ``nonlocal`` block reassigned by the built-in effect chain and read
-    back by the REPL loop step and the extension/resource/persistence adapter
-    closures. Routing them through one ``ctl`` instance removed those free-var
-    captures so the built-in effects could be relocated into typed family owners
-    routed by ``_BuiltinCommandInterpreter`` and the per-iteration loop step into
-    ``_ReplLoopStep.step_once``. The effect owners and loop step receive ``ctl``
-    explicitly and mutate it in place. It is deliberately a plain mutable record
-    with no behavior: the handlers and closures reassign ``ctl.<attr>`` exactly
-    where they previously rebound the ``nonlocal`` name, and a ``/reload``,
-    ``/new``, ``/resume``, ``/fork``, or ``/clone`` rebind stays visible to every
-    other closure through the shared instance.
-    """
-
-    coding_effects: CodingEffectCoordinator
-    _session_tree: NativeSessionTree
-    tree_filter_mode: str
-    pending_prefill: str | None
-    package_roots: PackageResourceRoots
-    workspace_resources: WorkspaceResources
-    generation_ref: SessionGenerationRef
-    agent_settled_pending: bool
-    extension_in_agent_turn: bool
-    # ``line`` is (re)assigned by ``_ReplLoopStep.step_once`` before any read every
-    # iteration;
-    # the setup-scope changelog loop that reuses the name never seeds it here.
-    line: str = ""
-
-    def __post_init__(self) -> None:
-        with self.coding_effects.lock:
-            self._session_tree.bind_mutation_lock(self.coding_effects.lock)
-
-    @property
-    def session_tree(self) -> NativeSessionTree:
-        with self.coding_effects.lock:
-            return self._session_tree
-
-    @session_tree.setter
-    def session_tree(self, tree: NativeSessionTree) -> None:
-        if not isinstance(tree, NativeSessionTree):
-            raise TypeError("session_tree must be a NativeSessionTree")
-        with self.coding_effects.lock:
-            tree.bind_mutation_lock(self.coding_effects.lock)
-            self._session_tree = tree
-
-    @contextmanager
-    def session_tree_section(self) -> Iterator[NativeSessionTree]:
-        """Keep active-pointer selection and guarded tree work in one section."""
-
-        with self.coding_effects.lock:
-            yield self._session_tree
-
-    @property
-    def extension_generation(self) -> SessionExtensionGeneration:
-        """The live extension generation, read under the session mutex.
-
-        This is the per-access bridge retained for the pending R4c menu,
-        lifecycle, and chrome consumers. R4a/R4b operation families instead use
-        :meth:`SessionGenerationRef.snapshot` and never mix this bridge into a
-        converted operation.
-        """
-
-        return self.generation_ref.current
-
-    @extension_generation.setter
-    def extension_generation(self, generation: SessionExtensionGeneration) -> None:
-        """Publish a new generation under the session mutex.
-
-        The value this replaces is deliberately kept alive until after the lock
-        is released, so no finalizer runs inside the critical section.
-        """
-
-        retired = self.generation_ref.publish(generation)
-        del retired
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _ExtensionCustomEntryRunState:
     """Narrow TUI adapter over the canonical extension generation.
@@ -533,7 +454,7 @@ class _ExtensionCustomEntryRunState:
     control.
     """
 
-    ctl: _RunControlState
+    ctl: RunControlState
 
     @property
     def session_tree(self) -> NativeSessionTree:
@@ -601,7 +522,7 @@ class _SessionCommandEffects:
     """
 
     session: "NativeToolReplSession"
-    ctl: _RunControlState
+    ctl: RunControlState
     cwd: Path
     terminal_ui: ToolLoopTerminalUi | None
     error_stream: TextIO
@@ -908,7 +829,7 @@ class _ProviderConfigurationCommandEffects:
     """
 
     session: "NativeToolReplSession"
-    ctl: _RunControlState
+    ctl: RunControlState
     coding_state: CodingSessionState
     terminal_ui: ToolLoopTerminalUi | None
     error_stream: TextIO
@@ -1127,7 +1048,7 @@ class _TransferCommandEffects:
     """Execute native session export, import, and share effects."""
 
     session: "NativeToolReplSession"
-    ctl: _RunControlState
+    ctl: RunControlState
     cwd: Path
     system_prompt: str
     input_stream: TextIO
@@ -1231,7 +1152,7 @@ class _ReloadCommandEffects:
     """Execute ``/reload`` through explicit behavior-preserving phases."""
 
     session: "NativeToolReplSession"
-    ctl: _RunControlState
+    ctl: RunControlState
     settings: SettingsManager
     keybindings: KeybindingsManager
     terminal_ui: ToolLoopTerminalUi | None
@@ -1689,7 +1610,7 @@ class _ProviderMutationEffects:
     """
 
     session: NativeToolReplSession
-    ctl: _RunControlState
+    ctl: RunControlState
     extension_operations: SessionExtensionOperations
     coding_state: CodingSessionState
     product_session: CodingProductSessionCoordinator
@@ -2173,118 +2094,6 @@ class _ProviderMutationEffects:
         )
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _AgentTurnStatusStateAdapter:
-    """Bind agent-turn status state ports at the product composition root."""
-
-    ctl: _RunControlState
-    coding_state: CodingSessionState
-    prompt_history_store: PromptHistoryStore
-    prompt_for_recall: str | None
-
-    def mark_run_entered(self) -> None:
-        self.ctl.extension_in_agent_turn = True
-
-    def record_input_accepted(self) -> None:
-        self.coding_state.record_input_accepted()
-
-    def record_prompt_recall(self, prompt: str, /) -> None:
-        self.prompt_history_store.record(prompt)
-
-    def sync_tool_policy(self, state: AgentToolPolicyState, /) -> None:
-        self.coding_state.sync_tool_policy(state)
-
-    def clear_provider_failure(self) -> None:
-        self.coding_state.clear_provider_failure()
-
-    def record_provider_failure(self, failure: AgentFailure, /) -> None:
-        self.coding_state.record_provider_failure(failure)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _AgentTurnStatusPresentationAdapter:
-    """Bind status presentation ports without leaking the concrete UI inward."""
-
-    session: "NativeToolReplSession"
-    terminal_ui: ToolLoopTerminalUi | None
-    error_stream: TextIO
-    refresh_legacy_footer_with_usage: Callable[[], None]
-
-    def has_pending_input(self) -> bool:
-        return self.terminal_ui is not None and self.terminal_ui.has_pending_messages()
-
-    def promote_pending_input(self) -> None:
-        if self.terminal_ui is not None:
-            self.terminal_ui.promote_pending_to_drain()
-
-    def restore_pending_input(self) -> None:
-        if self.terminal_ui is not None:
-            self.terminal_ui.restore_pending_to_editor()
-
-    def emit_diagnostic(self, message: str, /) -> None:
-        emit_diagnostic(
-            self.terminal_ui,
-            self.error_stream,
-            message,
-        )
-
-    def refresh_usage_footer(self) -> None:
-        self.refresh_legacy_footer_with_usage()
-
-
-@dataclass(frozen=True, slots=True)
-class _ReplLoopScope:
-    """The run-scope collaborators one REPL loop iteration reads.
-
-    These values are bound once per ``NativeToolReplSession.run()`` and never
-    reassigned for the life of that run, so they travel as one frozen record
-    instead of ~36 separate keyword arguments threaded through
-    ``functools.partial``. The run's *mutable* control state is deliberately
-    not flattened into this record: it stays behind the ``ctl`` holder, so a
-    ``/reload``, ``/new``, ``/resume``, ``/fork``, or ``/clone`` rebind is still
-    observed by both the composition-root closures and :meth:`_ReplLoopStep.
-    step_once` exactly as it was when the loop body was inline.
-    """
-
-    session: "NativeToolReplSession"
-    ctl: _RunControlState
-    loop_controller: CodingSessionController
-    terminal_ui: ToolLoopTerminalUi | None
-    error_stream: TextIO
-    coding_state: CodingSessionState
-    repl_input: "ToolLoopTerminalUi | NativeReplInput"
-    renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer"
-    emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
-    settings: SettingsManager
-    cwd: Path
-    started_at: datetime
-    base_system_prompt: str
-    image_reference_roots: tuple[Path, ...]
-    prompt_history_store: PromptHistoryStore
-    execution_projections: SessionExecutionProjections
-    agent_tool_policy: NativeAgentToolPolicy
-    coding_input_queue: CodingInputQueue
-    command_effects: CodingCommandEffects
-    input_queued_input_port: NativeAgentQueuedInputPort | None
-    provider_request_policy: NativeAgentProviderRequestPolicy
-    provider_turn_executor: ProviderTurnExecutor
-    usage_publisher: NativeAgentUsagePublisher
-    extension_operations: SessionExtensionOperations
-    diag: Callable[[str], None]
-    coding_footer_text: Callable[[], str]
-    refresh_legacy_footer_with_usage: Callable[[], None]
-    apply_compaction: Callable[[str], str]
-    cycle_thinking_level: Callable[[], str | None]
-    append_agent_message: Callable[[AgentMessage], None]
-    drain_extension_outboxes: Callable[[], None]
-    active_provider_header_callback: Callable[
-        [], Callable[[MutableMapping[str, str | None]], None] | None
-    ]
-    extension_custom_driver: Callable[..., object]
-    extension_notify: Callable[[str, str], None]
-    coding_session_control: Callable[[], ExtensionCodingSessionControl]
-
-
 class _ReplLoopStep:
     """Composition-root handler that owns one REPL loop iteration and the
     loop's lifecycle bookends.
@@ -2297,7 +2106,7 @@ class _ReplLoopStep:
     iteration and returns only the routing :class:`LoopStepSignal`; the bookend
     methods build the terminal projections and fire the lifecycle effects. The
     handler holds no state of its own (``__slots__ = ()``); it receives the
-    stable run-scope collaborators as one frozen :class:`_ReplLoopScope` record,
+    stable run-scope collaborators as one frozen :class:`ReplLoopScope` record,
     reaches the run's mutable control-state holder through ``scope.ctl``, and
     mutates that holder in place, so the composition-root closures read the
     reassigned loop control flags back byte-identically. Only genuinely
@@ -2311,11 +2120,10 @@ class _ReplLoopStep:
 
     __slots__ = ()
 
-    def step_once(self, *, scope: _ReplLoopScope) -> LoopStepSignal:
+    def step_once(self, *, scope: ReplLoopScope) -> LoopStepSignal:
         # Unpacked once into locals so the 460-line body below reads the
         # run-scope collaborators by their own names, exactly as it did when
         # they arrived as keyword arguments.
-        session = scope.session
         ctl = scope.ctl
         loop_controller = scope.loop_controller
         terminal_ui = scope.terminal_ui
@@ -2329,6 +2137,10 @@ class _ReplLoopStep:
         started_at = scope.started_at
         base_system_prompt = scope.base_system_prompt
         image_reference_roots = scope.image_reference_roots
+        file_reference_roots = scope.file_reference_roots
+        abort_event = scope.abort_event
+        provider_state = scope.provider_state
+        tool_budget = scope.tool_budget
         prompt_history_store = scope.prompt_history_store
         execution_projections = scope.execution_projections
         agent_tool_policy = scope.agent_tool_policy
@@ -2433,7 +2245,7 @@ class _ReplLoopStep:
             return LoopStepSignal.continue_loop()
         if command_text == HOTKEY_THINKING_CYCLE:
             cycle_thinking_level_action(
-                session.provider_state,
+                provider_state,
                 terminal_ui=terminal_ui,
                 error_stream=error_stream,
                 cycle_thinking_level=cycle_thinking_level,
@@ -2582,7 +2394,7 @@ class _ReplLoopStep:
             return resolve_file_references(
                 prompt,
                 workspace_root=cwd,
-                reference_roots=session.reference_roots,
+                reference_roots=file_reference_roots,
             )
 
         def _resolve_accepted_image_attachments(
@@ -2616,7 +2428,7 @@ class _ReplLoopStep:
             next_turn_context=coding_input_queue.take_next_turn_context,
             emit_diagnostic=_emit_accepted_input_diagnostic,
             state_recorder=CodingSessionAcceptedInputRecorder(
-                coding_state, tool_budget=session.tool_budget
+                coding_state, tool_budget=tool_budget
             ),
         ).prepare(
             user_input=resolution.user_input,
@@ -2690,16 +2502,16 @@ class _ReplLoopStep:
             provider_for_turn = execution_projections.provider
             if terminal_ui is not None:
                 provider_waiter = partial(wait_for_provider_interrupt, terminal_ui)
-            elif session.abort_event is not None:
+            elif abort_event is not None:
                 provider_start_event = None
-                if isinstance(session.abort_event, _AbortCallbackSignal):
+                if isinstance(abort_event, _AbortCallbackSignal):
                     provider_start_event = threading.Event()
                     provider_for_turn = _StartGatedProvider(
                         coding_state.provider, provider_start_event
                     )
                 provider_waiter = partial(
                     _wait_for_external_abort,
-                    session.abort_event,
+                    abort_event,
                     provider_start_event,
                 )
             return provider_turn_executor.complete(
@@ -2711,7 +2523,7 @@ class _ReplLoopStep:
             )
 
         status_effects = CodingAgentTurnStatusEffects(
-            state=_AgentTurnStatusStateAdapter(
+            state=AgentTurnStatusStateAdapter(
                 ctl=ctl,
                 coding_state=coding_state,
                 prompt_history_store=prompt_history_store,
@@ -2720,8 +2532,7 @@ class _ReplLoopStep:
                     user_input if resource_provider_text is None else None
                 ),
             ),
-            presentation=_AgentTurnStatusPresentationAdapter(
-                session=session,
+            presentation=AgentTurnStatusPresentationAdapter(
                 terminal_ui=terminal_ui,
                 error_stream=error_stream,
                 refresh_legacy_footer_with_usage=(refresh_legacy_footer_with_usage),
@@ -2810,7 +2621,7 @@ class _ReplLoopStep:
     ) -> None:
         emitter.fire_lifecycle(EVENT_SESSION_SHUTDOWN)
 
-    def consume_settle_pending(self, *, ctl: _RunControlState) -> bool:
+    def consume_settle_pending(self, *, ctl: RunControlState) -> bool:
         if ctl.agent_settled_pending:
             ctl.agent_settled_pending = False
             return True
@@ -2887,7 +2698,7 @@ class _SessionCollaborators:
     """
 
     session: NativeToolReplSession
-    ctl: _RunControlState
+    ctl: RunControlState
     extension_operations: SessionExtensionOperations
     execution_projections: SessionExecutionProjections
     coding_state: CodingSessionState
@@ -3810,7 +3621,7 @@ class NativeToolReplSession:
         # initializers here; ``line`` uses the dataclass default. The
         # composition-root closures reassign ``ctl.<attr>`` where they previously
         # rebound the run-scope ``nonlocal`` names.
-        ctl = _RunControlState(
+        ctl = RunControlState(
             coding_effects=coding_effects,
             _session_tree=session_tree,
             tree_filter_mode="default",
@@ -4202,14 +4013,13 @@ class NativeToolReplSession:
         # handler, symmetric with `_BuiltinCommandInterpreter`); it performs one
         # iteration and returns only the routing signal, and shares the run's
         # mutable control state with the composition-root closures through the
-        # `ctl` `_RunControlState` holder so a `/reload`, `/new`, `/resume`,
+        # `ctl` `RunControlState` holder so a `/reload`, `/new`, `/resume`,
         # `/fork`, or `/clone` rebind is reflected in those closures exactly as it
         # was inline. `run()` reaches the handler by passing its bound methods
         # (each `functools.partial`-bound to the run-scope collaborators) through
         # the same `run_loop` ports.
         repl_loop_step = _ReplLoopStep()
-        scope = _ReplLoopScope(
-            session=self,
+        scope = ReplLoopScope(
             ctl=ctl,
             loop_controller=loop_controller,
             terminal_ui=terminal_ui,
@@ -4223,6 +4033,10 @@ class NativeToolReplSession:
             started_at=started_at,
             base_system_prompt=base_system_prompt,
             image_reference_roots=image_reference_roots,
+            file_reference_roots=self.reference_roots,
+            abort_event=self.abort_event,
+            provider_state=self.provider_state,
+            tool_budget=self.tool_budget,
             prompt_history_store=prompt_history_store,
             execution_projections=execution_projections,
             agent_tool_policy=agent_tool_policy,

@@ -32,6 +32,7 @@ from pipy_harness.native.extension_runtime import (
     QueuedCustomMessage,
     RegisteredMessageRenderer,
 )
+from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeDefaultsStore,
@@ -57,7 +58,6 @@ from pipy_harness.native.tool_capabilities import (
 )
 from pipy_harness.native.tool_loop_session import (
     _ProviderMutationEffects,
-    _RunControlState,
     _SessionCollaborators,
     production_tool_registry,
 )
@@ -472,8 +472,8 @@ def test_custom_message_owner_blocks_terminal_until_tree_then_input_finish(
     assert tree.name is None  # guarded read-only views remain available at terminal
 
 
-def _ctl(c: CodingEffectCoordinator, tree: NativeSessionTree) -> _RunControlState:
-    return _RunControlState(
+def _ctl(c: CodingEffectCoordinator, tree: NativeSessionTree) -> RunControlState:
+    return RunControlState(
         coding_effects=c,
         _session_tree=tree,
         tree_filter_mode="default",
@@ -566,12 +566,17 @@ def test_incoming_tree_bind_and_active_pointer_swap_are_one_section(
 
 def test_r5a_active_pointer_writer_and_rebind_inventory_is_guarded() -> None:
     root = Path(__file__).parents[1] / "src/pipy_harness/native"
-    loop, tui = (
-        (root / name).read_text() for name in ("tool_loop_session.py", "tui.py")
+    loop, tui, scope = (
+        (root / name).read_text()
+        for name in ("tool_loop_session.py", "tui.py", "repl/loop_scope.py")
     )
     assert loop.count("with self.ctl.session_tree_section() as tree:") == 3
     assert tui.count("with self.coding_effects.lock:") == 2
-    assert "with self.coding_effects.lock:\n            tree.bind_mutation_lock" in loop
+    # The rebind itself lives with `RunControlState`, which owns the tree slot;
+    # the guarded readers and writers stay at the composition root.
+    assert (
+        "with self.coding_effects.lock:\n            tree.bind_mutation_lock" in scope
+    )
     assert loop.count("self.ctl.session_tree = ") == 4
 
 
