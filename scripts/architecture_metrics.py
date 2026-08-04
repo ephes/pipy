@@ -91,14 +91,7 @@ class _SelfStateCollector(ast.NodeVisitor):
         return
 
 
-def class_state_fields(source: str, class_name: str) -> tuple[str, ...]:
-    """Return the plan-defined state fields for one top-level class.
-
-    Fields are unique class-body annotated names plus attributes assigned or
-    deleted as ``self.<name>`` in direct methods. ``ClassVar`` declarations and
-    assignments in nested function/class scopes are excluded.
-    """
-
+def _single_top_level_class(source: str, class_name: str) -> ast.ClassDef:
     tree = ast.parse(source)
     classes = [
         node
@@ -107,8 +100,18 @@ def class_state_fields(source: str, class_name: str) -> tuple[str, ...]:
     ]
     if len(classes) != 1:
         raise ValueError(f"expected exactly one top-level class named {class_name!r}")
+    return classes[0]
 
-    class_node = classes[0]
+
+def class_state_fields(source: str, class_name: str) -> tuple[str, ...]:
+    """Return the plan-defined state fields for one top-level class.
+
+    Fields are unique class-body annotated names plus attributes assigned or
+    deleted as ``self.<name>`` in direct methods. ``ClassVar`` declarations and
+    assignments in nested function/class scopes are excluded.
+    """
+
+    class_node = _single_top_level_class(source, class_name)
     names: set[str] = set()
     for statement in class_node.body:
         if (
@@ -123,6 +126,30 @@ def class_state_fields(source: str, class_name: str) -> tuple[str, ...]:
                 collector.visit(method_statement)
             names.update(collector.names)
     return tuple(sorted(names))
+
+
+def class_size(source: str, class_name: str) -> tuple[int, int]:
+    """Return the ast-line span and direct def count for one top-level class.
+
+    The span runs from the class's first decorator line (its own ``class``
+    line when undecorated) through ``end_lineno``. The def count includes
+    each direct ``def``/``async def`` child once — a decorated def is still
+    one def — and excludes defs nested inside methods or inner classes.
+    """
+
+    class_node = _single_top_level_class(source, class_name)
+    end_lineno = class_node.end_lineno
+    if end_lineno is None:  # pragma: no cover - ast.parse always sets it
+        raise ValueError(f"class {class_name!r} has no end_lineno")
+    first_lineno = min(
+        [class_node.lineno, *(node.lineno for node in class_node.decorator_list)]
+    )
+    def_count = sum(
+        1
+        for statement in class_node.body
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+    )
+    return end_lineno - first_lineno + 1, def_count
 
 
 def _ruff_c901_counts(repo_root: Path) -> dict[str, JsonValue]:
@@ -164,9 +191,9 @@ def collect_metrics(repo_root: Path = REPO_ROOT) -> dict[str, JsonValue]:
     tests_root = repo_root / "tests"
     tool_loop_path = repo_root / TOOL_LOOP_SESSION
     tui_path = repo_root / TUI
-    tui_fields = class_state_fields(
-        tui_path.read_text(encoding="utf-8"), "ToolLoopTerminalUi"
-    )
+    tui_source = tui_path.read_text(encoding="utf-8")
+    tui_fields = class_state_fields(tui_source, "ToolLoopTerminalUi")
+    tui_class_span, tui_class_defs = class_size(tui_source, "ToolLoopTerminalUi")
     type_ignore_count = sum(
         len(TYPE_IGNORE_RE.findall(path.read_text(encoding="utf-8")))
         for path in sorted(src_root.rglob("*.py"))
@@ -181,6 +208,10 @@ def collect_metrics(repo_root: Path = REPO_ROOT) -> dict[str, JsonValue]:
             "tui": _physical_lines(tui_path),
         },
         "src_type_ignores": type_ignore_count,
+        "tool_loop_terminal_ui_size": {
+            "ast_line_span": tui_class_span,
+            "defs": tui_class_defs,
+        },
         "tool_loop_terminal_ui_state_fields": {
             "count": len(tui_fields),
             "names": list(tui_fields),

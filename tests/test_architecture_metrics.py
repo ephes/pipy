@@ -114,6 +114,70 @@ def test_product_tool_loop_terminal_ui_field_baseline_is_stable() -> None:
     assert len(fields) <= 89  # Slice 12 ceiling: floor(128 * 0.70)
 
 
+def test_class_size_spans_decorators_and_counts_direct_defs_once() -> None:
+    source = """\
+# a comment above the class keeps the span anchored to the decorator
+
+@decorator_a
+@decorator_b
+class Synthetic:
+    field: int
+
+    @property
+    def value(self) -> int:
+        return 1
+
+    @value.setter
+    def value(self, new: int) -> None:
+        self._value = new
+
+        def nested() -> None:
+            pass
+
+    async def run(self) -> None:
+        class Inner:
+            def inner_method(self) -> None:
+                pass
+"""
+
+    span, defs = architecture_metrics.class_size(source, "Synthetic")
+
+    # Lines 3 (first decorator) through 22 (class end), not from `class` at 5.
+    assert span == 20
+    # Getter, setter (each decorated def counted once), and the async def;
+    # `nested` and `Inner.inner_method` live in nested scopes and are excluded.
+    assert defs == 3
+
+
+# --- ToolLoopTerminalUi class ratchet ----------------------------------------
+#
+# §2d of the decomposition plan: of the 922 lines that left `tui.py`, the god
+# class itself lost 31 — the file ratchet in
+# tests/test_architecture_quality_gates.py cannot see the class regrowing while
+# helper bands shrink around it. These bounds are the mass gate for the class.
+# Lower them in any slice that shrinks the class; never raise one. A slice that
+# needs a bound raised is a slice that put code back into the class.
+_TUI_CLASS_SPAN_RATCHET = 4717
+_TUI_CLASS_DEF_RATCHET = 337
+
+
+def test_tool_loop_terminal_ui_class_ratchet_never_grows() -> None:
+    source = (REPO_ROOT / "src/pipy_harness/native/tui.py").read_text(encoding="utf-8")
+
+    span, defs = architecture_metrics.class_size(source, "ToolLoopTerminalUi")
+
+    assert span <= _TUI_CLASS_SPAN_RATCHET, (
+        f"ToolLoopTerminalUi grew to {span} ast-lines, above its ratchet of "
+        f"{_TUI_CLASS_SPAN_RATCHET}. Move code out of the class rather than "
+        "raising the bound."
+    )
+    assert defs <= _TUI_CLASS_DEF_RATCHET, (
+        f"ToolLoopTerminalUi grew to {defs} defs, above its ratchet of "
+        f"{_TUI_CLASS_DEF_RATCHET}. Move code out of the class rather than "
+        "raising the bound."
+    )
+
+
 def test_physical_lines_match_newline_delimited_baseline(tmp_path: Path) -> None:
     path = tmp_path / "sample.py"
     path.write_bytes(b"one\ntwo\nunterminated")
