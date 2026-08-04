@@ -220,6 +220,17 @@ same shape covers most of the remaining session methods (`_footer_text` →
 declaring a candidate blocked, resolve its port members: a private method
 reachable only from the candidate is part of the candidate, not a port.
 
+**Renaming rule: dropping the underscore can shadow what the method delegates
+to.** `_handle_tree_command` was a thin adapter around `handle_tree_command`
+imported from `session_tree_commands`. Renamed to the public form on extraction,
+the new module-level `def` captured its own call site -- the wrapper now called
+itself. mypy caught it only because the signatures differ; matching signatures
+would have shipped unbounded recursion, and `ruff --fix` had already deleted the
+shadowed import as "unused". Before renaming an extracted definition, check the
+target name against the new module's imports. It became `run_tree_command`. Same
+root cause as failed approach 5 -- one name meaning two things -- arrived at from
+the rename direction rather than the regex direction.
+
 A constant reached by both the moving code and the code that stays is a third
 case, and duplicating it is the wrong answer -- that is how the duplicate
 `PRICING_TABLE` shipped. Give it one owner in the tier both can import;

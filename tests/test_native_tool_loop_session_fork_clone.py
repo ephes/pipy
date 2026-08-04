@@ -168,13 +168,13 @@ def test_fork_requires_persistence_before_resolution_or_hooks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.repl.extension_operations as ops_module
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.session_commands as commands_module
 
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, persist=False)
     trace: list[str] = []
     monkeypatch.setattr(
-        loop_module,
+        commands_module,
         "resolve_entry_ref",
         lambda *_args, **_kwargs: trace.append("resolve"),
     )

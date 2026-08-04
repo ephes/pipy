@@ -477,15 +477,19 @@ def test_footer_paths_read_constant_time_state_scalars(
 
 
 def test_session_command_family_has_one_narrow_composition_root_executor() -> None:
+    import pipy_harness.native.repl.session_commands as session_commands
     import pipy_harness.native.tool_loop_session as tool_loop_session
 
-    module_path = tool_loop_session.__file__
-    assert module_path is not None
-    syntax = ast.parse(Path(module_path).read_text(encoding="utf-8"))
+    # The family owns its own module; the interpreter that routes to it is
+    # still at the composition root.
+    module_path = session_commands.__file__
+    root_path = tool_loop_session.__file__
+    assert module_path is not None and root_path is not None
+    syntax = ast.parse(Path(root_path).read_text(encoding="utf-8"))
     effects_class = next(
         node
-        for node in syntax.body
-        if isinstance(node, ast.ClassDef) and node.name == "_SessionCommandEffects"
+        for node in ast.parse(Path(module_path).read_text(encoding="utf-8")).body
+        if isinstance(node, ast.ClassDef) and node.name == "SessionCommandEffects"
     )
     dataclass_decorator = next(
         decorator
@@ -503,7 +507,6 @@ def test_session_command_family_has_one_narrow_composition_root_executor() -> No
         for node in effects_class.body
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
     } == {
-        "session",
         "ctl",
         "cwd",
         "terminal_ui",

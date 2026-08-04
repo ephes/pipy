@@ -37,6 +37,9 @@ from pipy_harness.native.extension_runtime import (
     HookHandler,
     SessionDecision,
 )
+from pipy_harness.native.repl.session_commands import (
+    run_interactive_session_picker,
+)
 from pipy_harness.native.session_tree import (
     CompactionEntry,
     MessageEntry,
@@ -357,6 +360,7 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.repl.extension_operations as ops_module
+    import pipy_harness.native.repl.session_commands as commands_module
 
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, persist=False)
@@ -382,10 +386,7 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
         del self, prompt_label, footer
         return next(scripted)
 
-    def handle_tree(
-        self: NativeToolReplSession, argument: str, **_kwargs: object
-    ) -> TreeCommandOutcome:
-        del self
+    def handle_tree(argument: str, **_kwargs: object) -> TreeCommandOutcome:
         handled_arguments.append(argument)
         return TreeCommandOutcome()
 
@@ -396,7 +397,7 @@ def test_bare_tree_with_live_terminal_ui_passes_through_serial_gate(
     )
     monkeypatch.setattr(NativeToolReplSession, "_build_terminal_ui", build_terminal_ui)
     monkeypatch.setattr(ToolLoopTerminalUi, "read_line", read_line)
-    monkeypatch.setattr(NativeToolReplSession, "_handle_tree_command", handle_tree)
+    monkeypatch.setattr(commands_module, "run_tree_command", handle_tree)
 
     provider = _SeenProvider()
     _run(NativeToolReplSession(provider=provider, native_session=tree), cwd, "")
@@ -477,13 +478,14 @@ def test_tree_gate_controlled_fatal_cuts_off_handler_and_footer(
 def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import pipy_harness.native.repl.session_commands as commands_module
+
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, persist=False)
     trace: list[str] = []
     original_diag = emit_diagnostic
 
     def handle_tree(
-        self: NativeToolReplSession,
         argument: str,
         *,
         session_tree: NativeSessionTree,
@@ -495,7 +497,7 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
         summarizer: Callable[[list[AgentMessage], str | None], str | None]
         | None = None,
     ) -> TreeCommandOutcome:
-        del self, session_tree, terminal_ui, error_stream, repl_input
+        del session_tree, terminal_ui, error_stream, repl_input
         del rebuild_messages, summarizer
         trace.append(f"handler:{argument}:{filter_mode}")
         if argument == "filter default":
@@ -510,10 +512,12 @@ def test_tree_handler_outcome_is_applied_before_footer_and_next_iteration(
     def record_footer(*_args: object, **_kwargs: object) -> None:
         trace.append("footer")
 
-    monkeypatch.setattr(NativeToolReplSession, "_handle_tree_command", handle_tree)
-    monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
-    )
+    monkeypatch.setattr(commands_module, "run_tree_command", handle_tree)
+    for emitter in (
+        "pipy_harness.native.repl.session_commands.emit_diagnostic",
+        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+    ):
+        monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
 
     _out, err = _run(
@@ -564,9 +568,11 @@ def test_tree_noop_selection_still_rebuilds_then_clears_extension_inputs(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
-    monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
-    )
+    for emitter in (
+        "pipy_harness.native.repl.session_commands.emit_diagnostic",
+        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+    ):
+        monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
 
     _run(
@@ -620,9 +626,11 @@ def test_tree_rebuild_failure_preserves_leaf_and_cuts_off_later_effects(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
-    monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
-    )
+    for emitter in (
+        "pipy_harness.native.repl.session_commands.emit_diagnostic",
+        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+    ):
+        monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(NativeToolReplSession, "_print_footer", record_footer)
 
     with pytest.raises(RuntimeError, match="rebuild failed"):
@@ -723,9 +731,11 @@ def test_new_command_preserves_switch_order_store_and_fresh_context(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
-    monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
-    )
+    for emitter in (
+        "pipy_harness.native.repl.session_commands.emit_diagnostic",
+        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+    ):
+        monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(
         NativeToolReplSession, "_print_footer", lambda *_a, **_k: trace.append("footer")
     )
@@ -1210,6 +1220,7 @@ def test_live_resume_cancel_and_current_selection_are_ungated_noops(
     picker_result: str,
 ) -> None:
     import pipy_harness.native.repl.extension_operations as ops_module
+    import pipy_harness.native.repl.session_commands as commands_module
 
     cwd, _session_dir, active, _selected = _resume_fixture(tmp_path)
     _install_resume_terminal(monkeypatch, cwd=cwd, commands=("/resume", "/exit"))
@@ -1219,12 +1230,11 @@ def test_live_resume_cancel_and_current_selection_are_ungated_noops(
     original_open = NativeSessionTree.open
 
     def pick(
-        self: NativeToolReplSession,
         *,
         session_tree: NativeSessionTree,
         terminal_ui: ToolLoopTerminalUi,
     ) -> Path | None:
-        del self, terminal_ui
+        del terminal_ui
         return None if picker_result == "cancel" else session_tree.path
 
     def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
@@ -1236,7 +1246,7 @@ def test_live_resume_cancel_and_current_selection_are_ungated_noops(
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
-    monkeypatch.setattr(NativeToolReplSession, "_run_interactive_session_picker", pick)
+    monkeypatch.setattr(commands_module, "run_interactive_session_picker", pick)
     monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
     provider = _SeenProvider()
 
@@ -1254,6 +1264,7 @@ def test_resume_switch_order_gate_and_fresh_history(
     selection_mode: str,
 ) -> None:
     import pipy_harness.native.repl.extension_operations as ops_module
+    import pipy_harness.native.repl.session_commands as commands_module
 
     cwd, _session_dir, active, selected = _resume_fixture(tmp_path)
     assert selected.path is not None
@@ -1267,12 +1278,11 @@ def test_resume_switch_order_gate_and_fresh_history(
     original_diag = emit_diagnostic
 
     def pick(
-        self: NativeToolReplSession,
         *,
         session_tree: NativeSessionTree,
         terminal_ui: ToolLoopTerminalUi,
     ) -> Path | None:
-        del self, session_tree, terminal_ui
+        del session_tree, terminal_ui
         return selected.path
 
     def open_tree(path: Path, *, persist: bool = True) -> NativeSessionTree:
@@ -1301,16 +1311,18 @@ def test_resume_switch_order_gate_and_fresh_history(
         "dispatch_session_before_hooks",
         _TracingSessionGate(trace, original_gate, include_details=True),
     )
-    monkeypatch.setattr(NativeToolReplSession, "_run_interactive_session_picker", pick)
+    monkeypatch.setattr(commands_module, "run_interactive_session_picker", pick)
     monkeypatch.setattr(NativeSessionTree, "open", staticmethod(open_tree))
     monkeypatch.setattr(
         CodingProductSessionCoordinator, "rebuild_active_history", rebuild
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(ToolLoopTerminalUi, "redraw_custom_entries", redraw)
-    monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic", diagnostic
-    )
+    for emitter in (
+        "pipy_harness.native.repl.session_commands.emit_diagnostic",
+        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+    ):
+        monkeypatch.setattr(emitter, diagnostic)
     monkeypatch.setattr(
         NativeToolReplSession,
         "_print_footer",
@@ -1635,13 +1647,12 @@ def test_interactive_resume_picker_wiring(tmp_path: Path) -> None:
     other.append_session_info("other-name")
     other.append_message(AgentUserMessage(content=ProductContent("OTHER")))
 
-    session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
     assert active.path is not None and other.path is not None
     other_path = other.path
 
     # The stub picker chooses the `other` session file.
     ui = _StubPickerUi(lambda kw: other.path)
-    chosen = session._run_interactive_session_picker(
+    chosen = run_interactive_session_picker(
         session_tree=active,
         terminal_ui=ui,  # type: ignore[arg-type]
     )
@@ -1679,10 +1690,9 @@ def test_resume_rename_active_session_updates_live_tree(tmp_path: Path) -> None:
     active = NativeSessionTree.create(tmp_path / "ws", session_dir=sessions_dir)
     active.append_message(AgentUserMessage(content=ProductContent("X")))
     assert active.path is not None
-    session = NativeToolReplSession(provider=_SeenProvider(), native_session=active)
 
     ui = _RenameActiveUi(active.path, "live-renamed")
-    session._run_interactive_session_picker(
+    run_interactive_session_picker(
         session_tree=active,
         terminal_ui=ui,  # type: ignore[arg-type]
     )
