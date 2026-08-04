@@ -179,6 +179,48 @@ everything in `tool_loop_session.py` bar `auto_trust_on_reload_cwd` into free fu
   `_standard_frame_inputs` (L5050) calls eight `*_lines` owners. Extracted early its port exceeds
   20, so it goes **last** among tui owners, taking an ordered contributor tuple.
 
+## 2b. Placement and ordering rules learned in execution (2026-08-04)
+
+Nine slices in, the measured structure in 2a has held up under verification --
+the driver band really is zero-port, the `getattr` sites really were invisible.
+Two *other* kinds of error recurred, and both are cheap to prevent.
+
+**Placement rule: check the caller's tier before putting anything under `repl/`.**
+Section 3 assigns modules to `native/repl/` by what they do. Twice that was wrong
+for the same reason: `emit_diagnostic` is called from `tui.py`, which may not
+import `native.repl`, and `production_tool_registry` is called from
+`native/__init__.py`, `adapters/native.py` and `cli.py`, three tiers below the
+session. Both belong in leaves (`native/diagnostics.py`,
+`native/tools/registry.py`). Before placing a module under `repl/`, list its
+callers; if any caller sits below the session tier, it is a leaf, not a REPL
+module.
+
+**Ordering rule: a candidate can be blocked by its siblings, not just by the god
+class.** Slice 3 bundled `_BuiltinCommandInterpreter`, whose session-port is
+zero but which names all eight command-effect families still in the file. Port
+surface answers "does this need the god class"; it does not answer "is everything
+this needs already extracted".
+
+Measured session-port of the remaining effect families (members of
+`NativeToolReplSession`, of 62, that each actually touches):
+
+| Family | Lines | Session-port |
+| --- | --- | --- |
+| `_SessionCollaborators` | 377 | **0** |
+| `_BuiltinCommandInterpreter` | 45 | **0** (blocked by 8 sibling families) |
+| `_SessionExtensionOperations` | 207 | **0** |
+| `_ProviderMutationEffects` | 515 | 1 (`provider_state`) |
+| `_SessionCommandEffects` | 304 | 2 |
+| `_ReloadCommandEffects` | 352 | 3 |
+| `_TransferCommandEffects` | 79 | 3 |
+| `_ReplLoopStep` | 566 | 6 |
+| `_ProviderConfigurationCommandEffects` | 222 | 7 |
+
+Section 3 schedules `_SessionCollaborators` at slice 10 and
+`_SessionExtensionOperations` at slice 21. Both are free today. Take the
+zero-port families first, in that table's order, and let the port-needing ones
+follow their own port as 2a already prescribes.
+
 ## 3. Ordered slices
 
 `[T]` touches `tui.py`, `[S]` `tool_loop_session.py` — these serialize. `[X]` touches neither and is
