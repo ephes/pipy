@@ -2756,7 +2756,7 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
     reload_generation = (reload_owner, "function:_reload_extension_generation")
     startup = ("class:NativeToolReplSession", "function:run")
     startup_guard = ("function:balance_startup_candidate", "function:guarded")
-    chrome_prepare = ("class:_LiveExtensionUiDriver", "function:prepare_candidate")
+    chrome_prepare = ("class:ExtensionChromeRouter", "function:prepare_candidate")
     prepare = ("function:prepare_production_reload",)
     sequencer = ("function:deliver_accepted_staged_batch",)
     reserve = ("class:OrderedDeliveryGate", "function:reserve")
@@ -2803,7 +2803,7 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         },
         ("ExtensionChromePrepareInput", loop, reload_generation),
         ("ExtensionChromeCommitToken", loop, reload_generation),
-        ("ExtensionChromeCommitToken", "native/tui.py", chrome_prepare),
+        ("ExtensionChromeCommitToken", "native/ui/chrome_handoff.py", chrome_prepare),
         *{
             (name, loop, owner)
             for name in "OrderedDeliveryGate deliver_accepted_staged_batch reserve".split()
