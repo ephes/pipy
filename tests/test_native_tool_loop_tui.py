@@ -34,6 +34,10 @@ from pipy_harness.native.project_trust import (
     get_project_trust_options,
 )
 from pipy_harness.native.provider import ProviderPort, StreamChunkSink
+from pipy_harness.native.repl.selector_actions import (
+    handle_trust_command,
+    model_selector_rows,
+)
 from pipy_harness.native.repl_state import (
     NativeModelOption,
     NativeModelSelection,
@@ -1388,13 +1392,7 @@ def test_model_selector_rows_gate_unavailable_and_non_tool_capable(tmp_path: Pat
         model_id="openai/gpt-5.1-codex",
         env={"OPENROUTER_API_KEY": "k"},
     )
-    session = NativeToolReplSession(
-        provider=provider_state.current_provider(),
-        provider_state=provider_state,
-        tool_registry={},
-    )
-
-    ui_options, selections = session._model_selector_rows(provider_state)
+    ui_options, selections = model_selector_rows(provider_state)
 
     by_selection = {
         (sel.provider_name, sel.model_id): option
@@ -1711,13 +1709,7 @@ def test_model_selector_rows_mark_current_non_default_model(tmp_path: Path):
         model_id="openai/custom-model",
         env={"OPENROUTER_API_KEY": "k"},
     )
-    session = NativeToolReplSession(
-        provider=provider_state.current_provider(),
-        provider_state=provider_state,
-        tool_registry={},
-    )
-
-    ui_options, selections = session._model_selector_rows(provider_state)
+    ui_options, selections = model_selector_rows(provider_state)
 
     current_rows = [option for option in ui_options if "(current)" in option.label]
     assert len(current_rows) == 1
@@ -1940,12 +1932,8 @@ def test_trust_command_persists_next_start_decision_without_hot_activation(
 
     monkeypatch.setattr(ToolLoopTerminalUi, "run_settings_dialog", _select_exact_trust)
     settings = SettingsManager.for_workspace(cwd, project_trusted=False)
-    session = NativeToolReplSession(
-        provider=FakeNativeProvider(supports_tool_calls=True),
-        tool_registry={},
-    )
 
-    session._handle_trust_command(
+    handle_trust_command(
         terminal_ui=ui,
         error_stream=io.StringIO(),
         cwd=cwd,

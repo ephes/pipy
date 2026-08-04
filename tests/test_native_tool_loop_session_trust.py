@@ -162,7 +162,7 @@ def _notice_text(terminal: ToolLoopTerminalUi) -> list[str]:
 def test_captured_trust_refuses_exactly_without_reading_underlying_stdin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.selector_actions as selector_module
 
     cwd = _workspace(tmp_path)
     scripted = _ScriptedCapturedInput(("/trust\n", "/exit\n"))
@@ -177,7 +177,7 @@ def test_captured_trust_refuses_exactly_without_reading_underlying_stdin(
         raise AssertionError("captured /trust must not construct the trust store")
 
     monkeypatch.setattr(NativeToolReplSession, "_build_repl_input", build_input)
-    monkeypatch.setattr(loop_module, "ProjectTrustStore", construct_store)
+    monkeypatch.setattr(selector_module, "ProjectTrustStore", construct_store)
     provider = _RecordingProvider()
     error = io.StringIO()
     underlying_input = io.StringIO("PRIVATE CAPTURED INPUT")
@@ -199,7 +199,7 @@ def test_captured_trust_refuses_exactly_without_reading_underlying_stdin(
 def test_live_trust_success_orders_effects_and_keeps_runtime_state_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.selector_actions as selector_module
 
     cwd = _workspace(tmp_path)
     settings = _settings(tmp_path, cwd, trusted=False)
@@ -237,8 +237,8 @@ def test_live_trust_success_orders_effects_and_keeps_runtime_state_unchanged(
             trace.append("success")
         original_notice(self, text)
 
-    monkeypatch.setattr(loop_module, "ProjectTrustStore", lambda: store)
-    monkeypatch.setattr(loop_module, "run_project_trust_selector", selector)
+    monkeypatch.setattr(selector_module, "ProjectTrustStore", lambda: store)
+    monkeypatch.setattr(selector_module, "run_project_trust_selector", selector)
     monkeypatch.setattr(ToolLoopTerminalUi, "add_notice", notice)
     provider = _RecordingProvider()
 
@@ -271,7 +271,7 @@ def test_live_trust_success_orders_effects_and_keeps_runtime_state_unchanged(
 def test_live_trust_cancel_skips_write_and_success_then_refreshes_footer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.selector_actions as selector_module
 
     cwd = _workspace(tmp_path)
     trace: list[str] = []
@@ -284,8 +284,8 @@ def test_live_trust_cancel_skips_write_and_success_then_refreshes_footer(
         trace.append("selector")
         return None
 
-    monkeypatch.setattr(loop_module, "ProjectTrustStore", lambda: store)
-    monkeypatch.setattr(loop_module, "run_project_trust_selector", selector)
+    monkeypatch.setattr(selector_module, "ProjectTrustStore", lambda: store)
+    monkeypatch.setattr(selector_module, "run_project_trust_selector", selector)
 
     _run_live(
         NativeToolReplSession(
@@ -307,7 +307,7 @@ def test_project_trust_errors_are_live_only_sanitized_and_cut_off_later_effects(
     monkeypatch: pytest.MonkeyPatch,
     stage: str,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.selector_actions as selector_module
 
     cwd = _workspace(tmp_path)
     trace: list[str] = []
@@ -326,8 +326,8 @@ def test_project_trust_errors_are_live_only_sanitized_and_cut_off_later_effects(
         trace.append("selector")
         return selected
 
-    monkeypatch.setattr(loop_module, "ProjectTrustStore", lambda: store)
-    monkeypatch.setattr(loop_module, "run_project_trust_selector", selector)
+    monkeypatch.setattr(selector_module, "ProjectTrustStore", lambda: store)
+    monkeypatch.setattr(selector_module, "run_project_trust_selector", selector)
 
     output, error = _run_live(
         NativeToolReplSession(
@@ -359,7 +359,7 @@ def test_interrupts_propagate_before_later_trust_effects_or_footer(
     stage: str,
     exception_type: type[BaseException],
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.selector_actions as selector_module
 
     cwd = _workspace(tmp_path)
     trace: list[str] = []
@@ -378,8 +378,8 @@ def test_interrupts_propagate_before_later_trust_effects_or_footer(
             raise failure
         return selected
 
-    monkeypatch.setattr(loop_module, "ProjectTrustStore", lambda: store)
-    monkeypatch.setattr(loop_module, "run_project_trust_selector", selector)
+    monkeypatch.setattr(selector_module, "ProjectTrustStore", lambda: store)
+    monkeypatch.setattr(selector_module, "run_project_trust_selector", selector)
 
     with pytest.raises(exception_type):
         _run_live(
@@ -402,7 +402,7 @@ def test_interrupts_propagate_before_later_trust_effects_or_footer(
 def test_trust_has_no_session_extension_history_archive_or_provider_effects(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.selector_actions as selector_module
 
     cwd = _workspace(tmp_path)
     tree = NativeSessionTree.create(cwd, session_dir=tmp_path / "sessions")
@@ -429,8 +429,8 @@ def test_trust_has_no_session_extension_history_archive_or_provider_effects(
         del self
         raise AssertionError("/trust must not clear extension inputs")
 
-    monkeypatch.setattr(loop_module, "ProjectTrustStore", lambda: store)
-    monkeypatch.setattr(loop_module, "run_project_trust_selector", selector)
+    monkeypatch.setattr(selector_module, "ProjectTrustStore", lambda: store)
+    monkeypatch.setattr(selector_module, "run_project_trust_selector", selector)
     monkeypatch.setattr(
         CodingInputQueue, "clear_extension_inputs", clear_extension_inputs
     )

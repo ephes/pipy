@@ -208,10 +208,6 @@ from pipy_harness.native.package_runtime import (
     compose_package_runtime,
 )
 from pipy_harness.native.project_trust import (
-    DefaultProjectTrust,
-    ProjectTrustError,
-    ProjectTrustStore,
-    get_project_trust_options,
     has_trust_requiring_project_resources,
 )
 from pipy_harness.native.prompt_history import PromptHistoryStore
@@ -241,6 +237,12 @@ from pipy_harness.native.repl.reload import (
     ImplicitTrustState,
     ReloadCommandEffects,
 )
+from pipy_harness.native.repl.selector_actions import (
+    handle_trust_command,
+    model_selector_rows,
+    open_default_project_trust_selector,
+    open_scoped_models_overlay,
+)
 from pipy_harness.native.repl.session_commands import SessionCommandEffects
 from pipy_harness.native.repl.session_transfer import TransferCommandEffects
 from pipy_harness.native.repl.turn_leaves import (
@@ -264,7 +266,6 @@ from pipy_harness.native.repl_input import (
     native_repl_input_for,
 )
 from pipy_harness.native.repl_state import (
-    NativeModelSelection,
     NativeReplProviderState,
     StaticNativeReplProviderState,
     settings_overlay_lines,
@@ -332,13 +333,11 @@ from pipy_harness.native.tui import (
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
     ModelSelectorOption,
-    ScopedModelRow,
     SettingsRow,
     ToolLoopTerminalUi,
     _CustomEntryRenderer,
     _LiveExtensionUiDriver,
     _TuiToolLoopRenderer,
-    run_project_trust_selector,
 )
 from pipy_harness.native.tui import (
     TURN_ABORTED as TURN_ABORTED,
@@ -500,7 +499,7 @@ class _ProviderConfigurationCommandEffects:
                 print(overlay_line, file=self.error_stream)
 
     def _trust_project(self, _command_outcome: CodingCommandOutcome) -> None:
-        self.session._handle_trust_command(
+        handle_trust_command(
             terminal_ui=self.terminal_ui,
             error_stream=self.error_stream,
             cwd=self.cwd,
@@ -532,7 +531,7 @@ class _ProviderConfigurationCommandEffects:
             _ok, message = self.provider_mutation.apply_model_selection(argument)
             emit_diagnostic(self.terminal_ui, self.error_stream, message)
         elif self.terminal_ui is not None:
-            ui_options, selections = self.session._model_selector_rows(state)
+            ui_options, selections = model_selector_rows(state)
             current = state.current_selection()
             current_index = next(
                 (
@@ -580,7 +579,7 @@ class _ProviderConfigurationCommandEffects:
             and isinstance(state, NativeReplProviderState)
             and available_refs
         ):
-            self.session._open_scoped_models_overlay(
+            open_scoped_models_overlay(
                 self.terminal_ui, state=state, settings=self.settings
             )
         elif not argument:
@@ -2750,50 +2749,6 @@ class NativeToolReplSession:
             error_stream, cwd_label=cwd_label, status_line=status_line
         )
 
-    def _handle_trust_command(
-        self,
-        *,
-        terminal_ui: ToolLoopTerminalUi | None,
-        error_stream: TextIO,
-        cwd: Path,
-        settings: "SettingsManager",
-    ) -> None:
-        """Show and persist a next-start trust decision without hot loading."""
-
-        if terminal_ui is None:
-            emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                "pipy: /trust requires the interactive product TUI; use "
-                "--approve for this run.",
-            )
-            return
-        store = ProjectTrustStore()
-        try:
-            saved = store.get_entry(cwd)
-        except ProjectTrustError as exc:
-            terminal_ui.add_notice(f"pipy: could not read project trust: {exc}")
-            return
-        selected = run_project_trust_selector(
-            terminal_ui,
-            cwd=cwd,
-            options=get_project_trust_options(cwd),
-            saved_decision=saved,
-            current_trusted=settings.project_trusted,
-        )
-        if selected is None:
-            return
-        try:
-            store.set_many(selected.updates)
-        except ProjectTrustError as exc:
-            terminal_ui.add_notice(f"pipy: could not save project trust: {exc}")
-            return
-        terminal_ui.add_notice(
-            "pipy: saved trust decision: "
-            f"{'trusted' if selected.trusted else 'untrusted'}. "
-            "Restart pipy for this to take effect."
-        )
-
     def _settings_overlay_lines(
         self,
         settings_manager: "SettingsManager | None" = None,
@@ -2913,7 +2868,7 @@ class NativeToolReplSession:
             if action is None:
                 return
             if action == "model" and isinstance(state, NativeReplProviderState):
-                ui_options, selections = self._model_selector_rows(state)
+                ui_options, selections = model_selector_rows(state)
                 current = state.current_selection()
                 current_index = next(
                     (
@@ -2936,60 +2891,14 @@ class NativeToolReplSession:
                 terminal_ui.add_notice(message)
                 continue
             if action == "scoped_models" and isinstance(state, NativeReplProviderState):
-                self._open_scoped_models_overlay(
-                    terminal_ui, state=state, settings=settings
-                )
+                open_scoped_models_overlay(terminal_ui, state=state, settings=settings)
                 continue
             if action == "theme":
                 self._open_theme_selector(terminal_ui, settings=settings)
                 continue
             if action == "project_trust_default":
-                self._open_default_project_trust_selector(
-                    terminal_ui, settings=settings
-                )
+                open_default_project_trust_selector(terminal_ui, settings=settings)
                 continue
-
-    def _open_scoped_models_overlay(
-        self,
-        terminal_ui: ToolLoopTerminalUi,
-        *,
-        state: NativeReplProviderState,
-        settings: "SettingsManager",
-    ) -> None:
-        """Open the multi-select scope overlay and persist the chosen scope.
-
-        Builds a checklist of available models, pre-checks those matching the
-        current ``enabledModels`` patterns, and on save writes the chosen
-        ``provider/model`` references back as the patterns the Ctrl+P cycle uses.
-        Runs no provider turn.
-        """
-
-        available_refs = [
-            option.selection.reference
-            for option in state.model_options()
-            if option.available
-        ]
-        if not available_refs:
-            terminal_ui.add_notice("pipy: no available models to scope.")
-            return
-        scoped = filter_scoped_references(available_refs, settings.get_enabled_models())
-        rows = [ScopedModelRow(reference=ref, available=True) for ref in available_refs]
-        pre_checked = [
-            index for index, ref in enumerate(available_refs) if ref in scoped
-        ]
-        chosen = terminal_ui.run_scoped_models_selector(rows, checked=pre_checked)
-        if chosen is None:
-            return
-        try:
-            settings.set_enabled_models(sorted(chosen))
-            message = (
-                "pipy: scoped models set: " + ", ".join(sorted(chosen))
-                if chosen
-                else "pipy: scoped models cleared (cycle uses the full catalog)."
-            )
-        except RuntimeError as exc:
-            message = f"pipy: could not update scoped models: {exc}"
-        terminal_ui.add_notice(message)
 
     def _open_theme_selector(
         self,
@@ -3040,54 +2949,6 @@ class NativeToolReplSession:
             except (OSError, RuntimeError):
                 pass
         terminal_ui.add_notice(message)
-
-    def _open_default_project_trust_selector(
-        self,
-        terminal_ui: ToolLoopTerminalUi,
-        *,
-        settings: "SettingsManager",
-    ) -> None:
-        """Select Pi's global-only trust fallback for future startups."""
-
-        values: tuple[DefaultProjectTrust, ...] = (
-            "ask",
-            "always",
-            "never",
-        )
-        labels = {
-            "ask": "Ask",
-            "always": "Trust",
-            "never": "Do not trust",
-        }
-        current = settings.get_default_project_trust()
-        options = [
-            ModelSelectorOption(
-                label=(
-                    f"{labels[value]} (current)" if value == current else labels[value]
-                ),
-                selectable=True,
-            )
-            for value in values
-        ]
-        chosen = terminal_ui.run_model_selector(
-            options,
-            current_index=values.index(current),
-            title="Default project trust",
-        )
-        if chosen is None:
-            return
-        value = values[chosen]
-        try:
-            settings.set_default_project_trust(value)
-        except (OSError, RuntimeError, ValueError) as exc:
-            terminal_ui.add_notice(
-                f"pipy: could not update default project trust: {exc}"
-            )
-            return
-        terminal_ui.add_notice(
-            f"pipy: default project trust set to {labels[value]}; "
-            "the current session is unchanged."
-        )
 
     def _settings_dialog_rows(
         self,
@@ -3256,84 +3117,6 @@ class NativeToolReplSession:
                 )
             )
         return rows
-
-    def _model_selector_rows(
-        self, state: NativeReplProviderState
-    ) -> tuple[list[ModelSelectorOption], list[NativeModelSelection]]:
-        """Build the interactive selector rows from the provider-state options.
-
-        Returns the display rows (parallel to ``selections``) and the matching
-        ``NativeModelSelection`` list so the caller can map a chosen index back
-        to a provider/model reference. A row is selectable only when the
-        provider is locally available *and* the built provider advertises
-        tool-call support, which tool-loop mode requires. Unavailable or
-        non-tool-capable rows stay visible with a reason but are not choosable,
-        so the selector never lets a user pick a provider as if it were usable.
-        """
-
-        current = state.current_selection()
-
-        def _matches_current(selection: NativeModelSelection) -> bool:
-            return (
-                selection.provider_name == current.provider_name
-                and selection.model_id == current.model_id
-            )
-
-        ui_options: list[ModelSelectorOption] = []
-        selections: list[NativeModelSelection] = []
-        # The active selection may use a non-default model (explicit
-        # --native-model or a prior /model <provider>/<custom-model>), which is
-        # not present in model_options(). Surface it as the first row so the
-        # selector can mark it "(current)" and start the highlight on it. The
-        # active provider is tool-capable by the tool-loop invariant, so the row
-        # is selectable.
-        if not any(
-            _matches_current(option.selection) for option in state.model_options()
-        ):
-            selections.append(current)
-            ui_options.append(
-                ModelSelectorOption(
-                    label=f"{current.reference}  [available] (current)",
-                    selectable=True,
-                )
-            )
-        for option in state.model_options():
-            selection = option.selection
-            selectable = option.available
-            reason = option.reason
-            if selectable and not self._selection_supports_tool_calls(state, selection):
-                selectable = False
-                reason = "no tool-call support"
-            if selectable:
-                status = "available"
-            else:
-                status = f"unavailable: {reason or 'unknown'}"
-            label = f"{selection.reference}  [{status}]"
-            if _matches_current(selection):
-                label = f"{label} (current)"
-            ui_options.append(ModelSelectorOption(label=label, selectable=selectable))
-            selections.append(selection)
-        return ui_options, selections
-
-    @staticmethod
-    def _selection_supports_tool_calls(
-        state: NativeReplProviderState, selection: NativeModelSelection
-    ) -> bool:
-        """Return whether the provider for ``selection`` advertises tool calls.
-
-        Builds the provider through the state's catalog-aware construction
-        boundary (cheap, side-effect-free construction) only to read
-        ``supports_tool_calls`` — so a models.json custom provider/model (api:
-        openai-completions) is probed the way it will be used. Any construction
-        failure is treated as "not tool-capable" so a broken selection is never
-        offered as choosable.
-        """
-
-        try:
-            provider = state.provider_for(selection)
-        except Exception:  # noqa: BLE001 - construct() is total; reads as no tool support
-            return False
-        return bool(getattr(provider, "supports_tool_calls", False))
 
     def _copy_last_answer(
         self, messages: Sequence[AgentMessage], *, error_stream: TextIO
