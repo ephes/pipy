@@ -201,6 +201,23 @@ zero but which names all eight command-effect families still in the file. Port
 surface answers "does this need the god class"; it does not answer "is everything
 this needs already extracted".
 
+**Measurement rule: a non-zero port is often just a private companion.** Section
+3 lists slice 20's `_run_local_shell_shortcut` at port *none*; measured, its
+self-port is 1 -- `self._execute_local_shell`, a 69-line private method whose own
+port is two class constants. Moving the pair takes the port back to zero. The
+same shape covers most of the remaining session methods (`_footer_text` →
+`_effort_label` + `_estimated_context_tokens`, `_model_selector_rows` →
+`_selection_supports_tool_calls`, `_handle_tree_command` →
+`_run_interactive_tree_selector`, `_drive_settings_dialog` → five). Before
+declaring a candidate blocked, resolve its port members: a private method
+reachable only from the candidate is part of the candidate, not a port.
+
+A constant reached by both the moving code and the code that stays is a third
+case, and duplicating it is the wrong answer -- that is how the duplicate
+`PRICING_TABLE` shipped. Give it one owner in the tier both can import;
+`CANCEL_JOIN_TIMEOUT_SECONDS` went to `repl/turn_leaves.py` beside the interrupt
+translation it bounds.
+
 Measured session-port of the remaining effect families (members of
 `NativeToolReplSession`, of 62, that each actually touches):
 

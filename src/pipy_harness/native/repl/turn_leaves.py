@@ -7,6 +7,9 @@ speak in typed enums, and translating at the seam is what keeps those strings
 out of the agent loop. An unrecognized outcome raises rather than defaulting --
 a new terminal outcome silently mapping to SETTLED would end turns early.
 
+The cancel-join bound is the other half of the same seam: once an interrupt is
+translated, every caller that cancelled a worker waits on this one value.
+
 Pricing is deliberately approximate and prefix-matched, so a new model in a
 known family (``gpt-5.5`` under ``gpt-5``) keeps rendering a cost instead of
 falling back to zero. `None` disables cost rendering for that selection.
@@ -26,6 +29,14 @@ from pipy_harness.native.tui import (
     TURN_STEERED,
     ToolLoopTerminalUi,
 )
+
+# Bound on how long the main thread waits for a cancelled worker to unwind
+# after its connection is closed. The worker is a daemon thread, so if the join
+# times out the process can still exit and -- because the turn returns ``None``
+# -- the worker can no longer mutate provider/tool/context state regardless.
+# The provider turn, the share command and the ``!`` shell shortcut all wait on
+# the same bound; it is one value so a cancelled worker never gets two answers.
+CANCEL_JOIN_TIMEOUT_SECONDS = 2.0
 
 AGENT_HISTORY_KEEP_RECENT_GROUPS = 2
 AGENT_HISTORY_MAX_MESSAGES = 40

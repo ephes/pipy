@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import io
 import threading
 import time
 from pathlib import Path
+from typing import TextIO, cast
 
 import pytest
 
+from pipy_harness.native.repl.local_shell import run_local_shell_shortcut
 from pipy_harness.native.tools.bash import run_local_command
 
 
@@ -59,18 +62,10 @@ def test_cancel_event_terminates_long_command(tmp_path: Path) -> None:
 
 
 def test_failing_command_records_nonzero_exit_in_context(tmp_path: Path) -> None:
-    import io
-    from typing import TextIO, cast
-
-    from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
-
-    session = NativeToolReplSession(
-        provider=FakeNativeProvider(supports_tool_calls=True), tool_registry={}
-    )
     err = io.StringIO()
     # !false exits non-zero; the recorded context must surface that status so
     # the next provider turn is not misled into thinking it succeeded.
-    context = session._run_local_shell_shortcut(
+    context = run_local_shell_shortcut(
         "!false",
         terminal_ui=None,
         error_stream=cast(TextIO, err),
@@ -82,15 +77,7 @@ def test_failing_command_records_nonzero_exit_in_context(tmp_path: Path) -> None
 
 
 def test_successful_command_records_zero_exit(tmp_path: Path) -> None:
-    import io
-    from typing import TextIO, cast
-
-    from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
-
-    session = NativeToolReplSession(
-        provider=FakeNativeProvider(supports_tool_calls=True), tool_registry={}
-    )
-    context = session._run_local_shell_shortcut(
+    context = run_local_shell_shortcut(
         "!echo hi",
         terminal_ui=None,
         error_stream=cast(TextIO, io.StringIO()),

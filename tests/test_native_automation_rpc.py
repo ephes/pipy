@@ -49,7 +49,6 @@ from pipy_harness.native.repl_state import (
     NativeReplProviderState,
 )
 from pipy_harness.native.session_tree import NativeSessionTree
-from pipy_harness.native.tool_loop_session import NativeToolReplSession
 
 
 class _PromptExitBarrierLock:
@@ -666,15 +665,17 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
             return queued_input
 
     def record_shell_dispatch(
-        _session: NativeToolReplSession,
         command_text: str,
         **_kwargs: object,
     ) -> None:
         shell_calls.append(command_text)
 
+    # The shortcut binds in `tool_loop_session`'s namespace at import, so the
+    # patch has to target that binding: patching the definition site would
+    # leave the loop calling the real shell.
     monkeypatch.setattr(
-        NativeToolReplSession,
-        "_run_local_shell_shortcut",
+        loop_module,
+        "run_local_shell_shortcut",
         record_shell_dispatch,
     )
     monkeypatch.setattr(

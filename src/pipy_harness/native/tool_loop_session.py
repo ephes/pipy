@@ -206,7 +206,6 @@ from pipy_harness.native.extension_chrome_state import (
 from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
     dispatch_tool_call_hooks,
-    dispatch_user_bash_hooks,
 )
 from pipy_harness.native.extension_hooks import (
     dispatch_session_before_hooks as dispatch_session_before_hooks,
@@ -218,9 +217,7 @@ from pipy_harness.native.extension_runtime import (
     ExtensionCapabilityError,
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
-    ExtensionUiDriver,
     GenerationMessageRetirement,
-    HookHandler,
     QueuedCustomMessage,
     QueuedUserMessage,
     ToolRenderDetailsWriter,
@@ -261,10 +258,12 @@ from pipy_harness.native.repl.extension_operations import (
     SessionExtensionOperations,
     SessionHookFamily,
 )
+from pipy_harness.native.repl.local_shell import run_local_shell_shortcut
 from pipy_harness.native.repl.turn_leaves import (
     AGENT_HISTORY_KEEP_RECENT_GROUPS,
     AGENT_HISTORY_MAX_BYTES,
     AGENT_HISTORY_MAX_MESSAGES,
+    CANCEL_JOIN_TIMEOUT_SECONDS,
     pricing_for,
     wait_for_provider_interrupt,
     wait_for_tool_interrupt,
@@ -363,7 +362,6 @@ from pipy_harness.native.tools import (
     ToolDefinition,
     ToolPort,
 )
-from pipy_harness.native.tools.bash import LocalShellResult, run_local_command
 from pipy_harness.native.tools.registry import production_tool_registry
 from pipy_harness.native.tui import (
     HOTKEY_EXTENSION_SHORTCUT_PREFIX,
@@ -374,8 +372,6 @@ from pipy_harness.native.tui import (
     HOTKEY_TOGGLE_THINKING,
     HOTKEY_TOGGLE_TOOLS,
     TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
-    TURN_LOCAL_COMMAND,
-    TURN_SETTLED,
     ModelSelectorOption,
     ScopedModelRow,
     SettingsRow,
@@ -2510,7 +2506,7 @@ class _ReplLoopStep:
                 user_bash_ui,
                 user_bash_model_runtime,
             ) = extension_operations.user_bash_inputs()
-            shell_context_text = session._run_local_shell_shortcut(
+            shell_context_text = run_local_shell_shortcut(
                 stripped,
                 terminal_ui=terminal_ui,
                 error_stream=error_stream,
@@ -3660,7 +3656,7 @@ class NativeToolReplSession:
             reference_roots=self.reference_roots,
             stderr_sink=_stderr_sink,
             filter_options=self.tool_filter_options,
-            cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
+            cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
             # Share the session mutex rather than letting the capability owner
             # create a private one: an extension tool handler reaching
             # `set_active_tools` from a worker thread and a reload publishing a
@@ -3746,7 +3742,7 @@ class NativeToolReplSession:
             ui_driver=extension_ui_driver,
         )
         provider_turn_executor = ProviderTurnExecutor(
-            cancel_join_timeout_seconds=self._CANCEL_JOIN_TIMEOUT_SECONDS,
+            cancel_join_timeout_seconds=CANCEL_JOIN_TIMEOUT_SECONDS,
         )
         unknown_filter_names = tool_capabilities.unknown_filter_names
         if unknown_filter_names:
@@ -4375,15 +4371,15 @@ class NativeToolReplSession:
             )
         except KeyboardInterrupt:
             cancel_token.cancel()
-            worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+            worker.join(timeout=CANCEL_JOIN_TIMEOUT_SECONDS)
             emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
             return None
         if outcome == TURN_ABORTED:
             cancel_token.cancel()
-            worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+            worker.join(timeout=CANCEL_JOIN_TIMEOUT_SECONDS)
             emit_diagnostic(terminal_ui, error_stream, "pipy: Share cancelled.")
             return None
-        worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
+        worker.join(timeout=CANCEL_JOIN_TIMEOUT_SECONDS)
         if error_holder:
             error = error_holder[0]
             if isinstance(error, ShareCancelled):
@@ -4393,207 +4389,6 @@ class NativeToolReplSession:
                 raise error
             raise error
         return result_holder[0] if result_holder else None
-
-    # Bound on how long the main thread waits for a cancelled provider worker to
-    # unwind after its connection is closed. The worker is a daemon thread, so
-    # if the join times out the process can still exit and—because the turn
-    # returns ``None``—the worker can no longer mutate provider/tool/context
-    # state regardless.
-    _CANCEL_JOIN_TIMEOUT_SECONDS: ClassVar[float] = 2.0
-
-    # Bound on a ``!``/``!!`` editor shell command so it cannot hang the session
-    # indefinitely (Escape cancels earlier in a live TTY; a non-TTY script has no
-    # cancel key, so the deadline is the only bound there). Generous so ordinary
-    # builds/tests finish well within it.
-    _LOCAL_SHELL_TIMEOUT_SECONDS: ClassVar[int] = 600
-
-    def _run_local_shell_shortcut(
-        self,
-        command_line: str,
-        *,
-        terminal_ui: ToolLoopTerminalUi | None,
-        error_stream: TextIO,
-        cwd: Path,
-        user_bash_hooks: Sequence[HookHandler] = (),
-        model_runtime: ExtensionModelRuntimeControl | None = None,
-        ui_driver: ExtensionUiDriver | None = None,
-        flags: Mapping[str, object] | None = None,
-        project_trusted: bool = False,
-    ) -> str | None:
-        """Run a ``!``/``!!`` editor shell shortcut; return context text or None.
-
-        ``!!`` excludes the command from provider context (returns ``None``);
-        ``!`` returns the command/output text to record into the conversation
-        and native session tree. Output streams live into a shaded shell block,
-        and Escape cancels a running command (terminating its process group)
-        without tearing down the session. Runs no provider turn.
-        """
-
-        exclude_from_context = command_line.startswith("!!")
-        command = (
-            command_line[2:] if exclude_from_context else command_line[1:]
-        ).strip()
-        if not command:
-            emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                "pipy: ! needs a command, e.g. !ls (use !! to skip recording).",
-            )
-            return None
-
-        decision = dispatch_user_bash_hooks(
-            user_bash_hooks,
-            command=command,
-            exclude_from_context=exclude_from_context,
-            cwd=str(cwd),
-            has_ui=terminal_ui is not None,
-            notify_sink=lambda kind, message: emit_diagnostic(
-                terminal_ui, error_stream, message
-            ),
-            ui_driver=ui_driver,
-            model_runtime=model_runtime,
-            flags=flags,
-            project_trusted=project_trusted,
-        )
-        if not decision.allowed:
-            emit_diagnostic(
-                terminal_ui,
-                error_stream,
-                f"pipy: shell command blocked by extension: {decision.reason}",
-            )
-            return None
-        command = decision.command
-        exclude_from_context = decision.exclude_from_context
-
-        if terminal_ui is not None:
-            terminal_ui.add_tool_call(f"$ {command}")
-            sink: Callable[[str], None] = terminal_ui.append_tool_output
-        else:
-            print(f"$ {command}", file=error_stream)
-
-            def sink(chunk: str) -> None:
-                print(chunk, end="", file=error_stream, flush=True)
-
-        if decision.result is not None:
-            result = LocalShellResult(
-                output=decision.result,
-                exit_code=decision.exit_code,
-                truncated=False,
-                timed_out=False,
-                cancelled=False,
-                started=True,
-            )
-            sink(decision.result)
-        else:
-            result = self._execute_local_shell(
-                command, sink=sink, terminal_ui=terminal_ui, cwd=cwd
-            )
-
-        output_text = result.output or "(no output)"
-        # Status line mirrors the bash tool's _shape: a timeout, the exit code,
-        # or cancellation. A non-zero exit (e.g. !false) is an error the model
-        # should see, matching the real bash execution boundary.
-        if result.cancelled:
-            reason = result.cancel_reason or "escape"
-            status_line = f"(cancelled by {reason})"
-        elif result.timed_out:
-            status_line = "(timed out)"
-        else:
-            status_line = f"exit code: {result.exit_code}"
-        is_error = (
-            result.timed_out
-            or not result.started
-            or (
-                not result.cancelled
-                and result.exit_code is not None
-                and result.exit_code != 0
-            )
-        )
-        if terminal_ui is not None:
-            rendered = [status_line, *(output_text.splitlines() or [""])]
-            terminal_ui.add_tool_result(lines=rendered, is_error=is_error)
-        else:
-            # Captured-stream path: the body already streamed through the sink,
-            # so print only the status line (never re-print the output — that
-            # duplicated every command's output).
-            print(status_line, file=error_stream)
-
-        if exclude_from_context or not result.started:
-            return None
-        return (
-            "I ran a shell command in the workspace (not a tool call):\n\n"
-            f"$ {command}\n{status_line}\n\n{output_text}"
-        )
-
-    def _execute_local_shell(
-        self,
-        command: str,
-        *,
-        sink: Callable[[str], None],
-        terminal_ui: ToolLoopTerminalUi | None,
-        cwd: Path,
-    ) -> LocalShellResult:
-        """Execute ``command`` locally, watching stdin for Escape cancellation.
-
-        With no live TUI (captured streams), runs synchronously. With a live
-        TUI, runs the command on a worker thread while the same active-turn
-        interrupt watcher used for provider turns reads stdin; Escape/Ctrl-C set
-        the cancel event so the runner kills the child process group, then the
-        worker is best-effort joined.
-        """
-
-        if terminal_ui is None:
-            return run_local_command(
-                command,
-                workspace_root=cwd,
-                output_sink=sink,
-                timeout=self._LOCAL_SHELL_TIMEOUT_SECONDS,
-            )
-
-        cancel_event = threading.Event()
-        done_event = threading.Event()
-        holder: list[LocalShellResult] = []
-
-        def _worker() -> None:
-            try:
-                holder.append(
-                    run_local_command(
-                        command,
-                        workspace_root=cwd,
-                        output_sink=sink,
-                        cancel_event=cancel_event,
-                        timeout=self._LOCAL_SHELL_TIMEOUT_SECONDS,
-                    )
-                )
-            finally:
-                done_event.set()
-
-        worker = threading.Thread(target=_worker, name="pipy-local-shell", daemon=True)
-        worker.start()
-        outcome = TURN_SETTLED
-        try:
-            outcome = terminal_ui.wait_for_active_turn_interrupt(
-                done_event, cancel_event, accept_commands=True
-            )
-        except KeyboardInterrupt:
-            cancel_event.set()
-            outcome = TURN_ABORTED
-        worker.join(timeout=self._CANCEL_JOIN_TIMEOUT_SECONDS)
-        cancel_reason = "local command" if outcome == TURN_LOCAL_COMMAND else "escape"
-        if holder:
-            result = holder[0]
-            if result.cancelled:
-                result.cancel_reason = cancel_reason
-            return result
-        return LocalShellResult(
-            output="",
-            exit_code=None,
-            truncated=False,
-            timed_out=False,
-            cancelled=True,
-            started=True,
-            cancel_reason=cancel_reason,
-        )
 
     def _effort_label(self, provider_name: str, model_id: str) -> str:
         """Reasoning-effort label, preferring the live runtime thinking level.
