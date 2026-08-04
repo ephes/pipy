@@ -30,9 +30,9 @@ from pipy_harness.native.extension_runtime import (
     dispatch_extension_command,
 )
 from pipy_harness.native.terminal_driver import TerminalDriver
-from pipy_harness.native.tui import (
-    ToolLoopTerminalUi,
-    _ExtensionEditorComponent,
+from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.components.custom_editor import (
+    ExtensionEditorComponent,
 )
 from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionConfirmComponent,
@@ -337,7 +337,7 @@ def test_extension_input_component_edits_sanitizes_display_and_submits_raw() -> 
 
 def test_extension_editor_component_edits_multiline_and_submits_raw() -> None:
     result: list[object] = []
-    component = _ExtensionEditorComponent(
+    component = ExtensionEditorComponent(
         "Draft\x1b[31m",
         "alpha\nbeta",
         lambda value=None: result.append(value),
@@ -366,7 +366,7 @@ def test_extension_editor_component_edits_multiline_and_submits_raw() -> None:
 
 def test_extension_editor_component_cancels() -> None:
     result: list[object] = []
-    component = _ExtensionEditorComponent(
+    component = ExtensionEditorComponent(
         "Draft", "prefill", lambda value=None: result.append(value)
     )
 
@@ -383,7 +383,7 @@ def test_extension_editor_component_uses_resolved_external_editor_key() -> None:
         calls.append(text)
         return "edited"
 
-    component = _ExtensionEditorComponent(
+    component = ExtensionEditorComponent(
         "Draft",
         "prefill",
         lambda value=None: result.append(value),
@@ -410,7 +410,7 @@ def test_extension_editor_component_hides_external_editor_hint_when_unbound() ->
         calls.append(text)
         return "edited"
 
-    component = _ExtensionEditorComponent(
+    component = ExtensionEditorComponent(
         "Draft",
         "prefill",
         lambda value=None: None,
