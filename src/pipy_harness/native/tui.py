@@ -11,11 +11,7 @@ from __future__ import annotations
 
 import os
 import select
-import shlex
-import subprocess
 import sys
-import tempfile
-import termios
 from collections.abc import (
     Callable,
     Iterable,
@@ -149,6 +145,7 @@ from pipy_harness.native.ui.components.custom_overlay import (
 )
 from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionConfirmComponent,
+    ExtensionExternalEditor,
     ExtensionInputComponent,
     ExtensionSelectComponent,
 )
@@ -622,7 +619,12 @@ class ToolLoopTerminalUi:
                 paste_clipboard_image=lambda: (
                     self.clipboard_images.paste_clipboard_image()
                 ),
-                external_editor=self._run_configured_external_editor,
+                external_editor=lambda current_text: ExtensionExternalEditor(
+                    external_io_suspension=self.external_io_suspension,
+                    terminal_write=self._driver.write,
+                    input_stream=self.input_stream,
+                    terminal_stream=self.terminal_stream,
+                ).run_configured(current_text),
                 autocomplete_provider=lambda: (
                     self._autocomplete.custom_editor_provider()
                 ),
@@ -830,9 +832,12 @@ class ToolLoopTerminalUi:
                         return ""
                     continue
                 if self._matches_keybinding(key, "app.editor.external"):
-                    edited = self._run_configured_external_editor(
-                        self.input_editor.text
-                    )
+                    edited = ExtensionExternalEditor(
+                        external_io_suspension=self.external_io_suspension,
+                        terminal_write=self._driver.write,
+                        input_stream=self.input_stream,
+                        terminal_stream=self.terminal_stream,
+                    ).run_configured(self.input_editor.text)
                     if edited is None:
                         self.paint()
                     else:
@@ -1252,7 +1257,12 @@ class ToolLoopTerminalUi:
     ) -> str | None:
         """Run a Pi-shaped extension multi-line editor overlay."""
 
-        external_editor = self._extension_external_editor_callback()
+        external_editor = ExtensionExternalEditor(
+            external_io_suspension=self.external_io_suspension,
+            terminal_write=self._driver.write,
+            input_stream=self.input_stream,
+            terminal_stream=self.terminal_stream,
+        ).callback()
         external_editor_keys = resolved_key_specs(
             "app.editor.external", self.keybindings_manager
         )
@@ -1263,94 +1273,11 @@ class ToolLoopTerminalUi:
         )
         return result if isinstance(result, str) else None
 
-    def _extension_external_editor_callback(
-        self,
-    ) -> Callable[[str], str | None] | None:
-        if not self._external_editor_command():
-            return None
-
-        def run_external_editor(current_text: str) -> str | None:
-            return self._run_configured_external_editor(current_text)
-
-        return run_external_editor
-
-    @staticmethod
-    def _external_editor_command() -> str | None:
-        return os.environ.get("VISUAL") or os.environ.get("EDITOR")
-
-    def _run_configured_external_editor(self, current_text: str) -> str | None:
-        editor_cmd = self._external_editor_command()
-        if not editor_cmd:
-            return None
-        return self._run_extension_external_editor(editor_cmd, current_text)
-
     def _matches_keybinding(self, key: str, action: str) -> bool:
         return matches_key_specs(
             key,
             resolved_key_specs(action, self.keybindings_manager),
         )
-
-    def _run_extension_external_editor(
-        self, editor_cmd: str, current_text: str
-    ) -> str | None:
-        try:
-            argv = shlex.split(editor_cmd)
-        except ValueError:
-            return None
-        if not argv:
-            return None
-
-        path = ""
-        try:
-            fd, path = tempfile.mkstemp(
-                prefix="pipy-extension-editor-", suffix=".md", text=True
-            )
-            try:
-                os.fchmod(fd, 0o600)
-            except OSError:
-                pass
-            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
-                handle.write(current_text)
-
-            updated: str | None = None
-            launched = False
-            try:
-                with self.external_io_suspension():
-                    self._driver.write(
-                        f"Launching external editor: {editor_cmd}\n"
-                        "Pipy will resume when the editor exits.\n"
-                    )
-                    launched = True
-                    completed = subprocess.run(
-                        [*argv, path],
-                        stdin=self.input_stream,
-                        stdout=self.terminal_stream,
-                        stderr=self.terminal_stream,
-                        check=False,
-                    )
-                    if completed.returncode == 0:
-                        try:
-                            updated = Path(path).read_text(encoding="utf-8")
-                        except (OSError, UnicodeError):
-                            updated = None
-            except (OSError, termios.error, ValueError):
-                # A failed cooked-mode handoff occurs before ``launched`` and
-                # must not start a foreign terminal consumer. If the editor did
-                # run, its successful file is read *inside* the scope so a raw-
-                # mode resume failure cannot discard the completed edit. The
-                # driver keeps that failure suspended for authoritative close
-                # recovery rather than claiming a physically false raw owner.
-                if not launched:
-                    return None
-            return None if updated is None else updated.removesuffix("\n")
-        except OSError:
-            return None
-        finally:
-            if path:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
 
     def run_extension_confirm(self, title: str, message: str) -> bool:
         """Run a Pi-shaped extension confirmation dialog."""

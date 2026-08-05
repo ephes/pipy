@@ -36,6 +36,7 @@ from pipy_harness.native.ui.components.custom_editor import (
 )
 from pipy_harness.native.ui.components.extension_prompts import (
     ExtensionConfirmComponent,
+    ExtensionExternalEditor,
     ExtensionInputComponent,
     ExtensionSelectComponent,
 )
@@ -92,6 +93,15 @@ def _ui(tmp_path: Path) -> ToolLoopTerminalUi:
     )
 
 
+def _external_editor(ui: ToolLoopTerminalUi) -> ExtensionExternalEditor:
+    return ExtensionExternalEditor(
+        external_io_suspension=ui.external_io_suspension,
+        terminal_write=ui._driver.write,
+        input_stream=ui.input_stream,
+        terminal_stream=ui.terminal_stream,
+    )
+
+
 def test_extension_external_editor_uses_temporary_suspend_resume_contract(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -113,9 +123,11 @@ def test_extension_external_editor_uses_temporary_suspend_resume_contract(
 
     monkeypatch.setattr(TerminalDriver, "suspend_terminal_mode", suspend)
     monkeypatch.setattr(TerminalDriver, "resume_terminal_mode", resume)
-    monkeypatch.setattr("pipy_harness.native.tui.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "pipy_harness.native.ui.components.extension_prompts.subprocess.run", fake_run
+    )
 
-    assert ui._run_extension_external_editor("fake-editor", "seed") == "edited"
+    assert _external_editor(ui).run("fake-editor", "seed") == "edited"
     assert mode_calls == ["suspend", "resume"]
 
 
@@ -139,9 +151,11 @@ def test_extension_external_editor_does_not_launch_after_failed_suspend(
         raise AssertionError("editor must not launch without cooked mode")
 
     monkeypatch.setattr(TerminalDriver, "suspend_terminal_mode", fail_suspend)
-    monkeypatch.setattr("pipy_harness.native.tui.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "pipy_harness.native.ui.components.extension_prompts.subprocess.run", fake_run
+    )
 
-    assert ui._run_extension_external_editor("fake-editor", "seed") is None
+    assert _external_editor(ui).run("fake-editor", "seed") is None
     assert launched is False
     assert ui._live_height == 4
     assert ui._live_input_row == 2
@@ -170,9 +184,11 @@ def test_extension_external_editor_keeps_completed_edit_after_failed_resume(
 
     monkeypatch.setattr(TerminalDriver, "suspend_terminal_mode", suspend)
     monkeypatch.setattr(TerminalDriver, "resume_terminal_mode", fail_resume)
-    monkeypatch.setattr("pipy_harness.native.tui.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "pipy_harness.native.ui.components.extension_prompts.subprocess.run", fake_run
+    )
 
-    assert ui._run_extension_external_editor("fake-editor", "seed") == "completed edit"
+    assert _external_editor(ui).run("fake-editor", "seed") == "completed edit"
     assert mode_calls == ["suspend", "resume"]
 
 

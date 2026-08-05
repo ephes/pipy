@@ -28,6 +28,9 @@ from pipy_harness.native.ui.components.custom_editor import (
     CustomEditorState,
     _CustomEditorKeybindings,
 )
+from pipy_harness.native.ui.components.extension_prompts import (
+    ExtensionExternalEditor,
+)
 from pipy_harness.native.ui.paint_lock import PaintLock
 
 
@@ -1262,11 +1265,7 @@ def test_default_editor_external_editor_action_honors_empty_user_binding(
         calls.append(text)
         return "edited"
 
-    monkeypatch.setattr(
-        ToolLoopTerminalUi,
-        "_run_configured_external_editor",
-        run_editor,
-    )
+    monkeypatch.setattr(ExtensionExternalEditor, "run_configured", run_editor)
 
     ui = _ui(tmp_path)
     ui.keybindings_manager = KeybindingsManager({"app.editor.external": []})
@@ -1293,9 +1292,7 @@ def test_default_editor_external_editor_action_is_undoable(
         calls.append(text)
         return "edited"
 
-    monkeypatch.setattr(
-        ToolLoopTerminalUi, "_run_configured_external_editor", run_editor
-    )
+    monkeypatch.setattr(ExtensionExternalEditor, "run_configured", run_editor)
 
     ui = _ui(tmp_path)
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
@@ -1321,11 +1318,7 @@ def test_default_editor_external_editor_action_honors_user_override(
         calls.append(text)
         return "edited"
 
-    monkeypatch.setattr(
-        ToolLoopTerminalUi,
-        "_run_configured_external_editor",
-        run_editor,
-    )
+    monkeypatch.setattr(ExtensionExternalEditor, "run_configured", run_editor)
 
     ui = _ui(tmp_path)
     ui.keybindings_manager = KeybindingsManager({"app.editor.external": "Ctrl+X"})
@@ -1352,11 +1345,7 @@ def test_default_editor_external_editor_action_precedes_extension_shortcut(
         calls.append(text)
         return "edited"
 
-    monkeypatch.setattr(
-        ToolLoopTerminalUi,
-        "_run_configured_external_editor",
-        run_editor,
-    )
+    monkeypatch.setattr(ExtensionExternalEditor, "run_configured", run_editor)
 
     ui = _ui(tmp_path)
     ui.keybindings_manager = KeybindingsManager({"app.editor.external": "Ctrl+X"})

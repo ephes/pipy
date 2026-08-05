@@ -27,6 +27,9 @@ from pty_sync import wait_for_input_ready, wait_for_input_ready_after
 
 from pipy_harness.native.terminal_driver import TerminalDriver
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.components.extension_prompts import (
+    ExtensionExternalEditor,
+)
 
 _DETACHED_PTY_STREAMS: list[object] = []
 _ABANDONED_PTY_FDS: list[int] = []
@@ -376,10 +379,14 @@ def test_pty_external_editor_suspends_nested_raw_owners_and_resumes(
         ui._driver.enter_raw_mode()
         ui._driver.enter_raw_mode()
 
+        external_editor = ExtensionExternalEditor(
+            external_io_suspension=ui.external_io_suspension,
+            terminal_write=ui._driver.write,
+            input_stream=ui.input_stream,
+            terminal_stream=ui.terminal_stream,
+        )
         assert (
-            ui._run_extension_external_editor(
-                f"{sys.executable} {editor_script}", "seed"
-            )
+            external_editor.run(f"{sys.executable} {editor_script}", "seed")
             == "nested edit"
         )
         assert int(state_path.read_text(encoding="utf-8")) & termios.ICANON

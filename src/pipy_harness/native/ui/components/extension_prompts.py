@@ -1,11 +1,10 @@
-"""Modal overlays backing the extension `ctx.ui.select`/`confirm`/`input` API.
+"""Extension prompt overlays and their configured external-editor effect.
 
-Three components with the same contract: construct with a `done` callback,
-`render(width)` to lines, and feed keys to `handle_input`. None of them touches
-the terminal, reads session state, or knows the shell exists -- `done` is the
-only way a result leaves. That is what makes them testable with a plain list of
-keystrokes, and what keeps a misbehaving extension prompt from reaching
-anything but its own overlay.
+The three overlay components share one contract: construct with a ``done``
+callback, render lines, and accept decoded keys. None touches terminal or
+session state. The external-editor owner likewise receives only dependency-
+neutral terminal capabilities: a cooked-I/O suspension factory, a write
+callable, and the inherited process streams.
 
 Every rendered line is clipped and label-sanitized: the title, options, and
 message all originate in extension code, so an unclipped line could otherwise
@@ -14,10 +13,128 @@ tear the frame or smuggle escape sequences into the terminal.
 
 from __future__ import annotations
 
+import os
+import shlex
+import subprocess
+import tempfile
+import termios
 import textwrap
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
+from pathlib import Path
+from typing import TextIO
 
 from pipy_harness.native.session_tree_commands import sanitize_label_text
+
+
+class ExtensionExternalEditor:
+    """Run the configured editor while a caller-owned terminal is suspended."""
+
+    def __init__(
+        self,
+        *,
+        external_io_suspension: Callable[[], AbstractContextManager[None]],
+        terminal_write: Callable[[str], object],
+        input_stream: TextIO,
+        terminal_stream: TextIO,
+    ) -> None:
+        self._external_io_suspension = external_io_suspension
+        self._terminal_write = terminal_write
+        self._input_stream = input_stream
+        self._terminal_stream = terminal_stream
+
+    @staticmethod
+    def command() -> str | None:
+        """Return the configured command, preferring ``VISUAL`` over ``EDITOR``."""
+
+        return os.environ.get("VISUAL") or os.environ.get("EDITOR")
+
+    def callback(self) -> Callable[[str], str | None] | None:
+        """Return an editor callback only when a command is configured."""
+
+        if not self.command():
+            return None
+        return self.run_configured
+
+    def run_configured(self, current_text: str) -> str | None:
+        """Run the current environment-selected editor, if any."""
+
+        editor_cmd = self.command()
+        if not editor_cmd:
+            return None
+        return self.run(editor_cmd, current_text)
+
+    def run(self, editor_cmd: str, current_text: str) -> str | None:
+        """Round-trip ``current_text`` through one external editor process."""
+
+        argv = _external_editor_argv(editor_cmd)
+        if argv is None:
+            return None
+
+        path = ""
+        try:
+            fd, path = tempfile.mkstemp(
+                prefix="pipy-extension-editor-", suffix=".md", text=True
+            )
+            try:
+                os.fchmod(fd, 0o600)
+            except OSError:
+                pass
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+                handle.write(current_text)
+
+            updated = self._launch(argv, path, editor_cmd)
+            return None if updated is None else updated.removesuffix("\n")
+        except OSError:
+            return None
+        finally:
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+    def _launch(self, argv: list[str], path: str, editor_cmd: str) -> str | None:
+        updated: str | None = None
+        launched = False
+        try:
+            with self._external_io_suspension():
+                self._terminal_write(
+                    f"Launching external editor: {editor_cmd}\n"
+                    "Pipy will resume when the editor exits.\n"
+                )
+                launched = True
+                completed = subprocess.run(
+                    [*argv, path],
+                    stdin=self._input_stream,
+                    stdout=self._terminal_stream,
+                    stderr=self._terminal_stream,
+                    check=False,
+                )
+                if completed.returncode == 0:
+                    updated = _read_external_editor_file(path)
+        except (OSError, termios.error, ValueError):
+            # A failed cooked-mode handoff occurs before ``launched`` and must
+            # not start a foreign terminal consumer. If the editor did run,
+            # retain a successful read even when raw-mode resumption fails.
+            if not launched:
+                return None
+        return updated
+
+
+def _external_editor_argv(editor_cmd: str) -> list[str] | None:
+    try:
+        argv = shlex.split(editor_cmd)
+    except ValueError:
+        return None
+    return argv or None
+
+
+def _read_external_editor_file(path: str) -> str | None:
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
 
 
 def clip_plain(text: str, width: int) -> str:
