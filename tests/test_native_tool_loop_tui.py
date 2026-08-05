@@ -47,12 +47,12 @@ from pipy_harness.native.repl_state import (
     NativeReplProviderState,
 )
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.startup_selectors import run_project_trust_selector
 from pipy_harness.native.terminal_screen import parse_ansi_screen
 from pipy_harness.native.tui import (
     ModelSelectorOption,
     SettingsRow,
     ToolLoopTerminalUi,
-    run_project_trust_selector,
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.ui.autocomplete import AutocompleteComponent

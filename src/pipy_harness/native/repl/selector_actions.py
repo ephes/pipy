@@ -29,11 +29,11 @@ from pipy_harness.native.repl_state import (
 )
 from pipy_harness.native.scoped_models import filter_scoped_references
 from pipy_harness.native.settings import SettingsManager
+from pipy_harness.native.startup_selectors import run_project_trust_selector
 from pipy_harness.native.tui import (
     ModelSelectorOption,
     ScopedModelRow,
     ToolLoopTerminalUi,
-    run_project_trust_selector,
 )
 
 

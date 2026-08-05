@@ -307,7 +307,7 @@ def test_resume_flag_tty_cancel_aborts(tmp_path, monkeypatch, capfd) -> None:
     # Force the TTY path and a cancelled picker (returns None).
     monkeypatch.setattr("pipy_harness.cli._startup_stdin_is_tty", lambda: True)
     monkeypatch.setattr(
-        "pipy_harness.native.tui.run_startup_session_picker",
+        "pipy_harness.native.startup_selectors.run_startup_session_picker",
         lambda **kwargs: None,
     )
     before = [

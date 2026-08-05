@@ -20,7 +20,7 @@ _CHILD = r"""
 import sys
 from pathlib import Path
 from pipy_harness.native.project_trust import get_project_trust_options
-from pipy_harness.native.tui import run_startup_project_trust_selector
+from pipy_harness.native.startup_selectors import run_startup_project_trust_selector
 
 cwd = Path(sys.argv[1])
 result_path = Path(sys.argv[2])

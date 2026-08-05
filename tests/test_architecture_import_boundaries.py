@@ -996,6 +996,19 @@ ARCHITECTURE_RULES = (
         ),
     ),
     BoundaryRule(
+        source_package="pipy_harness.native.startup_selectors",
+        forbidden_imports=(
+            "pipy_session",
+            "pipy_harness.native.tool_loop_session",
+            "pipy_harness.native.repl",
+        ),
+        reason=(
+            "startup selectors are outer TUI adapters that may construct the "
+            "concrete terminal UI but must not import back into product-session "
+            "composition, the REPL tier, or the durable workflow archive"
+        ),
+    ),
+    BoundaryRule(
         source_package="pipy_harness.native.ui",
         forbidden_imports=(
             "pipy_harness.native.coding.state",
@@ -3642,6 +3655,44 @@ def test_tui_rule_blocks_the_product_session_root(tmp_path: Path) -> None:
     assert len(violations) == 1
     assert violations[0].path == source_path
     assert violations[0].imported_module == "pipy_harness.native.tool_loop_session"
+
+
+@pytest.mark.parametrize(
+    ("forbidden_import", "expected_import"),
+    [
+        (
+            "from pipy_harness.native.tool_loop_session import NativeToolReplSession",
+            "pipy_harness.native.tool_loop_session",
+        ),
+        (
+            "from pipy_harness.native.repl.loop_step import ReplLoopStep",
+            "pipy_harness.native.repl.loop_step",
+        ),
+        ("import pipy_session", "pipy_session"),
+    ],
+)
+def test_startup_selectors_boundary_activates_for_single_file_module(
+    tmp_path: Path,
+    forbidden_import: str,
+    expected_import: str,
+) -> None:
+    source_root = tmp_path / "src"
+    source_path = _write_module(
+        source_root,
+        "pipy_harness.native.startup_selectors",
+        f"from pipy_harness.native.tui import ToolLoopTerminalUi\n{forbidden_import}\n",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.startup_selectors"
+    )
+
+    violations = _evaluate_rule(source_root, rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == source_path
+    assert violations[0].imported_module == expected_import
 
 
 def test_rule_activates_for_single_file_source_module(tmp_path: Path) -> None:

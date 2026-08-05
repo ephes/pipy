@@ -588,7 +588,7 @@ def test_runtime_trust_selector_is_interactive_only_and_cancel_is_silent(
         calls.append(cwd)
 
     monkeypatch.setattr(
-        "pipy_harness.native.tui.run_startup_project_trust_selector",
+        "pipy_harness.native.startup_selectors.run_startup_project_trust_selector",
         cancel_selector,
     )
     assert not _resolve_runtime_project_trust(Args(), workspace)

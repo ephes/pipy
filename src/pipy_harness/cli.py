@@ -1955,7 +1955,9 @@ def _resolve_runtime_project_trust_startup(
     pending_batch: ExtensionActivationBatch | None = None
 
     def _select(resolved_cwd: Path) -> ProjectTrustOption | None:
-        from pipy_harness.native.tui import run_startup_project_trust_selector
+        from pipy_harness.native.startup_selectors import (
+            run_startup_project_trust_selector,
+        )
 
         return run_startup_project_trust_selector(
             cwd=resolved_cwd,
@@ -2124,7 +2126,7 @@ def _run_startup_resume_picker(args: Any) -> Path | None:
         list_all_native_sessions,
         list_native_sessions,
     )
-    from pipy_harness.native.tui import run_startup_session_picker
+    from pipy_harness.native.startup_selectors import run_startup_session_picker
 
     project_dir = default_native_session_dir(cwd, sessions_root=sessions_root)
     root = native_sessions_root(session_dir=sessions_root)
