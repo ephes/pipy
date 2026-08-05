@@ -2806,6 +2806,13 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
             "native/tui.py",
             ("class:ToolLoopTerminalUi", "function:run_custom_component"),
         ),
+        # The extension-generation owner invokes each ordered participant's
+        # unlocked disposal phase between atomic detach and finalization.
+        (
+            "dispose",
+            "native/ui/extension_generation.py",
+            ("class:ExtensionGenerationOwner", "function:retire_generation"),
+        ),
         ("dispose", sg, startup_guard),
         ("dispose", sg, ("class:PreparedReloadEffects", "function:dispose")),
         ("dispose", sg, ("function:_dispose_completed_reload_effects",)),

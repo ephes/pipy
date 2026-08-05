@@ -146,7 +146,7 @@ class Synthetic:
 # helper bands shrink around it. These bounds are the mass gate for the class.
 # Lower them in any slice that shrinks the class; never raise one. A slice that
 # needs a bound raised is a slice that put code back into the class.
-_TUI_CLASS_SPAN_RATCHET = 2967
+_TUI_CLASS_SPAN_RATCHET = 2908
 _TUI_CLASS_DEF_RATCHET = 211
 
 

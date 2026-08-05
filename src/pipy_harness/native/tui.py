@@ -25,7 +25,7 @@ from collections.abc import (
     Mapping,
     Sequence,
 )
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
@@ -201,6 +201,7 @@ from pipy_harness.native.ui.components.tree_selector import (
     TreeSelectorComponent,
     tree_selector_region_lines,
 )
+from pipy_harness.native.ui.extension_generation import ExtensionGenerationOwner
 from pipy_harness.native.ui.key_specs import (
     matches_key_specs,
     resolved_key_specs,
@@ -2398,55 +2399,11 @@ class ToolLoopTerminalUi:
         *,
         retirement_scope: Callable[[], AbstractContextManager[None]] | None = None,
     ) -> None:
-        """Detach, dispose unlocked, then retire all retained extension chrome."""
+        """Retire the accepted extension UI generation through its named owner."""
 
-        # Reading custom text can call trusted extension code. It therefore
-        # precedes the short state-detach section and holds no paint lock.
-        had_custom_editor = self._custom_editor_active
-        current_text = self.get_input_text() if had_custom_editor else None
-        with self._paint_lock:
-            regions = self._chrome.detach_generation_for_disposal()
-            custom_editor = self._custom_editor_component if had_custom_editor else None
-            self._editor.autocomplete_provider_factories.clear()
-            self._editor.close_autocomplete()
-            self._custom_editor_factory = None
-            self._custom_editor_component = None
-            self._custom_editor_active = False
-
-        dispose_scope = retirement_scope() if retirement_scope else nullcontext()
-        try:
-            # Disposal is trusted extension code. No paint/owner/sink guard is
-            # held, and an acceptance reconcile supplies an explicit route that
-            # keeps synchronous reentrant registrations retiring.
-            with dispose_scope:
-                for region in regions:
-                    self._dispose_region(region)
-                if custom_editor is not None:
-                    dispose = getattr(custom_editor, "dispose", None)
-                    if callable(dispose):
-                        try:
-                            dispose()
-                        except (KeyboardInterrupt, SystemExit):
-                            raise
-                        except BaseException:  # noqa: BLE001 - extension cleanup
-                            pass
-        finally:
-            with self._paint_lock:
-                # Clear direct-UI registrations made during disposal while they
-                # still carry the retiring id, then advance to a fresh id.
-                self._chrome.retire_generation()
-                self._editor.autocomplete_provider_factories.clear()
-                self._editor.close_autocomplete()
-                self._custom_editor_factory = None
-                self._custom_editor_component = None
-                self._custom_editor_active = False
-                if had_custom_editor:
-                    assert current_text is not None
-                    self._editor.set_buffer(current_text)
-                    self._editor.pending_initial_text = current_text
-                self._transcript.reset_hidden_thinking_label()
-                self._driver.restore_title()
-        self.paint()
+        _extension_generation_owner(self).retire_generation(
+            retirement_scope=retirement_scope
+        )
 
     def reconcile_extension_chrome(
         self,
@@ -2454,27 +2411,12 @@ class ToolLoopTerminalUi:
         *,
         retirement_scope: Callable[[], AbstractContextManager[None]] | None = None,
     ) -> dict[int, Callable[[], None]]:
-        """Replace accepted chrome, explicitly routing retiring disposal writes."""
+        """Replace accepted extension UI state through its named owner."""
 
-        self.clear_extension_chrome(retirement_scope=retirement_scope)
-        for key, content, placement in snapshot.widgets:
-            self.set_extension_widget(key, content, placement=placement)
-        self.set_extension_header(snapshot.header)
-        self.set_extension_footer(snapshot.footer)
-        if snapshot.title is not None:
-            self.set_extension_title(snapshot.title)
-        self.set_extension_working_indicator(
-            snapshot.indicator_frames, snapshot.indicator_interval_ms
+        return _extension_generation_owner(self).reconcile_generation(
+            snapshot,
+            retirement_scope=retirement_scope,
         )
-        listener_disposers = {
-            listener_id: self.add_extension_terminal_input_listener(handler)
-            for listener_id, handler in snapshot.terminal_input_listeners
-        }
-        for factory in snapshot.autocomplete_providers:
-            self.add_extension_autocomplete_provider(factory)
-        self.set_editor_component(snapshot.editor_component)
-        self.set_extension_hidden_thinking_label(snapshot.hidden_thinking_label)
-        return listener_disposers
 
     def set_extension_working_message(self, message: str | None = None) -> None:
         """Set the sticky working label used by future provider turns."""
@@ -3593,6 +3535,50 @@ class ToolLoopTerminalUi:
         """
 
         return self.input_text.lstrip().startswith("!")
+
+
+def _clear_generation_autocomplete(ui: ToolLoopTerminalUi) -> None:
+    ui._editor.autocomplete_provider_factories.clear()
+    ui._editor.close_autocomplete()
+
+
+def _clear_generation_custom_editor(ui: ToolLoopTerminalUi) -> None:
+    ui._custom_editor_factory = None
+    ui._custom_editor_component = None
+    ui._custom_editor_active = False
+
+
+def _restore_generation_editor_text(ui: ToolLoopTerminalUi, text: str) -> None:
+    ui._editor.set_buffer(text)
+    ui._editor.pending_initial_text = text
+
+
+def _extension_generation_owner(ui: ToolLoopTerminalUi) -> ExtensionGenerationOwner:
+    return ExtensionGenerationOwner(
+        ui._chrome,
+        ui._paint_lock,
+        ui.paint,
+        dispose_region=ui._dispose_region,
+        custom_editor_active=lambda: ui._custom_editor_active,
+        read_input_text=ui.get_input_text,
+        current_custom_editor_component=lambda: ui._custom_editor_component,
+        clear_autocomplete=lambda: _clear_generation_autocomplete(ui),
+        clear_custom_editor=lambda: _clear_generation_custom_editor(ui),
+        restore_editor_text=lambda text: _restore_generation_editor_text(ui, text),
+        restore_title=ui._driver.restore_title,
+        reset_hidden_thinking_label=ui._transcript.reset_hidden_thinking_label,
+        set_widget=lambda key, content, placement: ui.set_extension_widget(
+            key, content, placement=placement
+        ),
+        set_header=ui.set_extension_header,
+        set_footer=ui.set_extension_footer,
+        set_title=ui.set_extension_title,
+        set_indicator=ui.set_extension_working_indicator,
+        add_listener=ui.add_extension_terminal_input_listener,
+        add_autocomplete_provider=ui.add_extension_autocomplete_provider,
+        set_editor_component=ui.set_editor_component,
+        set_hidden_thinking_label=ui.set_extension_hidden_thinking_label,
+    )
 
 
 def run_project_trust_selector(
