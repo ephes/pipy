@@ -41,17 +41,17 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeRetirement,
     ExtensionChromeSink,
 )
-from pipy_harness.native.extension_runtime import (
-    RegisteredTool,
-    _ExtensionCandidate,
-    _report_activation_cleanup,
-)
 from pipy_harness.native.extension_types import (
     ExtensionTool,
     QueuedCustomMessage,
     QueuedUserMessage,
     RegisteredFlag,
     RegisteredProvider,
+    RegisteredTool,
+)
+from pipy_harness.native.extensions.activation import (
+    _ExtensionCandidate,
+    _report_activation_cleanup,
 )
 from pipy_harness.native.extensions.contracts import (
     HookHandler,

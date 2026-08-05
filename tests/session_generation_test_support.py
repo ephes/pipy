@@ -4,9 +4,7 @@ import threading
 from collections.abc import Mapping
 
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
-from pipy_harness.native.extension_runtime import (
-    RegisteredTool,
-)
+from pipy_harness.native.extension_types import RegisteredTool
 from pipy_harness.native.extensions.contracts import (
     _ExtensionRuntime,
 )

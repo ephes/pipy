@@ -30,7 +30,6 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.agent_loop_policy",
     "pipy_harness.native.automation",
     "pipy_harness.native.coding",
-    "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extensions",
     "pipy_harness.native.coding.session",
     "pipy_harness.native.session",

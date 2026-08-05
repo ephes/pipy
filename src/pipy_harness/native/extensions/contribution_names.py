@@ -16,7 +16,7 @@ Everything here is value-level: no host, no activation state, no I/O. The
 projections that *produce* a :class:`_ContributionNames` from an activated
 or staged extension (`_activated_contribution_names`,
 `_staged_contribution_names`) stay with the activation band in
-`pipy_harness.native.extension_runtime` — they take the activation types.
+`pipy_harness.native.extensions.activation` — they take activation-owned types.
 """
 
 from __future__ import annotations

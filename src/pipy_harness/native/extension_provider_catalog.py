@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import RegisteredProvider
+from pipy_harness.native.extensions.activation import (
     _dispose_activation_results,
     _finalize_provider_catalog_results,
     _report_activation_cleanup,
     _report_provider_catalog_finalization,
     activate_extensions,
 )
-from pipy_harness.native.extension_types import RegisteredProvider
 from pipy_harness.native.extensions.collectors import (
     extension_providers,
     extension_unregistered_providers,

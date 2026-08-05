@@ -19,7 +19,7 @@ from session_generation_test_support import build_test_projection
 
 import pipy_harness.native.coding.session as coding_session_module
 import pipy_harness.native.extension_hooks as extension_hooks_module
-import pipy_harness.native.extension_runtime as extension_runtime_module
+import pipy_harness.native.extensions.activation as activation_module
 import pipy_harness.native.extensions.message_routing as message_routing_module
 import pipy_harness.native.repl.loop_step as loop_step_module
 import pipy_harness.native.session_generation as session_generation_module
@@ -56,12 +56,12 @@ from pipy_harness.native.extension_hooks import (
     _activate_workspace_extensions,
     deliver_accepted_staged_batch,
 )
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
+    ProviderContext,
     QueuedCustomMessage,
     QueuedUserMessage,
-    activate_extensions,
 )
-from pipy_harness.native.extension_types import ProviderContext
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.contracts import (
     ActivatedExtension,
     ExtensionActivationBatch,
@@ -1438,7 +1438,7 @@ def test_projection_omits_settings_keybindings_resources_and_reverse_adapters() 
     )
     assert "settings_adapter" not in source
     extension_boundary = (
-        Path(__file__).parents[1] / "src/pipy_harness/native/extension_runtime.py"
+        Path(__file__).parents[1] / "src/pipy_harness/native/extensions/activation.py"
     ).read_text(encoding="utf-8")
     assert "session_generation" not in extension_boundary
     assert "extension_chrome_state" not in extension_boundary
@@ -2537,20 +2537,21 @@ def _base_name(node: ast.expr) -> str:
     return node.id if isinstance(node, ast.Name) else getattr(node, "attr", "")
 
 
-def _old_message_routing_importers(
+def _wrong_message_routing_importers(
     repo_root: Path, moved_names: tuple[str, ...]
 ) -> list[str]:
-    old_importers = []
+    wrong_importers = []
+    expected_module = "pipy_harness.native.extensions.message_routing"
     for root_name in ("src", "tests"):
         for path in (repo_root / root_name).rglob("*.py"):
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if (
                     isinstance(node, ast.ImportFrom)
-                    and node.module == "pipy_harness.native.extension_runtime"
+                    and node.module != expected_module
                     and any(alias.name in moved_names for alias in node.names)
                 ):
-                    old_importers.append(path.relative_to(repo_root).as_posix())
-    return old_importers
+                    wrong_importers.append(path.relative_to(repo_root).as_posix())
+    return wrong_importers
 
 
 def _message_routing_definition_owners(
@@ -2580,7 +2581,6 @@ def test_generation_message_routing_cluster_has_one_authoritative_owner() -> Non
     )
     for name in moved_names:
         assert name in vars(message_routing_module)
-        assert not hasattr(extension_runtime_module, name)
 
     for name in moved_names[4:]:
         assert getattr(message_routing_module, name).__module__ == (
@@ -2588,9 +2588,15 @@ def test_generation_message_routing_cluster_has_one_authoritative_owner() -> Non
         )
 
     repo_root = Path(__file__).parents[1]
-    assert _old_message_routing_importers(repo_root, moved_names) == []
+    assert _wrong_message_routing_importers(repo_root, moved_names) == []
 
-    assert vars(extension_runtime_module)["_message_routing"] is message_routing_module
+    assert not hasattr(activation_module, "_message_routing")
+    assert vars(activation_module)["GenerationMessageRouting"] is (
+        GenerationMessageRouting
+    )
+    assert vars(activation_module)["_routing_for_activation_batch"] is (
+        message_routing_module._routing_for_activation_batch
+    )
     assert (
         vars(extension_hooks_module)["GenerationMessageRouting"]
         is vars(session_generation_module)["GenerationMessageRouting"]
@@ -2613,7 +2619,6 @@ def test_generation_message_routing_cluster_has_one_authoritative_owner() -> Non
             "_ActivationApi",
             "ActivatedExtension",
             "_ExtensionRuntime",
-            "extension_runtime",
         )
     )
     owner = ast.parse(owner_source)
@@ -2647,12 +2652,12 @@ def test_generation_message_routing_cluster_has_one_authoritative_owner() -> Non
         "retire",
         "route_drain",
     ]
-    runtime_owner = ast.parse(
-        Path(extension_runtime_module.__file__ or "").read_text(encoding="utf-8")
+    activation_owner = ast.parse(
+        Path(activation_module.__file__ or "").read_text(encoding="utf-8")
     )
     activation_api = next(
         node
-        for node in runtime_owner.body
+        for node in activation_owner.body
         if isinstance(node, ast.ClassDef) and node.name == "_ActivationApi"
     )
     assert not any(
@@ -2666,7 +2671,7 @@ def test_r3c2_forbids_registries_identity_discovery_and_list_magic() -> None:
     texts = {
         name: (root / name).read_text()
         for name in (
-            "extension_runtime.py",
+            "extensions/activation.py",
             "extensions/message_routing.py",
             "session_generation.py",
             "extension_hooks.py",
@@ -2811,7 +2816,7 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
         if isinstance(node, ast.FunctionDef) and node.name == "extension_send_message"
     )
     assert "_snapshot" not in ast.unparse(direct)
-    api = owner("extension_runtime.py", "_ActivationApi")
+    api = owner("extensions/activation.py", "_ActivationApi")
     assert [
         method.name
         for method in api.body
@@ -2924,7 +2929,7 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         ),
         (
             "dispose",
-            "native/extension_runtime.py",
+            "native/extensions/activation.py",
             ("function:_dispose_activation_results",),
         ),
         ("dispose", reload_file, (reload_owner, "function:execute")),

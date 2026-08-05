@@ -12,10 +12,8 @@ from pipy_harness.native.autocomplete_provider import (
     coerce_suggestion,
 )
 from pipy_harness.native.editor_completion import CompletionItem
-from pipy_harness.native.extension_runtime import (
-    ExtensionUiDriver,
-    _CollectingUi,
-)
+from pipy_harness.native.extension_types import ExtensionUiDriver
+from pipy_harness.native.extension_ui import _CollectingUi
 from pipy_harness.native.extensions.contracts import (
     RegisteredCommand,
 )

@@ -14,9 +14,11 @@ from pipy_harness.native.extension_hooks import (
     dispatch_session_before_hooks,
     dispatch_tool_call_hooks,
 )
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     REASON_RESERVED_TOOL,
     LifecycleEvent,
+)
+from pipy_harness.native.extensions.activation import (
     activate_extension_batch,
     activate_extensions,
 )

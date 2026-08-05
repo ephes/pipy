@@ -1,7 +1,7 @@
 """Fail-closed extension vocabulary and error primitives.
 
-This is the stdlib-only leaf that both the extension runtime and the later
-extension loader depend on. It owns the safe, enumerable activation reason
+This is the stdlib-only leaf that both extension activation and the extension
+loader depend on. It owns the safe, enumerable activation reason
 codes, the internal `_ActivationError` used to disable one extension with a
 reason code, the `_safe_diagnostic` type-name projection, the Pi command-name
 character rules (`_is_valid_command_name` / `is_valid_custom_entry_type`), the
@@ -15,13 +15,12 @@ renderers annotate against — `ExtensionUi`, `ExtensionUiDriver`,
 aliases, and the `WidgetPlacement` literal — so `ProjectTrustContext.ui` and
 `ExtensionTool.render_call`/`render_result` resolve to leaf-local types. The
 headless UI implementation and render helpers live in `extension_ui`;
-activation and session-render orchestration stay in `extension_runtime`, and
-the concrete live driver stays in `tui`.
+activation lives in `extensions.activation`, session render orchestration lives
+with its payload and UI owners, and the concrete live driver stays in `tui`.
 
 It has no project imports, so it can never participate in an import cycle with
-the runtime or loader that import it. The stable `pipy_harness.extensions`
-façade imports `normalize_shortcut_key` directly from this owner, while
-`extension_runtime` preserves the characterized internal identity explicitly.
+the runtime or loader that import it. The stable `pipy_harness.extensions` façade imports
+`normalize_shortcut_key` directly from this owner.
 """
 
 from __future__ import annotations

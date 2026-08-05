@@ -4287,7 +4287,7 @@ def test_startup_signature_and_failure_candidate_balance_is_exact(
 ) -> None:
     import pipy_harness.native.repl.wiring as repl_wiring
     import pipy_harness.native.session_generation as generation
-    from pipy_harness.native.extension_runtime import _ExtensionCandidate
+    from pipy_harness.native.extensions.activation import _ExtensionCandidate
 
     signature = inspect.signature(CodingSession.run)
     assert "candidate" not in signature.parameters

@@ -1,4 +1,4 @@
-from pipy_harness.native.extension_runtime import _CollectingUi
+from pipy_harness.native.extension_ui import _CollectingUi
 
 
 class _RecordingDriver:

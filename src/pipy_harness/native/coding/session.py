@@ -52,7 +52,7 @@ from pipy_harness.native.clipboard import (
 )
 from pipy_harness.native.coding.result import CodingSessionResult
 from pipy_harness.native.coding.state import CodingSessionState
-from pipy_harness.native.extension_runtime import _ExtensionCandidate
+from pipy_harness.native.extensions.activation import _ExtensionCandidate
 from pipy_harness.native.extensions.contracts import ExtensionActivationBatch
 from pipy_harness.native.keybindings import KeybindingsManager
 from pipy_harness.native.prompt_history import PromptHistoryStore

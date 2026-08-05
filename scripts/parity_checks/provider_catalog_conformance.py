@@ -76,10 +76,8 @@ from pipy_harness.native.catalog import (
 )
 from pipy_harness.native.catalog_state import ProviderCatalogState, format_list_models
 from pipy_harness.native.ds4 import DS4_DEFAULT_BASE_URL, ds4_preset_dict
-from pipy_harness.native.extension_runtime import (
-    RegisteredProvider,
-    activate_extensions,
-)
+from pipy_harness.native.extension_types import RegisteredProvider
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.collectors import (
     extension_providers,
 )

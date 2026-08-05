@@ -37,10 +37,6 @@ from pipy_harness.native.extension_hooks import (
     extension_event_hooks,
     extension_tool_call_hooks,
 )
-from pipy_harness.native.extension_runtime import (
-    activate_extensions,
-    safe_activation_metadata,
-)
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,
     BeforeAgentStartResult,
@@ -91,6 +87,10 @@ from pipy_harness.native.extension_types import (
 from pipy_harness.native.extension_ui import (
     coerce_tool_render_lines,
     lines_component,
+)
+from pipy_harness.native.extensions.activation import (
+    activate_extensions,
+    safe_activation_metadata,
 )
 from pipy_harness.native.extensions.collectors import (
     drain_custom_messages,

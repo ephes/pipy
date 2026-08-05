@@ -1,7 +1,7 @@
 """Sandboxed on-disk import and awaitable-driving mechanics for extensions.
 
-This module owns the low-level sandbox boundary that the extension runtime
-uses to bring an already-inventoried *loadable* extension into the process: it
+This module owns the low-level sandbox boundary that the extension activation
+owner uses to bring an already-inventoried *loadable* extension into the process: it
 imports the entry module from its on-disk path under a unique, namespaced
 `sys.modules` name (fail-closed to `import_error` on any failure, with
 partially-created module entries purged), and it drives an extension's async
@@ -16,8 +16,8 @@ relative imports.
 
 It depends only on the stdlib and on the fail-closed vocabulary leaf
 `native.extension_types` (`_ActivationError`, `REASON_IMPORT_ERROR`,
-`_safe_diagnostic`), so it never imports back into `extension_runtime` and can
-never participate in an import cycle with the runtime that consumes it.
+`_safe_diagnostic`), so it never imports back into `extensions.activation` and
+cannot participate in an import cycle with the activation owner that consumes it.
 """
 
 from __future__ import annotations

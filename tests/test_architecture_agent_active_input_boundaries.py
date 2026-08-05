@@ -48,7 +48,6 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.native.providers.cloudflare",
     "pipy_harness.native.deferred_tools",
     "pipy_harness.native.providers.ds4",
-    "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extensions",
     "pipy_harness.native.fake",
     "pipy_harness.native.providers.google_generative_ai",

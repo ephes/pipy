@@ -227,25 +227,26 @@ write sessions or import UI code.
 
 Extension ownership is split deliberately:
 
-- `extensions.py` discovers and inventories loadable local resources;
+- `extensions/packages.py` discovers and inventories loadable local resources;
 - `extension_loader.py` owns isolated module loading and awaitable driving;
-- `extension_types.py` owns the stable typed API, contribution, hook, host-port,
-  and UI value vocabulary;
-- `extension_runtime.py` activates one validated batch and owns commands,
-  shortcuts, tools, providers, flags, renderers, queues, and host contexts;
+- `extension_types.py` owns the stable contribution, hook, host-port, and UI
+  value vocabulary;
+- `extensions/contracts.py` owns activation records and API protocols;
+- `extensions/activation.py` owns the fail-closed activation lifecycle and its
+  private capability-token state machine;
+- `extensions/{collectors,dispatch,message_routing,custom_payloads,tool_port}.py`
+  own their respective collection, dispatch, delivery, render-payload, and tool
+  adapter behavior;
 - `extension_hooks.py` owns serial lifecycle, input, request, tool, trust, bash,
   and session-gate dispatch; and
-- `extension_ui.py` owns the deterministic headless UI bridge, while
-  `tui.py` owns the concrete live extension UI driver and chrome rendering.
+- `extension_ui.py` owns the deterministic headless UI bridge, while `tui.py`
+  owns the concrete live extension UI driver and chrome rendering.
 
 The stable `pipy_harness.extensions` module is a façade, not another behavior
-owner. Its exact 97-name `__all__` inventory imports each value directly from
-the module above that owns it (plus the provider construction/header seams),
-so its public contract does not depend on whatever `extension_runtime.py`
-happens to import for its own implementation. `extension_runtime.py` keeps the
-already-characterized direct-import compatibility identities explicit for
-internal consumers, including the headless UI bridge and render helpers; those
-aliases still denote the authoritative owner objects.
+owner. Its exact 97-name `__all__` inventory imports every public name directly
+from its definition module (plus the provider construction/header seams). The
+retired native activation path has no compatibility module, and the
+`native.extensions` package deliberately does not re-export child-module names.
 
 Initial activation fails closed per extension. Trusted extension code may
 perform its own external effects. Reload now rejects a candidate runtime and

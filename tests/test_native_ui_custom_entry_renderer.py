@@ -25,9 +25,7 @@ from typing import Any, cast
 from pipy_harness.extensions import lines_component
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
-from pipy_harness.native.extension_runtime import (
-    QueuedCustomMessage,
-)
+from pipy_harness.native.extension_types import QueuedCustomMessage
 from pipy_harness.native.extensions.contracts import (
     RegisteredEntryRenderer,
     RegisteredMessageRenderer,

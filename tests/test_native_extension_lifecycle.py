@@ -37,11 +37,11 @@ from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
     extension_event_hooks,
 )
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     ExtensionUiDriver,
     LifecycleEvent,
-    activate_extensions,
 )
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 

@@ -23,9 +23,7 @@ from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_tool_names,
     load_extension_provider_contributions,
 )
-from pipy_harness.native.extension_runtime import (
-    activate_extensions,
-)
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.collectors import (
     extension_oauth_providers,
     extension_providers,

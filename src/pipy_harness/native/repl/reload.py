@@ -39,7 +39,7 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeSink,
 )
 from pipy_harness.native.extension_hooks import _activate_workspace_extensions
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extensions.activation import (
     _ExtensionCandidate,
     _report_activation_cleanup,
 )
@@ -319,9 +319,9 @@ class ReloadCommandEffects:
             )
             if activated is None:
                 return False, None
-            reloaded_extension_runtime, gate = activated
+            reloaded_extension_bundle, gate = activated
             committed = self._commit_reload_generation(
-                candidate, chrome_candidate, attempt, reloaded_extension_runtime, gate
+                candidate, chrome_candidate, attempt, reloaded_extension_bundle, gate
             )
             if committed is None:
                 return False, None
@@ -339,7 +339,7 @@ class ReloadCommandEffects:
     ) -> tuple[_ExtensionRuntime, OrderedDeliveryGate] | None:
         """Activate the workspace extensions and stage a candidate projection."""
 
-        reloaded_extension_runtime = _activate_workspace_extensions(
+        reloaded_extension_bundle = _activate_workspace_extensions(
             self.cwd,
             self.ctl.workspace_resources,
             tuple(self.tool_registry.keys()),
@@ -354,9 +354,9 @@ class ReloadCommandEffects:
             include_workspace_defaults=self.settings.project_trusted,
             diagnostic=self.diag,
         )
-        candidate.adopt(reloaded_extension_runtime, self.diag)
+        candidate.adopt(reloaded_extension_bundle, self.diag)
         reloaded_flag_values, reloaded_flag_error = parse_extension_flag_tokens(
-            reloaded_extension_runtime.flags,
+            reloaded_extension_bundle.flags,
             tuple(self.resource_options.extension_flag_tokens),
         )
         if reloaded_flag_error is not None:
@@ -364,7 +364,7 @@ class ReloadCommandEffects:
             self.diag("pipy: keeping the previous extensions.")
             return None
         projection = build_candidate_extension_projection(
-            reloaded_extension_runtime,
+            reloaded_extension_bundle,
             reloaded_flag_values,
             queue_mutex=self.ctl.generation_ref.lock,
             reference_mutex=self.ctl.generation_ref.lock,
@@ -384,7 +384,7 @@ class ReloadCommandEffects:
         gate = OrderedDeliveryGate(self.ctl.generation_ref.lock)
         projection.queues.install_candidate_route(gate)
         self.emitter.fire_candidate_session_start(
-            reloaded_extension_runtime.lifecycle_hooks,
+            reloaded_extension_bundle.lifecycle_hooks,
             reloaded_flag_values,
             ui_driver=(
                 self.extension_ui_driver.candidate_driver(chrome_candidate)
@@ -392,14 +392,14 @@ class ReloadCommandEffects:
                 else None
             ),
         )
-        return reloaded_extension_runtime, gate
+        return reloaded_extension_bundle, gate
 
     def _commit_reload_generation(
         self,
         candidate: _ExtensionCandidate,
         chrome_candidate: ExtensionChromeSink | None,
         attempt: "_ReloadAttempt",
-        reloaded_extension_runtime: _ExtensionRuntime,
+        reloaded_extension_bundle: _ExtensionRuntime,
         gate: OrderedDeliveryGate,
     ) -> tuple[PreparedReloadEffects, NativeReplProviderState | None] | None:
         """Accept the staged generation under the publication gate, or refuse."""
@@ -419,7 +419,7 @@ class ReloadCommandEffects:
             coding = self.provider_mutation.coding_state
             chrome_sink = chrome_candidate or ExtensionChromeSink()
             prepared = prepare_production_reload(
-                reloaded_extension_runtime,
+                reloaded_extension_bundle,
                 projection,
                 ExtensionChromePrepareInput(chrome_sink),
                 state=provider_state,
@@ -449,7 +449,7 @@ class ReloadCommandEffects:
                 self.diag("pipy: keeping the previous extensions.")
                 return None
             generation = SessionExtensionGeneration(
-                reloaded_extension_runtime,
+                reloaded_extension_bundle,
                 projection,
                 chrome_token,
             )

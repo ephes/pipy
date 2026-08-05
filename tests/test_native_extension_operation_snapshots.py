@@ -24,10 +24,10 @@ from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_hooks import (
-    _compose_extension_runtime,
+    _compose_extension_bundle,
     dispatch_user_bash_hooks,
 )
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
     ExtensionTool,
@@ -85,7 +85,7 @@ def _runtime(lock: threading.RLock) -> _ExtensionRuntime:
     user_outbox: list[Any] = []
     custom_outbox: list[Any] = []
     routing = GenerationMessageRouting(user_outbox, custom_outbox, mutex=lock)
-    return _compose_extension_runtime((), user_outbox, custom_outbox, routing)
+    return _compose_extension_bundle((), user_outbox, custom_outbox, routing)
 
 
 def _generation(
@@ -783,9 +783,13 @@ def test_r4a_writer_drain_and_staged_delivery_inventory_is_complete() -> None:
     root = Path(__file__).parents[1] / "src/pipy_harness/native"
     definitions = [
         node.name
-        for name in "extension_runtime extension_hooks session_generation coding/session tui ui/components/custom_entry_renderer".split()
+        for name in "extensions/activation.py extension_hooks session_generation coding/session tui ui/components/custom_entry_renderer".split()
         for node in ast.walk(
-            ast.parse((root / f"{name}.py").read_text(encoding="utf-8"))
+            ast.parse(
+                (root / (name if name.endswith(".py") else f"{name}.py")).read_text(
+                    encoding="utf-8"
+                )
+            )
         )
         if isinstance(node, (ast.ClassDef, ast.FunctionDef))
     ]

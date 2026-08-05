@@ -96,7 +96,6 @@ _FORBIDDEN_PREFIXES = (
     "pipy_harness.cli",
     "pipy_harness.native.agent_adapters",
     "pipy_harness.native.automation",
-    "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extensions",
     "pipy_harness.native.coding.session",
     "pipy_harness.native.session",

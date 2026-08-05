@@ -30,7 +30,7 @@ from pipy_harness.native.agent import (
     AgentToolCall,
 )
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
-from pipy_harness.native.extension_runtime import ExtensionTool
+from pipy_harness.native.extension_types import ExtensionTool
 from pipy_harness.native.extensions.tool_port import ToolRenderDetailsSink
 from pipy_harness.native.provider import StreamChunkSink
 from pipy_harness.native.tool_renderers import (

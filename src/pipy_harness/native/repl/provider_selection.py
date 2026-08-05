@@ -42,7 +42,7 @@ from pipy_harness.native.coding.state import (
     CodingSessionState,
 )
 from pipy_harness.native.diagnostics import emit_diagnostic
-from pipy_harness.native.extension_runtime import ExtensionModelRuntimeControl
+from pipy_harness.native.extension_types import ExtensionModelRuntimeControl
 from pipy_harness.native.repl.extension_operations import SessionExtensionOperations
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.turn_leaves import (

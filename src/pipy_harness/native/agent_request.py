@@ -15,7 +15,7 @@ from pipy_harness.native.agent.request import (
 from pipy_harness.native.tools.base import ToolDefinition
 
 if TYPE_CHECKING:
-    from pipy_harness.native.extension_runtime import (
+    from pipy_harness.native.extension_types import (
         ExtensionModelRuntimeControl,
         ExtensionUiDriver,
     )
@@ -56,7 +56,7 @@ class _MonotonicToolHookPolicy:
         return self._narrow(await result)
 
     def _narrow(self, result: object) -> object:
-        from pipy_harness.native.extension_runtime import ProviderRequestTransform
+        from pipy_harness.native.extension_types import ProviderRequestTransform
 
         if (
             not isinstance(result, ProviderRequestTransform)

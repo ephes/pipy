@@ -21,9 +21,7 @@ from pathlib import Path
 from typing import TextIO, cast
 
 from pipy_harness.extensions import lines_component
-from pipy_harness.native.extension_runtime import (
-    RenderedCustomEntry,
-)
+from pipy_harness.native.extension_types import RenderedCustomEntry
 from pipy_harness.native.extension_ui import _CUSTOM_RENDER_MAX_CHARS
 from pipy_harness.native.extensions.contracts import (
     RegisteredMessageRenderer,
@@ -314,7 +312,7 @@ def run_checks() -> list[Check]:
         ),
     )
     ui._transcript.redraw_custom_entries(rows + [("plain", "note", ("NEW-PLAIN",))])
-    frame = "\n".join(ui.render_lines(width=80, height=20))
+    frame = "\n".join(ui._screen.render_lines(width=80, height=20))
     checks.append(
         Check(
             "resume_redraw_replaces_custom_rows_and_renders_custom_messages",

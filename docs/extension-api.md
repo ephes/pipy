@@ -1254,10 +1254,10 @@ Suggested future task wording:
 ## Suggested Implementation Slices
 
 Slices 1 and 2 have **landed**. Slice 1:
-`pipy_harness.native.extensions.discover_extensions` implements the inventory
+`pipy_harness.native.extensions.packages.discover_extensions` implements the inventory
 boundary (`tests/test_native_extension_discovery.py`, gate
 `scripts/parity_checks/extension_discovery_conformance.py --json`). Slice 2:
-`pipy_harness.native.extension_runtime.activate_extensions` imports only
+`pipy_harness.native.extensions.activation.activate_extensions` imports only
 loadable descriptors and runs `activate(api)` with `register_command` support
 via the public `pipy_harness.extensions.PipyExtensionAPI`, failing closed per
 extension (`tests/test_native_extension_activation.py`, gate
@@ -1319,14 +1319,14 @@ and the live `scripts/tmux_answer_verify.sh`.
 2. Activation sandbox boundary — **landed**: import explicit local modules, call
    `activate(api)` (sync or async), support command registration only, and pin
    failure modes, duplicate registration behavior, and safe diagnostics.
-   Implemented as `pipy_harness.native.extension_runtime.activate_extensions` +
-   `PipyExtensionAPI` + `ActivatedExtension`, with the public
+   Implemented as `pipy_harness.native.extensions.activation.activate_extensions`
+   + `PipyExtensionAPI` + `ActivatedExtension`, with the public
    `pipy_harness.extensions` surface.
 3. Command dispatch — **landed**: run extension slash commands in the tool-loop
    REPL product path with safe diagnostics and no provider turn by default,
    after built-ins/custom commands (no shadowing), with menu listing and
    `/reload` re-activation. Implemented as
-   `pipy_harness.native.extension_runtime.dispatch_extension_command` +
+   `pipy_harness.native.extensions.dispatch.dispatch_extension_command` +
    `extension_command_map` + a mode-aware `CommandContext`/`ExtensionUi`, wired
    into `coding.session`.
 4. `tool_call` policy hook — **landed**: extensions register

@@ -44,7 +44,7 @@ from pipy_harness.native.extension_chrome_state import (
     ExtensionChromeSnapshot,
     ExtensionChromeState,
 )
-from pipy_harness.native.extension_runtime import ExtensionTool
+from pipy_harness.native.extension_types import ExtensionTool
 from pipy_harness.native.extensions.tool_port import ToolRenderDetailsSink
 from pipy_harness.native.keybindings import (
     KeybindingsManager,

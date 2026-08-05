@@ -21,7 +21,7 @@ from pipy_harness.native.agent import AgentToolCall, AgentToolResultMessage
 from pipy_harness.native.agent.tools import ToolExecutionOutcome, ToolInterruptWaiter
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.state import CodingSessionState
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     ExtensionTool,
     ExtensionUiDriver,
     RegisteredTool,

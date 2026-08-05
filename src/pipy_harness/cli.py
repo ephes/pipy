@@ -2776,7 +2776,7 @@ def _build_extension_activation_batch(
         extension_reserved_command_names,
         extension_reserved_tool_names,
     )
-    from pipy_harness.native.extension_runtime import activate_extension_batch
+    from pipy_harness.native.extensions.activation import activate_extension_batch
     from pipy_harness.native.extensions.packages import discover_extensions
     from pipy_harness.native.resource_enablement import is_resource_enabled
     from pipy_harness.native.resources import WorkspaceResources

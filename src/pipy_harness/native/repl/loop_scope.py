@@ -50,7 +50,7 @@ from pipy_harness.native.coding.session_controller import (
 )
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.diagnostics import emit_diagnostic
-from pipy_harness.native.extension_runtime import ExtensionCodingSessionControl
+from pipy_harness.native.extension_types import ExtensionCodingSessionControl
 from pipy_harness.native.package_runtime import PackageResourceRoots
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.repl.execution_projections import SessionExecutionProjections

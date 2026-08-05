@@ -5,7 +5,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pipy_harness.extensions as public_extensions
-import pipy_harness.native.extension_runtime as activation_runtime
+import pipy_harness.native.extensions.activation as activation_module
 from pipy_harness.native.extensions import (
     collectors,
     contracts,
@@ -80,6 +80,14 @@ def _source(module: ModuleType) -> str:
     return Path(module.__file__ or "").read_text(encoding="utf-8")
 
 
+def _top_level_members(module: ModuleType) -> set[str]:
+    return {
+        node.name
+        for node in ast.parse(_source(module)).body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+    }
+
+
 def _top_level_definitions(module: ModuleType) -> set[str]:
     names: set[str] = set()
     for node in ast.parse(_source(module)).body:
@@ -98,50 +106,79 @@ def test_extension_leaf_members_have_one_definition_site() -> None:
     moved_names = set().union(*MOVED_OWNERS.values())
     for module, expected in MOVED_OWNERS.items():
         assert _top_level_definitions(module) & moved_names == expected
-    assert _top_level_definitions(activation_runtime).isdisjoint(moved_names)
+    assert _top_level_definitions(activation_module).isdisjoint(moved_names)
 
 
-def test_extension_leaves_have_no_activation_runtime_back_edge() -> None:
+def test_extension_leaves_have_no_activation_back_edge() -> None:
     for module in LEAF_MODULES:
-        assert "extension_runtime" not in _source(module)
+        assert "extensions.activation" not in _source(module)
 
 
 def test_retired_runtime_paths_are_absent_and_public_facade_identity_is_exact() -> None:
+    retired_path = "src/pipy_harness/native/extension_" + "runtime.py"
+    assert not (REPO_ROOT / retired_path).exists()
+    activation_definitions = _top_level_definitions(activation_module)
     for name, owner in PUBLIC_MOVED_OWNERS.items():
-        assert not hasattr(activation_runtime, name)
+        assert name not in activation_definitions
         assert getattr(public_extensions, name) is getattr(owner, name)
 
 
 def test_direct_importers_use_moved_definition_sites() -> None:
-    moved_names = set().union(*MOVED_OWNERS.values())
-    offenders: list[tuple[str, int, str]] = []
+    expected_modules = {
+        name: owner.__name__ for owner, names in MOVED_OWNERS.items() for name in names
+    }
+    offenders: list[tuple[str, int, str, str | None]] = []
     for root in (REPO_ROOT / "src", REPO_ROOT / "tests", REPO_ROOT / "scripts"):
         for path in root.rglob("*.py"):
             syntax = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(syntax):
                 if not isinstance(node, ast.ImportFrom):
                     continue
-                if node.module != "pipy_harness.native.extension_runtime":
-                    continue
                 for imported in node.names:
-                    if imported.name in moved_names:
+                    expected = expected_modules.get(imported.name)
+                    if expected is not None and node.module not in (
+                        expected,
+                        "pipy_harness.extensions",
+                    ):
                         offenders.append(
                             (
                                 str(path.relative_to(REPO_ROOT)),
                                 node.lineno,
                                 imported.name,
+                                node.module,
                             )
                         )
     assert offenders == []
 
 
-def test_activation_only_neighbors_stay_with_activation() -> None:
-    runtime_definitions = _top_level_definitions(activation_runtime)
-    assert {
-        "_NormalizedFlagRegistration",
+def test_activation_owns_exact_state_machine_surface() -> None:
+    assert _top_level_members(activation_module) == {
         "_FrozenActivation",
+        "_NormalizedFlagRegistration",
+        "_ProviderCatalogFinalization",
         "_PendingActivation",
+        "_ActivationCleanup",
+        "_report_activation_cleanup",
         "_ActivationApi",
+        "_publish_activation_hosts_atomically",
+        "_dispose_activation_hosts",
+        "_dispose_activation_host_with_diagnostic",
+        "activate_extensions",
+        "_dispose_activation_results",
+        "_finalize_provider_catalog_results",
+        "_report_provider_catalog_finalization",
+        "activate_extension_batch",
+        "_descriptor_activation_key",
+        "_activated_contribution_names",
+        "_staged_contribution_names",
+        "_finalize_preloaded_extension",
+        "_ResolvedActivationEntry",
+        "_FailedActivationEntry",
+        "_resolve_activation_entry",
+        "_execute_activation_entry",
+        "_activate_one",
         "_ExtensionCandidate",
+        "_passthrough_disabled",
+        "_disabled",
         "safe_activation_metadata",
-    } <= runtime_definitions
+    }

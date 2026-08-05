@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from pipy_harness.native import themes
-from pipy_harness.native.extension_runtime import _CollectingUi
+from pipy_harness.native.extension_ui import _CollectingUi
 from pipy_harness.native.package_resources import PackageRoot
 from pipy_harness.native.theme_files import build_theme_registry
 from pipy_harness.native.themes import (
@@ -131,7 +131,7 @@ def test_base_driver_is_complete_extension_ui_driver() -> None:
     pins the base complete: a new protocol member the base forgets to implement
     fails this `isinstance` check immediately, pointing to the one place to fix.
     """
-    from pipy_harness.native.extension_runtime import ExtensionUiDriver
+    from pipy_harness.native.extension_types import ExtensionUiDriver
 
     assert isinstance(_BaseDriver(), ExtensionUiDriver)
 

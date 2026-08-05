@@ -1,62 +1,25 @@
-"""Extension activation sandbox boundary + runtime dispatch surface.
+"""Fail-closed extension activation lifecycle and capability-token state machine.
 
-This module imports an explicit, already-inventoried *loadable* extension
-module (from `pipy_harness.native.extensions.packages`), calls its `activate(api)` entry
-point, and exposes the registered contributions to the live session. The
-activation API supports command and keyboard-shortcut registration, event
-hooks, tool and provider registration/unregistration, and `send_user_message`.
-
-It is fail-closed per extension: an import error, a missing or non-callable
-`activate`, an exception during activation, or an invalid / duplicate /
-reserved command / tool / provider / shortcut registration disables that one
-extension with a safe reason code — it never crashes the session and never lets
-a bad extension take down the others. Disabled discovery descriptors are never
-imported, and a partial registration set is never committed.
-
-Command/shortcut handlers run with a mode-aware `CommandContext` (workspace
-root, `ui` with `notify` + `custom` interactive overlays, a read-only
-`conversation` view, and a bounded `complete`); the context lives in
-`pipy_harness.native.extensions.command_context` and its read-only session
-views in `pipy_harness.native.extensions.session_views`. Command output,
-handlers, and source code never enter the default archive; project activation
-results through `safe_activation_metadata`.
-
-The activation contracts live in `pipy_harness.native.extensions.contracts`,
-contribution/outbox collectors in `pipy_harness.native.extensions.collectors`,
-flag parsing in `pipy_harness.native.extensions.flag_tokens`, and provider
-normalization in `pipy_harness.native.extensions.provider_normalization`.
-This module retains activation lifecycle ownership, `activate_extensions`, and
-`safe_activation_metadata`. The deliberate public facade remains
-`pipy_harness.extensions`.
+This module imports an explicit, already-inventoried loadable extension module,
+invokes its ``activate(api)`` entry point, and atomically publishes validated
+contributions. Activation is isolated per extension: import, entry-point, and
+registration failures disable only that extension, and partial registrations
+are never committed. The deliberate public facade remains
+``pipy_harness.extensions``.
 """
 
 from __future__ import annotations
 
 import inspect
 import threading
-from collections.abc import (
-    Callable,
-    Container,
-    Iterable,
-    Mapping,
-    Sequence,
-)
+from collections.abc import Callable, Container, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import (
-    Literal,
-    NoReturn,
-    TypeAlias,
-    TypeVar,
-    cast,
-)
+from typing import Literal, NoReturn, TypeAlias, TypeVar, cast
 
-from pipy_harness.native.extension_loader import (
-    _import_entry_module,
-    _run_awaitable,
-)
+from pipy_harness.native.extension_loader import _import_entry_module, _run_awaitable
 from pipy_harness.native.extension_types import (
     REASON_ACTIVATION_ERROR,
     REASON_DUPLICATE_COMMAND,
@@ -77,176 +40,36 @@ from pipy_harness.native.extension_types import (
     REASON_NO_ACTIVATE,
     REASON_RESERVED_COMMAND,
     REASON_RESERVED_SHORTCUT,
+    REASON_RESERVED_TOOL,
+    RESERVED_SHORTCUT_KEYS,
+    ExtensionFlag,
+    ExtensionProvider,
+    ExtensionTool,
+    QueuedCustomMessage,
+    QueuedUserMessage,
+    RegisteredFlag,
+    RegisteredProvider,
+    RegisteredTool,
     _ActivationError,
     _is_valid_command_name,
     _safe_diagnostic,
-)
-from pipy_harness.native.extension_types import (
-    REASON_RESERVED_TOOL as REASON_RESERVED_TOOL,
-)
-from pipy_harness.native.extension_types import (
-    RESERVED_SHORTCUT_KEYS as RESERVED_SHORTCUT_KEYS,
-)
-from pipy_harness.native.extension_types import (
-    BeforeAgentStartEvent as BeforeAgentStartEvent,
-)
-from pipy_harness.native.extension_types import (
-    BeforeAgentStartResult as BeforeAgentStartResult,
-)
-from pipy_harness.native.extension_types import (
-    BeforeProviderHeadersEvent as BeforeProviderHeadersEvent,
-)
-from pipy_harness.native.extension_types import (
-    BeforeProviderRequestEvent as BeforeProviderRequestEvent,
-)
-from pipy_harness.native.extension_types import (
-    ChromeComponent as ChromeComponent,
-)
-from pipy_harness.native.extension_types import (
-    CompletionFn as CompletionFn,
-)
-from pipy_harness.native.extension_types import (
-    CustomComponent as CustomComponent,
-)
-from pipy_harness.native.extension_types import (
-    CustomComponentFactory as CustomComponentFactory,
-)
-from pipy_harness.native.extension_types import (
-    EntryRenderContext as EntryRenderContext,
-)
-from pipy_harness.native.extension_types import (
-    ExtensionCodingSessionControl as ExtensionCodingSessionControl,
-)
-from pipy_harness.native.extension_types import (
-    ExtensionFlag as ExtensionFlag,
-)
-from pipy_harness.native.extension_types import (
-    ExtensionModelRuntimeControl as ExtensionModelRuntimeControl,
-)
-from pipy_harness.native.extension_types import (
-    ExtensionOAuthConfig as ExtensionOAuthConfig,
-)
-from pipy_harness.native.extension_types import (
-    ExtensionProvider as ExtensionProvider,
-)
-from pipy_harness.native.extension_types import (
-    ExtensionTool as ExtensionTool,
-)
-from pipy_harness.native.extension_types import (
-    ExtensionUi as ExtensionUi,
-)
-from pipy_harness.native.extension_types import (
-    ExtensionUiDriver as ExtensionUiDriver,
-)
-from pipy_harness.native.extension_types import (
-    FooterData as FooterData,
-)
-from pipy_harness.native.extension_types import (
-    InputEvent as InputEvent,
-)
-from pipy_harness.native.extension_types import (
-    InputTransform as InputTransform,
-)
-from pipy_harness.native.extension_types import (
-    LifecycleEvent as LifecycleEvent,
-)
-from pipy_harness.native.extension_types import (
-    MessageRenderComponent as MessageRenderComponent,
-)
-from pipy_harness.native.extension_types import (
-    MessageRenderContext as MessageRenderContext,
-)
-from pipy_harness.native.extension_types import (
-    ProviderContext as ProviderContext,
-)
-from pipy_harness.native.extension_types import (
-    ProviderRequestTransform as ProviderRequestTransform,
-)
-from pipy_harness.native.extension_types import (
-    QueuedCustomMessage as QueuedCustomMessage,
-)
-from pipy_harness.native.extension_types import (
-    QueuedUserMessage as QueuedUserMessage,
-)
-from pipy_harness.native.extension_types import (
-    RegisteredFlag as RegisteredFlag,
-)
-from pipy_harness.native.extension_types import (
-    RegisteredProvider as RegisteredProvider,
-)
-from pipy_harness.native.extension_types import (
-    RegisteredTool as RegisteredTool,
-)
-from pipy_harness.native.extension_types import (
-    RenderedCustomEntry as RenderedCustomEntry,
-)
-from pipy_harness.native.extension_types import (
-    SessionBeforeEvent as SessionBeforeEvent,
-)
-from pipy_harness.native.extension_types import (
-    SessionDecision as SessionDecision,
-)
-from pipy_harness.native.extension_types import (
-    ThemeColor as ThemeColor,
-)
-from pipy_harness.native.extension_types import (
-    ToolBlock as ToolBlock,
-)
-from pipy_harness.native.extension_types import (
-    ToolCallEvent as ToolCallEvent,
-)
-from pipy_harness.native.extension_types import (
-    ToolRenderComponent as ToolRenderComponent,
-)
-from pipy_harness.native.extension_types import (
-    ToolRenderContext as ToolRenderContext,
-)
-from pipy_harness.native.extension_types import (
-    ToolRenderTheme as ToolRenderTheme,
-)
-from pipy_harness.native.extension_types import (
-    ToolResult as ToolResult,
-)
-from pipy_harness.native.extension_types import (
-    ToolResultEvent as ToolResultEvent,
-)
-from pipy_harness.native.extension_types import (
-    ToolResultTransform as ToolResultTransform,
-)
-from pipy_harness.native.extension_types import (
-    UserBashDecision as UserBashDecision,
-)
-from pipy_harness.native.extension_types import (
-    UserBashDispatch as UserBashDispatch,
-)
-from pipy_harness.native.extension_types import (
-    UserBashEvent as UserBashEvent,
-)
-from pipy_harness.native.extension_types import (
-    WidgetPlacement as WidgetPlacement,
-)
-from pipy_harness.native.extension_types import (
-    is_valid_custom_entry_type as is_valid_custom_entry_type,
-)
-from pipy_harness.native.extension_types import (
-    normalize_shortcut_key as normalize_shortcut_key,
-)
-from pipy_harness.native.extension_ui import (
-    _CollectingUi as _CollectingUi,
-)
-from pipy_harness.native.extension_ui import (
-    coerce_tool_render_lines as coerce_tool_render_lines,
-)
-from pipy_harness.native.extension_ui import (
-    lines_component as lines_component,
-)
-from pipy_harness.native.extensions import contracts as _contracts
-from pipy_harness.native.extensions import custom_payloads as _custom_payloads
-from pipy_harness.native.extensions import message_routing as _message_routing
-from pipy_harness.native.extensions import (
-    provider_normalization as _provider_normalization,
+    is_valid_custom_entry_type,
+    normalize_shortcut_key,
 )
 from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
+from pipy_harness.native.extensions.contracts import (
+    ActivatedExtension,
+    CommandHandler,
+    ExtensionActivationBatch,
+    HookHandler,
+    RegisteredCommand,
+    RegisteredEntryRenderer,
+    RegisteredMessageRenderer,
+    RegisteredShortcut,
+    _activation_message_routings,
+    _ExtensionRuntime,
+    _PendingActivationHost,
+)
 from pipy_harness.native.extensions.contribution_names import (
     _ContributionNames,
     _normalize_contribution_names,
@@ -254,7 +77,21 @@ from pipy_harness.native.extensions.contribution_names import (
     _prepare_contribution_names_commit,
     _TakenContributionState,
 )
+from pipy_harness.native.extensions.custom_payloads import coerce_custom_message
+from pipy_harness.native.extensions.message_routing import (
+    GenerationMessageReservation,
+    GenerationMessageRouting,
+    _reserved_message_delivery,
+    _routing_for_activation_batch,
+)
 from pipy_harness.native.extensions.packages import ExtensionDescriptor
+from pipy_harness.native.extensions.provider_normalization import (
+    _coerce_activation_string,
+    _normalize_default_model,
+    _normalize_provider_models,
+    _normalize_provider_name,
+    _normalize_provider_oauth,
+)
 from pipy_harness.native.tools.base import ToolDefinition
 
 # Event names (the dispatched subset grows per slice).
@@ -293,15 +130,15 @@ LIFECYCLE_EVENTS: tuple[str, ...] = (
 class _FrozenActivation:
     """One atomic, immutable view of a sealed activation host."""
 
-    commands: tuple[_contracts.RegisteredCommand, ...]
+    commands: tuple[RegisteredCommand, ...]
     tools: tuple[RegisteredTool, ...]
     providers: tuple[RegisteredProvider, ...]
     unregistered_providers: tuple[str, ...]
-    shortcuts: tuple[_contracts.RegisteredShortcut, ...]
+    shortcuts: tuple[RegisteredShortcut, ...]
     flags: tuple[RegisteredFlag, ...]
-    message_renderers: tuple[_contracts.RegisteredMessageRenderer, ...]
-    entry_renderers: tuple[_contracts.RegisteredEntryRenderer, ...]
-    hooks: Mapping[str, tuple[_contracts.HookHandler, ...]]
+    message_renderers: tuple[RegisteredMessageRenderer, ...]
+    entry_renderers: tuple[RegisteredEntryRenderer, ...]
+    hooks: Mapping[str, tuple[HookHandler, ...]]
     user_messages: tuple[QueuedUserMessage, ...]
     custom_messages: tuple[QueuedCustomMessage, ...]
     failure: tuple[str, str | None] | None
@@ -325,13 +162,13 @@ _RegistrationFamily: TypeAlias = Literal[
     "entry_renderer",
 ]
 _RegistrationValue: TypeAlias = (
-    _contracts.RegisteredCommand
-    | _contracts.RegisteredShortcut
+    RegisteredCommand
+    | RegisteredShortcut
     | RegisteredTool
     | RegisteredProvider
     | _NormalizedFlagRegistration
-    | _contracts.RegisteredMessageRenderer
-    | _contracts.RegisteredEntryRenderer
+    | RegisteredMessageRenderer
+    | RegisteredEntryRenderer
 )
 _RegistrationOrdering: TypeAlias = Literal[
     "availability_before_value",
@@ -481,7 +318,7 @@ class _ActivationApi:
         taken_providers: frozenset[str] = frozenset(),
         taken_shortcuts: frozenset[str] = frozenset(),
         taken_flags: frozenset[str] = frozenset(),
-        message_routing: _message_routing.GenerationMessageRouting,
+        message_routing: GenerationMessageRouting,
         taken_message_renderers: frozenset[str] = frozenset(),
         taken_entry_renderers: frozenset[str] = frozenset(),
         guard: AbstractContextManager[object] | None = None,
@@ -519,18 +356,16 @@ class _ActivationApi:
         self._message_routing = message_routing
         self._message_route_authority: object | None = None
         self._boundary_observer = boundary_observer
-        self._staged: dict[str, _contracts.RegisteredCommand] = {}
-        self._staged_shortcuts: dict[str, _contracts.RegisteredShortcut] = {}
+        self._staged: dict[str, RegisteredCommand] = {}
+        self._staged_shortcuts: dict[str, RegisteredShortcut] = {}
         self._staged_tools: dict[str, RegisteredTool] = {}
         self._staged_providers: dict[str, RegisteredProvider] = {}
         self._staged_unregistered: list[str] = []
         self._staged_flags: dict[str, RegisteredFlag] = {}
         self._flag_values: dict[str, object] = {}
-        self._staged_message_renderers: dict[
-            str, _contracts.RegisteredMessageRenderer
-        ] = {}
-        self._staged_entry_renderers: dict[str, _contracts.RegisteredEntryRenderer] = {}
-        self._hooks: dict[str, list[_contracts.HookHandler]] = {}
+        self._staged_message_renderers: dict[str, RegisteredMessageRenderer] = {}
+        self._staged_entry_renderers: dict[str, RegisteredEntryRenderer] = {}
+        self._hooks: dict[str, list[HookHandler]] = {}
         self._failure: tuple[str, str | None] | None = None
         # Messages are staged during activation and only committed to the
         # shared outbox once activation succeeds, so a disabled extension
@@ -736,9 +571,9 @@ class _ActivationApi:
         name: str,
         value: _RegistrationValue,
     ) -> None:
-        if family == "command" and isinstance(value, _contracts.RegisteredCommand):
+        if family == "command" and isinstance(value, RegisteredCommand):
             self._staged[name] = value
-        elif family == "shortcut" and isinstance(value, _contracts.RegisteredShortcut):
+        elif family == "shortcut" and isinstance(value, RegisteredShortcut):
             self._staged_shortcuts[name] = value
         elif family == "tool" and isinstance(value, RegisteredTool):
             self._staged_tools[name] = value
@@ -749,12 +584,10 @@ class _ActivationApi:
             if value.default is not None:
                 self._flag_values[name] = value.default
         elif family == "message_renderer" and isinstance(
-            value, _contracts.RegisteredMessageRenderer
+            value, RegisteredMessageRenderer
         ):
             self._staged_message_renderers[name] = value
-        elif family == "entry_renderer" and isinstance(
-            value, _contracts.RegisteredEntryRenderer
-        ):
+        elif family == "entry_renderer" and isinstance(value, RegisteredEntryRenderer):
             self._staged_entry_renderers[name] = value
         else:
             raise AssertionError(f"invalid normalized {family} registration")
@@ -762,7 +595,7 @@ class _ActivationApi:
     def _reserve_message(
         self,
         message: QueuedUserMessage | QueuedCustomMessage,
-    ) -> _message_routing.GenerationMessageReservation | None:
+    ) -> GenerationMessageReservation | None:
         self._observe_boundary("host_guard_enter")
         with self._guard:
             if self._state == "open":
@@ -781,24 +614,20 @@ class _ActivationApi:
                     self._state in ("committed", "published") and self._activated
                 )
                 if isinstance(message, QueuedUserMessage):
-                    delivery, forwarding, live_forwarding = (
-                        _message_routing._reserved_message_delivery(
-                            self._message_routing,
-                            self._outbox,
-                            message,
-                            self._message_routing._append_live_user,
-                        )
+                    delivery, forwarding, live_forwarding = _reserved_message_delivery(
+                        self._message_routing,
+                        self._outbox,
+                        message,
+                        self._message_routing._append_live_user,
                     )
                 else:
-                    delivery, forwarding, live_forwarding = (
-                        _message_routing._reserved_message_delivery(
-                            self._message_routing,
-                            self._custom_outbox,
-                            message,
-                            self._message_routing._append_live_custom,
-                        )
+                    delivery, forwarding, live_forwarding = _reserved_message_delivery(
+                        self._message_routing,
+                        self._custom_outbox,
+                        message,
+                        self._message_routing._append_live_custom,
                     )
-                reservation = _message_routing.GenerationMessageReservation(
+                reservation = GenerationMessageReservation(
                     self._message_routing,
                     delivery,
                     forwarding,
@@ -830,9 +659,7 @@ class _ActivationApi:
     ) -> None:
         """Stage a custom session message until activation succeeds."""
 
-        reservation = self._reserve_message(
-            _custom_payloads.coerce_custom_message(message, options)
-        )
+        reservation = self._reserve_message(coerce_custom_message(message, options))
         if reservation is not None:
             reservation.owner.accept(reservation)
 
@@ -874,9 +701,7 @@ class _ActivationApi:
     def _normalize_tool_name(tool: ExtensionTool) -> str:
         if not isinstance(tool, ExtensionTool):
             raise _ActivationError(REASON_INVALID_TOOL)
-        name = _provider_normalization._coerce_activation_string(
-            tool.name, REASON_INVALID_TOOL
-        )
+        name = _coerce_activation_string(tool.name, REASON_INVALID_TOOL)
         if not name:
             raise _ActivationError(REASON_INVALID_TOOL)
         return name
@@ -918,7 +743,7 @@ class _ActivationApi:
     def _normalize_provider_registration_name(provider: ExtensionProvider) -> str:
         if not isinstance(provider, ExtensionProvider):
             raise _ActivationError(REASON_INVALID_PROVIDER)
-        return _provider_normalization._normalize_provider_name(provider.name)
+        return _normalize_provider_name(provider.name)
 
     def _normalize_provider(
         self,
@@ -934,11 +759,9 @@ class _ActivationApi:
         raw_oauth = provider.oauth
         if not callable(factory):
             raise _ActivationError(REASON_INVALID_PROVIDER)
-        model_ids = _provider_normalization._normalize_provider_models(raw_models)
-        default_model = _provider_normalization._normalize_default_model(
-            raw_default, model_ids
-        )
-        oauth = _provider_normalization._normalize_provider_oauth(raw_oauth)
+        model_ids = _normalize_provider_models(raw_models)
+        default_model = _normalize_default_model(raw_default, model_ids)
+        oauth = _normalize_provider_oauth(raw_oauth)
         normalized = replace(
             provider,
             name=name,
@@ -954,7 +777,7 @@ class _ActivationApi:
     def unregister_provider(self, name: str) -> None:
         self._check_registration_open()
         try:
-            normalized = _provider_normalization._normalize_provider_name(name)
+            normalized = _normalize_provider_name(name)
         except _ActivationError as err:
             self._raise_registration_failure(err)
         with self._guard:
@@ -973,9 +796,7 @@ class _ActivationApi:
     def _normalize_flag_name(flag: ExtensionFlag) -> str:
         if not isinstance(flag, ExtensionFlag):
             raise _ActivationError(REASON_INVALID_FLAG)
-        name = _provider_normalization._coerce_activation_string(
-            flag.name, REASON_INVALID_FLAG
-        ).strip()
+        name = _coerce_activation_string(flag.name, REASON_INVALID_FLAG).strip()
         if not _is_valid_command_name(name):
             raise _ActivationError(REASON_INVALID_FLAG)
         return name
@@ -989,18 +810,14 @@ class _ActivationApi:
         raw_flag_type = flag.flag_type
         description = flag.description
         default = flag.default
-        flag_type = _provider_normalization._coerce_activation_string(
-            raw_flag_type, REASON_INVALID_FLAG
-        )
+        flag_type = _coerce_activation_string(raw_flag_type, REASON_INVALID_FLAG)
         if flag_type not in ("boolean", "string"):
             raise _ActivationError(REASON_INVALID_FLAG)
         flag_type = cast(Literal["boolean", "string"], flag_type)
         if flag_type == "boolean" and default is not None and type(default) is not bool:
             raise _ActivationError(REASON_INVALID_FLAG)
         if flag_type == "string" and default is not None:
-            default = _provider_normalization._coerce_activation_string(
-                default, REASON_INVALID_FLAG
-            )
+            default = _coerce_activation_string(default, REASON_INVALID_FLAG)
         normalized_description = (
             description
             if description is None or type(description) is str
@@ -1025,9 +842,7 @@ class _ActivationApi:
 
     def get_flag(self, name: str) -> object | None:
         try:
-            normalized = _provider_normalization._coerce_activation_string(
-                name, REASON_INVALID_FLAG
-            )
+            normalized = _coerce_activation_string(name, REASON_INVALID_FLAG)
         except _ActivationError:
             return None
         return self._get_flag_value(normalized)
@@ -1057,9 +872,7 @@ class _ActivationApi:
 
     @staticmethod
     def _normalize_renderer_name(custom_type: str, *, reason: str) -> str:
-        name = _provider_normalization._coerce_activation_string(
-            custom_type, reason
-        ).strip()
+        name = _coerce_activation_string(custom_type, reason).strip()
         if not is_valid_custom_entry_type(name):
             raise _ActivationError(reason)
         return name
@@ -1068,10 +881,10 @@ class _ActivationApi:
         self,
         name: str,
         renderer: Callable[..., object],
-    ) -> _contracts.RegisteredMessageRenderer:
+    ) -> RegisteredMessageRenderer:
         if not callable(renderer):
             raise _ActivationError(REASON_INVALID_MESSAGE_RENDERER)
-        return _contracts.RegisteredMessageRenderer(
+        return RegisteredMessageRenderer(
             custom_type=name,
             renderer=renderer,
             extension=self._extension_name,
@@ -1094,10 +907,10 @@ class _ActivationApi:
         self,
         name: str,
         renderer: Callable[..., object],
-    ) -> _contracts.RegisteredEntryRenderer:
+    ) -> RegisteredEntryRenderer:
         if not callable(renderer):
             raise _ActivationError(REASON_INVALID_ENTRY_RENDERER)
-        return _contracts.RegisteredEntryRenderer(
+        return RegisteredEntryRenderer(
             custom_type=name,
             renderer=renderer,
             extension=self._extension_name,
@@ -1107,7 +920,7 @@ class _ActivationApi:
         self,
         name: str,
         description: str,
-        handler: _contracts.CommandHandler,
+        handler: CommandHandler,
     ) -> None:
         self._stage_registration(
             "command",
@@ -1119,9 +932,7 @@ class _ActivationApi:
 
     @staticmethod
     def _normalize_command_name(name: str) -> str:
-        normalized = _provider_normalization._coerce_activation_string(
-            name, REASON_INVALID_COMMAND_NAME
-        )
+        normalized = _coerce_activation_string(name, REASON_INVALID_COMMAND_NAME)
         if not _is_valid_command_name(normalized):
             raise _ActivationError(REASON_INVALID_COMMAND_NAME)
         return normalized
@@ -1130,18 +941,18 @@ class _ActivationApi:
         self,
         name: str,
         description: str,
-        handler: _contracts.CommandHandler,
-    ) -> _contracts.RegisteredCommand:
+        handler: CommandHandler,
+    ) -> RegisteredCommand:
         if not callable(handler):
             raise _ActivationError(REASON_INVALID_COMMAND_NAME)
-        return _contracts.RegisteredCommand(
+        return RegisteredCommand(
             name=name,
             description=str(description),
             handler=handler,
             extension=self._extension_name,
         )
 
-    def register_shortcut(self, key: str, handler: _contracts.CommandHandler) -> None:
+    def register_shortcut(self, key: str, handler: CommandHandler) -> None:
         self._stage_registration(
             "shortcut",
             lambda: self._normalize_shortcut_name(key, handler),
@@ -1149,10 +960,8 @@ class _ActivationApi:
         )
 
     @staticmethod
-    def _normalize_shortcut_name(key: str, handler: _contracts.CommandHandler) -> str:
-        plain_key = _provider_normalization._coerce_activation_string(
-            key, REASON_INVALID_SHORTCUT
-        )
+    def _normalize_shortcut_name(key: str, handler: CommandHandler) -> str:
+        plain_key = _coerce_activation_string(key, REASON_INVALID_SHORTCUT)
         if not plain_key.strip() or not callable(handler):
             raise _ActivationError(REASON_INVALID_SHORTCUT)
         normalized = normalize_shortcut_key(plain_key)
@@ -1163,9 +972,9 @@ class _ActivationApi:
     def _normalize_shortcut(
         self,
         normalized: str,
-        handler: _contracts.CommandHandler,
-    ) -> _contracts.RegisteredShortcut:
-        return _contracts.RegisteredShortcut(
+        handler: CommandHandler,
+    ) -> RegisteredShortcut:
+        return RegisteredShortcut(
             key=normalized,
             handler=handler,
             extension=self._extension_name,
@@ -1174,7 +983,7 @@ class _ActivationApi:
     def on(
         self,
         event: str,
-        handler: _contracts.HookHandler | None = None,
+        handler: HookHandler | None = None,
     ) -> object:
         """Register an event hook. Supports decorator and direct forms.
 
@@ -1194,7 +1003,7 @@ class _ActivationApi:
             # Refuse if seal won while the event was being normalized.
             self._check_registration_open()
 
-            def _decorator(func: _contracts.HookHandler) -> _contracts.HookHandler:
+            def _decorator(func: HookHandler) -> HookHandler:
                 self._register_hook(normalized_event, func)
                 return func
 
@@ -1204,14 +1013,12 @@ class _ActivationApi:
 
     @staticmethod
     def _normalize_hook_event(event: str) -> str:
-        normalized = _provider_normalization._coerce_activation_string(
-            event, REASON_INVALID_HOOK
-        )
+        normalized = _coerce_activation_string(event, REASON_INVALID_HOOK)
         if not normalized:
             raise _ActivationError(REASON_INVALID_HOOK)
         return normalized
 
-    def _register_hook(self, event: str, handler: _contracts.HookHandler) -> None:
+    def _register_hook(self, event: str, handler: HookHandler) -> None:
         self._check_registration_open()
         if not callable(handler):
             self._raise_registration_failure(_ActivationError(REASON_INVALID_HOOK))
@@ -1388,9 +1195,9 @@ def activate_extensions(
     reserved_tool_names: Sequence[str] = (),
     message_outbox: list[QueuedUserMessage] | None = None,
     custom_message_outbox: list[QueuedCustomMessage] | None = None,
-    message_routing: _message_routing.GenerationMessageRouting | None = None,
+    message_routing: GenerationMessageRouting | None = None,
     diagnostic: Callable[[str], None] | None = None,
-) -> list[_contracts.ActivatedExtension]:
+) -> list[ActivatedExtension]:
     """Activate the loadable descriptors, in order.
 
     Disabled discovery descriptors are passed through unchanged (never
@@ -1417,7 +1224,7 @@ def activate_extensions(
 
 
 def _dispose_activation_results(
-    activated: Iterable[_contracts.ActivatedExtension],
+    activated: Iterable[ActivatedExtension],
 ) -> _ActivationCleanup:
     """Dispose every host still owned by uncomposed activation results."""
 
@@ -1437,7 +1244,7 @@ def _dispose_activation_results(
 
 
 def _finalize_provider_catalog_results(
-    activated: Iterable[_contracts.ActivatedExtension],
+    activated: Iterable[ActivatedExtension],
 ) -> _ProviderCatalogFinalization:
     """Terminally retain only guarded flag reads needed by accepted factories."""
 
@@ -1494,11 +1301,11 @@ def activate_extension_batch(
     reserved_tool_names: Sequence[str] = (),
     message_outbox: list[QueuedUserMessage] | None = None,
     custom_message_outbox: list[QueuedCustomMessage] | None = None,
-    message_routing: _message_routing.GenerationMessageRouting | None = None,
-    preloaded: _contracts.ExtensionActivationBatch | None = None,
+    message_routing: GenerationMessageRouting | None = None,
+    preloaded: ExtensionActivationBatch | None = None,
     pending: bool = False,
     diagnostic: Callable[[str], None] | None = None,
-) -> _contracts.ExtensionActivationBatch:
+) -> ExtensionActivationBatch:
     """Activate once, or finalize a pending pre-trust batch in final order."""
 
     if preloaded is not None and not preloaded.pending:
@@ -1520,8 +1327,8 @@ def activate_extension_batch(
         else (custom_message_outbox if custom_message_outbox is not None else [])
     )
     retained_routing = preloaded.message_routing if preloaded is not None else None
-    routing = _message_routing._routing_for_activation_batch(
-        _contracts._activation_message_routings(
+    routing = _routing_for_activation_batch(
+        _activation_message_routings(
             preloaded.activated if preloaded is not None else ()
         ),
         outbox,
@@ -1529,7 +1336,7 @@ def activate_extension_batch(
         supplied=message_routing or retained_routing,
         required=retained_routing,
     )
-    results: list[_contracts.ActivatedExtension] = []
+    results: list[ActivatedExtension] = []
     preloaded_by_key = (
         {
             item._activation_key: item
@@ -1590,7 +1397,7 @@ def activate_extension_batch(
         # Claimed tokens are already empty, so this cannot dispose a transferee.
         cleanup = _dispose_activation_results(preloaded.activated)
         _report_activation_cleanup(cleanup, diagnostic)
-    return _contracts.ExtensionActivationBatch(
+    return ExtensionActivationBatch(
         activated=tuple(results),
         message_outbox=outbox,
         custom_message_outbox=custom_outbox,
@@ -1609,7 +1416,7 @@ def _descriptor_activation_key(descriptor: ExtensionDescriptor) -> str:
 
 
 def _activated_contribution_names(
-    existing: _contracts.ActivatedExtension,
+    existing: ActivatedExtension,
 ) -> _ContributionNames:
     return _ContributionNames(
         commands=tuple(command.name for command in existing.commands),
@@ -1643,14 +1450,14 @@ def _staged_contribution_names(staged: _FrozenActivation) -> _ContributionNames:
 
 
 def _finalize_preloaded_extension(
-    existing: _contracts.ActivatedExtension,
+    existing: ActivatedExtension,
     *,
     descriptor: ExtensionDescriptor,
     reserved: frozenset[str],
     reserved_tools: frozenset[str],
     taken: _TakenContributionState,
     diagnostic: Callable[[str], None] | None,
-) -> tuple[_contracts.ActivatedExtension, _TakenContributionState]:
+) -> tuple[ActivatedExtension, _TakenContributionState]:
     """Validate and commit one pending preload without running it again."""
 
     if existing.status != "activated":
@@ -1721,7 +1528,7 @@ class _ResolvedActivationEntry:
 
 @dataclass(frozen=True, slots=True)
 class _FailedActivationEntry:
-    disabled: _contracts.ActivatedExtension
+    disabled: ActivatedExtension
 
 
 _ActivationEntryResolution: TypeAlias = (
@@ -1763,7 +1570,7 @@ def _execute_activation_entry(
     activate: Callable[..., object],
     api: _ActivationApi,
     diagnostic: Callable[[str], None] | None,
-) -> _contracts.ActivatedExtension | None:
+) -> ActivatedExtension | None:
     try:
         result = activate(api)
         if inspect.isawaitable(result):
@@ -1791,10 +1598,10 @@ def _activate_one(
     taken: _TakenContributionState,
     outbox: list[QueuedUserMessage],
     custom_outbox: list[QueuedCustomMessage],
-    message_routing: _message_routing.GenerationMessageRouting,
+    message_routing: GenerationMessageRouting,
     diagnostic: Callable[[str], None] | None,
     commit_activation: bool = True,
-) -> tuple[_contracts.ActivatedExtension, _TakenContributionState]:
+) -> tuple[ActivatedExtension, _TakenContributionState]:
     resolution = _resolve_activation_entry(descriptor)
     if isinstance(resolution, _FailedActivationEntry):
         return resolution.disabled, taken
@@ -1841,7 +1648,7 @@ def _activate_one(
         prepared_names = _prepare_contribution_names_commit(names, taken)
         # Construct the immutable result before commit can flush staged user
         # messages. Any bad host/result shape is then disabled without effects.
-        activated = _contracts.ActivatedExtension(
+        activated = ActivatedExtension(
             name=descriptor.name,
             version=descriptor.version,
             path_label=descriptor.path_label,
@@ -1862,7 +1669,7 @@ def _activate_one(
             _pending_activation=(
                 None
                 if commit_activation
-                else cast(_contracts._PendingActivationHost, _PendingActivation(api))
+                else cast(_PendingActivationHost, _PendingActivation(api))
             ),
             _activation_host=(api if commit_activation else None),
         )
@@ -1894,11 +1701,11 @@ def _activate_one(
 class _ExtensionCandidate:
     """Optional runtime holder before reload/startup ownership is transferred."""
 
-    runtime: _contracts._ExtensionRuntime | None = None
+    runtime: _ExtensionRuntime | None = None
 
     def adopt(
         self,
-        runtime: _contracts._ExtensionRuntime,
+        runtime: _ExtensionRuntime,
         diagnostic: Callable[[str], None],
     ) -> None:
         """Take ownership immediately after the composition seam returns."""
@@ -1941,8 +1748,8 @@ class _ExtensionCandidate:
 
 def _passthrough_disabled(
     descriptor: ExtensionDescriptor,
-) -> _contracts.ActivatedExtension:
-    return _contracts.ActivatedExtension(
+) -> ActivatedExtension:
+    return ActivatedExtension(
         name=descriptor.name,
         version=descriptor.version,
         path_label=descriptor.path_label,
@@ -1958,8 +1765,8 @@ def _disabled(
     descriptor: ExtensionDescriptor,
     reason: str,
     diagnostic: str | None,
-) -> _contracts.ActivatedExtension:
-    return _contracts.ActivatedExtension(
+) -> ActivatedExtension:
+    return ActivatedExtension(
         name=descriptor.name,
         version=descriptor.version,
         path_label=descriptor.path_label,
@@ -1972,7 +1779,7 @@ def _disabled(
 
 
 def safe_activation_metadata(
-    activated: Sequence[_contracts.ActivatedExtension],
+    activated: Sequence[ActivatedExtension],
 ) -> list[dict[str, object]]:
     """Project activation results to archive-safe metadata.
 

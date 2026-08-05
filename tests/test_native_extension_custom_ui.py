@@ -21,12 +21,12 @@ from typing import TextIO, cast
 
 import pytest
 
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     CustomComponent,
     ExtensionUi,
     ExtensionUiDriver,
-    _CollectingUi,
 )
+from pipy_harness.native.extension_ui import _CollectingUi
 from pipy_harness.native.extensions.contracts import (
     RegisteredCommand,
 )

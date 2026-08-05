@@ -25,7 +25,7 @@ from pipy_harness.native.extension_hooks import (
     dispatch_session_before_hooks,
     dispatch_user_bash_hooks,
 )
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     ExtensionModelRuntimeControl,
     ProviderRequestTransform,
     SessionDecision,
@@ -663,7 +663,7 @@ def test_non_lifecycle_dispatchers_can_paint_live_ui_driver(tmp_path: Path) -> N
         dispatch_tool_call_hooks,
         dispatch_tool_result_hooks,
     )
-    from pipy_harness.native.extension_runtime import (
+    from pipy_harness.native.extension_types import (
         BeforeAgentStartResult,
         InputTransform,
         ToolBlock,

@@ -11,9 +11,8 @@ only when a UI is available and never blocking otherwise.
 
 This module imports only the `extension_types` contracts and the `native.themes`
 registry helpers, so it never reaches the product session (`native.coding.session`)
-or the terminal UI (`tui`). The context and dispatch owners import
-`_CollectingUi` from here for invocation contexts, while `extension_runtime`
-uses it for `_ActivationApi`; the live `_LiveExtensionUiDriver` that binds
+or the terminal UI (`tui`). Context and dispatch owners import `_CollectingUi`
+from here for invocation contexts; the live `_LiveExtensionUiDriver` that binds
 `ToolLoopTerminalUi` is owned beside that terminal boundary in `tui`.
 """
 
@@ -40,8 +39,8 @@ from pipy_harness.native.themes import (
     resolve_palette,
 )
 
-# Bound a tool/entry render's line output. Also re-imported by
-# `extension_runtime` for its message/entry render truncation.
+# Bound a tool/entry render's line output; custom payload renderers import it
+# directly from this owner for message/entry truncation.
 _CUSTOM_RENDER_MAX_CHARS: int = 16 * 1024
 
 

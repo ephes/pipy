@@ -10,7 +10,7 @@ from pipy_harness.native.extension_chrome_state import (
     ChromeRegion,
     ExtensionChromeState,
 )
-from pipy_harness.native.extension_runtime import FooterData
+from pipy_harness.native.extension_types import FooterData
 from pipy_harness.native.frame_renderer import FrameLine
 from pipy_harness.native.ui.extension_chrome import FOOTER_MAX_LINES, clip_custom
 from pipy_harness.native.ui.paint_lock import PaintLock

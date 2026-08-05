@@ -20,10 +20,8 @@ from pathlib import Path
 from pipy_harness.models import HarnessStatus
 from pipy_harness.native import ProviderRequest, ProviderResult
 from pipy_harness.native.coding.session import CodingSession
-from pipy_harness.native.extension_runtime import (
-    activate_extensions,
-)
 from pipy_harness.native.extension_types import ExtensionCodingSessionControl
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.collectors import (
     extension_flags,
     extension_message_renderers,

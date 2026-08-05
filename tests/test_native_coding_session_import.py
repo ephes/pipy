@@ -37,7 +37,7 @@ from pipy_harness.native.export_distribution import (
 from pipy_harness.native.extension_hooks import (
     _ExtensionLifecycleAgentEventAdapter,
 )
-from pipy_harness.native.extension_runtime import SessionDecision
+from pipy_harness.native.extension_types import SessionDecision
 from pipy_harness.native.prompt_history import PromptHistoryStore
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager

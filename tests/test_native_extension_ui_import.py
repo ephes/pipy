@@ -5,9 +5,9 @@ Slice 6.4c relocated `_CollectingUi`, `_safe_ui_key`, and the
 helpers into `pipy_harness.native.extension_ui`. Slice 18 relocated custom
 payload coercion and rendering into `native.extensions.custom_payloads`.
 Slice 31 relocated command/shortcut dispatch and the extension tool port into
-`native.extensions`; slice 34 relocated activation contracts and collectors.
-Every retired `extension_runtime` path is absent while public names import
-directly from their authoritative owner.
+`native.extensions`; slice 34 relocated activation contracts and collectors;
+slice 46 relocated activation itself. Public names import directly from their
+authoritative owner.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pipy_harness.extensions as public_extensions
 import pipy_harness.native.extension_hooks as extension_hooks
-import pipy_harness.native.extension_runtime as extension_runtime
 import pipy_harness.native.extension_types as extension_types
 import pipy_harness.native.extension_ui as extension_ui
+import pipy_harness.native.extensions.activation as extension_activation
 import pipy_harness.native.extensions.collectors as extension_collectors
 import pipy_harness.native.extensions.command_context as extension_command_context
 import pipy_harness.native.extensions.contracts as extension_contracts
@@ -27,7 +27,6 @@ import pipy_harness.native.extensions.custom_payloads as extension_custom_payloa
 import pipy_harness.native.extensions.dispatch as extension_dispatch
 import pipy_harness.native.extensions.packages as extension_discovery
 import pipy_harness.native.extensions.session_views as extension_session_views
-import pipy_harness.native.extensions.tool_port as extension_tool_port
 import pipy_harness.native.provider as provider
 import pipy_harness.native.provider_construction as provider_construction
 
@@ -132,7 +131,10 @@ _PUBLIC_EXTENSION_NAMES = (
 )
 
 _OWNER_GROUPS = (
-    (extension_runtime, ("activate_extensions", "safe_activation_metadata")),
+    (
+        extension_activation,
+        ("activate_extensions", "safe_activation_metadata"),
+    ),
     (
         extension_contracts,
         (
@@ -289,9 +291,16 @@ _MOVED_CUSTOM_PAYLOAD_NAMES = (
 
 
 def test_custom_payload_cluster_has_one_authoritative_owner() -> None:
+    activation_definitions = {
+        node.name
+        for node in ast.parse(
+            Path(extension_activation.__file__ or "").read_text(encoding="utf-8")
+        ).body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+    }
     for name in _MOVED_CUSTOM_PAYLOAD_NAMES:
         assert name in vars(extension_custom_payloads)
-        assert not hasattr(extension_runtime, name)
+        assert name not in activation_definitions
 
     functions = _MOVED_CUSTOM_PAYLOAD_NAMES[:4] + _MOVED_CUSTOM_PAYLOAD_NAMES[5:]
     for name in functions:
@@ -355,7 +364,7 @@ def test_dispatch_and_tool_port_clusters_have_one_authoritative_owner() -> None:
         "_run_extension_handler": "extensions/dispatch.py",
     }
     owners: dict[str, list[str]] = {name: [] for name in expected_owners}
-    native_root = Path(extension_runtime.__file__ or "").parent
+    native_root = Path(extension_activation.__file__ or "").parents[1]
     for path in native_root.rglob("*.py"):
         for node in ast.parse(path.read_text(encoding="utf-8")).body:
             name = (
@@ -370,9 +379,7 @@ def test_dispatch_and_tool_port_clusters_have_one_authoritative_owner() -> None:
     assert owners == {name: [owner] for name, owner in expected_owners.items()}
 
     for name in expected_owners:
-        assert not hasattr(extension_runtime, name)
-    assert not hasattr(extension_dispatch, "extension_runtime")
-    assert not hasattr(extension_tool_port, "extension_runtime")
+        assert not hasattr(extension_activation, name)
 
     expected_modules = {
         name: "pipy_harness.native." + owner.removesuffix(".py").replace("/", ".")
@@ -429,17 +436,15 @@ def test_public_extension_api_imports_every_name_from_its_owner() -> None:
 
 
 def test_collecting_ui_owned_by_extension_ui() -> None:
-    from pipy_harness.native.extension_runtime import _CollectingUi
+    from pipy_harness.native.extension_ui import _CollectingUi
 
     assert _CollectingUi is extension_ui._CollectingUi
 
 
 def test_render_helpers_reexport_same_objects() -> None:
     from pipy_harness.extensions import coerce_tool_render_lines, lines_component
-    from pipy_harness.native.extension_runtime import (
-        coerce_tool_render_lines as rt_coerce,
-    )
-    from pipy_harness.native.extension_runtime import lines_component as rt_lines
+    from pipy_harness.native.extension_ui import coerce_tool_render_lines as rt_coerce
+    from pipy_harness.native.extension_ui import lines_component as rt_lines
 
     assert coerce_tool_render_lines is extension_ui.coerce_tool_render_lines
     assert rt_coerce is extension_ui.coerce_tool_render_lines
@@ -447,8 +452,8 @@ def test_render_helpers_reexport_same_objects() -> None:
     assert rt_lines is extension_ui.lines_component
 
 
-def test_runtime_compatibility_type_exports_keep_owner_identity() -> None:
-    compatibility_names = (
+def test_activation_does_not_redefine_extension_value_objects() -> None:
+    value_names = (
         "BeforeAgentStartResult",
         "CustomComponent",
         "ExtensionCodingSessionControl",
@@ -475,5 +480,16 @@ def test_runtime_compatibility_type_exports_keep_owner_identity() -> None:
         "normalize_shortcut_key",
     )
 
-    for name in compatibility_names:
-        assert getattr(extension_runtime, name) is getattr(extension_types, name)
+    activation_definitions = {
+        node.name
+        for node in ast.parse(
+            Path(extension_activation.__file__ or "").read_text(encoding="utf-8")
+        ).body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+    }
+    for name in value_names:
+        assert name not in activation_definitions
+        if hasattr(extension_activation, name):
+            assert getattr(extension_activation, name) is getattr(extension_types, name)
+        if hasattr(public_extensions, name):
+            assert getattr(public_extensions, name) is getattr(extension_types, name)

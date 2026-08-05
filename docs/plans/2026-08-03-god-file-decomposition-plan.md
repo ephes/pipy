@@ -38,6 +38,29 @@ milestone: the existing session/result/adapter names and residual factory seams
 remain. This is internal architecture only, so no changelog or release note
 applies.
 
+**Checkpoint (2026-08-05, after slice 46).** The mandated post-46 milestone is
+reached. The 2,000-physical-line residual `native/extension_runtime.py` is
+deleted with no shim, alias, re-export module, or surviving live importer. Its
+activation lifecycle moved as one capability-token state machine to
+`native/extensions/activation.py`: 1,807 physical/AST-span lines, 28 top-level
+class/function members, maximum C901 10 (`activate_extension_batch`), and no
+per-file pin. This lands inside §2d's accepted 1,750–1,950 band and below the
+2,488 native-module ceiling. AST remeasurement resolves the task prompt's
+"25 definitions" count as a label error: its authoritative enumerated member
+list contains 28 definitions, and all 28 moved. The pre-move path blast radius
+was 21 production files (including the retired owner), 7 parity scripts, and 41
+test files, rather than §2d's historical 17 repo-wide estimate. After
+definition-site routing, 9 production files, 6 parity scripts, and 19 test files
+directly import activation; the other former consumers import contracts,
+extension values, UI helpers, or dispatch/message/tool leaves from their actual
+owners. The recursive `native.extensions` boundary governs activation; stale
+retired-module entries were deleted, frame/overlay and canonical-adapter rules
+were broadened to `native.extensions` where needed, and
+`_PLANNED_IMPORT_PREFIXES` is unchanged. `native/tui.py` remains 1,466 physical
+lines, `ToolLoopTerminalUi` remains unchanged, and the coding-session facade
+remains 336 lines. Slice 47 is next. This is behavior-preserving ownership only,
+so no changelog or release note applies.
+
 Date: 2026-08-03.
 
 This plan closes the one axis where pipy measurably loses to `pi-mono`: shape.

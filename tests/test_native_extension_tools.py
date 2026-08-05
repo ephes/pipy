@@ -21,9 +21,7 @@ from pipy_harness.native.coding.session import (
     CodingSession,
     production_tool_registry,
 )
-from pipy_harness.native.extension_runtime import (
-    activate_extensions,
-)
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.collectors import (
     extension_tools,
 )

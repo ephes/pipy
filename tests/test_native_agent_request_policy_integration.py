@@ -28,7 +28,7 @@ from pipy_harness.native.agent_request import (
     prepare_provider_request,
 )
 from pipy_harness.native.coding.session import CodingSession
-from pipy_harness.native.extension_runtime import ProviderRequestTransform
+from pipy_harness.native.extension_types import ProviderRequestTransform
 from pipy_harness.native.models import ProviderRequest, ProviderResult, ProviderToolCall
 from pipy_harness.native.session_tree import MessageEntry, NativeSessionTree
 from pipy_harness.native.tool_capabilities import ToolFilterOptions

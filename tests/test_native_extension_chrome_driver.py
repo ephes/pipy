@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from pipy_harness.native.extension_hooks import (
     dispatch_lifecycle_hooks,
 )
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     FooterData,
     LifecycleEvent,
 )

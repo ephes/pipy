@@ -16,12 +16,12 @@ from pathlib import Path
 
 from pipy_harness.native import FakeNativeProvider
 from pipy_harness.native.coding.session import CodingSession
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     RESERVED_SHORTCUT_KEYS,
-    activate_extensions,
+    ExtensionCodingSessionControl,
     normalize_shortcut_key,
 )
-from pipy_harness.native.extension_types import ExtensionCodingSessionControl
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.dispatch import (
     dispatch_extension_shortcut,
     extension_shortcuts,

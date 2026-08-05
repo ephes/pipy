@@ -40,10 +40,8 @@ from pipy_harness.native.extension_hooks import (
     dispatch_tool_call_hooks,
     extension_tool_call_hooks,
 )
-from pipy_harness.native.extension_runtime import (
-    ToolBlock,
-    activate_extensions,
-)
+from pipy_harness.native.extension_types import ToolBlock
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.models import (
     ProviderRequest,

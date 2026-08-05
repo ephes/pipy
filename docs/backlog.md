@@ -42,17 +42,15 @@ It supersedes the shape-related deferrals in the comparative-review remediation
 plan below, which postponed whole-file decomposition until measured ownership
 existed "after A1". A1 landed; the ownership measurement is in this plan.
 
-**Program status:** Landed through slice 45. The residual product facade now lives
-only at `native/coding/session.py::CodingSession`, with
-`CodingSessionResult` and `CodingSessionAdapter`; the retired
-`native/tool_loop_session.py`, `NativeToolReplSession`, `NativeToolReplResult`,
-and `PipyNativeToolReplAdapter` have no compatibility surfaces.
-`native/repl/command_router.py` owns the four closed action inventories and
-`BuiltinCommandInterpreter`. `native/tui.py` is 1,466 physical lines, the
-coding-session facade is 336 lines with a 67 AST-line/C901-5 `run`, and the
-native ceiling remains 2,488. Slice 46 is next; no slice-45 milestone checkpoint
-is added, and this behavior-preserving architecture/public-Python rename needs
-no changelog or release note.
+**Program status:** Landed through slice 46. Extension activation now lives in
+`native/extensions/activation.py`; the retired native runtime module has no
+shim, alias, or re-export surface. Activation is one 1,807-line capability-token
+state machine with 28 top-level class/function members, below the 2,488 native
+ceiling, while contracts and extension/UI value objects remain at their existing
+definition sites. `native/tui.py` remains 1,466 physical lines and the
+coding-session facade remains 336 lines with a 67 AST-line/C901-5 `run`. Slice
+47 is next. This slice is behavior-preserving ownership only, so no changelog or
+release note applies.
 
 ## Landing-Gated Program — Comparative Review Remediation
 

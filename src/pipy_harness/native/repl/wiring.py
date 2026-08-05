@@ -91,12 +91,12 @@ from pipy_harness.native.extension_hooks import (
 from pipy_harness.native.extension_hooks import (
     dispatch_session_before_hooks as dispatch_session_before_hooks,
 )
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     QueuedCustomMessage,
     QueuedUserMessage,
-    _ExtensionCandidate,
     normalize_shortcut_key,
 )
+from pipy_harness.native.extensions.activation import _ExtensionCandidate
 from pipy_harness.native.extensions.contracts import (
     ExtensionActivationBatch,
     _ExtensionRuntime,
@@ -254,7 +254,7 @@ class _StartupPhase:
     resource_options: RuntimeResourceOptions
     package_roots: PackageResourceRoots
     workspace_resources: WorkspaceResources
-    extension_runtime: _ExtensionRuntime
+    extension_bundle: _ExtensionRuntime
     extension_flag_values: Mapping[str, object]
     extension_in_agent_turn: bool
 
@@ -454,7 +454,7 @@ def _prepare_startup(
     )
     # Activate extensions fail-closed; built-in tool names stay reserved
     # so an extension cannot shadow them.
-    extension_runtime = _activate_workspace_extensions(
+    extension_bundle = _activate_workspace_extensions(
         cwd,
         workspace_resources,
         tuple(inputs.tool_registry.keys()),
@@ -469,11 +469,11 @@ def _prepare_startup(
         diagnostic=lambda message: emit_diagnostic(None, error_stream, message),
     )
     candidate.adopt(
-        extension_runtime,
+        extension_bundle,
         partial(emit_diagnostic, None, error_stream),
     )
     extension_flag_values, extension_flag_error = parse_extension_flag_tokens(
-        extension_runtime.flags,
+        extension_bundle.flags,
         tuple(resource_options.extension_flag_tokens),
     )
     if extension_flag_error is not None:
@@ -491,7 +491,7 @@ def _prepare_startup(
         resource_options=resource_options,
         package_roots=package_roots,
         workspace_resources=workspace_resources,
-        extension_runtime=extension_runtime,
+        extension_bundle=extension_bundle,
         extension_flag_values=extension_flag_values,
         extension_in_agent_turn=extension_in_agent_turn,
     )
@@ -508,7 +508,7 @@ def _attach_extensions(
     keybindings = startup.keybindings
     settings = startup.settings
     workspace_resources = startup.workspace_resources
-    extension_runtime = startup.extension_runtime
+    extension_bundle = startup.extension_bundle
     extension_flag_values = startup.extension_flag_values
     error_stream = inputs.error_stream
     input_stream = inputs.input_stream
@@ -568,7 +568,7 @@ def _attach_extensions(
         state_lock=session_state_lock,
     )
     startup_projection = build_candidate_extension_projection(
-        extension_runtime,
+        extension_bundle,
         extension_flag_values,
         queue_mutex=session_state_lock,
         reference_mutex=session_state_lock,
@@ -587,7 +587,7 @@ def _attach_extensions(
         ),
     )
     extension_generation = SessionExtensionGeneration(
-        extension_runtime, startup_projection
+        extension_bundle, startup_projection
     )
     if (published_projection := extension_generation.projection) is None:
         message = "extension generation projection is unavailable"
@@ -596,7 +596,7 @@ def _attach_extensions(
     startup_projection = published_projection
     startup_gate = OrderedDeliveryGate(session_state_lock)
     startup_projection.queues.install_candidate_route(startup_gate)
-    staged = FrozenStagedDeliveryBatch.freeze((), extension_runtime.custom_messages)
+    staged = FrozenStagedDeliveryBatch.freeze((), extension_bundle.custom_messages)
     generation_ref = SessionGenerationRef(extension_generation, lock=session_state_lock)
     startup_snapshot = generation_ref.snapshot()
     startup_generation_projection = startup_snapshot.generation.projection

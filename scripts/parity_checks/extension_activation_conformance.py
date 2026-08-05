@@ -42,7 +42,7 @@ from pathlib import Path
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
 )
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extensions.activation import (
     activate_extensions,
     safe_activation_metadata,
 )

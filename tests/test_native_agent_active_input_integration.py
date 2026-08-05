@@ -22,9 +22,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.cancellation import ProviderCancelledError
 from pipy_harness.native.coding.session import CodingSession
-from pipy_harness.native.extension_runtime import (
-    QueuedCustomMessage,
-)
+from pipy_harness.native.extension_types import QueuedCustomMessage
 from pipy_harness.native.extensions.contracts import (
     ActivatedExtension,
     ExtensionActivationBatch,

@@ -20,9 +20,7 @@ from pipy_harness.native.extension_hooks import (
     dispatch_input_hooks,
     extension_event_hooks,
 )
-from pipy_harness.native.extension_runtime import (
-    activate_extensions,
-)
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.collectors import (
     drain_user_messages,
 )

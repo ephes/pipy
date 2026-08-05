@@ -32,14 +32,14 @@ from pipy_harness.native.extension_hooks import (
 from pipy_harness.native.extension_hooks import (
     dispatch_session_before_hooks as dispatch_session_before_hooks,
 )
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     BeforeAgentStartResult,
+    CustomComponentDriver,
     ExtensionCodingSessionControl,
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
     SessionDecision,
 )
-from pipy_harness.native.extension_types import CustomComponentDriver
 from pipy_harness.native.extensions.contracts import (
     HookHandler,
 )

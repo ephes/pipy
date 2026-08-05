@@ -23,9 +23,7 @@ from pipy_harness.native.extension_hooks import (
     dispatch_tool_result_hooks,
     extension_event_hooks,
 )
-from pipy_harness.native.extension_runtime import (
-    activate_extensions,
-)
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.models import (
     ProviderRequest,

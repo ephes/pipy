@@ -13,6 +13,7 @@ from typing import Any, cast
 import pytest
 from session_generation_test_support import build_test_projection
 
+import pipy_harness.native.extensions.activation as activation
 from pipy_harness.extensions import (
     ExtensionCapabilityError,
     ExtensionFlag,
@@ -21,11 +22,7 @@ from pipy_harness.extensions import (
     ExtensionTool,
     ToolResult,
 )
-from pipy_harness.native import (
-    extension_hooks,
-    extension_provider_catalog,
-    extension_runtime,
-)
+from pipy_harness.native import extension_hooks, extension_provider_catalog
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
     CodingCommandFooterPolicy,
@@ -33,17 +30,19 @@ from pipy_harness.native.coding.commands import (
     CodingCommandOutcomeKind,
 )
 from pipy_harness.native.extension_loader import _run_awaitable
-from pipy_harness.native.extension_runtime import (
-    _ACTIVATION_LIFECYCLE_TOKEN,
+from pipy_harness.native.extension_types import (
     QueuedCustomMessage,
     QueuedUserMessage,
+    _ActivationError,
+)
+from pipy_harness.native.extensions import contracts as extension_contracts
+from pipy_harness.native.extensions.activation import (
+    _ACTIVATION_LIFECYCLE_TOKEN,
     _ActivationApi,
     _ActivationCleanup,
     _ExtensionCandidate,
     activate_extension_batch,
 )
-from pipy_harness.native.extension_types import _ActivationError
-from pipy_harness.native.extensions import contracts as extension_contracts
 from pipy_harness.native.extensions.contracts import (
     ActivatedExtension,
     _ExtensionRuntime,
@@ -654,9 +653,7 @@ def test_activated_extension_hooks_are_uniformly_immutable() -> None:
 
 
 def test_every_registration_family_uses_the_single_staging_seam() -> None:
-    syntax = ast.parse(
-        Path(extension_runtime.__file__ or "").read_text(encoding="utf-8")
-    )
+    syntax = ast.parse(Path(activation.__file__ or "").read_text(encoding="utf-8"))
     activation_api = next(
         node
         for node in syntax.body
@@ -1226,10 +1223,10 @@ def test_activation_host_reader_inventory_has_one_meaning_per_field() -> None:
         visit(syntax)
         return found
 
-    runtime_path = Path(extension_runtime.__file__ or "")
+    runtime_path = Path(activation.__file__ or "")
     contracts_path = Path(extension_contracts.__file__ or "")
     hooks_path = Path(extension_hooks.__file__ or "")
-    native_root = runtime_path.parent
+    native_root = runtime_path.parents[1]
     assert not any(
         readers(path, "_activation_api") for path in native_root.rglob("*.py")
     )
@@ -1247,7 +1244,7 @@ def test_activation_host_reader_inventory_has_one_meaning_per_field() -> None:
         "_dispose_activation_results",
         "_finalize_provider_catalog_results",
     }
-    assert readers(hooks_path, "_activation_host") == {"_compose_extension_runtime"}
+    assert readers(hooks_path, "_activation_host") == {"_compose_extension_bundle"}
     assert readers(contracts_path, "activation_hosts") == {"__post_init__"}
     assert readers(runtime_path, "activation_hosts") == {
         "adopt",
@@ -1257,8 +1254,8 @@ def test_activation_host_reader_inventory_has_one_meaning_per_field() -> None:
 
 
 def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() -> None:
-    runtime_path = Path(extension_runtime.__file__ or "")
-    native_root = runtime_path.parent
+    runtime_path = Path(activation.__file__ or "")
+    native_root = runtime_path.parents[1]
     constructions: set[tuple[str, str, int]] = set()
     candidate_calls: set[tuple[str, str, str]] = set()
     activation_calls: set[tuple[str, str, str, bool]] = set()
@@ -1315,7 +1312,7 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
                 candidate_calls.add((relative, scope(call), call.func.attr))
             if isinstance(call.func, ast.Name) and call.func.id in {
                 "_activate_workspace_extensions",
-                "_compose_extension_runtime",
+                "_compose_extension_bundle",
             }:
                 activation_calls.add(
                     (
@@ -1345,7 +1342,7 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
         (
             "extension_hooks.py",
             "_activate_workspace_extensions",
-            "_compose_extension_runtime",
+            "_compose_extension_bundle",
             False,
         ),
         (
@@ -1364,8 +1361,8 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
 
 
 def test_activation_producer_and_cleanup_reporting_inventories() -> None:
-    runtime_path = Path(extension_runtime.__file__ or "")
-    package_root = runtime_path.parent.parent
+    runtime_path = Path(activation.__file__ or "")
+    package_root = runtime_path.parents[2]
     calls: set[tuple[str, str, str, bool]] = set()
     cleanup_reporters: set[tuple[str, str]] = set()
     catalog_finalizers: set[tuple[str, str]] = set()
@@ -1438,7 +1435,7 @@ def test_activation_producer_and_cleanup_reporting_inventories() -> None:
             True,
         ),
         (
-            "native/extension_runtime.py",
+            "native/extensions/activation.py",
             "activate_extensions",
             "activate_extension_batch",
             True,
@@ -1450,9 +1447,9 @@ def test_activation_producer_and_cleanup_reporting_inventories() -> None:
             "native/extension_provider_catalog.py",
             "load_extension_provider_contributions",
         ),
-        ("native/extension_runtime.py", "_dispose_activation_host_with_diagnostic"),
-        ("native/extension_runtime.py", "activate_extension_batch"),
-        ("native/extension_runtime.py", "adopt"),
+        ("native/extensions/activation.py", "_dispose_activation_host_with_diagnostic"),
+        ("native/extensions/activation.py", "activate_extension_batch"),
+        ("native/extensions/activation.py", "adopt"),
         ("native/session_generation.py", "guarded"),
         ("native/repl/reload.py", "execute"),
     }
@@ -1463,9 +1460,9 @@ def test_activation_producer_and_cleanup_reporting_inventories() -> None:
         )
     }
     assert host_cleanup_delegates == {
-        ("native/extension_runtime.py", "_activate_one"),
-        ("native/extension_runtime.py", "_execute_activation_entry"),
-        ("native/extension_runtime.py", "_finalize_preloaded_extension"),
+        ("native/extensions/activation.py", "_activate_one"),
+        ("native/extensions/activation.py", "_execute_activation_entry"),
+        ("native/extensions/activation.py", "_finalize_preloaded_extension"),
     }
 
 
@@ -1474,14 +1471,14 @@ def test_provider_catalog_finalization_retains_factory_default_flag_reads(
     tmp_path: Path,
 ) -> None:
     retained: list[_ActivationApi] = []
-    monkeypatch.setattr(extension_runtime, "_r1_catalog_hosts", retained, raising=False)
+    monkeypatch.setattr(activation, "_r1_catalog_hosts", retained, raising=False)
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     (extension_dir / "catalog.py").write_text(
         "from pipy_harness.extensions import ExtensionFlag, ExtensionProvider\n"
-        "from pipy_harness.native import extension_runtime\n"
+        "from pipy_harness.native.extensions import activation\n"
         "def activate(api):\n"
-        "    extension_runtime._r1_catalog_hosts.append(api)\n"
+        "    activation._r1_catalog_hosts.append(api)\n"
         "    api.register_flag(ExtensionFlag('ready', 'boolean', default=True))\n"
         "    api.register_flag(ExtensionFlag('mode', 'string', default='default'))\n"
         "    api.register_provider(ExtensionProvider(name='catalog-provider',\n"
@@ -1653,7 +1650,7 @@ def test_provider_catalog_refusal_disposes_nonlive_hosts_and_skips_live_hosts() 
             _activation_host=host,
         )
 
-    finalization = extension_runtime._finalize_provider_catalog_results(
+    finalization = activation._finalize_provider_catalog_results(
         (
             result("committed", committed),
             result("open", open_host),
@@ -1690,13 +1687,13 @@ def test_omitted_pending_activation_is_abandoned_exactly_once(
     tmp_path: Path,
 ) -> None:
     retained: list[_ActivationApi] = []
-    monkeypatch.setattr(extension_runtime, "_r1_omitted_hosts", retained, raising=False)
+    monkeypatch.setattr(activation, "_r1_omitted_hosts", retained, raising=False)
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     (extension_dir / "omitted.py").write_text(
-        "from pipy_harness.native import extension_runtime\n"
+        "from pipy_harness.native.extensions import activation\n"
         "def activate(api):\n"
-        "    extension_runtime._r1_omitted_hosts.append(api)\n",
+        "    activation._r1_omitted_hosts.append(api)\n",
         encoding="utf-8",
     )
     descriptors = discover_extensions(tmp_path, include_workspace_defaults=True)
@@ -1724,13 +1721,13 @@ def test_pending_abandonment_anomaly_reaches_the_finalization_sink(
     tmp_path: Path,
 ) -> None:
     retained: list[_ActivationApi] = []
-    monkeypatch.setattr(extension_runtime, "_r1_anomaly_hosts", retained, raising=False)
+    monkeypatch.setattr(activation, "_r1_anomaly_hosts", retained, raising=False)
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     (extension_dir / "anomaly.py").write_text(
-        "from pipy_harness.native import extension_runtime\n"
+        "from pipy_harness.native.extensions import activation\n"
         "def activate(api):\n"
-        "    extension_runtime._r1_anomaly_hosts.append(api)\n",
+        "    activation._r1_anomaly_hosts.append(api)\n",
         encoding="utf-8",
     )
     descriptors = discover_extensions(tmp_path, include_workspace_defaults=True)
@@ -2324,14 +2321,14 @@ def test_preloaded_finalization_exception_disables_only_owner_and_disposes_host(
     tmp_path: Path,
 ) -> None:
     retained: list[_ActivationApi] = []
-    monkeypatch.setattr(extension_runtime, "_r1_retained", retained, raising=False)
+    monkeypatch.setattr(activation, "_r1_retained", retained, raising=False)
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     (extension_dir / "exceptional.py").write_text(
-        "from pipy_harness.native import extension_runtime\n"
+        "from pipy_harness.native.extensions import activation\n"
         "from pipy_harness.extensions import ExtensionFlag\n"
         "def activate(api):\n"
-        "    extension_runtime._r1_retained.append(api)\n"
+        "    activation._r1_retained.append(api)\n"
         "    api.register_flag(ExtensionFlag('owned', 'boolean', default=True))\n"
         "    api.send_user_message('must-not-leak')\n",
         encoding="utf-8",
@@ -2339,7 +2336,7 @@ def test_preloaded_finalization_exception_disables_only_owner_and_disposes_host(
     descriptors = discover_extensions(tmp_path, include_workspace_defaults=True)
     pending = activate_extension_batch(descriptors, pending=True)
     monkeypatch.setattr(
-        extension_runtime,
+        activation,
         "replace",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("replace failed")),
     )
@@ -2363,13 +2360,13 @@ def test_preloaded_name_failure_has_no_outbox_or_reservation_effect(
     tmp_path: Path,
 ) -> None:
     retained: list[_ActivationApi] = []
-    monkeypatch.setattr(extension_runtime, "_r1_name_hosts", retained, raising=False)
+    monkeypatch.setattr(activation, "_r1_name_hosts", retained, raising=False)
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     source = (
-        "from pipy_harness.native import extension_runtime\n"
+        "from pipy_harness.native.extensions import activation\n"
         "def activate(api):\n"
-        "    extension_runtime._r1_name_hosts.append(api)\n"
+        "    activation._r1_name_hosts.append(api)\n"
         "    api.register_command('shared', 'shared', lambda *_args: None)\n"
     )
     (extension_dir / "a_hostile.py").write_text(
@@ -2521,14 +2518,14 @@ def test_pending_workspace_batch_failure_disposes_every_host_once(
     tmp_path: Path,
 ) -> None:
     retained: list[_ActivationApi] = []
-    monkeypatch.setattr(extension_runtime, "_r1_pending_hosts", retained, raising=False)
+    monkeypatch.setattr(activation, "_r1_pending_hosts", retained, raising=False)
     extension_dir = tmp_path / ".pipy" / "extensions"
     extension_dir.mkdir(parents=True)
     for name in ("first", "second"):
         (extension_dir / f"{name}.py").write_text(
-            "from pipy_harness.native import extension_runtime\n"
+            "from pipy_harness.native.extensions import activation\n"
             "def activate(api):\n"
-            "    extension_runtime._r1_pending_hosts.append(api)\n",
+            "    activation._r1_pending_hosts.append(api)\n",
             encoding="utf-8",
         )
     pending = activate_extension_batch(
@@ -2536,7 +2533,7 @@ def test_pending_workspace_batch_failure_disposes_every_host_once(
         pending=True,
     )
     reports: list[tuple[_ActivationCleanup, Callable[[str], None] | None]] = []
-    report = extension_runtime._report_activation_cleanup
+    report = activation._report_activation_cleanup
 
     def record_report(
         cleanup: _ActivationCleanup,

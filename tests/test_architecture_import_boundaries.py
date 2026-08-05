@@ -107,7 +107,6 @@ _AGENT_USAGE_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.automation",
     "pipy_harness.native.extension_hooks",
     "pipy_harness.native.extension_loader",
-    "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extension_types",
     "pipy_harness.native.extension_ui",
     "pipy_harness.native.extensions",
@@ -148,7 +147,6 @@ _AGENT_HISTORY_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.automation",
     "pipy_harness.native.extension_hooks",
     "pipy_harness.native.extension_loader",
-    "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extension_types",
     "pipy_harness.native.extension_ui",
     "pipy_harness.native.extensions",
@@ -209,7 +207,6 @@ _CODING_FORBIDDEN_IMPORTS = (
     "pipy_harness.native.automation",
     "pipy_harness.native.extension_hooks",
     "pipy_harness.native.extension_loader",
-    "pipy_harness.native.extension_runtime",
     "pipy_harness.native.extension_types",
     "pipy_harness.native.extension_ui",
     "pipy_harness.native.extensions",
@@ -747,7 +744,6 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.automation",
             "pipy_harness.native.extension_hooks",
             "pipy_harness.native.extension_loader",
-            "pipy_harness.native.extension_runtime",
             "pipy_harness.native.extension_types",
             "pipy_harness.native.extension_ui",
             "pipy_harness.native.extensions",
@@ -781,7 +777,6 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.automation",
             "pipy_harness.native.extension_hooks",
             "pipy_harness.native.extension_loader",
-            "pipy_harness.native.extension_runtime",
             "pipy_harness.native.extension_types",
             "pipy_harness.native.extension_ui",
             "pipy_harness.native.extensions",
@@ -817,7 +812,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.session_tree",
             "pipy_harness.native.extension_hooks",
             "pipy_harness.native.extension_loader",
-            "pipy_harness.native.extension_runtime",
+            "pipy_harness.native.extensions",
             "pipy_harness.native.extension_types",
             "pipy_harness.native.extension_ui",
             *_LEGACY_CONCRETE_PROVIDER_MODULES,
@@ -1033,7 +1028,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.editor_state",
             "pipy_harness.native.overlay_state",
             "pipy_harness.native.extension_chrome_state",
-            "pipy_harness.native.extension_runtime",
+            "pipy_harness.native.extensions",
             "pipy_harness.native.extension_types",
             "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
@@ -1062,7 +1057,7 @@ ARCHITECTURE_RULES = (
             "pipy_harness.native.terminal_driver",
             "pipy_harness.native.coding.session",
             "pipy_harness.native.repl",
-            "pipy_harness.native.extension_runtime",
+            "pipy_harness.native.extensions",
             "pipy_harness.native.extension_types",
             "pipy_session",
         ),
@@ -1121,7 +1116,6 @@ ARCHITECTURE_RULES = (
     BoundaryRule(
         source_package="pipy_harness.native.extensions",
         forbidden_imports=(
-            "pipy_harness.native.extension_runtime",
             "pipy_harness.native.ui",
             "pipy_harness.native.tui",
             "pipy_harness.native.coding.state",
@@ -1149,7 +1143,6 @@ ARCHITECTURE_RULES = (
         )
         for host_module in (
             "pipy_harness.native.extension_types",
-            "pipy_harness.native.extension_runtime",
             "pipy_harness.native.extension_hooks",
             "pipy_harness.native.extension_loader",
         )
@@ -1489,7 +1482,7 @@ def test_agent_rule_recursively_governs_tool_executor_module(tmp_path: Path) -> 
         "pipy_harness.native.agent.tools",
         """\
 import pipy_harness.native.tui
-import pipy_harness.native.extension_runtime
+import pipy_harness.native.extensions.activation
 import pipy_harness.native.coding.session
 """,
     )
@@ -1506,7 +1499,7 @@ import pipy_harness.native.coding.session
         for violation in violations
     } == {
         (executor_path, "pipy_harness.native.tui", 1),
-        (executor_path, "pipy_harness.native.extension_runtime", 2),
+        (executor_path, "pipy_harness.native.extensions.activation", 2),
         (executor_path, "pipy_harness.native.coding.session", 3),
     }
 
@@ -1521,7 +1514,7 @@ def test_agent_rule_recursively_governs_provider_turn_executor_module(
         """\
 import pipy_harness.capture
 import pipy_harness.native.automation
-import pipy_harness.native.extension_runtime
+import pipy_harness.native.extensions.activation
 import pipy_harness.native.tui
 import pipy_harness.native.coding.session
 import pipy_harness.native.provider_construction
@@ -1543,7 +1536,7 @@ import pipy_session
     } == {
         (provider_turn_path, "pipy_harness.capture", 1),
         (provider_turn_path, "pipy_harness.native.automation", 2),
-        (provider_turn_path, "pipy_harness.native.extension_runtime", 3),
+        (provider_turn_path, "pipy_harness.native.extensions.activation", 3),
         (provider_turn_path, "pipy_harness.native.tui", 4),
         (provider_turn_path, "pipy_harness.native.coding.session", 5),
         (provider_turn_path, "pipy_harness.native.provider_construction", 6),
@@ -2214,7 +2207,6 @@ def test_isolated_provider_turn_executor_import_stays_headless_in_either_order(
         "pipy_harness.native.automation",
         "pipy_harness.native.extension_hooks",
         "pipy_harness.native.extension_loader",
-        "pipy_harness.native.extension_runtime",
         "pipy_harness.native.extension_types",
         "pipy_harness.native.extension_ui",
         "pipy_harness.native.extensions",
@@ -2685,7 +2677,6 @@ def test_coding_accepted_input_direct_imports_match_explicit_allowlist() -> None
         "pipy_harness.native.extensions",
         "pipy_harness.native.extension_hooks",
         "pipy_harness.native.extension_loader",
-        "pipy_harness.native.extension_runtime",
         "pipy_harness.native.extension_types",
         "pipy_harness.native.extension_ui",
         "pipy_harness.native.automation",
@@ -2771,7 +2762,6 @@ def test_coding_result_direct_imports_match_explicit_allowlist() -> None:
         "pipy_harness.native.extensions",
         "pipy_harness.native.extension_hooks",
         "pipy_harness.native.extension_loader",
-        "pipy_harness.native.extension_runtime",
         "pipy_harness.native.extension_types",
         "pipy_harness.native.extension_ui",
         "pipy_harness.native.automation",
@@ -2854,7 +2844,6 @@ def test_coding_session_controller_direct_imports_match_explicit_allowlist() -> 
         "pipy_harness.native.extensions",
         "pipy_harness.native.extension_hooks",
         "pipy_harness.native.extension_loader",
-        "pipy_harness.native.extension_runtime",
         "pipy_harness.native.extension_types",
         "pipy_harness.native.extension_ui",
         "pipy_harness.native.automation",
@@ -2954,7 +2943,7 @@ def test_coding_commands_rule_blocks_outer_runtime_imports(tmp_path: Path) -> No
 import pipy_harness.native.agent.content
 import pipy_harness.native.coding.state
 import pipy_harness.native.export_distribution
-import pipy_harness.native.extension_runtime
+import pipy_harness.native.extensions.activation
 import pipy_harness.native.project_trust
 import pipy_harness.native.settings
 import pipy_harness.native.session_tree
@@ -2973,7 +2962,7 @@ import pipy_harness.native.tui
     } == {
         (commands_path, "pipy_harness.native.coding.state", 2),
         (commands_path, "pipy_harness.native.export_distribution", 3),
-        (commands_path, "pipy_harness.native.extension_runtime", 4),
+        (commands_path, "pipy_harness.native.extensions.activation", 4),
         (commands_path, "pipy_harness.native.project_trust", 5),
         (commands_path, "pipy_harness.native.settings", 6),
         (commands_path, "pipy_harness.native.session_tree", 7),
@@ -2993,7 +2982,7 @@ import pipy_harness.native.agent.content
 import pipy_harness.native.coding.commands
 import pipy_harness.native.coding.state
 import pipy_harness.native.export_distribution
-import pipy_harness.native.extension_runtime
+import pipy_harness.native.extensions.activation
 import pipy_harness.native.project_trust
 import pipy_harness.native.session_tree
 import pipy_harness.native.tui
@@ -3011,7 +3000,7 @@ import pipy_harness.native.tui
     } == {
         (registry_path, "pipy_harness.native.coding.state", 3),
         (registry_path, "pipy_harness.native.export_distribution", 4),
-        (registry_path, "pipy_harness.native.extension_runtime", 5),
+        (registry_path, "pipy_harness.native.extensions.activation", 5),
         (registry_path, "pipy_harness.native.project_trust", 6),
         (registry_path, "pipy_harness.native.session_tree", 7),
         (registry_path, "pipy_harness.native.tui", 8),
@@ -3641,6 +3630,55 @@ def test_rule_is_inactive_until_its_source_package_exists(tmp_path: Path) -> Non
     assert violations[0].imported_module == "pipy_harness.native.coding.session"
 
 
+@pytest.mark.parametrize(
+    ("source_module", "rule_source_package"),
+    [
+        pytest.param(
+            "pipy_harness.native.agent.runtime_ports",
+            "pipy_harness.native.agent",
+            id="canonical-runtime-ports",
+        ),
+        pytest.param(
+            "pipy_harness.native.agent_adapters",
+            "pipy_harness.native.agent_adapters",
+            id="canonical-adapters",
+        ),
+        pytest.param(
+            "pipy_harness.native.frame_renderer",
+            "pipy_harness.native.frame_renderer",
+            id="frame-renderer",
+        ),
+        pytest.param(
+            "pipy_harness.native.overlay_state",
+            "pipy_harness.native.overlay_state",
+            id="overlay-state",
+        ),
+    ],
+)
+def test_broadened_extension_boundaries_reject_activation_module(
+    tmp_path: Path,
+    source_module: str,
+    rule_source_package: str,
+) -> None:
+    source_root = tmp_path / "src"
+    source_path = _write_module(
+        source_root,
+        source_module,
+        "import pipy_harness.native.extensions.activation\n",
+    )
+    rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == rule_source_package
+    )
+
+    violations = _evaluate_rule(source_root, rule)
+
+    assert [
+        (violation.path, violation.imported_module) for violation in violations
+    ] == [(source_path, "pipy_harness.native.extensions.activation")]
+
+
 def test_frame_renderer_rule_blocks_terminal_driver(tmp_path: Path) -> None:
     source_root = tmp_path / "src"
     source_path = _write_module(
@@ -3724,6 +3762,28 @@ def test_rule_activates_for_single_file_source_module(tmp_path: Path) -> None:
     source_path = _write_module(
         source_root,
         "pipy_harness.native.extensions",
+        "from pipy_harness.native.tui import ToolLoopTerminalUi\n",
+    )
+    extensions_rule = next(
+        rule
+        for rule in ARCHITECTURE_RULES
+        if rule.source_package == "pipy_harness.native.extensions"
+    )
+
+    violations = _evaluate_rule(source_root, extensions_rule)
+
+    assert len(violations) == 1
+    assert violations[0].path == source_path
+    assert violations[0].imported_module == "pipy_harness.native.tui"
+
+
+def test_extensions_package_rule_recursively_governs_activation_module(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    source_path = _write_module(
+        source_root,
+        "pipy_harness.native.extensions.activation",
         "from pipy_harness.native.tui import ToolLoopTerminalUi\n",
     )
     extensions_rule = next(

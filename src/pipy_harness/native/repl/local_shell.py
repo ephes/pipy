@@ -21,7 +21,7 @@ from typing import TextIO
 
 from pipy_harness.native.diagnostics import emit_diagnostic
 from pipy_harness.native.extension_hooks import dispatch_user_bash_hooks
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
 )

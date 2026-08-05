@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from pipy_harness.extensions import PipyExtensionAPI
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extensions.activation import (
     activate_extensions,
     safe_activation_metadata,
 )

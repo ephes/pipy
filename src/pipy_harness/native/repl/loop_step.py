@@ -62,7 +62,7 @@ from pipy_harness.native.coding.session_controller import (
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.coding.status_effects import CodingAgentTurnStatusEffects
 from pipy_harness.native.diagnostics import emit_diagnostic
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extensions.activation import (
     EVENT_SESSION_SHUTDOWN,
     EVENT_SESSION_START,
 )

@@ -32,7 +32,7 @@ from pipy_harness.native.coding.input_queue import CodingInputQueue
 from pipy_harness.native.coding.product_session import CodingProductSessionCoordinator
 from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.diagnostics import emit_diagnostic
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     ExtensionModelRuntimeControl,
     ExtensionUiDriver,
     SessionDecision,

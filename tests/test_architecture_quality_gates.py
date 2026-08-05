@@ -127,6 +127,29 @@ def test_coding_session_has_no_composition_c901_pin() -> None:
     assert retired_path not in per_file_ignores
 
 
+def test_slice_46_retires_activation_module_and_keeps_new_owner_below_ceiling() -> None:
+    config = tomllib.loads(_read("pyproject.toml"))
+    per_file_ignores = config["tool"]["ruff"]["lint"]["per-file-ignores"]
+    retired_relative = "src/pipy_harness/native/extension_" + "runtime.py"
+    retired_module = "pipy_harness.native.extension_" + "runtime"
+    activation_relative = "src/pipy_harness/native/extensions/activation.py"
+    scanned = [
+        *REPO_ROOT.joinpath("src").rglob("*.py"),
+        *REPO_ROOT.joinpath("scripts").rglob("*.py"),
+        *REPO_ROOT.joinpath("tests").rglob("*.py"),
+    ]
+
+    assert not (REPO_ROOT / retired_relative).exists()
+    assert not {
+        str(path.relative_to(REPO_ROOT)): retired_module
+        for path in scanned
+        if retired_module in path.read_text(encoding="utf-8")
+    }
+    assert _line_count(REPO_ROOT / activation_relative) <= _NATIVE_FILE_CEILING
+    assert activation_relative not in per_file_ignores
+    assert retired_relative not in per_file_ignores
+
+
 def test_slice_45_owns_the_session_and_command_router_exactly_once() -> None:
     retired_path = "src/pipy_harness/native/tool_" + "loop_session.py"
     old_session = REPO_ROOT / retired_path

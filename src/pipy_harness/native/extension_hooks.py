@@ -30,7 +30,7 @@ It also owns the private session-run activation/projection builder. That
 builder discovers and activates workspace extensions, applies reserved-name
 policy, and aggregates their commands, hooks, tools, providers, renderers, and
 outboxes into the `_ExtensionRuntime` value bundle owned by
-`extension_runtime`.
+`extensions.contracts`.
 
 It also owns the internal canonical-agent lifecycle adapter. The product
 composition root supplies one already-composed immediate `AgentEventSink`; the
@@ -42,9 +42,9 @@ It depends on canonical agent contracts, extension discovery and reserved-name
 policy, the `_drive_awaitable` coroutine driver from `extension_loader`, hook
 value objects from `extension_types`, command/shortcut collectors from
 `extensions.dispatch`, context/UI adapters from their native owners, and the
-remaining activation contracts, collectors, and `EVENT_*` constants from
-`extension_runtime`. The dependency remains one-way and cycle-free:
-`extension_runtime` never imports back from this module.
+activation contracts and collectors from their leaf owners, and lifecycle
+operations plus `EVENT_*` constants from `extensions.activation`. The dependency
+remains one-way and cycle-free: activation never imports back from this module.
 
 The `before_agent_start` and `tool_result` injections are each bounded by
 `_BEFORE_AGENT_START_MAX_CHARS` / `_TOOL_RESULT_MAX_CHARS` so a buggy or
@@ -73,30 +73,6 @@ from pipy_harness.native.extension_loader import _drive_awaitable
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
     extension_reserved_tool_names,
-)
-from pipy_harness.native.extension_runtime import (
-    EVENT_AGENT_END,
-    EVENT_AGENT_SETTLED,
-    EVENT_AGENT_START,
-    EVENT_BEFORE_AGENT_START,
-    EVENT_BEFORE_PROVIDER_HEADERS,
-    EVENT_BEFORE_PROVIDER_REQUEST,
-    EVENT_INPUT,
-    EVENT_PROJECT_TRUST,
-    EVENT_SESSION_BEFORE_COMPACT,
-    EVENT_SESSION_BEFORE_FORK,
-    EVENT_SESSION_BEFORE_SWITCH,
-    EVENT_SESSION_BEFORE_TREE,
-    EVENT_SESSION_START,
-    EVENT_TOOL_CALL,
-    EVENT_TOOL_RESULT,
-    EVENT_TURN_END,
-    EVENT_TURN_START,
-    EVENT_USER_BASH,
-    LIFECYCLE_EVENTS,
-    _dispose_activation_results,
-    _report_activation_cleanup,
-    activate_extensions,
 )
 from pipy_harness.native.extension_types import (
     BeforeAgentStartEvent,
@@ -129,6 +105,30 @@ from pipy_harness.native.extension_types import (
     _safe_diagnostic,
 )
 from pipy_harness.native.extension_ui import _CollectingUi
+from pipy_harness.native.extensions.activation import (
+    EVENT_AGENT_END,
+    EVENT_AGENT_SETTLED,
+    EVENT_AGENT_START,
+    EVENT_BEFORE_AGENT_START,
+    EVENT_BEFORE_PROVIDER_HEADERS,
+    EVENT_BEFORE_PROVIDER_REQUEST,
+    EVENT_INPUT,
+    EVENT_PROJECT_TRUST,
+    EVENT_SESSION_BEFORE_COMPACT,
+    EVENT_SESSION_BEFORE_FORK,
+    EVENT_SESSION_BEFORE_SWITCH,
+    EVENT_SESSION_BEFORE_TREE,
+    EVENT_SESSION_START,
+    EVENT_TOOL_CALL,
+    EVENT_TOOL_RESULT,
+    EVENT_TURN_END,
+    EVENT_TURN_START,
+    EVENT_USER_BASH,
+    LIFECYCLE_EVENTS,
+    _dispose_activation_results,
+    _report_activation_cleanup,
+    activate_extensions,
+)
 from pipy_harness.native.extensions.collectors import (
     extension_entry_renderers,
     extension_flags,
@@ -329,7 +329,7 @@ def _activate_workspace_extensions(
             message_routing = activation_batch.message_routing
             if activation_batch.pending:
                 raise ValueError("initial extension activation batch must be finalized")
-        return _compose_extension_runtime(
+        return _compose_extension_bundle(
             activated, outbox, custom_outbox, message_routing
         )
     except BaseException:
@@ -342,7 +342,7 @@ def _activate_workspace_extensions(
         raise
 
 
-def _compose_extension_runtime(
+def _compose_extension_bundle(
     activated: Sequence[ActivatedExtension],
     outbox: list[QueuedUserMessage],
     custom_outbox: list[QueuedCustomMessage],

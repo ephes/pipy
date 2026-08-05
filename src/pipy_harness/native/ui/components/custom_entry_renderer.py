@@ -33,7 +33,7 @@ from pipy_harness.native.agent import ProductContent
 from pipy_harness.native.coding import CodingInputQueue
 from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.diagnostics import emit_diagnostic
-from pipy_harness.native.extension_runtime import (
+from pipy_harness.native.extension_types import (
     QueuedCustomMessage,
     QueuedUserMessage,
     RenderedCustomEntry,

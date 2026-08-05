@@ -23,12 +23,10 @@ from pipy_harness.native.coding.effects import CodingEffectCoordinator
 from pipy_harness.native.coding.session import production_tool_registry
 from pipy_harness.native.coding.state import CodingSessionState
 from pipy_harness.native.extension_hooks import (
-    _compose_extension_runtime,
+    _compose_extension_bundle,
     dispatch_before_agent_start_hooks,
 )
-from pipy_harness.native.extension_runtime import (
-    QueuedCustomMessage,
-)
+from pipy_harness.native.extension_types import QueuedCustomMessage
 from pipy_harness.native.extensions.command_context import ExtensionCapabilityError
 from pipy_harness.native.extensions.contracts import (
     RegisteredMessageRenderer,
@@ -162,7 +160,7 @@ def _generation_ref(lock: threading.RLock) -> SessionGenerationRef:
     user: list[Any] = []
     custom: list[Any] = []
     routing = GenerationMessageRouting(user, custom, mutex=lock)
-    runtime = _compose_extension_runtime((), user, custom, routing)
+    runtime = _compose_extension_bundle((), user, custom, routing)
     projection = build_test_projection(runtime, {}, queue_mutex=lock)
     return SessionGenerationRef(
         SessionExtensionGeneration(runtime, projection), lock=lock

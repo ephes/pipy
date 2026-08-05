@@ -41,7 +41,7 @@ from pipy_harness.native.coding.session import CodingSession
 from pipy_harness.native.extension_provider_catalog import (
     extension_reserved_command_names,
 )
-from pipy_harness.native.extension_runtime import activate_extensions
+from pipy_harness.native.extensions.activation import activate_extensions
 from pipy_harness.native.extensions.dispatch import extension_command_map
 from pipy_harness.native.extensions.packages import discover_extensions
 from pipy_harness.native.session_tree import CustomEntry, NativeSessionTree
