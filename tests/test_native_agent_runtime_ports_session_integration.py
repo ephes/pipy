@@ -398,7 +398,7 @@ def _assert_usage_publications(
 def test_product_session_projection_action_sink_persists_exact_message_identity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.wiring as loop_module
 
     trace: list[tuple[str, object]] = []
     original = loop_module.NativeProductSessionActionSink
@@ -468,7 +468,7 @@ def test_product_session_projection_action_sink_persists_exact_message_identity(
 def test_projection_action_sink_excludes_synthetic_failure_and_cancel_assistant(
     cancelled: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.wiring as loop_module
 
     effects: list[object] = []
     original = loop_module.NativeProductSessionActionSink
@@ -511,7 +511,7 @@ def test_projection_action_sink_excludes_synthetic_failure_and_cancel_assistant(
 def test_product_session_usage_port_preserves_run_and_session_scopes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.wiring as loop_module
 
     publications: list[AgentUsagePublication] = []
     trace: list[tuple[str, object]] = []
@@ -627,7 +627,7 @@ def _write_queue_extension(tmp_path: Path) -> None:
 def test_product_queue_port_preserves_priority_kind_and_original_hooked_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.wiring as loop_module
 
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     _write_queue_extension(tmp_path)
@@ -731,7 +731,7 @@ def test_retained_handoffs_survive_higher_priority_resource_run_fifo(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.wiring as loop_module
 
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "empty-global"))
     commands_dir = tmp_path / ".pipy" / "commands"
@@ -875,7 +875,7 @@ def test_product_persistence_failure_observes_state_first_append(
 def test_usage_publisher_failure_stops_before_completion_failure_or_next_request(
     status: HarnessStatus, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.repl.wiring as loop_module
 
     publications: list[AgentUsagePublication] = []
 

@@ -84,6 +84,7 @@ from pipy_harness.native.session import NATIVE_TOOL_LOOP_SYSTEM_PROMPT
 from pipy_harness.native.session_resume import ResumeContext
 from pipy_harness.native.session_tree import ModelChangeEntry, NativeSessionTree
 from pipy_harness.native.tool_capabilities import ToolFilterOptions
+from pipy_harness.native.tool_renderers import _ToolLoopRenderer
 from pipy_harness.native.tools import (
     ToolContext,
     ToolDefinition,
@@ -247,7 +248,7 @@ def _capture_usage_construction(
     import pipy_harness.native.repl.loop_step as loop_step
     import pipy_harness.native.repl.provider_selection as provider_selection
     import pipy_harness.native.repl.reload as reload_owner_module
-    import pipy_harness.native.tool_loop_session as tool_loop_session
+    import pipy_harness.native.repl.wiring as repl_wiring
 
     constructed: list[AgentUsageAccumulator] = []
     pricing_lookups: list[tuple[str, str, AgentTokenPricing | None]] = []
@@ -264,10 +265,10 @@ def _capture_usage_construction(
         return pricing
 
     monkeypatch.setattr(
-        tool_loop_session, "AgentUsageAccumulator", _RecordingUsageAccumulator
+        repl_wiring, "AgentUsageAccumulator", _RecordingUsageAccumulator
     )
     monkeypatch.setattr(agent_loop, "AgentUsageAccumulator", _RecordingUsageAccumulator)
-    monkeypatch.setattr(tool_loop_session, "pricing_for", record_pricing)
+    monkeypatch.setattr(repl_wiring, "pricing_for", record_pricing)
     monkeypatch.setattr(loop_step, "pricing_for", record_pricing)
     # Startup binds the accumulator at the composition root; every rebind after
     # that -- `/model`, an auth change, the post-reload fallback -- binds it in
@@ -395,15 +396,19 @@ def test_footer_paths_read_constant_time_state_scalars(
 ) -> None:
     import pipy_harness.native.chrome as chrome
     import pipy_harness.native.repl.loop_step as loop_step
+    import pipy_harness.native.repl.wiring as repl_wiring
     import pipy_harness.native.tool_loop_session as tool_loop_session
 
     module_path = tool_loop_session.__file__
+    wiring_path = repl_wiring.__file__
     loop_step_path = loop_step.__file__
     chrome_path = chrome.__file__
     assert module_path is not None
     assert loop_step_path is not None
     assert chrome_path is not None
+    assert wiring_path is not None
     syntax = ast.parse(Path(module_path).read_text())
+    wiring_syntax = ast.parse(Path(wiring_path).read_text())
     loop_step_syntax = ast.parse(Path(loop_step_path).read_text())
     chrome_syntax = ast.parse(Path(chrome_path).read_text())
     session_class = next(
@@ -456,7 +461,7 @@ def test_footer_paths_read_constant_time_state_scalars(
     # The four production calls that source state still read the same
     # constant-time coding-state scalars.
     footer_calls = []
-    for scope in (run_method, footer_effects_class):
+    for scope in (run_method, wiring_syntax, footer_effects_class):
         for node in ast.walk(scope):
             if not (
                 isinstance(node, ast.Call)
@@ -3512,8 +3517,6 @@ def test_fork_and_clone_commands_apply_standard_footer_without_provider_turn(
 def test_trust_command_preserves_outer_trim_bubble_and_standard_footer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
-
     footer_kwargs: list[dict[str, object]] = []
     rendered_user_messages: list[str] = []
 
@@ -3525,7 +3528,7 @@ def test_trust_command_preserves_outer_trim_bubble_and_standard_footer(
 
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", record_footer)
     monkeypatch.setattr(
-        loop_module._ToolLoopRenderer,
+        _ToolLoopRenderer,
         "render_user_message",
         record_user_message,
     )
@@ -4288,14 +4291,14 @@ def test_startup_signature_and_failure_candidate_balance_is_exact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import pipy_harness.native.repl.wiring as repl_wiring
     import pipy_harness.native.session_generation as generation
-    import pipy_harness.native.tool_loop_session as loop
     from pipy_harness.native.extension_runtime import _ExtensionCandidate
 
     signature = inspect.signature(NativeToolReplSession.run)
     assert "candidate" not in signature.parameters
     assert signature.return_annotation == "NativeToolReplResult"
-    source = inspect.getsource(NativeToolReplSession.run)
+    source = inspect.getsource(repl_wiring._attach_extensions)
     assert source.count("SessionExtensionGeneration(") == 1
     monkeypatch.setattr(_ExtensionCandidate, "publish", lambda _candidate: False)
     result = _run_session(tmp_path=tmp_path, tool_calls_script=())[0]
@@ -4318,7 +4321,7 @@ def test_startup_signature_and_failure_candidate_balance_is_exact(
         raise RuntimeError("injected startup projection failure")
 
     monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.build_candidate_extension_projection",
+        "pipy_harness.native.repl.wiring.build_candidate_extension_projection",
         fail_projection,
     )
     with pytest.raises(RuntimeError, match="startup projection failure"):
@@ -4326,7 +4329,9 @@ def test_startup_signature_and_failure_candidate_balance_is_exact(
     cleanup, sink = reports[0]
     assert len(reports) == cleanup.disposed == 1
     assert "cleanup report failed: KeyboardInterrupt" in sink.args[-1].getvalue()
-    monkeypatch.setattr(loop, "build_candidate_extension_projection", build_projection)
+    monkeypatch.setattr(
+        repl_wiring, "build_candidate_extension_projection", build_projection
+    )
     with pytest.raises(KeyboardInterrupt, match="report failed"):
         _run_session(tmp_path=tmp_path, tool_calls_script=())
     try:

@@ -13,6 +13,7 @@ SOURCE_ROOT = REPO_ROOT / "src"
 LOOP_MODULE = "pipy_harness.native.agent.loop"
 LOOP_PATH = SOURCE_ROOT / "pipy_harness/native/agent/loop.py"
 TOOL_LOOP_SESSION_PATH = SOURCE_ROOT / "pipy_harness/native/tool_loop_session.py"
+REPL_WIRING_PATH = SOURCE_ROOT / "pipy_harness/native/repl/wiring.py"
 REPL_LOOP_STEP_PATH = SOURCE_ROOT / "pipy_harness/native/repl/loop_step.py"
 AGENT_RUN_PATH = SOURCE_ROOT / "pipy_harness/native/coding/agent_run.py"
 STATUS_EFFECTS_PATH = SOURCE_ROOT / "pipy_harness/native/coding/status_effects.py"
@@ -603,8 +604,10 @@ def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "run_loop"
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "loop_controller"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "loop_controller"
+        and isinstance(node.func.value.value, ast.Name)
+        and node.func.value.value.id == "delegation"
     ]
     assert run_loop_calls, (
         "NativeToolReplSession.run must delegate to loop_controller.run_loop(...)"
@@ -635,16 +638,9 @@ def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
         for node in ast.walk(run_loop_def)
     ), "CodingSessionController.run_loop must own the `while True` step skeleton"
 
-    # Slice 3.1f-completion: the residual composition-root collaborator closures
-    # (the footer set, diagnostics, session-name setters, session-dir/resolution,
-    # tree rebuild, branch summarization, the extension completion/custom-UI/
-    # session-gate/provider-request/tool-policy hooks, and the resource/extension
-    # command-dispatch effects) relocated into the ``_FooterEffects``/
-    # ``_SessionCollaborators`` handlers alongside the earlier loop-step,
-    # built-in-interpreter, custom-entry, and provider-mutation handlers, leaving
-    # ``run()`` a composition shell that only builds collaborators and delegates to
-    # ``loop_controller.run_loop(...)``. Guard that reduction: the shell stays under
-    # 800 ``ast``-lines so the loop body cannot creep back inline.
+    # Slice 44 leaves the facade responsible only for validation, its explicit
+    # frozen wiring input, and the final controller delegation. All production
+    # collaborator construction belongs to repl/wiring.py.
     run_def = next(
         node
         for node in ast.walk(session_tree)
@@ -652,7 +648,151 @@ def test_session_controller_owns_the_loop_skeleton_and_lifecycle() -> None:
     )
     assert run_def.end_lineno is not None
     run_ast_lines = run_def.end_lineno - run_def.lineno + 1
-    assert run_ast_lines < 800, (
-        "NativeToolReplSession.run must stay a composition shell under 800 "
-        f"ast-lines; measured {run_ast_lines}"
+    assert run_ast_lines <= 67, (
+        "NativeToolReplSession.run grew above its 67 ast-line slice-44 ratchet; "
+        f"measured {run_ast_lines}"
+    )
+
+    collaborator_names = {
+        node.func.id
+        for node in ast.walk(run_def)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert collaborator_names - {"ValueError", "RuntimeError"} == {
+        "SessionWiringInput",
+        "wire_session",
+    }
+
+
+def test_repl_wiring_owns_one_named_shared_session_state_lock() -> None:
+    wiring_tree = ast.parse(
+        REPL_WIRING_PATH.read_text(encoding="utf-8"), filename=str(REPL_WIRING_PATH)
+    )
+    session_lock_calls = [
+        node
+        for node in ast.walk(wiring_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "SessionStateLock"
+    ]
+    rlock_calls = [
+        node
+        for node in ast.walk(wiring_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "threading"
+        and node.func.attr == "RLock"
+    ]
+    assert len(session_lock_calls) == len(rlock_calls) == 1
+    assert session_lock_calls[0].args == [rlock_calls[0]]
+
+    shared_keywords = [
+        keyword.value
+        for node in ast.walk(wiring_tree)
+        if isinstance(node, ast.Call)
+        for keyword in node.keywords
+        if keyword.arg in {"state_lock", "queue_mutex", "reference_mutex", "lock"}
+    ]
+    assert len(shared_keywords) == 5
+    assert all(
+        isinstance(value, ast.Name) and value.id == "session_state_lock"
+        for value in shared_keywords
+    )
+    shared_positional_calls = {
+        node.func.attr
+        for node in ast.walk(wiring_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.args
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id == "session_state_lock"
+    }
+    assert shared_positional_calls == {"bind_state_lock"}
+    assert (
+        sum(
+            1
+            for node in ast.walk(wiring_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "bind_state_lock"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "session_state_lock"
+        )
+        == 4
+    )
+    assert (
+        sum(
+            1
+            for node in ast.walk(wiring_tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "OrderedDeliveryGate"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "session_state_lock"
+        )
+        == 1
+    )
+
+    from pipy_harness.native.session_state_lock import SessionStateLock
+
+    session_lock_factory: object = SessionStateLock
+    assert callable(session_lock_factory)
+    try:
+        session_lock_factory()
+    except TypeError:
+        pass
+    else:  # pragma: no cover - defensive failure branch
+        raise AssertionError("SessionStateLock must have no default constructor")
+
+
+def test_repl_wiring_owns_frozen_value_returning_phases() -> None:
+    wiring_tree = ast.parse(
+        REPL_WIRING_PATH.read_text(encoding="utf-8"), filename=str(REPL_WIRING_PATH)
+    )
+    records = {
+        node.name: node
+        for node in wiring_tree.body
+        if isinstance(node, ast.ClassDef)
+        and (
+            node.name.endswith("Phase")
+            or node.name in {"SessionWiringInput", "SessionWiring"}
+        )
+    }
+    assert {
+        "SessionWiringInput",
+        "_StartupPhase",
+        "_ExtensionPhase",
+        "_ProductPhase",
+        "_RuntimePhase",
+        "_ChromePhase",
+        "_CollaboratorPhase",
+        "_CommandPhase",
+        "SessionWiring",
+    } <= records.keys()
+    for record in records.values():
+        dataclass_call = next(
+            decorator
+            for decorator in record.decorator_list
+            if isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Name)
+            and decorator.func.id == "dataclass"
+        )
+        frozen = next(
+            keyword.value
+            for keyword in dataclass_call.keywords
+            if keyword.arg == "frozen"
+        )
+        assert isinstance(frozen, ast.Constant) and frozen.value is True
+
+    wiring_source = REPL_WIRING_PATH.read_text(encoding="utf-8")
+    assert "pipy_harness.native.tool_loop_session" not in wiring_source
+    assert "NativeToolReplSession" not in wiring_source
+
+    session_wiring = records["SessionWiring"]
+    assert not any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for node in session_wiring.body
     )

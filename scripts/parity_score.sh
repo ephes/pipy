@@ -136,7 +136,7 @@ check E4 "Session export"            small  "test -f src/pipy_session/export.py 
 # on a successful switch and preserves it on a refused one, and that /model
 # itself creates no provider/tool/archive side effects.
 check E5 "Dynamic provider swap"     big    "uv run python scripts/parity_checks/dynamic_provider_behavior.py"
-check E6 "Settings panel"            small  "grep -rq --include='*.py' '/settings' src/pipy_harness/native/tool_loop_session.py 2>/dev/null"
+check E6 "Settings panel"            small  "grep -q '/settings' src/pipy_harness/native/repl/wiring.py"
 check E7 "RPC / SDK"                 small  "test -f src/pipy_harness/rpc.py || test -f src/pipy_harness/sdk.py"
 
 echo

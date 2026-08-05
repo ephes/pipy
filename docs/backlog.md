@@ -42,10 +42,15 @@ It supersedes the shape-related deferrals in the comparative-review remediation
 plan below, which postponed whole-file decomposition until measured ownership
 existed "after A1". A1 landed; the ownership measurement is in this plan.
 
-**Program status:** Wave 0 (test-only boundary hardening) first, then 34 slices
-across six waves. Slices touching `tui.py` or `tool_loop_session.py` serialize —
-exactly one at a time. Every slice lands with `just check` green and the old
-path deleted in the same commit; no slice depends on the next.
+**Program status:** Landed through slice 44's explicit stopping point.
+`native/tui.py` is 1,466 physical lines and `native/tool_loop_session.py` is
+336 (down from 1,238 in slice 44), so both former god files are below the
+2,400-line bar. `NativeToolReplSession.run()` is a 67 AST-line/C901-5 facade;
+its production composition is now frozen value-returning phases in the measured
+1,392-line `native/repl/wiring.py`, sharing one named `SessionStateLock`, and the
+session file's C901 pin is removed. The native ceiling remains 2,488. Slice 45 remains
+next and retains ownership of the residual moves/renames. Slice 44 is internal
+architecture only, so no changelog or release note applies.
 
 ## Landing-Gated Program — Comparative Review Remediation
 

@@ -13,7 +13,7 @@ from typing import Any, cast
 import pytest
 from session_generation_test_support import build_test_projection
 
-import pipy_harness.native.tool_loop_session as tool_loop_session
+import pipy_harness.native.repl.wiring as repl_wiring
 from pipy_harness.native import FakeNativeProvider, NativeToolReplSession
 from pipy_harness.native.agent import AgentToolCall, AgentUserMessage, ProductContent
 from pipy_harness.native.agent.active_input import AgentActiveInput
@@ -754,12 +754,12 @@ def test_projectionless_startup_fails_without_install_or_publication(
 ) -> None:
     monkeypatch.setenv("PIPY_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setattr(
-        tool_loop_session,
+        repl_wiring,
         "build_candidate_extension_projection",
         lambda *_args, **_kwargs: None,
     )
     for name in ("SessionGenerationRef", "publish_candidate_ownership"):
-        monkeypatch.setattr(tool_loop_session, name, pytest.fail)
+        monkeypatch.setattr(repl_wiring, name, pytest.fail)
     errors = io.StringIO()
     result = NativeToolReplSession(
         provider=FakeNativeProvider(supports_tool_calls=True), tool_registry={}
@@ -803,7 +803,7 @@ def test_all_production_generation_constructions_supply_projection() -> None:
     )
     assert constructions == [
         ("repl/reload.py", "projection"),
-        ("tool_loop_session.py", "startup_projection"),
+        ("repl/wiring.py", "startup_projection"),
     ]
 
 

@@ -952,7 +952,7 @@ def test_new_storage_failure_cuts_off_later_effects(
         lambda _self: trace.append("clear-extension"),
     )
     monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+        "pipy_harness.native.repl.wiring.emit_diagnostic",
         lambda *_args: trace.append("diagnostic"),
     )
     monkeypatch.setattr(

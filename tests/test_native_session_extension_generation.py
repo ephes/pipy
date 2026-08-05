@@ -85,6 +85,7 @@ from pipy_harness.native.repl.execution_projections import (
 )
 from pipy_harness.native.repl.loop_scope import RunControlState
 from pipy_harness.native.repl.loop_step import _ReplLoopStep
+from pipy_harness.native.repl.wiring import _ExtensionCustomEntryRunState
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,
@@ -121,10 +122,7 @@ from pipy_harness.native.tool_capabilities import (
     ToolCapabilityState,
     ToolFilterOptions,
 )
-from pipy_harness.native.tool_loop_session import (
-    _build_detached_reload_effects,
-    _ExtensionCustomEntryRunState,
-)
+from pipy_harness.native.tool_loop_session import _build_detached_reload_effects
 from pipy_harness.native.tools import (
     ToolContext,
     ToolPort,
@@ -1494,17 +1492,17 @@ def test_production_projection_and_port_adapter_callers_are_exactly_bounded() ->
         relative_path = path.relative_to(src_root).as_posix()
         CallInventory(relative_path).visit(ast.parse(path.read_text(encoding="utf-8")))
 
-    loop_path = "pipy_harness/native/tool_loop_session.py"
+    wiring_path = "pipy_harness/native/repl/wiring.py"
     reload_path = "pipy_harness/native/repl/reload.py"
     reload_owner = (
         "class:ReloadCommandEffects",
         "function:_activate_reload_candidate",
     )
-    startup_owner = ("class:NativeToolReplSession", "function:run")
+    startup_owner = ("function:_attach_extensions",)
     assert calls == {
         "build_candidate_extension_projection": [
             (reload_path, reload_owner),
-            (loop_path, startup_owner),
+            (wiring_path, startup_owner),
         ],
         "build_extension_projection": [
             (
@@ -2757,12 +2755,12 @@ def test_r3c2_production_authority_and_renderer_wiring_inventory_is_exact() -> N
         GenerationMessageRouting=2, SessionGenerationRef=1, CustomEntryRenderer=1
     )
     ref_path, ref_call = built["SessionGenerationRef"][0]
-    assert ref_path == "tool_loop_session.py"
+    assert ref_path == "repl/wiring.py"
     assert {kw.arg: ast.unparse(kw.value) for kw in ref_call.keywords}[
         "lock"
     ] == "session_state_lock"
     path, renderer_call = built["CustomEntryRenderer"][0]
-    assert (path, renderer_call.args) == ("tool_loop_session.py", [])
+    assert (path, renderer_call.args) == ("repl/wiring.py", [])
     assert {kw.arg for kw in renderer_call.keywords} == set(
         "ctl terminal coding_input_queue coding_effects error_stream generation_snapshot".split()
     )
@@ -2889,14 +2887,15 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
     }
     assert sum(map(len, nonempty.values())) == len(actual)
     sg, hooks = "native/session_generation.py", "native/extension_hooks.py"
-    loop = "native/tool_loop_session.py"
+    wiring = "native/repl/wiring.py"
     reload_file = "native/repl/reload.py"
     reload_owner = "class:ReloadCommandEffects"
     reload_generation = (reload_owner, "function:_retire_reload_attempt")
     reload_activate = (reload_owner, "function:_activate_reload_candidate")
     reload_commit = (reload_owner, "function:_commit_reload_generation")
     reload_accept = (reload_owner, "function:_accept_prepared_generation")
-    startup = ("class:NativeToolReplSession", "function:run")
+    startup_attach = ("function:_attach_extensions",)
+    startup_runtime = ("function:_compose_runtime_adapters",)
     startup_guard = ("function:balance_startup_candidate", "function:guarded")
     chrome_prepare = ("class:ExtensionChromeRouter", "function:prepare_candidate")
     prepare = ("function:prepare_production_reload",)
@@ -2973,9 +2972,8 @@ def test_r3b_call_inventory_is_complete_and_installed_across_package() -> None:
         ("OrderedDeliveryGate", reload_file, reload_activate),
         ("deliver_accepted_staged_batch", reload_file, reload_accept),
         ("reserve", reload_file, reload_accept),
-        *{
-            (name, loop, startup)
-            for name in "OrderedDeliveryGate deliver_accepted_staged_batch reserve".split()
-        },
-        ("freeze", loop, startup),
+        ("OrderedDeliveryGate", wiring, startup_attach),
+        ("deliver_accepted_staged_batch", wiring, startup_runtime),
+        ("reserve", wiring, startup_runtime),
+        ("freeze", wiring, startup_attach),
     }

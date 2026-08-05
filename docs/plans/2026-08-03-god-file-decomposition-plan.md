@@ -22,6 +22,22 @@ rename/import cleanup; this is measured drift, not a failure, and does not
 change the accepted 1,750–1,950 final activation range until slice 46 is
 measured.
 
+**Checkpoint (2026-08-05, after slice 44).** The explicit post-44 stopping
+point is reached. `NativeToolReplSession.run()` is now a 67 AST-line facade
+(C901 5) over frozen `SessionWiringInput`/phase records and a frozen
+`SessionWiring`; production composition lives in `native/repl/wiring.py` and
+uses one named `SessionStateLock` over one explicitly constructed `RLock`.
+`native/tool_loop_session.py` is 336 physical lines (1,238 before this slice),
+its C901 pin is deleted, and `native/tui.py` remains 1,466 lines. The explicit
+phase records, callable captures, and imports make `native/repl/wiring.py` 1,392
+physical lines rather than §1's rough ~620 projection; it still remains below
+the 2,400-line bar without moving behavior into another god file. Both former
+god files are below that bar; the native-module ceiling remains 2,488
+at `native/session.py`. Slice 45 is intentionally not folded into this
+milestone: the existing session/result/adapter names and residual factory seams
+remain. This is internal architecture only, so no changelog or release note
+applies.
+
 Date: 2026-08-03.
 
 This plan closes the one axis where pipy measurably loses to `pi-mono`: shape.

@@ -563,7 +563,7 @@ def test_fork_failure_timing_cuts_off_later_effects(
     )
     monkeypatch.setattr(CodingInputQueue, "clear_extension_inputs", clear)
     monkeypatch.setattr(
-        "pipy_harness.native.tool_loop_session.emit_diagnostic",
+        "pipy_harness.native.repl.wiring.emit_diagnostic",
         lambda *_args, **_kwargs: trace.append("diagnostic"),
     )
     monkeypatch.setattr(

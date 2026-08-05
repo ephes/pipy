@@ -132,7 +132,7 @@ def test_composition_trims_for_classification_but_preserves_user_bubble(
 ) -> None:
     import pipy_harness.native.coding.session_controller as controller_module
     import pipy_harness.native.repl.provider_config_commands as config_commands
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.tool_renderers as renderers
 
     cwd = _workspace(tmp_path)
     classified: list[ProductContent] = []
@@ -167,7 +167,7 @@ def test_composition_trims_for_classification_but_preserves_user_bubble(
 
     monkeypatch.setattr(controller_module, "classify_coding_command", classify)
     monkeypatch.setattr(
-        loop_module._ToolLoopRenderer, "render_user_message", render_user_message
+        renderers._ToolLoopRenderer, "render_user_message", render_user_message
     )
     # The overlay builder binds where its *caller* lives, which is now the
     # provider-configuration family's own module.

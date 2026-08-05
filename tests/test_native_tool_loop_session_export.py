@@ -155,7 +155,7 @@ def test_composition_preserves_raw_bubbles_and_export_path_routing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as loop_module
+    import pipy_harness.native.tool_renderers as renderers
 
     tree = _branched_tree(tmp_path)
     cwd = Path(tree.get_header().cwd)
@@ -177,7 +177,7 @@ def test_composition_preserves_raw_bubbles_and_export_path_routing(
 
     monkeypatch.setenv("HOME", str(fake_home))
     monkeypatch.setattr(
-        loop_module._ToolLoopRenderer, "render_user_message", render_user_message
+        renderers._ToolLoopRenderer, "render_user_message", render_user_message
     )
     monkeypatch.setattr(_ChromeFooterEffects, "_print_footer", footer)
     commands = (

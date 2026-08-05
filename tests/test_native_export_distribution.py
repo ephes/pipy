@@ -452,7 +452,7 @@ def test_tool_loop_tui_share_command_cancels_worker_with_cancel_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from pipy_harness.native.export_distribution import ShareResult
-    from pipy_harness.native.tool_loop_session import TURN_ABORTED
+    from pipy_harness.native.tui import TURN_ABORTED
 
     class CancelUi:
         def __init__(self) -> None:

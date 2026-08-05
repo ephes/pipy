@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 import pipy_harness.native.repl.loop_step as loop_step_module
-import pipy_harness.native.tool_loop_session as loop_module
+import pipy_harness.native.repl.wiring as loop_module
 from pipy_harness.adapters.native import PipyNativeToolReplAdapter
 from pipy_harness.native.agent import (
     AgentEvent,

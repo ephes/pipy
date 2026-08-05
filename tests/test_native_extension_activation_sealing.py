@@ -25,7 +25,6 @@ from pipy_harness.native import (
     extension_hooks,
     extension_provider_catalog,
     extension_runtime,
-    tool_loop_session,
 )
 from pipy_harness.native.coding.commands import (
     CodingCommandAction,
@@ -1340,7 +1339,7 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
         ),
         ("session_generation.py", "publish_candidate_ownership", "publish"),
         ("session_generation.py", "guarded", "dispose"),
-        ("tool_loop_session.py", "NativeToolReplSession.run", "adopt"),
+        ("repl/wiring.py", "_prepare_startup", "adopt"),
     }
     assert activation_calls == {
         (
@@ -1356,8 +1355,8 @@ def test_candidate_lifetime_call_sites_are_exhaustive_across_native_package() ->
             True,
         ),
         (
-            "tool_loop_session.py",
-            "NativeToolReplSession.run",
+            "repl/wiring.py",
+            "_prepare_startup",
             "_activate_workspace_extensions",
             True,
         ),
@@ -2262,17 +2261,12 @@ def test_reload_host_transfer_and_retired_slot_layout_are_static() -> None:
 
 
 def test_startup_installs_generation_reference_before_host_publication() -> None:
-    path = Path(tool_loop_session.__file__ or "")
+    path = Path(__file__).parents[1] / "src/pipy_harness/native/repl/wiring.py"
     syntax = ast.parse(path.read_text(encoding="utf-8"))
-    session_class = next(
-        node
-        for node in syntax.body
-        if isinstance(node, ast.ClassDef) and node.name == "NativeToolReplSession"
-    )
     run = next(
         node
-        for node in session_class.body
-        if isinstance(node, ast.FunctionDef) and node.name == "run"
+        for node in syntax.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_attach_extensions"
     )
     assignments = [
         node

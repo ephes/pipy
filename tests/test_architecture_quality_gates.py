@@ -105,7 +105,7 @@ def test_readme_names_the_codex_websocket_dependency() -> None:
 # is a slice that put code back.
 _SIZE_RATCHET = {
     "src/pipy_harness/native/tui.py": 1466,
-    "src/pipy_harness/native/tool_loop_session.py": 1238,
+    "src/pipy_harness/native/tool_loop_session.py": 336,
 }
 
 # Nothing else under `native/` may quietly become the next god file while the
@@ -116,6 +116,13 @@ _NATIVE_FILE_CEILING = 2488
 
 def _line_count(path: Path) -> int:
     return len(path.read_text(encoding="utf-8").splitlines())
+
+
+def test_slice_44_removes_the_session_composition_c901_pin() -> None:
+    config = tomllib.loads(_read("pyproject.toml"))
+    per_file_ignores = config["tool"]["ruff"]["lint"]["per-file-ignores"]
+
+    assert "src/pipy_harness/native/tool_loop_session.py" not in per_file_ignores
 
 
 def test_decomposition_size_ratchet_never_grows() -> None:
