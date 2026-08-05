@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+import pipy_harness.native.repl.loop_step as loop_step_module
 import pipy_harness.native.tool_loop_session as loop_module
 from pipy_harness.adapters.native import PipyNativeToolReplAdapter
 from pipy_harness.native.agent import (
@@ -670,11 +671,9 @@ def test_classified_rpc_queue_bypasses_slash_and_shell_dispatch(
     ) -> None:
         shell_calls.append(command_text)
 
-    # The shortcut binds in `tool_loop_session`'s namespace at import, so the
-    # patch has to target that binding: patching the definition site would
-    # leave the loop calling the real shell.
+    # Patch the loop-step owner binding used by the shell phase.
     monkeypatch.setattr(
-        loop_module,
+        loop_step_module,
         "run_local_shell_shortcut",
         record_shell_dispatch,
     )

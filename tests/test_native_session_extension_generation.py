@@ -20,6 +20,7 @@ from session_generation_test_support import build_test_projection
 import pipy_harness.native.extension_hooks as extension_hooks_module
 import pipy_harness.native.extension_runtime as extension_runtime_module
 import pipy_harness.native.extensions.message_routing as message_routing_module
+import pipy_harness.native.repl.loop_step as loop_step_module
 import pipy_harness.native.session_generation as session_generation_module
 import pipy_harness.native.tool_loop_session as tool_loop_session_module
 from pipy_harness.extensions import ToolResult
@@ -83,6 +84,7 @@ from pipy_harness.native.repl.execution_projections import (
     build_projected_extension_tool_port,
 )
 from pipy_harness.native.repl.loop_scope import RunControlState
+from pipy_harness.native.repl.loop_step import _ReplLoopStep
 from pipy_harness.native.repl_state import (
     ModelRuntime,
     NativeModelSelection,
@@ -122,7 +124,6 @@ from pipy_harness.native.tool_capabilities import (
 from pipy_harness.native.tool_loop_session import (
     _build_detached_reload_effects,
     _ExtensionCustomEntryRunState,
-    _ReplLoopStep,
 )
 from pipy_harness.native.tools import (
     ToolContext,
@@ -2598,8 +2599,9 @@ def test_generation_message_routing_cluster_has_one_authoritative_owner() -> Non
         is GenerationMessageRouting
         is message_routing_module.GenerationMessageRouting
     )
+    assert not hasattr(tool_loop_session_module, "GenerationMessageRetirement")
     assert (
-        vars(tool_loop_session_module)["GenerationMessageRetirement"]
+        vars(loop_step_module)["GenerationMessageRetirement"]
         is vars(session_generation_module)["GenerationMessageRetirement"]
         is GenerationMessageRetirement
         is message_routing_module.GenerationMessageRetirement

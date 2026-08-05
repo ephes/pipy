@@ -812,8 +812,12 @@ def test_r4c_deletes_all_converted_legacy_sources_and_equivalence_arms() -> None
     session_source = (root / "src/pipy_harness/native/session_generation.py").read_text(
         encoding="utf-8"
     )
-    loop_source = (root / "src/pipy_harness/native/tool_loop_session.py").read_text(
-        encoding="utf-8"
+    loop_source = "\n".join(
+        (root / relative).read_text(encoding="utf-8")
+        for relative in (
+            "src/pipy_harness/native/tool_loop_session.py",
+            "src/pipy_harness/native/repl/loop_step.py",
+        )
     )
     renderer_source = (root / "src/pipy_harness/native/tool_renderers.py").read_text(
         encoding="utf-8"
@@ -890,12 +894,16 @@ def test_r4c_deletes_all_converted_legacy_sources_and_equivalence_arms() -> None
 
 def test_r4a_production_source_has_no_direct_converted_family_dispatch_reads() -> None:
     # The eight dispatchers moved to the module that owns per-operation effects;
-    # `tool_loop_session.py` is checked too, so a dispatch call reappearing at the
-    # composition root fails the count rather than passing unnoticed.
+    # Both composition owners are checked, so a dispatch call reappearing there
+    # fails the count rather than passing unnoticed.
     root = Path(__file__).parents[1] / "src/pipy_harness/native"
     source = "\n".join(
         (root / name).read_text(encoding="utf-8")
-        for name in ("repl/extension_operations.py", "tool_loop_session.py")
+        for name in (
+            "repl/extension_operations.py",
+            "repl/loop_step.py",
+            "tool_loop_session.py",
+        )
     )
     dispatchers = set(
         "dispatch_extension_command dispatch_extension_shortcut dispatch_input_hooks dispatch_before_agent_start_hooks prepare_provider_request dispatch_before_provider_headers_hooks dispatch_tool_result_hooks dispatch_session_before_hooks".split()

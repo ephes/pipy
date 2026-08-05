@@ -244,6 +244,7 @@ def _capture_usage_construction(
     """Spy on the product composition sites without replacing accumulator logic."""
 
     import pipy_harness.native.agent.loop as agent_loop
+    import pipy_harness.native.repl.loop_step as loop_step
     import pipy_harness.native.repl.provider_selection as provider_selection
     import pipy_harness.native.repl.reload as reload_owner_module
     import pipy_harness.native.tool_loop_session as tool_loop_session
@@ -267,6 +268,7 @@ def _capture_usage_construction(
     )
     monkeypatch.setattr(agent_loop, "AgentUsageAccumulator", _RecordingUsageAccumulator)
     monkeypatch.setattr(tool_loop_session, "pricing_for", record_pricing)
+    monkeypatch.setattr(loop_step, "pricing_for", record_pricing)
     # Startup binds the accumulator at the composition root; every rebind after
     # that -- `/model`, an auth change, the post-reload fallback -- binds it in
     # the provider-mutation owner. Both names bind at import in their own
@@ -392,13 +394,17 @@ def test_footer_paths_read_constant_time_state_scalars(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import pipy_harness.native.chrome as chrome
+    import pipy_harness.native.repl.loop_step as loop_step
     import pipy_harness.native.tool_loop_session as tool_loop_session
 
     module_path = tool_loop_session.__file__
+    loop_step_path = loop_step.__file__
     chrome_path = chrome.__file__
     assert module_path is not None
+    assert loop_step_path is not None
     assert chrome_path is not None
     syntax = ast.parse(Path(module_path).read_text())
+    loop_step_syntax = ast.parse(Path(loop_step_path).read_text())
     chrome_syntax = ast.parse(Path(chrome_path).read_text())
     session_class = next(
         node
@@ -479,16 +485,19 @@ def test_footer_paths_read_constant_time_state_scalars(
 
     # The result projection (the terminate `FAILED` branch and the post-loop
     # `SUCCEEDED` finalize) relocated with the per-iteration loop step and its
-    # bookends into the module-level `_ReplLoopStep` handler; the two
-    # `result_snapshot` calls read the same constant-time state scalars there.
-    repl_loop_step_class = next(
-        node
+    # bookends into `repl.loop_step`; the two `result_snapshot` calls read the
+    # same constant-time state scalars there.
+    assert not any(
+        isinstance(node, ast.ClassDef) and node.name == "_ReplLoopStep"
         for node in syntax.body
-        if isinstance(node, ast.ClassDef) and node.name == "_ReplLoopStep"
+    )
+    assert any(
+        isinstance(node, ast.ClassDef) and node.name == "_ReplLoopStep"
+        for node in loop_step_syntax.body
     )
     result_snapshot_calls = [
         node
-        for node in ast.walk(repl_loop_step_class)
+        for node in ast.walk(loop_step_syntax)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "result_snapshot"
@@ -1909,12 +1918,12 @@ def test_native_tool_repl_result_has_only_metadata_fields():
 
 
 def test_compaction_enabled_false_disables_auto_compaction(tmp_path, monkeypatch):
-    import pipy_harness.native.tool_loop_session as tls
+    import pipy_harness.native.repl.loop_step as loop_step
     from pipy_harness.native.settings import SettingsManager
 
     # Force the threshold so auto-compaction would fire if enabled.
     monkeypatch.setattr(
-        tls,
+        loop_step,
         "should_compact_agent_history",
         lambda messages, **_kwargs: True,
     )
@@ -1945,11 +1954,11 @@ def test_compaction_enabled_false_disables_auto_compaction(tmp_path, monkeypatch
 
 
 def test_compaction_enabled_true_allows_auto_compaction(tmp_path, monkeypatch):
-    import pipy_harness.native.tool_loop_session as tls
+    import pipy_harness.native.repl.loop_step as loop_step
     from pipy_harness.native.settings import SettingsManager
 
     monkeypatch.setattr(
-        tls,
+        loop_step,
         "should_compact_agent_history",
         lambda messages, **_kwargs: True,
     )

@@ -213,10 +213,10 @@ def test_tool_loop_auto_compaction_changes_the_same_provider_request(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as tool_loop_session
+    import pipy_harness.native.repl.loop_step as loop_step
 
     monkeypatch.setattr(
-        tool_loop_session,
+        loop_step,
         "should_compact_agent_history",
         lambda messages, **_kwargs: True,
     )

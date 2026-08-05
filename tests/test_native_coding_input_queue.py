@@ -558,10 +558,11 @@ def test_pending_command_source_is_polled_by_outer_and_agent_loop_paths() -> Non
 
 
 def test_product_composition_deleted_superseded_queue_state_and_helpers() -> None:
-    source = (
-        Path(__file__).resolve().parents[1]
-        / "src/pipy_harness/native/tool_loop_session.py"
-    ).read_text(encoding="utf-8")
+    native_root = Path(__file__).resolve().parents[1] / "src/pipy_harness/native"
+    source = "\n".join(
+        (native_root / relative).read_text(encoding="utf-8")
+        for relative in ("tool_loop_session.py", "repl/loop_step.py")
+    )
 
     for obsolete in (
         "extension_pending_messages",

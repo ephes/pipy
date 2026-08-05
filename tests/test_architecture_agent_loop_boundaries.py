@@ -13,6 +13,7 @@ SOURCE_ROOT = REPO_ROOT / "src"
 LOOP_MODULE = "pipy_harness.native.agent.loop"
 LOOP_PATH = SOURCE_ROOT / "pipy_harness/native/agent/loop.py"
 TOOL_LOOP_SESSION_PATH = SOURCE_ROOT / "pipy_harness/native/tool_loop_session.py"
+REPL_LOOP_STEP_PATH = SOURCE_ROOT / "pipy_harness/native/repl/loop_step.py"
 AGENT_RUN_PATH = SOURCE_ROOT / "pipy_harness/native/coding/agent_run.py"
 STATUS_EFFECTS_PATH = SOURCE_ROOT / "pipy_harness/native/coding/status_effects.py"
 ONE_SHOT_RUNTIME_PATH = SOURCE_ROOT / "pipy_harness/native/session.py"
@@ -346,6 +347,10 @@ def test_run_coordinator_assembles_agent_loop_without_inline_policy_cycle() -> N
 
 def test_repl_step_delegates_the_complete_status_family_to_one_owner() -> None:
     tree = ast.parse(
+        REPL_LOOP_STEP_PATH.read_text(encoding="utf-8"),
+        filename=str(REPL_LOOP_STEP_PATH),
+    )
+    session_tree = ast.parse(
         TOOL_LOOP_SESSION_PATH.read_text(encoding="utf-8"),
         filename=str(TOOL_LOOP_SESSION_PATH),
     )
@@ -354,10 +359,16 @@ def test_repl_step_delegates_the_complete_status_family_to_one_owner() -> None:
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == "_ReplLoopStep"
     )
-    step_once = next(
-        node
+    assert any(
+        isinstance(node, ast.FunctionDef) and node.name == "step_once"
         for node in repl_step.body
-        if isinstance(node, ast.FunctionDef) and node.name == "step_once"
+    )
+    assert not any(
+        isinstance(node, ast.ClassDef) and node.name == "_ReplLoopStep"
+        for node in session_tree.body
+    )
+    assert "pipy_harness.native.tool_loop_session" not in _import_references(
+        REPL_LOOP_STEP_PATH
     )
     former_callbacks = {
         "_agent_loop_entered",
@@ -372,8 +383,10 @@ def test_repl_step_delegates_the_complete_status_family_to_one_owner() -> None:
     }
     nested_functions = {
         node.name
-        for node in ast.walk(step_once)
-        if isinstance(node, ast.FunctionDef) and node is not step_once
+        for owner in ast.walk(tree)
+        if isinstance(owner, ast.FunctionDef)
+        for node in ast.walk(owner)
+        if isinstance(node, ast.FunctionDef) and node is not owner
     }
     assert nested_functions.isdisjoint(former_callbacks)
     assert not any(
@@ -383,7 +396,7 @@ def test_repl_step_delegates_the_complete_status_family_to_one_owner() -> None:
 
     owner_calls = [
         node
-        for node in ast.walk(step_once)
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "CodingAgentTurnStatusEffects"
@@ -395,7 +408,7 @@ def test_repl_step_delegates_the_complete_status_family_to_one_owner() -> None:
     }
     coordinator_call = next(
         node
-        for node in ast.walk(step_once)
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "CodingAgentRunCoordinator"
@@ -531,14 +544,14 @@ def test_retired_one_shot_runtime_name_has_no_alias_or_export() -> None:
 
 
 def test_product_session_composes_run_coordinator() -> None:
-    references = set(_import_references(TOOL_LOOP_SESSION_PATH))
+    references = set(_import_references(REPL_LOOP_STEP_PATH))
     assert (
         "pipy_harness.native.coding.agent_run.CodingAgentRunCoordinator" in references
     )
 
     tree = ast.parse(
-        TOOL_LOOP_SESSION_PATH.read_text(encoding="utf-8"),
-        filename=str(TOOL_LOOP_SESSION_PATH),
+        REPL_LOOP_STEP_PATH.read_text(encoding="utf-8"),
+        filename=str(REPL_LOOP_STEP_PATH),
     )
     assert any(
         isinstance(node, ast.Call)
@@ -551,7 +564,7 @@ def test_product_session_composes_run_coordinator() -> None:
 def test_queued_input_handoff_has_no_split_kind_side_channel() -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in (LOOP_PATH, TOOL_LOOP_SESSION_PATH, RPC_PATH)
+        for path in (LOOP_PATH, REPL_LOOP_STEP_PATH, TOOL_LOOP_SESSION_PATH, RPC_PATH)
     )
     for obsolete_symbol in (
         "_QueuedDeliverySource",

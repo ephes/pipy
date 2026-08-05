@@ -533,7 +533,8 @@ def test_export_effect_is_owned_by_the_typed_interpreter() -> None:
         / "src"
         / "pipy_harness"
         / "native"
-        / "tool_loop_session.py"
+        / "repl"
+        / "loop_step.py"
     ).read_text(encoding="utf-8")
 
     assert 'if command_text == "/export"' not in source

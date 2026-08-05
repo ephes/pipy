@@ -113,7 +113,7 @@ check D7 "Themes"                    small  "grep -q 'def select_theme' src/pipy
 # multimodal adapter renders as a native image block, that a non-image binary
 # fails closed, and that the metadata-first result records only safe counters —
 # never the raw base64 image data.
-check D8 "Image attachments"         small  "grep -q 'def resolve_image_attachments' src/pipy_harness/native/image_attachment.py && grep -q 'attachments=' src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/attachment_behavior.py"
+check D8 "Image attachments"         small  "grep -q 'def resolve_image_attachments' src/pipy_harness/native/image_attachment.py && grep -q 'attachments=' src/pipy_harness/native/repl/loop_step.py && uv run python scripts/parity_checks/attachment_behavior.py"
 
 echo
 echo "── Advanced session features (E1–E7) ───────────────"
@@ -125,7 +125,7 @@ check E1 "Session resume"            big    "test -f src/pipy_harness/native/ses
 # provider message-protocol validity (no orphaned tool result). E3 proves a
 # branch child records safe parent/branch/fork metadata, emits
 # native.session.resumed, and leaves the parent record byte-for-byte immutable.
-check E2 "Session compaction"        big    "grep -q compact_agent_history src/pipy_harness/native/tool_loop_session.py && uv run python scripts/parity_checks/compaction_behavior.py"
+check E2 "Session compaction"        big    "grep -q compact_agent_history src/pipy_harness/native/repl/loop_step.py && uv run python scripts/parity_checks/compaction_behavior.py"
 check E3 "Session branching"         small  "grep -q build_session_lineage src/pipy_harness/native/session_resume.py && uv run python scripts/parity_checks/branching_behavior.py"
 check E4 "Session export"            small  "test -f src/pipy_session/export.py || uv run pipy-session export --help 2>&1 | grep -q export"
 # E5 is a behavior check, not a file/grep rubber-stamp: it drives the product

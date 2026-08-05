@@ -197,7 +197,7 @@ def test_auto_compaction_keeps_identity_overlay_on_every_provider_iteration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as tool_loop_session
+    import pipy_harness.native.repl.loop_step as loop_step
 
     threshold_histories: list[tuple[str, ...]] = []
 
@@ -205,9 +205,7 @@ def test_auto_compaction_keeps_identity_overlay_on_every_provider_iteration(
         threshold_histories.append(tuple(message.content.value for message in messages))
         return len(threshold_histories) == 1
 
-    monkeypatch.setattr(
-        tool_loop_session, "should_compact_agent_history", compact_first
-    )
+    monkeypatch.setattr(loop_step, "should_compact_agent_history", compact_first)
     tree = _seed_tree(tmp_path, equal_last_user=True)
     provider = _ScriptProvider(calls=((_call('{"text":"tool-result"}'),), (), ()))
     sink = _EventSink()
@@ -326,10 +324,10 @@ def test_compacted_run_result_is_anchored_and_excludes_overlay_for_every_outcome
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import pipy_harness.native.tool_loop_session as tool_loop_session
+    import pipy_harness.native.repl.loop_step as loop_step
 
     monkeypatch.setattr(
-        tool_loop_session,
+        loop_step,
         "should_compact_agent_history",
         lambda _messages, **_kwargs: True,
     )
