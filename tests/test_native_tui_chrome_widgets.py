@@ -11,7 +11,9 @@ from pipy_harness.native.extension_chrome_state import (
 from pipy_harness.native.tui import (
     ToolLoopTerminalUi,
     _LiveExtensionUiDriver,
-    _TuiToolLoopRenderer,
+)
+from pipy_harness.native.ui.components.tool_loop_renderer import (
+    TuiToolLoopRenderer,
 )
 
 
@@ -132,8 +134,8 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
     assert ui.get_editor_component() is None
     assert ui._transcript.hidden_thinking_label == "Thinking..."
     assert ui.extension_status == {"status": "value"}
-    assert ui.extension_working_message == "sticky"
-    assert ui.extension_working_visible is False
+    assert ui._chrome.working_message == "sticky"
+    assert ui._chrome.working_visible is False
 
 
 def test_clear_without_custom_editor_preserves_text_cursor_and_undo_state():
@@ -776,23 +778,23 @@ def test_live_region_clamp_never_overflows_or_starves(height):
 def test_indicator_frames_override_used_by_tui_renderer():
     ui = _ui()
     ui.set_extension_working_indicator(["★"], 50)
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
     frames, interval = renderer._effective_spinner()
     assert frames == ("★",) and interval == 0.05
 
 
 def test_indicator_default_when_unset():
     ui = _ui()
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
     frames, interval = renderer._effective_spinner()
-    assert frames == _TuiToolLoopRenderer._SPINNER_FRAMES
-    assert interval == _TuiToolLoopRenderer._SPINNER_INTERVAL_SECONDS
+    assert frames == TuiToolLoopRenderer._SPINNER_FRAMES
+    assert interval == TuiToolLoopRenderer._SPINNER_INTERVAL_SECONDS
 
 
 def test_indicator_empty_frames_hides_glyph():
     ui = _ui()
     ui.set_extension_working_indicator([], None)
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
     frames, _interval = renderer._effective_spinner()
     assert frames == ("",)  # blank glyph -> hidden spinner
 
@@ -802,7 +804,7 @@ def test_indicator_bad_frames_is_failsoft():
     ui.set_extension_working_indicator(["a"], 50)  # establish a known value
     ui.set_extension_working_indicator(123, None)  # non-iterable frames must not raise
     # left unchanged (still the previously-set frames), and interval handled normally
-    assert ui.extension_indicator_frames == ("a",)
+    assert ui._chrome.indicator_frames == ("a",)
 
 
 @pytest.mark.parametrize("h", [12, 13, 14, 16, 20, 24])

@@ -296,13 +296,13 @@ from pipy_harness.native.tui import (
     HOTKEY_TOGGLE_TOOLS,
     ToolLoopTerminalUi,
     _LiveExtensionUiDriver,
-    _TuiToolLoopRenderer,
 )
 from pipy_harness.native.tui import (
     TURN_ABORTED as TURN_ABORTED,
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
 from pipy_harness.native.ui.components.custom_entry_renderer import CustomEntryRenderer
+from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 from pipy_harness.native.version_check import pipy_version
 
 
@@ -1342,10 +1342,9 @@ class NativeToolReplSession:
             prompt_history_store.set_enabled(True)
         if terminal_ui is not None and prompt_history_store.enabled:
             terminal_ui.input_history = list(prompt_history_store.entries())
-        renderer: _ToolLoopRenderer | _TuiToolLoopRenderer
+        renderer: _ToolLoopRenderer | TuiToolLoopRenderer
         if terminal_ui is not None:
-            renderer = _TuiToolLoopRenderer(
-                ui=terminal_ui,
+            renderer = terminal_ui.create_tool_loop_renderer(
                 render_details_sink=render_details.tui,
             )
         else:

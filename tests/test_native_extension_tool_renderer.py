@@ -16,7 +16,7 @@ from pipy_harness.native.tools.base import (
     ToolRequest,
     make_tool_request_id,
 )
-from pipy_harness.native.tui import ToolLoopTerminalUi, _TuiToolLoopRenderer
+from pipy_harness.native.tui import ToolLoopTerminalUi
 
 
 def test_render_details_sinks_select_renderer_and_preserve_writer_identity():
@@ -100,8 +100,7 @@ def test_tui_renderer_uses_render_result(tmp_path):
     )
     ui = _tui(tmp_path)
     sink: dict[str, object] = {"corr-1": {"k": "v"}}
-    renderer = _TuiToolLoopRenderer(
-        ui=ui,
+    renderer = ui.create_tool_loop_renderer(
         tool_renderers={"kv": tool},
         render_details_sink=sink,
     )
@@ -137,8 +136,7 @@ def test_tui_renderer_forwards_manually_injected_non_mapping_details(
     )
     ui = _tui(tmp_path)
     sink: dict[str, object | None] = {"corr-1": "manually-injected"}
-    renderer = _TuiToolLoopRenderer(
-        ui=ui,
+    renderer = ui.create_tool_loop_renderer(
         tool_renderers={"kv": tool},
         render_details_sink=sink,
     )
@@ -166,8 +164,7 @@ def test_tui_renderer_falls_back_when_renderer_crashes(tmp_path):
         render_result=boom,
     )
     ui = _tui(tmp_path)
-    renderer = _TuiToolLoopRenderer(
-        ui=ui,
+    renderer = ui.create_tool_loop_renderer(
         tool_renderers={"kv": tool},
         render_details_sink={},
     )
@@ -195,8 +192,7 @@ def test_tui_renderer_falls_back_when_render_call_crashes(tmp_path):
         render_call=boom,
     )
     ui = _tui(tmp_path)
-    renderer = _TuiToolLoopRenderer(
-        ui=ui,
+    renderer = ui.create_tool_loop_renderer(
         tool_renderers={"kv": tool},
         render_details_sink={},
     )
@@ -319,7 +315,7 @@ def test_tui_renderer_refreshes_tool_renderers_after_reload(tmp_path):
         render_call=lambda ctx: lines_component(["CALL:second"]),
     )
     ui = _tui(tmp_path)
-    renderer = _TuiToolLoopRenderer(ui=ui, tool_renderers={"kv": first})
+    renderer = ui.create_tool_loop_renderer(tool_renderers={"kv": first})
     renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({"kv": second})
     renderer.render_tool_call(AgentToolCall("c2", "kv", ProductContent("{}")))
@@ -390,8 +386,8 @@ def test_captured_renderer_pins_result_renderer_when_tool_is_removed():
 
 def test_tui_renderer_pins_result_renderer_to_its_call(tmp_path):
     ui = _tui(tmp_path)
-    renderer = _TuiToolLoopRenderer(
-        ui=ui, tool_renderers={"kv": _renderer_pair("first")}
+    renderer = ui.create_tool_loop_renderer(
+        tool_renderers={"kv": _renderer_pair("first")}
     )
     renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({"kv": _renderer_pair("second")})
@@ -405,8 +401,8 @@ def test_tui_renderer_pins_result_renderer_to_its_call(tmp_path):
 
 def test_tui_renderer_pins_result_renderer_when_tool_is_removed(tmp_path):
     ui = _tui(tmp_path)
-    renderer = _TuiToolLoopRenderer(
-        ui=ui, tool_renderers={"kv": _renderer_pair("first")}
+    renderer = ui.create_tool_loop_renderer(
+        tool_renderers={"kv": _renderer_pair("first")}
     )
     renderer.render_tool_call(AgentToolCall("c1", "kv", ProductContent("{}")))
     renderer.refresh_tool_renderers({})

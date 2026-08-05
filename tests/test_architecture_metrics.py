@@ -149,8 +149,8 @@ class Synthetic:
 # helper bands shrink around it. These bounds are the mass gate for the class.
 # Lower them in any slice that shrinks the class; never raise one. A slice that
 # needs a bound raised is a slice that put code back into the class.
-_TUI_CLASS_SPAN_RATCHET = 3359
-_TUI_CLASS_DEF_RATCHET = 241
+_TUI_CLASS_SPAN_RATCHET = 3335
+_TUI_CLASS_DEF_RATCHET = 230
 
 
 def test_tool_loop_terminal_ui_class_ratchet_never_grows() -> None:

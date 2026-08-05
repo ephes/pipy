@@ -130,18 +130,18 @@ def run_checks() -> list[Check]:
     ui = _ui()
     ui.set_extension_working_indicator(["x"], 120)
     a = (
-        ui.extension_indicator_frames == ("x",)
-        and ui.extension_indicator_interval_ms == 120.0
+        ui._chrome.indicator_frames == ("x",)
+        and ui._chrome.indicator_interval_ms == 120.0
     )
     ui.set_extension_working_indicator(
         None, 120
     )  # frames=None -> default frames, interval still applies
     b = (
-        ui.extension_indicator_frames is None
-        and ui.extension_indicator_interval_ms == 120.0
+        ui._chrome.indicator_frames is None
+        and ui._chrome.indicator_interval_ms == 120.0
     )
     ui.set_extension_working_indicator([], None)  # hide
-    c = ui.extension_indicator_frames == ()
+    c = ui._chrome.indicator_frames == ()
     checks.append(
         Check("indicator_semantics", a and b and c, "override / reset / hide")
     )

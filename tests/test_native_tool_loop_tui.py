@@ -27,6 +27,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.clipboard import ClipboardResult
+from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.project_trust import (
     ProjectTrustEntry,
@@ -50,11 +51,15 @@ from pipy_harness.native.tui import (
     ModelSelectorOption,
     SettingsRow,
     ToolLoopTerminalUi,
-    _TuiToolLoopRenderer,
     _visible_len_allow_sgr,
     run_project_trust_selector,
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
+from pipy_harness.native.ui.components.tool_loop_renderer import (
+    TuiToolLoopRenderer,
+)
+from pipy_harness.native.ui.components.transcript import TranscriptComponent
+from pipy_harness.native.ui.paint_lock import PaintLock
 
 
 class _FixedProviderReplState(NativeReplProviderState):
@@ -137,6 +142,24 @@ class _ExitOnlyUi:
     def custom_entry_render_target(self) -> None:
         # No transcript in this fake: the renderer stays headless.
         return None
+
+    def create_tool_loop_renderer(self, **kwargs) -> TuiToolLoopRenderer:
+        # A real renderer over a throwaway transcript: this fake only
+        # exercises session startup/shutdown, never rendered frames.
+        transcript = TranscriptComponent(
+            PaintLock(),
+            lambda: None,
+            reset_scrollback=lambda: None,
+            frame_width=lambda: 80,
+            render_theme=lambda: None,
+        )
+        return TuiToolLoopRenderer(
+            transcript=transcript,
+            chrome=ExtensionChromeState(),
+            terminal_stream=io.StringIO(),
+            frame_width=lambda: 80,
+            **kwargs,
+        )
 
     def clear_extension_chrome(self) -> None:
         pass
@@ -339,7 +362,7 @@ def test_tui_custom_overlay_sanitizes_control_characters(tmp_path: Path):
 
 def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
     ui = _ui(tmp_path)
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
 
     adapter = RenderingAgentEventAdapter(renderer)
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
@@ -360,7 +383,7 @@ def test_tui_renderer_settles_without_stale_working_line(tmp_path: Path):
 
 def test_tui_renderer_uses_extension_working_controls(tmp_path: Path):
     ui = _ui(tmp_path)
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
     adapter = RenderingAgentEventAdapter(renderer)
 
     ui.set_extension_working_message("Checking")
@@ -382,7 +405,7 @@ def test_tui_renderer_cancellation_is_canonical_and_reason_aware(
     tmp_path: Path, reason: AgentCancellationReason
 ) -> None:
     ui = _ui(tmp_path)
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
     adapter = RenderingAgentEventAdapter(renderer)
 
     adapter.emit(MessageStarted(0, AgentAssistantMessage(ProductContent(""))))
@@ -398,7 +421,7 @@ def test_tui_renderer_cancellation_is_canonical_and_reason_aware(
 
 def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
     ui = _ui(tmp_path)
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
 
     renderer.render_tool_call(
         AgentToolCall(
@@ -423,7 +446,7 @@ def test_tui_renderer_collapses_read_tool_result_like_pi(tmp_path: Path):
 
 def test_tui_renderer_keeps_non_read_tool_results_in_history_region(tmp_path: Path):
     ui = _ui(tmp_path)
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
 
     renderer.render_tool_call(
         AgentToolCall(
@@ -449,7 +472,7 @@ def test_tui_streams_tool_output_into_live_region(tmp_path: Path):
     # Pi-style live streaming: while a tool runs, incremental output (e.g.
     # pytest dots) shows in the live region before the result settles.
     ui = _ui(tmp_path)
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
 
     renderer.render_tool_call(
         AgentToolCall(
@@ -474,7 +497,7 @@ def test_tui_streams_tool_output_into_live_region(tmp_path: Path):
 
 def test_tui_settled_tool_result_replaces_live_stream(tmp_path: Path):
     ui = _ui(tmp_path)
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
 
     renderer.render_tool_call(
         AgentToolCall(
@@ -752,7 +775,7 @@ def test_tui_renderer_accumulates_reasoning_chunks_without_token_lines(
     tmp_path: Path,
 ):
     ui = _ui(tmp_path)
-    renderer = _TuiToolLoopRenderer(ui=ui)
+    renderer = ui.create_tool_loop_renderer()
     renderer.begin_provider_turn()
 
     renderer.reasoning_sink("Thinking ")

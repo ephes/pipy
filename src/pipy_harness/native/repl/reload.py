@@ -95,8 +95,8 @@ from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tui import (
     ToolLoopTerminalUi,
     _LiveExtensionUiDriver,
-    _TuiToolLoopRenderer,
 )
+from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 
 
 @dataclass(slots=True)
@@ -179,7 +179,7 @@ class ReloadCommandEffects:
     settings: SettingsManager
     keybindings: KeybindingsManager
     terminal_ui: ToolLoopTerminalUi | None
-    renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer"
+    renderer: "_ToolLoopRenderer | TuiToolLoopRenderer"
     error_stream: TextIO
     emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
     provider_mutation: ProviderMutationEffects

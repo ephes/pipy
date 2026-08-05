@@ -86,11 +86,11 @@ from pipy_harness.native.tools import ToolPort
 from pipy_harness.native.tui import (
     ToolLoopTerminalUi,
     _LiveExtensionUiDriver,
-    _TuiToolLoopRenderer,
 )
 from pipy_harness.native.ui.components.custom_entry_renderer import (
     CustomEntryRenderer,
 )
+from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 
 _SESSION_COMMAND_ACTIONS = frozenset(
     {
@@ -357,7 +357,7 @@ class SessionCollaborators:
         self,
         *,
         keybindings: KeybindingsManager,
-        renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer",
+        renderer: "_ToolLoopRenderer | TuiToolLoopRenderer",
         emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter,
         resource_options: RuntimeResourceOptions,
         tool_capabilities: NativeToolCapabilities,

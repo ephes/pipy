@@ -68,7 +68,8 @@ from pipy_harness.native.session_generation import (
 from pipy_harness.native.session_tree import NativeSessionTree
 from pipy_harness.native.settings import SettingsManager
 from pipy_harness.native.tool_renderers import _ToolLoopRenderer
-from pipy_harness.native.tui import ToolLoopTerminalUi, _TuiToolLoopRenderer
+from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.components.tool_loop_renderer import TuiToolLoopRenderer
 
 
 @dataclass(slots=True)
@@ -237,7 +238,7 @@ class ReplLoopScope:
     error_stream: TextIO
     coding_state: CodingSessionState
     repl_input: "ToolLoopTerminalUi | NativeReplInput"
-    renderer: "_ToolLoopRenderer | _TuiToolLoopRenderer"
+    renderer: "_ToolLoopRenderer | TuiToolLoopRenderer"
     emitter: _extension_hooks._ExtensionLifecycleAgentEventAdapter
     settings: SettingsManager
     cwd: Path
