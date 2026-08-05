@@ -53,10 +53,7 @@ from pipy_harness.native.project_trust import (
     ProjectTrustStore,
     has_trust_requiring_project_resources,
 )
-from pipy_harness.native.repl.command_menu import (
-    tool_loop_command_descriptions,
-    tool_loop_command_names,
-)
+from pipy_harness.native.repl.command_menu import published_command_surface
 from pipy_harness.native.repl.execution_projections import (
     build_candidate_extension_projection,
 )
@@ -580,18 +577,12 @@ class ReloadCommandEffects:
             if projection is None:
                 raise RuntimeError("published extension generation has no projection")
             commands = projection.commands
-            self.terminal_ui.autocomplete_max_visible = (
+            self.terminal_ui.autocomplete.set_max_visible(
                 self.settings.get_autocomplete_max_visible()
             )
-            self.terminal_ui.command_names = tool_loop_command_names(
-                self.ctl.workspace_resources,
-                commands.menu_names,
+            self.terminal_ui.autocomplete.replace_command_surface(
+                published_command_surface(self.ctl.workspace_resources, commands)
             )
-            self.terminal_ui.command_descriptions = tool_loop_command_descriptions(
-                self.ctl.workspace_resources,
-                dict(commands.descriptions),
-            )
-            self.terminal_ui.extension_shortcut_keys = frozenset(commands.shortcuts)
             self.redraw_custom_entries_for_active_branch()
         for scope, detail in self.settings.load_errors().items():
             self.diag(f"pipy: kept prior {scope} settings ({detail}).")

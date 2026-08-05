@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from pipy_harness.native.repl_input import DEFAULT_REPL_COMMAND_DESCRIPTIONS
 from pipy_harness.native.resources import WorkspaceResources
+from pipy_harness.native.session_generation import ExtensionCommandProjection
 from pipy_harness.native.tui import TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
+from pipy_harness.native.ui.autocomplete import CommandSurface
 
 
 def tool_loop_command_names(
@@ -70,3 +72,24 @@ def tool_loop_command_descriptions(
     descriptions.update(resources.template_descriptions())
     descriptions.update(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
     return descriptions
+
+
+def published_command_surface(
+    resources: WorkspaceResources,
+    commands: ExtensionCommandProjection,
+) -> CommandSurface:
+    """The one frozen command surface a generation publishes to the menu owner.
+
+    Startup and ``/reload`` derive names, descriptions, and extension shortcut
+    keys from the same resources + command projection and hand the result to
+    ``AutocompleteComponent.replace_command_surface`` in one motion; building
+    the record here keeps the two writers byte-identical.
+    """
+
+    return CommandSurface(
+        names=tool_loop_command_names(resources, commands.menu_names),
+        descriptions=tool_loop_command_descriptions(
+            resources, dict(commands.descriptions)
+        ),
+        shortcut_keys=frozenset(commands.shortcuts),
+    )

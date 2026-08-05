@@ -27,6 +27,7 @@ from pipy_harness.native.agent import (
 )
 from pipy_harness.native.chrome import ChromeStyle
 from pipy_harness.native.clipboard import ClipboardResult
+from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import ExtensionChromeState
 from pipy_harness.native.models import ProviderRequest, ProviderResult
 from pipy_harness.native.project_trust import (
@@ -55,6 +56,7 @@ from pipy_harness.native.tui import (
     run_project_trust_selector,
 )
 from pipy_harness.native.ui import RenderingAgentEventAdapter
+from pipy_harness.native.ui.autocomplete import AutocompleteComponent
 from pipy_harness.native.ui.components.tool_loop_renderer import (
     TuiToolLoopRenderer,
 )
@@ -122,6 +124,14 @@ class _ExitOnlyUi:
     def __init__(self) -> None:
         self.closed = False
         self.started = False
+        # A real owner over a throwaway editor: session startup publishes the
+        # command surface through the autocomplete owner's replace verb.
+        self.autocomplete = AutocompleteComponent(
+            EditorState(),
+            cwd=Path("."),
+            repaint=lambda: None,
+            custom_editor_component=lambda: None,
+        )
 
     def set_footer_text(self, text: str) -> None:
         del text
@@ -968,14 +978,14 @@ def test_tui_slash_menu_lists_only_executable_commands(tmp_path: Path):
         assert executable in TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
 
     ui = _ui(tmp_path)
-    assert ui.command_names == TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
-    assert ui.command_descriptions.get("/copy")
-    assert ui.command_descriptions.get("/login")
-    assert ui.command_descriptions.get("/logout")
-    assert ui.command_descriptions.get("/compact")
-    assert ui.command_descriptions.get("/export")
-    assert ui.command_descriptions.get("/import")
-    assert ui.command_descriptions.get("/share")
+    assert ui.autocomplete.command_names == TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
+    assert ui.autocomplete.command_descriptions.get("/copy")
+    assert ui.autocomplete.command_descriptions.get("/login")
+    assert ui.autocomplete.command_descriptions.get("/logout")
+    assert ui.autocomplete.command_descriptions.get("/compact")
+    assert ui.autocomplete.command_descriptions.get("/export")
+    assert ui.autocomplete.command_descriptions.get("/import")
+    assert ui.autocomplete.command_descriptions.get("/share")
 
 
 def test_tui_slash_menu_filters_login_and_logout(tmp_path: Path):
@@ -1040,7 +1050,7 @@ def test_tui_slash_keystroke_opens_command_menu(tmp_path: Path):
 
 def test_tui_slash_menu_honors_autocomplete_max_visible(tmp_path: Path):
     ui = _ui(tmp_path)
-    ui.autocomplete_max_visible = 3
+    ui.autocomplete.set_max_visible(3)
     ui._insert_input_text("/")
     frame = ui._frame_lines(width=88, height=24, pad=False)
     menu_rows = [
@@ -1056,10 +1066,10 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
     ui = _ui(tmp_path)
     ui._insert_input_text("/")
 
-    ui._navigate_slash_menu("down")
+    ui.autocomplete.navigate_slash_menu("down")
     assert ui.slash_menu_selection == 1
 
-    ui._accept_slash_menu_selection()
+    ui.autocomplete.accept_slash_menu_selection()
     # Menu order is hotkeys(0), model(1), scoped-models(2), ...; one step down
     # lands on the /model command (auto-completed into the editor).
     assert ui.input_text == "/model"
@@ -1068,7 +1078,7 @@ def test_tui_slash_menu_navigation_accept_and_escape(tmp_path: Path):
 
     ui.input_text = "/"
     ui.input_cursor = 1
-    ui._refresh_slash_menu_state()
+    ui.autocomplete.refresh_slash_menu()
     assert ui.slash_menu_open is True
 
     ui.slash_menu_open = False

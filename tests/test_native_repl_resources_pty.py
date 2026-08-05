@@ -31,6 +31,7 @@ from pipy_harness.native.repl.command_menu import (
 from pipy_harness.native.resources import WorkspaceResources
 from pipy_harness.native.tool_loop_session import NativeToolReplSession
 from pipy_harness.native.tui import ToolLoopTerminalUi
+from pipy_harness.native.ui.autocomplete import CommandSurface
 
 
 @dataclass
@@ -133,8 +134,12 @@ def _drive_session(
         input_stream=cast(TextIO, stdin),
         terminal_stream=cast(TextIO, terminal),
         cwd=tmp_path,
-        command_names=tool_loop_command_names(resources),
-        command_descriptions=tool_loop_command_descriptions(resources),
+    )
+    ui.autocomplete.replace_command_surface(
+        CommandSurface(
+            names=tool_loop_command_names(resources),
+            descriptions=tool_loop_command_descriptions(resources),
+        )
     )
     provider = _CapturingToolProvider()
     session = NativeToolReplSession(provider=provider, tool_registry={})

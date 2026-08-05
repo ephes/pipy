@@ -204,7 +204,7 @@ def test_builtin_at_acceptance_replaces_the_whole_at_token(tmp_path: Path) -> No
     _type(ui, "see @config")
 
     assert ui.autocomplete_open
-    ui._accept_autocomplete_selection()
+    ui.autocomplete.accept_selection()
 
     assert ui.input_text.startswith("see @src/config.py")
     assert "@@" not in ui.input_text
@@ -248,7 +248,7 @@ def test_path_accept_after_common_prefix_expansion_replaces_full_inserted_prefix
     (tmp_path / "scraps").mkdir()
     _type(ui, "./sc")
 
-    assert ui._attempt_path_completion()
+    assert ui.autocomplete.attempt_path_completion()
     assert ui.input_text == "./scr"
     assert ui.autocomplete_open
     ui.autocomplete_selection = next(
@@ -256,7 +256,7 @@ def test_path_accept_after_common_prefix_expansion_replaces_full_inserted_prefix
         for index, item in enumerate(ui.autocomplete_items)
         if item.label == "scripts/"
     )
-    ui._accept_autocomplete_selection()
+    ui.autocomplete.accept_selection()
 
     assert ui.input_text == "./scripts/"
 
@@ -281,7 +281,7 @@ def test_extension_autocomplete_provider_custom_apply_controls_insertion(
     ui.add_extension_autocomplete_provider(lambda current: Provider(current))
     _type(ui, "ask @x")
     assert ui.autocomplete_open
-    ui._accept_autocomplete_selection()
+    ui.autocomplete.accept_selection()
 
     assert ui.input_text == "set by provider"
     assert ui.input_cursor == 3
@@ -305,7 +305,7 @@ def test_extension_autocomplete_provider_can_veto_forced_path_completion(
     ui.add_extension_autocomplete_provider(lambda current: Provider(current))
     _type(ui, "./s")
 
-    assert ui._attempt_path_completion() is False
+    assert ui.autocomplete.attempt_path_completion() is False
     assert ui.input_text == "./s"
 
 
@@ -354,7 +354,7 @@ def test_no_op_edit_keys_do_not_execute_extension_completion_lookup(
 
     assert factory.calls == 0
     assert ui.autocomplete_open
-    assert ui._autocomplete_active_provider is provider
+    assert ui._editor.autocomplete_active_provider is provider
 
 
 def test_empty_character_insert_keeps_edit_boundary_and_completion_refresh(
@@ -412,14 +412,14 @@ def test_empty_extension_suggestion_closes_popup_and_provider_binding(
 
     assert not ui.autocomplete_open
     assert ui.autocomplete_items == ()
-    assert ui._autocomplete_active_provider is None
+    assert ui._editor.autocomplete_active_provider is None
     before = (ui.input_text, ui.input_cursor)
 
-    ui._accept_autocomplete_selection()
+    ui.autocomplete.accept_selection()
 
     assert (ui.input_text, ui.input_cursor) == before
     assert not ui.autocomplete_open
-    assert ui._autocomplete_active_provider is None
+    assert ui._editor.autocomplete_active_provider is None
 
 
 def test_acceptance_uses_one_snapshot_when_provider_mutates_editor(
@@ -458,7 +458,7 @@ def test_acceptance_uses_one_snapshot_when_provider_mutates_editor(
         active_provider=provider,
     )
 
-    ui._accept_autocomplete_selection()
+    ui.autocomplete.accept_selection()
 
     assert provider.received_prefix == "x"
     assert ui.input_text == "ask @selected"
@@ -499,7 +499,7 @@ def test_directory_reopen_uses_accepted_snapshot_after_provider_mutation(
         active_provider=provider,
     )
 
-    ui._accept_autocomplete_selection()
+    ui.autocomplete.accept_selection()
 
     assert ui.input_text == "./scripts/"
     assert provider.suggestion_calls == 1

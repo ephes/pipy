@@ -70,7 +70,7 @@ class TestAtPicker:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "see @tui")
         assert ui.autocomplete_open
-        ui._accept_autocomplete_selection()
+        ui.autocomplete.accept_selection()
         assert "@src/tui" in ui.input_text
         assert ui.input_text.startswith("see @")
         assert not ui.autocomplete_open
@@ -80,7 +80,7 @@ class TestAtPicker:
         _type(ui, "@config")
         count = len(ui.autocomplete_items)
         assert count >= 2
-        ui._navigate_autocomplete("up")
+        ui.autocomplete.navigate("up")
         assert ui.autocomplete_selection == count - 1
 
     def test_closed_or_empty_navigation_does_not_paint_or_write(
@@ -116,9 +116,9 @@ class TestAtPicker:
         for ui, menu in cases:
             before = _terminal_text(ui)
             if menu == "slash":
-                ui._navigate_slash_menu("down")
+                ui.autocomplete.navigate_slash_menu("down")
             else:
-                ui._navigate_autocomplete("down")
+                ui.autocomplete.navigate("down")
             assert _terminal_text(ui) == before
         assert painted == []
 
@@ -136,8 +136,8 @@ class TestAtPicker:
 
         slash = _ui(tmp_path)
         slash._editor.set_buffer("/")
-        slash._editor.refresh_slash_menu(slash.command_names)
-        slash._navigate_slash_menu("down")
+        slash._editor.refresh_slash_menu(slash.autocomplete.command_names)
+        slash.autocomplete.navigate_slash_menu("down")
 
         autocomplete = _ui(tmp_path)
         autocomplete._editor.open_autocomplete(
@@ -146,7 +146,7 @@ class TestAtPicker:
             token_start=0,
             prefix="",
         )
-        autocomplete._navigate_autocomplete("down")
+        autocomplete.autocomplete.navigate("down")
 
         assert painted == [slash, autocomplete]
         assert _terminal_text(slash)
@@ -176,7 +176,7 @@ class TestAtPicker:
         # Accept after the move is a no-op (popup closed): the buffer is left
         # exactly as typed, never spliced at the stale offset.
         before = ui.input_text
-        ui._accept_autocomplete_selection()
+        ui.autocomplete.accept_selection()
         assert ui.input_text == before
 
     def test_home_and_right_also_dismiss_popup(self, tmp_path: Path) -> None:
@@ -198,7 +198,7 @@ class TestAtPicker:
         assert ui.autocomplete_open
         before = ui.input_text
         ui.autocomplete_token_start = len(before) + 5  # anchor past the caret
-        ui._accept_autocomplete_selection()
+        ui.autocomplete.accept_selection()
         assert ui.input_text == before
         assert not ui.autocomplete_open
 
@@ -221,7 +221,7 @@ class TestPathCompletion:
     def test_tab_completes_directory_listing(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "./src/")
-        assert ui._attempt_path_completion()
+        assert ui.autocomplete.attempt_path_completion()
         assert ui.autocomplete_open
         assert ui.autocomplete_mode == "path"
         labels = {item.label for item in ui.autocomplete_items}
@@ -245,7 +245,7 @@ class TestPathCompletion:
         _type(ui, "/ho")
         factory.calls = 0
 
-        assert ui._attempt_path_completion() is False
+        assert ui.autocomplete.attempt_path_completion() is False
         assert factory.calls == 0
         assert ui.input_text == "/ho"
         assert ui.slash_menu_open
@@ -254,14 +254,14 @@ class TestPathCompletion:
     def test_tab_in_prose_is_a_no_op(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "hello world")
-        assert ui._attempt_path_completion() is False
+        assert ui.autocomplete.attempt_path_completion() is False
         assert not ui.autocomplete_open
         assert ui.input_text == "hello world"
 
     def test_single_candidate_completes_inline(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "./scr")
-        assert ui._attempt_path_completion()
+        assert ui.autocomplete.attempt_path_completion()
         assert ui.input_text == "./scripts/"
         assert not ui.autocomplete_open
 
@@ -270,19 +270,19 @@ class TestPathCompletion:
         # just paths starting with ./ or ~/.
         ui = _ui(_workspace(tmp_path))
         _type(ui, "scr")
-        assert ui._attempt_path_completion()
+        assert ui.autocomplete.attempt_path_completion()
         assert ui.input_text == "scripts/"
 
     def test_bare_prose_word_with_no_match_is_a_no_op(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
         _type(ui, "zzznomatch")
-        assert ui._attempt_path_completion() is False
+        assert ui.autocomplete.attempt_path_completion() is False
         assert ui.input_text == "zzznomatch"
         assert not ui.autocomplete_open
 
     def test_empty_buffer_tab_is_a_no_op(self, tmp_path: Path) -> None:
         ui = _ui(_workspace(tmp_path))
-        assert ui._attempt_path_completion() is False
+        assert ui.autocomplete.attempt_path_completion() is False
         assert not ui.autocomplete_open
 
 

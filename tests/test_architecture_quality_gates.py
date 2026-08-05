@@ -104,8 +104,8 @@ def test_readme_names_the_codex_websocket_dependency() -> None:
 # slice that shrinks a file; never raise one. A slice that needs a bound raised
 # is a slice that put code back.
 _SIZE_RATCHET = {
-    "src/pipy_harness/native/tui.py": 4121,
-    "src/pipy_harness/native/tool_loop_session.py": 2017,
+    "src/pipy_harness/native/tui.py": 3753,
+    "src/pipy_harness/native/tool_loop_session.py": 2009,
 }
 
 # Nothing else under `native/` may quietly become the next god file while the

@@ -40,8 +40,6 @@ _EDITOR_WRITABLE_PROJECTIONS = (
 _EDITOR_READ_ONLY_PROJECTIONS = (
     "_undo_stack",
     "_redo_stack",
-    "_autocomplete_active_provider",
-    "_autocomplete_provider_factories",
 )
 _RETIRED_UNPROJECTED_NAMES = (
     "_pending_steering",
@@ -50,6 +48,10 @@ _RETIRED_UNPROJECTED_NAMES = (
     "_pending_drain_kinds",
     "_last_drain_kind",
     "_pending_command",
+    # Retired with the autocomplete owner (`ui/autocomplete.py`): the provider
+    # registry is reached through `ui._editor` / the component, not the facade.
+    "_autocomplete_active_provider",
+    "_autocomplete_provider_factories",
 )
 
 
@@ -86,20 +88,13 @@ def test_read_only_facade_projection_observes_owner_and_rejects_assignment(
     tmp_path: Path, facade_name: str
 ) -> None:
     ui = _ui(tmp_path)
-    marker = object()
 
     if facade_name == "_undo_stack":
         ui._editor.undo_stack.append(("owner", 5))
         expected: object = ui._editor.undo_stack
-    elif facade_name == "_redo_stack":
+    else:
         ui._editor.redo_stack.append(("owner", 5))
         expected = ui._editor.redo_stack
-    elif facade_name == "_autocomplete_active_provider":
-        ui._editor.autocomplete_active_provider = marker
-        expected = marker
-    else:
-        ui._editor.autocomplete_provider_factories.append(marker)
-        expected = ui._editor.autocomplete_provider_factories
 
     assert getattr(ui, facade_name) is expected
     with pytest.raises(AttributeError):

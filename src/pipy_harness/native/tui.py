@@ -35,15 +35,6 @@ from typing import (
     cast,
 )
 
-from pipy_harness.native.autocomplete_provider import (
-    AutocompleteApplyResult,
-    AutocompleteContext,
-    AutocompleteSuggestion,
-    call_provider_method,
-    coerce_apply_result,
-    coerce_suggestion,
-    cursor_to_line_col,
-)
 from pipy_harness.native.chrome import (
     ChromeStyle,
     chrome_style_for,
@@ -159,7 +150,10 @@ from pipy_harness.native.tool_renderers import (
     build_tool_render_theme,
     render_chrome_component,
 )
-from pipy_harness.native.ui.autocomplete import BuiltinAutocompleteProvider
+from pipy_harness.native.ui.autocomplete import (
+    AutocompleteComponent,
+    CommandSurface,
+)
 from pipy_harness.native.ui.chrome_handoff import (
     ChromeAcceptanceResult,
     ChromeHandoffOperation,
@@ -663,20 +657,12 @@ class ToolLoopTerminalUi:
     # terminal-title effects, filesystem branch reads, and disposal calls.
     _chrome: ExtensionChromeState = field(init=False)
     available_provider_count: int = 0
-    command_names: tuple[str, ...] = TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS
-    command_descriptions: dict[str, str] = field(
-        default_factory=lambda: dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS)
-    )
-    # Max rows shown in the slash-command/autocomplete menu (Pi
-    # ``autocompleteMaxVisible``; default 5, clamped 3..20 by the settings
-    # getter). Overflow rows scroll behind a "… N more" tail.
-    autocomplete_max_visible: int = 5
-    # Decoded key strings (e.g. ``"ctrl-g"``) bound by activated extensions via
-    # ``api.register_shortcut``. When the editor reads one of these keys it
-    # returns the HOTKEY_EXTENSION_SHORTCUT sentinel so the session dispatches
-    # the bound handler. Keys the decoder cannot produce (e.g. ``ctrl-.`` on a
-    # non-kitty terminal) simply never fire — the registration is still valid.
-    extension_shortcut_keys: frozenset[str] = frozenset()
+    # Single owner for the slash menu, the @/path completion popup, the
+    # published CommandSurface (names/descriptions/extension shortcut keys),
+    # the settings-driven row cap, and the extension provider registry effects
+    # (``ui/autocomplete.py``). Session startup and ``/reload`` publish through
+    # its ``replace_command_surface``/``set_max_visible`` verbs.
+    _autocomplete: AutocompleteComponent = field(init=False)
     # Exactly one selector/dialog/custom overlay is active. Terminal I/O,
     # callbacks, extension execution, rendering, and lifecycle effects stay in
     # this facade; the owner holds only synchronous transition state.
@@ -726,6 +712,16 @@ class ToolLoopTerminalUi:
         self._overlays = OverlayState()
         self._chrome = ExtensionChromeState()
         self._driver = TerminalDriver(self.input_stream, self.terminal_stream)
+        self._autocomplete = AutocompleteComponent(
+            self._editor,
+            cwd=self.cwd,
+            repaint=self.paint,
+            custom_editor_component=lambda: self._custom_editor_component,
+            surface=CommandSurface(
+                names=TOOL_LOOP_TUI_SLASH_COMMAND_COMPLETIONS,
+                descriptions=dict(DEFAULT_REPL_COMMAND_DESCRIPTIONS),
+            ),
+        )
         self._transcript = TranscriptComponent(
             self._paint_lock,
             self.paint,
@@ -867,12 +863,10 @@ class ToolLoopTerminalUi:
         self._editor.autocomplete_prefix = value
 
     @property
-    def _autocomplete_active_provider(self) -> object | None:
-        return self._editor.autocomplete_active_provider
+    def autocomplete(self) -> AutocompleteComponent:
+        """Owner handle for slash-menu/completion state and command surface."""
 
-    @property
-    def _autocomplete_provider_factories(self) -> list[object]:
-        return self._editor.autocomplete_provider_factories
+        return self._autocomplete
 
     # Overlay/chrome projections are direct views into slotted owners. They
     # preserve characterized facade access without a second stored copy; an
@@ -1130,12 +1124,12 @@ class ToolLoopTerminalUi:
                     if self.autocomplete_open:
                         # Enter accepts the highlighted completion (Pi: Enter/Tab
                         # accept) and keeps editing rather than submitting.
-                        self._accept_autocomplete_selection()
+                        self._autocomplete.accept_selection()
                         continue
-                    if self.slash_menu_open and self._filtered_commands():
-                        matches = self._filtered_commands()
+                    if self.slash_menu_open and self._autocomplete.filtered_commands():
+                        matches = self._autocomplete.filtered_commands()
                         if self.input_text not in matches:
-                            self._accept_slash_menu_selection()
+                            self._autocomplete.accept_slash_menu_selection()
                     submitted = self._editor.submit_line()
                     self.paint()
                     return f"{submitted}\n"
@@ -1200,7 +1194,7 @@ class ToolLoopTerminalUi:
                     self._paste_clipboard_image()
                     self.paint()
                     continue
-                if key in self.extension_shortcut_keys:
+                if key in self._autocomplete.shortcut_keys:
                     # An activated extension bound this key via
                     # api.register_shortcut. Preserve any partially-typed input
                     # into the next prompt (like the app hotkeys) and hand the
@@ -1216,24 +1210,24 @@ class ToolLoopTerminalUi:
                         self._editor.slash_menu_open = False
                         self.paint()
                     elif self.autocomplete_open:
-                        self._close_autocomplete()
+                        self._autocomplete.close()
                         self.paint()
                     continue
                 if key in {"up", "down"}:
                     if self.slash_menu_open:
-                        self._navigate_slash_menu(key)
+                        self._autocomplete.navigate_slash_menu(key)
                     elif self.autocomplete_open:
-                        self._navigate_autocomplete(key)
+                        self._autocomplete.navigate(key)
                     else:
                         self._navigate_history(key)
                     continue
                 if key == "tab":
-                    if self.slash_menu_open and self._filtered_commands():
-                        self._accept_slash_menu_selection()
+                    if self.slash_menu_open and self._autocomplete.filtered_commands():
+                        self._autocomplete.accept_slash_menu_selection()
                     elif self.autocomplete_open:
-                        self._accept_autocomplete_selection()
+                        self._autocomplete.accept_selection()
                     else:
-                        self._attempt_path_completion()
+                        self._autocomplete.attempt_path_completion()
                         self.paint()
                     continue
                 if key in {"left", "right", "home", "end"}:
@@ -1319,12 +1313,12 @@ class ToolLoopTerminalUi:
                 # steering/follow-up and/or local commands.
                 if key == "enter":
                     if self.autocomplete_open:
-                        self._accept_autocomplete_selection()
+                        self._autocomplete.accept_selection()
                         continue
-                    if self.slash_menu_open and self._filtered_commands():
-                        matches = self._filtered_commands()
+                    if self.slash_menu_open and self._autocomplete.filtered_commands():
+                        matches = self._autocomplete.filtered_commands()
                         if self.input_text not in matches:
-                            self._accept_slash_menu_selection()
+                            self._autocomplete.accept_slash_menu_selection()
                     text = self.input_text
                     self._reset_mid_turn_input()
                     if not text.strip():
@@ -1373,17 +1367,17 @@ class ToolLoopTerminalUi:
                     continue
                 if key in {"up", "down"}:
                     if self.slash_menu_open:
-                        self._navigate_slash_menu(key)
+                        self._autocomplete.navigate_slash_menu(key)
                     elif self.autocomplete_open:
-                        self._navigate_autocomplete(key)
+                        self._autocomplete.navigate(key)
                     continue
                 if key == "tab":
-                    if self.slash_menu_open and self._filtered_commands():
-                        self._accept_slash_menu_selection()
+                    if self.slash_menu_open and self._autocomplete.filtered_commands():
+                        self._autocomplete.accept_slash_menu_selection()
                     elif self.autocomplete_open:
-                        self._accept_autocomplete_selection()
+                        self._autocomplete.accept_selection()
                     elif not command_only:
-                        self._attempt_path_completion()
+                        self._autocomplete.attempt_path_completion()
                     self.paint()
                     continue
                 if key in {"left", "right", "home", "end"}:
@@ -1593,7 +1587,7 @@ class ToolLoopTerminalUi:
         if component is not None:
             self._wire_custom_editor_component(component)
             self._set_custom_editor_text(current_text)
-            self._forward_autocomplete_to_custom_editor(component)
+            self._autocomplete.forward_to_custom_editor(component)
         self.paint()
 
     def get_editor_component(self) -> object | None:
@@ -1696,17 +1690,6 @@ class ToolLoopTerminalUi:
         shared = existing if existing is not None else value
         for name in names:
             cls._set_component_attr_if_absent(component, name, shared)
-
-    def _forward_autocomplete_to_custom_editor(self, component: object) -> None:
-        setter = getattr(component, "set_autocomplete_provider", None) or getattr(
-            component, "setAutocompleteProvider", None
-        )
-        if not callable(setter) or not self._autocomplete_provider_factories:
-            return
-        try:
-            setter(self._autocomplete_provider())
-        except Exception:  # noqa: BLE001 - fail-soft extension UI adapter
-            pass
 
     def _custom_editor_text(self) -> str:
         component = self._custom_editor_component
@@ -2861,7 +2844,9 @@ class ToolLoopTerminalUi:
         """Resolve effectful ordinary-frame regions before freezing them."""
 
         popup = tuple(
-            self._popup_menu_frame_lines(width=width, max_rows=max(1, height - 7))
+            self._autocomplete.popup_menu_frame_lines(
+                width=width, max_rows=max(1, height - 7)
+            )
         )
         pending = tuple(self._pending_region_lines(width))
         status = tuple(self._extension_status_lines(width))
@@ -3340,8 +3325,8 @@ class ToolLoopTerminalUi:
             self._paint_locked()
 
     def _insert_input_text(self, text: str) -> None:
-        self._editor.insert(text, self.command_names)
-        self._refresh_autocomplete_state()
+        self._editor.insert(text, self._autocomplete.command_names)
+        self._autocomplete.refresh()
 
     def _insert_paste(self, text: str) -> None:
         """Insert pasted text literally as a single undo-able edit.
@@ -3362,8 +3347,8 @@ class ToolLoopTerminalUi:
         reference = self._as_drag_reference(text)
         if reference is not None:
             text = reference
-        self._editor.insert(text, self.command_names)
-        self._refresh_autocomplete_state()
+        self._editor.insert(text, self._autocomplete.command_names)
+        self._autocomplete.refresh()
 
     def _as_drag_reference(self, text: str) -> str | None:
         """Return an ``@image:``/``@path`` reference for a dropped file path.
@@ -3453,12 +3438,12 @@ class ToolLoopTerminalUi:
         self._insert_input_text(insertion)
 
     def _delete_before_cursor(self) -> None:
-        if self._editor.delete_before_cursor(self.command_names):
-            self._refresh_autocomplete_state()
+        if self._editor.delete_before_cursor(self._autocomplete.command_names):
+            self._autocomplete.refresh()
 
     def _kill_to_line_start(self) -> None:
-        if self._editor.kill_to_line_start(self.command_names):
-            self._refresh_autocomplete_state()
+        if self._editor.kill_to_line_start(self._autocomplete.command_names):
+            self._autocomplete.refresh()
 
     def _reset_line_editor_state(self) -> None:
         self._editor.reset_line_editor_state()
@@ -3470,12 +3455,12 @@ class ToolLoopTerminalUi:
         self._editor.snapshot_for_undo()
 
     def _undo_edit(self) -> None:
-        if self._editor.undo(self.command_names):
-            self._refresh_autocomplete_state()
+        if self._editor.undo(self._autocomplete.command_names):
+            self._autocomplete.refresh()
 
     def _redo_edit(self) -> None:
-        if self._editor.redo(self.command_names):
-            self._refresh_autocomplete_state()
+        if self._editor.redo(self._autocomplete.command_names):
+            self._autocomplete.refresh()
 
     def _record_history(self, submitted: str) -> None:
         self._editor.record_history(submitted)
@@ -3528,102 +3513,8 @@ class ToolLoopTerminalUi:
     def _effective_input_cursor(self) -> int:
         return self._editor.effective_cursor()
 
-    def _refresh_slash_menu_state(self) -> None:
-        self._editor.refresh_slash_menu(self.command_names)
-        self._refresh_autocomplete_state()
-
-    def _refresh_autocomplete_state(self) -> None:
-        """Open/refresh the ``@`` file picker as the editor content changes.
-
-        The slash menu keeps priority for a leading ``/``; while it is open the
-        autocomplete popup stays closed so the two never co-open. Otherwise an
-        ``@``-prefixed token at the cursor opens a scored, workspace-bounded
-        file picker (Pi's content trigger). Tab path completion is forced (not
-        auto), so it is not opened here.
-        """
-
-        if self.slash_menu_open:
-            self._close_autocomplete()
-            return
-        suggestion = self._autocomplete_suggestions(force=False)
-        if suggestion is None:
-            self._close_autocomplete()
-            return
-        self._editor.open_autocomplete(
-            items=tuple(suggestion.items),
-            mode=suggestion.mode,
-            token_start=suggestion.token_start,
-            prefix=suggestion.prefix,
-            active_provider=self._autocomplete_active_provider,
-        )
-
     def add_extension_autocomplete_provider(self, factory: object) -> None:
-        if callable(factory):
-            self._autocomplete_provider_factories.append(factory)
-            if self._custom_editor_component is not None:
-                self._forward_autocomplete_to_custom_editor(
-                    self._custom_editor_component
-                )
-
-    def _autocomplete_provider(self) -> object:
-        provider: object = BuiltinAutocompleteProvider(self.cwd)
-        for factory in self._autocomplete_provider_factories:
-            try:
-                wrapped = cast(Callable[[object], object], factory)(provider)
-            except Exception:  # noqa: BLE001 - extension provider must fail soft
-                continue
-            if wrapped is not None:
-                provider = wrapped
-        return provider
-
-    def _autocomplete_suggestions(
-        self, *, force: bool
-    ) -> AutocompleteSuggestion | None:
-        cursor = self._effective_input_cursor()
-        lines, cursor_line, cursor_col = cursor_to_line_col(self.input_text, cursor)
-        provider = self._autocomplete_provider()
-        if force:
-            try:
-                should = call_provider_method(
-                    provider,
-                    "should_trigger_file_completion",
-                    "shouldTriggerFileCompletion",
-                    lines,
-                    cursor_line,
-                    cursor_col,
-                )
-            except AttributeError:
-                should = True
-            except Exception:  # noqa: BLE001 - extension provider must fail soft
-                should = True
-            if not bool(should):
-                return None
-        try:
-            raw = call_provider_method(
-                provider,
-                "get_suggestions",
-                "getSuggestions",
-                lines,
-                cursor_line,
-                cursor_col,
-                AutocompleteContext(force=force, signal=None),
-            )
-        except Exception:  # noqa: BLE001 - extension provider must fail soft
-            provider = BuiltinAutocompleteProvider(self.cwd)
-            raw = provider.get_suggestions(
-                lines,
-                cursor_line,
-                cursor_col,
-                AutocompleteContext(force=force, signal=None),
-            )
-        suggestion = coerce_suggestion(raw)
-        self._editor.autocomplete_active_provider = (
-            provider if suggestion is not None else None
-        )
-        return suggestion
-
-    def _close_autocomplete(self) -> None:
-        self._editor.close_autocomplete()
+        self._autocomplete.add_extension_provider(factory)
 
     def enqueue_steering(self, text: str) -> None:
         self._editor.enqueue_steering(text)
@@ -3663,7 +3554,7 @@ class ToolLoopTerminalUi:
         if self._custom_editor_active:
             self._set_custom_editor_text(self.input_text)
             return
-        self._refresh_slash_menu_state()
+        self._autocomplete.refresh_slash_menu()
 
     def take_next_drain(self) -> str | None:
         """Pop the next queued message to deliver as a prompt, or None."""
@@ -3709,265 +3600,6 @@ class ToolLoopTerminalUi:
         """
 
         return self.input_text.lstrip().startswith("!")
-
-    def _navigate_autocomplete(self, key: str) -> None:
-        if self._editor.navigate_autocomplete(key):
-            self.paint()
-
-    def _accept_autocomplete_selection(self) -> None:
-        """Replace the active ``@``/path token with the highlighted candidate.
-
-        Accepting an ``@`` candidate leaves a literal ``@path`` in the buffer so
-        the existing ``file_references`` resolver loads its bounded excerpt on
-        submit. Accepting a directory in path mode re-opens the popup for the
-        next segment, mirroring Pi's progressive Tab completion.
-        """
-
-        selection = self._editor.completion_selection()
-        if selection is None:
-            return
-        # Capture and validate one immutable owner snapshot before trusted
-        # extension code runs. The callback may synchronously mutate the editor
-        # or popup through its UI context; provider arguments, fallback splice,
-        # accepted mode, and directory behavior must all use this same snapshot.
-        if not selection.span_is_valid():
-            self._editor.close_autocomplete()
-            self.paint()
-            return
-        self._editor.snapshot_for_undo()
-        self._editor.reset_history_nav()
-        provider = selection.active_provider or BuiltinAutocompleteProvider(self.cwd)
-        lines, cursor_line, cursor_col = cursor_to_line_col(
-            selection.text, selection.cursor
-        )
-        try:
-            raw_result = call_provider_method(
-                provider,
-                "apply_completion",
-                "applyCompletion",
-                lines,
-                cursor_line,
-                cursor_col,
-                selection.item,
-                selection.prefix
-                or selection.text[selection.token_start : selection.cursor],
-            )
-            result = coerce_apply_result(raw_result)
-        except Exception:  # noqa: BLE001 - extension provider must fail soft
-            result = None
-        if result is None:
-            result = AutocompleteApplyResult(
-                selection.text[: selection.token_start]
-                + selection.item.value
-                + selection.text[selection.cursor :],
-                selection.token_start + len(selection.item.value),
-            )
-        self._editor.apply_completion_result(result.text, result.cursor)
-        if selection.mode == "path" and selection.item.value.rstrip('"').endswith("/"):
-            # Directory accepted: re-open the popup for the next segment.
-            self._attempt_path_completion()
-        self.paint()
-
-    def _attempt_path_completion(self) -> bool:
-        """Forced Tab path completion against the prefix before the cursor.
-
-        Returns ``True`` when the prefix produced candidates (and the editor was
-        updated/opened), ``False`` for a no-op. Uses the forced-Tab prefix so
-        bare workspace prefixes (``README``, ``scr``) complete, not just
-        path-like ones; Tab stays a no-op in prose because the empty-token case
-        (e.g. after a trailing space) is skipped and a non-path word that
-        matches no workspace entry yields no candidates. Completes the longest
-        unambiguous prefix and opens the popup when more than one remains.
-        """
-
-        # Key dispatch gives an open slash menu first refusal (Tab accepts its
-        # selected command). Keep the completion adapter honest when called
-        # directly too: do not execute provider/filesystem lookup only to have
-        # the owner reject the mutually exclusive autocomplete popup.
-        if self.slash_menu_open:
-            return False
-        suggestion = self._autocomplete_suggestions(force=True)
-        if suggestion is None:
-            return False
-        start = suggestion.token_start
-        prefix = suggestion.prefix
-        items = suggestion.items
-        cursor = self._effective_input_cursor()
-        common = self._longest_common_value(items)
-        if common and len(common) > len(prefix):
-            self._editor.snapshot_for_undo()
-            self._editor.reset_history_nav()
-            self._editor.set_buffer(
-                self.input_text[:start] + common + self.input_text[cursor:],
-                cursor=start + len(common),
-            )
-            cursor = self._effective_input_cursor()
-            prefix = common
-        if len(items) == 1:
-            single = items[0].value
-            self._editor.snapshot_for_undo()
-            self._editor.reset_history_nav()
-            self._editor.set_buffer(
-                self.input_text[:start] + single + self.input_text[cursor:],
-                cursor=start + len(single),
-            )
-            self._editor.close_autocomplete()
-            return True
-        self._editor.open_autocomplete(
-            items=tuple(items),
-            mode="path",
-            token_start=start,
-            prefix=prefix,
-            active_provider=self._autocomplete_active_provider,
-            reset_selection=True,
-        )
-        return True
-
-    @staticmethod
-    def _longest_common_value(items: Sequence[CompletionItem]) -> str:
-        values = [item.value for item in items]
-        if not values:
-            return ""
-        shortest = min(values, key=len)
-        for index, char in enumerate(shortest):
-            if any(value[index] != char for value in values):
-                return shortest[:index]
-        return shortest
-
-    def _filtered_commands(self) -> tuple[str, ...]:
-        return self._editor.filtered_commands(self.command_names)
-
-    def _accept_slash_menu_selection(self) -> None:
-        if self._editor.accept_slash_menu(self.command_names):
-            self.paint()
-
-    def _navigate_slash_menu(self, key: str) -> None:
-        if self._editor.navigate_slash_menu(key, self.command_names):
-            self.paint()
-
-    def _popup_menu_frame_lines(self, *, width: int, max_rows: int) -> list[_FrameLine]:
-        """Return the active in-frame completion popup (slash menu or editor).
-
-        The slash menu keeps priority when it is open; otherwise the editor
-        autocomplete popup (``@`` file picker or Tab path completion) draws in
-        the same rows. The two never co-open, mirroring Pi.
-        """
-
-        if self.slash_menu_open:
-            return self._slash_menu_frame_lines(width=width, max_rows=max_rows)
-        if self.autocomplete_open:
-            return self._autocomplete_frame_lines(width=width, max_rows=max_rows)
-        return []
-
-    def _autocomplete_frame_lines(
-        self, *, width: int, max_rows: int
-    ) -> list[_FrameLine]:
-        items = self.autocomplete_items
-        if not self.autocomplete_open or not items or max_rows <= 0:
-            return []
-        menu_cap = (
-            self.autocomplete_max_visible if self.autocomplete_max_visible > 0 else 5
-        )
-        visible_count = min(len(items), max_rows, menu_cap)
-        start = max(
-            0,
-            min(
-                self.autocomplete_selection - (visible_count // 2),
-                max(0, len(items) - visible_count),
-            ),
-        )
-        visible = items[start : start + visible_count]
-        total = len(items)
-        lines: list[_FrameLine] = []
-        for offset, item in enumerate(visible, start=start):
-            prefix = "→ " if offset == self.autocomplete_selection else "  "
-            label = item.label
-            description_start = len(prefix) + len(label)
-            line = f"{prefix}{label}"
-            # Show the full inserted value (dimmed) when it differs from the
-            # short label and the row has room, so a scoped/quoted path is
-            # legible before acceptance.
-            if item.value not in {label, f"@{label}"} and width > 40:
-                spacing = " " * max(1, 24 - len(line))
-                remaining = width - len(line) - len(spacing) - 2
-                if remaining > 6:
-                    line = f"{line}{spacing}{item.value[:remaining]}"
-                    description_start = len(prefix) + len(label) + len(spacing)
-            lines.append(
-                _FrameLine(
-                    self._clip(line, width),
-                    "slash_menu_selected"
-                    if offset == self.autocomplete_selection
-                    else "slash_menu",
-                    {"description_start": description_start},
-                )
-            )
-        if start > 0 or start + visible_count < total:
-            lines.append(
-                _FrameLine(
-                    self._clip(f"  ({self.autocomplete_selection + 1}/{total})", width),
-                    "slash_menu_scroll",
-                )
-            )
-        return lines
-
-    def _slash_menu_frame_lines(self, *, width: int, max_rows: int) -> list[_FrameLine]:
-        matches = self._filtered_commands()
-        if not self.slash_menu_open or not matches or max_rows <= 0:
-            return []
-        menu_cap = (
-            self.autocomplete_max_visible if self.autocomplete_max_visible > 0 else 5
-        )
-        visible_count = min(len(matches), max_rows, menu_cap)
-        start = max(
-            0,
-            min(
-                self.slash_menu_selection - (visible_count // 2),
-                max(0, len(matches) - visible_count),
-            ),
-        )
-        visible = matches[start : start + visible_count]
-        lines: list[_FrameLine] = []
-        total = len(matches)
-        primary_width = self._slash_menu_primary_column_width(matches)
-        for offset, command in enumerate(visible, start=start):
-            description = self.command_descriptions.get(command, "")
-            display_command = command[1:] if command.startswith("/") else command
-            prefix = "→ " if offset == self.slash_menu_selection else "  "
-            max_primary_width = max(1, primary_width - 2)
-            display_command = display_command[:max_primary_width]
-            spacing = " " * max(1, primary_width - len(display_command))
-            description_start = len(prefix) + len(display_command)
-            line = f"{prefix}{display_command}{spacing}"
-            if description and width > 40:
-                remaining = width - len(line) - 2
-                if remaining > 10:
-                    line = f"{line}{description[:remaining]}"
-            lines.append(
-                _FrameLine(
-                    self._clip(line, width),
-                    "slash_menu_selected"
-                    if offset == self.slash_menu_selection
-                    else "slash_menu",
-                    {"description_start": description_start},
-                )
-            )
-        if start > 0 or start + visible_count < total:
-            lines.append(
-                _FrameLine(
-                    self._clip(f"  ({self.slash_menu_selection + 1}/{total})", width),
-                    "slash_menu_scroll",
-                )
-            )
-        return lines
-
-    @staticmethod
-    def _slash_menu_primary_column_width(matches: tuple[str, ...]) -> int:
-        widest = 0
-        for command in matches:
-            display_command = command[1:] if command.startswith("/") else command
-            widest = max(widest, len(display_command) + 2)
-        return max(12, min(32, widest))
 
 
 def run_project_trust_selector(

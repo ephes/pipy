@@ -16,6 +16,7 @@ _spec.loader.exec_module(architecture_metrics)
 
 
 EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
+    "_autocomplete",
     "_chrome",
     "_clipboard_image_count",
     "_closed",
@@ -37,14 +38,10 @@ EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS = (
     "_painted_block_count",
     "_painting",
     "_transcript",
-    "autocomplete_max_visible",
     "available_provider_count",
     "clipboard_image_read",
     "clipboard_temp_dir",
-    "command_descriptions",
-    "command_names",
     "cwd",
-    "extension_shortcut_keys",
     "footer_lines",
     "include_workspace_defaults",
     "input_stream",
@@ -102,7 +99,7 @@ def test_product_tool_loop_terminal_ui_field_baseline_is_stable() -> None:
     fields = architecture_metrics.class_state_fields(source, "ToolLoopTerminalUi")
 
     assert fields == EXPECTED_TOOL_LOOP_TERMINAL_UI_FIELDS
-    assert len(fields) == 35
+    assert len(fields) == 32
     assert len(fields) <= 89  # Slice 12 ceiling: floor(128 * 0.70)
 
 
@@ -149,8 +146,8 @@ class Synthetic:
 # helper bands shrink around it. These bounds are the mass gate for the class.
 # Lower them in any slice that shrinks the class; never raise one. A slice that
 # needs a bound raised is a slice that put code back into the class.
-_TUI_CLASS_SPAN_RATCHET = 3335
-_TUI_CLASS_DEF_RATCHET = 230
+_TUI_CLASS_SPAN_RATCHET = 2973
+_TUI_CLASS_DEF_RATCHET = 212
 
 
 def test_tool_loop_terminal_ui_class_ratchet_never_grows() -> None:

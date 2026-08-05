@@ -130,7 +130,7 @@ def test_clear_extension_chrome_retires_generation_state_and_keeps_sticky_values
     assert ui._extension_footer_branch is None
     assert ui.extension_title is None
     assert ui._extension_terminal_input_listeners == {}
-    assert ui._autocomplete_provider_factories == []
+    assert ui._editor.autocomplete_provider_factories == []
     assert ui.get_editor_component() is None
     assert ui._transcript.hidden_thinking_label == "Thinking..."
     assert ui.extension_status == {"status": "value"}
@@ -447,7 +447,7 @@ def test_driver_acceptance_drops_retiring_disposal_writes_and_replays_live_races
     assert ui.extension_header is not None
     assert ui.extension_header.source is snapshot.header
     assert ui.get_editor_component() is snapshot.editor_component
-    assert ui._autocomplete_provider_factories == [candidate_autocomplete]
+    assert ui._editor.autocomplete_provider_factories == [candidate_autocomplete]
     assert ui._transcript.hidden_thinking_label == snapshot.hidden_thinking_label
     assert ui._apply_extension_terminal_input_listeners("x") == "candidate:x"
     assert candidate_seen == ["x"]

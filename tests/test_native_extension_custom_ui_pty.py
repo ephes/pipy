@@ -18,6 +18,7 @@ import sys
 import termios
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import TextIO, cast
 
@@ -496,7 +497,9 @@ def test_pty_extension_shortcut_returns_sentinel(
     ui, stdin, terminal, in_master, err_master, err_thread, err_chunks = _make_ui(
         tmp_path
     )
-    ui.extension_shortcut_keys = frozenset({"ctrl-x"})
+    ui.autocomplete.replace_command_surface(
+        replace(ui.autocomplete.command_surface, shortcut_keys=frozenset({"ctrl-x"}))
+    )
     result: list[str] = []
 
     def _run() -> None:

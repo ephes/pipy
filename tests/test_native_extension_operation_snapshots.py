@@ -20,6 +20,7 @@ from pipy_harness.native.agent.active_input import AgentActiveInput
 from pipy_harness.native.agent.loop_policy import AgentProviderRequestPolicyInput
 from pipy_harness.native.agent.usage import AgentUsageAccumulator
 from pipy_harness.native.coding.state import CodingSessionState
+from pipy_harness.native.editor_state import EditorState
 from pipy_harness.native.extension_chrome_state import ExtensionChromeSink
 from pipy_harness.native.extension_hooks import (
     _compose_extension_runtime,
@@ -68,6 +69,7 @@ from pipy_harness.native.tools import (
     ToolExecutionResult,
     ToolRequest,
 )
+from pipy_harness.native.ui.autocomplete import AutocompleteComponent
 
 
 def _runtime(lock: threading.RLock) -> _ExtensionRuntime:
@@ -408,7 +410,13 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
                 generation_ref.publish(new)
             return generation_ref.current
 
-    terminal_ui = SimpleNamespace()
+    autocomplete = AutocompleteComponent(
+        EditorState(),
+        cwd=tmp_path,
+        repaint=lambda: None,
+        custom_editor_component=lambda: None,
+    )
+    terminal_ui = SimpleNamespace(autocomplete=autocomplete)
     effect = SimpleNamespace(
         settings=SimpleNamespace(
             get_theme=lambda: None,
@@ -434,10 +442,11 @@ def test_r4c_reload_menu_uses_one_published_command_projection(tmp_path: Path) -
         is False
     )
 
-    assert "/old" in terminal_ui.command_names
-    assert "/new" not in terminal_ui.command_names
-    assert terminal_ui.command_descriptions["/old"] == "old description"
-    assert terminal_ui.extension_shortcut_keys == frozenset({"ctrl-k"})
+    assert "/old" in autocomplete.command_names
+    assert "/new" not in autocomplete.command_names
+    assert autocomplete.command_descriptions["/old"] == "old description"
+    assert autocomplete.shortcut_keys == frozenset({"ctrl-k"})
+    assert autocomplete.max_visible == 5
     assert generation_ref.snapshot_calls == 1
 
 

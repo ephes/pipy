@@ -200,6 +200,7 @@ from pipy_harness.native.repl.collaborators import (
     SessionCollaborators,
 )
 from pipy_harness.native.repl.command_menu import (
+    published_command_surface,
     tool_loop_command_descriptions,
     tool_loop_command_names,
 )
@@ -1177,8 +1178,6 @@ class NativeToolReplSession:
             input_stream=input_stream,
             error_stream=error_stream,
             workspace=cwd,
-            resources=workspace_resources,
-            autocomplete_max_visible=settings.get_autocomplete_max_visible(),
             keybindings_manager=keybindings,
             include_workspace_defaults=settings.project_trusted,
         )
@@ -1268,13 +1267,12 @@ class NativeToolReplSession:
             raise RuntimeError("published extension generation has no projection")
         startup_commands = startup_generation_projection.commands
         if terminal_ui is not None:
-            terminal_ui.command_names = tool_loop_command_names(
-                workspace_resources, startup_commands.menu_names
+            terminal_ui.autocomplete.set_max_visible(
+                settings.get_autocomplete_max_visible()
             )
-            terminal_ui.command_descriptions = tool_loop_command_descriptions(
-                workspace_resources, dict(startup_commands.descriptions)
+            terminal_ui.autocomplete.replace_command_surface(
+                published_command_surface(workspace_resources, startup_commands)
             )
-            terminal_ui.extension_shortcut_keys = frozenset(startup_commands.shortcuts)
             if keybindings.has_user_binding("app.editor.external"):
                 editor_keys = {
                     normalized
@@ -1868,8 +1866,6 @@ class NativeToolReplSession:
         input_stream: TextIO,
         error_stream: TextIO,
         workspace: Path,
-        resources: WorkspaceResources,
-        autocomplete_max_visible: int = 5,
         keybindings_manager: KeybindingsManager | None = None,
         include_workspace_defaults: bool = False,
     ) -> ToolLoopTerminalUi | None:
@@ -1881,9 +1877,6 @@ class NativeToolReplSession:
             input_stream=input_stream,
             terminal_stream=error_stream,
             cwd=workspace,
-            command_names=tool_loop_command_names(resources),
-            command_descriptions=tool_loop_command_descriptions(resources),
-            autocomplete_max_visible=autocomplete_max_visible,
             keybindings_manager=keybindings_manager,
             include_workspace_defaults=include_workspace_defaults,
         )

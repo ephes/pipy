@@ -5,6 +5,7 @@ import os
 import shlex
 import sys
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import TextIO, cast
 
@@ -778,7 +779,9 @@ def test_custom_editor_component_extension_shortcut_routes_to_session(
     monkeypatch.setattr(
         ToolLoopTerminalUi, "_read_key_polling_resize", lambda self, fd: next(keys)
     )
-    ui.extension_shortcut_keys = frozenset({"ctrl+x"})
+    ui.autocomplete.replace_command_surface(
+        replace(ui.autocomplete.command_surface, shortcut_keys=frozenset({"ctrl+x"}))
+    )
     ui.set_editor_component(lambda tui, theme, keybindings: component)
 
     assert ui.read_line("> ") == f"{HOTKEY_EXTENSION_SHORTCUT_PREFIX}ctrl+x\n"
@@ -1209,7 +1212,9 @@ def test_default_editor_external_editor_action_precedes_extension_shortcut(
 
     ui = _ui(tmp_path)
     ui.keybindings_manager = KeybindingsManager({"app.editor.external": "Ctrl+X"})
-    ui.extension_shortcut_keys = frozenset({"ctrl-x"})
+    ui.autocomplete.replace_command_surface(
+        replace(ui.autocomplete.command_surface, shortcut_keys=frozenset({"ctrl-x"}))
+    )
     monkeypatch.setattr(ui.input_stream, "fileno", lambda: 0)
     ui._pending_initial_text = "seed"
 
